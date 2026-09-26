@@ -57,10 +57,6 @@ from .measurement_analysis import (
     smoothed_level_trace,
     trace_label,
 )
-from .measurement_instrument_onboarding import (
-    InstrumentStep,
-    evaluate_instrument_onboarding,
-)
 from .measurement_workflow import (
     AcquisitionCapture,
     AssignmentCorrection,
@@ -100,14 +96,7 @@ from .workflow_shell import WorkspaceFactory, WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 
 
-_CONTEXT_IDS = (
-    "import",
-    "assignment",
-    "campaign",
-    "quality",
-    "comparison",
-    "calibration",
-)
+_CONTEXT_IDS = ("import", "assignment", "campaign", "quality", "comparison")
 
 _CELL_STATUS_LABELS = {
     "not_started": "未着手",
@@ -459,7 +448,6 @@ class MeasurementPageWorkspace(QWidget):
         self._build_campaign_page()
         self._build_quality_page()
         self._build_comparison_page()
-        self._build_calibration_page()
         self.refresh()
 
     # ------------------------------------------------------------------
@@ -487,7 +475,6 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_campaign()
         self._refresh_quality()
         self._refresh_comparison_choices()
-        self._refresh_onboarding()
 
     def import_rew_text_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -3378,121 +3365,6 @@ class MeasurementPageWorkspace(QWidget):
             self._history_selection_changed
         )
 
-    # ------------------------------------------------------------------
-    # Calibration page — instrument onboarding (#1061)
-
-    def _build_calibration_page(self) -> None:
-        """UMIK-1 onboarding: calibration, orientation, SPL readiness, REW."""
-        self._onboarding_context_id: str | None = None
-        self._onboarding_steps: tuple[InstrumentStep, ...] = ()
-        page, _host, layout = _page(
-            "機器の準備（キャリブレーション）",
-            "計測機器の校正・向き・SPL準備とREWキャンペーン設定を順に確認します。"
-            "項目をダブルクリックすると対象のページに移動します。",
-        )
-
-        guide_card, guide = _card("UMIK-1 の計測準備", page)
-        guide_text = QLabel(
-            "・校正ファイル: 90deg基準（上向き・天井）は「_90deg」を含むファイル、"
-            "0deg基準（正面）は含まないファイルを記録\n"
-            "・向き: 90deg = マイクを天井へ向ける [0,0,1]（ホームシアター標準）/ "
-            "0deg = 正面へ向ける [0,-1,0]（単一スピーカー計測時）\n"
-            "・サンプルレート: 48 kHz\n"
-            "・絶対SPL: UMIK-1単体では相対レベルのみ — 音響校正器・REW SPLセッション・"
-            "基準メーター転送のいずれかのレベル校正記録が必要\n"
-            "・REW: 「REW -api」で起動し、入力デバイスはJavaでUMIK-1を選択、"
-            "校正ファイルを適用してからキャンペーンを計測",
-            guide_card,
-        )
-        guide_text.setWordWrap(True)
-        set_typography_role(guide_text, TypographyRole.SECONDARY)
-        guide.addWidget(guide_text)
-        layout.addWidget(guide_card)
-
-        check_card, check = _card("準備チェック", page)
-        self.onboarding_table = QTableWidget(0, 3, check_card)
-        self.onboarding_table.setHorizontalHeaderLabels(
-            ["ステップ", "状態", "確認内容"]
-        )
-        self.onboarding_table.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows
-        )
-        self.onboarding_table.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
-        )
-        self.onboarding_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers
-        )
-        self.onboarding_table.verticalHeader().setVisible(False)
-        self.onboarding_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.Stretch
-        )
-        self.onboarding_table.setMinimumHeight(200)
-        self.onboarding_table.itemActivated.connect(
-            self._onboarding_step_activated
-        )
-        check.addWidget(self.onboarding_table)
-
-        jump_row = QHBoxLayout()
-        open_assignment = QPushButton("割り当てを開く", check_card)
-        open_assignment.clicked.connect(
-            lambda: self.set_context("assignment")
-        )
-        jump_row.addWidget(open_assignment)
-        open_campaign = QPushButton("キャンペーンを開く", check_card)
-        open_campaign.clicked.connect(
-            lambda: self.set_context("campaign")
-        )
-        jump_row.addWidget(open_campaign)
-        jump_row.addStretch(1)
-        check.addLayout(jump_row)
-        layout.addWidget(check_card)
-
-        layout.addStretch(1)
-        self.pages.addWidget(page)
-
-    def _onboarding_step_activated(self, item: QTableWidgetItem) -> None:
-        if item is None:
-            return
-        link = item.data(_USER_ROLE)
-        if isinstance(link, str) and link in _CONTEXT_IDS:
-            self.set_context(link)
-
-    def _refresh_onboarding(self) -> None:
-        contexts = self.controller.quality_repository.list_acquisition_contexts()
-        context = next(
-            (entry for entry in contexts if entry.microphone is not None),
-            contexts[0] if contexts else None,
-        )
-        self._onboarding_context_id = (
-            context.acquisition_context_id if context is not None else None
-        )
-        steps = evaluate_instrument_onboarding(
-            context=context,
-            level_calibrations=(
-                self.controller.quality_repository.list_level_calibrations()
-            ),
-            plan_count=len(self.controller.runner_plans()),
-        )
-        self._onboarding_steps: tuple[InstrumentStep, ...] = steps
-        status_labels = {
-            "ready": "準備完了",
-            "action": "要対応",
-            "manual": "要確認",
-        }
-        self.onboarding_table.setRowCount(len(steps))
-        for row, step in enumerate(steps):
-            title_item = QTableWidgetItem(step.title)
-            title_item.setData(_USER_ROLE, step.link)
-            status_item = QTableWidgetItem(status_labels[step.status])
-            detail_item = QTableWidgetItem(step.detail)
-            detail_item.setToolTip(step.detail)
-            self.onboarding_table.setItem(row, 0, title_item)
-            self.onboarding_table.setItem(row, 1, status_item)
-            self.onboarding_table.setItem(row, 2, detail_item)
-        if self.current_context_id == "calibration":
-            self._update_context_label()
-
     def _exclusion_bands(self) -> tuple[tuple[float, float], ...]:
         bands: list[tuple[float, float]] = []
         for row in range(self.excluded_table.rowCount()):
@@ -3915,12 +3787,6 @@ class MeasurementPageWorkspace(QWidget):
 
     def _update_context_label(self) -> None:
         """Keep the persistent context header bound to the active selection."""
-        if self.current_context_id == "calibration":
-            context_id = self._onboarding_context_id
-            self.context_label.setText(
-                f"機器の準備 · 取得条件 {context_id}" if context_id else "機器の準備 · 取得条件なし"
-            )
-            return
         if self.current_context_id == "comparison":
             saved = self._last_comparison
             if saved is None:

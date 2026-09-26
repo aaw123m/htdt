@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -69,39 +68,23 @@ class OverviewWorkspace(QWidget):
         set_typography_role(self.summary, TypographyRole.BODY)
         layout.addWidget(self.summary)
 
-        # The lifecycle/readiness cards live inside a scroll area so the
-        # primary action stays reachable at constrained heights / high DPI
-        # (#1086): title, summary and the next-step button are pinned outside
-        # the scroll region instead of being pushed off-screen by tall cards.
-        self.cards_scroll = QScrollArea(self)
-        self.cards_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.cards_scroll.setWidgetResizable(True)
-        set_surface_role(self.cards_scroll, SurfaceRole.BASE)
-        cards_host = QWidget()
-        set_surface_role(cards_host, SurfaceRole.BASE)
-        cards_layout = QVBoxLayout(cards_host)
-        cards_layout.setContentsMargins(0, 0, 0, 0)
-        cards_layout.setSpacing(16)
-
-        self.variant_host = QWidget(cards_host)
+        self.variant_host = QWidget(self)
         self.variant_layout = QVBoxLayout(self.variant_host)
         self.variant_layout.setContentsMargins(0, 0, 0, 0)
         self.variant_layout.setSpacing(8)
-        cards_layout.addWidget(self.variant_host)
+        layout.addWidget(self.variant_host)
 
-        self.notice_host = QWidget(cards_host)
+        self.notice_host = QWidget(self)
         self.notice_layout = QVBoxLayout(self.notice_host)
         self.notice_layout.setContentsMargins(0, 0, 0, 0)
         self.notice_layout.setSpacing(8)
-        cards_layout.addWidget(self.notice_host)
-        cards_layout.addStretch(1)
-        self.cards_scroll.setWidget(cards_host)
-        layout.addWidget(self.cards_scroll, 1)
+        layout.addWidget(self.notice_host)
 
         self.next_button = QPushButton()
         set_primary_action(self.next_button)
         self.next_button.clicked.connect(self._run_next_action)
         layout.addWidget(self.next_button)
+        layout.addStretch(1)
 
         self._next_action: OverviewAction | None = None
         self.refresh()

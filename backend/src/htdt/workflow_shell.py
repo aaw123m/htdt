@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TypeAlias
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtGui import QCloseEvent, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
@@ -470,21 +469,8 @@ class TopContextBar(QFrame):
         self._context_layout = QHBoxLayout(self._context_container)
         self._context_layout.setContentsMargins(0, 0, 0, 0)
         self._context_layout.setSpacing(4)
-        # Keep the buttons at their natural width inside a horizontal scroll
-        # area (#1087): the container fills the bar when it fits and the
-        # overflow scrolls instead of compressing buttons into slivers.
-        self._context_scroll = QScrollArea(self)
-        self._context_scroll.setObjectName("workflowContextScroll")
-        self._context_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._context_scroll.setWidgetResizable(True)
-        self._context_scroll.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
-        self._context_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self._context_scroll.setWidget(self._context_container)
-        self._layout.addWidget(self._context_scroll, 1)
+        self._layout.addWidget(self._context_container)
+        self._layout.addStretch(1)
 
         self._project_label = QLabel()
         self._project_label.setObjectName("workflowProjectChip")
@@ -519,7 +505,6 @@ class TopContextBar(QFrame):
         )
         self._layout.setSpacing(4 if compact else 8)
         self._context_layout.setSpacing(2 if compact else 4)
-        self._update_context_min_width()
 
     def set_workspace(self, registration: WorkspaceRegistration, selected_context_id: str | None) -> None:
         self._title.setText(registration.label)
@@ -544,7 +529,6 @@ class TopContextBar(QFrame):
 
         if selected_context_id is not None and selected_context_id in self._context_buttons:
             self._context_buttons[selected_context_id].setChecked(True)
-        self._update_context_min_width()
 
     def set_active_context(self, context_id: str) -> None:
         button = self._context_buttons.get(context_id)
@@ -582,14 +566,6 @@ class TopContextBar(QFrame):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
-        self._context_container.setMinimumWidth(0)
-
-    def _update_context_min_width(self) -> None:
-        # minimumWidth pins the container at its natural width so the scroll
-        # area shows a horizontal scrollbar only when the buttons overflow.
-        self._context_container.setMinimumWidth(
-            self._context_layout.sizeHint().width()
-        )
 
 
 class WorkflowShellWindow(QMainWindow):

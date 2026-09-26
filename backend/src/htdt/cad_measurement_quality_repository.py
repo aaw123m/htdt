@@ -1926,29 +1926,6 @@ class CadMeasurementQualityRepository:
             )
         return calibration
 
-    def list_level_calibrations(
-        self,
-    ) -> tuple[CadAcousticLevelCalibration, ...]:
-        """Every persisted acoustic level calibration, newest first."""
-        check_native_schema_compatibility(self.path)
-        with closing(self._connect()) as connection, connection:
-            rows = connection.execute(
-                'SELECT calibration_sha256, payload_json '
-                'FROM cad_acoustic_level_calibrations '
-                'ORDER BY created_at_utc DESC, calibration_id'
-            ).fetchall()
-        calibrations: list[CadAcousticLevelCalibration] = []
-        for row in rows:
-            calibration = CadAcousticLevelCalibration.model_validate_json(
-                row['payload_json']
-            )
-            if row['calibration_sha256'] != calibration.calibration_sha256:
-                raise ValueError(
-                    'persisted level calibration row disagrees with its payload'
-                )
-            calibrations.append(calibration)
-        return tuple(calibrations)
-
     def save_dataset_level_reference(
         self, reference: CadDatasetLevelReference
     ) -> None:

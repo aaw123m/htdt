@@ -298,9 +298,6 @@ class OptimizationWorkflowWorkspace(QWidget):
         axis_model = self.search_axis_tree.model()
         axis_model.rowsInserted.connect(lambda *_args: preview.refresh())
         axis_model.rowsRemoved.connect(lambda *_args: preview.refresh())
-        # Presets update existing rows in place (#1090) — only itemChanged
-        # fires there, not rowsInserted/rowsRemoved.
-        axis_model.dataChanged.connect(lambda *_args: preview.refresh())
 
         for tree_name in (
             "search_candidate_tree",
@@ -519,23 +516,13 @@ class OptimizationWorkflowWorkspace(QWidget):
             "位置の探索範囲",
             "候補はhard constraintを満たす幾何配置です。ここでは順位や推薦を決めません。",
         )
-        # #1090: task-first authoring — presets + the visual preview are the
-        # primary surface; the low-level numeric axis form and the linked
-        # variable authoring stay collapsed behind 詳細 blocks.
         form = QFormLayout()
         form.addRow("名前", _required(self.search_name_field, "search_name_field"))
         form.addRow("可動物体", _required(self.search_entity_combo, "search_entity_combo"))
-        preset_row = QWidget()
-        preset_layout = QHBoxLayout(preset_row)
-        preset_layout.setContentsMargins(0, 0, 0, 0)
-        preset_layout.setSpacing(8)
-        preset_layout.addWidget(
-            _required(self.search_preset_combo, "search_preset_combo"), 1
-        )
-        preset_layout.addWidget(
-            _required(self.search_preset_apply_button, "search_preset_apply_button")
-        )
-        form.addRow("プリセット", preset_row)
+        form.addRow("軸", _required(self.search_axis_combo, "search_axis_combo"))
+        form.addRow("最小", _required(self.search_min_field, "search_min_field"))
+        form.addRow("最大", _required(self.search_max_field, "search_max_field"))
+        form.addRow("刻み", _required(self.search_step_field, "search_step_field"))
         form.addRow("候補上限", _required(self.search_limit_field, "search_limit_field"))
         search.addLayout(form)
 
@@ -547,31 +534,12 @@ class OptimizationWorkflowWorkspace(QWidget):
         search.addWidget(_required(self.search_axis_tree, "search_axis_tree"))
         search.addWidget(self.search_domain_preview)
 
-        axis_detail = QWidget()
-        axis_detail_form = QFormLayout(axis_detail)
-        axis_detail_form.setContentsMargins(0, 0, 0, 0)
-        axis_detail_form.addRow("軸", _required(self.search_axis_combo, "search_axis_combo"))
-        axis_detail_form.addRow("最小", _required(self.search_min_field, "search_min_field"))
-        axis_detail_form.addRow("最大", _required(self.search_max_field, "search_max_field"))
-        axis_detail_form.addRow("刻み", _required(self.search_step_field, "search_step_field"))
-        search.addWidget(
-            _advanced_block(
-                "詳細: 軸を数値で指定",
-                "プリセットや3Dプレビューのハンドル操作の結果を微調整します。",
-                axis_detail,
-            )
-        )
-
-        linked_content = QWidget()
-        linked_layout = QVBoxLayout(linked_content)
-        linked_layout.setContentsMargins(0, 0, 0, 0)
-        linked_layout.setSpacing(8)
         linked_note = QLabel(
             "連動探索変数は1つの可動軸から従属物体を派生します。"
             "mirror_x は部屋中心線を仮定せず鏡面xを必須指定します。"
         )
         linked_note.setWordWrap(True)
-        linked_layout.addWidget(linked_note)
+        search.addWidget(linked_note)
         linked_form = QFormLayout()
         linked_form.addRow(
             "マスター", _required(self.linked_master_combo, "linked_master_combo")
@@ -585,7 +553,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         linked_form.addRow(
             "鏡面 x", _required(self.linked_mirror_field, "linked_mirror_field")
         )
-        linked_layout.addLayout(linked_form)
+        search.addLayout(linked_form)
         linked_actions = QHBoxLayout()
         linked_actions.addWidget(
             _required(self.linked_add_button, "linked_add_button")
@@ -594,15 +562,8 @@ class OptimizationWorkflowWorkspace(QWidget):
             _required(self.linked_remove_button, "linked_remove_button")
         )
         linked_actions.addStretch(1)
-        linked_layout.addLayout(linked_actions)
-        linked_layout.addWidget(_required(self.search_linked_tree, "search_linked_tree"))
-        search.addWidget(
-            _advanced_block(
-                "詳細: 連動探索変数",
-                "従属物体を可動軸から派生する連動ルールを定義します。",
-                linked_content,
-            )
-        )
+        search.addLayout(linked_actions)
+        search.addWidget(_required(self.search_linked_tree, "search_linked_tree"))
 
         binding = _required(self.search_binding_label, "search_binding_label")
         binding.setWordWrap(True)
@@ -765,12 +726,6 @@ class OptimizationWorkflowWorkspace(QWidget):
         )
         reason.setWordWrap(True)
         base.addWidget(reason)
-        base.addWidget(
-            _required(
-                self.search_candidate_filter_field,
-                "search_candidate_filter_field",
-            )
-        )
         base.addWidget(_required(self.search_candidate_tree, "search_candidate_tree"), 1)
 
         paging = QHBoxLayout()
@@ -804,12 +759,6 @@ class OptimizationWorkflowWorkspace(QWidget):
         extended_summary = _required(self.extended_summary_label, "extended_summary_label")
         extended_summary.setWordWrap(True)
         extended.addWidget(extended_summary)
-        extended.addWidget(
-            _required(
-                self.extended_candidate_filter_field,
-                "extended_candidate_filter_field",
-            )
-        )
         extended.addWidget(
             _required(self.extended_candidate_tree, "extended_candidate_tree")
         )
