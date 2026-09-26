@@ -1133,6 +1133,11 @@ def test_wiring_check_routing_pass_with_binding(tmp_path):
     )
     quality_repository.save_wiring_check(check)
 
+    persisted = quality_repository.get_wiring_check(check.check_id)
+    assert persisted is not None
+    assert persisted.routing_profile_ref == check.routing_profile_ref
+    assert persisted == check
+
 
 def test_applicability_routing_requires_exact_profile_pin(tmp_path):
     """#848: bare routing_evidence='verified' never satisfies routing."""

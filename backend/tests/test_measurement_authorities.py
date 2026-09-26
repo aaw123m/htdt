@@ -971,6 +971,13 @@ def test_ir_machine_observation_pins_ir_asset(tmp_path):
     )
     quality_repository.save_observation(observation)
 
+    persisted = quality_repository.get_observation(observation.observation_id)
+    assert persisted is not None
+    assert persisted.source_asset_sha256 == sha256(raw).hexdigest()
+    assert persisted.source_kind == 'raw_asset'
+    # the pinned asset is the IR raw file, not the FR dataset
+    assert persisted.source_asset_sha256 != dataset.dataset_sha256
+
 
 def test_import_ir_workflow_binds_same_measurement(tmp_path):
     revision, measurement_repository, quality_repository = _repositories(tmp_path)

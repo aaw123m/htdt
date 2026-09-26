@@ -143,6 +143,11 @@ def test_shell_project_identity_visible(tmp_path) -> None:
     )
     shell = WorkflowShellWindow(registrations)
     shell.set_project_identity('theater-1')
+    label = shell.context_bar._project_label
+    assert 'theater-1' in label.text()
+    assert not label.isHidden()
+    shell.set_project_identity(None)
+    assert label.isHidden()
     shell.close()
 
 

@@ -2380,6 +2380,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'scene_document_heads',
     'scene_recovery_snapshots',
     'scene_revisions',
+    'scene_revision_labels',
     'seating_layout_specs',
     'cad_signal_paths',
     'cad_signal_path_selections',

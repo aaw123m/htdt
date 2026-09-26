@@ -190,7 +190,14 @@ def test_report_coverage_counts_by_mode(tmp_path: Path) -> None:
     }
     assert coverage['replay_canonical'] > 0
     labels = {label for label, _mode, _count in report.coverage}
-    assert 'non_authority:sqlite_sequence' not in labels or True  # may not exist
+    # sqlite_sequence may or may not exist depending on AUTOINCREMENT use;
+    # when present it must be registered as non_authority.
+    assert all(
+        mode == 'non_authority'
+        for label, mode, _count in report.coverage
+        if label == 'non_authority:sqlite_sequence'
+        or label.endswith(':sqlite_sequence')
+    )
     assert 'non_authority:scene_recovery_snapshots' in labels or any(
         label.startswith('non_authority:') for label in labels
     )

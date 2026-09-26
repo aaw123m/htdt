@@ -488,7 +488,7 @@ def test_repository_rejects_unknown_revision(tmp_path: Path):
         variant=None,
         request=_request(),
     )
-    assert evaluation.target.scene_revision_id != revision.revision_id or True
+    assert evaluation.target.scene_revision_id != revision.revision_id
     with pytest.raises(ValueError, match='SceneRevision does not exist'):
         repository.save_evaluation(evaluation)
 
