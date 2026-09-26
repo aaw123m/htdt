@@ -51,7 +51,7 @@ def _stub_gui(monkeypatch, *, workflow_cls=_FakeWindow, legacy_cls=_FakeWindow):
     monkeypatch.setattr(
         native_cad,
         'build_workflow_shell',
-        lambda repository, document_id, project_library=None: created.setdefault('workflow', workflow_cls(repository, document_id)),
+        lambda repository, document_id, project_library=None, **_kwargs: created.setdefault('workflow', workflow_cls(repository, document_id)),
     )
     monkeypatch.setattr(
         native_cad,
