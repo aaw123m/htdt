@@ -133,8 +133,9 @@ def mesh_import_axis_matrix(
         return None  # up and forward must be orthogonal
 
     # Source basis (columns of the source→HTDT mapping, in source coords):
-    # right = up × forward for a right-handed source; flipped for left.
-    right = _cross(up, forward)
+    # right = forward × up for a right-handed source (matching HTDT's own
+    # right-handed X×Y=Z convention); flipped for a left-handed source.
+    right = _cross(forward, up)
     if handedness == 'left':
         right = (-right[0], -right[1], -right[2])
 

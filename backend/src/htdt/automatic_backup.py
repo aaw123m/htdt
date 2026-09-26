@@ -185,7 +185,8 @@ def managed_data_fingerprint(data_dir: Path) -> str:
     # 24-27 of the database header) bumps on every commit even when size
     # and mtime happen to stay identical.
     try:
-        header = database.open('rb').read(28)
+        with database.open('rb') as stream:
+            header = stream.read(28)
         counter = int.from_bytes(header[24:28], 'big')
         parts.append(f'counter:{counter}')
     except (OSError, IndexError):

@@ -337,30 +337,44 @@ class EntitySetEditCommand:
     replaced_after: tuple[SceneEntity, ...]
     added: tuple[SceneEntity, ...]
     presentation: CommandPresentation | None = None
+    # Parallel to ``removed``: each entity's index in the document before the
+    # edit, so revert restores the exact entity order (entity order is part of
+    # the content hash, like DeleteEntitiesCommand).
+    removed_indices: tuple[int, ...] | None = None
 
     @property
     def is_noop(self) -> bool:
         return not self.removed and not self.added and self.replaced_before == self.replaced_after
 
-    def _apply_set(
-        self,
-        document: SceneDocument,
-        removals: tuple[SceneEntity, ...],
-        replacements: tuple[SceneEntity, ...],
-        additions: tuple[SceneEntity, ...],
-    ) -> SceneDocument:
-        updated = _remove_entities(document, frozenset(entity.entity_id for entity in removals))
-        if replacements:
-            updated = _replace_entities(updated, replacements)
-        if additions:
-            updated = _append_entities(updated, additions)
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        updated = _remove_entities(document, frozenset(entity.entity_id for entity in self.removed))
+        if self.replaced_after:
+            updated = _replace_entities(updated, self.replaced_after)
+        if self.added:
+            updated = _append_entities(updated, self.added)
         return updated
 
-    def apply(self, document: SceneDocument) -> SceneDocument:
-        return self._apply_set(document, self.removed, self.replaced_after, self.added)
-
     def revert(self, document: SceneDocument) -> SceneDocument:
-        return self._apply_set(document, self.added, self.replaced_before, self.removed)
+        updated = _remove_entities(document, frozenset(entity.entity_id for entity in self.added))
+        if self.replaced_before:
+            updated = _replace_entities(updated, self.replaced_before)
+        if not self.removed:
+            return updated
+        if (
+            self.removed_indices is None
+            or len(self.removed_indices) != len(self.removed)
+            or any(index < 0 for index in self.removed_indices)
+        ):
+            raise EditStateError('entity set edit does not record removal positions')
+        entities = list(updated.entities)
+        inserted: set[str] = set()
+        pairs = sorted(zip(self.removed_indices, self.removed), key=lambda pair: pair[0])
+        for index, entity in pairs:
+            if entity.entity_id in inserted:
+                continue
+            inserted.add(entity.entity_id)
+            entities.insert(min(index, len(entities)), entity)
+        return updated.model_copy(update={'entities': tuple(entities)})
 
 
 @dataclass(frozen=True)
@@ -1034,12 +1048,16 @@ class WorkingDocument:
 
         if self.has_preview:
             raise EditStateError('cannot apply a batched edit while a preview is active')
+        index_of = {
+            entity.entity_id: index for index, entity in enumerate(self._document.entities)
+        }
         inner = EntitySetEditCommand(
             removed=removed,
             replaced_before=replaced_before,
             replaced_after=replaced_after,
             added=added,
             presentation=presentation,
+            removed_indices=tuple(index_of.get(entity.entity_id, -1) for entity in removed),
         )
         command: EditCommand = inner
         if apply_side is not None or revert_side is not None:
