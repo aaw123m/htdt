@@ -41,11 +41,16 @@ from .cad_input import (
 )
 from .cad_view_state import StandardView
 from .capture_inbox import CaptureInboxRepository
+from .commissioning_plan import CommissioningPlanRepository
 from .cad_display_labels import (
     revision_display_label,
     variant_display_label,
 )
+from .cad_assumption_decision_repository import CadAssumptionDecisionRepository
+from .cad_design_decision_repository import CadDesignDecisionRepository
 from .cad_equipment_binding_repository import CadEquipmentBindingRepository
+from .cad_installation_context_repository import CadInstallationContextRepository
+from .cad_system_health_repository import CadSystemHealthRepository
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
@@ -1194,6 +1199,16 @@ class WorkflowApplicationComposition:
             impact_source=self.repository,
             variant_source=variant_service,
             equipment_source=equipment_bindings,
+            # Tier-C secondary domain authorities (#887).
+            assumption_decision_source=CadAssumptionDecisionRepository(
+                self.repository
+            ),
+            design_decision_source=CadDesignDecisionRepository(self.repository),
+            installation_source=CadInstallationContextRepository(
+                self.repository, variant_service.equipment_repository
+            ),
+            commissioning_source=CommissioningPlanRepository(self.data_dir),
+            health_source=CadSystemHealthRepository(self.repository),
         )
 
     def _navigate_target(self, target: WorkspaceDeepLink) -> bool:

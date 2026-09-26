@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal, Protocol
 
 from .cad_dependency_impact import WatchedArtifact, build_dependency_impact_report
@@ -139,6 +140,23 @@ _VARIANT_STAGE_LABELS: dict[str, str] = {
 
 
 @dataclass(frozen=True, slots=True)
+class OverviewSecondaryDomain:
+    """IA v2 project-secondary domain status (#887).
+
+    One card per non-primary domain authority (decisions, installation,
+    commissioning, operating health). Overview renders them under a
+    dedicated secondary section so the four primary workspaces stay
+    compact (#649 tier C) while the domains stay discoverable.
+    """
+
+    domain_id: str
+    title: str
+    state_label: str
+    detail: str
+    action: OverviewAction | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class OverviewActivityItem:
     """One row of the Overview 'Recent activity' strip (#615)."""
 
@@ -160,6 +178,7 @@ class OverviewReadinessViewModel:
     optimization_ready: bool
     variant_states: tuple[OverviewVariantState, ...] = ()
     recent_activity: tuple[OverviewActivityItem, ...] = ()
+    secondary_domains: tuple[OverviewSecondaryDomain, ...] = ()
 
 
 class SceneReadSource(Protocol):
@@ -234,6 +253,30 @@ class EquipmentBindingReadSource(Protocol):
     """Latest equipment/source binding for a scene entity (#443)."""
 
     def get_binding_for_entity(self, document_id: str, entity_id: str): ...
+
+
+class DecisionListReadSource(Protocol):
+    """Recorded design/assumption decisions for a document (#887)."""
+
+    def list_decisions(self, document_id: str): ...
+
+
+class InstallationContextReadSource(Protocol):
+    """Persisted installation context for one scene entity (#887)."""
+
+    def get_context_for_entity(self, document_id: str, entity_id: str): ...
+
+
+class CommissioningPlanReadSource(Protocol):
+    """Resumable first-run commissioning plan for a document (#887)."""
+
+    def get(self, document_id: str): ...
+
+
+class HealthRunReadSource(Protocol):
+    """Operating-health check runs for a document (#887)."""
+
+    def list_document_runs(self, document_id: str): ...
 
 
 ROOM_GEOMETRY = OverviewNavigationTarget(WorkspaceId.ROOM, 'geometry')
@@ -342,6 +385,11 @@ class OverviewReadinessService:
         impact_source: SceneRevisionReadSource | None = None,
         variant_source: VariantLifecycleReadSource | None = None,
         equipment_source: EquipmentBindingReadSource | None = None,
+        assumption_decision_source: DecisionListReadSource | None = None,
+        design_decision_source: DecisionListReadSource | None = None,
+        installation_source: InstallationContextReadSource | None = None,
+        commissioning_source: CommissioningPlanReadSource | None = None,
+        health_source: HealthRunReadSource | None = None,
     ) -> None:
         self._scene_source = scene_source
         self._measurement_source = measurement_source
@@ -353,6 +401,11 @@ class OverviewReadinessService:
         self._impact_source = impact_source
         self._variant_source = variant_source
         self._equipment_source = equipment_source
+        self._assumption_decision_source = assumption_decision_source
+        self._design_decision_source = design_decision_source
+        self._installation_source = installation_source
+        self._commissioning_source = commissioning_source
+        self._health_source = health_source
 
     def read(
         self,
@@ -375,6 +428,7 @@ class OverviewReadinessService:
                 warnings=(),
                 next_action=action,
                 optimization_ready=False,
+                secondary_domains=self._secondary_domains(document_id, None),
             )
 
         blockers: list[OverviewNotice] = []
@@ -657,6 +711,7 @@ class OverviewReadinessService:
             optimization_ready=optimization_ready,
             variant_states=variant_states,
             recent_activity=self._recent_activity(document_id),
+            secondary_domains=self._secondary_domains(document_id, document),
         )
 
     def _recent_activity(self, document_id: str) -> tuple[OverviewActivityItem, ...]:
@@ -671,6 +726,185 @@ class OverviewReadinessService:
                 deep_link=event.deep_link,
             )
             for event in self._activity_source.recent(document_id, limit=8)
+        )
+
+    _COMMISSIONING_STAGE_LABELS: dict[str, str] = {
+        'intent': '意図確認',
+        'room': '部屋',
+        'system': 'システム',
+        'measurement': '測定',
+        'readiness': '準備確認',
+    }
+
+    def _secondary_domains(
+        self,
+        document_id: str,
+        document: Any | None,
+    ) -> tuple[OverviewSecondaryDomain, ...]:
+        """Tier-C secondary domain status cards (#887).
+
+        Decisions, installation, commissioning and operating health are
+        aggregated from their own authorities and rendered under one
+        secondary section — never promoted to primary workspaces.
+        """
+        domains: list[OverviewSecondaryDomain] = []
+        for domain in (
+            self._decisions_domain(document_id),
+            self._installation_domain(document_id, document),
+            self._commissioning_domain(document_id),
+            self._health_domain(document_id),
+        ):
+            if domain is not None:
+                domains.append(domain)
+        return tuple(domains)
+
+    def _decisions_domain(self, document_id: str) -> OverviewSecondaryDomain | None:
+        if (
+            self._assumption_decision_source is None
+            and self._design_decision_source is None
+        ):
+            return None
+        assumptions = (
+            self._assumption_decision_source.list_decisions(document_id)
+            if self._assumption_decision_source is not None
+            else ()
+        )
+        designs = (
+            self._design_decision_source.list_decisions(document_id)
+            if self._design_decision_source is not None
+            else ()
+        )
+        now = datetime.now(timezone.utc)
+        expired = sum(
+            1
+            for decision in assumptions
+            if getattr(decision, 'expires_at_utc', None) is not None
+            and datetime.fromisoformat(decision.expires_at_utc) < now
+        )
+        unapplied = sum(
+            1
+            for decision in designs
+            if getattr(decision, 'applied_action_ref', None) is None
+        )
+        total = len(assumptions) + len(designs)
+        detail = f'前提 {len(assumptions)}件 · 設計 {len(designs)}件'
+        flags: list[str] = []
+        if unapplied:
+            flags.append(f'未適用 {unapplied}件')
+        if expired:
+            flags.append(f'期限切れ前提 {expired}件')
+        if flags:
+            detail += ' · ' + ' · '.join(flags)
+        return OverviewSecondaryDomain(
+            domain_id='decisions',
+            title='決定',
+            state_label='記録なし' if total == 0 else f'{total}件の決定',
+            detail=detail,
+        )
+
+    def _installation_domain(
+        self,
+        document_id: str,
+        document: Any | None,
+    ) -> OverviewSecondaryDomain | None:
+        if self._installation_source is None:
+            return None
+        speakers = tuple(
+            entity
+            for entity in getattr(document, 'entities', ()) or ()
+            if getattr(entity, 'kind', None) == 'speaker'
+        )
+        installed = sum(
+            1
+            for entity in speakers
+            if self._installation_source.get_context_for_entity(
+                document_id, entity.entity_id
+            )
+            is not None
+        )
+        if not speakers:
+            state_label = 'スピーカーなし'
+            detail = '設置コンテキストはまだありません。'
+        else:
+            state_label = f'{installed}/{len(speakers)} スピーカー'
+            detail = (
+                'すべてのスピーカーに設置コンテキストがあります。'
+                if installed == len(speakers)
+                else '設置コンテキストが未記録のスピーカーがあります。'
+            )
+        return OverviewSecondaryDomain(
+            domain_id='installation',
+            title='設置',
+            state_label=state_label,
+            detail=detail,
+            action=_action(
+                'domain.open_installation',
+                '設置を確認',
+                OverviewNavigationTarget(WorkspaceId.OPTIMIZATION, 'interventions'),
+            ),
+        )
+
+    def _commissioning_domain(
+        self,
+        document_id: str,
+    ) -> OverviewSecondaryDomain | None:
+        if self._commissioning_source is None:
+            return None
+        plan = self._commissioning_source.get(document_id)
+        if plan is None:
+            return OverviewSecondaryDomain(
+                domain_id='commissioning',
+                title='導入調整',
+                state_label='未開始',
+                detail='導入調整プランはまだありません。',
+            )
+        stage = getattr(plan, 'stage', '')
+        stage_label = self._COMMISSIONING_STAGE_LABELS.get(str(stage), str(stage))
+        skipped = len(getattr(plan, 'skipped_requirements', ()))
+        if getattr(plan, 'finished', False):
+            state_label = '完了'
+            detail = '導入調整プランが完了しています。'
+        else:
+            state_label = f'進行中 · {stage_label}'
+            detail = (
+                f'現在のステージは{stage_label}です。'
+                + (f'スキップ {skipped}件。' if skipped else '')
+            )
+        return OverviewSecondaryDomain(
+            domain_id='commissioning',
+            title='導入調整',
+            state_label=state_label,
+            detail=detail,
+        )
+
+    def _health_domain(self, document_id: str) -> OverviewSecondaryDomain | None:
+        if self._health_source is None:
+            return None
+        runs = tuple(self._health_source.list_document_runs(document_id))
+        if not runs:
+            return OverviewSecondaryDomain(
+                domain_id='health',
+                title='稼働状況',
+                state_label='未チェック',
+                detail='稼働状況チェックはまだ実行されていません。',
+            )
+        latest = runs[-1]
+        assessments = tuple(getattr(latest, 'assessments', ()))
+        changed = sum(1 for item in assessments if item.state == 'changed')
+        uncertain = sum(
+            1
+            for item in assessments
+            if item.state in ('indeterminate', 'not_comparable', 'not_run')
+        )
+        state_label = '変化あり' if changed else 'ベースライン内'
+        return OverviewSecondaryDomain(
+            domain_id='health',
+            title='稼働状況',
+            state_label=state_label,
+            detail=(
+                f'最新チェック {len(assessments)}項目: 変化 {changed}件 · '
+                f'判定不能 {uncertain}件'
+            ),
         )
 
     def _equipment_notices(
