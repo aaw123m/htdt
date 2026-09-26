@@ -3,7 +3,7 @@
   "plan_id": "r100b-mfem-rigid-rectangular-h-refinement-current-authority-2026-09-21",
   "authority": {
     "r100a_manifest_id": "htdt-issue-101-r100a-benchmark-authority",
-    "r100a_semantic_hash": "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7",
+    "r100a_semantic_hash": "fc29904f8990e8d242eb914d3561a5457c7ad20234bafacdb2dd1b86fef89848",
     "fixture_id": "wave-rectangular-convergence-v1",
     "candidate_manifest_hash": "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707",
     "candidate_id": "mfem-v4.10-d964264",

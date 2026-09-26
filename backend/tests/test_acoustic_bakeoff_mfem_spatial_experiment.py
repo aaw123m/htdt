@@ -79,7 +79,7 @@ def platform():
 def test_frozen_plan_identity_and_current_authority_binding():
     plan, benchmark, candidates = authorities()
     assert plan.plan_id == "r100b-mfem-rigid-rectangular-h-refinement-current-authority-2026-09-21"
-    assert plan.authority["r100a_semantic_hash"] == "a9d45a3d650f20747368dd5610a6a91f93cdad881dcb10fcac88cd9d17e211e7"
+    assert plan.authority["r100a_semantic_hash"] == "fc29904f8990e8d242eb914d3561a5457c7ad20234bafacdb2dd1b86fef89848"
     assert plan.authority["candidate_manifest_hash"] == "8fda56df1087fd64f55cfd17e241e46d236b60e242d86c546650d8f9d4194707"
     validate_exact_authority_binding(plan, benchmark, candidates)
     validate_current_fixture_contract(plan, target_fixture(benchmark))
