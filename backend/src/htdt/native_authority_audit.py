@@ -353,6 +353,12 @@ class _RepositoryChain:
                 measurement_repository=self.repo('measurement'),
                 quality_repository=self.repo('quality'),
             )
+        if name == 'model_calibration':
+            from .cad_model_calibration_repository import (
+                CadModelCalibrationRepository,
+            )
+
+            return CadModelCalibrationRepository(scene)
         if name == 'joint':
             from .cad_joint_optimization_repository import (
                 CadJointOptimizationRepository,
@@ -1130,6 +1136,134 @@ def _verify_runner_event(
             f'runner event {event_id} no longer resolves for run {run_id}'
         )
     return events
+
+
+def _verify_calibration_result(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    result_id, spec_id = key
+    repository = chain.repo('model_calibration')
+    result = _require(
+        repository.get_result(result_id),
+        f'model calibration result {result_id}',
+    )
+    if result.spec_id != spec_id:
+        raise ValueError(
+            f'model calibration result {result_id} binds spec '
+            f'{result.spec_id}, not recorded {spec_id}'
+        )
+    _require(
+        repository.get_spec(spec_id),
+        f'model calibration spec {spec_id}',
+    )
+    return result
+
+
+def _verify_calibration_model(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    materialized_model_id, calibration_result_id = key
+    repository = chain.repo('model_calibration')
+    model = _require(
+        repository.get_model(materialized_model_id),
+        f'calibrated model {materialized_model_id}',
+    )
+    if model.calibration_result_id != calibration_result_id:
+        raise ValueError(
+            f'calibrated model {materialized_model_id} binds result '
+            f'{model.calibration_result_id}, not recorded '
+            f'{calibration_result_id}'
+        )
+    _require(
+        repository.get_result(calibration_result_id),
+        f'model calibration result {calibration_result_id}',
+    )
+    return model
+
+
+def _verify_calibration_freeze(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    freeze_id, calibration_result_id = key
+    repository = chain.repo('model_calibration')
+    freeze = _require(
+        repository.get_freeze(freeze_id),
+        f'calibration freeze {freeze_id}',
+    )
+    if freeze.calibration_result_id != calibration_result_id:
+        raise ValueError(
+            f'calibration freeze {freeze_id} binds result '
+            f'{freeze.calibration_result_id}, not recorded '
+            f'{calibration_result_id}'
+        )
+    _require(
+        repository.get_result(calibration_result_id),
+        f'model calibration result {calibration_result_id}',
+    )
+    return freeze
+
+
+def _verify_calibration_holdout(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    record_id, freeze_id = key
+    repository = chain.repo('model_calibration')
+    record = _require(
+        repository.get_holdout_record(record_id),
+        f'holdout discipline record {record_id}',
+    )
+    if record.freeze_id != freeze_id:
+        raise ValueError(
+            f'holdout discipline record {record_id} binds freeze '
+            f'{record.freeze_id}, not recorded {freeze_id}'
+        )
+    _require(
+        repository.get_freeze(freeze_id),
+        f'calibration freeze {freeze_id}',
+    )
+    return record
+
+
+def _verify_calibration_evidence_event(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    (
+        seq,
+        campaign_id,
+        campaign_sha256,
+        consumption_kind,
+        freeze_id,
+        record_id,
+    ) = key
+    repository = chain.repo('model_calibration')
+    if not campaign_id or not isinstance(campaign_sha256, str) or not all(
+        c in '0123456789abcdef' for c in campaign_sha256
+    ) or len(campaign_sha256) != 64:
+        raise ValueError(
+            f'calibration evidence event {seq} carries a malformed '
+            'campaign authority ref'
+        )
+    if not consumption_kind:
+        raise ValueError(
+            f'calibration evidence event {seq} lacks a consumption kind'
+        )
+    if freeze_id is not None:
+        _require(
+            repository.get_freeze(freeze_id),
+            f'calibration freeze {freeze_id} claimed by evidence event {seq}',
+        )
+    if record_id is not None:
+        record = _require(
+            repository.get_holdout_record(record_id),
+            f'holdout discipline record {record_id} claimed by evidence '
+            f'event {seq}',
+        )
+        if freeze_id is not None and record.freeze_id != freeze_id:
+            raise ValueError(
+                f'calibration evidence event {seq} binds freeze {freeze_id} '
+                f'but holdout record {record_id} binds {record.freeze_id}'
+            )
+    return key
 
 
 def _verify_project_tombstone(
@@ -1912,6 +2046,49 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_field_explorer_sessions',
         ('session_id',),
         _get('field_explorer', 'get'),
+    ),
+    _ReplayProbe(
+        'model_calibration_spec',
+        'cad_calibration_specs',
+        ('spec_id',),
+        _get('model_calibration', 'get_spec'),
+    ),
+    _ReplayProbe(
+        'model_calibration_result',
+        'cad_calibration_results',
+        ('result_id', 'spec_id'),
+        _verify_calibration_result,
+    ),
+    _ReplayProbe(
+        'model_calibration_model',
+        'cad_calibration_models',
+        ('materialized_model_id', 'calibration_result_id'),
+        _verify_calibration_model,
+    ),
+    _ReplayProbe(
+        'model_calibration_freeze',
+        'cad_calibration_freezes',
+        ('freeze_id', 'calibration_result_id'),
+        _verify_calibration_freeze,
+    ),
+    _ReplayProbe(
+        'model_calibration_holdout_record',
+        'cad_calibration_holdout_records',
+        ('record_id', 'freeze_id'),
+        _verify_calibration_holdout,
+    ),
+    _ReplayProbe(
+        'model_calibration_evidence_event',
+        'cad_calibration_evidence_events',
+        (
+            'seq',
+            'campaign_id',
+            'campaign_sha256',
+            'consumption_kind',
+            'freeze_id',
+            'record_id',
+        ),
+        _verify_calibration_evidence_event,
     ),
 )
 

@@ -3,9 +3,11 @@ resolution, materialized calibrated model, repository-derived holdout."""
 
 from __future__ import annotations
 
+from contextlib import closing
 from hashlib import sha256
 import json
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -427,3 +429,124 @@ def test_repository_lifecycle_and_holdout_history(tmp_path: Path) -> None:
             spec,
             consumed_campaign_ref=holdout_ref,
         )
+
+
+def _persisted_chain(
+    repository: CadModelCalibrationRepository, revision
+):
+    snapshot = _snapshot(revision)
+    spec = _spec(snapshot)
+    repository.save_spec(spec)
+
+    from htdt.cad_model_calibration import run_model_calibration
+
+    class _Evaluator:
+        def evaluate(self, parameter_values):
+            return (abs(parameter_values['alpha'] - 0.4),)
+
+    result = run_model_calibration(spec, _Evaluator())
+    repository.save_result(result)
+    model = materialize_calibrated_model(spec, result, snapshot)
+    repository.save_model(model)
+    freeze = freeze_calibrated_model(
+        result,
+        spec,
+        normalization_policy_sha256=_hash('norm'),
+        materialized_model=model,
+    )
+    repository.save_freeze(freeze)
+    return spec, result, model, freeze
+
+
+def test_persisted_rows_fail_closed_on_column_tamper(tmp_path: Path) -> None:
+    scene_repo, revision = _revision(tmp_path)
+    repository = CadModelCalibrationRepository(scene_repo)
+    spec, result, model, freeze = _persisted_chain(repository, revision)
+
+    # Identity columns are part of the authority seal: a self-consistent
+    # payload still fails closed when its row disagrees.
+    for table, column, original, key, read in (
+        (
+            'cad_calibration_specs',
+            'solver_id',
+            spec.solver_id,
+            spec.spec_id,
+            repository.get_spec,
+        ),
+        (
+            'cad_calibration_results',
+            'spec_id',
+            result.spec_id,
+            result.result_id,
+            repository.get_result,
+        ),
+        (
+            'cad_calibration_models',
+            'calibration_result_id',
+            model.calibration_result_id,
+            model.materialized_model_id,
+            repository.get_model,
+        ),
+        (
+            'cad_calibration_freezes',
+            'calibration_result_id',
+            freeze.calibration_result_id,
+            freeze.freeze_id,
+            repository.get_freeze,
+        ),
+    ):
+        with closing(sqlite3.connect(scene_repo.path)) as connection:
+            connection.execute(f"UPDATE {table} SET {column}='forged'")
+            connection.commit()
+        try:
+            with pytest.raises(
+                ValueError, match='disagrees with its payload'
+            ):
+                read(key)
+        finally:
+            with closing(sqlite3.connect(scene_repo.path)) as connection:
+                connection.execute(
+                    f'UPDATE {table} SET {column}=?', (original,)
+                )
+                connection.commit()
+
+
+def test_holdout_record_read_and_audit_replay(tmp_path: Path) -> None:
+    scene_repo, revision = _revision(tmp_path)
+    repository = CadModelCalibrationRepository(scene_repo)
+    spec, _result, _model, freeze = _persisted_chain(repository, revision)
+
+    record = repository.evaluate_persisted_holdout(
+        freeze,
+        spec,
+        consumed_campaign_ref=spec.holdout_campaign_ref,
+    )
+    assert repository.get_holdout_record(record.record_id) == record
+
+    from htdt.native_authority_audit import audit_native_authority_graph
+
+    report = audit_native_authority_graph(scene_repo.path)
+    assert report.diagnostics == ()
+    coverage = {(name, mode) for name, mode, _count in report.coverage}
+    for authority in (
+        'model_calibration_spec',
+        'model_calibration_result',
+        'model_calibration_model',
+        'model_calibration_freeze',
+        'model_calibration_holdout_record',
+        'model_calibration_evidence_event',
+    ):
+        assert (authority, 'replay_canonical') in coverage
+
+    # A forged freeze reference inside the evidence log fails the audit.
+    with closing(sqlite3.connect(scene_repo.path)) as connection, connection:
+        connection.execute(
+            'UPDATE cad_calibration_evidence_events SET freeze_id=? '
+            'WHERE record_id=?',
+            ('freeze:forged', record.record_id),
+        )
+    tampered = audit_native_authority_graph(scene_repo.path)
+    assert any(
+        diagnostic.authority == 'model_calibration_evidence_event'
+        for diagnostic in tampered.diagnostics
+    )
