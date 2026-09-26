@@ -63,6 +63,7 @@ from .cad_equipment import (
     MountingMetadata,
     PortMetadata,
     ClearanceMetadata,
+    RadialDomain,
     SensitivityReference,
     SplCapability,
 )
@@ -293,6 +294,9 @@ class EquipmentDirectivitySubject(BaseModel):
         pattern=r'^[0-9a-f]{64}$',
     )
     valid_domain: DirectivityDomain | None = None
+    # #964: declared radial/far-field validity domain of the directivity
+    # evidence (optional; absent on pre-existing capabilities).
+    radial_domain: RadialDomain | None = None
     coherent_phase: bool = False
     phase_reference: str | None = Field(default=None, min_length=1)
     analytic_model: str | None = Field(default=None, min_length=1)
