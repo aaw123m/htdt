@@ -10,6 +10,11 @@ from typing import Annotated, Any, Literal, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .limits import (
+    MAX_CAPTURE_INGEST_FACE_COUNT,
+    MAX_CAPTURE_INGEST_VERTEX_COUNT,
+)
+
 
 RAW_MESH_IMPORTER_ID = 'htdt.raw_visual_mesh'
 RAW_MESH_IMPORTER_VERSION = '1'
@@ -28,6 +33,14 @@ AcousticVolumeReadiness = Literal[
 
 class RawMeshImportError(ValueError):
     pass
+
+
+# Parsed-output ceilings: parsers run on bytes from user-selected files, so
+# the vertex/triangle lists they materialize must stay finite even when the
+# input is hostile. The capture-ingestion ceilings are reused as the shared
+# generous bound rather than inventing a second quota.
+MAX_RAW_MESH_VERTICES = MAX_CAPTURE_INGEST_VERTEX_COUNT
+MAX_RAW_MESH_TRIANGLES = MAX_CAPTURE_INGEST_FACE_COUNT
 
 
 def _canonical_json(payload: object) -> str:
@@ -330,6 +343,14 @@ def import_raw_visual_mesh(
         )
     else:  # pragma: no cover - Literal plus validation keeps this defensive
         raise RawMeshImportError(f'unsupported raw mesh format: {asset_format}')
+    if len(vertices) > MAX_RAW_MESH_VERTICES:
+        raise RawMeshImportError(
+            f'{asset_format} produces more than {MAX_RAW_MESH_VERTICES} vertices'
+        )
+    if len(triangles) > MAX_RAW_MESH_TRIANGLES:
+        raise RawMeshImportError(
+            f'{asset_format} produces more than {MAX_RAW_MESH_TRIANGLES} triangles'
+        )
     asset_hash = sha256(asset).hexdigest()
     importer_version: Literal['1', '2'] = (
         '2' if asset_format == 'htdt_meshbin_v1' else RAW_MESH_IMPORTER_VERSION
@@ -868,49 +889,60 @@ def _parse_glb(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]
 
     nodes = document.get('nodes', [])
     scenes = document.get('scenes', [])
-    if scenes:
-        scene_index = int(document.get('scene', 0))
-        if scene_index < 0 or scene_index >= len(scenes):
-            raise RawMeshImportError('GLB default scene index is out of range')
-        root_nodes = scenes[scene_index].get('nodes', [])
-        for root_index in root_nodes:
-            _append_glb_node(
-                document,
-                binary,
-                int(root_index),
-                _identity4(),
-                vertices,
-                triangles,
-                ancestry=(),
-            )
-    elif nodes:
-        referenced = {
-            int(child)
-            for node in nodes
-            for child in node.get('children', [])
-        }
-        roots = [index for index in range(len(nodes)) if index not in referenced]
-        for root_index in roots:
-            _append_glb_node(
-                document,
-                binary,
-                root_index,
-                _identity4(),
-                vertices,
-                triangles,
-                ancestry=(),
-            )
-    else:
-        for mesh_index in range(len(meshes)):
-            _append_glb_mesh(
-                document,
-                binary,
-                mesh_index,
-                _identity4(),
-                vertices,
-                triangles,
-                source_prefix=f'glb-mesh:{mesh_index}',
-            )
+    # Cycle detection is path-local (``ancestry``), so a node shared across
+    # parents is legitimately re-expanded per placement — but a hostile DAG
+    # shaped graph would then expand exponentially. Bound total node
+    # expansions so the amplification stays finite while ordinary
+    # instancing still works.
+    expansions_left = [max(1024, 8 * len(nodes))]
+    try:
+        if scenes:
+            scene_index = int(document.get('scene', 0))
+            if scene_index < 0 or scene_index >= len(scenes):
+                raise RawMeshImportError('GLB default scene index is out of range')
+            root_nodes = scenes[scene_index].get('nodes', [])
+            for root_index in root_nodes:
+                _append_glb_node(
+                    document,
+                    binary,
+                    int(root_index),
+                    _identity4(),
+                    vertices,
+                    triangles,
+                    ancestry=(),
+                    expansions_left=expansions_left,
+                )
+        elif nodes:
+            referenced = {
+                int(child)
+                for node in nodes
+                for child in node.get('children', [])
+            }
+            roots = [index for index in range(len(nodes)) if index not in referenced]
+            for root_index in roots:
+                _append_glb_node(
+                    document,
+                    binary,
+                    root_index,
+                    _identity4(),
+                    vertices,
+                    triangles,
+                    ancestry=(),
+                    expansions_left=expansions_left,
+                )
+        else:
+            for mesh_index in range(len(meshes)):
+                _append_glb_mesh(
+                    document,
+                    binary,
+                    mesh_index,
+                    _identity4(),
+                    vertices,
+                    triangles,
+                    source_prefix=f'glb-mesh:{mesh_index}',
+                )
+    except RecursionError as exc:
+        raise RawMeshImportError('GLB node graph is too deep') from exc
     if not vertices or not triangles:
         raise RawMeshImportError('GLB active scene contains no triangle geometry')
     return vertices, triangles
@@ -925,7 +957,13 @@ def _append_glb_node(
     triangles: list[RawMeshTriangle],
     *,
     ancestry: tuple[int, ...],
+    expansions_left: list[int],
 ) -> None:
+    expansions_left[0] -= 1
+    if expansions_left[0] < 0:
+        raise RawMeshImportError(
+            'GLB node graph expands beyond the instancing bound'
+        )
     nodes = document.get('nodes', [])
     if node_index < 0 or node_index >= len(nodes):
         raise RawMeshImportError('GLB node index is out of range')
@@ -956,6 +994,7 @@ def _append_glb_node(
             vertices,
             triangles,
             ancestry=next_ancestry,
+            expansions_left=expansions_left,
         )
 
 
@@ -988,6 +1027,10 @@ def _append_glb_mesh(
         for position in positions:
             x, y, z = _transform_point(transform, position)
             vertices.append(RawMeshVertex(x=x, y=y, z=z))
+        if len(vertices) > MAX_RAW_MESH_VERTICES:
+            raise RawMeshImportError(
+                'GLB scene expands beyond the vertex bound'
+            )
         if 'indices' in primitive:
             indices = _read_glb_indices(document, binary, int(primitive['indices']))
         else:
@@ -1011,6 +1054,10 @@ def _append_glb_mesh(
                 )
             except ValueError as exc:
                 raise RawMeshImportError('GLB primitive contains a degenerate triangle index') from exc
+        if len(triangles) > MAX_RAW_MESH_TRIANGLES:
+            raise RawMeshImportError(
+                'GLB scene expands beyond the triangle bound'
+            )
 
 
 def _glb_accessor(document: dict[str, object], accessor_index: int) -> dict[str, object]:
