@@ -386,3 +386,11 @@ def screen_image_center_world(entity, binding: ScreenGeometryBinding) -> tuple[f
     if entity.kind != 'screen':
         raise ValueError('screen binding must reference a screen SceneEntity')
     return _world_offset(entity, binding.image_center_offset_local_m)
+
+
+def display_image_center_world(entity, binding: DisplayGeometryBinding) -> tuple[float, float, float]:
+    """World-space direct-view image centre a seat camera should aim at."""
+
+    if entity.kind != 'display':
+        raise ValueError('display binding must reference a display SceneEntity')
+    return _world_offset(entity, binding.image_center_offset_local_m)

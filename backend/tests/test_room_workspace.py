@@ -778,3 +778,170 @@ def test_room_viewport_visual_foundation_has_floor_and_major_minor_grid() -> Non
     assert minor.n_lines > major.n_lines
     assert minor.bounds[4] == pytest.approx(0.003)
     assert major.bounds[4] == pytest.approx(0.004)
+
+
+# -- #1054: direct-view target productization ---------------------------------
+
+
+def _direct_view_workspace(
+    display_id: str, seat_id: str | None = None
+) -> "VideoGeometryWorkspace":
+    from htdt.cad_direct_view import DisplayGeometryBinding
+    from htdt.cad_scene import Offset3
+    from htdt.cad_video_geometry import SeatGeometryBinding
+    from htdt.cad_video_workspace import VideoGeometryWorkspace
+
+    seat_bindings = {}
+    if seat_id is not None:
+        seat_bindings[seat_id] = SeatGeometryBinding(
+            geometry_source='manual',
+            entity_id=seat_id,
+            row_id='row-1',
+            eye_reference_offset_local_m=Offset3(z_m=0.65),
+            head_center_offset_local_m=Offset3(z_m=0.65),
+            head_radius_m=0.16,
+            seated_height_m=1.1,
+        )
+    return VideoGeometryWorkspace(
+        document_id=F1_DOCUMENT_ID,
+        target_type='direct_view',
+        display_entity_id=display_id,
+        display_binding=DisplayGeometryBinding(
+            entity_id=display_id,
+            visible_width_m=1.45,
+            visible_height_m=0.82,
+            frame_clearance_m=0.03,
+            mounting='wall',
+        ),
+        seat_bindings=seat_bindings,
+    )
+
+
+def test_evaluate_video_direct_view_needs_no_projector(tmp_path) -> None:
+    """#1054: Room > Video on a display target must not demand a projector.
+
+    The regression: the Room Video card required projector + passive screen
+    even though #637 direct-view evaluation existed backend-side. The
+    controller now routes a direct_view workspace to the display evaluator.
+    """
+
+    from htdt.cad_direct_view import DirectViewGeometryEvaluation
+
+    repository = _f1_repository(tmp_path)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    display = controller.add_object("display")
+    seat = controller.add_object("seat")
+    assert controller.save() is True
+
+    controller.save_video_workspace(
+        _direct_view_workspace(display.entity_id, seat.entity_id)
+    )
+    evaluation = controller.evaluate_video()
+
+    assert isinstance(evaluation, DirectViewGeometryEvaluation)
+    assert evaluation.projection_status == 'NOT_APPLICABLE'
+    assert evaluation.request.display.entity_id == display.entity_id
+    assert [item.entity_id for item in evaluation.request.seats] == [
+        seat.entity_id
+    ]
+
+
+def test_evaluate_video_direct_view_uses_pinned_specification(tmp_path) -> None:
+    """A bound display spec enables spec-conformance rows in the result."""
+
+    from htdt.cad_equipment import EquipmentDataProvenance
+    from htdt.cad_scene import Size3
+    from htdt.cad_direct_view import build_direct_view_display_specification
+
+    repository = _f1_repository(tmp_path)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    display = controller.add_object("display")
+    assert controller.save() is True
+
+    spec = build_direct_view_display_specification(
+        specification_id='user-display',
+        version='1',
+        manufacturer=None,
+        model=None,
+        user_label='ユーザー登録ディスプレイ',
+        display_class='other',
+        chassis_size_m=Size3(x_m=1.50, y_m=0.06, z_m=0.85),
+        active_image_width_m=1.45,
+        active_image_height_m=0.82,
+        provenance=(
+            EquipmentDataProvenance(
+                evidence_kind='user_defined',
+                source_name='user',
+                source_version='1',
+                source_reference='manual entry',
+                source_sha256='c' * 64,
+            ),
+        ),
+    )
+    controller.direct_view_repository.save_specification(spec)
+
+    workspace = _direct_view_workspace(display.entity_id)
+    workspace = workspace.model_copy(
+        update={'display_specification_sha256': spec.specification_sha256}
+    )
+    controller.save_video_workspace(workspace)
+    evaluation = controller.evaluate_video()
+
+    assert evaluation.display_specification_sha256 == spec.specification_sha256
+    assert evaluation.surface.spec_conformance_status == 'PASS'
+
+
+def test_video_panel_switches_between_projection_and_display_targets(
+    tmp_path,
+) -> None:
+    """#1054: the Room Video card offers a display target, not only
+    projector + screen."""
+
+    from htdt.cad_video_workspace import VideoGeometryWorkspace
+    from htdt.room_video_panel import RoomVideoPanel
+
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    display = controller.add_object("display")
+    seat = controller.add_object("seat")
+    assert controller.save() is True
+
+    panel = RoomVideoPanel()
+    panel.sync_document(
+        controller.committed_document,
+        _direct_view_workspace(display.entity_id, seat.entity_id),
+        (),
+        (),
+        {seat.entity_id: seat.name},
+        {},
+        None,
+        (),
+    )
+
+    assert panel.current_target_type() == 'direct_view'
+    assert panel.current_display_entity_id() == display.entity_id
+    assert panel.display_section.isVisibleTo(panel)
+    assert not panel.projection_section.isVisibleTo(panel)
+    values = panel.current_display_values()
+    assert values['visible_width_m'] == pytest.approx(1.45)
+    assert values['mounting'] == 'wall'
+
+    # Switching to a projection workspace restores the projector section and
+    # the display section hides — no display fields leak into a screen target.
+    panel.sync_document(
+        controller.committed_document,
+        VideoGeometryWorkspace(document_id=F1_DOCUMENT_ID),
+        (),
+        (),
+        {seat.entity_id: seat.name},
+        {},
+        None,
+        (),
+    )
+    assert panel.current_target_type() == 'projection'
+    assert panel.projection_section.isVisibleTo(panel)
+    assert not panel.display_section.isVisibleTo(panel)
+
+    panel.deleteLater()
+    app.processEvents()
