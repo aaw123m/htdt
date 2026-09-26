@@ -19,6 +19,7 @@ from .rew_api import (
     decode_frequency_response,
 )
 from .rew_parser import PARSER_VERSION, parse_rew_frequency_response
+from .rew_source_context import extract_rew_source_context
 
 
 CAD_REW_API_SNAPSHOT_FORMAT = 'htdt-rew-api-frequency-response-snapshot-1'
@@ -234,6 +235,26 @@ def normalize_rew_api_snapshot(
         # (#599). The session is caller-supplied provenance, merged under a
         # fixed key so reads can always find it.
         provenance['engine_session'] = engine_session
+    # REW beta 135 source-container fields (containingFile*, mic/soundcard
+    # cal paths) — persisted as the *portable* view: basenames and admitted
+    # asset hashes only, never local absolute paths (#1042). The full raw
+    # summary remains in the local raw wrapper.
+    if any(
+        key in summary
+        for key in (
+            'containingFileName',
+            'containingFilePath',
+            'containingFileNotes',
+            'micCalFilePath',
+            'soundcardCalFilePath',
+        )
+    ):
+        source_context = extract_rew_source_context(
+            summary,
+            measurement_uuid=decoded.measurement_id,
+            observed_at=imported_at or captured_at or 'unknown',
+        )
+        provenance['source_context'] = source_context.portable_dict()
     if routing_profile is not None:
         provenance['routing_profile'] = routing_profile
     if acquisition_context is not None:

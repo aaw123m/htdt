@@ -22,6 +22,11 @@ from .cad_scene import (
     quaternion_to_matrix3,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
+from .cad_usable_output import (
+    ListenerTransferAuthority,
+    SourceUsableOutputProfile,
+    evaluate_headroom,
+)
 from .optimization_objectives import (
     ObjectiveDefinition,
     ObjectiveMetric,
@@ -200,6 +205,12 @@ class PlaybackExcitationScenario(BaseModel):
     input_normalization_authority: InputNormalizationAuthority = (
         InputNormalizationAuthority()
     )
+    # Optional nonlinear qualification policy consumed when a
+    # SourceUsableOutputProfile is bound (#1047): the measured
+    # compression/distortion ceiling qualifies headroom instead of the
+    # declared SPL figure. ``None`` = no nonlinear policy declared.
+    max_compression_db: float | None = Field(default=None, ge=0.0)
+    max_distortion_percent: float | None = Field(default=None, ge=0.0)
     scenario_id: str = Field(min_length=1)
     scenario_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
@@ -222,7 +233,7 @@ class PlaybackExcitationScenario(BaseModel):
         return self
 
     def semantic_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'source_entity_id': self.source_entity_id,
@@ -242,6 +253,13 @@ class PlaybackExcitationScenario(BaseModel):
                 self.input_normalization_authority.model_dump(mode='json')
             ),
         }
+        # Excluded when absent so scenarios persisted before #1047 keep
+        # their original identity digest.
+        if self.max_compression_db is not None:
+            payload['max_compression_db'] = self.max_compression_db
+        if self.max_distortion_percent is not None:
+            payload['max_distortion_percent'] = self.max_distortion_percent
+        return payload
 
 
 def build_playback_excitation_scenario(
@@ -256,6 +274,8 @@ def build_playback_excitation_scenario(
     frequency_band: DirectLevelFrequencyBand,
     weighting: str,
     receiver_population: SeatPopulation,
+    max_compression_db: float | None = None,
+    max_distortion_percent: float | None = None,
 ) -> PlaybackExcitationScenario:
     identity = {
         'schema_version': DIRECT_LEVEL_SCHEMA_VERSION,
@@ -277,6 +297,12 @@ def build_playback_excitation_scenario(
             InputNormalizationAuthority().model_dump(mode='json')
         ),
     }
+    # Excluded when absent so scenarios persisted before #1047 keep their
+    # original identity digest.
+    if max_compression_db is not None:
+        identity['max_compression_db'] = float(max_compression_db)
+    if max_distortion_percent is not None:
+        identity['max_distortion_percent'] = float(max_distortion_percent)
     digest = _digest(identity)
     return PlaybackExcitationScenario(
         source_entity_id=source_entity_id,
@@ -289,6 +315,8 @@ def build_playback_excitation_scenario(
         frequency_band=frequency_band,
         weighting=weighting,
         receiver_population=receiver_population,
+        max_compression_db=max_compression_db,
+        max_distortion_percent=max_distortion_percent,
         scenario_id=_semantic_id('playback', digest),
         scenario_sha256=digest,
     )
@@ -317,6 +345,42 @@ class DirectLevelScalarResult(BaseModel):
         return self
 
 
+class SeatHeadroomEvidence(BaseModel):
+    """The evidence tier one seat headroom result rests on (#1047).
+
+    Records which authority produced the margin — an exact-bound
+    SourceUsableOutputProfile at a given capability tier/basis, or the
+    declared scalar figure — so a hard headroom objective never hides
+    which evidence drove it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: str | None = None
+    profile_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    binding: Literal['exact', 'advisory', 'none'] = 'none'
+    tier_used: Literal[
+        'unknown',
+        'scalar',
+        'curve',
+        'compression',
+        'thd',
+        'combined',
+        'excursion_model',
+        'declared',
+    ] = 'declared'
+    basis: Literal[
+        'amplifier_margin',
+        'scalar_declared',
+        'distortion_qualified',
+        'distortion_unqualified',
+        'unknown',
+        'declared',
+    ] = 'declared'
+
+
 class SeatDirectLevelResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -327,6 +391,10 @@ class SeatDirectLevelResult(BaseModel):
     target_margin: DirectLevelScalarResult
     continuous_headroom: DirectLevelScalarResult
     peak_headroom: DirectLevelScalarResult
+    # Evidence tier per headroom axis (#1047); absent on evaluations
+    # produced before the usable-output authority was wired in.
+    continuous_headroom_evidence: SeatHeadroomEvidence | None = None
+    peak_headroom_evidence: SeatHeadroomEvidence | None = None
 
     @field_validator('distance_m')
     @classmethod
@@ -394,6 +462,10 @@ class DirectLevelEvaluation(BaseModel):
     equipment_definition_version: str = Field(min_length=1)
     equipment_definition_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     scenario: PlaybackExcitationScenario
+    # The exact-bound usable-output authority consumed for headroom
+    # (#1047); embedded so repository replay reproduces the evaluation
+    # bit-for-bit. ``None`` = the legacy declared-scalar path.
+    usable_output_profile: SourceUsableOutputProfile | None = None
     source_reference_position_m: Position3
     seat_results: tuple[SeatDirectLevelResult, ...] = Field(min_length=1)
     aggregates: DirectLevelAggregates
@@ -433,10 +505,14 @@ class DirectLevelEvaluation(BaseModel):
                 mode='json'
             ),
             'seat_results': [
-                item.model_dump(mode='json') for item in self.seat_results
+                _seat_result_payload(item) for item in self.seat_results
             ],
             'aggregates': self.aggregates.model_dump(mode='json'),
         }
+        if self.usable_output_profile is not None:
+            payload['usable_output_profile'] = (
+                self.usable_output_profile.model_dump(mode='json')
+            )
         if self.priority_aggregates is not None:
             payload['priority_aggregates'] = self.priority_aggregates.model_dump(
                 mode='json'
@@ -454,6 +530,19 @@ def _missing(reason: str, unit: Literal['dB', 'dB SPL']) -> DirectLevelScalarRes
 
 def _unsupported(reason: str, unit: Literal['dB', 'dB SPL']) -> DirectLevelScalarResult:
     return DirectLevelScalarResult(state='unsupported', value=None, unit=unit, reason=reason)
+
+
+def _seat_result_payload(item: SeatDirectLevelResult) -> dict[str, Any]:
+    """Serialized seat result; new additive fields are pruned when absent
+    so pre-#1047 payloads keep byte-exact identity."""
+    payload = item.model_dump(mode='json')
+    for key in (
+        'continuous_headroom_evidence',
+        'peak_headroom_evidence',
+    ):
+        if payload.get(key) is None:
+            payload.pop(key, None)
+    return payload
 
 
 def _band_state(
@@ -578,10 +667,31 @@ def _capability_headroom(
     distance_m: float,
     *,
     kind: Literal['continuous', 'peak'],
-) -> DirectLevelScalarResult:
+    profile: SourceUsableOutputProfile | None = None,
+) -> tuple[DirectLevelScalarResult, SeatHeadroomEvidence | None]:
+    """Headroom for one seat under the requested duration class.
+
+    With no bound usable-output profile this stays the legacy declared
+    scalar path. With an exact-bound profile the evaluation is delegated
+    to :func:`cad_usable_output.evaluate_headroom` (#1047): the band
+    ceiling is the minimum qualifying in-band measured evidence, the
+    declared figure never overrides it, and the listener-side comparison
+    runs under the declared distance authority as an explicit
+    propagation-model transfer.
+    """
     capability = definition.spl_capability
+
+    if profile is not None:
+        return _profile_headroom(
+            profile, definition, scenario, distance_m, kind=kind
+        )
+    evidence = SeatHeadroomEvidence(binding='none')
+
     if capability is None:
-        return _missing('equipment SPL capability is not evidenced', 'dB')
+        return (
+            _missing('equipment SPL capability is not evidenced', 'dB'),
+            evidence,
+        )
 
     if kind == 'continuous':
         level = capability.continuous_db_spl
@@ -593,7 +703,10 @@ def _capability_headroom(
         requested_duration = scenario.peak_reference_duration_s
 
     if level is None:
-        return _missing(f'{kind} SPL capability is not evidenced', 'dB')
+        return (
+            _missing(f'{kind} SPL capability is not evidenced', 'dB'),
+            evidence,
+        )
 
     band_issue = _band_state(
         capability.valid_frequency_domain,
@@ -601,26 +714,153 @@ def _capability_headroom(
         source_name=f'{kind} SPL capability',
     )
     if band_issue is not None:
-        return band_issue
+        return band_issue, evidence
 
     if scenario.weighting != 'unweighted':
-        return _unsupported(
-            'SPL capability has no weighting provenance for requested weighting',
-            'dB',
+        return (
+            _unsupported(
+                'SPL capability has no weighting provenance for requested '
+                'weighting',
+                'dB',
+            ),
+            evidence,
         )
     if declared_duration is None:
-        return _missing(f'{kind} SPL capability has no duration authority', 'dB')
+        return (
+            _missing(
+                f'{kind} SPL capability has no duration authority', 'dB'
+            ),
+            evidence,
+        )
     if abs(float(declared_duration) - float(requested_duration)) > 1e-9:
-        return _unsupported(
-            f'{kind} duration differs from evidenced equipment capability duration',
-            'dB',
+        return (
+            _unsupported(
+                f'{kind} duration differs from evidenced equipment '
+                'capability duration',
+                'dB',
+            ),
+            evidence,
         )
 
     seat_capability = float(level) + _distance_adjustment_db(
         capability.reference_distance_m,
         distance_m,
     )
-    return _available(seat_capability - scenario.target_spl_db_spl, 'dB')
+    return (
+        _available(seat_capability - scenario.target_spl_db_spl, 'dB'),
+        evidence,
+    )
+
+
+def _profile_headroom(
+    profile: SourceUsableOutputProfile,
+    definition: EquipmentDefinition,
+    scenario: PlaybackExcitationScenario,
+    distance_m: float,
+    *,
+    kind: Literal['continuous', 'peak'],
+) -> tuple[DirectLevelScalarResult, SeatHeadroomEvidence]:
+    """Usable-output-qualified headroom through the O100D evaluator.
+
+    The profile's equipment binding is verified against the exact
+    EquipmentDefinition triple the scenario resolved (#1026); an advisory
+    (id-only) profile is never consulted for a hard headroom decision and
+    a declared SPL figure never overrides a measured nonlinear ceiling
+    (#1047).
+    """
+    evidence = SeatHeadroomEvidence(
+        profile_id=profile.profile_id,
+        profile_sha256=profile.profile_sha256,
+        binding=profile.binding_class,
+        tier_used='unknown',
+        basis='unknown',
+    )
+
+    if (
+        profile.equipment_definition_id != definition.definition_id
+        or (
+            profile.equipment_definition_version is not None
+            and profile.equipment_definition_version != definition.version
+        )
+        or (
+            profile.equipment_definition_sha256 is not None
+            and profile.equipment_definition_sha256
+            != definition.semantic_sha256
+        )
+    ):
+        raise ValueError(
+            'usable-output profile equipment binding does not match the '
+            'resolved EquipmentDefinition'
+        )
+
+    if profile.binding_class != 'exact':
+        return (
+            _unsupported(
+                'usable-output profile binding is advisory (id-only) and '
+                'cannot drive O100D headroom (#1026)',
+                'dB',
+            ),
+            evidence,
+        )
+
+    if profile.measurement_distance_m is None:
+        return (
+            _missing(
+                'usable-output profile records no measurement distance — '
+                'no listener transfer can be established',
+                'dB',
+            ),
+            evidence,
+        )
+
+    duration_class: Literal['continuous', 'burst'] = (
+        'continuous' if kind == 'continuous' else 'burst'
+    )
+    declared: float | None = None
+    capability = definition.spl_capability
+    if capability is not None:
+        declared = (
+            capability.continuous_db_spl
+            if kind == 'continuous'
+            else capability.peak_db_spl
+        )
+
+    transfer = ListenerTransferAuthority(
+        kind='propagation_model',
+        propagation_model=DISTANCE_LEVEL_MODEL_ID,
+        model_version=DISTANCE_LEVEL_MODEL_VERSION,
+        reference_distance_m=profile.measurement_distance_m,
+        listener_distance_m=distance_m,
+        transfer_db=_distance_adjustment_db(
+            profile.measurement_distance_m, distance_m
+        ),
+    )
+    evaluation = evaluate_headroom(
+        profile=profile,
+        target_level_db_spl=scenario.target_spl_db_spl,
+        frequency_band_hz=(
+            scenario.frequency_band.low_hz,
+            scenario.frequency_band.high_hz,
+        ),
+        duration_class=duration_class,
+        declared_spl_db=declared,
+        max_compression_db=scenario.max_compression_db,
+        max_distortion_percent=scenario.max_distortion_percent,
+        reference_transfer=transfer,
+        require_exact_binding=True,
+    )
+    evidence = SeatHeadroomEvidence(
+        profile_id=profile.profile_id,
+        profile_sha256=profile.profile_sha256,
+        binding=profile.binding_class,
+        tier_used=evaluation.tier_used,
+        basis=evaluation.basis,
+    )
+    if evaluation.headroom_db is not None:
+        return _available(evaluation.headroom_db, 'dB'), evidence
+    if evaluation.basis == 'unknown':
+        return _missing(evaluation.status_reason, 'dB'), evidence
+    return _unsupported(evaluation.status_reason, 'dB'), evidence
 
 
 def _derived_margin(
@@ -725,11 +965,19 @@ def evaluate_direct_level(
     equipment_definition: EquipmentDefinition,
     scenario: PlaybackExcitationScenario,
     priority_profile: SeatPriorityProfile | None = None,
+    usable_output_profile: SourceUsableOutputProfile | None = None,
     listener_pose_resolver: 'Callable[[str], ListenerPoseAuthority | None] | None' = (
         None
     ),
 ) -> DirectLevelEvaluation:
-    """Evaluate one channel without room gain, reflections, directivity loss, or channel summation."""
+    """Evaluate one channel without room gain, reflections, directivity loss, or channel summation.
+
+    ``usable_output_profile`` (#1047): when supplied it must bind the
+    evaluated EquipmentDefinition by the exact id+version+sha256 triple
+    (#1026); advisory id-only profiles cannot drive hard headroom and
+    render headroom unsupported rather than falling back to declared
+    figures. When omitted the legacy declared-capability path applies.
+    """
 
     if (
         variant.document_id != revision.document_id
@@ -779,6 +1027,25 @@ def evaluate_direct_level(
         or binding.equipment_definition_sha256 != equipment_definition.semantic_sha256
     ):
         raise ValueError('direct-level EquipmentDefinition binding mismatch')
+
+    if usable_output_profile is not None and (
+        usable_output_profile.equipment_definition_id
+        != equipment_definition.definition_id
+        or (
+            usable_output_profile.equipment_definition_version is not None
+            and usable_output_profile.equipment_definition_version
+            != equipment_definition.version
+        )
+        or (
+            usable_output_profile.equipment_definition_sha256 is not None
+            and usable_output_profile.equipment_definition_sha256
+            != equipment_definition.semantic_sha256
+        )
+    ):
+        raise ValueError(
+            'usable-output profile does not bind the evaluated '
+            'EquipmentDefinition'
+        )
 
     scene = materialize_system_variant(revision, variant)
     try:
@@ -877,6 +1144,20 @@ def evaluate_direct_level(
             scenario,
             distance_m,
         )
+        continuous_result, continuous_evidence = _capability_headroom(
+            equipment_definition,
+            scenario,
+            distance_m,
+            kind='continuous',
+            profile=usable_output_profile,
+        )
+        peak_result, peak_evidence = _capability_headroom(
+            equipment_definition,
+            scenario,
+            distance_m,
+            kind='peak',
+            profile=usable_output_profile,
+        )
         seat_results.append(
             SeatDirectLevelResult(
                 seat_entity_id=seat_id,
@@ -887,18 +1168,10 @@ def evaluate_direct_level(
                     direct_level,
                     scenario.target_spl_db_spl,
                 ),
-                continuous_headroom=_capability_headroom(
-                    equipment_definition,
-                    scenario,
-                    distance_m,
-                    kind='continuous',
-                ),
-                peak_headroom=_capability_headroom(
-                    equipment_definition,
-                    scenario,
-                    distance_m,
-                    kind='peak',
-                ),
+                continuous_headroom=continuous_result,
+                peak_headroom=peak_result,
+                continuous_headroom_evidence=continuous_evidence,
+                peak_headroom_evidence=peak_evidence,
             )
         )
 
@@ -946,9 +1219,13 @@ def evaluate_direct_level(
         'equipment_definition_sha256': equipment_definition.semantic_sha256,
         'scenario': scenario.model_dump(mode='json'),
         'source_reference_position_m': source_reference.model_dump(mode='json'),
-        'seat_results': [item.model_dump(mode='json') for item in seat_results],
+        'seat_results': [_seat_result_payload(item) for item in seat_results],
         'aggregates': aggregates.model_dump(mode='json'),
     }
+    if usable_output_profile is not None:
+        identity['usable_output_profile'] = (
+            usable_output_profile.model_dump(mode='json')
+        )
     if priority_aggregates is not None:
         identity['priority_aggregates'] = priority_aggregates.model_dump(
             mode='json'
@@ -964,6 +1241,7 @@ def evaluate_direct_level(
         equipment_definition_version=equipment_definition.version,
         equipment_definition_sha256=equipment_definition.semantic_sha256,
         scenario=scenario,
+        usable_output_profile=usable_output_profile,
         source_reference_position_m=source_reference,
         seat_results=tuple(seat_results),
         aggregates=aggregates,

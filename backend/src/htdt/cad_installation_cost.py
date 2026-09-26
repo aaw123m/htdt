@@ -20,6 +20,7 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .cad_equipment_instance import InstalledEquipmentInstance
 from .cad_repository import SceneRevision
 from .cad_system_variant import SystemVariant
 from .optimization_objectives import (
@@ -465,6 +466,11 @@ class VariantCostEvaluation(BaseModel):
     unknown_item_ids: tuple[str, ...] = ()
     budget_state: BudgetState | None = None
     effort: InstallationEffortSummary
+    # Exact InstalledEquipmentInstance digests consumed for baseline-side
+    # (removed/replaced) equipment identities (#1058). ``None`` marks a
+    # legacy evaluation persisted before baseline equipment resolution
+    # existed; an empty tuple pins a declared-empty baseline scope.
+    baseline_equipment_sha256s: tuple[str, ...] | None = None
 
     evaluation_id: str = Field(min_length=1)
     evaluation_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -487,7 +493,7 @@ class VariantCostEvaluation(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             'schema_version': self.schema_version,
             'authority_version': self.authority_version,
             'document_id': self.document_id,
@@ -505,6 +511,13 @@ class VariantCostEvaluation(BaseModel):
             'budget_state': self.budget_state,
             'effort': self.effort.model_dump(mode='json'),
         }
+        # Excluded when None so pre-#1058 persisted payloads still verify
+        # against their original digest.
+        if self.baseline_equipment_sha256s is not None:
+            payload['baseline_equipment_sha256s'] = list(
+                self.baseline_equipment_sha256s
+            )
+        return payload
 
 
 def _price_record(
@@ -533,12 +546,22 @@ def evaluate_variant_installation_cost(
     variant: SystemVariant,
     scenario: CostScenario,
     cost_records: Sequence[CostRecord],
+    baseline_equipment: Sequence[InstalledEquipmentInstance] | None = None,
 ) -> VariantCostEvaluation:
     """Derive an incremental line-item cost/effort breakdown.
 
     Only entities the variant *adds or replaces* become acquisition lines;
     baseline-owned equipment is reported as existing/removed for provenance
     and never charged unless the scenario explicitly requests it.
+
+    ``baseline_equipment`` is the declared installed-equipment inventory for
+    the baseline revision (#1058): SystemVariant equipment bindings cover
+    only *final* entities, so removal/replacement lines resolve their
+    before-identity through :class:`InstalledEquipmentInstance`. When the
+    inventory is not supplied (``None``) or an entity is not resolvable in
+    it, every remove/replace diff produces an explicit UNKNOWN
+    ``equipment_removed`` line — a missing baseline equipment identity is
+    never silently omitted.
     """
     if (
         variant.document_id != revision.document_id
@@ -548,6 +571,21 @@ def evaluate_variant_installation_cost(
         raise ValueError('cost SystemVariant/SceneRevision authority mismatch')
     if scenario.document_id != revision.document_id:
         raise ValueError('cost scenario document mismatch')
+
+    baseline_by_entity: dict[str, InstalledEquipmentInstance] = {}
+    for instance in baseline_equipment or ():
+        if instance.document_id != revision.document_id:
+            raise ValueError(
+                'baseline equipment instance document mismatch'
+            )
+        entity_id = instance.scene_entity_id
+        if entity_id is None:
+            continue
+        if entity_id in baseline_by_entity:
+            raise ValueError(
+                'baseline equipment instances must be unique per scene entity'
+            )
+        baseline_by_entity[entity_id] = instance
 
     binding_by_entity = {
         binding.entity_id: binding for binding in variant.equipment_bindings
@@ -569,6 +607,7 @@ def evaluate_variant_installation_cost(
     removed_entity_ids = {
         diff.entity_id for diff in variant.diff if diff.kind in ('remove', 'replace')
     }
+    consumed_baseline_sha256s: set[str] = set()
 
     for entity_id in sorted(added_entity_ids):
         binding = binding_by_entity.get(entity_id)
@@ -663,20 +702,61 @@ def evaluate_variant_installation_cost(
             )
         )
 
-    for entity_id in sorted(removed_entity_ids - added_entity_ids):
-        binding = binding_by_entity.get(entity_id)
-        if binding is None:
+    # Removed/replaced equipment identities come from the baseline
+    # installed-equipment inventory, never from the variant's final-state
+    # bindings (#1058). A replacement reports both the before-identity
+    # (this loop) and the after-identity (the acquisition line above).
+    removal_diffs = sorted(
+        (diff for diff in variant.diff if diff.kind in ('remove', 'replace')),
+        key=lambda diff: diff.entity_id,
+    )
+    for diff in removal_diffs:
+        entity_id = diff.entity_id
+        instance = baseline_by_entity.get(entity_id)
+        definition_ref = (
+            None if instance is None else instance.definition_ref
+        )
+        if definition_ref is None:
+            line_items.append(
+                CostLineItem(
+                    item_id=next_id(),
+                    item_kind='equipment_removed',
+                    category='equipment_purchase',
+                    entity_id=entity_id,
+                    state='unknown_price',
+                    reason=(
+                        'baseline installed-equipment identity for the '
+                        'removed entity is unresolved'
+                    ),
+                )
+            )
             continue
+        after_binding = binding_by_entity.get(entity_id)
+        if (
+            diff.kind == 'replace'
+            and after_binding is not None
+            and after_binding.equipment_definition_sha256
+            == definition_ref.equipment_definition_sha256
+        ):
+            # The same exact equipment is retained across the replace —
+            # nothing was removed on the equipment axis.
+            consumed_baseline_sha256s.add(instance.semantic_sha256)
+            continue
+        consumed_baseline_sha256s.add(instance.semantic_sha256)
         line_items.append(
             CostLineItem(
                 item_id=next_id(),
                 item_kind='equipment_removed',
                 category='equipment_purchase',
                 entity_id=entity_id,
-                equipment_definition_id=binding.equipment_definition_id,
-                equipment_definition_version=binding.equipment_definition_version,
+                equipment_definition_id=(
+                    definition_ref.equipment_definition_id
+                ),
+                equipment_definition_version=(
+                    definition_ref.equipment_definition_version
+                ),
                 equipment_definition_sha256=(
-                    binding.equipment_definition_sha256
+                    definition_ref.equipment_definition_sha256
                 ),
                 state='not_priced_by_scope',
                 reason='removed equipment is excluded from acquisition cost',
@@ -799,6 +879,12 @@ def evaluate_variant_installation_cost(
         estimated_person_hours=estimated_hours,
     )
 
+    baseline_sha256s: tuple[str, ...] | None = (
+        None
+        if baseline_equipment is None
+        else tuple(sorted(consumed_baseline_sha256s))
+    )
+
     identity: dict[str, Any] = {
         'schema_version': COST_SCHEMA_VERSION,
         'authority_version': COST_AUTHORITY_VERSION,
@@ -815,6 +901,8 @@ def evaluate_variant_installation_cost(
         'budget_state': budget_state,
         'effort': effort.model_dump(mode='json'),
     }
+    if baseline_sha256s is not None:
+        identity['baseline_equipment_sha256s'] = list(baseline_sha256s)
     digest = _digest(identity)
     return VariantCostEvaluation(
         document_id=revision.document_id,
@@ -829,6 +917,7 @@ def evaluate_variant_installation_cost(
         unknown_item_ids=unknown_item_ids,
         budget_state=budget_state,
         effort=effort,
+        baseline_equipment_sha256s=baseline_sha256s,
         evaluation_id=_semantic_id('cost-evaluation', digest),
         evaluation_sha256=digest,
     )

@@ -1917,3 +1917,190 @@ def test_observation_authority_is_required_for_acquisition_metadata(
     with pytest.raises(ValueError, match='observation hash mismatch'):
         quality_repository.get_report(honest.report_id)
 
+
+
+# --- #1025: ambient-profile lineage in quality evidence -----------------------
+
+
+def _ambient_profile(measurement_repository, revision, record, **overrides):
+    """Persist a compatible ambient condition+profile bound to the
+    measurement's document/revision/entity/position."""
+    from htdt.cad_ambient_noise import (
+        CadAmbientNoiseRepository,
+        build_ambient_noise_profile,
+        build_ambient_operating_condition,
+    )
+
+    ambient_repository = CadAmbientNoiseRepository(
+        measurement_repository.scene_repository
+    )
+    condition = build_ambient_operating_condition(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        hvac_state='off',
+        created_at='2026-09-19T00:00:00+00:00',
+    )
+    ambient_repository.save_condition(condition)
+    profile = build_ambient_noise_profile(
+        condition,
+        microphone_position=record.measurement_position,
+        measurement_entity_id=record.measurement_entity_id,
+        acquisition_context_id=overrides.pop('acquisition_context_id', 'ctx-1'),
+        level_semantics=overrides.pop('level_semantics', 'absolute_spl'),
+        calibration_authority_id=overrides.pop(
+            'calibration_authority_id', 'cal-fixture'
+        ),
+        overall_level_db=overrides.pop('overall_level_db', 30.0),
+        captured_at='2026-09-19T00:00:05+00:00',
+        **overrides,
+    )
+    ambient_repository.save_profile(profile)
+    return condition, profile
+
+
+def test_compatible_ambient_ref_drives_snr_and_survives_replay(
+    tmp_path: Path,
+) -> None:
+    from htdt.cad_ambient_noise import bind_ambient_noise_evidence
+
+    revision, measurement_repository, quality_repository = _repositories(
+        tmp_path
+    )
+    record, dataset = _save_measurement(
+        measurement_repository, revision, 'ambient-1', raw=b'ambient-1'
+    )
+    condition, profile = _ambient_profile(
+        measurement_repository, revision, record
+    )
+    ref = bind_ambient_noise_evidence(
+        profile,
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        measurement_entity_id=record.measurement_entity_id,
+        measurement_position=record.measurement_position,
+        acquisition_context_id='ctx-1',
+        operating_condition=condition,
+        signal_level_db_spl=90.0,
+        requires_absolute_spl=True,
+    )
+    assert ref.compatibility.status == 'COMPATIBLE'
+    assert ref.snr_db == pytest.approx(60.0)
+
+    context = _persist_context(
+        quality_repository,
+        context_id='ctx-1',
+        subject_ids=(record.measurement_id,),
+    )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(ambient_ref=ref),
+        profile=build_measurement_quality_profile(minimum_snr_db=30.0),
+        acquisition_context=context,
+        report_id='report-ambient',
+        created_at_utc='2026-09-19T00:02:00+00:00',
+    )
+    assert report.noise_snr.status == 'PASS'
+    # The exact ambient profile is retained on the report evidence.
+    assert report.evidence.ambient_ref.profile_id == profile.profile_id
+    assert report.evidence.ambient_ref.profile_sha256 == profile.profile_sha256
+
+    quality_repository.save_report(report)
+    assert quality_repository.get_report(report.report_id) == report
+
+
+def test_incompatible_ambient_ref_never_fabricates_snr(tmp_path: Path) -> None:
+    from htdt.cad_ambient_noise import bind_ambient_noise_evidence
+
+    revision, measurement_repository, quality_repository = _repositories(
+        tmp_path
+    )
+    record, dataset = _save_measurement(
+        measurement_repository, revision, 'ambient-2', raw=b'ambient-2'
+    )
+    condition, profile = _ambient_profile(
+        measurement_repository, revision, record
+    )
+    from htdt.cad_ambient_noise import (
+        CadAmbientNoiseRepository,
+        build_ambient_operating_condition,
+    )
+
+    other_condition = build_ambient_operating_condition(
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        hvac_state='on',
+        created_at='2026-09-19T00:00:00+00:00',
+    )
+    CadAmbientNoiseRepository(
+        measurement_repository.scene_repository
+    ).save_condition(other_condition)
+    ref = bind_ambient_noise_evidence(
+        profile,
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        measurement_entity_id=record.measurement_entity_id,
+        measurement_position=record.measurement_position,
+        acquisition_context_id='ctx-1',
+        operating_condition=other_condition,
+    )
+    assert ref.compatibility.status == 'INCOMPATIBLE'
+    assert ref.snr_db is None
+    context = _persist_context(
+        quality_repository,
+        context_id='ctx-1',
+        subject_ids=(record.measurement_id,),
+    )
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(ambient_ref=ref),
+        profile=build_measurement_quality_profile(minimum_snr_db=30.0),
+        acquisition_context=context,
+        report_id='report-ambient-mismatch',
+        created_at_utc='2026-09-19T00:02:00+00:00',
+    )
+    assert report.noise_snr.status == 'UNKNOWN'
+    quality_repository.save_report(report)
+
+
+def test_ambient_ref_to_missing_profile_is_rejected_on_save(
+    tmp_path: Path,
+) -> None:
+    from htdt.cad_ambient_noise import bind_ambient_noise_evidence
+
+    revision, measurement_repository, quality_repository = _repositories(
+        tmp_path
+    )
+    record, dataset = _save_measurement(
+        measurement_repository, revision, 'ambient-3', raw=b'ambient-3'
+    )
+    condition, profile = _ambient_profile(
+        measurement_repository, revision, record
+    )
+    ref = bind_ambient_noise_evidence(
+        profile,
+        document_id=revision.document_id,
+        scene_revision_id=revision.revision_id,
+        scene_content_hash=revision.content_hash,
+        measurement_entity_id=record.measurement_entity_id,
+        measurement_position=record.measurement_position,
+        acquisition_context_id='ctx-1',
+        operating_condition=condition,
+    )
+    # Point the ref at a profile id that was never persisted.
+    forged = ref.model_copy(update={'profile_id': 'ghost-profile'})
+    report = build_measurement_quality_report(
+        measurement=record,
+        dataset=dataset,
+        evidence=CadMeasurementQualityEvidence(ambient_ref=forged),
+        profile=build_measurement_quality_profile(),
+        report_id='report-ambient-ghost',
+        created_at_utc='2026-09-19T00:02:00+00:00',
+    )
+    with pytest.raises(ValueError, match='unknown ambient profile'):
+        quality_repository.save_report(report)

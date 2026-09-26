@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 import math
 
 import pytest
@@ -14,9 +15,11 @@ from htdt.cad_spatial_field import (
     build_rectangular_mode_field,
     build_spatial_field_request,
     build_spatial_field_result,
+    check_field_compatibility,
     extract_field_slice,
     field_difference,
     probe_field,
+    SpatialFieldResult,
 )
 
 
@@ -289,3 +292,73 @@ def test_field_difference_is_fail_closed() -> None:
     )
     with pytest.raises(ValueError, match='incompatible'):
         field_difference(left, mismatched_axes, difference_semantics='db_delta')
+
+
+def test_field_difference_requires_compatible_scenario_and_frame() -> None:
+    # #1027 regression: equal-grid fields from different source/excitation
+    # scenarios must not be subtracted without an explicit policy.
+    left = _field()
+    other_scenario = _field(
+        request=_request(
+            source_scenario_id='scenario-2',
+            source_scenario_sha256=_hash('scenario-2'),
+        )
+    )
+    with pytest.raises(ValueError, match='source_scenario'):
+        field_difference(
+            left, other_scenario, difference_semantics='db_delta'
+        )
+
+    # intentional different-scenario A/B is allowed via explicit policy
+    deltas = field_difference(
+        left,
+        other_scenario,
+        difference_semantics='db_delta',
+        comparison_policy='different_scenario',
+    )
+    assert len(deltas) == 24
+
+    # frame identity is checked before axes equality
+    other_frame = _field(
+        coordinate_frame_id='imported-frame',
+        coordinate_frame_version='vendor-1',
+    )
+    with pytest.raises(ValueError, match='coordinate_frame'):
+        field_difference(
+            left, other_frame, difference_semantics='db_delta'
+        )
+    reasons = check_field_compatibility(left, other_frame)
+    assert reasons[0] == 'coordinate_frame'
+
+    # legacy results persisted before the contract carry no compatibility
+    # authorities — revalidate under the pruned-identity form, then verify
+    # they cannot silently subtract against a stamped result
+    data = left.model_dump(mode='json')
+    for key in (
+        'source_scenario_id',
+        'source_scenario_sha256',
+        'coordinate_frame_id',
+        'coordinate_frame_version',
+    ):
+        data.pop(key)
+    identity = {
+        k: v
+        for k, v in data.items()
+        if k not in ('result_id', 'semantic_sha256')
+    }
+    digest = sha256(
+        json.dumps(
+            identity,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(',', ':'),
+            allow_nan=False,
+        ).encode('utf-8')
+    ).hexdigest()
+    data['semantic_sha256'] = digest
+    data['result_id'] = f'spatial-field-result:{digest}'
+    legacy = SpatialFieldResult.model_validate(data)
+    with pytest.raises(ValueError, match='coordinate_frame'):
+        field_difference(
+            left, legacy, difference_semantics='db_delta'
+        )

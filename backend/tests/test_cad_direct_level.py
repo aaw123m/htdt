@@ -644,6 +644,16 @@ def _forged_direct_level_evaluation(
     }
     if identity.get('priority_aggregates') is None:
         del identity['priority_aggregates']
+    # Identity prunes additive #1047 keys when absent — mirror it exactly.
+    if identity.get('usable_output_profile') is None:
+        identity.pop('usable_output_profile', None)
+    for seat in identity['seat_results']:
+        for key in (
+            'continuous_headroom_evidence',
+            'peak_headroom_evidence',
+        ):
+            if seat.get(key) is None:
+                seat.pop(key, None)
     digest = sha256(
         json.dumps(
             identity,
@@ -734,3 +744,236 @@ def test_fabricated_self_hashed_evaluation_is_rejected_on_save_and_read(
         match='direct-level evaluation does not match evaluator authority',
     ):
         repository.list_evaluations_for_scenario(scenario.scenario_id)
+
+
+def _usable_profile(definition, **overrides):
+    from htdt.cad_usable_output import (
+        OutputSample,
+        build_source_usable_output_profile,
+    )
+
+    kwargs = dict(
+        profile_id='uo-fixture-speaker',
+        version='1',
+        equipment_definition_id=definition.definition_id,
+        equipment_definition_version=definition.version,
+        equipment_definition_sha256=definition.semantic_sha256,
+        measurement_distance_m=1.0,
+        reference_axis='on_axis',
+        compression_reference_db_spl=90.0,
+        samples=(
+            OutputSample(
+                band=FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0),
+                level_db_spl=100.0,
+                duration_class='burst',
+                compression_db=0.5,
+            ),
+            OutputSample(
+                band=FrequencyDomain(minimum_hz=20.0, maximum_hz=20000.0),
+                level_db_spl=98.0,
+                duration_class='continuous',
+                compression_db=0.5,
+            ),
+        ),
+    )
+    kwargs.update(overrides)
+    return build_source_usable_output_profile(**kwargs)
+
+
+def test_measured_compression_ceiling_not_overridden_by_declared_peak(
+    tmp_path: Path,
+) -> None:
+    # #1047 regression: a declared 115 dB peak capability must not override
+    # the exact-bound profile's measured 100 dB burst ceiling.
+    (
+        _scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment(
+        definition_id='fixture-nonlinear-speaker',
+        source_hash='7' * 64,
+        peak_db_spl=115.0,
+    )
+    variant = _persist_variant(
+        variant_repository,
+        equipment_repository,
+        revision,
+        definition,
+    )
+    scenario = _scenario()
+    scenario = build_playback_excitation_scenario(
+        source_entity_id=scenario.source_entity_id,
+        channel_role_id=scenario.channel_role_id,
+        reference_input=scenario.reference_input,
+        target_spl_db_spl=scenario.target_spl_db_spl,
+        target_reference_condition=scenario.target_reference_condition,
+        continuous_reference_duration_s=(
+            scenario.continuous_reference_duration_s
+        ),
+        peak_reference_duration_s=scenario.peak_reference_duration_s,
+        frequency_band=scenario.frequency_band,
+        weighting=scenario.weighting,
+        receiver_population=scenario.receiver_population,
+        max_compression_db=2.0,
+    )
+    profile = _usable_profile(definition)
+
+    evaluation = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=scenario,
+        usable_output_profile=profile,
+    )
+    seat = evaluation.seat_results[0]
+    peak = seat.peak_headroom
+    # 100 dB burst ceiling mapped 1 m -> 2 m (-6.02 dB) vs 75 dB target:
+    # 18.98 dB — not the 33.98 dB the declared 115 dB figure would claim.
+    assert peak.state == 'available'
+    assert peak.value == pytest.approx(
+        100.0 - 20.0 * log10(2.0) - 75.0
+    )
+    evidence = seat.peak_headroom_evidence
+    assert evidence is not None
+    assert evidence.binding == 'exact'
+    assert evidence.profile_id == 'uo-fixture-speaker'
+    assert evidence.tier_used == 'compression'
+    assert evidence.basis == 'distortion_qualified'
+
+    # the continuous axis used its own measured ceiling (98 dB)
+    continuous = seat.continuous_headroom
+    assert continuous.state == 'available'
+    assert continuous.value == pytest.approx(
+        98.0 - 20.0 * log10(2.0) - 75.0
+    )
+
+    # legacy call without the profile keeps the declared path
+    legacy = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=scenario,
+    )
+    assert legacy.seat_results[0].peak_headroom.value == pytest.approx(
+        115.0 - 20.0 * log10(2.0) - 75.0
+    )
+    assert legacy.seat_results[0].peak_headroom_evidence.binding == 'none'
+
+
+def test_advisory_profile_cannot_drive_direct_level_headroom(
+    tmp_path: Path,
+) -> None:
+    # #1026: an id-only profile binding is context, never authority.
+    (
+        _scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment(
+        definition_id='fixture-advisory-speaker',
+        source_hash='8' * 64,
+    )
+    variant = _persist_variant(
+        variant_repository,
+        equipment_repository,
+        revision,
+        definition,
+    )
+    profile = _usable_profile(
+        definition,
+        equipment_definition_version=None,
+        equipment_definition_sha256=None,
+    )
+    assert profile.binding_class == 'advisory'
+
+    evaluation = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=_scenario(),
+        usable_output_profile=profile,
+    )
+    seat = evaluation.seat_results[0]
+    assert seat.peak_headroom.state == 'unsupported'
+    assert 'advisory' in (seat.peak_headroom.reason or '')
+    assert seat.peak_headroom_evidence.binding == 'advisory'
+    assert seat.continuous_headroom.state == 'unsupported'
+
+
+def test_profile_binding_mismatch_is_rejected(tmp_path: Path) -> None:
+    (
+        _scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment(
+        definition_id='fixture-bound-speaker',
+        source_hash='9' * 64,
+    )
+    variant = _persist_variant(
+        variant_repository,
+        equipment_repository,
+        revision,
+        definition,
+    )
+    other = _equipment(
+        definition_id='fixture-other-speaker',
+        source_hash='2' * 64,
+    )
+    profile = _usable_profile(other)
+
+    with pytest.raises(
+        ValueError,
+        match='usable-output profile does not bind',
+    ):
+        evaluate_direct_level(
+            revision=revision,
+            variant=variant,
+            equipment_definition=definition,
+            scenario=_scenario(),
+            usable_output_profile=profile,
+        )
+
+
+def test_evaluation_with_profile_survives_repository_replay(
+    tmp_path: Path,
+) -> None:
+    (
+        scene_repository,
+        revision,
+        variant_repository,
+        equipment_repository,
+    ) = _repositories(tmp_path)
+    definition = _equipment(
+        definition_id='fixture-replay-speaker',
+        source_hash='3' * 64,
+    )
+    variant = _persist_variant(
+        variant_repository,
+        equipment_repository,
+        revision,
+        definition,
+    )
+    scenario = _scenario()
+    profile = _usable_profile(definition)
+    evaluation = evaluate_direct_level(
+        revision=revision,
+        variant=variant,
+        equipment_definition=definition,
+        scenario=scenario,
+        usable_output_profile=profile,
+    )
+    repository = CadDirectLevelRepository(
+        scene_repository,
+        variant_repository,
+        equipment_repository,
+    )
+    repository.save_scenario(scenario)
+    repository.save_evaluation(evaluation)
+    reloaded = repository.get_evaluation(evaluation.evaluation_id)
+    assert reloaded == evaluation
+    assert reloaded.usable_output_profile == profile

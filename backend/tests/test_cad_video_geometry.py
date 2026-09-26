@@ -243,6 +243,7 @@ def _request(specification):
         ),
         seats=(
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-front',
                 row_id='row-front',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),
@@ -250,6 +251,7 @@ def _request(specification):
                 head_radius_m=0.16,
             ),
             SeatGeometryBinding(
+                geometry_source='manual',
                 entity_id='seat-rear',
                 row_id='row-rear',
                 eye_reference_offset_local_m=Offset3(z_m=0.65),
@@ -763,3 +765,213 @@ def test_read_apis_fail_closed_when_system_variant_hash_mismatches(
         repository.list_evaluations_for_variant(variant.variant_id)
     with pytest.raises(ValueError, match='SystemVariant hash mismatch'):
         repository.list_evaluations_for_revision(baseline.revision_id)
+
+
+# --- #1056: ListenerPose fail-open regression --------------------------------
+
+
+def _legacy_front_seat() -> SeatGeometryBinding:
+    """A seat binding carrying pre-1056 rows — no eye/head authority."""
+    return SeatGeometryBinding(
+        entity_id='seat-front',
+        row_id='row-front',
+        eye_reference_offset_local_m=Offset3(z_m=0.65),
+        head_center_offset_local_m=Offset3(z_m=0.65),
+        head_radius_m=0.16,
+    )
+
+
+def _request_with_seats(specification, seats) -> VideoGeometryRequest:
+    request = _request(specification)
+    return build_video_geometry_request(
+        projector_entity_id=request.projector_entity_id,
+        projector_specification=specification,
+        screen=request.screen,
+        seats=seats,
+        policy=request.policy,
+        collision_entity_ids=request.collision_entity_ids,
+    )
+
+
+def test_legacy_seat_never_fabricates_viewing_or_sightline(tmp_path: Path) -> None:
+    """#1056: a seat with no pose authority must not get a normal PASS/FAIL
+    from the hard-coded occupant defaults."""
+    scene_repository, baseline = _baseline(tmp_path)
+    specification = _projector_spec()
+    evaluation = evaluate_video_geometry(
+        baseline=baseline,
+        variant=None,
+        projector_specification=specification,
+        request=_request_with_seats(specification, (_legacy_front_seat(),)),
+    )
+    viewing = evaluation.viewing[0]
+    assert viewing.eye_position is None
+    assert viewing.horizontal_viewing_angle_deg is None
+    assert viewing.vertical_viewing_angle_deg is None
+    assert viewing.center_elevation_angle_deg is None
+    assert viewing.horizontal_status == 'UNKNOWN'
+    assert viewing.vertical_status == 'UNKNOWN'
+    assert viewing.center_elevation_status == 'UNKNOWN'
+    sightline = evaluation.sightlines[0]
+    assert sightline.status == 'UNKNOWN'
+    assert sightline.minimum_head_ray_clearance_m is None
+
+
+def test_legacy_blocker_seat_makes_sightline_unknown(tmp_path: Path) -> None:
+    """#1056: an authoritative viewer cannot prove clearance past a blocker
+    whose head geometry has no authority."""
+    scene_repository, baseline = _baseline(tmp_path)
+    specification = _projector_spec()
+    seats = (
+        SeatGeometryBinding(
+            geometry_source='manual',
+            entity_id='seat-front',
+            row_id='row-front',
+            eye_reference_offset_local_m=Offset3(z_m=0.65),
+            head_center_offset_local_m=Offset3(z_m=0.65),
+            head_radius_m=0.16,
+        ),
+        SeatGeometryBinding(
+            entity_id='seat-rear',
+            row_id='row-rear',
+            eye_reference_offset_local_m=Offset3(z_m=0.65),
+            head_center_offset_local_m=Offset3(z_m=0.65),
+            head_radius_m=0.16,
+        ),
+    )
+    evaluation = evaluate_video_geometry(
+        baseline=baseline,
+        variant=None,
+        projector_specification=specification,
+        request=_request_with_seats(specification, seats),
+    )
+    by_seat = {item.seat_entity_id: item for item in evaluation.sightlines}
+    assert by_seat['seat-front'].status == 'UNKNOWN'
+    assert by_seat['seat-rear'].status == 'UNKNOWN'
+    # The explicitly materialized viewer still evaluates viewing angles.
+    assert evaluation.viewing[0].eye_position is not None
+
+
+def test_materialized_listener_pose_binding_evaluates_and_binds_ref(
+    tmp_path: Path,
+) -> None:
+    """#1056: an explicit pose-derived binding is authoritative and carries
+    the pose id+version+sha triple in request identity."""
+    from htdt.cad_listener_pose import (
+        build_listener_pose,
+        seat_binding_from_pose,
+    )
+
+    scene_repository, baseline = _baseline(tmp_path)
+    specification = _projector_spec()
+    pose = build_listener_pose(
+        seat_entity_id='seat-front',
+        label='upright',
+        head_center_offset_local_m=Offset3(z_m=1.15),
+        eye_reference_offset_local_m=Offset3(z_m=1.10),
+        acoustic_reference_offset_local_m=Offset3(z_m=1.0),
+        provenance='test',
+    )
+    binding = seat_binding_from_pose(pose)
+    assert binding.geometry_source == 'listener_pose'
+    assert binding.pose_ref == pose.authority_ref()
+    evaluation = evaluate_video_geometry(
+        baseline=baseline,
+        variant=None,
+        projector_specification=specification,
+        request=_request_with_seats(specification, (binding,)),
+    )
+    viewing = evaluation.viewing[0]
+    assert viewing.eye_position is not None
+    assert viewing.horizontal_status in ('PASS', 'FAIL')
+
+
+def test_distinct_poses_produce_distinct_request_identity(tmp_path: Path) -> None:
+    """#1056: reclined vs upright poses must not collapse to one request."""
+    from htdt.cad_listener_pose import (
+        build_listener_pose,
+        seat_binding_from_pose,
+    )
+
+    specification = _projector_spec()
+    upright = seat_binding_from_pose(
+        build_listener_pose(
+            seat_entity_id='seat-front',
+            label='upright',
+            head_center_offset_local_m=Offset3(z_m=1.15),
+            eye_reference_offset_local_m=Offset3(z_m=1.10),
+            acoustic_reference_offset_local_m=Offset3(z_m=1.0),
+            posture_kind='upright',
+            provenance='test',
+        )
+    )
+    reclined = seat_binding_from_pose(
+        build_listener_pose(
+            seat_entity_id='seat-front',
+            label='reclined',
+            head_center_offset_local_m=Offset3(z_m=0.95),
+            eye_reference_offset_local_m=Offset3(z_m=0.90),
+            acoustic_reference_offset_local_m=Offset3(z_m=1.0),
+            posture_kind='reclined',
+            provenance='test',
+        )
+    )
+    request_a = _request_with_seats(specification, (upright,))
+    request_b = _request_with_seats(specification, (reclined,))
+    assert request_a.request_sha256 != request_b.request_sha256
+
+
+def test_pre_1056_seat_payloads_still_revalidate() -> None:
+    """Bindings serialized before the authority marker must decode as
+    'legacy' and still satisfy their stored request hash."""
+    specification = _projector_spec()
+    request = _request_with_seats(specification, (_legacy_front_seat(),))
+    payload = request.model_dump(mode='json')
+    seat_payload = payload['seats'][0]
+    assert 'geometry_source' not in _seat_payload_identity(seat_payload)
+    reloaded = VideoGeometryRequest.model_validate(payload)
+    assert reloaded.seats[0].geometry_source == 'legacy'
+    assert reloaded.request_sha256 == request.request_sha256
+
+
+def _seat_payload_identity(seat_payload: dict) -> dict:
+    from htdt.cad_video_geometry import _seat_identity_payload
+
+    return _seat_identity_payload(
+        SeatGeometryBinding.model_validate(seat_payload)
+    )
+
+
+def test_missing_inputs_report_seats_without_pose_authority() -> None:
+    """#1056: readiness distinguishes missing vs legacy vs explicit."""
+    from htdt.cad_video_workspace import (
+        VideoGeometryWorkspace,
+        video_workspace_missing_inputs,
+    )
+
+    workspace = VideoGeometryWorkspace(
+        document_id=DOCUMENT_ID,
+        projector_entity_id='projector-main',
+        projector_specification_sha256='0' * 64,
+        screen_bindings={
+            'screen-main': ScreenGeometryBinding(
+                entity_id='screen-main',
+                visible_width_m=2.0,
+                visible_height_m=1.0,
+                frame_clearance_m=0.05,
+            )
+        },
+        seat_bindings={'seat-front': _legacy_front_seat()},
+    )
+    missing = video_workspace_missing_inputs(_scene(), workspace)
+    assert any('seat-front' in item and 'レガシー' in item for item in missing)
+    assert any('seat-rear' in item and '未設定' in item for item in missing)
+
+
+def test_seat_eye_world_refuses_legacy_geometry() -> None:
+    """#1056: no fabricated eye point for the seat-view camera."""
+    from htdt.cad_video_workspace import seat_eye_world
+
+    seat = _seat('seat-front', y_m=2.2, z_m=0.5)
+    with pytest.raises(ValueError):
+        seat_eye_world(seat, _legacy_front_seat())
