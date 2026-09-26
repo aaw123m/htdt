@@ -81,7 +81,6 @@ def test_open_mesh_reports_blocker_with_impact_and_action() -> None:
     assert watertight.severity == 'blocker'
     states = {row.target: row.state for row in summary.readiness}
     assert states['wave_closed_volume'] == 'blocked'
-    assert 'open_boundary' in states['wave_closed_volume'] or True
     wave_row = next(
         row for row in summary.readiness if row.target == 'wave_closed_volume'
     )

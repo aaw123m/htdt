@@ -286,7 +286,9 @@ def test_standards_profile_library_service(app, repositories):
     )
     assert v2.profile_id == created.profile_id
     assert v2.version != created.version
-    assert v2.profile_semantic_hash != created.profile_semantic_hash or True
+    # semantic_payload covers version+name+criteria, so a new version is a
+    # new semantic identity (also required by the UNIQUE column).
+    assert v2.profile_semantic_hash != created.profile_semantic_hash
     # Both immutable versions remain retrievable.
     versions = service.profile_versions(created.profile_id)
     assert len(versions) == 2

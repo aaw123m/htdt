@@ -57,11 +57,11 @@ def store_content_blob(
         (digest, len(payload), payload),
     )
     row = connection.execute(
-        f'SELECT length(payload_blob) FROM {CONTENT_BLOB_TABLE} '
+        f'SELECT payload_blob FROM {CONTENT_BLOB_TABLE} '
         'WHERE payload_sha256=?',
         (digest,),
     ).fetchone()
-    if row is None or int(row[0]) != len(payload):
+    if row is None or sha256(bytes(row[0])).hexdigest() != digest:
         raise ContentBlobStoreError(
             'content blob store integrity mismatch after write'
         )

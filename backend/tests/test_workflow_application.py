@@ -288,9 +288,12 @@ def test_project_menu_present_and_title_shows_project(tmp_path: Path) -> None:
         f'{composition.project_entry.display_name}'
     )
 
-    # Switching to the already-open document is a no-op.
+    # Switching to the already-open document is a no-op: identity intact.
     composition._switch_to_project(composition.project_entry)
-    assert composition.shell.isVisible() or True  # no crash, no close
+    assert composition.shell.windowTitle() == (
+        f'Home Theater Digital Twin — '
+        f'{composition.project_entry.display_name}'
+    )
     assert composition.document_id == 'document-1'
 
     composition.shell.close()
