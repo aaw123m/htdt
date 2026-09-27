@@ -224,20 +224,10 @@ class RoomMeasureController(QObject):
 class RoomMeasurePanel(QWidget):
     """Compact measure card: mode + reference + result + copy/cancel."""
 
-    def __init__(
-        self,
-        controller: RoomMeasureController,
-        parent: QWidget | None = None,
-        *,
-        display_policy_provider=None,
-    ) -> None:
-        """``display_policy_provider``: zero-arg callable returning the
-        current ``LengthDisplayPolicy`` (read at render time so preference
-        commits apply immediately). ``None`` keeps the SI readout; report
-        and export surfaces never call through this path."""
+    def __init__(self, controller: RoomMeasureController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._display_policy_provider = display_policy_provider
         self.controller = controller
+        self._length_policy = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -285,18 +275,15 @@ class RoomMeasurePanel(QWidget):
         controller.measurementChanged.connect(self._on_result)
         controller.stateChanged.connect(self._on_state)
 
-    def set_display_policy_provider(self, provider) -> None:
-        self._display_policy_provider = provider
-
-    def _policy(self):
-        if self._display_policy_provider is None:
-            return None
-        return self._display_policy_provider()
+    def set_length_policy(self, policy) -> None:
+        """Apply the #496 display-length policy to result text + clipboard copy."""
+        self._length_policy = policy
+        self._on_result(self.controller.result)
 
     def _on_result(self, result: MeasureResult | None) -> None:
         self.copy_button.setEnabled(result is not None)
         if result is not None:
-            text = format_measure_result(result, policy=self._policy())
+            text = format_measure_result(result, self._length_policy)
             refs = ' → '.join(endpoint.describe() for endpoint in result.endpoints)
             self.result_label.setText(f'{text}\n{refs}')
 
@@ -311,5 +298,5 @@ class RoomMeasurePanel(QWidget):
         from PySide6.QtWidgets import QApplication
 
         QApplication.clipboard().setText(
-            format_measure_result(self.controller.result, policy=self._policy())
+            format_measure_result(self.controller.result, self._length_policy)
         )

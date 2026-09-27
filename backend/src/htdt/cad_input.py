@@ -37,12 +37,20 @@ CAD_SCENE_COMMAND_IDS: tuple[str, ...] = (
     "room.transform.axis_z",
 )
 
-# Save/undo/redo remain document/application commands owned by the existing registry.
-# The CAD controller only gives them a Room-scoped keyboard entry point.
+# Save/undo/redo remain document/application commands owned by the existing
+# registry. The CAD controller only gives them a Room-scoped keyboard entry
+# point; the same applies to the daily edit verbs (Delete/H/L/T, Ctrl+A/Ctrl+I)
+# whose declared shortcuts previously rendered as palette badges only.
 CAD_SHORTCUT_COMMAND_IDS: tuple[str, ...] = (
     "project.save",
     "edit.undo",
     "edit.redo",
+    "room.select.all",
+    "room.select.invert",
+    "room.edit.delete",
+    "room.edit.toggle_hide",
+    "room.edit.toggle_lock",
+    "room.measure",
     *CAD_SCENE_COMMAND_IDS,
 )
 

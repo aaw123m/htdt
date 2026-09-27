@@ -4061,7 +4061,23 @@ class RoomWorkspace(QWidget):
         return self.layout_duplicate()
 
     def delete_selection(self) -> bool:
-        """Undo-safe batch delete from the viewport/context menu (#482)."""
+        """Undo-safe batch delete from the viewport/context menu (#482).
+
+        While the geometry editor is active the same Delete verb targets the
+        selected vertex/wall — both are undoable through the working document
+        and both reject locked/structurally-invalid states.
+        """
+        geometry = self.geometry_input
+        if geometry is not None and geometry.is_active:
+            try:
+                if geometry.selected_vertex_id is not None:
+                    return geometry.delete_selected_vertex()
+                if geometry.selected_edge_index is not None:
+                    return geometry.delete_selected_wall()
+            except (EditStateError, ValueError) as exc:
+                self._set_operation_error("形状の選択項目を削除できませんでした", exc)
+                return False
+            return False
         ids = tuple(self.controller.view_state.selection)
         if not ids:
             return False
@@ -4120,10 +4136,48 @@ class RoomWorkspace(QWidget):
         self.controller.view_state.transform_mode = mode
         self._set_status("移動モード" if mode == "move" else "回転モード")
 
+    def select_all(self) -> None:
+        """Select every visible entity (hidden items can't be picked, so they
+        stay unselected for delete/drag safety)."""
+        ids = [
+            entity.entity_id
+            for entity in self.controller.document.entities
+            if not self.controller.view_state.is_hidden(entity.entity_id)
+        ]
+        self.controller.view_state.set_selection(ids)
+        self.controller._persist_view_state()
+        self._after_selection_changed()
+
+    def select_invert(self) -> None:
+        """Invert the selection across visible entities."""
+        view_state = self.controller.view_state
+        inverted = [
+            entity.entity_id
+            for entity in self.controller.document.entities
+            if not view_state.is_selected(entity.entity_id)
+            and not view_state.is_hidden(entity.entity_id)
+        ]
+        view_state.set_selection(inverted)
+        self.controller._persist_view_state()
+        self._after_selection_changed()
+
+    def clear_selection(self) -> None:
+        if not self.controller.view_state.selection:
+            return
+        self.controller.view_state.set_selection(())
+        self.controller._persist_view_state()
+        self._after_selection_changed()
+
     def fit_selection(self) -> None:
-        entity_id = self.controller.selected_id
-        if entity_id is not None:
-            self.viewport.focus_entity(entity_id)
+        selection = self.controller.view_state.selection
+        if not selection and self.controller.selected_id is not None:
+            selection = (self.controller.selected_id,)
+        focus = getattr(self.viewport, "focus_entities", None)
+        if callable(focus):
+            focus(selection)
+            return
+        if selection:
+            self.viewport.focus_entity(selection[-1])
 
     def fit_all(self) -> None:
         self.viewport.fit_scene()
@@ -4378,6 +4432,13 @@ class RoomWorkspace(QWidget):
             self._set_status('1点目を記録しました。2点目をクリックしてください')
         elif result == 'ready':
             self._finish_underlay_calibration()
+        else:
+            # Not calibrating: the click must not be swallowed — behave like an
+            # empty-space click so it still deselects or feeds the measure tool.
+            last = getattr(self.viewport, "_last_display_position", None)
+            position = last() if callable(last) else None
+            if position is not None:
+                self._empty_clicked(position)
 
     def _refresh_underlay_ui(self) -> None:
         self._sync_aux_render_state()
@@ -4983,6 +5044,11 @@ class RoomWorkspace(QWidget):
             changed = self.controller.working.cancel_preview()
             self._refresh()
             return changed
+        if self.controller.view_state.selection:
+            # CAD Esc chain: cancel the active gesture first, then fall back
+            # to clearing the selection once nothing is in flight.
+            self.clear_selection()
+            return True
         return False
 
     def commit_active_operation(self) -> bool:
@@ -6104,8 +6170,7 @@ class RoomWorkspace(QWidget):
                 self.object_palette.setVisible(True)
             return
         if tool_id == "focus-selection":
-            if self.controller.selected_id is not None:
-                self.viewport.focus_entity(self.controller.selected_id)
+            self.fit_selection()
             return
         if tool_id == "fit-scene":
             self.viewport.fit_scene()
