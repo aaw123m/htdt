@@ -126,9 +126,9 @@ class FieldReturnManifest(BaseModel):
     """Versioned .htdtfieldreturn root document — a contribution, never a
     CaptureRevision."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.field-return'] = Field(default='htdt.field-return', alias='schema')
+    schema: Literal['htdt.field-return'] = 'htdt.field-return'
     schema_version: int = Field(ge=1)
     contribution_id: str = Field(pattern=UUID4_PATTERN)
     mission_id: str | None = Field(default=None, pattern=UUID4_PATTERN)

@@ -22,9 +22,11 @@ class EquipmentCatalogExportResult(BaseModel):
     equipment reference tuple semantics Capture binds against.
     """
 
-    model_config = ConfigDict(frozen=True, serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True)
 
-    schema_: Literal['htdt.equipment.catalog-export-result'] = Field(default='htdt.equipment.catalog-export-result', alias='schema')
+    schema: Literal['htdt.equipment.catalog-export-result'] = (
+        'htdt.equipment.catalog-export-result'
+    )
     schema_version: Literal[1] = 1
     snapshot_schema: Literal['htdt.equipment.catalog-snapshot'] = (
         'htdt.equipment.catalog-snapshot'

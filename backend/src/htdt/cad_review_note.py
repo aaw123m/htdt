@@ -66,9 +66,9 @@ class ReviewNote(BaseModel):
     model never requires an account or identity service.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.review-note'] = Field(default='htdt.review-note', alias='schema')
+    schema: Literal['htdt.review-note'] = 'htdt.review-note'
     schema_version: Literal[1] = 1
     note_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
@@ -94,7 +94,7 @@ class ReviewNote(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema_,
+            'schema': self.schema,
             'schema_version': self.schema_version,
             'note_id': self.note_id,
             'document_id': self.document_id,

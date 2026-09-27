@@ -39,9 +39,9 @@ class ProjectArchivedError(ProjectLibraryError):
 class ProjectLibraryEntry(BaseModel):
     """One user-facing project bound to one ``document_id``."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.project-library-entry'] = Field(default=PROJECT_LIBRARY_SCHEMA, alias='schema')
+    schema: Literal['htdt.project-library-entry'] = PROJECT_LIBRARY_SCHEMA
     schema_version: Literal['1.0.0'] = PROJECT_LIBRARY_SCHEMA_VERSION
     project_id: str
     document_id: str = Field(min_length=1)

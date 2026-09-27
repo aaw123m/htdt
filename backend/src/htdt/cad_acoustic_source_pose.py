@@ -117,9 +117,11 @@ class AcousticSourcePoseObservation(BaseModel):
     explicit user action through canonical lifecycle authority.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.acoustic-source-pose-observation'] = Field(default='htdt.acoustic-source-pose-observation', alias='schema')
+    schema: Literal['htdt.acoustic-source-pose-observation'] = (
+        'htdt.acoustic-source-pose-observation'
+    )
     schema_version: Literal[1] = 1
     observation_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
@@ -175,7 +177,7 @@ class AcousticSourcePoseObservation(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema_,
+            'schema': self.schema,
             'schema_version': self.schema_version,
             'observation_id': self.observation_id,
             'authority_version': self.authority_version,

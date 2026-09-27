@@ -590,9 +590,9 @@ class CaptureSourceEvidence(BaseModel):
 
 
 class CaptureRoomPlanCaptureMetadata(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.captured-room-metadata'] = Field(alias='schema')
+    schema: Literal['htdt.captured-room-metadata']
     schema_version: Literal['1.0.0']
     capture_revision_id: str
     capture_session_id: str
@@ -699,12 +699,12 @@ class CaptureSupplementalDocument(BaseModel):
     validation when they cannot satisfy this contract.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
     supplemental_document_handoff_id: str = Field(pattern=r'^[0-9a-f]{64}$')
     document_kind: str = Field(min_length=1)
     validation_state: Literal['supported', 'unsupported']
-    schema_: str = Field(min_length=1, alias='schema')
+    schema: str = Field(min_length=1)
     schema_version: str = Field(min_length=1)
     path: str = Field(min_length=1)
     source_evidence_id: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -747,9 +747,9 @@ class CaptureSupplementalDocument(BaseModel):
 
 
 class CaptureIngestionPlan(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
+    model_config = ConfigDict(frozen=True, extra='forbid')
 
-    schema_: Literal['htdt.capture.ingestion-plan'] = Field(alias='schema')
+    schema: Literal['htdt.capture.ingestion-plan']
     schema_version: Literal['1.0.0']
     ingestor: CaptureIngestorIdentity
     bundle: CaptureBundleIdentity

@@ -67,7 +67,7 @@ def test_no_room_document_produces_required_room_scan_task() -> None:
         project=new_project_reference(document_id='mission-doc-1'),
         purpose='initial_capture',
     )
-    assert plan.schema_ == 'htdt.capture.task-plan'
+    assert plan.schema == 'htdt.capture.task-plan'
     kinds = [task.kind for task in plan.tasks]
     assert kinds == ['acquire_room_scan']
     task = plan.tasks[0]
