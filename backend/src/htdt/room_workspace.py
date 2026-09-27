@@ -205,6 +205,8 @@ from .mesh_import_authority import (
     make_mesh_import_authority,
     mesh_import_scene_transform,
 )
+from .ingress import IngressTooLargeError, read_file_bounded
+from .limits import MAX_ATTACHMENT_BYTES
 from .raw_mesh import RawMeshImportError, import_raw_visual_mesh
 from .raw_mesh_repair import RepairedRawMesh, RepairedRawMeshDiagnosticResult
 from .semantic_geometry import (
@@ -1201,9 +1203,12 @@ class RoomWorkspaceController:
         """
 
         path = Path(file_path)
-        data = path.read_bytes()
-        if len(data) > MAX_SOURCE_BYTES:
-            raise UnderlayImportError('ファイルが大きすぎます (64 MB まで)')
+        try:
+            data = read_file_bounded(path, MAX_SOURCE_BYTES)
+        except IngressTooLargeError as exc:
+            raise UnderlayImportError(
+                'ファイルが大きすぎます (64 MB まで)'
+            ) from exc
         suffix = path.suffix.lower()
         source_sha = ''
         render_sha: str | None = None
@@ -1776,7 +1781,7 @@ class RoomWorkspaceController:
         if entity.size_m is None:
             raise EditStateError("メッシュボディは物理オブジェクトのみに設定できます")
         path = Path(file_path)
-        data = path.read_bytes()
+        data = read_file_bounded(path, MAX_ATTACHMENT_BYTES)
         imported = import_raw_visual_mesh(data, source_name=path.name)
         self.repository.store_blob(data)
         # This legacy path parses source coordinates verbatim and cannot ask
@@ -1839,7 +1844,7 @@ class RoomWorkspaceController:
         if entity.size_m is None:
             raise EditStateError("メッシュボディは物理オブジェクトのみに設定できます")
         path = Path(file_path)
-        data = path.read_bytes()
+        data = read_file_bounded(path, MAX_ATTACHMENT_BYTES)
         body_mesh, _authority = import_entity_mesh_asset(
             data,
             source_name=path.name,
@@ -1891,7 +1896,7 @@ class RoomWorkspaceController:
         if not self.can_edit:
             raise EditStateError("現在の状態ではジオメトリをインポートできません")
         path = Path(file_path)
-        data = path.read_bytes()
+        data = read_file_bounded(path, MAX_ATTACHMENT_BYTES)
         raw_mesh = import_raw_visual_mesh(data, source_name=path.name)
         spec_unit = format_declared_source_unit(raw_mesh.provenance.asset_format)
         resolved_unit = source_unit if source_unit is not None else spec_unit

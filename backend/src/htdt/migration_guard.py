@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import tempfile
 from typing import Callable
 from uuid import uuid4
@@ -124,6 +125,50 @@ def _validate_archive_member(member: zipfile.ZipInfo) -> None:
     member_path = Path(member.filename)
     if member_path.is_absolute() or '..' in member_path.parts:
         raise MigrationOpenError('Unsafe path in pre-migration backup')
+    mode = (member.external_attr >> 16) & 0o170000
+    if mode == stat.S_IFLNK:
+        raise MigrationOpenError('Pre-migration backup contains a symlink member')
+    if mode not in (0, stat.S_IFREG, stat.S_IFDIR):
+        raise MigrationOpenError('Pre-migration backup contains a special file member')
+
+
+def _extract_member_bounded(
+    archive: zipfile.ZipFile,
+    member: zipfile.ZipInfo,
+    staging: Path,
+    remaining: list[int],
+) -> None:
+    """Stream one archive member to ``staging`` under a shared byte budget.
+
+    ``ZipFile.extractall`` trusts each member's decoded stream; a swapped
+    archive could materialize far beyond its declared sizes. Extraction
+    therefore writes through ``archive.open`` with per-member and
+    archive-wide actual-byte caps (mirrors ``native_backup``).
+    """
+    target = staging / member.filename
+    if member.is_dir():
+        target.mkdir(parents=True, exist_ok=True)
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    try:
+        with archive.open(member, 'r') as source, target.open('xb') as output:
+            while chunk := source.read(1024 * 1024):
+                written += len(chunk)
+                if written > member.file_size or len(chunk) > remaining[0]:
+                    raise MigrationOpenError(
+                        'Pre-migration backup member exceeds its declared size'
+                    )
+                remaining[0] -= len(chunk)
+                output.write(chunk)
+    except MigrationOpenError:
+        raise
+    except (zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError) as exc:
+        raise MigrationOpenError('Unreadable member in pre-migration backup') from exc
+    if written != member.file_size:
+        raise MigrationOpenError(
+            'Pre-migration backup member decoded size mismatch'
+        )
 
 
 def _read_manifest_bounded(archive: zipfile.ZipFile, bound: int) -> bytes:
@@ -153,8 +198,12 @@ def _restore_pre_migration_backup(root: Path, archive_path: Path, expected_versi
             if len(members) > _MAX_ROLLBACK_MEMBERS:
                 raise MigrationOpenError('Pre-migration backup has too many members')
             declared_total = 0
+            seen_names: set[str] = set()
             for member in members:
                 _validate_archive_member(member)
+                if member.filename in seen_names:
+                    raise MigrationOpenError('Pre-migration backup contains duplicate member names')
+                seen_names.add(member.filename)
                 declared_total += member.file_size
                 if declared_total > _MAX_ROLLBACK_EXPANDED_BYTES:
                     raise MigrationOpenError('Pre-migration backup exceeds the expanded-size bound')
@@ -166,7 +215,9 @@ def _restore_pre_migration_backup(root: Path, archive_path: Path, expected_versi
             )
             if int(manifest.get('schema_version', -1)) != expected_version:
                 raise MigrationOpenError('Pre-migration backup schema does not match rollback target')
-            archive.extractall(staging)
+            remaining = [_MAX_ROLLBACK_EXPANDED_BYTES]
+            for member in members:
+                _extract_member_bounded(archive, member, staging, remaining)
 
         restored_db = staging / 'htdt.sqlite3'
         restored_assets = staging / 'assets'
