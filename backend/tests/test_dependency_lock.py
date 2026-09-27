@@ -1,9 +1,9 @@
 """Shipped dependency-closure authority tests.
 
 The Windows package ships exactly the third-party closure recorded in
-``backend/requirements-n05-windows.lock``. These tests fail CI if the lock
+``backend/requirements-n05-windows.lock``. These tests fail if the lock
 loses its ``--hash=sha256`` anchoring, drifts from the ``==`` pins declared in
-``backend/pyproject.toml``, or if the release pipeline stops testing and
+``backend/pyproject.toml``, or if the packaging gate stops installing and
 hash-verifying the locked closure. ``scripts/check_dependency_lock.py`` is the
 executable authority; this module asserts both its verdict and the wiring that
 consumes it.
@@ -30,8 +30,6 @@ LOCK = BACKEND_ROOT / 'requirements-n05-windows.lock'
 PYPROJECT = BACKEND_ROOT / 'pyproject.toml'
 CHECK_SCRIPT = REPO_ROOT / 'scripts' / 'check_dependency_lock.py'
 BUILD_NATIVE = REPO_ROOT / 'scripts' / 'build-native.ps1'
-RELEASE_WORKFLOW = REPO_ROOT / '.github' / 'workflows' / 'windows-release.yml'
-CI_WORKFLOW = REPO_ROOT / '.github' / 'workflows' / 'ci.yml'
 WORKFLOWS = REPO_ROOT / '.github' / 'workflows'
 
 _USES_FLOATING_TAG = re.compile(r'uses:\s*[\w.-]+/[\w.-]+@v\d', re.IGNORECASE)
@@ -107,15 +105,16 @@ def test_build_native_uses_explicit_interpreter_and_verified_hashes() -> None:
     assert '--require-hashes' in script
 
 
-def test_release_workflow_tests_the_locked_closure() -> None:
-    if not RELEASE_WORKFLOW.is_file():
-        pytest.skip('windows-release.yml not available')
-    workflow = RELEASE_WORKFLOW.read_text(encoding='utf-8')
-    # The package job must install the hash-verified lock, run the backend
-    # suite against it and prove the test overlay never moved a locked pin.
-    assert '--require-hashes' in workflow
-    assert 'check_dependency_lock.py --verify-installed' in workflow
-    assert 'python-version: "3.12.10"' in workflow
+def test_build_native_tests_the_locked_closure() -> None:
+    if not BUILD_NATIVE.is_file():
+        pytest.skip('build-native.ps1 not available')
+    script = BUILD_NATIVE.read_text(encoding='utf-8')
+    # The packaging gate must pin the interpreter to the wheel closure the
+    # lock targets and verify the build venv ends up exactly at the locked
+    # versions after the --require-hashes install.
+    assert '(3, 12)' in script
+    assert 'AMD64' in script
+    assert '--verify-installed' in script
 
 
 def test_workflow_actions_are_sha_pinned() -> None:
@@ -131,8 +130,13 @@ def test_workflow_actions_are_sha_pinned() -> None:
     assert not violations, 'workflow actions not pinned to a commit SHA:\n' + '\n'.join(violations)
 
 
-def test_ci_workflow_checks_lock_consistency() -> None:
-    if not CI_WORKFLOW.is_file():
-        pytest.skip('ci.yml not available')
-    workflow = CI_WORKFLOW.read_text(encoding='utf-8')
-    assert 'check_dependency_lock.py' in workflow
+def test_build_native_checks_lock_consistency() -> None:
+    if not BUILD_NATIVE.is_file():
+        pytest.skip('build-native.ps1 not available')
+    script = BUILD_NATIVE.read_text(encoding='utf-8')
+    # The lock-vs-pyproject consistency check must run before the build venv
+    # installs anything from the lock.
+    assert 'check_dependency_lock.py' in script
+    assert script.index('check_dependency_lock.py') < script.index(
+        '--require-hashes'
+    ), 'lock consistency check must run before the dependency install'

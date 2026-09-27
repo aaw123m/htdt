@@ -11,6 +11,11 @@ htmlcov/
 frontend/node_modules/
 frontend/dist/
 
+# Build outputs (scripts/build-native.ps1, build-installer.ps1)
+dist-native/
+dist-installer/
+.tmp/
+
 # Editors / OS
 .vscode/
 .idea/

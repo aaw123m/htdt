@@ -14,7 +14,7 @@ raw visual evidence、semantic acoustic authority、compiled/solver representati
 
 stable personal Windows releaseは **0.1.0** です。
 
-主UIはPySide6 / Qt Widgets + PyVista / VTK / PyVistaQtによるnative 3D CAD editorです。browser UIはlegacy/rollback用としてsourceを保持していますが、新しいCAD機能の正本ではなく、native release CIの必須gateからも外しています。
+主UIはPySide6 / Qt Widgets + PyVista / VTK / PyVistaQtによるnative 3D CAD editorです。browser UIはlegacy/rollback用としてsourceを保持していますが、新しいCAD機能の正本ではなく、native releaseの必須gateからも外しています。
 
 実装済みの主経路:
 
@@ -213,7 +213,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 
 Windows実機確認が必要な場合のlocal worktreeは `C:\Users\ka092\Desktop\HTDT\repo` です。
 
-ただし、**計画、設計判断、実装記録、検証結果、進捗、成果物の正本はGitHubに残します**。GitHub Actionsで検証できる事項はActionsを優先し、RDCは実機GPU/UI/installer等でしか確認できないgateへ限定します。
+ただし、**計画、設計判断、実装記録、検証結果、進捗、成果物の正本はGitHubに残します**。検証はlocalのbackend test suite (`backend/tests`) とpackaging/validation gate (`scripts/build-native.ps1`, `scripts/check_dependency_lock.py` 等)で行い、RDCは実機GPU/UI/installer等でしか確認できないgateへ限定します。
 
 ### Synthetic O70/O80 development demo
 

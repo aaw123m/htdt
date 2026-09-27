@@ -28,7 +28,6 @@ from __future__ import annotations
 import argparse
 import json
 import platform
-import shutil
 import sys
 import tempfile
 import traceback
@@ -656,7 +655,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    temporary = args.work_dir is None
     work_dir = args.work_dir or Path(
         tempfile.mkdtemp(prefix='htdt-golden-path-')
     )
@@ -683,8 +681,9 @@ def main(argv: list[str] | None = None) -> int:
         )
     trace_path.write_text(trace.to_json(environment=environment))
     print(f'[preflight] trace written: {trace_path}')
-    if temporary and code != 0:
-        shutil.rmtree(work_dir, ignore_errors=True)
+    # The trace is written inside the work dir, so a temporary work dir is
+    # never auto-deleted: deleting it on failure would discard the trace
+    # (and audit artifacts) that exist precisely to debug that failure.
     return code
 
 
