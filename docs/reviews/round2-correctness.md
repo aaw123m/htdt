@@ -40,4 +40,5 @@ entity-set undo, backup handle leak) not re-reported.
 
 - `pytest tests/test_optimization_objectives.py tests/test_cad_joint_execution.py tests/test_save_focused_editor.py` — 33 passed.
 - `pytest tests/test_cad_joint_optimization.py tests/test_cad_direct_level.py tests/test_native_worker.py` — all passed.
-- Full suite: `TMPDIR=/c/t C:/devin/python/python.exe -m pytest -q -n 4` — see result below.
+- Full suite `TMPDIR=/c/t C:/devin/python/python.exe -m pytest -q -n 4` — 4960 passed, 26 failed, all 26 in `test_acoustic_bakeoff_mfem_{concave,modal,transient}_experiment.py` with `FileNotFoundError: benchmarks/acoustics/*.json`. Those tests use a repo-root-relative `Path('benchmarks/...')`, so they cannot resolve from the mandated `cd backend` invocation — verified 26/26 pass when run from the repo root, and they are unrelated to this diff. Preexisting CWD issue.
+- Regression check: the new tests fail on the pre-fix tree (integrity tamper masked to `()` instead of raising; `focusChanged` receivers count stays at +1 after window teardown).
