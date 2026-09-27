@@ -100,6 +100,7 @@ class FileCalibrationAdapter:
             ensure_ascii=False,
             sort_keys=True,
             separators=(',', ':'),
+            allow_nan=False,
         ) + '\n'
         materialization_id = 'mat:' + _hash(
             {

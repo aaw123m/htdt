@@ -46,6 +46,7 @@ from .cad_system_variant import (
     materialize_system_variant,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .canonical_json import canonical_json
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetStore,
@@ -431,12 +432,7 @@ class CadEquipmentRepository:
                     evidence.provenance.source_sha256,
                     evidence.authority_kind,
                     evidence.subject_sha256(),
-                    json.dumps(
-                        list(evidence.field_groups()),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(',', ':'),
-                    ),
+                    canonical_json(list(evidence.field_groups())),
                     evidence.model_dump_json(),
                     _utc_now(),
                 ),

@@ -676,7 +676,7 @@ def _validate_legacy_database(connection: sqlite3.Connection) -> None:
     _validate_legacy_tables(connection)
 
     integrity = connection.execute('PRAGMA integrity_check').fetchall()
-    if integrity != [('ok',)]:
+    if len(integrity) != 1 or integrity[0][0] != 'ok':
         raise NativeSchemaError(f'legacy native database integrity check failed: {integrity!r}')
     foreign_keys = connection.execute('PRAGMA foreign_key_check').fetchall()
     if foreign_keys:
@@ -1128,8 +1128,7 @@ def ensure_native_schema(path: Path) -> int:
         # NATIVE_SCHEMA_VERSION on success.
         return NATIVE_SCHEMA_VERSION
     try:
-        with closing(sqlite3.connect(path)) as connection, connection:
-            connection.execute('PRAGMA foreign_keys=ON')
+        with closing(connect_sqlite(path)) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             version = _stored_version(connection)
             if version > NATIVE_SCHEMA_VERSION:

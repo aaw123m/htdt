@@ -715,11 +715,11 @@ def write_benchmark_artifacts(
     manifest_path = output_dir / f'{manifest.project_class}-manifest.json'
     report_path = output_dir / f'{manifest.project_class}-baseline.json'
     manifest_path.write_text(
-        json.dumps(manifest_to_dict(manifest), indent=2) + '\n',
+        json.dumps(manifest_to_dict(manifest), indent=2, allow_nan=False) + '\n',
         encoding='utf-8',
     )
     report_path.write_text(
-        json.dumps(report_to_dict(report), indent=2) + '\n',
+        json.dumps(report_to_dict(report), indent=2, allow_nan=False) + '\n',
         encoding='utf-8',
     )
     return manifest_path, report_path

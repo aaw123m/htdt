@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 
 
 VisualQAFixtureId = Literal['vq_small', 'vq_dense', 'vq_edge']
@@ -242,9 +242,7 @@ class VisualQARepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_verdict(self, verdict: VisualQAVerdict) -> VisualQAVerdict:
         with closing(self._connect()) as connection, connection:

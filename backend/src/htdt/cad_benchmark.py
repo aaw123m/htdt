@@ -533,23 +533,36 @@ def run_benchmark(
 # Importers — pure transforms into BenchmarkCase; fail closed on ambiguity.
 
 
+def _parse_triplet(
+    raw: Any, *, what: str, field: str, point_id: str
+) -> tuple[float, ...] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or len(raw) != 3:
+        raise ValueError(f'{what} {point_id} has malformed {field}')
+    vector = tuple(float(v) for v in raw)
+    if not all(math.isfinite(v) for v in vector):
+        raise ValueError(f'{what} {point_id} has non-finite {field}')
+    return vector
+
+
 def _parse_point(raw: Any, *, what: str) -> BenchmarkPoint:
     if not isinstance(raw, dict) or not raw.get('point_id'):
         raise ValueError(f'{what} requires point_id')
-    position = raw.get('position_m')
-    if position is not None and (
-        not isinstance(position, list) or len(position) != 3
-    ):
-        raise ValueError(f'{what} {raw["point_id"]} has malformed position_m')
+    point_id = str(raw['point_id'])
     return BenchmarkPoint(
-        point_id=str(raw['point_id']),
-        position_m=(
-            None if position is None else tuple(float(v) for v in position)
+        point_id=point_id,
+        position_m=_parse_triplet(
+            raw.get('position_m'),
+            what=what,
+            field='position_m',
+            point_id=point_id,
         ),
-        orientation_deg=(
-            None
-            if raw.get('orientation_deg') is None
-            else tuple(float(v) for v in raw['orientation_deg'])
+        orientation_deg=_parse_triplet(
+            raw.get('orientation_deg'),
+            what=what,
+            field='orientation_deg',
+            point_id=point_id,
         ),
         role=raw.get('role'),
     )

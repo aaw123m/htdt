@@ -13,6 +13,8 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .comparison import FrequencyResponse
+from .cad_schema import connect_sqlite
+from .canonical_json import canonical_json, canonical_sha256
 from .rew_api import RewFrequencyResponseSnapshot
 from .rew_parser import parse_rew_frequency_response
 
@@ -36,8 +38,7 @@ def utc_now() -> str:
 
 
 def canonical_json_sha256(payload: Any) -> str:
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    return hashlib.sha256(raw).hexdigest()
+    return canonical_sha256(payload)
 
 
 def _pack(values: tuple[float, ...] | None) -> bytes | None:
@@ -76,9 +77,7 @@ class Store:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys = ON')
+        connection = connect_sqlite(self.db_path)
         try:
             yield connection
         finally:
@@ -221,7 +220,7 @@ class Store:
             revision = db.execute('SELECT COALESCE(MAX(revision_number), 0) + 1 FROM contexts WHERE project_id = ?', (project_id,)).fetchone()[0]
             context = {'id': str(uuid4()), 'project_id': project_id, 'revision_number': revision, 'parent_context_id': parent_context_id, 'created_at': utc_now(), 'payload': payload}
             db.execute('INSERT INTO contexts(id, project_id, revision_number, parent_context_id, created_at, payload_json) VALUES (?, ?, ?, ?, ?, ?)',
-                       (context['id'], project_id, revision, parent_context_id, context['created_at'], json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+                       (context['id'], project_id, revision, parent_context_id, context['created_at'], json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False)))
             db.commit()
         return context
 
@@ -250,7 +249,7 @@ class Store:
                 raise KeyError('context_not_found')
             db.execute(
                 'INSERT INTO constraint_sets(id, project_id, context_id, name, spec_json, spec_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                (record['id'], project_id, context_id, record['name'], json.dumps(spec, ensure_ascii=False, sort_keys=True),
+                (record['id'], project_id, context_id, record['name'], json.dumps(spec, ensure_ascii=False, sort_keys=True, allow_nan=False),
                  record['spec_sha256'], record['created_at']),
             )
             db.commit()
@@ -311,7 +310,7 @@ class Store:
             db.execute(
                 'INSERT INTO search_specs(id, project_id, context_id, constraint_set_id, name, spec_json, spec_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                 (record['id'], project_id, context_id, constraint_set_id, record['name'],
-                 json.dumps(spec, ensure_ascii=False, sort_keys=True), record['spec_sha256'], record['created_at']),
+                 json.dumps(spec, ensure_ascii=False, sort_keys=True, allow_nan=False), record['spec_sha256'], record['created_at']),
             )
             db.commit()
         return record
@@ -397,13 +396,13 @@ class Store:
                 db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
                            radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
                            quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids), radiation_scope,
-                            routing_evidence, captured_at, imported_at, notes, quality_status, json.dumps(quality_reasons or [], ensure_ascii=False),
+                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids, allow_nan=False), radiation_scope,
+                            routing_evidence, captured_at, imported_at, notes, quality_status, json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False),
                             quality_source, repeat_group.strip() if repeat_group else None))
                 db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json, created_at)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                            (dataset_id, measurement_id, asset_sha, 'frequency_response', _pack(parsed.frequency_hz), _pack(parsed.level_db),
-                            _pack(parsed.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True), imported_at))
+                            _pack(parsed.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False), imported_at))
                 db.commit()
         except Exception:
             if asset_created:
@@ -445,7 +444,7 @@ class Store:
             'measurement_summary': snapshot.measurement_summary,
             'frequency_response': snapshot.raw_frequency_response,
         }
-        raw = json.dumps(wrapper, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
+        raw = canonical_json(wrapper).encode('utf-8')
         filename = f'rew-api-{decoded.measurement_id}.json'
         asset_sha, asset_path, asset_created, already_known = self._store_asset(filename, raw)
         measurement_id, dataset_id, imported_at = str(uuid4()), str(uuid4()), utc_now()
@@ -487,13 +486,13 @@ class Store:
                 db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
                            radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
                            quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids or []),
+                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids or [], allow_nan=False),
                             radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status,
-                            json.dumps(quality_reasons or [], ensure_ascii=False), quality_source, repeat_group.strip() if repeat_group else None))
+                            json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False), quality_source, repeat_group.strip() if repeat_group else None))
                 db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json, created_at)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                            (dataset_id, measurement_id, asset_sha, 'frequency_response', _pack(decoded.frequency_hz), _pack(decoded.magnitude),
-                            _pack(decoded.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True), imported_at))
+                            _pack(decoded.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False), imported_at))
                 db.commit()
         except Exception:
             if asset_created:
@@ -592,8 +591,8 @@ class Store:
                 if row is None or row['project_id'] != project_id:
                     raise KeyError('dataset_not_found')
             db.execute('INSERT INTO comparisons(id, project_id, dataset_a_id, dataset_b_id, spec_json, result_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                       (comparison['id'], project_id, dataset_a_id, dataset_b_id, json.dumps(spec, ensure_ascii=False, sort_keys=True),
-                        json.dumps(result, ensure_ascii=False, sort_keys=True), comparison['created_at']))
+                       (comparison['id'], project_id, dataset_a_id, dataset_b_id, json.dumps(spec, ensure_ascii=False, sort_keys=True, allow_nan=False),
+                        json.dumps(result, ensure_ascii=False, sort_keys=True, allow_nan=False), comparison['created_at']))
             db.commit()
         return {**comparison, 'project_id': project_id, 'dataset_a_id': dataset_a_id, 'dataset_b_id': dataset_b_id, 'spec': spec, 'result': result}
 
@@ -605,8 +604,7 @@ class Store:
 
     def integrity_problems(self, base_root: Path | None = None, db_path: Path | None = None) -> list[str]:
         root, database_path = base_root or self.root, db_path or self.db_path
-        connection = sqlite3.connect(database_path)
-        connection.row_factory = sqlite3.Row
+        connection = connect_sqlite(database_path)
         problems: list[str] = []
         try:
             for row in connection.execute('PRAGMA foreign_key_check').fetchall():

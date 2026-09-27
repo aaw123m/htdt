@@ -34,7 +34,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .native_backup import DATABASE_NAME
 from .clock import utc_now_iso as _utc_now
 
@@ -172,7 +172,7 @@ class ProjectDeletionPlan(BaseModel):
             'estimated_bytes': self.estimated_bytes,
         }
         return hashlib.sha256(
-            json.dumps(payload, sort_keys=True).encode('utf-8')
+            json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')
         ).hexdigest()
 
 
@@ -231,9 +231,7 @@ class ProjectLibrary:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     # -- registry -------------------------------------------------------
 
@@ -1004,6 +1002,7 @@ class ProjectLibrary:
                         json.dumps(
                             [a.model_dump() for a in removed],
                             sort_keys=True,
+                            allow_nan=False,
                         ),
                     ),
                 )

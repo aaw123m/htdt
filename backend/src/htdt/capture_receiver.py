@@ -61,6 +61,7 @@ from .capture_inbox import (
     CAPTURE_INBOX_UNASSIGNED_SCOPE,
     CaptureInboxRepository,
 )
+from .ingress import IngressTooLargeError, read_file_bounded
 from .content_blobs import (
     ensure_content_blob_store,
     read_content_blob,
@@ -107,6 +108,10 @@ RECEIVER_MAX_RECEIPT_BYTES = 1024 * 1024
 # not hold a handler thread open forever; each blocking socket operation
 # gets this window, which no honest upload ever trips.
 RECEIVER_SOCKET_TIMEOUT_SECONDS = 30.0
+
+# PEM credentials minted by the receiver are a few KiB; a MiB ceiling is
+# far beyond any honest cert/key pair yet still bounded.
+TLS_CREDENTIAL_MAX_BYTES = 1024 * 1024
 
 MISSION_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
 MISSION_LISTING_MAX_BYTES = 256 * 1024
@@ -400,10 +405,27 @@ class CaptureReceiverService:
     def _ensure_certificate(self) -> tuple[bytes, bytes]:
         cert_path = self._data_dir / 'receiver-cert.pem'
         key_path = self._data_dir / 'receiver-key.pem'
-        if cert_path.exists() and key_path.exists():
-            return cert_path.read_bytes(), key_path.read_bytes()
-        generate_self_signed_cert(cert_path, key_path)
-        return cert_path.read_bytes(), key_path.read_bytes()
+        try:
+            if cert_path.exists() and key_path.exists():
+                return (
+                    read_file_bounded(
+                        cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
+                    ),
+                    read_file_bounded(
+                        key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
+                    ),
+                )
+            generate_self_signed_cert(cert_path, key_path)
+            return (
+                read_file_bounded(
+                    cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
+                ),
+                read_file_bounded(
+                    key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
+                ),
+            )
+        except IngressTooLargeError as exc:
+            raise CaptureReceiverError(str(exc)) from exc
 
     # -- pairing --------------------------------------------------------
 

@@ -23,6 +23,7 @@ from . import __version__
 from .build_info import get_build_info
 from .cad_schema import (
     NativeSchemaError,
+    connect_sqlite,
     check_native_schema_compatibility,
     ensure_native_schema,
     read_native_schema_version,
@@ -424,7 +425,7 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> None:
         raise FileNotFoundError(f'native database does not exist: {source_path}')
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with closing(sqlite3.connect(source_path)) as source, closing(sqlite3.connect(destination_path)) as destination:
+        with closing(connect_sqlite(source_path)) as source, closing(connect_sqlite(destination_path)) as destination:
             source.backup(destination)
             destination.commit()
     except sqlite3.DatabaseError as exc:

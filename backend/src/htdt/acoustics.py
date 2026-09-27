@@ -173,8 +173,8 @@ def analyze_rectangular_context(
                 height,
                 source,
                 receiver,
-                speaker_id=str(speaker['speaker_id']),
-                speaker_role=str(speaker['role']),
+                speaker_id=str(speaker.get('speaker_id', 'unknown')),
+                speaker_role=str(speaker.get('role', 'unknown')),
                 sound_speed_m_s=sound_speed_m_s,
             )
         )

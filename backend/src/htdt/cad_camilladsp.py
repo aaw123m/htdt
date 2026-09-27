@@ -143,7 +143,7 @@ def load_camilladsp_config(
 
 
 def _section_text(value: Any) -> str:
-    return json.dumps(value, sort_keys=True)
+    return json.dumps(value, sort_keys=True, allow_nan=False)
 
 
 def _import_filter(
@@ -421,7 +421,7 @@ def build_camilladsp_artifact(
         'source_filename': source_filename,
         'source_sha256': source_sha,
         'imported_at_utc': imported_at_utc,
-        'device_context': json.dumps(devices, sort_keys=True)
+        'device_context': json.dumps(devices, sort_keys=True, allow_nan=False)
         if devices
         else None,
         'global_preamp_db': None,

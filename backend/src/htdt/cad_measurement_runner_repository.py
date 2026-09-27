@@ -22,7 +22,7 @@ from .cad_measurement_runner import (
 )
 from .cad_scene import is_measurement_target_eligible
 
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from .clock import utc_now_iso as _utc_now
 
 
@@ -65,10 +65,7 @@ class CadMeasurementRunnerRepository:
         self._initialize()
 
     def _connect(self):
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys = ON')
-        return closing(connection)
+        return closing(connect_sqlite(self.path))
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:

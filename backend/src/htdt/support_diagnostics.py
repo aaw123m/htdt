@@ -44,11 +44,13 @@ from typing import Any, Callable, Iterable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from . import __version__
+from .ingress import IngressTooLargeError, read_file_bounded
 from .managed_assets import MANAGED_ASSETS_DIRNAME
 from .native_diagnostics import (
     BuildIdentity,
     DIAGNOSTICS_DIRNAME,
     LOG_FILENAME,
+    MAX_LOG_BYTES,
     build_identity,
     diagnostics_dir,
 )
@@ -745,8 +747,17 @@ class DiagnosticPackageBuilder:
                 for log_file in sorted(diag_dir.glob(f'{LOG_FILENAME}*')):
                     try:
                         _write_log(
-                            f'logs/{log_file.name}', log_file.read_bytes()
+                            f'logs/{log_file.name}',
+                            read_file_bounded(
+                                log_file, 8 * MAX_LOG_BYTES, label='log file'
+                            ),
                         )
+                    except IngressTooLargeError:
+                        members[f'logs/{log_file.name}'] = {
+                            'status': 'skipped',
+                            'reason': 'too large',
+                        }
+                        skipped.append(f'logs/{log_file.name}')
                     except OSError:
                         members[f'logs/{log_file.name}'] = {
                             'status': 'skipped',

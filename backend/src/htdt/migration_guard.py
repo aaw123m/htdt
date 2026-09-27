@@ -11,6 +11,8 @@ from typing import Callable
 from uuid import uuid4
 import zipfile
 
+from .cad_schema import connect_sqlite
+
 
 class MigrationOpenError(RuntimeError):
     """Opening an existing HTDT data directory could not be completed safely."""
@@ -26,7 +28,7 @@ class MigrationPreparation:
 def _read_schema_version(db_path: Path) -> int | None:
     if not db_path.exists() or db_path.stat().st_size == 0:
         return None
-    connection = sqlite3.connect(db_path)
+    connection = connect_sqlite(db_path)
     try:
         table = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'"
@@ -45,8 +47,7 @@ def _read_schema_version(db_path: Path) -> int | None:
 
 
 def _legacy_integrity_problems(root: Path, db_path: Path) -> list[str]:
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
+    connection = connect_sqlite(db_path)
     problems: list[str] = []
     try:
         integrity = connection.execute('PRAGMA integrity_check').fetchone()
@@ -89,8 +90,8 @@ def _create_pre_migration_backup(
 
     with tempfile.TemporaryDirectory(dir=root) as temp_dir_name:
         snapshot_db = Path(temp_dir_name) / 'htdt.sqlite3'
-        source = sqlite3.connect(db_path)
-        destination = sqlite3.connect(snapshot_db)
+        source = connect_sqlite(db_path)
+        destination = connect_sqlite(snapshot_db)
         try:
             source.backup(destination)
         finally:
@@ -104,7 +105,7 @@ def _create_pre_migration_backup(
         }
         with zipfile.ZipFile(archive_path, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
             archive.write(snapshot_db, 'htdt.sqlite3')
-            archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True))
+            archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True, allow_nan=False))
             archive.writestr('assets/', b'')
             assets_dir = root / 'assets'
             if assets_dir.is_dir():
@@ -225,8 +226,8 @@ def _restore_pre_migration_backup(root: Path, archive_path: Path, expected_versi
             raise MigrationOpenError('Pre-migration backup database failed schema validation')
 
         db_path = root / 'htdt.sqlite3'
-        source = sqlite3.connect(restored_db)
-        destination = sqlite3.connect(db_path)
+        source = connect_sqlite(restored_db)
+        destination = connect_sqlite(db_path)
         try:
             source.backup(destination)
         finally:

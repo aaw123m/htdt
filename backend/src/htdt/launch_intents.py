@@ -257,7 +257,7 @@ def forward_launch_intent(data_dir: Path, intent: HTDTLaunchIntent) -> Path:
     target = incoming / f'{arrival}-{intent.intent_id}.json'
     temp = incoming / f'.{arrival}-{intent.intent_id}.{os.getpid()}.tmp'
     temp.write_text(
-        json.dumps(intent.model_dump(mode='json'), sort_keys=True),
+        json.dumps(intent.model_dump(mode='json'), sort_keys=True, allow_nan=False),
         encoding='utf-8',
     )
     os.replace(temp, target)

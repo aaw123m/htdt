@@ -16,7 +16,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from .cad_assumption_decision import (
     AssumptionDecision,
     AssumptionDecisionIntegrityError,
@@ -119,9 +119,7 @@ class CadAssumptionDecisionRepository:
                     )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_decision(self, decision: AssumptionDecision) -> AssumptionDecision:
         """Append a decision into a same-subject, single-head lineage (#869).
@@ -215,7 +213,8 @@ class CadAssumptionDecisionRepository:
                         decision.created_at_utc,
                         decision.decision_sha256,
                         json.dumps(
-                            decision.model_dump(mode='json'), ensure_ascii=False
+                            decision.model_dump(mode='json'), ensure_ascii=False,
+                            allow_nan=False,
                         ),
                     ),
                 )

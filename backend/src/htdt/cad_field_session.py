@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 from .clock import utc_now_iso as _utc_now
@@ -416,9 +416,7 @@ class FieldSessionRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_session(self, session: FieldSession) -> FieldSession:
         """Persist a session; a same-id conflicting write fails closed."""

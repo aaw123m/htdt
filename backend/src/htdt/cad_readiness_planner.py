@@ -44,6 +44,7 @@ def _action_id(document_id: str, action_kind: str, deep_link: str) -> str:
             },
             sort_keys=True,
             separators=(',', ':'),
+            allow_nan=False,
         ).encode('utf-8')
     ).hexdigest()
     return f'readiness-action:{digest[:32]}'

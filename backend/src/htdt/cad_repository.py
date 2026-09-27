@@ -16,6 +16,7 @@ from .cad_body_mesh import (
     upgrade_document_mesh_bodies,
 )
 from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
+from .canonical_json import canonical_sha256
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
@@ -59,10 +60,7 @@ class AuthoringConstraintConflictError(ValueError):
 
 
 def _constraint_revision_sha256(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(
-        payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False
-    )
-    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+    return canonical_sha256(payload)
 
 
 @dataclass(frozen=True)
@@ -699,9 +697,9 @@ class SceneRepository:
         ordered_selected = list(dict.fromkeys(selected_ids or (() if selected_id is None else (selected_id,))))
         if selected_id is not None and selected_id not in ordered_selected:
             ordered_selected.append(selected_id)
-        selected_json = json.dumps(ordered_selected, separators=(',', ':'))
-        hidden_json = json.dumps(sorted(hidden_ids), separators=(',', ':'))
-        locked_json = json.dumps(sorted(locked_ids), separators=(',', ':'))
+        selected_json = json.dumps(ordered_selected, separators=(',', ':'), allow_nan=False)
+        hidden_json = json.dumps(sorted(hidden_ids), separators=(',', ':'), allow_nan=False)
+        locked_json = json.dumps(sorted(locked_ids), separators=(',', ':'), allow_nan=False)
         snap_json = None
         if any(
             value is not None
@@ -980,7 +978,7 @@ class SceneRepository:
             raise ValueError(f'{store} store requires a record_id')
         key = document_id if key_column is None else record_id
         updated_at = datetime.now(timezone.utc).isoformat()
-        payload_json = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
+        payload_json = json.dumps(payload, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
         with closing(self._connect()) as connection, connection:
             if key_column is None:
                 existing = connection.execute(
@@ -1338,6 +1336,7 @@ class SceneRepository:
                         revision.payload,
                         separators=(',', ':'),
                         ensure_ascii=False,
+                        allow_nan=False,
                     ),
                     revision.constraint_revision_sha256,
                     revision.created_at_utc,
@@ -1352,7 +1351,7 @@ class SceneRepository:
                 'updated_at_utc=excluded.updated_at_utc',
                 (
                     document_id,
-                    json.dumps(pointer, separators=(',', ':'), ensure_ascii=False),
+                    json.dumps(pointer, separators=(',', ':'), ensure_ascii=False, allow_nan=False),
                     updated_at,
                 ),
             )

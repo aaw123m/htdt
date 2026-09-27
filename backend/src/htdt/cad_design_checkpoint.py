@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_constraint_models import CadConstraintSet
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_repository import SceneRepository, SceneRevision
+from .cad_schema import connect_sqlite
 from .cad_scene import SceneDocument
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
@@ -600,9 +601,7 @@ def restore_design_checkpoint(
 
     # ---- One commit boundary: scene head advance + workspace generation +
     # the restore record all share it.
-    connection = sqlite3.connect(shared_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys=ON')
+    connection = connect_sqlite(shared_path)
     applied: list[CheckpointComponentKind] = []
     result_refs: list[CheckpointAuthorityRef] = []
     new_scene_revision_id: str | None = None

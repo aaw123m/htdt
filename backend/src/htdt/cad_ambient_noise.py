@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 from .clock import utc_now_iso as _utc_now
 
@@ -1253,10 +1253,7 @@ class CadAmbientNoiseRepository:
         self._initialize()
 
     def _connect(self):
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return closing(connection)
+        return closing(connect_sqlite(self.path))
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:

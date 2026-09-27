@@ -285,7 +285,7 @@ class AuthorityGraph(BaseModel):
             'edges': sorted(e.edge_id for e in self.edges),
         }
         return sha256(
-            json.dumps(payload, sort_keys=True).encode('utf-8')
+            json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')
         ).hexdigest()
 
     def to_snapshot(self) -> dict[str, Any]:

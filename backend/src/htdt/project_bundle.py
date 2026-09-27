@@ -51,6 +51,8 @@ from pydantic import BaseModel
 from . import __version__
 from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
+from .canonical_json import canonical_json, canonical_sha256
+from .ingress import IngressTooLargeError, read_file_bounded
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetError,
@@ -229,11 +231,7 @@ _MEDIA_TYPES = {
 
 
 def _canonical_sha256(payload: object) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(',', ':')).encode(
-            'utf-8'
-        )
-    ).hexdigest()
+    return canonical_sha256(payload)
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -472,8 +470,16 @@ def export_project_bundle(
                     'referenced managed asset is missing from the data '
                     f'directory (integrity error, not an omission): {digest}'
                 )
-            raw = asset_path.read_bytes()
             size = int(record['size_bytes'])
+            try:
+                raw = read_file_bounded(
+                    asset_path, size, label='managed asset'
+                )
+            except IngressTooLargeError as exc:
+                raise ProjectBundleError(
+                    'referenced managed asset failed hash/size verification '
+                    f'during export: {digest}'
+                ) from exc
             if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
                 raise ProjectBundleError(
                     'referenced managed asset failed hash/size verification '
@@ -504,9 +510,7 @@ def export_project_bundle(
         row_count = 0
         for table in sorted(exported):
             body = b'\n'.join(
-                json.dumps(row, sort_keys=True, separators=(',', ':')).encode(
-                    'utf-8'
-                )
+                canonical_json(row).encode('utf-8')
                 for row in exported[table]
             )
             row_count += len(exported[table])
@@ -580,6 +584,7 @@ def _write_bundle(
                     manifest.model_dump(mode='json'),
                     indent=2,
                     sort_keys=True,
+                    allow_nan=False,
                 ),
             )
             for name, body in sorted(db_payloads.items()):

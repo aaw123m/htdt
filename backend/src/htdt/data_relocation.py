@@ -40,6 +40,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME, sha256_file
+from .cad_schema import connect_sqlite
 from .native_backup import DATABASE_NAME, recover_interrupted_restore
 from .persisted_data import component_for_path, relocation_carried_components
 from .runtime_instance import (
@@ -170,7 +171,7 @@ def save_bootstrap_config(
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
     temp.write_text(
-        json.dumps(config.model_dump(mode='json'), indent=2, sort_keys=True),
+        json.dumps(config.model_dump(mode='json'), indent=2, sort_keys=True, allow_nan=False),
         encoding='utf-8',
     )
     os.replace(temp, path)
@@ -423,9 +424,9 @@ def _verify_staged_root(staged: Path) -> None:
         raise DataRelocationError(
             f'staged copy is missing {DATABASE_NAME}'
         )
-    with closing(sqlite3.connect(database)) as connection:
+    with closing(connect_sqlite(database)) as connection:
         integrity = connection.execute('PRAGMA integrity_check').fetchall()
-        if integrity != [('ok',)]:
+        if len(integrity) != 1 or integrity[0][0] != 'ok':
             raise DataRelocationError(
                 f'staged database integrity check failed: {integrity!r}'
             )
@@ -588,7 +589,8 @@ def _write_relocation_journal(
     with open(temp, 'w', encoding='utf-8') as file:
         file.write(
             json.dumps(
-                journal.model_dump(mode='json'), indent=2, sort_keys=True
+                journal.model_dump(mode='json'), indent=2, sort_keys=True,
+                allow_nan=False,
             )
         )
         file.flush()
@@ -834,8 +836,8 @@ def execute_data_relocation(
             # ---- copy phase ---------------------------------------------
             staged.mkdir(parents=True, exist_ok=True)
             staged_database = staged / DATABASE_NAME
-            with closing(sqlite3.connect(database)) as source, closing(
-                sqlite3.connect(staged_database)
+            with closing(connect_sqlite(database)) as source, closing(
+                connect_sqlite(staged_database)
             ) as destination:
                 source.backup(destination)
                 destination.commit()

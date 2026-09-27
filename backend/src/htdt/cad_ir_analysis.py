@@ -21,7 +21,7 @@ from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 import numpy as np
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
@@ -770,11 +770,8 @@ class CadIRAnalysisRepository:
 
     def _connect(self):
         from contextlib import closing
-        import sqlite3
 
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return closing(connection)
+        return closing(connect_sqlite(self.path))
 
     def _initialize(self) -> None:
         with self._connect() as connection, connection:

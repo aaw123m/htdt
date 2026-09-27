@@ -131,7 +131,7 @@ class CommissioningPlanRepository:
     def _store(self, data: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8'
+            json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8'
         )
 
     def save(self, plan: CommissioningPlan) -> CommissioningPlan:

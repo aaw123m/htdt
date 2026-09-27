@@ -26,6 +26,8 @@ from pathlib import Path
 import sqlite3
 from typing import Literal
 
+from .cad_schema import connect_sqlite
+
 
 class CaptureRetentionError(ValueError):
     pass
@@ -97,10 +99,7 @@ class CaptureRetentionService:
         self.path = Path(scene_repository.path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     # ---- inventory --------------------------------------------------------
 

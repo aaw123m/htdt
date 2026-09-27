@@ -28,7 +28,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .acoustic_benchmark import (
     AcousticMaterial,
     GeometricAcousticBand,
@@ -230,9 +230,7 @@ class CadAcousticMaterialRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_material(self, material: AcousticMaterialAuthority) -> None:
         """Persist an immutable material authority.

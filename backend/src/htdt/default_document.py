@@ -31,6 +31,7 @@ import sqlite3
 from typing import Literal
 
 from .cad_repository import SceneRepository
+from .cad_schema import connect_sqlite
 from .cad_scene import F1_DOCUMENT_ID, make_f1_scene, scene_content_hash
 
 
@@ -118,8 +119,7 @@ def classify_default_document(
     as a legacy user project. Doubt always resolves toward preservation.
     """
 
-    connection = sqlite3.connect(repository.path)
-    connection.row_factory = sqlite3.Row
+    connection = connect_sqlite(repository.path)
     try:
         has_revision_table = bool(
             connection.execute(

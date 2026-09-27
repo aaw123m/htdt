@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 
 from .cad_constraint_models import CadConstraintSet
+from .canonical_json import canonical_json
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
@@ -62,12 +63,7 @@ class CadConstraintRepository:
         higher-level operations (e.g. checkpoint restore) that must commit
         the workspace together with other domain mutations atomically.
         """
-        payload = json.dumps(
-            constraint_set.model_dump(mode='json'),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-        )
+        payload = canonical_json(constraint_set.model_dump(mode='json'))
         connection.execute(
             '''
             INSERT INTO cad_constraint_workspaces(document_id, schema_version, updated_at_utc, payload_json)
