@@ -249,7 +249,7 @@ function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode
       <path className="sketch-room" d={`M ${boundary.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />
       {completed.map((area, index) => <path key={index} className="sketch-area completed" d={`M ${area.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />)}
       {drawn.length > 1 && <path className="sketch-area" d={`M ${drawn.map((point) => `${point.x},${point.y}`).join(' L ')}${drawn.length >= 3 ? ' Z' : ''}`} />}
-      {drawn.map((point, index) => <g key={`${point.x}-${point.y}-${index}`} className="sketch-vertex" tabIndex={0} role="button"
+      {drawn.map((point, index) => <g key={index} className="sketch-vertex" tabIndex={0} role="button"
         aria-label={`Vertex ${index + 1} at ${points[index].x_m} m, ${points[index].y_m} m — arrow keys nudge, Enter removes`}
         onClick={(event) => { event.stopPropagation(); removePoint(index) }}
         onKeyDown={(event) => vertexKeys(event, index)}>
