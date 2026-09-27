@@ -473,6 +473,14 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def connect_sqlite(path: Path) -> sqlite3.Connection:
+    """Open ``path`` with the shared row factory and FK enforcement on."""
+    connection = sqlite3.connect(path)
+    connection.row_factory = sqlite3.Row
+    connection.execute('PRAGMA foreign_keys=ON')
+    return connection
+
+
 def _table_names(connection: sqlite3.Connection) -> set[str]:
     return {
         str(row[0])

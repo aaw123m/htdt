@@ -1,5 +1,4 @@
 """Reference-safe retention, inventory, and purge for Capture data (#352).
-from .cad_schema import connect_sqlite
 
 Scope and guarantees:
 
@@ -98,7 +97,10 @@ class CaptureRetentionService:
         self.path = Path(scene_repository.path)
 
     def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.path)
+        connection = sqlite3.connect(self.path)
+        connection.row_factory = sqlite3.Row
+        connection.execute('PRAGMA foreign_keys=ON')
+        return connection
 
     # ---- inventory --------------------------------------------------------
 
