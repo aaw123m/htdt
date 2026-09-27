@@ -643,7 +643,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         from PySide6.QtCore import QTimer
 
         QTimer.singleShot(
-            0, lambda: [_dispatch(i) for i in initial_intents]
+            0, app, lambda: [_dispatch(i) for i in initial_intents]
         )
 
         # Unparented on purpose: the router's window abstraction is not
