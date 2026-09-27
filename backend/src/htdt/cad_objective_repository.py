@@ -260,6 +260,7 @@ class CadObjectiveRepository:
         evaluation: CadObjectiveEvaluation,
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> _EvaluationAuthority:
         """Replay the exact authority one objective evaluation claims.
 
@@ -321,6 +322,7 @@ class CadObjectiveRepository:
                 else None
             ),
             spec=spec_payload,
+            roomsim_batches=batches,
         )
         resolved = tuple(
             self._resolve_input(context, ref) for ref in evaluation.input_refs
@@ -353,9 +355,10 @@ class CadObjectiveRepository:
         evaluation: CadObjectiveEvaluation,
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> None:
         with closing(self._connect()) as connection:
-            self._save_evaluation(connection, evaluation, scans=scans)
+            self._save_evaluation(connection, evaluation, scans=scans, batches=batches)
 
     def _save_evaluation(
         self,
@@ -363,8 +366,11 @@ class CadObjectiveRepository:
         evaluation: CadObjectiveEvaluation,
         *,
         scans: dict[str, _CandidateSetScan] | None,
+        batches: dict[str, Any] | None = None,
     ) -> None:
-        authority = self._require_evaluation_authority(evaluation, scans=scans)
+        authority = self._require_evaluation_authority(
+            evaluation, scans=scans, batches=batches
+        )
         with connection:
             connection.execute(
                 '''INSERT INTO cad_objective_evaluations(
@@ -394,25 +400,31 @@ class CadObjectiveRepository:
         evaluations: Iterable[CadObjectiveEvaluation],
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> None:
         """Persist a batch of evaluations over one connection.
 
         Each evaluation still commits independently — a mid-batch failure
         leaves earlier items persisted exactly as sequential
         ``save_evaluation`` calls would — but the batch shares one
-        connection and one candidate-set replay per SearchSpec instead of
-        regenerating the set and re-parsing the schema per row.
+        connection, one candidate-set replay per SearchSpec, and one
+        Room Simulator batch-authority replay per batch_run_id instead of
+        regenerating them and re-parsing the schema per row.
         """
 
         shared = {} if scans is None else scans
+        shared_batches: dict[str, Any] = {} if batches is None else batches
         with closing(self._connect()) as connection:
             for evaluation in evaluations:
-                self._save_evaluation(connection, evaluation, scans=shared)
+                self._save_evaluation(
+                    connection, evaluation, scans=shared, batches=shared_batches
+                )
 
     def _validated_evaluation(
         self,
         row: sqlite3.Row,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> CadObjectiveEvaluation:
         """Deserialize one persisted evaluation and replay its exact authority."""
 
@@ -443,7 +455,9 @@ class CadObjectiveRepository:
                 'objective evaluation predates authority attestation and is '
                 'non-authoritative'
             )
-        authority = self._require_evaluation_authority(evaluation, scans=scans)
+        authority = self._require_evaluation_authority(
+            evaluation, scans=scans, batches=batches
+        )
         if row['candidate_set_sha256'] != authority.candidate_set_sha256:
             raise ValueError(
                 'persisted objective evaluation candidate-set authority mismatch'
@@ -459,19 +473,25 @@ class CadObjectiveRepository:
         evaluation_id: str,
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> CadObjectiveEvaluation | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_objective_evaluations WHERE evaluation_id=?',
                 (evaluation_id,),
             ).fetchone()
-        return None if row is None else self._validated_evaluation(row, scans)
+        return (
+            None
+            if row is None
+            else self._validated_evaluation(row, scans, batches)
+        )
 
     def get_evaluations(
         self,
         evaluation_ids: Iterable[str],
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
     ) -> dict[str, CadObjectiveEvaluation | None]:
         """Batch ``get_evaluation`` over one connection and one replay memo.
 
@@ -481,13 +501,15 @@ class CadObjectiveRepository:
         calls would, and ids absent from the table map to ``None``. Callers
         validating several evaluations against unchanged persisted state
         share ``scans`` so a SearchSpec's canonical candidate set is
-        regenerated once per batch, not once per row.
+        regenerated once per batch, and ``batches`` so a Room Simulator
+        batch-authority replay runs once per batch_run_id, not once per row.
         """
 
         ids = tuple(dict.fromkeys(evaluation_ids))
         if not ids:
             return {}
         shared = {} if scans is None else scans
+        shared_batches: dict[str, Any] = {} if batches is None else batches
         with closing(self._connect()) as connection, connection:
             rows = {
                 evaluation_id: connection.execute(
@@ -500,7 +522,9 @@ class CadObjectiveRepository:
             evaluation_id: (
                 None
                 if rows[evaluation_id] is None
-                else self._validated_evaluation(rows[evaluation_id], shared)
+                else self._validated_evaluation(
+                    rows[evaluation_id], shared, shared_batches
+                )
             )
             for evaluation_id in ids
         }
@@ -531,8 +555,9 @@ class CadObjectiveRepository:
                 (search_spec_id,),
             ).fetchall()
         scans: dict[str, _CandidateSetScan] = {}
+        batches: dict[str, Any] = {}
         return tuple(
-            self._validated_evaluation(row, scans) for row in rows
+            self._validated_evaluation(row, scans, batches) for row in rows
         )
 
     def _require_pareto_authority(self, pareto_set: CadParetoSet) -> None:
@@ -556,8 +581,11 @@ class CadObjectiveRepository:
 
         evaluations: list[CadObjectiveEvaluation] = []
         scans: dict[str, _CandidateSetScan] = {}
+        batches: dict[str, Any] = {}
         for ref in pareto_set.evaluations:
-            evaluation = self.get_evaluation(ref.evaluation_id, scans=scans)
+            evaluation = self.get_evaluation(
+                ref.evaluation_id, scans=scans, batches=batches
+            )
             if evaluation is None:
                 raise ValueError(f'Pareto objective evaluation does not exist: {ref.evaluation_id}')
             if evaluation.evaluation_id != ref.evaluation_id:

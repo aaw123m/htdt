@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .comparison import FrequencyResponse, _grid, _interpolate
+from .comparison import FrequencyResponse, _grid, _interpolate_many
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
@@ -263,8 +263,7 @@ def run_multi_seat_analysis(
         raise ValueError('member datasets do not overlap in the requested band')
     grid = _grid(overlap_low, overlap_high)
     rows = tuple(
-        tuple(_interpolate(response, f) for f in grid)
-        for response in member_responses
+        _interpolate_many(response, grid) for response in member_responses
     )
     min_db = tuple(min(row[i] for row in rows) for i in range(len(grid)))
     max_db = tuple(max(row[i] for row in rows) for i in range(len(grid)))

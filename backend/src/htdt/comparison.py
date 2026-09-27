@@ -3,9 +3,10 @@ from __future__ import annotations
 from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 import math
-from typing import Any
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from typing import Any, NamedTuple
+from .canonical_json import canonical_sha256 as _hash
 
 
 ALGORITHM_VERSION = 'fr-compare-1'
@@ -75,6 +76,18 @@ class ComparisonResult:
 def _grid(low_hz: float, high_hz: float) -> tuple[float, ...]:
     k_min = math.ceil(PPO * math.log2(low_hz))
     k_max = math.floor(PPO * math.log2(high_hz))
+    return _grid_cached(k_min, k_max)
+
+
+@lru_cache(maxsize=128)
+def _grid_cached(k_min: int, k_max: int) -> tuple[float, ...]:
+    """Grid tuple for an octave-aligned index range.
+
+    ``2 ** (k / PPO)`` must keep CPython's pow rounding exactly (NumPy's
+    power can differ by 1 ulp), so only the (k_min, k_max) range — which
+    recurs for every comparison over the same band — is memoized rather
+    than vectorized.
+    """
     if k_max < k_min:
         return ()
     return tuple(2 ** (k / PPO) for k in range(k_min, k_max + 1))
@@ -98,6 +111,123 @@ def _interpolate(response: FrequencyResponse, frequency_hz: float) -> float:
     x = math.log2(frequency_hz)
     ratio = (x - left_x) / (right_x - left_x)
     return response.level_db[index - 1] + ratio * (response.level_db[index] - response.level_db[index - 1])
+
+
+_np: Any = None
+
+
+def _numpy() -> Any:
+    global _np
+    if _np is None:
+        import numpy
+
+        _np = numpy
+    return _np
+
+
+class _PreparedResponse(NamedTuple):
+    frequencies: Any  # np.ndarray
+    log_frequencies: Any  # np.ndarray
+    levels: Any  # np.ndarray
+    strictly_increasing: bool
+    response: FrequencyResponse
+
+
+def _prepare_response(response: FrequencyResponse) -> '_PreparedResponse':
+    np = _numpy()
+    frequencies = np.asarray(response.frequency_hz)
+    strictly_increasing = bool(
+        len(frequencies) < 2 or np.all(np.diff(frequencies) > 0)
+    )
+    return _PreparedResponse(
+        frequencies=frequencies,
+        log_frequencies=np.array(
+            [math.log2(f) for f in response.frequency_hz]
+        ),
+        levels=np.asarray(response.level_db),
+        strictly_increasing=strictly_increasing,
+        response=response,
+    )
+
+
+@lru_cache(maxsize=64)
+def _log2_many(grid_hz: tuple[float, ...]) -> Any:
+    """``math.log2`` per grid point, memoized on the grid tuple.
+
+    Bands recur across comparisons; each entry is one small float array.
+    """
+    return _numpy().array([math.log2(f) for f in grid_hz])
+
+
+def _interpolate_prepared(
+    prepared: _PreparedResponse,
+    grid_hz: tuple[float, ...],
+    log_grid: Any,
+) -> tuple[float, ...]:
+    """Vectorized form of per-point ``_interpolate``, bit-identical output.
+
+    ``COMPARISON_ALGORITHM_SHA256`` pins ``linear_in_log2_frequency`` and
+    persisted results replay for exact equality, so every operation here
+    reproduces the scalar loop's IEEE ordering: ``searchsorted`` equals
+    ``bisect_right`` on a strictly increasing axis, the log2 inputs still
+    come from ``math.log2`` (``numpy.log2`` may differ by 1 ulp across
+    libm builds), and each element computes
+    ``l_left + ratio * (l_right - l_left)`` in the same order. Endpoint
+    and exact-hit early returns are reinstated as masks. A frequency axis
+    that is not strictly increasing falls back to the scalar loop so
+    degenerate inputs evaluate identically.
+    """
+    np = _numpy()
+    frequencies = prepared.frequencies
+    levels = prepared.levels
+    if not grid_hz:
+        return ()
+    grid = np.asarray(grid_hz)
+    if not prepared.strictly_increasing:
+        return tuple(_interpolate(prepared.response, f) for f in grid_hz)
+    if bool(np.any(grid < frequencies[0])) or bool(np.any(grid > frequencies[-1])):
+        raise ComparisonError('Interpolation would require extrapolation')
+    index = np.searchsorted(frequencies, grid, side='right')
+    # Clamp only for array indexing; the true ``index`` decides which
+    # early-return mask applies, matching the scalar branch order.
+    clipped = np.clip(index, 1, len(frequencies) - 1)
+    left = clipped - 1
+    log_frequencies = prepared.log_frequencies
+    with np.errstate(divide='ignore', invalid='ignore'):
+        ratio = (log_grid - log_frequencies[left]) / (
+            log_frequencies[clipped] - log_frequencies[left]
+        )
+        interpolated = levels[left] + ratio * (levels[clipped] - levels[left])
+    result = np.where(grid == frequencies[left], levels[left], interpolated)
+    result = np.where(index == 0, levels[0], result)
+    result = np.where(index == len(frequencies), levels[-1], result)
+    return tuple(result.tolist())
+
+
+def _interpolate_many(
+    response: FrequencyResponse,
+    grid_hz: tuple[float, ...],
+) -> tuple[float, ...]:
+    return _interpolate_prepared(
+        _prepare_response(response),
+        grid_hz,
+        _log2_many(grid_hz),
+    )
+
+
+@lru_cache(maxsize=64)
+def _valid_grid(
+    complete_grid: tuple[float, ...],
+    excluded_bands: tuple[tuple[float, float], ...],
+) -> tuple[float, ...]:
+    if not excluded_bands or not complete_grid:
+        return complete_grid
+    np = _numpy()
+    grid = np.asarray(complete_grid)
+    excluded = np.zeros(grid.shape, dtype=bool)
+    for low, high in excluded_bands:
+        excluded |= (grid >= low) & (grid <= high)
+    return tuple(f for f, drop in zip(complete_grid, excluded) if not drop)
 
 
 def _excluded(frequency_hz: float, excluded_bands: tuple[tuple[float, float], ...]) -> bool:
@@ -124,9 +254,12 @@ def compare_frequency_responses(
         raise ComparisonError('The two datasets do not overlap in the requested band')
 
     complete_grid = _grid(overlap_low, overlap_high)
-    valid_grid = tuple(f for f in complete_grid if not _excluded(f, excluded_bands))
-    a_values = tuple(_interpolate(a, f) for f in valid_grid)
-    b_values = tuple(_interpolate(b, f) for f in valid_grid)
+    valid_grid = _valid_grid(complete_grid, excluded_bands)
+    log_valid_grid = _log2_many(valid_grid)
+    a_prepared = _prepare_response(a)
+    b_prepared = _prepare_response(b)
+    a_values = _interpolate_prepared(a_prepared, valid_grid, log_valid_grid)
+    b_values = _interpolate_prepared(b_prepared, valid_grid, log_valid_grid)
     differences = tuple(a_value - b_value for a_value, b_value in zip(a_values, b_values, strict=True))
 
     mean_difference = None
@@ -141,9 +274,15 @@ def compare_frequency_responses(
         ref_low = max(reference_band_hz[0], a.frequency_hz[0], b.frequency_hz[0])
         ref_high = min(reference_band_hz[1], a.frequency_hz[-1], b.frequency_hz[-1])
         if ref_high > ref_low:
-            ref_grid = tuple(f for f in _grid(ref_low, ref_high) if not _excluded(f, excluded_bands))
+            ref_grid = _valid_grid(_grid(ref_low, ref_high), excluded_bands)
             if len(ref_grid) >= 2:
-                ref_diff = tuple(_interpolate(a, f) - _interpolate(b, f) for f in ref_grid)
+                log_ref_grid = _log2_many(ref_grid)
+                ref_a = _interpolate_prepared(a_prepared, ref_grid, log_ref_grid)
+                ref_b = _interpolate_prepared(b_prepared, ref_grid, log_ref_grid)
+                ref_diff = tuple(
+                    a_value - b_value
+                    for a_value, b_value in zip(ref_a, ref_b, strict=True)
+                )
                 offset = _mean(ref_diff)
                 if len(differences) >= 2:
                     shape_rms = math.sqrt(_mean(tuple((value - offset) ** 2 for value in differences)))

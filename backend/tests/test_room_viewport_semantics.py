@@ -16,6 +16,7 @@ import numpy as np
 
 from htdt.cad_scene import Position3, Quaternion4, SceneEntity, Size3
 from htdt.room_viewport import (
+    RoomViewport3D,
     _CATEGORY_LEGEND_LABELS,
     _SEMANTIC_CATEGORY_BY_KIND,
     _category_color,
@@ -153,3 +154,59 @@ def test_semantic_meshes_empty_for_glyphless_kinds() -> None:
     # Architecture-category kinds rely on the envelope alone.
     assert semantic_entity_meshes(_entity("riser")) == ()
     assert semantic_entity_meshes(_entity("furniture")) == ()
+
+
+class _CountingPlotter:
+    def __init__(self) -> None:
+        self.renders = 0
+
+    def render(self) -> None:
+        self.renders += 1
+
+
+def _bare_viewport():
+    # Method-semantics harness: bypass the real plotter so the deferred
+    # render bookkeeping is exercised without a GPU draw.
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication(["htdt-test"])
+    vp = RoomViewport3D()
+    vp.plotter = _CountingPlotter()
+    return vp
+
+
+def test_deferred_render_coalesces_to_one_draw() -> None:
+    vp = _bare_viewport()
+    with vp.deferred_render():
+        vp._render()
+        vp._render()
+        vp._render()
+    assert vp.plotter.renders == 1
+
+
+def test_deferred_render_nested_scope_flushes_once() -> None:
+    vp = _bare_viewport()
+    with vp.deferred_render():
+        with vp.deferred_render():
+            vp._render()
+        assert vp.plotter.renders == 0
+        vp._render()
+    assert vp.plotter.renders == 1
+
+
+def test_deferred_render_flushes_pending_on_exception() -> None:
+    vp = _bare_viewport()
+    with pytest.raises(RuntimeError):
+        with vp.deferred_render():
+            vp._render()
+            raise RuntimeError("build aborted")
+    assert vp.plotter.renders == 1
+    assert vp._defer_render_depth == 0
+    assert vp._render_pending is False
+
+
+def test_render_unbatched_still_draws_immediately() -> None:
+    vp = _bare_viewport()
+    vp._render()
+    vp._render()
+    assert vp.plotter.renders == 2

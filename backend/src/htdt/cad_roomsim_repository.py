@@ -21,6 +21,17 @@ from .cad_search_repository import CadSearchRepository
 from .cad_schema import require_native_tables, connect_sqlite
 
 
+# Optional per-operation memo for validated batch specs, mirroring the
+# objective repository's ``scans`` convention: callers that replay the same
+# batch repeatedly inside one operation (audit probes, batched saves, the
+# objective input resolver) share one dict keyed by batch_run_id so the
+# authority replay runs once per batch instead of once per read. Absent
+# rows are never memoized; a replay failure is stored and re-raised
+# identically. Callers that omit it keep the original per-read
+# re-validation.
+_RoomSimBatchMemo = dict[str, 'CadRoomSimBatchSpec | BaseException']
+
+
 class CadRoomSimRepository:
     """Immutable O20 Room Simulator batch/attempt storage on native CAD authority."""
 
@@ -203,13 +214,39 @@ class CadRoomSimRepository:
                 ),
             )
 
-    def get_batch_spec(self, batch_run_id: str) -> CadRoomSimBatchSpec | None:
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT * FROM cad_roomsim_batch_specs WHERE batch_run_id=?',
-                (batch_run_id,),
-            ).fetchone()
-        return None if row is None else self._validated_batch_spec(row)
+    def _batch_spec(
+        self,
+        batch_run_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
+    ) -> CadRoomSimBatchSpec | None:
+        if batches is not None and batch_run_id in batches:
+            stored = batches[batch_run_id]
+            if isinstance(stored, BaseException):
+                raise stored
+            return stored
+        try:
+            with closing(self._connect()) as connection, connection:
+                row = connection.execute(
+                    'SELECT * FROM cad_roomsim_batch_specs WHERE batch_run_id=?',
+                    (batch_run_id,),
+                ).fetchone()
+            spec = None if row is None else self._validated_batch_spec(row)
+        except BaseException as exc:
+            if batches is not None:
+                batches[batch_run_id] = exc
+            raise
+        if spec is not None and batches is not None:
+            batches[batch_run_id] = spec
+        return spec
+
+    def get_batch_spec(
+        self,
+        batch_run_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
+    ) -> CadRoomSimBatchSpec | None:
+        return self._batch_spec(batch_run_id, batches=batches)
 
     def list_batch_specs(self, search_spec_id: str) -> tuple[CadRoomSimBatchSpec, ...]:
         with closing(self._connect()) as connection, connection:
@@ -279,7 +316,8 @@ class CadRoomSimRepository:
         return attempt
 
     def save_attempt(self, attempt: CadRoomSimCandidateAttempt) -> None:
-        batch = self.get_batch_spec(attempt.batch_run_id)
+        batches: _RoomSimBatchMemo = {}
+        batch = self.get_batch_spec(attempt.batch_run_id, batches=batches)
         if batch is None:
             raise ValueError('Room Simulator attempt batch does not exist')
         candidate_ids = {item.candidate_id for item in batch.requests}
@@ -287,7 +325,9 @@ class CadRoomSimRepository:
             raise ValueError('Room Simulator attempt candidate is not part of the batch')
         self._verify_attempt_authority(attempt, batch)
 
-        prior = self.list_candidate_attempts(attempt.batch_run_id, attempt.candidate_id)
+        prior = self.list_candidate_attempts(
+            attempt.batch_run_id, attempt.candidate_id, batches=batches
+        )
         expected_index = len(prior) + 1
         if attempt.attempt_index != expected_index:
             raise ValueError(
@@ -315,7 +355,12 @@ class CadRoomSimRepository:
                 ),
             )
 
-    def get_attempt(self, attempt_id: str) -> CadRoomSimCandidateAttempt | None:
+    def get_attempt(
+        self,
+        attempt_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
+    ) -> CadRoomSimCandidateAttempt | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT payload_json FROM cad_roomsim_candidate_attempts WHERE attempt_id=?',
@@ -326,10 +371,17 @@ class CadRoomSimRepository:
         attempt = CadRoomSimCandidateAttempt.model_validate_json(row['payload_json'])
         if attempt.attempt_id != attempt_id:
             raise ValueError('Room Simulator attempt identity authority mismatch')
-        self._verify_attempt_authority(attempt, self.get_batch_spec(attempt.batch_run_id))
+        self._verify_attempt_authority(
+            attempt, self._batch_spec(attempt.batch_run_id, batches=batches)
+        )
         return attempt
 
-    def list_attempts(self, batch_run_id: str) -> tuple[CadRoomSimCandidateAttempt, ...]:
+    def list_attempts(
+        self,
+        batch_run_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
+    ) -> tuple[CadRoomSimCandidateAttempt, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 'SELECT attempt_id, candidate_id, attempt_index, status, attempt_sha256, '
@@ -339,13 +391,15 @@ class CadRoomSimRepository:
             ).fetchall()
         if not rows:
             return ()
-        batch = self.get_batch_spec(batch_run_id)
+        batch = self._batch_spec(batch_run_id, batches=batches)
         return tuple(self._decode_attempt(row, batch) for row in rows)
 
     def list_candidate_attempts(
         self,
         batch_run_id: str,
         candidate_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
     ) -> tuple[CadRoomSimCandidateAttempt, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
@@ -356,10 +410,15 @@ class CadRoomSimRepository:
             ).fetchall()
         if not rows:
             return ()
-        batch = self.get_batch_spec(batch_run_id)
+        batch = self._batch_spec(batch_run_id, batches=batches)
         return tuple(self._decode_attempt(row, batch) for row in rows)
 
-    def completed_candidate_ids(self, batch_run_id: str) -> frozenset[str]:
+    def completed_candidate_ids(
+        self,
+        batch_run_id: str,
+        *,
+        batches: _RoomSimBatchMemo | None = None,
+    ) -> frozenset[str]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 "SELECT attempt_id, candidate_id, attempt_index, status, attempt_sha256, "
@@ -369,7 +428,7 @@ class CadRoomSimRepository:
             ).fetchall()
         if not rows:
             return frozenset()
-        batch = self.get_batch_spec(batch_run_id)
+        batch = self._batch_spec(batch_run_id, batches=batches)
         return frozenset(self._decode_attempt(row, batch).candidate_id for row in rows)
 
     def next_attempt_index(self, batch_run_id: str, candidate_id: str) -> int:

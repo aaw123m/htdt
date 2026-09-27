@@ -6,7 +6,7 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QCoreApplication, Qt, SIGNAL, Signal
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame
 
@@ -371,4 +371,36 @@ def test_native_editor_save_commits_focused_position_field(tmp_path) -> None:
 
     window.close()
     window.deleteLater()
+    app.processEvents()
+
+
+def test_focus_changed_disconnects_when_editor_is_destroyed(tmp_path) -> None:
+    """The app-level focusChanged hook must die with the window: a stale
+    connection (e.g. an unowned lambda) would keep calling _update_actions
+    on the deleted C++ object — RuntimeError on every focus change."""
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+
+    # Earlier tests leave deleteLater() windows queued but unflushed; drain
+    # pending deferred deletes first so the baseline counts only live ones.
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+    signal = SIGNAL("focusChanged(QWidget*,QWidget*)")
+    baseline = app.receivers(signal)
+    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
+    window.show()
+    app.processEvents()
+    assert app.receivers(signal) == baseline + 1
+
+    window.close()
+    window.deleteLater()
+    # deleteLater() only queues a DeferredDelete event; plain processEvents
+    # does not reliably run it, so the C++ object must be flushed explicitly.
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+    assert app.receivers(signal) == baseline
+
+    app.focusChanged.emit(None, None)  # must not raise RuntimeError
     app.processEvents()
