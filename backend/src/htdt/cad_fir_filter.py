@@ -20,13 +20,14 @@ from typing import Any, Literal, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .cad_auralization import _resample_band_limited
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 FIR_SCHEMA_VERSION = 1
 FIR_ARTIFACT_AUTHORITY_VERSION = 'fir10-fir-filter-1'
 FIR_IMPORT_AUTHORITY_VERSION = 'fir10-fir-import-1'
-FIR_MATERIALIZATION_AUTHORITY_VERSION = 'fir10-fir-materialization-1'
+FIR_MATERIALIZATION_AUTHORITY_VERSION = 'fir10-fir-materialization-2'
 FIR_CAPABILITY_AUTHORITY_VERSION = 'fir10-device-fir-capability-1'
 FIR_EVALUATION_VERSION = 'fir-response-v1'
 
@@ -644,13 +645,19 @@ def _resample_taps(
     source_rate: float,
     target_rate: float,
 ) -> np.ndarray:
-    """Linear-interpolation resample of the impulse response itself."""
+    """Band-limited resample of the impulse response itself.
+
+    Reuses ``htdt.fft_bandlimited_resample_v1`` so downsampled taps are
+    brick-wall anti-aliased and upsampled taps are sinc-reconstructed
+    rather than linearly interpolated (linear interpolation leaves a
+    sinc^2 droop reaching ~-8 dB at the new Nyquist and folds out-of-band
+    content into the passband on decimation).
+    """
     if abs(target_rate - source_rate) < 1e-9:
         return np.asarray(taps, dtype=float)
-    target_len = max(1, int(round(len(taps) * target_rate / source_rate)))
-    source_index = np.arange(len(taps)) / source_rate
-    target_index = np.arange(target_len) / target_rate
-    return np.interp(target_index, source_index, np.asarray(taps))
+    return _resample_band_limited(
+        np.asarray(taps, dtype=float), source_rate, target_rate
+    )
 
 
 def materialize_fir_artifact(
@@ -687,7 +694,19 @@ def materialize_fir_artifact(
             truncated = len(taps) - max_tap_count
             # Preserve the time origin: drop the tail, shift nothing.
             taps = taps[:max_tap_count]
-    reference = min(artifact.time_reference_sample, len(taps) - 1)
+    # The time reference marks a physical instant (t=0 for the ringing
+    # split); its index must scale with the resample ratio, not clamp the
+    # source index into the new grid.
+    reference = min(
+        int(
+            round(
+                artifact.time_reference_sample
+                * rate
+                / float(artifact.sample_rate_hz)
+            )
+        ),
+        len(taps) - 1,
+    )
     new_format = tap_format if tap_format is not None else artifact.tap_format
     quantized = False
     step = (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from htdt.cad_fir_filter import (
@@ -175,3 +176,60 @@ def test_materialization_is_explicit_and_reported() -> None:
     assert len(resampled.taps) == 2  # round(5 taps x 24k/48k)
     assert report.resampled is True
     assert report.max_response_error_db >= 0.0
+
+
+def _tone_artifact(frequency_hz: float, sample_rate_hz: float):
+    n = 480
+    t = np.arange(n) / sample_rate_hz
+    taps = np.sin(2.0 * np.pi * frequency_hz * t)
+    return build_fir_filter_artifact(
+        filter_class='arbitrary_fir',
+        sample_rate_hz=sample_rate_hz,
+        taps=tuple(float(v) for v in taps),
+        tap_format='float64',
+        channel_id='FL',
+        time_reference_sample=0,
+        latency_s=0.0,
+        source_producer='test',
+        source_version='1',
+    )
+
+
+def test_materialization_resample_is_band_limited() -> None:
+    # Regression: resampling taps with np.interp applies no anti-aliasing
+    # — an 18 kHz component (in-band at 48k, out-of-band at 24k) folded
+    # back into the passband. The band-limited resampler must drop it.
+    artifact = _tone_artifact(18000.0, 48000.0)
+    materialized, report = materialize_fir_artifact(
+        artifact, target_sample_rate_hz=24000.0
+    )
+    assert report.resampled is True
+    out = np.asarray(materialized.taps)
+    spectrum = np.abs(np.fft.rfft(out))
+    assert float(np.max(spectrum)) < 1e-6
+
+    # Control: an in-band tone (6 kHz < 12 kHz target Nyquist) survives
+    # with its amplitude preserved.
+    kept, _ = materialize_fir_artifact(
+        _tone_artifact(6000.0, 48000.0), target_sample_rate_hz=24000.0
+    )
+    spec_out = np.abs(np.fft.rfft(np.asarray(kept.taps)))
+    n_out = len(kept.taps)
+    peak_bin = int(round(6000.0 * n_out / 24000.0))
+    assert spec_out[peak_bin] == pytest.approx(n_out / 2.0, rel=0.05)
+
+
+def test_materialization_rescales_time_reference_sample() -> None:
+    # time_reference_sample marks a physical instant: after a rate change
+    # its index must scale with the resample ratio, not clamp the source
+    # index into the new grid.
+    artifact = _linear_phase()  # 5 taps @48k, reference index 2
+    upsampled, _ = materialize_fir_artifact(
+        artifact, target_sample_rate_hz=96000.0
+    )
+    assert len(upsampled.taps) == 10
+    assert upsampled.time_reference_sample == 4
+    downsampled, _ = materialize_fir_artifact(
+        artifact, target_sample_rate_hz=24000.0
+    )
+    assert downsampled.time_reference_sample == 1

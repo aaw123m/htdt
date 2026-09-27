@@ -394,20 +394,20 @@ def run_ir_analysis(
     # Deterministic early-peak markers: local maxima of the ETC above a
     # fixed -20 dB prominence floor after the direct-arrival sample.
     markers: list[IRReflectionMarker] = []
-    direct_index = 0
+    t0_index = t0 - start
     for i in range(1, min(windowed.size - 1, int(0.5 * fs))):
         if (
             etc_db[i] > -20.0
             and etc_db[i] > etc_db[i - 1]
             and etc_db[i] >= etc_db[i + 1]
-            and i > direct_index
+            and i > t0_index
         ):
             markers.append(
                 IRReflectionMarker(
                     marker_index=len(markers),
                     time_s=float(times[i]),
                     level_db=float(etc_db[i]),
-                    delay_s=float(times[i] - times[direct_index]),
+                    delay_s=float(i - t0_index) / fs,
                 )
             )
             if len(markers) >= 8:
@@ -472,7 +472,6 @@ def run_ir_analysis(
     # windowed evidence. A record that truncates, lacks dynamic range, or
     # whose time-zero lies outside the window fails closed.
     energy_metrics: list[IREnergyMetric] = []
-    t0_index = t0 - start
     clarity_block: str | None = None
     if caps.get('clarity') == 'BLOCKED':
         clarity_block = 'clarity capability is blocked by the quality report'

@@ -289,7 +289,10 @@ class PffdtdCandidateConfiguration(BaseModel):
 
     expected_pffdtd_commit_sha: str = Field(pattern=r'^[0-9a-f]{40}$')
     fmax_hz: float = Field(gt=0.0)
-    points_per_wavelength: float = Field(gt=0.0)
+    #: Below 2 points per wavelength the Cartesian grid cannot even
+    #: represent one wavelength at fmax (spatial Nyquist bound) — the
+    #: solver would run and return numbers that carry no wave physics.
+    points_per_wavelength: float = Field(ge=2.0)
     duration_s: float = Field(gt=0.0)
     frequency_samples_hz: tuple[float, ...] = Field(min_length=2)
     fcc_flag: Literal[False] = False
