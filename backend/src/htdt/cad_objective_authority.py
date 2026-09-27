@@ -68,6 +68,12 @@ class ObjectiveAuthorityContext(NamedTuple):
     inputs: tuple[ResolvedObjectiveInput, ...] = ()
     spec: Mapping[str, Any] | None = None
     hybrid_provider_repository: Any = None
+    # Optional per-operation memo for validated Room Simulator batch specs
+    # (see CadRoomSimRepository): evaluations in one audit or save batch
+    # replay the same batch authority repeatedly; sharing it across those
+    # replays keeps one batch validation per batch_run_id instead of two
+    # per input reference. None preserves per-read re-validation.
+    roomsim_batches: Any = None
 
 
 # Evidence classes that may stay declared-only when their source kind has no
@@ -161,7 +167,17 @@ def _resolve_cad_roomsim_attempt(
     repository = context.roomsim_repository
     if repository is None:
         raise ValueError('objective predicted evidence authority unavailable')
-    attempt = repository.get_attempt(ref.source_id)
+    # Deferred import: the repository module sits below this authority layer
+    # and callers may substitute duck-typed doubles without the memo kwarg.
+    from .cad_roomsim_repository import CadRoomSimRepository
+
+    shared = context.roomsim_batches if isinstance(
+        repository, CadRoomSimRepository
+    ) else None
+    if shared is not None:
+        attempt = repository.get_attempt(ref.source_id, batches=shared)
+    else:
+        attempt = repository.get_attempt(ref.source_id)
     if attempt is None:
         raise ValueError('objective predicted evidence attempt does not exist')
     if attempt.candidate_id != context.candidate.candidate_id:
@@ -170,7 +186,10 @@ def _resolve_cad_roomsim_attempt(
         )
     if attempt.status != 'completed':
         raise ValueError('objective predicted evidence attempt is not completed')
-    batch = repository.get_batch_spec(attempt.batch_run_id)
+    if shared is not None:
+        batch = repository.get_batch_spec(attempt.batch_run_id, batches=shared)
+    else:
+        batch = repository.get_batch_spec(attempt.batch_run_id)
     if batch is None:
         raise ValueError('objective predicted evidence batch spec does not exist')
     if (

@@ -469,6 +469,28 @@ class NativeSchemaError(RuntimeError):
     """Native CAD database schema is incompatible or cannot be adopted safely."""
 
 
+# Memoized ``ensure_native_schema`` successes keyed by database path and the
+# file signature captured right after the migration authority ran. The native
+# store never enables WAL, so every committed write mutates the main file and
+# therefore bumps mtime_ns/ctime_ns (and usually size); a matching signature
+# proves the stored version is still the one the earlier full check produced.
+_ENSURED_SCHEMA_SIGNATURES: dict[str, tuple[int, int, int, int, int]] = {}
+
+
+def _db_file_signature(path: Path) -> tuple[int, int, int, int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+        stat.st_size,
+    )
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1093,6 +1115,16 @@ def ensure_native_schema(path: Path) -> int:
     from .native_backup import recover_interrupted_restore
 
     recover_interrupted_restore(path.parent)
+    signature = _db_file_signature(path)
+    if (
+        signature is not None
+        and _ENSURED_SCHEMA_SIGNATURES.get(str(path)) == signature
+    ):
+        # This exact file generation already completed the migration
+        # authority in this process; any write since would have changed the
+        # signature. ``ensure_native_schema`` only ever returns
+        # NATIVE_SCHEMA_VERSION on success.
+        return NATIVE_SCHEMA_VERSION
     try:
         with closing(sqlite3.connect(path)) as connection, connection:
             connection.execute('PRAGMA foreign_keys=ON')
@@ -1125,6 +1157,9 @@ def ensure_native_schema(path: Path) -> int:
                         ''',
                         (version, _utc_now(), f'migrate native schema to v{version}'),
                     )
-            return version
+        signature = _db_file_signature(path)
+        if signature is not None:
+            _ENSURED_SCHEMA_SIGNATURES[str(path)] = signature
+        return version
     except sqlite3.DatabaseError as exc:
         raise NativeSchemaError(f'native database schema migration failed: {exc}') from exc

@@ -10,6 +10,7 @@ numeric fields already materialize via ``CadSearchAxis``.
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import math
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
@@ -123,13 +124,6 @@ class SearchDomainPreview(QFrame):
         self._refreshing = True
         try:
             document = self.controller.working.document
-            render_document = getattr(self.viewport, "render_document", None)
-            if callable(render_document):
-                render_document(
-                    document,
-                    selected_id=self.controller.selected_id,
-                    overlays=RoomOverlayState(grid=True, labels=False, acoustics=False),
-                )
             axes = self.controller._draft_search_axes()
             draft = self.draft_axis()
             evaluation = None
@@ -139,20 +133,32 @@ class SearchDomainPreview(QFrame):
                     evaluation = evaluate_cad_constraints(document, constraint_set)
                 except Exception:
                     evaluation = None
-            render_constraints = getattr(self.viewport, "render_constraint_overlay", None)
-            if callable(render_constraints) and constraint_set is not None:
-                render_constraints(constraint_set, evaluation)
-            render_domain = getattr(self.viewport, "render_search_domain", None)
-            if callable(render_domain) and (axes or draft is not None):
-                entity_id = draft['entity_id'] if draft is not None else axes[0].entity_id
-                render_domain(
-                    entity_id,
-                    axes,
-                    draft_axis=draft,
-                    hard_constraints_satisfied=(
-                        None if evaluation is None else evaluation.constraints_satisfied
-                    ),
-                )
+            # Document rebuild + constraint overlay + domain preview each end
+            # in plotter.render(); coalesce to one draw of the final state.
+            deferred = getattr(self.viewport, "deferred_render", None)
+            deferred = deferred() if callable(deferred) else nullcontext()
+            with deferred:
+                render_document = getattr(self.viewport, "render_document", None)
+                if callable(render_document):
+                    render_document(
+                        document,
+                        selected_id=self.controller.selected_id,
+                        overlays=RoomOverlayState(grid=True, labels=False, acoustics=False),
+                    )
+                render_constraints = getattr(self.viewport, "render_constraint_overlay", None)
+                if callable(render_constraints) and constraint_set is not None:
+                    render_constraints(constraint_set, evaluation)
+                render_domain = getattr(self.viewport, "render_search_domain", None)
+                if callable(render_domain) and (axes or draft is not None):
+                    entity_id = draft['entity_id'] if draft is not None else axes[0].entity_id
+                    render_domain(
+                        entity_id,
+                        axes,
+                        draft_axis=draft,
+                        hard_constraints_satisfied=(
+                            None if evaluation is None else evaluation.constraints_satisfied
+                        ),
+                    )
             total = search_cardinality(axes)
             summary = cardinality_summary(axes)
             if total > _CARDINALITY_WARN:

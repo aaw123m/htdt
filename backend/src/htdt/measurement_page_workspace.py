@@ -3015,31 +3015,33 @@ class MeasurementPageWorkspace(QWidget):
         if self._spatial_viewport is None:
             return
         try:
-            if mode == "diff" and context.current_revision is not None:
-                # Current scene is authority; measurement-time entities render
-                # as wireframe ghosts so stale vs current stays visible.
-                self._spatial_viewport.render_document(
-                    context.current_revision.document,
-                    selected_id=None,
-                    overlays=self._spatial_overlays,
-                    reset_camera=True,
+            # One draw for the whole composite (document + ghosts + overlay).
+            with self._spatial_viewport.deferred_render():
+                if mode == "diff" and context.current_revision is not None:
+                    # Current scene is authority; measurement-time entities render
+                    # as wireframe ghosts so stale vs current stays visible.
+                    self._spatial_viewport.render_document(
+                        context.current_revision.document,
+                        selected_id=None,
+                        overlays=self._spatial_overlays,
+                        reset_camera=True,
+                    )
+                    self._spatial_viewport.render_proposed_entities(
+                        context.bound_revision.document.entities,
+                        selected_id=context.effective_entity_id,
+                        label="測定時の配置 ghost · current Sceneは変更しません",
+                    )
+                else:
+                    self._spatial_viewport.render_document(
+                        context.bound_revision.document,
+                        selected_id=context.effective_entity_id,
+                        overlays=self._spatial_overlays,
+                        reset_camera=True,
+                    )
+                self._spatial_viewport.render_measurement_overlay(
+                    position=context.measurement_position,
+                    direction=context.measurement_direction,
                 )
-                self._spatial_viewport.render_proposed_entities(
-                    context.bound_revision.document.entities,
-                    selected_id=context.effective_entity_id,
-                    label="測定時の配置 ghost · current Sceneは変更しません",
-                )
-            else:
-                self._spatial_viewport.render_document(
-                    context.bound_revision.document,
-                    selected_id=context.effective_entity_id,
-                    overlays=self._spatial_overlays,
-                    reset_camera=True,
-                )
-            self._spatial_viewport.render_measurement_overlay(
-                position=context.measurement_position,
-                direction=context.measurement_direction,
-            )
         except Exception:
             self._spatial_viewport_failed = True
             self.spatial_fallback_label.setText(

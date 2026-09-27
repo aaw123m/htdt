@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from hashlib import sha256
 import json
@@ -6500,51 +6501,57 @@ class RoomWorkspace(QWidget):
             guides_visible=self._guides_visible,
         )
         self._sync_aux_render_state()
-        self.viewport.render_document(
-            self.controller.document,
-            selected_id=self.controller.selected_id,
-            selected_ids=self.controller.view_state.selection,
-            hidden_ids=frozenset(self.controller.view_state.hidden_ids),
-            locked_ids=frozenset(self.controller.view_state.locked_ids),
-            overlays=overlays,
-            reset_camera=reset_camera,
-        )
-        # Constraints + measure + video overlays ride the same viewport render.
-        render_constraints = getattr(self.viewport, "render_constraint_overlay", None)
-        if callable(render_constraints) and self.controller.constraint_set is not None:
-            render_constraints(
-                self.controller.constraint_set,
-                self.controller.evaluate_constraints(),
+        # The document rebuild plus each overlay renderer used to trigger a
+        # full plotter.render() apiece; deferred_render() coalesces them into
+        # a single draw of the final state (duck-typed viewports keep working
+        # via nullcontext).
+        deferred = getattr(self.viewport, "deferred_render", None)
+        with (deferred() if callable(deferred) else nullcontext()):
+            self.viewport.render_document(
+                self.controller.document,
+                selected_id=self.controller.selected_id,
+                selected_ids=self.controller.view_state.selection,
+                hidden_ids=frozenset(self.controller.view_state.hidden_ids),
+                locked_ids=frozenset(self.controller.view_state.locked_ids),
+                overlays=overlays,
+                reset_camera=reset_camera,
             )
-        render_measure = getattr(self.viewport, "render_measure_overlay", None)
-        if callable(render_measure):
-            render_measure(
-                self.measure_controller.result,
-                draft_endpoints=self.measure_controller.endpoints,
-            )
-        render_video = getattr(self.viewport, "render_video_overlay", None)
-        if callable(render_video):
-            render_video(self._video_evaluation)
-        if self.current_context == "placement" and self._proposed_variant_id is not None:
-            try:
-                proposal_entities = self.system_expansion.ghost_preview(
-                    self._proposed_variant_id
+            # Constraints + measure + video overlays ride the same viewport render.
+            render_constraints = getattr(self.viewport, "render_constraint_overlay", None)
+            if callable(render_constraints) and self.controller.constraint_set is not None:
+                render_constraints(
+                    self.controller.constraint_set,
+                    self.controller.evaluate_constraints(),
                 )
-            except (KeyError, ValueError):
-                proposal_entities = ()
-            render_proposals = getattr(self.viewport, "render_proposed_entities", None)
-            if callable(render_proposals):
-                render_proposals(
-                    proposal_entities,
-                    selected_id=self._proposed_selected_id,
+            render_measure = getattr(self.viewport, "render_measure_overlay", None)
+            if callable(render_measure):
+                render_measure(
+                    self.measure_controller.result,
+                    draft_endpoints=self.measure_controller.endpoints,
                 )
-        if overlays.acoustics and self.prediction_results:
-            render_prediction = getattr(self.viewport, "render_prediction_results", None)
-            if callable(render_prediction):
-                render_prediction(
-                    self.prediction_results,
-                    highlight=self.prediction_focus,
-                )
+            render_video = getattr(self.viewport, "render_video_overlay", None)
+            if callable(render_video):
+                render_video(self._video_evaluation)
+            if self.current_context == "placement" and self._proposed_variant_id is not None:
+                try:
+                    proposal_entities = self.system_expansion.ghost_preview(
+                        self._proposed_variant_id
+                    )
+                except (KeyError, ValueError):
+                    proposal_entities = ()
+                render_proposals = getattr(self.viewport, "render_proposed_entities", None)
+                if callable(render_proposals):
+                    render_proposals(
+                        proposal_entities,
+                        selected_id=self._proposed_selected_id,
+                    )
+            if overlays.acoustics and self.prediction_results:
+                render_prediction = getattr(self.viewport, "render_prediction_results", None)
+                if callable(render_prediction):
+                    render_prediction(
+                        self.prediction_results,
+                        highlight=self.prediction_focus,
+                    )
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)

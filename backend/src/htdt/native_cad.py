@@ -3,26 +3,18 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
-import zipfile
-
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
 
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .application_preferences import ApplicationPreferenceStore
+    from .cad_repository import SceneRepository
     from .capture_receiver_controller import CaptureReceiverController
+    from .launch_intents import HTDTLaunchIntent, LaunchIntentResult
+    from .project_library_repository import ProjectLibraryRepository
+    from .workflow_shell import WorkflowShellWindow
 
 from .build_info import version_string
-from .cad_composition import CadEditorWindow
-from .cad_repository import SceneRepository
-from .cad_synthetic_demo import seed_synthetic_optimization_demo
-from .constraint_editor import ConstraintEditorWindow
-from .default_document import log_default_document_classification
-from .measurement_editor import MeasurementEditorWindow
-from .measurement_workspace import MeasurementWorkspaceWindow
-from .legacy_data import inspect_legacy_store, migrate_legacy_data
-from .native_backup import create_backup, restore_backup
 from .native_diagnostics import (
     NativeDiagnostics,
     concise_reason,
@@ -31,36 +23,110 @@ from .native_diagnostics import (
     report_launch_failure,
     write_stderr,
 )
-from .native_upgrade import (
-    IncompatibleNewerSchemaError,
-    NativeUpgradeError,
-    execute_native_upgrade,
-    plan_native_upgrade,
+from .runtime_instance import (
+    SingleInstanceGuard,
+    default_data_dir,
+    read_lock_metadata,
 )
-from .launch_intents import (
-    HTDTLaunchIntent,
-    LaunchIntentResult,
-    build_launch_intent,
-    complete_queued_intent,
-    describe_launch_intent,
-    drain_launch_intents,
-    forward_launch_intent,
-)
-from .launch_router import route_launch_intent
-from .native_editor import default_data_dir
-from .optimization_workspace import OptimizationWorkspaceWindow
-from .project_bundle import import_project_bundle
-from .project_library_repository import ProjectLibraryRepository
-from .prediction_workspace import PredictionWorkspaceWindow
-from .runtime_instance import SingleInstanceGuard, read_lock_metadata
-from .theater_workflow import TheaterWorkflowWindow
-from .ui_theme import apply_dark_theme
-from .workflow_application import build_workflow_application
-from .workflow_shell import WorkflowShellWindow
 
-# Preserve the public theater-editor alias while the concrete product composition
-# advances through N80. N40-N70 behavior remains inherited unchanged.
-TheaterEditorWindow = OptimizationWorkspaceWindow
+# Lazy exports: every name here stays importable from this module (the
+# public facade in ``__all__`` plus collaborators tests monkeypatch on it)
+# but loads only on first attribute access. Importing them eagerly pulls
+# PySide6/PyVista/VTK and the repository stack, which costs seconds and is
+# never needed by the headless maintenance entry points (``--backup``,
+# ``--restore``, ``--automatic-backup``, ``--seed-synthetic-demo``,
+# ``--migrate-legacy-data``, ``--version``) or by the single-instance
+# forwarding path.
+_LAZY_EXPORTS = {
+    'CadEditorWindow': ('.cad_composition', 'CadEditorWindow'),
+    'ConstraintEditorWindow': ('.constraint_editor', 'ConstraintEditorWindow'),
+    'MeasurementEditorWindow': (
+        '.measurement_editor',
+        'MeasurementEditorWindow',
+    ),
+    'MeasurementWorkspaceWindow': (
+        '.measurement_workspace',
+        'MeasurementWorkspaceWindow',
+    ),
+    'OptimizationWorkspaceWindow': (
+        '.optimization_workspace',
+        'OptimizationWorkspaceWindow',
+    ),
+    'PredictionWorkspaceWindow': (
+        '.prediction_workspace',
+        'PredictionWorkspaceWindow',
+    ),
+    'TheaterWorkflowWindow': ('.theater_workflow', 'TheaterWorkflowWindow'),
+    'WorkflowShellWindow': ('.workflow_shell', 'WorkflowShellWindow'),
+    'build_workflow_application': (
+        '.workflow_application',
+        'build_workflow_application',
+    ),
+    'QApplication': ('PySide6.QtWidgets', 'QApplication'),
+    'QIcon': ('PySide6.QtGui', 'QIcon'),
+    'apply_dark_theme': ('.ui_theme', 'apply_dark_theme'),
+    'SceneRepository': ('.cad_repository', 'SceneRepository'),
+    'ProjectLibraryRepository': (
+        '.project_library_repository',
+        'ProjectLibraryRepository',
+    ),
+    'inspect_legacy_store': ('.legacy_data', 'inspect_legacy_store'),
+    'migrate_legacy_data': ('.legacy_data', 'migrate_legacy_data'),
+    'create_backup': ('.native_backup', 'create_backup'),
+    'restore_backup': ('.native_backup', 'restore_backup'),
+    'seed_synthetic_optimization_demo': (
+        '.cad_synthetic_demo',
+        'seed_synthetic_optimization_demo',
+    ),
+    'log_default_document_classification': (
+        '.default_document',
+        'log_default_document_classification',
+    ),
+    'IncompatibleNewerSchemaError': (
+        '.native_upgrade',
+        'IncompatibleNewerSchemaError',
+    ),
+    'NativeUpgradeError': ('.native_upgrade', 'NativeUpgradeError'),
+    'execute_native_upgrade': ('.native_upgrade', 'execute_native_upgrade'),
+    'plan_native_upgrade': ('.native_upgrade', 'plan_native_upgrade'),
+    'HTDTLaunchIntent': ('.launch_intents', 'HTDTLaunchIntent'),
+    'LaunchIntentResult': ('.launch_intents', 'LaunchIntentResult'),
+    'build_launch_intent': ('.launch_intents', 'build_launch_intent'),
+    'complete_queued_intent': ('.launch_intents', 'complete_queued_intent'),
+    'describe_launch_intent': ('.launch_intents', 'describe_launch_intent'),
+    'drain_launch_intents': ('.launch_intents', 'drain_launch_intents'),
+    'forward_launch_intent': ('.launch_intents', 'forward_launch_intent'),
+    'route_launch_intent': ('.launch_router', 'route_launch_intent'),
+}
+
+
+def __getattr__(name: str):
+    # Preserve the public theater-editor alias while the concrete product
+    # composition advances through N80. N40-N70 behavior remains inherited
+    # unchanged.
+    target = (
+        'OptimizationWorkspaceWindow'
+        if name == 'TheaterEditorWindow'
+        else name
+    )
+    entry = _LAZY_EXPORTS.get(target)
+    if entry is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+    module_name, attribute = entry
+    from importlib import import_module
+
+    module = (
+        import_module(module_name, __package__)
+        if module_name.startswith('.')
+        else import_module(module_name)
+    )
+    value = getattr(module, attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted([*globals(), *_LAZY_EXPORTS, 'TheaterEditorWindow'])
 
 __all__ = [
     "CadEditorWindow",
@@ -78,13 +144,15 @@ __all__ = [
 
 
 def build_workflow_shell(
-    repository: SceneRepository,
+    repository: 'SceneRepository',
     document_id: str,
-    project_library: ProjectLibraryRepository | None = None,
+    project_library: 'ProjectLibraryRepository | None' = None,
     capture_receiver: 'CaptureReceiverController | None' = None,
     preferences: 'ApplicationPreferenceStore | None' = None,
-) -> WorkflowShellWindow:
+) -> 'WorkflowShellWindow':
     """Build the integrated workflow application while preserving the public API."""
+
+    from .workflow_application import build_workflow_application
 
     return build_workflow_application(
         repository,
@@ -110,12 +178,12 @@ def _packaged_application_icon() -> Path | None:
 
 
 def _route_launch_intent(
-    intent: HTDTLaunchIntent,
+    intent: 'HTDTLaunchIntent',
     *,
     window,
-    repository: SceneRepository,
+    repository: 'SceneRepository',
     diagnostics: NativeDiagnostics,
-) -> LaunchIntentResult:
+) -> 'LaunchIntentResult':
     """One routing authority for menu, OS association, drop and forwarding.
 
     The semantic route runs through ``launch_router`` (Qt-free, testable);
@@ -126,6 +194,9 @@ def _route_launch_intent(
     """
 
     from PySide6.QtWidgets import QMessageBox
+
+    from .launch_intents import describe_launch_intent
+    from .launch_router import route_launch_intent
 
     window.raise_()
     window.activateWindow()
@@ -292,6 +363,30 @@ def _route_launch_intent(
 
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     """GUI startup boundary: failures leave a durable record and a visible reason."""
+
+    # GUI-only collaborators load lazily through the module object: the
+    # maintenance and forwarding entry points never pay the Qt/PyVista/VTK
+    # import cost, and tests that monkeypatch ``native_cad.<name>`` still
+    # see their doubles honored here (setattr lands in the module dict
+    # before ``__getattr__`` is consulted).
+    _self = sys.modules[__name__]
+    QApplication = _self.QApplication
+    QIcon = _self.QIcon
+    apply_dark_theme = _self.apply_dark_theme
+    SceneRepository = _self.SceneRepository
+    OptimizationWorkspaceWindow = _self.OptimizationWorkspaceWindow
+    log_default_document_classification = (
+        _self.log_default_document_classification
+    )
+    build_launch_intent = _self.build_launch_intent
+    complete_queued_intent = _self.complete_queued_intent
+    drain_launch_intents = _self.drain_launch_intents
+    inspect_legacy_store = _self.inspect_legacy_store
+    IncompatibleNewerSchemaError = _self.IncompatibleNewerSchemaError
+    NativeUpgradeError = _self.NativeUpgradeError
+    execute_native_upgrade = _self.execute_native_upgrade
+    plan_native_upgrade = _self.plan_native_upgrade
+    ProjectLibraryRepository = _self.ProjectLibraryRepository
 
     # #739: set before the try so failure paths can complete the record
     # only when this attempt got far enough to create one.
@@ -756,6 +851,10 @@ def main(argv: list[str] | None = None) -> int:
         # running instance through the drop queue, then exits quietly — a
         # double-clicked project file must not surface a failure.
         if args.open_paths:
+            # Deferred: the forwarding path is reached only when another
+            # instance already holds the data-directory lock.
+            from .launch_intents import build_launch_intent, forward_launch_intent
+
             forwarded = True
             for path in args.open_paths:
                 try:
@@ -789,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.backup is not None:
+            from .native_backup import create_backup
+
             manifest = create_backup(args.data_dir, args.backup)
             print(
                 f"backup created: {args.backup} "
@@ -796,6 +897,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
         if args.restore is not None:
+            from .native_backup import restore_backup
+
             manifest, pre_restore = restore_backup(args.data_dir, args.restore)
             suffix = "" if pre_restore is None else f" · pre-restore backup: {pre_restore}"
             print(
@@ -813,6 +916,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"automatic backup created: {result[0]}")
             return 0
         if args.seed_synthetic_demo:
+            from .cad_repository import SceneRepository
+            from .cad_synthetic_demo import seed_synthetic_optimization_demo
+
             repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
             result = seed_synthetic_optimization_demo(repository)
             print(
@@ -827,6 +933,10 @@ def main(argv: list[str] | None = None) -> int:
             print("synthetic demo is development-only and does not unlock owned-room recommendation")
             return 0
         if args.migrate_legacy_data:
+            from .cad_repository import SceneRepository
+            from .legacy_data import migrate_legacy_data
+            from .project_library_repository import ProjectLibraryRepository
+
             repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
             result = migrate_legacy_data(
                 args.data_dir,
