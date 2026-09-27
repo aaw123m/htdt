@@ -32,7 +32,7 @@ from .optimization_objectives import (
     ObjectiveMetric,
     ObjectiveVector,
 )
-from .pareto import ParetoResult, pareto_front
+from .pareto import ParetoEmptyError, ParetoResult, pareto_front
 
 
 JOINT_OPTIMIZATION_SCHEMA_VERSION = 1
@@ -1487,7 +1487,7 @@ def joint_pareto_front(
 
     evaluation_items = tuple(evaluations)
     if not evaluation_items:
-        raise ValueError('joint Pareto requires at least one evaluation')
+        raise ParetoEmptyError('joint Pareto requires at least one evaluation')
     candidate_by_id = {item.candidate_id: item for item in candidates}
     if len(candidate_by_id) != len(tuple(candidates)):
         raise ValueError('joint Pareto candidate IDs must be unique')
@@ -1513,7 +1513,16 @@ def joint_pareto_front(
             raise ValueError('joint Pareto candidate hash mismatch')
         if candidate.eligibility_state != 'ELIGIBLE':
             raise ValueError('blocked JointCandidate is not Pareto comparison eligible')
-        vectors.append(evaluation.objective_vector)
+        vector = evaluation.objective_vector
+        # A binding whose vector is entirely unevaluated (e.g. the canonical
+        # unsupported record) carries no comparable evidence: it must not
+        # poison the front, while a partially populated vector still fails
+        # closed inside pareto_front.
+        if any(
+            metric.state == 'available' and metric.value is not None
+            for metric in vector.metrics
+        ):
+            vectors.append(vector)
     return pareto_front(vectors, objective_ids)
 
 

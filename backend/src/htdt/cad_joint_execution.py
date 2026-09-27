@@ -59,7 +59,7 @@ from .cad_extended_search import (
     direction_with_horizontal_yaw,
 )
 from .optimization_objectives import ObjectiveVector
-from .pareto import ParetoResult
+from .pareto import ParetoEmptyError, ParetoResult
 
 JOINT_EXECUTION_AUTHORITY_VERSION = 'issue945-joint-execution-1'
 _GRID_EPSILON = 1e-9
@@ -788,9 +788,12 @@ def run_joint_execution(
     pareto_ids: tuple[str, ...] = ()
     if not cancelled:
         try:
-            front: ParetoResult = repository.pareto_front(spec.spec_id)
-        except ValueError:
-            front = None  # type: ignore[assignment]
+            front: ParetoResult | None = repository.pareto_front(spec.spec_id)
+        except ParetoEmptyError:
+            # Every eligible candidate is blocked or unevaluated: report an
+            # empty front. Integrity failures (corrupt evidence, authority
+            # mismatches) still propagate instead of reading as "no front".
+            front = None
         if front is not None:
             pareto_ids = front.non_dominated_candidate_ids
     return _build_result(
