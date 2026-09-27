@@ -74,7 +74,9 @@ from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_prediction_repository import CadPredictionRepository
 from .analysis_export import (
+    AnalysisExportMeta,
     build_analysis_export,
+    comparison_metadata_entries,
     render_analysis_csv,
     render_analysis_html,
     render_analysis_json,
@@ -2803,8 +2805,21 @@ class WorkflowApplicationComposition:
 
         measurements = CadMeasurementRepository(self.repository)
         records = measurements.list_measurements(self.document_id)
-        comparisons = measurements.list_comparisons(self.document_id)
-        if not records and not comparisons:
+        comparisons: tuple = ()
+        metadata: list[AnalysisExportMeta] = []
+        try:
+            comparisons = tuple(measurements.list_comparisons(self.document_id))
+        except Exception as exc:
+            # The comparison index validates all-or-nothing; when it fails
+            # the export still ships its measurement series and records
+            # that the comparisons could not be verified.
+            metadata.append(
+                AnalysisExportMeta(
+                    key='omitted.comparisons',
+                    value=str(exc)[:500],
+                )
+            )
+        if not records and not comparisons and not metadata:
             QMessageBox.warning(
                 self.shell,
                 "解析エクスポート",
@@ -2816,13 +2831,28 @@ class WorkflowApplicationComposition:
             head.revision_id if head is not None else None
         )
         series = []
+        omitted_measurements = 0
         for record in records:
             try:
                 bundle = measurements.get_evidence_bundle(
                     record.measurement_id
                 )
-            except ValueError:
-                continue  # measurement without an FR dataset
+            except ValueError as exc:
+                # 'no frequency-response dataset' is the routine no-dataset
+                # case; anything else is a failed re-verification — record
+                # the omission in the bundle so the file does not claim
+                # completeness it does not have.
+                if not str(exc).startswith(
+                    'measurement has no frequency-response dataset'
+                ):
+                    omitted_measurements += 1
+                    metadata.append(
+                        AnalysisExportMeta(
+                            key=f'omitted.measurement.{record.measurement_id}',
+                            value=str(exc)[:500],
+                        )
+                    )
+                continue
             series.append(
                 series_from_measurement_dataset(
                     bundle.dataset,
@@ -2837,6 +2867,14 @@ class WorkflowApplicationComposition:
                     current_scene_revision_id=current_revision_id,
                 )
             )
+            metadata.extend(comparison_metadata_entries(comparison))
+        if not series:
+            QMessageBox.warning(
+                self.shell,
+                "解析エクスポート",
+                "検証を通った測定・比較データがなく、書き出せる内容がありません。",
+            )
+            return
         title, ok = QInputDialog.getText(
             self.shell,
             "解析エクスポート",
@@ -2850,6 +2888,7 @@ class WorkflowApplicationComposition:
             title=title,
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
             series=tuple(series),
+            metadata=tuple(metadata),
         )
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
@@ -2881,7 +2920,17 @@ class WorkflowApplicationComposition:
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in written)
         )
-        box.setDetailedText(f"spec SHA-256: {export.spec_sha256}")
+        details = [f"spec SHA-256: {export.spec_sha256}"]
+        if omitted_measurements:
+            details.append(
+                f"{omitted_measurements} 件の測定データは検証に失敗したため"
+                "除外しました（ファイル内の metadata に記録されています）"
+            )
+        if metadata and any(m.key == 'omitted.comparisons' for m in metadata):
+            details.append(
+                "保存済み比較を検証できなかったため、比較は除外しました"
+            )
+        box.setDetailedText("\n".join(details))
         box.exec()
 
     def _can_close_application(self) -> tuple[bool, str | None]:
