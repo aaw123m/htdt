@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 import json
@@ -49,15 +48,12 @@ from .cad_scene import (
 )
 from .native_backup import DATABASE_NAME, create_backup
 from .managed_assets import MANAGED_ASSETS_DIRNAME
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
 
 GENERATOR_VERSION = 1
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class ProjectClass(str, Enum):

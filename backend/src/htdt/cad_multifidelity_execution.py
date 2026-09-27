@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Protocol
@@ -21,6 +20,7 @@ from .cad_schema import (
 
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 R140_EXECUTION_SCHEMA_VERSION = 1
@@ -41,14 +41,6 @@ class MultiFidelityPlanResolver(Protocol):
 
     def get_plan(self, plan_id: str) -> MultiFidelityPlan | None:
         ...
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class ExecutionResourceVector(BaseModel):

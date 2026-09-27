@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from concurrent.futures import CancelledError, Future, ThreadPoolExecutor
 from contextlib import closing
-from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sqlite3
@@ -30,6 +29,7 @@ from .cad_schema import (
 
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 R140_EXECUTOR_SCHEMA_VERSION = 1
@@ -38,14 +38,6 @@ R140_EXECUTION_RESULT_AUTHORITY_VERSION = 'r140-execution-result-1'
 R140_EXECUTION_ATTEMPT_AUTHORITY_VERSION = 'r140-execution-attempt-1'
 R140_EXECUTOR_IMPLEMENTATION_VERSION = 'r140-bounded-thread-executor-1'
 R140_SYNTHETIC_WORKER_VERSION = 'r140-deterministic-synthetic-worker-1'
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class ResourceAdmissionError(ValueError):

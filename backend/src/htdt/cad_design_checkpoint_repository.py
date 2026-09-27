@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 from typing import TYPE_CHECKING
 
@@ -14,13 +13,10 @@ from .cad_design_checkpoint import (
 )
 from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
     from .cad_authority_refs import AuthorityRefResolver
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 #: Checkpoint component kinds that name canonical persisted authorities.

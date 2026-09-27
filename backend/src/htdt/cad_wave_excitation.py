@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from math import cos, isfinite, radians, sin
@@ -35,6 +34,7 @@ from .cad_schema import (
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 WAVE_EXCITATION_AUTHORITY_VERSION = 'r110-wave-excitation-2'
@@ -64,14 +64,6 @@ WaveExcitationPhasorConvention = Literal['exp(-i*omega*t)']
 EXTERNAL_WAVE_EXCITATION_EVIDENCE_KINDS = frozenset(
     {'measured', 'manufacturer', 'inferred'}
 )
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _require_canonical_json(value: Mapping[str, Any], *, field_name: str) -> None:

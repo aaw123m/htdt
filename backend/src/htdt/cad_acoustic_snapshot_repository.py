@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import NamedTuple
@@ -45,6 +44,7 @@ from .r120_geometry_compiler import (
 )
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
+from .clock import utc_now_iso as _utc_now
 
 
 SnapshotEnvironmentResolver = Callable[
@@ -93,10 +93,6 @@ class AcousticSnapshotAuthorityResolvers(NamedTuple):
     valid_frequency_domain: SnapshotFrequencyDomainResolver | None = None
     geometric_topology_preflight: SnapshotTopologyPreflightResolver | None = None
     external_authority: SnapshotExternalAuthorityResolver | None = None
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -27,10 +26,7 @@ from .r120_geometry_compiler import (
     diagnose_r120_leak_and_portals,
 )
 from .canonical_json import canonical_json
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class _CompileInputAuthorities(NamedTuple):

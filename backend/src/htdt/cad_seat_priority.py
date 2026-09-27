@@ -10,7 +10,6 @@ probabilities — and normalize deterministically by ``sum_to_one``.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
 import sqlite3
@@ -21,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 SEAT_PRIORITY_SCHEMA_VERSION = 1
@@ -31,16 +31,8 @@ SEAT_PRIORITY_NORMALIZATION_VERSION = 'normalize-sum-to-one-v1'
 SeatPriorityRole = Literal['primary', 'secondary', 'diagnostic']
 
 
-
-
-
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}:{digest[:24]}'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class SeatPriorityMember(BaseModel):

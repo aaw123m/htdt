@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -21,10 +20,7 @@ from .treatment_boundary_overlay import (
     compile_treatment_boundary_composition,
     compile_treatment_boundary_overlay,
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class TreatmentBoundaryOverlayRepository:

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -37,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_schema import ensure_native_schema, require_native_tables
 from .native_backup import DATABASE_NAME
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -190,10 +190,6 @@ class ProjectTombstone(BaseModel):
     removed_rows: int = Field(ge=0)
     estimated_bytes: int = Field(ge=0)
     authorities_json: str
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _table_names(connection: sqlite3.Connection) -> set[str]:

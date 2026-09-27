@@ -9,7 +9,7 @@ displayed benefit that was never evaluated.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 import time
 from typing import Sequence
 
@@ -44,10 +44,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 TREATMENT_TYPES: tuple[str, ...] = (

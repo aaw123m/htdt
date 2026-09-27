@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 from hashlib import sha256
 import importlib.metadata
 import json
@@ -81,6 +80,7 @@ from .r120_geometry_compiler import (
 )
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 PFFDTD_CANDIDATE_ADAPTER_ID = 'htdt.r130a.pffdtd_candidate_wave'
@@ -97,20 +97,12 @@ COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
 )
 
 
-
-
-
-
 def _file_sha256(path: Path) -> str:
     digest = sha256()
     with path.open('rb') as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CandidateWaveExecutionError(RuntimeError):

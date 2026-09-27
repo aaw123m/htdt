@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -40,6 +40,7 @@ from .r120_geometry_compiler import (
 )
 from .semantic_geometry import SemanticSurface
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 _MATERIAL_PREFIX = 'acoustic-material:'
@@ -58,14 +59,6 @@ SURFACE_CLASS_LABELS: dict[str, str] = {
     'object_surface': 'オブジェクト表面',
     'unknown': '不明',
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-
-
 
 
 class AcousticMaterialAuthority(BaseModel):

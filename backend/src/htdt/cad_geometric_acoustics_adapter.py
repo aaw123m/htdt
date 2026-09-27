@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from importlib.metadata import version as distribution_version
 from math import acos, atan2, degrees, isfinite, sqrt
 from pathlib import Path
@@ -62,6 +61,7 @@ from .r120_geometry_compiler import (
     R120CompiledGeometry,
 )
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
+from .clock import utc_now_iso as _utc_now
 
 
 DETERMINISTIC_GA_SCHEMA_VERSION = 1
@@ -122,11 +122,6 @@ class DeterministicGaUnsupportedError(ValueError):
     ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
-
-
-
-
-
 
 
 PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
@@ -226,10 +221,6 @@ HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorit
         }
     ),
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
@@ -1562,7 +1553,6 @@ def _surface_plane(
     )
 
 
-
 def _general_surface_plane(
     compiled: R120CompiledGeometry,
     mapping: CompiledSurfaceMapping,
@@ -2879,7 +2869,6 @@ def _segment_blocked(
         if hit is not None:
             return True
     return False
-
 
 
 def _point_on_triangle_surface(

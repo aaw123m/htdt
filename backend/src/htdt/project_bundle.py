@@ -35,7 +35,6 @@ transaction, and applies the collision contract:
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import base64
 import hashlib
 import json
@@ -59,6 +58,7 @@ from .managed_assets import (
 )
 from .native_row_integrity import verify_native_row_integrity
 from .project_library_repository import ProjectLibraryRepository
+from .clock import utc_now_iso as _utc_now
 
 
 BUNDLE_SCHEMA = 'htdt.project-bundle'
@@ -234,10 +234,6 @@ def _canonical_sha256(payload: object) -> str:
             'utf-8'
         )
     ).hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _connect(path: Path) -> sqlite3.Connection:

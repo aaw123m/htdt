@@ -10,7 +10,6 @@ no pattern math.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from .cad_measurement_target_pattern import (
     CadTargetPatternRepository,
@@ -26,10 +25,7 @@ from .cad_measurement_target_pattern import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 def _preset_offsets(

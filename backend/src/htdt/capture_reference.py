@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+
 import json
 import math
 import re
 import unicodedata
 from uuid import UUID
 
+from .canonical_json import hash_parts as _hash_parts
 from htdt.capture_bundle import (
     FOUNDATION_REQUIRED_PATHS,
     MAX_SOURCE_REF_BYTES,
@@ -56,14 +58,6 @@ SUPPORTED_QUALITY_RULESETS = {"1.0.0", "1.1.0", "1.2.0"}
 
 class CaptureIngestionContractError(ValueError):
     """A validated-shape contract failure in untrusted Capture evidence/plan data."""
-
-
-def _hash_parts(prefix: str, *parts: str) -> str:
-    digest = hashlib.sha256(prefix.encode("utf-8"))
-    for part in parts:
-        digest.update(b"\x00")
-        digest.update(part.encode("utf-8"))
-    return digest.hexdigest()
 
 
 def _validate_finite_json(value, path: str = "$") -> None:

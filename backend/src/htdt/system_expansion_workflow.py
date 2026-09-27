@@ -112,6 +112,7 @@ from .cad_topology_search import (
 from .cad_topology_search_repository import CadTopologySearchRepository
 from .cad_topology_space import build_topology_search_spec
 from .optimization_robustness import RobustnessEvaluation
+from .clock import utc_now_iso as _utc_now
 
 
 LIFECYCLE_LABELS: dict[LifecycleState, str] = {
@@ -412,10 +413,6 @@ _LINKED_RELATION_AXIS: dict[str, str] = {
     "equal_z": "z",
     "equal_delta_z": "z",
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _short_semantic_id(prefix: str, payload: object) -> str:

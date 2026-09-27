@@ -21,7 +21,6 @@ connected set into a single RoomPrism:
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -38,6 +37,7 @@ from .capture_ingestion_transaction import (
     CaptureIngestionRepository,
 )
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256
+from .clock import utc_now_iso as _utc_now
 
 
 CONNECTED_SPACE_SCHEMA = 'htdt.capture.connected-spaces'
@@ -56,14 +56,8 @@ class ConnectedSpacePromotionError(ValueError):
     pass
 
 
-
-
 def _hash(domain: str, payload: object) -> str:
     return canonical_sha256({'domain': domain, 'payload': payload})
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _label(value: str, field: str) -> str:

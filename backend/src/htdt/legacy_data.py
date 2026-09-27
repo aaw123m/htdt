@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Literal
@@ -14,6 +13,7 @@ from uuid import uuid4
 
 from .project_library import ProjectLibraryEntry
 from .project_library_repository import ProjectLibraryRepository
+from .clock import utc_now_iso as _utc_now
 
 
 LEGACY_SCHEMA = 'htdt.legacy-data'
@@ -80,10 +80,6 @@ class LegacyMigrationResult(BaseModel, frozen=True, serialize_by_alias=True):
     archived_db_path: str | None = None
     archived_assets_path: str | None = None
     detail: str | None = None
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _directory_size(path: Path) -> int:

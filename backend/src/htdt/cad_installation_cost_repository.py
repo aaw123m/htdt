@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -19,10 +18,7 @@ from .cad_installation_cost import (
 from .cad_repository import SceneRepository
 from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .cad_system_variant_repository import CadSystemVariantRepository
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class CadInstallationCostRepository:

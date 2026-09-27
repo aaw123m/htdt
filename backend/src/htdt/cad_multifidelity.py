@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Protocol, Sequence
@@ -19,6 +18,7 @@ from .cad_schema import (
 from .cad_topology_comparison import TopologyComparisonEvaluation
 from .cad_robust_pareto import O90RobustParetoEvaluation
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 MULTIFIDELITY_SCHEMA_VERSION = 1
@@ -70,14 +70,6 @@ class O90RobustParetoEvaluationResolver(Protocol):
         evaluation_id: str,
     ) -> O90RobustParetoEvaluation | None:
         ...
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class MultiFidelityAuthorityRef(BaseModel):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -23,10 +22,7 @@ from .cad_schema import (
 
 )
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class DirectivitySourceAssetMetadata(BaseModel):

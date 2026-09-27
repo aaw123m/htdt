@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextlib import closing
 from array import array
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import os
@@ -41,6 +40,7 @@ from .managed_assets import (
 from .cad_schema import require_native_tables, connect_sqlite
 
 from typing import TYPE_CHECKING
+from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
     from .cad_measurement_loop import CadMeasurementPlan
@@ -107,10 +107,6 @@ def _unpack(blob: bytes | None) -> tuple[float, ...] | None:
     if os.sys.byteorder != 'little':
         payload.byteswap()
     return tuple(payload)
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadMeasurementRepository:

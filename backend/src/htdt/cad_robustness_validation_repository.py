@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -44,11 +44,7 @@ from .optimization_robustness_validation import (
     matching_o60_sensitivity,
     sensitivity_evidence_sha256,
 )
-
-
-def _utc_now() -> str:
-    """Repository commit clock; the only source of durable registration time."""
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class CadRobustnessValidationRepository:

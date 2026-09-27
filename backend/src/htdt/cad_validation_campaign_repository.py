@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -19,11 +19,7 @@ from .cad_validation_campaign import (
 )
 
 from .cad_schema import require_native_tables, connect_sqlite
-
-
-def _utc_now() -> str:
-    """Repository commit clock; the only source of durable registration time."""
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 def _aware_timestamp(value: str) -> datetime | None:

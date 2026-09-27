@@ -10,7 +10,6 @@ reach an explorer view.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -18,14 +17,11 @@ import sqlite3
 from .cad_field_explorer import FieldExplorerSession
 from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 
 class FieldExplorerConflictError(ValueError):
     """A session save violated append-only identity rules."""
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadFieldExplorerRepository:

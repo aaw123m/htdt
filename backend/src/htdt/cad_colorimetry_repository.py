@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,10 +23,7 @@ from .cad_colorimetry import (
     VideoColorMeasurementSet,
     VideoColorTargetProfile,
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class ColorimetryConflictError(ValueError):

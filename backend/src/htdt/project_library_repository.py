@@ -14,7 +14,6 @@ Display names are presentation only and are never used as identity.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import os
 from pathlib import Path
 import sqlite3
@@ -35,13 +34,10 @@ from .project_library import (
     ProjectLibraryError,
     ProjectNotFoundError,
 )
+from .clock import utc_now_iso as _utc_now
 
 
 DEFAULT_PROJECT_NAME = 'My Home Theater'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class ProjectLibraryRepository:

@@ -9,7 +9,6 @@ results are never retrofitted onto a changed contract.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 
 from .cad_repository import SceneRepository
@@ -18,10 +17,7 @@ from .cad_validation_corpus import (
     ValidationBenchmarkSpec,
     ValidationCorpusEntry,
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class ValidationCorpusError(ValueError):

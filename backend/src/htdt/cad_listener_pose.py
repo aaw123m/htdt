@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -39,6 +39,7 @@ from .cad_scene import (
 from .cad_video_geometry import SeatGeometryBinding
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
     from .cad_repository import SceneRepository
@@ -52,14 +53,6 @@ ListenerPostureKind = Literal[
 ]
 
 _LISTENER_POSE_PREFIX = 'listener-pose:'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-
-
 
 
 def _require_iso8601(value: str, name: str) -> None:

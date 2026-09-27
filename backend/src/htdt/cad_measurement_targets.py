@@ -14,7 +14,7 @@ position.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from math import isfinite, sqrt
 from typing import Any
 from uuid import uuid4
@@ -34,14 +34,7 @@ from .cad_scene import (
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 def _require_iso8601(value: str, label: str) -> None:

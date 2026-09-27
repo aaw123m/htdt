@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -33,6 +33,7 @@ from .cad_installation_context import SourceInstallationCondition
 from .cad_scene import Direction3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
     from .cad_equipment_repository import CadEquipmentRepository
@@ -62,14 +63,6 @@ InputQuantityKind = Literal['voltage_v_rms', 'power_w', 'dimensionless']
 FieldCondition = Literal[
     'free_field', 'half_space_baffle', 'in_room', 'unspecified'
 ]
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-
-
 
 
 def _require_iso8601(value: str, name: str) -> None:

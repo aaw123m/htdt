@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -54,6 +53,7 @@ from .optimization_robustness_multidimensional import (
     build_multidimensional_evaluations_from_provenance,
     build_multidimensional_sampling_plan,
 )
+from .clock import utc_now_iso as _utc_now
 
 
 PROPOSAL_ROBUSTNESS_AUTHORITY_VERSION = 'o100f-proposal-robustness-1'
@@ -71,10 +71,6 @@ class VariantBundleResolver(Protocol):
 
     def get_bundle(self, bundle_id: str) -> VariantEvaluationBundle | None:
         ...
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

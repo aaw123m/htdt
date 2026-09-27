@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_schema import ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 ReviewNoteSubjectKind = Literal[
@@ -46,14 +47,6 @@ ReviewNoteResolution = Literal[
 ]
 
 _NOTE_PREFIX = 'review-note:'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-
-
 
 
 def _require_iso8601(value: str, name: str) -> None:

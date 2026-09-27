@@ -61,7 +61,7 @@ from htdt.limits import (
     MAX_CAPTURE_INGEST_VERTEX_COUNT,
     MAX_CAPTURE_INGEST_WORKING_BYTES,
 )
-from .canonical_json import canonical_json as _canonical_json
+from .canonical_json import canonical_json as _canonical_json, hash_parts as _hash_parts
 
 
 UUID4_RE = re.compile(
@@ -162,14 +162,6 @@ class PersistedIngestionIntegrityError(CaptureIngestionTransactionError):
         super().__init__(
             f'{PERSISTED_INGESTION_INTEGRITY_MISMATCH}: {detail}'
         )
-
-
-def _hash_parts(prefix: str, *parts: str) -> str:
-    digest = sha256(prefix.encode('utf-8'))
-    for part in parts:
-        digest.update(b'\x00')
-        digest.update(part.encode('utf-8'))
-    return digest.hexdigest()
 
 
 def _source_evidence_id(bundle_digest: str, path: str, payload_sha256: str) -> str:

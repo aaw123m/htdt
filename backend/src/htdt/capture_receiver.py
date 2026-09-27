@@ -69,6 +69,7 @@ from .content_blobs import (
 )
 from .limits import MAX_CAPTURE_INGEST_SOURCE_BYTES
 from .canonical_json import canonical_json as _canonical_json
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.capture_receiver')
@@ -117,12 +118,6 @@ PAIRING_TTL_MINUTES = 10
 
 class CaptureReceiverError(ValueError):
     pass
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _sha256_text(payload: bytes) -> str:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import logging
 from pathlib import Path
 import sqlite3
@@ -13,6 +12,7 @@ from .cad_schema_ddl import (
     NATIVE_COLUMN_ENSURES,
 )
 from .content_blobs import CONTENT_BLOB_DDL
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -469,10 +469,6 @@ class NativeSchemaError(RuntimeError):
     """Native CAD database schema is incompatible or cannot be adopted safely."""
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def connect_sqlite(path: Path) -> sqlite3.Connection:
     """Open ``path`` with the shared row factory and FK enforcement on."""
     connection = sqlite3.connect(path)
@@ -738,7 +734,6 @@ def _migrate_1_to_2(connection: sqlite3.Connection) -> None:
     )
     for statement in statements:
         connection.execute(statement)
-
 
 
 def _migrate_2_to_3(connection: sqlite3.Connection) -> None:
@@ -1078,7 +1073,6 @@ _MIGRATIONS = {
     9: _migrate_8_to_9,
     10: _migrate_9_to_10,
 }
-
 
 
 def ensure_native_schema(path: Path) -> int:

@@ -50,6 +50,7 @@ from .cad_sound_isolation import (
     IsolationScenario,
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 class FeatureAuthorityConflictError(ValueError):
@@ -70,10 +71,6 @@ FeatureAuthorityKind = Literal[
     'field_label',
     'label_sheet',
 ]
-
-
-
-
 
 
 def _payload_digest(record: BaseModel) -> str:
@@ -774,7 +771,3 @@ class CadFeatureAuthorityRepository:
         raise ValueError(f'unknown feature authority kind {kind!r}')
 
 
-def _utc_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -42,6 +42,7 @@ from .cad_system_variant_measured_lifecycle import (
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 O100G_MEASUREMENT_PLAN_SCHEMA_VERSION = 1
@@ -52,10 +53,6 @@ O100G_MEASUREMENT_CAMPAIGN_COMPLETION_AUTHORITY_VERSION = 'o100g-system-variant-
 O100G_MEASUREMENT_CAMPAIGN_REGISTRATION_AUTHORITY_VERSION = 'o100g-system-variant-measurement-campaign-registration-1'
 
 
-
-
-
-
 def _parse_timestamp(value: str, label: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value)
@@ -64,11 +61,6 @@ def _parse_timestamp(value: str, label: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
     return parsed
-
-
-def _utc_now() -> str:
-    """Repository commit clock; the only source of durable registration time."""
-    return datetime.now(timezone.utc).isoformat()
 
 
 class VariantMeasurementAcquisitionRequirement(BaseModel):

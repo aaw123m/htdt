@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Sequence
@@ -23,6 +22,7 @@ from .cad_system_variant import SystemVariant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 TREATMENT_COMPARISON_SCHEMA_VERSION = 1
@@ -35,14 +35,6 @@ TreatmentCandidateAvailability = Literal['evaluated', 'unavailable']
 TreatmentOutcomeCompatibility = Literal[
     'compatible', 'partial', 'incompatible'
 ]
-
-
-
-
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class TreatmentPlacementComparisonRef(BaseModel):

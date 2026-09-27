@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Any
@@ -14,14 +13,7 @@ from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
 from .cad_schema import require_native_tables, connect_sqlite
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-
-
+from .clock import utc_now_iso as _utc_now
 
 
 class SystemVariantApplication(BaseModel):
