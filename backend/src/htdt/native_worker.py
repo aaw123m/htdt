@@ -133,7 +133,11 @@ class NativeWorkerPool(QObject):
         ] = {}
         self._shutdown_requested = False
         self._last_shutdown_report = WorkerShutdownReport()
-        self.destroyed.connect(self._detach_all)
+        # destroy() must go through a plain callable: PySide6 silently never
+        # delivers the signal to a bound method of the object being
+        # destroyed (verified on PySide6 6.11), so a lambda keeps the detach
+        # path live instead of dead-connected.
+        self.destroyed.connect(lambda: self._detach_all())
 
     @property
     def tasks(self) -> dict[str, tuple[QThread, NativeWorker]]:

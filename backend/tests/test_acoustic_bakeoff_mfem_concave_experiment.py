@@ -13,7 +13,12 @@ from htdt.acoustic_bakeoff_mfem_concave_experiment import (
 )
 
 
-PLAN_PATH = Path('benchmarks/acoustics/r100b_mfem_concave_experiment_plan.json')
+PLAN_PATH = (
+    Path(__file__).resolve().parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r100b_mfem_concave_experiment_plan.json'
+)
 
 
 def _plan():

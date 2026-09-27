@@ -16,8 +16,7 @@ inventing physics.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
-from hashlib import sha256
+from datetime import datetime
 import json
 from math import exp, isclose, isfinite
 from pathlib import Path
@@ -28,6 +27,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
 from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
+from .canonical_json import canonical_json, canonical_sha256
+from .clock import utc_now_iso
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -51,18 +52,14 @@ NOMINAL_AIR_PRESSURE_PA = 101325.0
 NOMINAL_RELATIVE_HUMIDITY_PERCENT = 50.0
 
 
-def _canonical(payload: object) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-
-
-def _hash(payload: object) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
+_canonical = canonical_json
+_hash = canonical_sha256
 
 
 class AcousticEnvironmentProfile(BaseModel):
     """Sealed environment authority; ids and hashes are content-derived."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', allow_inf_nan=False)
 
     schema_version: Literal[1] = ACOUSTIC_ENVIRONMENT_SCHEMA_VERSION
     authority_version: Literal['1'] = ACOUSTIC_ENVIRONMENT_AUTHORITY_VERSION
@@ -263,7 +260,7 @@ def build_acoustic_environment_profile(
         'sound_speed_source_kind': sound_speed_source_kind,
         'temperature_source_kind': temperature_source_kind,
         'provenance': provenance,
-        'created_at_utc': created_at_utc or datetime.now(timezone.utc).isoformat(),
+        'created_at_utc': created_at_utc or utc_now_iso(),
         'notes': notes,
         'air_density_kg_m3': air_density_kg_m3,
         'air_density_source_kind': air_density_source_kind,
@@ -448,12 +445,7 @@ class CadAcousticEnvironmentRepository:
 
     @staticmethod
     def _payload(profile: AcousticEnvironmentProfile) -> str:
-        return json.dumps(
-            profile.model_dump(mode='json'),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-        )
+        return canonical_json(profile.model_dump(mode='json'))
 
     def save_profile(self, profile: AcousticEnvironmentProfile) -> None:
         payload = self._payload(profile)
@@ -520,7 +512,7 @@ class CadAcousticEnvironmentRepository:
             raise ValueError('document_id must not be empty')
         if self.get_profile(profile.authority_id) is None:
             raise ValueError('selected environment profile is not persisted')
-        updated_at = datetime.now(timezone.utc).isoformat()
+        updated_at = utc_now_iso()
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 '''

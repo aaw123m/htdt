@@ -27,6 +27,7 @@ baking HRTF data into solver code.
 from __future__ import annotations
 
 from hashlib import sha256
+import io
 from pathlib import Path
 from typing import Any, Literal
 
@@ -196,7 +197,10 @@ def load_sofa_dataset_profile(
     file_bytes = read_file_bounded(path, MAX_ATTACHMENT_BYTES)
     file_hash = sha256(file_bytes).hexdigest()
 
-    with h5py.File(path, 'r') as handle:
+    # h5py parses the verified in-memory bytes, not the path again: the
+    # recorded source_file_sha256 is guaranteed to describe exactly the
+    # bytes that were parsed (no read-to-parse TOCTOU window).
+    with h5py.File(io.BytesIO(file_bytes), 'r') as handle:
         conventions = _as_text(handle.attrs.get('Conventions', b'SOFA'))
         sofa_convention = _as_text(
             handle.attrs.get('SOFAConventions', b'')
