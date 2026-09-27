@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -292,8 +293,12 @@ class DataManagementDialog(QDialog):
         self.open_settings()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
-        allowed, _reason = self.component.before_deactivate()
+        allowed, reason = self.component.before_deactivate()
         if not allowed:
+            # QDialog has no statusBar; surface the refusal reason instead of
+            # silently swallowing the close.
+            if reason:
+                QMessageBox.information(self, self.windowTitle(), reason)
             event.ignore()
             return
         event.accept()

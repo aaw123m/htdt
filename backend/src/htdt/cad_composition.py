@@ -41,7 +41,9 @@ class CadEditorWindow(WallEditorWindow):
             changed = self.working.replace_room_topology(room, topology)
         except ValueError as exc:
             message = f'部屋の変更を確定できません · 壁・開口参照を確認してください · {exc}'
-            QTimer.singleShot(0, lambda: self.statusBar().showMessage(message))
+            # Context receiver drops the shot if the window closes before the
+            # deferred status update runs.
+            QTimer.singleShot(0, self, lambda: self.statusBar().showMessage(message))
             self._refresh_room_inspector()
             return False
         if changed:
