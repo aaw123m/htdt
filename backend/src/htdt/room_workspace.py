@@ -2249,8 +2249,21 @@ class MetricSpinBox(_PendingTextSpinBox):
         self._minimum_m = minimum_m
         self._maximum_m = maximum_m
         self._base_step = self.UNIT_STEPS['m']
+        # Exact SI authority for this field. The displayed value is quantized
+        # to ``decimals`` in the display unit, so deriving SI back from
+        # ``self.value()`` loses precision (1.5 m -> 59.06 in -> 1500.12 mm).
+        # User commits (valueChanged) refresh the cache; programmatic writes
+        # set it directly and suppress that sync.
+        self._exact_m = 0.0
+        self._exact_sync_blocked = False
         self.setKeyboardTracking(False)
+        self.valueChanged.connect(self._sync_exact_from_display)
         self._apply_unit()
+
+    def _sync_exact_from_display(self, display_value: float) -> None:
+        if self._exact_sync_blocked:
+            return
+        self._exact_m = display_to_si(display_value, self._display_unit)
 
     def _apply_unit(self) -> None:
         scale = self.UNIT_SCALES[self._display_unit]
@@ -2265,18 +2278,27 @@ class MetricSpinBox(_PendingTextSpinBox):
             return
         if unit == self._display_unit and decimals is None:
             return
-        value_m = self.value_m()
-        self._display_unit = unit
-        self._apply_unit()
-        if decimals is not None:
-            self.setDecimals(decimals)
-        self.setValue(si_to_display(value_m, unit))
+        value_m = self._exact_m
+        self._exact_sync_blocked = True
+        try:
+            self._display_unit = unit
+            self._apply_unit()
+            if decimals is not None:
+                self.setDecimals(decimals)
+            self.setValue(si_to_display(value_m, unit))
+        finally:
+            self._exact_sync_blocked = False
 
     def value_m(self) -> float:
-        return display_to_si(self.value(), self._display_unit)
+        return self._exact_m
 
     def set_value_m(self, value: float) -> None:
-        self.setValue(si_to_display(value, self._display_unit))
+        self._exact_sync_blocked = True
+        try:
+            self.setValue(si_to_display(value, self._display_unit))
+        finally:
+            self._exact_sync_blocked = False
+        self._exact_m = float(value)
 
     def stepBy(self, steps: int) -> None:
         modifiers = QGuiApplication.keyboardModifiers()

@@ -409,6 +409,25 @@ def test_metric_spinbox_conversion_matches_display_unit_authority() -> None:
     assert MetricSpinBox.UNIT_DECIMALS == DEFAULT_DISPLAY_DECIMALS
 
 
+def test_metric_spinbox_unit_switch_preserves_exact_si() -> None:
+    """Unit switches re-render from the exact SI value, never the rounded display."""
+
+    _app()
+    field = MetricSpinBox()
+    field.set_value_m(1.5)
+    field.set_display_unit("inch")
+    # Display quantized to the inch policy's 2 decimals — SI stays exact.
+    assert field.value() == pytest.approx(59.06)
+    field.set_display_unit("mm")
+    # 59.06 in (the quantized display) would round-trip to 1500.12 mm;
+    # the cached SI value renders exactly 1500.00 mm instead.
+    assert field.value() == pytest.approx(1500.0)
+    assert field.value_m() == 1.5
+    # A user commit (direct setValue, like a typed edit) becomes the exact SI.
+    field.setValue(1501.0)
+    assert field.value_m() == display_to_si(1501.0, "mm")
+
+
 def test_inspector_display_units_follow_application_preferences(tmp_path) -> None:
     """#496 wiring: display_input.* preferences drive inspector fields."""
 
