@@ -36,7 +36,7 @@ from uuid import uuid4
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .cad_measurement_pose import SpatialUncertainty
 from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -598,9 +598,7 @@ class AcousticSourcePoseRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_observation(
         self, observation: AcousticSourcePoseObservation

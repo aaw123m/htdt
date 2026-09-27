@@ -26,6 +26,9 @@ import time
 
 from pathlib import Path, PurePosixPath
 
+from .ingress import read_file_bounded
+from .limits import MAX_ATTACHMENT_BYTES
+
 
 class ManagedAssetError(ValueError):
     """A managed content-addressed asset violated its storage contract."""
@@ -189,7 +192,9 @@ class ManagedAssetStore:
         # Windows while the previous handle is pending deletion.
         for attempt in range(attempts):
             try:
-                return target.read_bytes()
+                return read_file_bounded(
+                    target, MAX_ATTACHMENT_BYTES, label='managed asset'
+                )
             except PermissionError:
                 if attempt == attempts - 1:
                     raise
@@ -216,7 +221,9 @@ class ManagedAssetStore:
                 handle.write(raw_bytes)
                 handle.flush()
                 os.fsync(handle.fileno())
-            persisted = temp.read_bytes()
+            persisted = read_file_bounded(
+                temp, len(raw_bytes), label='staged managed asset'
+            )
             if len(persisted) != len(raw_bytes) or sha256(persisted).hexdigest() != digest:
                 raise RuntimeError('managed asset write verification failed')
             try:

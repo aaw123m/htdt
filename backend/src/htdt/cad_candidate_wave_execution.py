@@ -2413,7 +2413,7 @@ class PffdtdCandidateWaveExecutor:
         sim_dir.mkdir()
         model_path = run_dir / 'pffdtd_model.json'
         model_path.write_text(
-            json.dumps(model, indent=2, sort_keys=True) + '\n',
+            json.dumps(model, indent=2, sort_keys=True, allow_nan=False) + '\n',
             encoding='utf-8',
         )
 

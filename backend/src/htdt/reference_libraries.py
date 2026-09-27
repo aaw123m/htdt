@@ -472,7 +472,7 @@ class LibraryMetaStore:
         )
         try:
             with os.fdopen(fd, 'w', encoding='utf-8') as handle:
-                handle.write(json.dumps(payload, sort_keys=True))
+                handle.write(json.dumps(payload, sort_keys=True, allow_nan=False))
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)

@@ -44,6 +44,7 @@ from .cad_video_geometry import (
     VideoGeometryRequest,
     build_video_geometry_request,
 )
+from .canonical_json import canonical_json
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -317,12 +318,7 @@ class CadVideoWorkspaceRepository:
         return VideoGeometryWorkspace.model_validate(json.loads(str(row['payload_json'])))
 
     def save(self, workspace: VideoGeometryWorkspace) -> None:
-        payload = json.dumps(
-            workspace.model_dump(mode='json'),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-        )
+        payload = canonical_json(workspace.model_dump(mode='json'))
         updated_at = datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as connection, connection:
             connection.execute(

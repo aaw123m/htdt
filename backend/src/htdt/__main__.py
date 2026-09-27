@@ -77,7 +77,7 @@ class InstanceLock:
     def write_metadata(self, payload: dict[str, object]) -> None:
         if not self._owned or self._handle is None:
             raise RuntimeError('instance lock is not owned')
-        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode('utf-8')
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, allow_nan=False).encode('utf-8')
         self._handle.truncate(1)
         self._handle.seek(1)
         self._handle.write(encoded)

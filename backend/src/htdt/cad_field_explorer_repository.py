@@ -17,6 +17,7 @@ import sqlite3
 from .cad_field_explorer import FieldExplorerSession
 from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
+from .canonical_json import canonical_json
 from .clock import utc_now_iso as _utc_now
 
 
@@ -56,12 +57,7 @@ class CadFieldExplorerRepository:
         """Persist one sealed session; identical re-saves are idempotent."""
 
         self._source_revision(session)
-        payload = json.dumps(
-            session.model_dump(mode='json'),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-        )
+        payload = canonical_json(session.model_dump(mode='json'))
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(

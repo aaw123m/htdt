@@ -665,7 +665,7 @@ def terminology_fingerprint() -> str:
     }
     import json as _json
 
-    return sha256(_json.dumps(payload, sort_keys=True).encode('utf-8')).hexdigest()
+    return sha256(_json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')).hexdigest()
 
 
 # ---------------------------------------------------------------------------

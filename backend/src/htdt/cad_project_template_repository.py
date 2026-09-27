@@ -13,7 +13,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from .cad_project_template import (
     ProjectTemplate,
     ProjectTemplateInstantiation,
@@ -41,9 +41,7 @@ class CadProjectTemplateRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_template(self, template: ProjectTemplate) -> ProjectTemplate:
         if template.kind == 'builtin':
@@ -76,7 +74,8 @@ class CadProjectTemplateRepository:
                         template.kind,
                         template.template_sha256,
                         json.dumps(
-                            template.model_dump(mode='json'), ensure_ascii=False
+                            template.model_dump(mode='json'), ensure_ascii=False,
+                            allow_nan=False,
                         ),
                     ),
                 )
@@ -189,6 +188,7 @@ class CadProjectTemplateRepository:
                 json.dumps(
                     instantiation.model_dump(mode='json'),
                     ensure_ascii=False,
+                    allow_nan=False,
                 ),
             ),
         )

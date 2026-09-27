@@ -244,7 +244,7 @@ class AutomaticBackupScheduler:
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
         temp.write_text(
-            json.dumps(policy.model_dump(mode='json'), indent=2, sort_keys=True),
+            json.dumps(policy.model_dump(mode='json'), indent=2, sort_keys=True, allow_nan=False),
             encoding='utf-8',
         )
         os.replace(temp, path)
@@ -263,7 +263,7 @@ class AutomaticBackupScheduler:
         path.parent.mkdir(parents=True, exist_ok=True)
         temp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
         temp.write_text(
-            json.dumps(state, indent=2, sort_keys=True),
+            json.dumps(state, indent=2, sort_keys=True, allow_nan=False),
             encoding='utf-8',
         )
         os.replace(temp, path)

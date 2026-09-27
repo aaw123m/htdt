@@ -28,7 +28,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .cad_equipment import FrequencyDomain
 from .cad_video_geometry import AngleRange
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -334,9 +334,7 @@ class CadScreenTransferRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_transfer(
         self,

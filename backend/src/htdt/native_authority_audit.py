@@ -41,6 +41,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
+from .cad_schema import connect_sqlite
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 
 if TYPE_CHECKING:
@@ -3695,8 +3696,7 @@ def audit_native_authority_graph(
             )
         )
 
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
+    connection = connect_sqlite(db_path)
     try:
         # ---- replay tier -------------------------------------------------
         for probe in _REPLAY_PROBES:

@@ -102,7 +102,7 @@ class SingleInstanceGuard:
             'pid': os.getpid(),
             'host': socket.gethostname(),
             'acquired_at': datetime.now(timezone.utc).isoformat(),
-        }, sort_keys=True).encode('utf-8')
+        }, sort_keys=True, allow_nan=False).encode('utf-8')
         try:
             file.seek(0, os.SEEK_END)
             if file.tell() < 1:
@@ -177,7 +177,7 @@ def write_runtime_info(root: Path, info: RuntimeInfo) -> None:
     root.mkdir(parents=True, exist_ok=True)
     path = root / RUNTIME_FILENAME
     temp = root / f'.{RUNTIME_FILENAME}.{os.getpid()}.tmp'
-    temp.write_text(json.dumps({'app_id': APP_ID, 'pid': info.pid, 'port': info.port, 'url': info.url}, sort_keys=True), encoding='utf-8')
+    temp.write_text(json.dumps({'app_id': APP_ID, 'pid': info.pid, 'port': info.port, 'url': info.url}, sort_keys=True, allow_nan=False), encoding='utf-8')
     os.replace(temp, path)
 
 

@@ -13,7 +13,7 @@ from .cad_intervention_study import (
     InterventionStudySpec,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -219,10 +219,7 @@ class CadInterventionStudyRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.db_path)
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys = ON')
-        return connection
+        return connect_sqlite(self.db_path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:

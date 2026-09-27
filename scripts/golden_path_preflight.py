@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import shutil
 import sys
 import tempfile
 import traceback
@@ -653,6 +654,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help='trace JSON output path (default: <work-dir>/golden-path-trace.json)',
     )
+    parser.add_argument(
+        '--clean-work-dir-on-success',
+        action='store_true',
+        help='delete the run artifacts inside the work dir on success '
+        '(the trace JSON is kept; failure always preserves everything)',
+    )
     args = parser.parse_args(argv)
 
     work_dir = args.work_dir or Path(
@@ -684,6 +691,14 @@ def main(argv: list[str] | None = None) -> int:
     # The trace is written inside the work dir, so a temporary work dir is
     # never auto-deleted: deleting it on failure would discard the trace
     # (and audit artifacts) that exist precisely to debug that failure.
+    if code == 0 and args.clean_work_dir_on_success:
+        for artifact in ('data-main', 'data-restored', 'preflight.htdt-backup'):
+            target = work_dir / artifact
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+        print(f'[preflight] cleaned run artifacts in {work_dir}')
     return code
 
 

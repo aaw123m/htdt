@@ -19,6 +19,7 @@ from .cad_search import generate_cad_candidates
 from .cad_search_models import CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .cad_schema import (
+    connect_sqlite,
     ensure_native_schema,
     require_native_tables,
 )
@@ -133,10 +134,7 @@ class CadRobustnessRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.db_path)
-        connection = sqlite3.connect(self.db_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys = ON')
-        return connection
+        return connect_sqlite(self.db_path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

@@ -13,6 +13,7 @@ from .cad_repository import SceneRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_search import candidate_preview_document, iter_cad_candidate_pages
 from .cad_scene import scene_content_hash
+from .canonical_json import canonical_sha256
 
 
 class CadMeasurementPlan(BaseModel):
@@ -80,8 +81,7 @@ class CadMeasurementPlan(BaseModel):
 
 
 def _hash(value: object) -> str:
-    raw = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
-    return sha256(raw).hexdigest()
+    return canonical_sha256(value)
 
 
 def _resolve_candidate(scene_repository: SceneRepository, spec, candidate_id: str):

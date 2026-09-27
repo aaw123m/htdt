@@ -31,7 +31,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Literal
 
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 from .cad_action_item import (
     ActionSpatialAnchor,
     ActionSubjectRef,
@@ -80,9 +80,7 @@ class CadActionItemRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     # -- canonical ref validation (#866) -----------------------------------
 
@@ -200,7 +198,8 @@ class CadActionItemRepository:
                         1 if item.archived else 0,
                         item.action_sha256,
                         json.dumps(
-                            item.model_dump(mode='json'), ensure_ascii=False
+                            item.model_dump(mode='json'), ensure_ascii=False,
+                            allow_nan=False,
                         ),
                     ),
                 )

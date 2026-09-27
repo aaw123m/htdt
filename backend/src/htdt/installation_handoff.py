@@ -36,6 +36,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .csv_export import csv_safe_row
+from .ingress import read_file_bounded
 from .installation_output_authority import InstallationReportService
 from .report import (
     InstallationOutput,
@@ -497,7 +498,13 @@ def write_handoff_package(
         for key, path in staged.items():
             _write_staged_text(path, contents[key])
             if (
-                sha256(path.read_bytes()).hexdigest()
+                sha256(
+                    read_file_bounded(
+                        path,
+                        len(contents[key].encode('utf-8')),
+                        label='staged handoff file',
+                    )
+                ).hexdigest()
                 != expected_digests[key]
             ):
                 raise IOError(

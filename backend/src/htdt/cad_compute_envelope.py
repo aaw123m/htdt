@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .canonical_json import canonical_json as _canonical
 from .clock import utc_now_iso as _utc_now
 
@@ -463,9 +463,7 @@ class ComputeEvidenceRepository:
             )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(str(self.path))
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def save_record(self, record: BenchmarkRecord) -> BenchmarkRecord:
         with closing(self._connect()) as connection, connection:

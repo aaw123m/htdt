@@ -231,6 +231,7 @@ def _archive_legacy_store(data_dir: Path) -> tuple[Path, Path | None]:
                 'recorded_at_utc': _utc_now(),
             },
             indent=2,
+            allow_nan=False,
         ),
         encoding='utf-8',
     )

@@ -513,7 +513,7 @@ def _scratch_components(
     nr = _INTERPOLATION_POINTS * receiver_count
     nx, ny, nz = grid_shape
     model_json_bytes = len(
-        (json.dumps(model, indent=2, sort_keys=True) + '\n').encode('utf-8')
+        (json.dumps(model, indent=2, sort_keys=True, allow_nan=False) + '\n').encode('utf-8')
     )
 
     components = (

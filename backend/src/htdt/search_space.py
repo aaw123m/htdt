@@ -9,6 +9,7 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from .canonical_json import canonical_sha256
 from .placement_constraints import PlacementEvaluationRequest, evaluate_constraint_set
 
 
@@ -279,8 +280,7 @@ def _apply_derivations(
 
 
 def _canonical_sha(payload: Any) -> str:
-    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
-    return sha256(raw).hexdigest()
+    return canonical_sha256(payload)
 
 def generate_search_space(
     context_payload: dict[str, Any],

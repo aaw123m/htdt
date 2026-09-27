@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .cad_project_activity import ProjectActivityNote
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import connect_sqlite, require_native_tables
 
 
 class CadProjectActivityNoteRepository:
@@ -25,9 +25,7 @@ class CadProjectActivityNoteRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.database_path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:

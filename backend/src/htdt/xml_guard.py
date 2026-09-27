@@ -8,6 +8,13 @@ mechanism. HTDT's XML consumers only need element trees, so documents
 carrying a DOCTYPE or ENTITY declaration are rejected outright before
 parsing. All matches are done case-insensitively on the raw payload so
 whitespace tricks (``<!  DOCTYPE``) cannot slip by.
+
+Known gap (defense-in-depth only): the byte-level scan cannot see a
+DOCTYPE/ENTITY declaration encoded as UTF-16 or UTF-32 — a BOM-prefixed
+payload carries non-ASCII bytes that never match the pattern. This is
+accepted because pyexpat decodes the document first and still rejects the
+declaration at parse time; the guard's role is to decline the payload
+before it reaches a parser, not to be the sole barrier.
 """
 
 from __future__ import annotations

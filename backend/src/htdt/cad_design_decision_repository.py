@@ -201,7 +201,8 @@ class CadDesignDecisionRepository:
                         decision.created_at_utc,
                         decision.decision_sha256,
                         json.dumps(
-                            decision.model_dump(mode='json'), ensure_ascii=False
+                            decision.model_dump(mode='json'), ensure_ascii=False,
+                            allow_nan=False,
                         ),
                     ),
                 )

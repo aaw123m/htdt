@@ -28,6 +28,7 @@ from .cad_equipment_binding_repository import (
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_installation_cost import CostRecord, CostScenario
 from .cad_installation_cost_repository import CadInstallationCostRepository
+from .canonical_json import canonical_sha256
 from .cad_layout_profile import LayoutProfile
 from .cad_proposal_robustness import (
     ProposalMultidimensionalRobustnessSpec,
@@ -43,7 +44,7 @@ from .cad_scene import (
     is_unassigned_speaker_role,
 )
 from .cad_search_models import CadSearchAxis
-from .cad_schema import ensure_native_schema
+from .cad_schema import connect_sqlite, ensure_native_schema
 from .cad_system_variant import (
     ChannelRoleBinding,
     EquipmentBindingRef,
@@ -416,13 +417,7 @@ _LINKED_RELATION_AXIS: dict[str, str] = {
 
 
 def _short_semantic_id(prefix: str, payload: object) -> str:
-    raw = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"{prefix}-{sha256(raw).hexdigest()[:20]}"
+    return f"{prefix}-{canonical_sha256(payload)[:20]}"
 
 
 def lifecycle_presentation(
@@ -484,9 +479,7 @@ class SystemExpansionWorkflowService:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
+        return connect_sqlite(self.path)
 
     def _table_exists(self, connection: sqlite3.Connection, table: str) -> bool:
         return connection.execute(

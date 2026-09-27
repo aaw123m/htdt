@@ -16,6 +16,7 @@ from .cad_acoustic_treatment import (
     evaluate_treatment_surface_binding,
 )
 from .cad_repository import SceneRepository
+from .ingress import IngressTooLargeError, read_file_bounded
 from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
@@ -76,7 +77,16 @@ class CadAcousticTreatmentRepository:
         target = self.assets_dir / digest
         created_asset_file = False
         if target.exists():
-            if target.read_bytes() != data:
+            try:
+                identical = (
+                    read_file_bounded(
+                        target, len(data), label='treatment source asset'
+                    )
+                    == data
+                )
+            except IngressTooLargeError:
+                identical = False
+            if not identical:
                 raise ValueError('content-addressed treatment source asset hash collision')
         else:
             target.write_bytes(data)
