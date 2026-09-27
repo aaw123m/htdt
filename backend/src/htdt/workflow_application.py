@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -7,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 import weakref
 
-from PySide6.QtCore import QPointF, Qt
+from PySide6.QtCore import QByteArray, QPointF, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -47,6 +48,8 @@ from .activity_center import (
     ACTIVITY_HISTORY_FILENAME,
     TERMINAL_STATES,
     ActivityCenter,
+    NavigationPolicy,
+    OperationClass,
     OperationState,
 )
 from .capture_inbox import CaptureInboxRepository
@@ -109,6 +112,7 @@ from .application_preferences import (
 from .cad_display_units import length_display_policy_from_preferences
 from .capture_retention import CaptureRetentionService
 from .capture_retention_ui import RetentionPolicyWidget
+from .automatic_backup_runner import AutomaticBackupRunner
 from .data_management_ui import build_data_management_component
 from .reference_library_sources import build_reference_library_index
 from .file_dialog_memory import FileDialogMemoryStore
@@ -190,6 +194,11 @@ from .workflow_navigation import (
     WorkspaceDeepLink,
     WorkspaceId,
 )
+from .window_state import (
+    PersistedWindowState,
+    load_window_state,
+    save_window_state,
+)
 from .workflow_settings import DataManagementDialog, PreferencesWidget
 from .workflow_shell import (
     TargetFocusResult,
@@ -199,6 +208,8 @@ from .workflow_shell import (
     build_canonical_workspace_registrations,
 )
 
+
+_LOGGER = logging.getLogger(__name__)
 
 _DISPLAY_LENGTH_PREFERENCE_KEYS = frozenset(
     {'display_input.length_unit', 'display_input.numeric_precision'}
@@ -384,6 +395,7 @@ class WorkflowApplicationComposition:
         open_project: Callable[[str], None] | None = None,
         capture_receiver: CaptureReceiverController | None = None,
         preferences: ApplicationPreferenceStore | None = None,
+        safe_mode: bool = False,
     ) -> None:
         self.repository = repository
         self.repository_path = Path(repository.path)
@@ -395,6 +407,11 @@ class WorkflowApplicationComposition:
         )
         self.document_id = document_id
         self.capture_receiver = capture_receiver
+        # Safe Mode (#739): the launcher opted this session out of saved
+        # layout restore and background jobs (automatic backups) — the
+        # minimum that could repeat the risky initialization being escaped.
+        self.safe_mode = safe_mode
+        self._automatic_backup_runner: AutomaticBackupRunner | None = None
         # ApplicationPreferences are app-local truth shared with every
         # integration that reads them — one store per data root (#740).
         self.preferences = preferences or ApplicationPreferenceStore.for_data_dir(
@@ -494,6 +511,13 @@ class WorkflowApplicationComposition:
         self.shell.settingsRequested.connect(self.settings_dialog.open_settings)
         self.shell.register_close_guard(self._can_close_application)
         self.shell.workflow_application = self  # type: ignore[attr-defined]
+        # Window-state persistence: restore geometry + last workspace now
+        # (skipped under Safe Mode's restore_saved_layout=False policy),
+        # and save on every committed close so project switches that
+        # rebuild the shell keep the user's place too.
+        self._restore_window_state()
+        self.shell.register_close_hook(self._save_window_state)
+        self.shell.register_close_hook(self._shutdown_automatic_backup)
         self.registry.bind(
             "equipment.export_capture_catalog",
             execute=self._export_capture_equipment_catalog,
@@ -522,11 +546,119 @@ class WorkflowApplicationComposition:
             if self.project_entry is not None
             else None
         )
-        self.shell.setWindowTitle(
+        title = (
             'Home Theater Digital Twin'
             if name is None
             else f"Home Theater Digital Twin — {name}"
         )
+        if self.safe_mode:
+            title += ' — セーフモード'
+        self.shell.setWindowTitle(title)
+
+    # -- window-state persistence (round8) --------------------------------
+
+    def _restore_window_state(self) -> None:
+        if self.safe_mode:
+            return
+        state = load_window_state(self.data_dir)
+        if state is None:
+            return
+        if state.geometry_b64:
+            try:
+                self.shell.restoreGeometry(
+                    QByteArray.fromBase64(
+                        QByteArray(state.geometry_b64.encode('ascii'))
+                    )
+                )
+            except (RuntimeError, ValueError):
+                _LOGGER.warning('saved window geometry could not be applied')
+        if state.contexts:
+            self.shell.seed_selected_contexts(state.contexts)
+        if state.workspace is not None:
+            try:
+                if state.workspace != str(self.shell.current_workspace_id):
+                    self.shell.navigate(state.workspace)
+            except (RuntimeError, ValueError):
+                _LOGGER.warning(
+                    'saved workspace %r could not be restored',
+                    state.workspace,
+                )
+
+    def _save_window_state(self) -> None:
+        try:
+            workspace = self.shell.current_workspace_id
+        except RuntimeError:
+            workspace = None
+        geometry = bytes(self.shell.saveGeometry().toBase64()).decode('ascii')
+        save_window_state(
+            self.data_dir,
+            PersistedWindowState(
+                geometry_b64=geometry,
+                workspace=None if workspace is None else str(workspace),
+                contexts=self.shell.selected_contexts(),
+            ),
+        )
+
+    # -- automatic backup tick (#755 round8) -------------------------------
+
+    def start_automatic_backup(self) -> None:
+        """Kick off the once-per-launch due check; no-op under Safe Mode."""
+
+        if self.safe_mode:
+            return
+        if self._automatic_backup_runner is None:
+            self._automatic_backup_runner = AutomaticBackupRunner(
+                self.data_dir, parent=self.shell
+            )
+            self._automatic_backup_runner.backup_started.connect(
+                self._on_automatic_backup_started
+            )
+            self._automatic_backup_runner.backup_completed.connect(
+                self._on_automatic_backup_completed
+            )
+        try:
+            self._automatic_backup_runner.start()
+        except Exception:
+            _LOGGER.exception('automatic backup check could not start')
+
+    def _on_automatic_backup_started(self) -> None:
+        operation_id = self.activity_center.submit(
+            operation_kind='automatic_backup',
+            operation_class=OperationClass.DATA_MANAGEMENT,
+            title='自動バックアップ',
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+        )
+        self._automatic_backup_operation_id = operation_id
+        self.activity_center.mark_running(operation_id)
+
+    def _on_automatic_backup_completed(
+        self, result: object, error: object
+    ) -> None:
+        operation_id = getattr(self, '_automatic_backup_operation_id', None)
+        if error is not None:
+            _LOGGER.warning('automatic backup failed: %s', error)
+            if operation_id is not None:
+                self.activity_center.fail(
+                    operation_id, error_summary=str(error)
+                )
+            self.shell.statusBar().showMessage(
+                '自動バックアップを作成できませんでした'
+            )
+            return
+        if result is None or operation_id is None:
+            return
+        path = result[0]
+        self.activity_center.complete(
+            operation_id,
+            result_summary=f'自動バックアップを保存しました: {path}',
+        )
+        self.shell.statusBar().showMessage(
+            '自動バックアップを保存しました', 5000
+        )
+
+    def _shutdown_automatic_backup(self) -> None:
+        if self._automatic_backup_runner is not None:
+            self._automatic_backup_runner.shutdown()
 
     def _build_project_menu(self) -> None:
         menu = self.shell.menuBar().addMenu("プロジェクト")
@@ -660,8 +792,9 @@ class WorkflowApplicationComposition:
                 reason or "現在の処理が完了してからプロジェクトを切り替えてください"
             )
             return
-        if not self.shell.close():
-            return
+        # Resolve/mark the target BEFORE closing this window (#919 ordering):
+        # if open fails here the user keeps their open project instead of
+        # being dropped out of the app with no window left.
         try:
             opened = self.project_library.open_project(entry.project_id)
         except ProjectLibraryError as exc:
@@ -673,17 +806,34 @@ class WorkflowApplicationComposition:
                 ).notice_text(),
             )
             return
+        if not self.shell.close():
+            # Close was vetoed by a dirty/running workspace — the opened
+            # timestamp already bumped, which is benign.
+            return
         self._open_document(opened.document_id)
 
     def _open_document(self, document_id: str) -> None:
         if self._open_project_callback is not None:
             self._open_project_callback(document_id)
             return
+        if self.capture_receiver is not None:
+            # The receiver is app-scoped and moves to the new composition —
+            # disconnect this shell's announcement first or deliveries would
+            # be announced once per still-referenced composition.
+            try:
+                self.capture_receiver.delivery_staged.disconnect(
+                    self._announce_capture_delivery
+                )
+            except (RuntimeError, TypeError):
+                pass
         composition = WorkflowApplicationComposition(
             self.repository,
             document_id,
             project_library=self.project_library,
             open_project=self._open_project_callback,
+            capture_receiver=self.capture_receiver,
+            preferences=self.preferences,
+            safe_mode=self.safe_mode,
         )
         self._spawned_compositions.append(composition)
         composition.shell.show()
@@ -2947,6 +3097,7 @@ def build_workflow_application(
     open_project: Callable[[str], None] | None = None,
     capture_receiver: CaptureReceiverController | None = None,
     preferences: ApplicationPreferenceStore | None = None,
+    safe_mode: bool = False,
 ) -> WorkflowShellWindow:
     composition = WorkflowApplicationComposition(
         repository,
@@ -2955,6 +3106,7 @@ def build_workflow_application(
         open_project=open_project,
         capture_receiver=capture_receiver,
         preferences=preferences,
+        safe_mode=safe_mode,
     )
     return composition.shell
 

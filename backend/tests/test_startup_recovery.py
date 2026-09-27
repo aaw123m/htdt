@@ -204,3 +204,40 @@ def test_last_failure_class_comes_from_records(tmp_path: Path) -> None:
     )
     assert decision.failure_class == 'integration_initialization'
     assert not decision.restore_recommended
+
+
+def test_annotate_launch_records_project_ref(tmp_path: Path) -> None:
+    """annotate_launch back-fills the resolved project on a live record."""
+    from htdt.startup_recovery import annotate_launch
+
+    record = record_launch(
+        tmp_path,
+        build_id='b1',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:00:00+00:00',
+    )
+    annotate_launch(
+        tmp_path, record.launch_id, project_ref='project-9'
+    )
+    metadata = load_recovery_metadata(tmp_path)
+    annotated = next(
+        r for r in metadata.records if r.launch_id == record.launch_id
+    )
+    assert annotated.last_project_ref == 'project-9'
+
+
+def test_annotate_launch_unknown_launch_id_is_a_noop(tmp_path: Path) -> None:
+    from htdt.startup_recovery import annotate_launch
+
+    record = record_launch(
+        tmp_path,
+        build_id='b1',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:00:00+00:00',
+    )
+    annotate_launch(tmp_path, 'no-such-launch', project_ref='p')
+    metadata = load_recovery_metadata(tmp_path)
+    annotated = next(
+        r for r in metadata.records if r.launch_id == record.launch_id
+    )
+    assert annotated.last_project_ref is None
