@@ -186,7 +186,7 @@ class CadMeasurementCorrection(BaseModel):
         return self
 
     def identity_payload(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             'correction_id': self.correction_id,
             'document_id': self.document_id,
             'measurement_id': self.measurement_id,
