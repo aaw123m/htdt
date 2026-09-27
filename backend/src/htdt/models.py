@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .geometry import polygon_covers_xy, validate_polygon_in_reference_box
 from .limits import MAX_ATTACHMENT_BASE64_CHARS, MAX_REW_TEXT_BASE64_CHARS
@@ -17,18 +17,24 @@ AttachmentKind = Literal['mdat', 'microphone_calibration', 'avr_settings', 'meas
 
 
 class RoomVertex(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     vertex_id: str = Field(min_length=1, max_length=100)
     x_m: float
     y_m: float
 
 
 class Point3D(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     x_m: float
     y_m: float
     z_m: float
 
 
 class SpeakerPlacement(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     speaker_id: str = Field(min_length=1)
     role: str = Field(min_length=1)
     model: str | None = None
@@ -38,6 +44,8 @@ class SpeakerPlacement(BaseModel):
 
 
 class RoomSnapshot(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     width_m: float = Field(gt=0)
     depth_m: float = Field(gt=0)
     height_m: float = Field(gt=0)
@@ -63,6 +71,8 @@ class RoomSnapshot(BaseModel):
 
 
 class MeasurementPoint(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     point_id: str = Field(min_length=1)
     label: str = Field(min_length=1)
     position: Point3D
@@ -71,6 +81,8 @@ class MeasurementPoint(BaseModel):
 
 
 class MicrophoneSnapshot(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     manufacturer: str = 'miniDSP'
     model: str = 'UMIK-1'
     serial: str | None = None
@@ -89,6 +101,8 @@ class MicrophoneSnapshot(BaseModel):
 
 
 class AVRConfiguration(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     manufacturer: str = 'Yamaha'
     model: str = 'RX-A4A'
     firmware: str | None = None
@@ -192,6 +206,8 @@ class AttachmentCreate(BaseModel):
 
 
 class ExcludedBand(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
+
     low_hz: float = Field(gt=0)
     high_hz: float = Field(gt=0)
 
@@ -203,6 +219,7 @@ class ExcludedBand(BaseModel):
 
 
 class ComparisonCreate(BaseModel):
+    model_config = ConfigDict(allow_inf_nan=False)
     dataset_a_id: str
     dataset_b_id: str
     low_hz: float = Field(gt=0)

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict
+import math
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -94,6 +97,25 @@ def _comparison_warnings(a: dict, b: dict, confounder_count: int) -> list[str]:
     return warnings
 
 
+# Methods the unknown-/api/* fallback answers 404 for. OPTIONS is excluded so
+# preflights keep the router's default 405; TRACE/CONNECT likewise never
+# reach a handler.
+_API_FALLBACK_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
+
+
+def _is_api_path(path: str) -> bool:
+    """True when a decoded SPA-fallback path is really an ``/api`` URL.
+
+    ``{path:path}`` params arrive URL-decoded, so an encoded separator
+    (``%2f``) is already unfolded here. The check is case-insensitive: a
+    misspelled ``/API/...`` route must not silently serve ``index.html``
+    either. Segment-exact so a legitimate ``/apix``-style SPA route still
+    falls back.
+    """
+    lowered = path.lower()
+    return lowered == 'api' or lowered.startswith('api/')
+
+
 def _resolve_frontend_path(frontend_root: Path, path: str) -> Path | None:
     """Return the resolved file inside ``frontend_root`` for an SPA route path.
 
@@ -148,6 +170,24 @@ class LegacyApiDisabledError(RuntimeError):
     """Raised when the legacy API would touch the default data directory."""
 
 
+def _finite_safe_error_detail(value: object) -> object:
+    """Make a pydantic error's echoed ``input`` JSON-serializable.
+
+    Validation errors carry the offending input value. A rejected non-finite
+    float (``Infinity``/``NaN``) cannot be encoded by the plain ``json``
+    encoder FastAPI's default handler uses, so the 422 response itself would
+    crash with ``ValueError`` and surface as a 500. Non-finite floats are
+    rendered as their string form instead; everything else is untouched.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _finite_safe_error_detail(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_finite_safe_error_detail(item) for item in value]
+    return value
+
+
 def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = None) -> FastAPI:
     if data_dir is None and os.environ.get(LEGACY_API_ENV_VAR) != '1':
         raise LegacyApiDisabledError(LEGACY_API_DISABLED_DETAIL)
@@ -159,6 +199,13 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
                   openapi_url='/api/openapi.json' if expose_docs else None)
     app.state.store = store
     app.state.rew = rew
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={'detail': _finite_safe_error_detail(jsonable_encoder(exc.errors()))},
+        )
 
     @app.get('/api/health', response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -247,6 +294,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/sessions')
     def list_sessions(project_id: str) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
         return store.list_sessions(project_id)
 
     @app.post('/api/projects/{project_id}/sessions', status_code=201)
@@ -258,6 +307,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/contexts')
     def list_contexts(project_id: str) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
         return store.list_contexts(project_id)
 
     @app.get('/api/projects/{project_id}/contexts/{context_id}/geometry')
@@ -279,6 +330,10 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/constraint-sets')
     def list_constraint_sets(project_id: str, context_id: str | None = Query(default=None)) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
+        if context_id is not None and store.get_context(project_id, context_id) is None:
+            raise HTTPException(status_code=404, detail='Context not found')
         return store.list_constraint_sets(project_id, context_id)
 
     @app.post('/api/projects/{project_id}/constraint-sets', status_code=201)
@@ -289,6 +344,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         try:
             spec = validate_constraint_set_for_context(request, context['payload'])
             return store.create_constraint_set(project_id, request.context_id, request.name, spec)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -318,6 +375,10 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/search-specs')
     def list_search_specs(project_id: str, context_id: str | None = Query(default=None)) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
+        if context_id is not None and store.get_context(project_id, context_id) is None:
+            raise HTTPException(status_code=404, detail='Context not found')
         return store.list_search_specs(project_id, context_id)
 
     @app.post('/api/projects/{project_id}/search-specs/preview')
@@ -483,6 +544,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/measurements')
     def list_measurements(project_id: str) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
         return store.list_measurements(project_id)
 
     @app.post('/api/projects/{project_id}/measurements', status_code=201)
@@ -582,6 +645,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/attachments')
     def list_attachments(project_id: str) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
         return store.list_attachments(project_id)
 
     @app.post('/api/projects/{project_id}/attachments', status_code=201)
@@ -596,6 +661,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
 
     @app.get('/api/projects/{project_id}/comparisons')
     def list_comparisons(project_id: str) -> list[dict]:
+        if store.get_project(project_id) is None:
+            raise HTTPException(status_code=404, detail='Project not found')
         return store.list_comparisons(project_id)
 
     def report_snapshot(project_id: str, comparison_id: str) -> tuple[dict, dict]:
@@ -667,8 +734,20 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         if assets_dir.is_dir():
             app.mount('/assets', StaticFiles(directory=assets_dir), name='assets')
 
+        # Unknown /api/* paths must never fall through to the SPA fallback:
+        # registered after every concrete /api/* route so only unmatched API
+        # paths land here. Without this guard a misspelled API route is
+        # answered 200 text/html (index.html) instead of a JSON 404, and the
+        # gated-off /api/docs and /api/openapi.json would serve the app shell.
+        @app.api_route('/api', methods=_API_FALLBACK_METHODS, include_in_schema=False)
+        @app.api_route('/api/{path:path}', methods=_API_FALLBACK_METHODS, include_in_schema=False)
+        def api_not_found(path: str = '') -> None:
+            raise HTTPException(status_code=404, detail='Not Found')
+
         @app.get('/{path:path}', include_in_schema=False)
         def frontend(path: str) -> FileResponse:
+            if _is_api_path(path):
+                raise HTTPException(status_code=404, detail='Not Found')
             candidate = _resolve_frontend_path(frontend_root, path)
             if candidate is not None:
                 return FileResponse(candidate)
