@@ -215,8 +215,15 @@ class FieldExplorerPanel(QWidget):
         self.session_combo.blockSignals(True)
         self.session_combo.clear()
         self.session_combo.addItem('(sessionを選択)', None)
+        # Sessions commonly share one scene revision; resolve each unique
+        # revision once per refresh instead of re-validating it per row.
+        revisions: dict[str, object] = {}
         for session in self.field_repository.list_sessions(self.document_id):
-            revision = self.scene_repository.get(session.scene_revision_id)
+            if session.scene_revision_id not in revisions:
+                revisions[session.scene_revision_id] = self.scene_repository.get(
+                    session.scene_revision_id
+                )
+            revision = revisions[session.scene_revision_id]
             currency = (
                 'stale'
                 if revision is None

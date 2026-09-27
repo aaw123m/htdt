@@ -212,12 +212,18 @@ class AcousticTreatmentService:
         if revision is None:
             return ()
         presentations: list[TreatmentPlacementPresentation] = []
+        # Many placements share one definition version; resolve each unique
+        # definition once per listing instead of once per placement.
+        definitions: dict[tuple[str, str], object] = {}
         for placement in self.repository.list_placements_for_scene(
             revision.revision_id
         ):
-            definition = self.repository.get_definition(
-                placement.definition_id, placement.definition_version
-            )
+            definition_key = (placement.definition_id, placement.definition_version)
+            if definition_key not in definitions:
+                definitions[definition_key] = self.repository.get_definition(
+                    *definition_key
+                )
+            definition = definitions[definition_key]
             capability = (
                 None
                 if definition is None

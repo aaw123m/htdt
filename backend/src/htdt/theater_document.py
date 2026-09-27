@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .cad_document import EditStateError, TransformEntitiesCommand
 from .cad_room import RoomWorkingDocument
-from .cad_scene import SceneEntity, scene_content_hash
+from .cad_scene import SceneEntity
 
 
 class TheaterWorkingDocument(RoomWorkingDocument):
@@ -24,6 +24,6 @@ class TheaterWorkingDocument(RoomWorkingDocument):
 
         before = tuple(self._document.entity(entity_id) for entity_id in ids)
         command = TransformEntitiesCommand(before=before, after=validated)
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash

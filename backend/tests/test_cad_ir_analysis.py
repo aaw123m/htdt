@@ -140,6 +140,26 @@ def test_spectrogram_records_transform_settings():
     assert all(len(row) == len(result.spec_freqs_hz) for row in result.spec_levels_db)
 
 
+def test_spectrogram_levels_are_amplitude_db():
+    # A tone at 1/100 the reference amplitude must read 20*log10(0.01) =
+    # -40 dB, not the -20 dB a power-style 10*log10 produces.
+    n = int(0.4 * FS)
+    t = np.arange(n) / FS
+    # tf_window_s=0.05 -> window_n=2400 -> 20 Hz bins; 200/600 Hz land on bins.
+    ir = np.sin(2 * np.pi * 200.0 * t) + 0.01 * np.sin(2 * np.pi * 600.0 * t)
+    spec = _spec(tf_window_s=0.05, tf_overlap=0.5)
+    result = run_ir_analysis(
+        spec, tuple(float(v) for v in ir), created_at='2026-09-23T00:00:00+00:00'
+    )
+    bin200 = int(round(200.0 / (FS / 2400)))
+    bin600 = int(round(600.0 / (FS / 2400)))
+    assert result.spec_freqs_hz[bin200] == pytest.approx(200.0)
+    assert result.spec_freqs_hz[bin600] == pytest.approx(600.0)
+    for row in result.spec_levels_db:
+        assert row[bin200] == pytest.approx(0.0, abs=0.5)
+        assert row[bin600] == pytest.approx(-40.0, abs=0.5)
+
+
 def test_replay_and_repository(tmp_path: Path):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     scene_repository.save(make_f1_scene(), parent_revision_id=None)

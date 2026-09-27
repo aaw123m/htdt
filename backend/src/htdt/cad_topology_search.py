@@ -679,6 +679,9 @@ def build_topology_placement_search_spec(
     constraint_snapshot_json = _canonical(constraint_snapshot)
     constraint_snapshot_sha = _digest(constraint_snapshot)
     o10_search_spec_json = _canonical(o10_spec)
+    # One canonical serialization feeds both the identity digest and the
+    # returned spec field.
+    virtual_scene_hash = scene_content_hash(virtual_scene)
     identity = {
         'schema_version': TOPOLOGY_SEARCH_SCHEMA_VERSION,
         'authority_version': TOPOLOGY_SEARCH_AUTHORITY_VERSION,
@@ -687,7 +690,7 @@ def build_topology_placement_search_spec(
         'baseline_content_hash': baseline.content_hash,
         'template_variant_id': template_variant.variant_id,
         'template_variant_sha256': template_variant.variant_sha256,
-        'template_scene_content_hash': scene_content_hash(virtual_scene),
+        'template_scene_content_hash': virtual_scene_hash,
         'topology_search_id': topology_spec.topology_search_id,
         'topology_search_sha256': topology_spec.topology_search_sha256,
         'topology_option_id': topology_option_id,
@@ -713,7 +716,7 @@ def build_topology_placement_search_spec(
         baseline_content_hash=baseline.content_hash,
         template_variant_id=template_variant.variant_id,
         template_variant_sha256=template_variant.variant_sha256,
-        template_scene_content_hash=scene_content_hash(virtual_scene),
+        template_scene_content_hash=virtual_scene_hash,
         topology_search_id=topology_spec.topology_search_id,
         topology_search_sha256=topology_spec.topology_search_sha256,
         topology_option_id=topology_option_id,

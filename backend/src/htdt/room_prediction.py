@@ -252,10 +252,15 @@ class RoomPredictionController(QObject):
         reference rather than a listening position.
         """
         document = self.room_controller.committed_document
+        selected_poses = (
+            self.listener_pose_repository.selected_poses_for_document(
+                self.document_id
+            )
+        )
         options: list[tuple[str, str]] = []
         for entity in document.entities:
             pose = (
-                self._selected_pose(entity.entity_id)
+                selected_poses.get(entity.entity_id)
                 if entity.kind == 'seat'
                 else None
             )

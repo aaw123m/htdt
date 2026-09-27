@@ -678,6 +678,11 @@ def run_joint_execution(
             pareto_ids=(),
         )
 
+    # One shared authority memo across the candidate loop: every candidate
+    # replays the same parent spec authority and most share variant/plan/
+    # report authorities, so each unique authority is resolved once per run
+    # instead of once per candidate and per evaluation.
+    authority_memo: dict[tuple[str, str], object] = {}
     for vector in vectors:
         if is_cancelled is not None and is_cancelled():
             cancelled = True
@@ -737,11 +742,13 @@ def run_joint_execution(
             calibration_plan=plan,
             decisions=vector,
         )
-        prior = repository.get_candidate(candidate.candidate_id)
+        prior = repository.get_candidate(
+            candidate.candidate_id, authorities=authority_memo
+        )
         if prior is not None:
             reused += 1
         else:
-            repository.save_candidate(candidate)
+            repository.save_candidate(candidate, authorities=authority_memo)
             generated += 1
             if candidate.eligibility_state == 'BLOCKED':
                 blocked += 1
@@ -761,7 +768,9 @@ def run_joint_execution(
                     input_refs=outcome.input_refs,
                     created_at_utc=created_at_utc,
                 )
-                repository.save_evaluation(binding)
+                repository.save_evaluation(
+                    binding, authorities=authority_memo
+                )
                 evaluated += 1
             else:
                 binding = bind_joint_candidate_evaluation(
@@ -780,7 +789,9 @@ def run_joint_execution(
                     ),
                     created_at_utc=created_at_utc,
                 )
-                repository.save_evaluation(binding)
+                repository.save_evaluation(
+                    binding, authorities=authority_memo
+                )
                 evaluated += 1
         if on_progress is not None:
             on_progress(_progress())
@@ -788,7 +799,9 @@ def run_joint_execution(
     pareto_ids: tuple[str, ...] = ()
     if not cancelled:
         try:
-            front: ParetoResult | None = repository.pareto_front(spec.spec_id)
+            front: ParetoResult | None = repository.pareto_front(
+                spec.spec_id, authorities=authority_memo
+            )
         except ParetoEmptyError:
             # Every eligible candidate is blocked or unevaluated: report an
             # empty front. Integrity failures (corrupt evidence, authority

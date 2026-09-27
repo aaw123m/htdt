@@ -3264,3 +3264,57 @@ def test_joint_spec_derives_aim_pitch_variable_and_verifies_materialization(
             calibration_plan=None,
             decisions=wrong_pitch,
         )
+
+
+def test_shared_authority_memo_replays_identically(tmp_path: Path) -> None:
+    """Per-operation authority memoization must not weaken replay: shared
+    memos return the same validated objects as unshared reads."""
+    fixture = _fixture(tmp_path)
+    repository = _repository(fixture)
+    repository.save_spec(fixture.spec)
+    candidates = (
+        _position_candidate(fixture.spec, fixture.moved_variant, 2.0),
+        _position_candidate(fixture.spec, fixture.home_variant, 1.0),
+    )
+    evaluations = tuple(
+        _evaluation(
+            fixture,
+            fixture.spec,
+            candidate,
+            error=float(index + 1),
+            headroom=5.0,
+        )
+        for index, candidate in enumerate(candidates)
+    )
+    for candidate, evaluation in zip(candidates, evaluations):
+        repository.save_candidate(candidate)
+        repository.save_evaluation(evaluation)
+
+    shared: dict[tuple[str, str], object] = {}
+    spec_id = fixture.spec.spec_id
+    assert (
+        repository.get_spec(spec_id, authorities=shared) == fixture.spec
+    )
+    assert repository.list_candidates(
+        spec_id, authorities=shared
+    ) == repository.list_candidates(spec_id)
+    assert repository.count_candidates(spec_id) == len(candidates)
+    for candidate in candidates:
+        assert (
+            repository.get_candidate(
+                candidate.candidate_id, authorities=shared
+            )
+            == candidate
+        )
+    assert repository.list_evaluations(
+        spec_id, authorities=shared
+    ) == repository.list_evaluations(spec_id)
+    assert repository.pareto_front(
+        spec_id, authorities=shared
+    ) == repository.pareto_front(spec_id)
+    # A memoized candidate cannot satisfy a hash-mismatched claim.
+    tampered = candidates[0].model_copy(
+        update={'candidate_sha256': '0' * 64}
+    )
+    with pytest.raises(ValueError):
+        repository.save_candidate(tampered, authorities=shared)

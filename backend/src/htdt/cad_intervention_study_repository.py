@@ -235,12 +235,29 @@ class CadInterventionStudyRepository:
         ref: InterventionAuthorityRef,
         *,
         purpose: str,
+        resolved: set[tuple[str, ...]] | None = None,
     ) -> None:
         """Resolve a typed authority pin against its canonical table.
 
         Unknown kinds and absent/mismatched digests fail closed — a
-        caller-supplied id is never trusted (#960).
+        caller-supplied id is never trusted (#960). ``resolved`` optionally
+        shares already-verified pins across one batch read so a ref pinned
+        by many rows is re-resolved once instead of once per row.
         """
+        key = (ref.authority_kind, ref.authority_id, ref.authority_sha256)
+        if resolved is not None and key in resolved:
+            return
+        self._resolve_authority_ref_uncached(connection, ref, purpose=purpose)
+        if resolved is not None:
+            resolved.add(key)
+
+    def _resolve_authority_ref_uncached(
+        self,
+        connection: sqlite3.Connection,
+        ref: InterventionAuthorityRef,
+        *,
+        purpose: str,
+    ) -> None:
         if ref.authority_kind == 'measurement':
             if self._measurement_ref_resolves(connection, ref):
                 return
@@ -291,14 +308,20 @@ class CadInterventionStudyRepository:
         authority_sha256: str,
         *,
         purpose: str,
+        resolved: set[tuple[str, ...]] | None = None,
     ) -> None:
         """Resolve a legacy id+sha pair against every registered table."""
+        key = ('untyped', authority_id, authority_sha256)
+        if resolved is not None and key in resolved:
+            return
         for name, id_col, sha_col in _AUTHORITY_TABLES.values():
             row = connection.execute(
                 f'SELECT 1 FROM {name} WHERE {id_col} = ? AND {sha_col} = ?',
                 (authority_id, authority_sha256),
             ).fetchone()
             if row is not None:
+                if resolved is not None:
+                    resolved.add(key)
                 return
         if self._measurement_ref_resolves(
             connection,
@@ -308,76 +331,120 @@ class CadInterventionStudyRepository:
                 authority_sha256=authority_sha256,
             ),
         ):
+            if resolved is not None:
+                resolved.add(key)
             return
         raise ValueError(
             f'{purpose} authority {authority_id} is not registered for replay'
         )
 
     def _require_spec_dependencies(
-        self, spec: InterventionStudySpec
+        self,
+        spec: InterventionStudySpec,
+        *,
+        connection: sqlite3.Connection | None = None,
+        resolved: set[tuple[str, ...]] | None = None,
     ) -> None:
         """Resolve every authority the spec is caller-allowed to pin (#960)."""
+        if connection is None:
+            with closing(self._connect()) as owned:
+                return self._require_spec_dependencies(
+                    spec, connection=owned, resolved=resolved
+                )
         finding = spec.finding
         kind = _FINDING_SOURCE_KINDS.get(finding.source_kind)
-        with closing(self._connect()) as connection:
-            if kind is not None:
-                self._resolve_authority_ref(
-                    connection,
-                    InterventionAuthorityRef(
-                        authority_kind=kind,
-                        authority_id=finding.source_authority_id or '',
-                        authority_sha256=(
-                            finding.source_authority_sha256 or '0' * 64
-                        ),
+        if kind is not None:
+            self._resolve_authority_ref(
+                connection,
+                InterventionAuthorityRef(
+                    authority_kind=kind,
+                    authority_id=finding.source_authority_id or '',
+                    authority_sha256=(
+                        finding.source_authority_sha256 or '0' * 64
                     ),
-                    purpose='finding source',
-                )
-            if (
-                spec.treatment_capability_authority_id is not None
-                and spec.treatment_capability_authority_sha256 is not None
-            ):
-                self._resolve_untyped_authority(
-                    connection,
-                    spec.treatment_capability_authority_id,
-                    spec.treatment_capability_authority_sha256,
-                    purpose='treatment capability',
-                )
+                ),
+                purpose='finding source',
+                resolved=resolved,
+            )
+        if (
+            spec.treatment_capability_authority_id is not None
+            and spec.treatment_capability_authority_sha256 is not None
+        ):
+            self._resolve_untyped_authority(
+                connection,
+                spec.treatment_capability_authority_id,
+                spec.treatment_capability_authority_sha256,
+                purpose='treatment capability',
+                resolved=resolved,
+            )
 
     def _require_alternative_dependencies(
-        self, alternative: InterventionAlternative
+        self,
+        alternative: InterventionAlternative,
+        *,
+        connection: sqlite3.Connection | None = None,
+        resolved: set[tuple[str, ...]] | None = None,
     ) -> None:
         """Resolve generated/evidence/metric-producer authority pins (#960)."""
-        with closing(self._connect()) as connection:
-            for ref in alternative.generated_authorities:
-                self._resolve_authority_ref(
-                    connection, ref, purpose='generated'
+        if connection is None:
+            with closing(self._connect()) as owned:
+                return self._require_alternative_dependencies(
+                    alternative, connection=owned, resolved=resolved
                 )
-            for ref in alternative.evidence_authorities:
+        for ref in alternative.generated_authorities:
+            self._resolve_authority_ref(
+                connection, ref, purpose='generated', resolved=resolved
+            )
+        for ref in alternative.evidence_authorities:
+            self._resolve_authority_ref(
+                connection, ref, purpose='evidence', resolved=resolved
+            )
+        for metric in alternative.metrics:
+            if metric.producer is not None:
                 self._resolve_authority_ref(
-                    connection, ref, purpose='evidence'
+                    connection,
+                    metric.producer,
+                    purpose='metric producer',
+                    resolved=resolved,
                 )
-            for metric in alternative.metrics:
-                if metric.producer is not None:
-                    self._resolve_authority_ref(
-                        connection,
-                        metric.producer,
-                        purpose='metric producer',
-                    )
 
 
     def _require_scene_revision(
-        self, spec: InterventionStudySpec
+        self,
+        spec: InterventionStudySpec,
+        *,
+        resolved: set[tuple[str, ...]] | None = None,
     ) -> None:
-        revision = self.scene_repository.get(spec.scene_revision_id)
-        if (
-            revision is None
-            or revision.document_id != spec.document_id
-            or revision.content_hash != spec.scene_content_hash
-        ):
-            raise ValueError(
-                'intervention study SceneRevision is not registered '
-                'for replay'
-            )
+        # Keys carry every spec-supplied value the checks compare, so a
+        # memoized hit is equivalent to re-running the fetch + comparisons.
+        revision_key = (
+            'revision',
+            spec.scene_revision_id,
+            spec.document_id,
+            spec.scene_content_hash,
+        )
+        if resolved is None or revision_key not in resolved:
+            revision = self.scene_repository.get(spec.scene_revision_id)
+            if (
+                revision is None
+                or revision.document_id != spec.document_id
+                or revision.content_hash != spec.scene_content_hash
+            ):
+                raise ValueError(
+                    'intervention study SceneRevision is not registered '
+                    'for replay'
+                )
+            if resolved is not None:
+                resolved.add(revision_key)
+        variant_key = (
+            'variant',
+            spec.base_system_variant_id,
+            spec.base_system_variant_sha256,
+            spec.scene_revision_id,
+            spec.scene_content_hash,
+        )
+        if resolved is not None and variant_key in resolved:
+            return
         variant = self.variant_repository.get_variant(
             spec.base_system_variant_id
         )
@@ -391,6 +458,8 @@ class CadInterventionStudyRepository:
                 'intervention study base SystemVariant is not registered '
                 'for replay'
             )
+        if resolved is not None:
+            resolved.add(variant_key)
 
     def save_spec(self, spec: InterventionStudySpec) -> InterventionStudySpec:
         self._require_scene_revision(spec)
@@ -457,9 +526,21 @@ class CadInterventionStudyRepository:
         sql += ' ORDER BY created_at_utc, spec_id'
         with closing(self._connect()) as connection:
             rows = connection.execute(sql, args).fetchall()
-        return [self._validated_spec_row(row) for row in rows]
+            resolved: set[tuple[str, ...]] = set()
+            return [
+                self._validated_spec_row(
+                    row, connection=connection, resolved=resolved
+                )
+                for row in rows
+            ]
 
-    def _validated_spec_row(self, row: sqlite3.Row) -> InterventionStudySpec:
+    def _validated_spec_row(
+        self,
+        row: sqlite3.Row,
+        *,
+        connection: sqlite3.Connection | None = None,
+        resolved: set[tuple[str, ...]] | None = None,
+    ) -> InterventionStudySpec:
         payload = row['payload_json']
         spec = InterventionStudySpec.model_validate_json(payload)
         if (
@@ -473,8 +554,10 @@ class CadInterventionStudyRepository:
             raise ValueError(
                 'persisted intervention study spec authority mismatch'
             )
-        self._require_scene_revision(spec)
-        self._require_spec_dependencies(spec)
+        self._require_scene_revision(spec, resolved=resolved)
+        self._require_spec_dependencies(
+            spec, connection=connection, resolved=resolved
+        )
         return spec
 
     def save_alternative(
@@ -529,25 +612,29 @@ class CadInterventionStudyRepository:
                 'WHERE spec_id = ? ORDER BY created_at_utc, alternative_id',
                 (spec_id,),
             ).fetchall()
-        results: list[InterventionAlternative] = []
-        for row in rows:
-            alternative = InterventionAlternative.model_validate_json(
-                row['payload_json']
-            )
-            if (
-                alternative.alternative_id != row['alternative_id']
-                or alternative.alternative_sha256 != row['alternative_sha256']
-                or alternative.study_spec_id != row['spec_id']
-                or alternative.family != row['family']
-            ):
-                raise ValueError(
-                    'persisted intervention alternative authority mismatch'
+            resolved: set[tuple[str, ...]] = set()
+            results: list[InterventionAlternative] = []
+            for row in rows:
+                alternative = InterventionAlternative.model_validate_json(
+                    row['payload_json']
                 )
-            # Re-resolve every pinned authority on read: stale or tampered
-            # dependencies fail closed rather than being trusted (#960).
-            self._require_alternative_dependencies(alternative)
-            results.append(alternative)
-        return results
+                if (
+                    alternative.alternative_id != row['alternative_id']
+                    or alternative.alternative_sha256 != row['alternative_sha256']
+                    or alternative.study_spec_id != row['spec_id']
+                    or alternative.family != row['family']
+                ):
+                    raise ValueError(
+                        'persisted intervention alternative authority mismatch'
+                    )
+                # Re-resolve every pinned authority on read: stale or
+                # tampered dependencies fail closed rather than being
+                # trusted (#960).
+                self._require_alternative_dependencies(
+                    alternative, connection=connection, resolved=resolved
+                )
+                results.append(alternative)
+            return results
 
 
 ReviewState = Literal['pending', 'reviewed', 'applied', 'discarded']

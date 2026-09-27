@@ -5621,12 +5621,18 @@ class RoomWorkspace(QWidget):
             for entity in self.controller.document.entities
             if entity.kind == "seat"
         }
+        poses_by_seat = self.listener_pose_repository.list_poses_for_seats(
+            tuple(seat_names)
+        )
+        selected_by_seat = (
+            self.listener_pose_repository.selected_poses_for_document(
+                self.controller.document_id
+            )
+        )
         seat_poses = {}
         for seat_id in seat_names:
-            poses = self.listener_pose_repository.list_poses_for_seat(seat_id)
-            selected = self.listener_pose_repository.selected_pose(
-                self.controller.document_id, seat_id
-            )
+            poses = poses_by_seat.get(seat_id, ())
+            selected = selected_by_seat.get(seat_id)
             seat_poses[seat_id] = (
                 tuple((pose.label, pose.pose_id) for pose in poses),
                 None if selected is None else selected.pose_id,
