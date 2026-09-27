@@ -46,6 +46,7 @@ from htdt.cad_joint_optimization import (
     canonical_joint_sha256,
     joint_pareto_front,
     require_joint_decision_materialization,
+    unsupported_joint_objective_vector,
 )
 from htdt.cad_joint_optimization_repository import CadJointOptimizationRepository
 from htdt.cad_measurement_models import CadFrequencyResponseDataset
@@ -99,6 +100,7 @@ from htdt.optimization_objectives import (
     ObjectiveVector,
 )
 from htdt.optimization_robustness import UncertaintyAxis, build_robustness_spec
+from htdt.pareto import ParetoEmptyError
 
 
 NOW = '2026-09-19T13:00:00+00:00'
@@ -1163,6 +1165,59 @@ def test_pareto_refuses_incompatible_evaluator_model_or_fidelity(
             (first_eval, second_eval),
             (first, second),
         )
+
+
+def test_joint_pareto_excludes_fully_unevaluated_bindings(
+    tmp_path: Path,
+) -> None:
+    """An all-'unsupported' vector carries no comparable evidence: it must
+    not poison the front, and an empty population types out separately
+    from corrupt input."""
+    fixture = _fixture(tmp_path)
+    position = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.moved_variant,
+        decisions=(_physical_decision(),),
+    )
+    dsp = build_joint_candidate(
+        spec=fixture.spec,
+        physical_system_variant=fixture.base_variant,
+        decisions=(_dsp_decision('dsp:gain', 1.0),),
+        calibration_plan=_save_plan(
+            fixture,
+            plan_id='pareto-unevaluated-gain-plan',
+            channel=_channel(gain_db=1.0),
+        ),
+        measurement_quality_report=fixture.quality_report,
+    )
+
+    evaluated = _evaluation(
+        fixture, fixture.spec, position, error=2.0, headroom=5.0
+    )
+    unsupported = bind_joint_candidate_evaluation(
+        spec=fixture.spec,
+        candidate=dsp,
+        objective_vector=unsupported_joint_objective_vector(
+            spec=fixture.spec, candidate=dsp
+        ),
+        input_refs=(
+            JointEvaluationInputRef(
+                evidence_class='derived',
+                source_kind='joint_execution',
+                source_id=fixture.spec.spec_id,
+                source_sha256=fixture.spec.semantic_sha256,
+            ),
+        ),
+        created_at_utc=NOW,
+    )
+
+    result = joint_pareto_front((evaluated, unsupported), (position, dsp))
+    assert result.non_dominated_candidate_ids == (position.candidate_id,)
+
+    with pytest.raises(ParetoEmptyError):
+        joint_pareto_front((unsupported,), (dsp,))
+    with pytest.raises(ParetoEmptyError):
+        joint_pareto_front((), ())
 
 
 def test_joint_candidate_identity_is_deterministic_for_exact_references(

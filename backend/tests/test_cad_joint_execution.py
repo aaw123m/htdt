@@ -21,6 +21,9 @@ from htdt.cad_joint_optimization import (
     build_joint_optimization_spec,
     canonical_joint_sha256,
 )
+from htdt.cad_joint_optimization_repository import (
+    CadJointOptimizationRepository,
+)
 from htdt.optimization_objectives import (
     ObjectiveMetric,
     ObjectiveVector,
@@ -35,6 +38,7 @@ from test_cad_joint_optimization import (
     _objectives,
     _peq,
     _repository,
+    _result_ref,
     _robustness_ref,
     _save_plan,
 )
@@ -341,6 +345,81 @@ def test_execution_cancellation_preserves_partial_progress(
     assert result.cancelled
     assert result.candidates_generated == 1
     assert len(repository.list_candidates(spec.spec_id)) == 1
+
+
+def test_execution_without_evaluator_reports_empty_front(
+    tmp_path: Path,
+) -> None:
+    """No evaluator records canonical unsupported vectors; the run must
+    report an honestly empty front, not error and not fabricate ids.
+
+    The production repository registers no vector evaluator, so the
+    canonical unsupported vector is the only replayable evaluation shape.
+    """
+    fixture = _fixture(tmp_path)
+    spec = _position_only_spec(fixture, candidate_budget=8)
+    repository = CadJointOptimizationRepository(
+        scene_repository=fixture.scene_repository,
+        system_variant_repository=fixture.system_variant_repository,
+        calibration_repository=fixture.calibration_repository,
+        search_repository=fixture.search_repository,
+        extended_search_repository=fixture.extended_search_repository,
+        robustness_repository=fixture.robustness_repository,
+    )
+    repository.save_spec(spec)
+
+    result = run_joint_execution(
+        repository=repository,
+        spec=spec,
+        baseline=fixture.revision,
+        base_variant=fixture.base_variant,
+        system_variant_repository=fixture.system_variant_repository,
+        evaluator=None,
+        created_at_utc=NOW,
+    )
+
+    assert result.evaluations_recorded == 2
+    assert result.pareto_candidate_ids == ()
+
+
+def test_execution_propagates_pareto_integrity_failure(
+    tmp_path: Path,
+) -> None:
+    """Corrupt persisted evaluation evidence must fail the run; masking it
+    as an empty front would silently hide tampering or store corruption."""
+    fixture = _fixture(tmp_path)
+    spec = _position_only_spec(fixture, candidate_budget=8)
+    repository = _repository(fixture)
+    repository.save_spec(spec)
+
+    result = run_joint_execution(
+        repository=repository,
+        spec=spec,
+        baseline=fixture.revision,
+        base_variant=fixture.base_variant,
+        system_variant_repository=fixture.system_variant_repository,
+        evaluator=_outcome_evaluator(fixture, spec),
+        created_at_utc=NOW,
+    )
+    assert result.pareto_candidate_ids != ()
+
+    evaluation = repository.list_evaluations(spec.spec_id)[0]
+    result_ref = _result_ref(evaluation)
+    fixture.joint_results[result_ref.source_id] = dict(
+        fixture.joint_results[result_ref.source_id],
+        candidate_id='joint-candidate-foreign',
+    )
+
+    with pytest.raises(ValueError, match='belongs to another candidate'):
+        run_joint_execution(
+            repository=repository,
+            spec=spec,
+            baseline=fixture.revision,
+            base_variant=fixture.base_variant,
+            system_variant_repository=fixture.system_variant_repository,
+            evaluator=_outcome_evaluator(fixture, spec),
+            created_at_utc=NOW,
+        )
 
 
 def test_execution_requires_exact_dsp_baseline(tmp_path: Path) -> None:

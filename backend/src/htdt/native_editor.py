@@ -236,7 +236,14 @@ class NativeEditorWindow(QMainWindow):
         if app is not None:
             # Save must stay reachable while an inspector field holds a pending
             # edit (Ctrl+S arrives before editingFinished commits the value).
-            app.focusChanged.connect(lambda _old, _new: self._update_actions())
+            # A bound method keeps the receiver tracked: the connection is
+            # dropped when this window is destroyed. A lambda would fire
+            # _update_actions on the deleted C++ object for every later
+            # focus change (RuntimeError).
+            app.focusChanged.connect(self._on_app_focus_changed)
+
+    def _on_app_focus_changed(self, _old: QWidget | None, _new: QWidget | None) -> None:
+        self._update_actions()
 
     def _action(self, label: str, shortcut: QKeySequence.StandardKey | None, callback) -> QAction:
         action = QAction(label, self)

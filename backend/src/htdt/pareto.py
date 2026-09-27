@@ -15,6 +15,15 @@ class ParetoError(ValueError):
     pass
 
 
+class ParetoEmptyError(ParetoError):
+    """The population holds no comparable candidate, so no front exists.
+
+    Distinct from corrupt or incompatible inputs (plain ``ParetoError``):
+    callers may legitimately report an empty front when every candidate is
+    blocked or unevaluated, but must not mask integrity failures as one.
+    """
+
+
 class ParetoResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -123,7 +132,9 @@ def pareto_front(
     objective_ids: Sequence[str] | None = None,
 ) -> ParetoResult:
     if not vectors:
-        raise ParetoError('Pareto extraction requires at least one objective vector')
+        raise ParetoEmptyError(
+            'Pareto extraction requires at least one objective vector'
+        )
 
     candidate_ids = [vector.candidate_id for vector in vectors]
     if len(candidate_ids) != len(set(candidate_ids)):

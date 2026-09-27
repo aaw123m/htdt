@@ -18,7 +18,12 @@ from htdt.optimization_objectives import (
     seat_pairwise_objectives,
     target_response_objectives,
 )
-from htdt.pareto import ParetoError, dominates, pareto_front
+from htdt.pareto import (
+    ParetoEmptyError,
+    ParetoError,
+    dominates,
+    pareto_front,
+)
 
 
 def response(levels: tuple[float, ...]) -> FrequencyResponse:
@@ -136,6 +141,15 @@ def test_pareto_front_keeps_known_non_dominated_set_in_input_order() -> None:
     assert result.dominated_by['b'] == ()
     assert dominates((1.0, 1.0), (1.0, 2.0))
     assert not dominates((1.0, 1.0), (1.0, 1.0))
+
+
+def test_pareto_empty_population_is_typed_empty() -> None:
+    """Empty input must be distinguishable from corrupt input."""
+    with pytest.raises(ParetoEmptyError):
+        pareto_front(())
+    # Still catchable through the base classes for broad handlers.
+    with pytest.raises(ParetoError):
+        pareto_front(())
 
 
 def test_pareto_rejects_missing_objective_or_duplicate_candidate() -> None:
