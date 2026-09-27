@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import acos, asin, atan2, degrees, sqrt
 
+from .cad_display_units import LengthDisplayPolicy, format_length_m
 from .cad_scene import Position3
 
 
@@ -129,16 +130,40 @@ def build_angle_result(a: MeasureEndpoint, vertex: MeasureEndpoint, b: MeasureEn
     )
 
 
-def format_measure_result(result: MeasureResult) -> str:
-    """Single-line copyable text form of a measurement."""
+def _format_length(value_m: float, policy: LengthDisplayPolicy | None) -> str:
+    if policy is None:
+        return f'{value_m:.3f} m'
+    return format_length_m(value_m, policy)
+
+
+def _format_signed_length(value_m: float, policy: LengthDisplayPolicy | None) -> str:
+    if policy is None:
+        return f'{value_m:+.3f}'
+    text = format_length_m(value_m, policy)
+    return text if value_m < 0 else f'+{text}'
+
+
+def format_measure_result(
+    result: MeasureResult,
+    policy: LengthDisplayPolicy | None = None,
+) -> str:
+    """Single-line copyable text form of a measurement.
+
+    ``policy`` is the #496 display-unit presentation policy; when omitted the
+    canonical SI metre/degree rendering is kept (callers without a preference
+    boundary — exports, tests — stay unchanged).
+    """
 
     if result.mode == 'angle':
         assert result.angle_deg is not None
         return f'角度 {result.angle_deg:.1f}°'
     assert result.distance_m is not None
     return (
-        f'距離 {result.distance_m:.3f} m '
-        f'（ΔX {result.dx_m:+.3f} / ΔY {result.dy_m:+.3f} / ΔZ {result.dz_m:+.3f} m, '
-        f'水平 {result.horizontal_m:.3f} m, 方位 {result.azimuth_deg:+.1f}°, '
+        f'距離 {_format_length(result.distance_m, policy)} '
+        f'（ΔX {_format_signed_length(result.dx_m, policy)} '
+        f'/ ΔY {_format_signed_length(result.dy_m, policy)} '
+        f'/ ΔZ {_format_signed_length(result.dz_m, policy)}, '
+        f'水平 {_format_length(result.horizontal_m, policy)}, '
+        f'方位 {result.azimuth_deg:+.1f}°, '
         f'仰角 {result.elevation_deg:+.1f}°）'
     )

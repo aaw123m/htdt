@@ -227,6 +227,7 @@ class RoomMeasurePanel(QWidget):
     def __init__(self, controller: RoomMeasureController, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.controller = controller
+        self._length_policy = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -274,10 +275,15 @@ class RoomMeasurePanel(QWidget):
         controller.measurementChanged.connect(self._on_result)
         controller.stateChanged.connect(self._on_state)
 
+    def set_length_policy(self, policy) -> None:
+        """Apply the #496 display-length policy to result text + clipboard copy."""
+        self._length_policy = policy
+        self._on_result(self.controller.result)
+
     def _on_result(self, result: MeasureResult | None) -> None:
         self.copy_button.setEnabled(result is not None)
         if result is not None:
-            text = format_measure_result(result)
+            text = format_measure_result(result, self._length_policy)
             refs = ' → '.join(endpoint.describe() for endpoint in result.endpoints)
             self.result_label.setText(f'{text}\n{refs}')
 
@@ -291,4 +297,6 @@ class RoomMeasurePanel(QWidget):
             return
         from PySide6.QtWidgets import QApplication
 
-        QApplication.clipboard().setText(format_measure_result(self.controller.result))
+        QApplication.clipboard().setText(
+            format_measure_result(self.controller.result, self._length_policy)
+        )

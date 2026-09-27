@@ -158,6 +158,20 @@ def test_format_measure_result_angle() -> None:
     assert format_measure_result(result) == '角度 90.0°'
 
 
+def test_format_measure_result_follows_display_length_policy() -> None:
+    # Round8: the measure panel/copy text honors the #496 display-unit policy
+    # instead of hardcoding SI metres.
+    from htdt.cad_display_units import display_length_policy
+
+    result = build_distance_result(_endpoint(0, 0, 0), _endpoint(1, 0, 0))
+    text = format_measure_result(result, display_length_policy('mm'))
+    assert text.startswith('距離 1000.0 mm')
+    assert 'ΔX +1000.0 mm' in text
+    assert '水平 1000.0 mm' in text
+    # Angles stay degrees regardless of the length policy.
+    assert '方位 +90.0°' in text
+
+
 def test_measure_result_is_display_only_document() -> None:
     # MeasureResult carries no mutation hooks; endpoints tuple is immutable
     # ordering metadata only.

@@ -6,7 +6,7 @@ from uuid import uuid4
 import numpy as np
 import pyvista as pv
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .cad_scene import RoomPrism, RoomVertex, make_polygon_room, room_vertices
 from .cad_wall_models import WallSegment, WallTopology
@@ -402,6 +402,88 @@ class RoomGeometryInputController(QObject):
             return self._mouse_move(event)  # type: ignore[arg-type]
         if event_type == QEvent.Type.MouseButtonRelease:
             return self._mouse_release(event)  # type: ignore[arg-type]
+        if event_type == QEvent.Type.KeyPress:
+            return self._key_press(event)  # type: ignore[arg-type]
+        return False
+
+    def _key_press(self, event: QKeyEvent) -> bool:
+        """Arrow-key nudge of the selected vertex/wall (round8 keyboard parity).
+
+        Step = the workspace grid step (Shift = x10, matching MetricSpinBox);
+        each keypress commits through the working document so Undo restores
+        the previous geometry exactly.
+        """
+
+        if self.mode != "edit" or not isinstance(event, QKeyEvent):
+            return False
+        if event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        step = float(self.workspace.controller.view_state.grid_step_m) * (
+            10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+        )
+        delta = {
+            Qt.Key.Key_Left: (-step, 0.0),
+            Qt.Key.Key_Right: (step, 0.0),
+            Qt.Key.Key_Up: (0.0, step),
+            Qt.Key.Key_Down: (0.0, -step),
+        }.get(event.key())
+        if delta is None:
+            return False
+        room = self.room
+        if room is None:
+            return False
+        dx, dy = delta
+        if self.selected_vertex_id is not None:
+            vertex = self.selected_vertex
+            if vertex is None:
+                return False
+            try:
+                changed = self.set_selected_vertex_coordinates(
+                    x_m=vertex.x_m + dx, y_m=vertex.y_m + dy
+                )
+            except (ValueError, WallTopologyError) as exc:
+                self.workspace._set_status(
+                    f"頂点を移動できません: {operation_error_message(exc)}",
+                    error=True,
+                )
+                event.accept()
+                return True
+            if changed:
+                self.workspace._set_status("頂点を移動しました · 元に戻す で復元できます")
+                event.accept()
+                return True
+            return False
+        if self.selected_edge_index is not None:
+            topology = self.topology or make_wall_topology(room)
+            wall = self._wall_for_edge(room, topology, self.selected_edge_index)
+            try:
+                moved_room, moved_topology = move_wall(
+                    room, topology, wall.wall_id, delta_x_m=dx, delta_y_m=dy
+                )
+            except WallTopologyError as exc:
+                self.workspace._set_status(
+                    f"この位置には壁を移動できません · {operation_error_message(exc)}",
+                    error=True,
+                )
+                event.accept()
+                return True
+            edge_index = self.selected_edge_index
+            changed = self.workspace.controller.replace_room_topology(
+                moved_room, moved_topology
+            )
+            if changed:
+                self.selected_edge_index = edge_index
+                self.workspace.refresh()
+                self.selectionChanged.emit()
+                self._render_edit_handles()
+                self.workspace._set_status("壁を移動しました · 開口と壁IDを維持しています")
+                event.accept()
+                return True
+            return False
         return False
 
     def _mouse_press(self, event: QMouseEvent) -> bool:

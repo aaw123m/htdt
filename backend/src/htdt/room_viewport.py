@@ -1519,13 +1519,44 @@ class RoomViewport3D(QFrame):
         self._render()
 
     def focus_entity(self, entity_id: str) -> None:
+        self.focus_entities((entity_id,))
+
+    def focus_entities(self, entity_ids) -> None:
+        """Frame the selected entities' bounds — zoom-to-selection (F).
+
+        Falls back to a 0.5 m pad for sizeless items (measurement points) so the
+        frame is always finite. Keeps the current view direction.
+        """
+
         if self._document is None:
             return
-        try:
-            entity = self._document.entity(entity_id)
-        except KeyError:
+        mins = [float('inf')] * 3
+        maxs = [float('-inf')] * 3
+        found = False
+        for entity_id in entity_ids:
+            try:
+                entity = self._document.entity(entity_id)
+            except KeyError:
+                continue
+            found = True
+            center = domain_to_render(entity.position)
+            size = entity.size_m
+            half = (
+                [0.25, 0.25, 0.25]
+                if size is None
+                else [
+                    max(0.5 * float(size.x_m), 0.25),
+                    max(0.5 * float(size.y_m), 0.25),
+                    max(0.5 * float(size.z_m), 0.25),
+                ]
+            )
+            for axis in range(3):
+                mins[axis] = min(mins[axis], center[axis] - half[axis])
+                maxs[axis] = max(maxs[axis], center[axis] + half[axis])
+        if not found:
             return
-        self.plotter.camera.focal_point = domain_to_render(entity.position)
+        bounds = (mins[0], maxs[0], mins[1], maxs[1], mins[2], maxs[2])
+        self.plotter.reset_camera(bounds=bounds)
         self._render()
 
     def capture_camera_view(self) -> tuple:

@@ -224,6 +224,38 @@ def bind_inspector_display_length_policy(
     preferences.subscribe(on_change)
 
 
+def bind_measure_display_length_policy(
+    panel,
+    preferences: ApplicationPreferenceStore,
+) -> None:
+    """Apply the #496 length display policy to the room measure panel, live.
+
+    Same contract as :func:`bind_inspector_display_length_policy` — canonical
+    storage stays SI metres; the subscription re-formats the current result
+    when the user changes unit or precision.
+    """
+
+    panel_ref = weakref.ref(panel)
+
+    def apply() -> None:
+        target = panel_ref()
+        if target is None:
+            return
+        try:
+            target.set_length_policy(
+                length_display_policy_from_preferences(preferences)
+            )
+        except RuntimeError:
+            pass
+
+    def on_change(change: PreferenceChange) -> None:
+        if change.key in _DISPLAY_LENGTH_PREFERENCE_KEYS:
+            apply()
+
+    apply()
+    preferences.subscribe(on_change)
+
+
 _ROOM_TOOL_COMMAND_IDS = (
     "room.view.perspective",
     "room.view.top",
@@ -268,6 +300,9 @@ _WORKSPACE_COMMAND_IDS = (
     "edit.redo",
     "room.draw",
     "room.add_speaker",
+    "room.select.all",
+    "room.select.invert",
+    "room.select.none",
     "room.edit.delete",
     "room.edit.toggle_hide",
     "room.edit.toggle_lock",
@@ -1663,6 +1698,7 @@ class WorkflowApplicationComposition:
             )
             self.preferences = preferences
         bind_inspector_display_length_policy(workspace.inspector, preferences)
+        bind_measure_display_length_policy(workspace.measure_panel, preferences)
 
         geometry_input = RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
@@ -1743,7 +1779,9 @@ class WorkflowApplicationComposition:
                 "room.edit.cancel": lambda: _available(
                     transform_input.is_active
                     or geometry_input.is_active
-                    or workspace.controller.working.has_preview,
+                    or workspace.controller.working.has_preview
+                    or workspace.measure_controller.is_active
+                    or bool(workspace.controller.view_state.selection),
                     'command.blocked.nothing_to_cancel',
                 ),
                 "room.edit.commit": lambda: _available(
@@ -1837,10 +1875,43 @@ class WorkflowApplicationComposition:
             )
             self._bind_room_tool_commands(workspace)
             self.registry.bind(
+                "room.select.all",
+                execute=workspace.select_all,
+                availability=lambda: _available(
+                    bool(workspace.controller.document.entities),
+                    'command.blocked.selection_required',
+                ),
+            )
+            self.registry.bind(
+                "room.select.invert",
+                execute=workspace.select_invert,
+                availability=lambda: _available(
+                    bool(workspace.controller.document.entities),
+                    'command.blocked.selection_required',
+                ),
+            )
+            self.registry.bind(
+                "room.select.none",
+                execute=workspace.clear_selection,
+                availability=lambda: _available(
+                    bool(workspace.controller.view_state.selection),
+                    'command.blocked.selection_required',
+                ),
+            )
+            self.registry.bind(
                 "room.edit.delete",
                 execute=workspace.delete_selection,
                 availability=lambda: _available(
-                    workspace.controller.selected_id is not None
+                    (
+                        workspace.controller.selected_id is not None
+                        or (
+                            geometry_input.is_active
+                            and (
+                                geometry_input.selected_vertex_id is not None
+                                or geometry_input.selected_edge_index is not None
+                            )
+                        )
+                    )
                     and workspace.controller.can_edit
                     and not transform_input.is_active,
                     'room.edit.requires_editable_selection',
@@ -1902,6 +1973,9 @@ class WorkflowApplicationComposition:
                 "edit.redo",
                 "room.draw",
                 "room.add_speaker",
+                "room.select.all",
+                "room.select.invert",
+                "room.select.none",
                 "room.edit.delete",
                 "room.edit.toggle_hide",
                 "room.edit.toggle_lock",
