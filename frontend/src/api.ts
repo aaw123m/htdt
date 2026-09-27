@@ -11,16 +11,23 @@ function describeDetail(detail: unknown): string | null {
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
+    })
+  } catch {
+    // Network-level rejection (offline, server down, CORS) carries a raw
+    // TypeError like "Failed to fetch" — translate to an operator message.
+    throw new Error('サーバーに接続できません。バックエンドが起動しているか確認してください。')
+  }
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { detail?: unknown } | null
-    throw new Error(describeDetail(payload?.detail) ?? `HTTP ${response.status}`)
+    throw new Error(describeDetail(payload?.detail) ?? `要求を処理できませんでした (HTTP ${response.status})`)
   }
   return response.json() as Promise<T>
 }

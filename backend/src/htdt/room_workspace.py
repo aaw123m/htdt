@@ -265,6 +265,7 @@ from .user_facing_error import (
     log_operation_error,
     operation_error_message,
     to_user_facing_error,
+    warn_user,
 )
 from .workflow_shell import WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
@@ -6706,7 +6707,7 @@ class SeatingLayoutDialog(QDialog):
         try:
             aisles = self._parse_aisles()
         except ValueError as exc:
-            QMessageBox.warning(self, "座席レイアウト", str(exc))
+            warn_user(self, "座席レイアウトを適用できませんでした", exc)
             return None
         row_specs = tuple(
             SeatRowSpec(
@@ -6733,7 +6734,7 @@ class SeatingLayoutDialog(QDialog):
                 facing=self.facing_field.currentData(),
             )
         except (TypeError, ValueError) as exc:
-            QMessageBox.warning(self, "座席レイアウト", str(exc))
+            warn_user(self, "座席レイアウトを適用できませんでした", exc)
             return None
 
     def _parse_aisles(self) -> tuple[AisleSpec, ...]:

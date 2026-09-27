@@ -72,3 +72,49 @@ def test_operation_error_message_never_echoes_raw_text() -> None:
     )
     assert 'document_id' not in message
     assert message == 'データを処理できませんでした'
+
+
+def test_localized_value_error_keeps_operator_text() -> None:
+    # Domain code raises bare ValueError('日本語…') for operator-facing
+    # rejections (e.g. aisle width, standards profile rules); the generic
+    # mapping must not hide those authored messages.
+    error = to_user_facing_error(
+        ValueError('通路幅は0.5m以上にしてください'),
+        title='座席レイアウトを適用できませんでした',
+    )
+    assert error.code == 'operation.rejected'
+    assert error.message == '通路幅は0.5m以上にしてください'
+
+
+def test_multiline_or_long_localized_text_still_maps_generic() -> None:
+    # Multi-line dumps / oversized payloads are diagnostics, not operator
+    # copy — they keep the safe generic message even with Japanese inside.
+    multiline = to_user_facing_error(
+        ValueError('検証エラー\n詳細: フィールドが不足'), title='t')
+    assert multiline.message == 'データを処理できませんでした'
+    long_text = to_user_facing_error(ValueError('日本語' * 100), title='t')
+    assert long_text.message == 'データを処理できませんでした'
+
+
+def test_warn_user_shows_mapped_text_and_preserves_detail(monkeypatch) -> None:
+    import os
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from htdt.user_facing_error import warn_user
+
+    QApplication.instance() or QApplication([])
+    captured: dict[str, str] = {}
+
+    def fake_exec(self: QMessageBox) -> int:
+        captured['text'] = self.text()
+        captured['detail'] = self.detailedText()
+        return 0
+
+    monkeypatch.setattr(QMessageBox, 'exec', fake_exec)
+    error = warn_user(
+        None, '測定を保存できませんでした',
+        RuntimeError('sqlite3.OperationalError near line 4821'),
+    )
+    assert error.code == 'operation.failed'
+    assert 'sqlite3' not in captured['text']
+    assert 'sqlite3' in captured['detail']

@@ -470,6 +470,11 @@ QTreeView::item, QListView::item {{
 QTreeView::item:hover, QListView::item:hover {{
     background-color: {interaction.hover_surface.hex};
 }}
+/* Keyboard focus on items is otherwise invisible (QAbstractItemView sets
+   outline:0 above, which suppresses the platform focus rect). */
+QTreeView::item:focus, QListView::item:focus, QTableView::item:focus {{
+    border: 1px solid {a.focus_ring.hex};
+}}
 QTreeView::item:selected, QListView::item:selected {{
     background-color: {a.selection_fill.hex};
     color: {t.primary.hex};
@@ -498,6 +503,10 @@ QTabBar::tab:hover {{
 QTabBar::tab:selected {{
     color: {t.primary.hex};
     border-bottom-color: {a.primary.hex};
+}}
+QTabBar::tab:focus {{
+    color: {t.primary.hex};
+    border-bottom-color: {a.focus_ring.hex};
 }}
 
 QScrollBar:vertical, QScrollBar:horizontal {{
@@ -533,6 +542,10 @@ QSplitter::handle:hover {{
 QCheckBox {{
     spacing: {spacing.xs}px;
     color: {t.secondary.hex};
+}}
+QCheckBox:focus {{
+    border: 1px solid {a.focus_ring.hex};
+    border-radius: {radius.small}px;
 }}
 QComboBox::drop-down {{
     border: 0;

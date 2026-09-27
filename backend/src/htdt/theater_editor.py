@@ -44,6 +44,7 @@ from .native_editor import ROLE
 from .room_editor import _room_wireframe
 from .room_viewport import _entity_local_mesh
 from .seat_priority_panel import SeatPriorityPanel
+from .user_facing_error import operation_error_message
 
 
 class TheaterEditorWindow(CadEditorWindow):
@@ -662,7 +663,7 @@ class TheaterEditorWindow(CadEditorWindow):
             changed = self.working.update_entity(self.selected_id, size_m=size)
         except (ValidationError, ValueError, EditStateError) as exc:
             self._refresh_object_inspector()
-            self.statusBar().showMessage(f'寸法を変更できません · {exc}')
+            self.statusBar().showMessage(f'寸法を変更できません · {operation_error_message(exc)}')
             return
         if changed:
             self._sync_recovery()
@@ -688,7 +689,7 @@ class TheaterEditorWindow(CadEditorWindow):
             changed = self.working.update_entity(self.selected_id, speaker_role=role)
         except (ValidationError, ValueError, EditStateError) as exc:
             self._refresh_object_inspector()
-            self.statusBar().showMessage(f'役割を変更できません · {exc}')
+            self.statusBar().showMessage(f'役割を変更できません · {operation_error_message(exc)}')
             return
         if changed:
             self._sync_recovery()
@@ -711,7 +712,7 @@ class TheaterEditorWindow(CadEditorWindow):
             changed = self.working.update_entity(self.selected_id, acoustic_reference_offset_m=offset)
         except (ValidationError, ValueError, EditStateError) as exc:
             self._refresh_object_inspector()
-            self.statusBar().showMessage(f'音響基準点を変更できません · {exc}')
+            self.statusBar().showMessage(f'音響基準点を変更できません · {operation_error_message(exc)}')
             return
         if changed:
             self._sync_recovery()
@@ -735,7 +736,7 @@ class TheaterEditorWindow(CadEditorWindow):
             changed = self.working.update_entity(self.selected_id, acoustic_reference_offset_m=offset)
         except (ValidationError, ValueError, EditStateError) as exc:
             self._refresh_object_inspector()
-            self.statusBar().showMessage(f'音響基準点を変更できません · {exc}')
+            self.statusBar().showMessage(f'音響基準点を変更できません · {operation_error_message(exc)}')
             return
         if changed:
             self._sync_recovery()

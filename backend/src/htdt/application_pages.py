@@ -38,6 +38,7 @@ from .navigation_target import NavigationTarget, NavigationTargetKind
 from .project_library_repository import ProjectLibraryRepository
 from .native_diagnostics import diagnostics_dir
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
 
@@ -167,7 +168,21 @@ class ProjectLibraryPage(QWidget):
         self.table.itemSelectionChanged.connect(self._sync_buttons)
         layout.addWidget(self.table, 1)
 
+        self.empty_label = QLabel(
+            "まだプロジェクトはありません。"
+            "「新規プロジェクト…」から作成できます。"
+        )
+        set_typography_role(self.empty_label, TypographyRole.SECONDARY)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setVisible(False)
+        layout.addWidget(self.empty_label)
+
         self.open_button = QPushButton("開く")
+        # Tooltip stays live while disabled so the gating is discoverable.
+        self.open_button.setToolTip("一覧からプロジェクトを選択すると開けます")
+        self.open_button.setAttribute(
+            Qt.WidgetAttribute.WA_AlwaysShowToolTips, True
+        )
         self.open_button.clicked.connect(self._open_selected)
         layout.addWidget(self.open_button)
         self.new_button = QPushButton("新規プロジェクト…")
@@ -179,6 +194,7 @@ class ProjectLibraryPage(QWidget):
         entries = self.service.list_projects()
         current = self._current_document_id()
         self.table.setRowCount(0)
+        self.empty_label.setVisible(not entries)
         for entry in entries:
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -345,7 +361,13 @@ class CaptureInboxPage(QWidget):
     def _sync_detail(self) -> None:
         digest = self._selected_digest()
         if digest is None:
-            self.detail.setText("一覧から項目を選択すると詳細を表示します。")
+            if self.table.rowCount() == 0:
+                self.detail.setText(
+                    "取り込み待ちの配送はありません。"
+                    "配送が到着するとここに表示されます。"
+                )
+            else:
+                self.detail.setText("一覧から項目を選択すると詳細を表示します。")
             self._sync_actions(None)
             return
         inspection = (
@@ -466,7 +488,7 @@ class CaptureInboxPage(QWidget):
         try:
             handler(digest, reason) if reason else handler(digest)
         except Exception as exc:
-            QMessageBox.warning(self, "取り込み", str(exc))
+            warn_user(self, "取り込みできませんでした", exc)
             return
         self._refresh_keep_selection()
 
@@ -478,7 +500,7 @@ class CaptureInboxPage(QWidget):
         try:
             self._assign_scope(digest, str(scope))
         except Exception as exc:
-            QMessageBox.warning(self, "取り込み", str(exc))
+            warn_user(self, "プロジェクト領域を割り当てできませんでした", exc)
             return
         self._refresh_keep_selection()
 
@@ -542,11 +564,20 @@ class ActivityPage(QWidget):
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.table, 1)
+        self.empty_label = QLabel(
+            "まだ記録はありません。保存や昇格を行うとここに表示されます。"
+        )
+        set_typography_role(self.empty_label, TypographyRole.SECONDARY)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setVisible(False)
+        layout.addWidget(self.empty_label)
         self.refresh()
 
     def refresh(self) -> None:
         self.table.setRowCount(0)
-        for created_at, document_id, revision_id in self._list_revisions(50):
+        rows = self._list_revisions(50)
+        self.empty_label.setVisible(not rows)
+        for created_at, document_id, revision_id in rows:
             row = self.table.rowCount()
             self.table.insertRow(row)
             for column, value in enumerate((created_at, document_id, revision_id)):

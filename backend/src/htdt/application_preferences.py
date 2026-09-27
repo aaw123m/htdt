@@ -33,6 +33,7 @@ from typing import Any, Callable, Iterable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .canonical_json import canonical_json as _canonical_json
+from .user_facing_error import operation_error_message
 
 
 PREFERENCES_SCHEMA_VERSION = 1
@@ -421,13 +422,13 @@ class ApplicationPreferenceStore:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
         except (OSError, ValueError) as exc:
             self._load_state = PreferenceLoadState.CORRUPT
-            self._load_error = f'unreadable preferences file: {exc}'
+            self._load_error = f'設定ファイルを読み込めません · {operation_error_message(exc)}'
             return
         if not isinstance(payload, dict) or not isinstance(
             payload.get('values'), dict
         ):
             self._load_state = PreferenceLoadState.CORRUPT
-            self._load_error = 'preferences file is not an HTDT preferences payload'
+            self._load_error = '設定ファイルがHTDTの形式ではありません'
             return
         version = payload.get('schema_version')
         if version != PREFERENCES_SCHEMA_VERSION:
@@ -438,13 +439,13 @@ class ApplicationPreferenceStore:
                 # modify an on-disk format it does not understand.
                 self._load_state = PreferenceLoadState.INCOMPATIBLE_NEWER_SCHEMA
                 self._load_error = (
-                    'preferences file was written by a newer build '
-                    f'(schema_version {version}); running defaults'
+                    '設定ファイルはより新しいバージョンで書き込まれています '
+                    f'(schema_version {version}) · デフォルト値で起動します'
                 )
             else:
                 self._load_state = PreferenceLoadState.CORRUPT
                 self._load_error = (
-                    f'unsupported preferences schema_version: {version!r}'
+                    f'未対応の schema_version です: {version!r}'
                 )
             return
         values: dict[str, object] = {}
@@ -481,12 +482,12 @@ class ApplicationPreferenceStore:
         problems: list[str] = []
         if invalid_keys:
             problems.append(
-                f'invalid stored value(s) for {sorted(invalid_keys)!r}; '
-                'reset to default'
+                f'不正な値が保存されています {sorted(invalid_keys)!r} · '
+                'デフォルトに戻しました'
             )
         if unserializable_keys:
             problems.append(
-                'dropped unserializable unknown key(s) '
+                '保存できない未知のキーを破棄しました '
                 f'{sorted(unserializable_keys)!r}'
             )
         if problems:

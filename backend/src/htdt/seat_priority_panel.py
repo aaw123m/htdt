@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 
 from .cad_repository import SceneRepository
 from .cad_scene import SceneDocument
+from .user_facing_error import warn_user
 from .cad_seat_priority import (
     CadSeatPriorityProfileRepository,
     SeatPriorityMember,
@@ -202,7 +203,7 @@ class SeatPriorityPanel(QWidget):
             )
             saved = self.profile_repository.save(profile)
         except (ValueError, KeyError) as exc:
-            QMessageBox.warning(self, 'リスニング集団', str(exc))
+            warn_user(self, 'リスニング集団を保存できませんでした', exc)
             return
         self._refresh_saved()
         self.status_label.setText(

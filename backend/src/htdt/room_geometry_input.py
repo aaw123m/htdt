@@ -22,6 +22,7 @@ from .cad_walls import (
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace
 from .ui_theme import DARK_THEME
+from .user_facing_error import operation_error_message
 
 
 class RoomGeometryInputController(QObject):
@@ -513,7 +514,7 @@ class RoomGeometryInputController(QObject):
             except WallTopologyError as exc:
                 self._wall_drag_preview_room = None
                 self._wall_drag_preview_topology = None
-                self.workspace._set_status(f"この位置には壁を移動できません · {exc}", error=True)
+                self.workspace._set_status(f"この位置には壁を移動できません · {operation_error_message(exc)}", error=True)
                 self._render_edit_handles()
                 return True
             self._wall_drag_preview_room = moved_room
@@ -563,7 +564,7 @@ class RoomGeometryInputController(QObject):
                     make_wall_topology(room, thickness_m=thickness),
                 )
         except (ValueError, WallTopologyError) as exc:
-            self.workspace._set_status(f"部屋形状を確定できません: {exc}", error=True)
+            self.workspace._set_status(f"部屋形状を確定できません: {operation_error_message(exc)}", error=True)
             return False
         self.mode = "edit"
         self._sketch = []
@@ -594,7 +595,7 @@ class RoomGeometryInputController(QObject):
             )
             changed = self._commit_room_preserving_topology(replacement)
         except (ValueError, WallTopologyError) as exc:
-            self.workspace._set_status(f"頂点移動を適用できません: {exc}", error=True)
+            self.workspace._set_status(f"頂点移動を適用できません: {operation_error_message(exc)}", error=True)
             self.workspace.refresh()
             self._render_edit_handles()
             return

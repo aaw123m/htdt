@@ -40,6 +40,7 @@ from .cad_prediction_repository import CadPredictionRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_spatial_field import FieldSliceView
+from .user_facing_error import operation_error_message
 
 _ROLE = Qt.ItemDataRole.UserRole
 
@@ -292,7 +293,7 @@ class FieldExplorerPanel(QWidget):
                 stride_m=float(self.stride_field.value()),
             )
         except ValueError as exc:
-            self.field_status_label.setText(f'音場を生成できません · {exc}')
+            self.field_status_label.setText(f'音場を生成できません · {operation_error_message(exc)}')
             return
         self.field_repository.save(session)
         self._session = session
@@ -384,7 +385,7 @@ class FieldExplorerPanel(QWidget):
                 ),
             )
         except ValueError as exc:
-            self.field_status_label.setText(f'断面を表示できません · {exc}')
+            self.field_status_label.setText(f'断面を表示できません · {operation_error_message(exc)}')
             return
         self.field_image_label.setPixmap(_slice_pixmap(view))
         axes = (
@@ -418,7 +419,7 @@ class FieldExplorerPanel(QWidget):
                 interpolation=self.interpolate_combo.currentData(),
             )
         except ValueError as exc:
-            self.probe_result_label.setText(f'probeできません · {exc}')
+            self.probe_result_label.setText(f'probeできません · {operation_error_message(exc)}')
             return
         self.probe_result_label.setText(
             f'{probed.value:.4g} {probed.unit} · '

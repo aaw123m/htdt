@@ -43,6 +43,7 @@ from .cad_scene import (
     room_vertices,
 )
 from .native_editor import NativeEditorWindow, ROLE, default_data_dir
+from .user_facing_error import operation_error_message
 
 
 RoomMode = Literal['idle', 'sketch', 'edit']
@@ -282,7 +283,7 @@ class RoomEditorWindow(NativeEditorWindow):
                 ),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'treatmentを配置できません · {exc}')
+            self.statusBar().showMessage(f'treatmentを配置できません · {operation_error_message(exc)}')
             return
         self.statusBar().showMessage(
             f'treatment配置 · {placement.instance_id[-8:]}'
@@ -311,7 +312,7 @@ class RoomEditorWindow(NativeEditorWindow):
                 ),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'比較を作成できません · {exc}')
+            self.statusBar().showMessage(f'比較を作成できません · {operation_error_message(exc)}')
             return
         self.statusBar().showMessage(
             f'比較を作成しました · {spec.name} '
@@ -623,7 +624,7 @@ class RoomEditorWindow(NativeEditorWindow):
         try:
             room = make_polygon_room(tuple(self.room_sketch_vertices), height_m=height_m)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Room cannot be closed · {exc}')
+            self.statusBar().showMessage(f'Room cannot be closed · {operation_error_message(exc)}')
             return
         changed = self._replace_room(room)
         self.room_mode = 'edit'
@@ -691,7 +692,7 @@ class RoomEditorWindow(NativeEditorWindow):
         try:
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Vertex insertion rejected · {exc}')
+            self.statusBar().showMessage(f'Vertex insertion rejected · {operation_error_message(exc)}')
             return
         if self._replace_room(replacement):
             self.selected_room_vertex_id = inserted.vertex_id
@@ -711,7 +712,7 @@ class RoomEditorWindow(NativeEditorWindow):
         try:
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Vertex deletion rejected · {exc}')
+            self.statusBar().showMessage(f'Vertex deletion rejected · {operation_error_message(exc)}')
             return
         if self._replace_room(replacement):
             self.selected_room_vertex_id = None
@@ -754,7 +755,7 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(preview, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._rebuild()
-            self.statusBar().showMessage(f'Vertex move rejected · {exc}')
+            self.statusBar().showMessage(f'Vertex move rejected · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         self.selected_room_vertex_id = vertex_id
@@ -778,7 +779,7 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._refresh_room_inspector()
-            self.statusBar().showMessage(f'Vertex coordinate rejected · {exc}')
+            self.statusBar().showMessage(f'Vertex coordinate rejected · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         if changed:
@@ -812,7 +813,7 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._refresh_room_inspector()
-            self.statusBar().showMessage(f'Edge dimension rejected · {exc}')
+            self.statusBar().showMessage(f'Edge dimension rejected · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         if changed:

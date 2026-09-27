@@ -208,7 +208,7 @@ function parseExcludedBands(text: string): ExcludedBand[] {
 
 function parseRoomVertices(text: string): { vertex_id: string; x_m: number; y_m: number }[] {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  if (lines.length < 3) throw new Error('多角形roomは3頂点以上を入力してください')
+  if (lines.length < 3) throw new Error('多角形の部屋は3頂点以上を入力してください')
   const vertices = lines.map((line, index) => {
     const parts = line.split(',').map((part) => part.trim())
     if (parts.length !== 3 || !parts[0]) throw new Error(`頂点${index + 1}は vertex_id,x,y の形式で入力してください`)
@@ -235,6 +235,9 @@ export default function App() {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  // Mutating actions are single-flight: double-clicking save/import/compare
+  // must not fire two writes (immutable records would still duplicate work).
+  const [busy, setBusy] = useState(false)
   const [helpVisible, setHelpVisible] = useState(false)
 
   const [projectName, setProjectName] = useState('Home Theater')
@@ -350,6 +353,8 @@ export default function App() {
 
   async function createProject(event: FormEvent) {
     event.preventDefault()
+    if (busy) return
+    setBusy(true)
     try {
       const project = await api<Project>('/api/projects', { method: 'POST', body: JSON.stringify({ name: projectName }) })
       await reloadProjects()
@@ -357,6 +362,8 @@ export default function App() {
       notify('プロジェクトを作成しました')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '作成失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -390,6 +397,8 @@ export default function App() {
 
   async function saveContext(event: FormEvent) {
     event.preventDefault()
+    if (busy) return
+    setBusy(true)
     try {
       if (!projectId) throw new Error('先にプロジェクトを作成してください')
       const payload = {
@@ -410,7 +419,7 @@ export default function App() {
           model: 'UMIK-1',
           serial: micSerial.trim() || null,
           connection: 'usb',
-          sample_rate_hz: integer(micSampleRate, 'マイクsample rate'),
+          sample_rate_hz: integer(micSampleRate, 'マイクサンプルレート'),
           calibration_profile: micCalibrationProfile,
           calibration_filename: micCalibrationFilename.trim() || null,
         },
@@ -423,6 +432,8 @@ export default function App() {
       notify(`配置・条件 R${saved.revision_number} を保存しました`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '保存失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -447,8 +458,10 @@ export default function App() {
   }
 
   async function importMeasurement() {
+    if (busy) return
+    setBusy(true)
     try {
-      if (!projectId || !selectedContextId || !measurementFile || !measurementBase64) throw new Error('プロジェクト、条件版、測定ファイルを選択してください')
+      if (!projectId || !selectedContextId || !measurementFile || !measurementBase64) throw new Error('プロジェクト、Context、測定ファイルを選択してください')
       const imported = await api<{ duplicate_asset: boolean; existing_dataset_count: number }>(`/api/projects/${projectId}/measurements`, {
         method: 'POST',
         body: JSON.stringify({
@@ -475,10 +488,14 @@ export default function App() {
         : '測定を原本付きで保存しました')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '取込失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
   async function uploadAttachment() {
+    if (busy) return
+    setBusy(true)
     try {
       if (!projectId || !attachmentFile) throw new Error('プロジェクトと添付ファイルを選択してください')
       const raw_base64 = await fileToBase64(attachmentFile)
@@ -499,10 +516,14 @@ export default function App() {
       notify('再解析・復元用の添付原本を保存しました')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '添付保存失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
   async function compare() {
+    if (busy) return
+    setBusy(true)
     try {
       if (!projectId || !datasetA || !datasetB) throw new Error('A/Bの測定を選択してください')
       const lowHz = positive(band.low, '帯域下限')
@@ -530,6 +551,8 @@ export default function App() {
       notify('比較条件、品質、条件差と結果を保存しました')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '比較失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -555,8 +578,10 @@ export default function App() {
 
   async function runAcoustics() {
     const seq = contextChangeSeq.current
+    if (busy) return
+    setBusy(true)
     try {
-      if (!projectId || !activeContext) throw new Error('配置版を選択してください')
+      if (!projectId || !activeContext) throw new Error('Contextを選択してください')
       if ((activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular') throw new Error('現在のA01幾何解析は矩形室専用です。polygon室では実行しません')
       const maxHz = positive(maxModeHz, 'モード上限')
       if (maxHz > 2000) throw new Error('モード上限は2000 Hz以下で入力してください')
@@ -569,6 +594,8 @@ export default function App() {
     } catch (reason) {
       if (seq !== contextChangeSeq.current) return
       setError(reason instanceof Error ? reason.message : '解析失敗')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -598,7 +625,7 @@ export default function App() {
         <div className="section-title"><h2>Project</h2><span>ローカル保存</span></div>
         <form className="row" onSubmit={createProject}>
           <input value={projectName} onChange={(event) => setProjectName(event.target.value)} aria-label="Project name" />
-          <button type="submit">新規作成</button>
+          <button type="submit" disabled={busy}>新規作成</button>
           <select value={projectId} onChange={(event) => setProjectId(event.target.value)} aria-label="Project">
             <option value="">プロジェクトを選択</option>
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
@@ -649,11 +676,11 @@ export default function App() {
           </div>
           <div className="row">
             <button type="button" className="ghost" onClick={() => setSpeakers([...speakers, { speaker_id: `SP${speakers.length + 1}`, role: 'other', model: '', x: '', y: '', z: '' }])}>スピーカー追加</button>
-            <button type="submit">新しい不変版として保存</button>
+            <button type="submit" disabled={busy}>新しい不変版として保存</button>
             <select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}>
               {contexts.map((context) => <option key={context.id} value={context.id}>R{context.revision_number}</option>)}
             </select>
-            <button type="button" className="ghost" disabled={!activeContext} onClick={copyActiveContextToEditor}>選択版を複製して編集</button>
+            <button type="button" className="ghost" disabled={!activeContext} title={!activeContext ? '保存済みのContextを選択してください' : undefined} onClick={copyActiveContextToEditor}>選択版を複製して編集</button>
           </div>
         </form>
         {activeContext && <>
@@ -681,7 +708,7 @@ export default function App() {
         <div className="section-title"><h2>Measurements</h2><span>原本 + quality snapshot</span></div>
         <div className="grid2">
           <label>測定ファイル<input type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => void chooseMeasurementFile(event.target.files?.[0] ?? null)} /></label>
-          <label>条件版<select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}><option value="">選択</option>{contexts.map((context) => <option key={context.id} value={context.id}>R{context.revision_number}</option>)}</select></label>
+          <label>Context<select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}><option value="">選択</option>{contexts.map((context) => <option key={context.id} value={context.id}>R{context.revision_number}</option>)}</select></label>
           <label>入力role<input value={channelRole} onChange={(event) => setChannelRole(event.target.value)} /></label>
           <label>実際の音源ID（カンマ区切り）<input value={sourceSpeakerIds} onChange={(event) => setSourceSpeakerIds(event.target.value)} /></label>
           <label>品質<select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value as QualityStatus)}><option value="unknown">unknown</option><option value="usable">usable</option><option value="warning">warning</option><option value="invalid">invalid</option></select></label>
@@ -690,9 +717,10 @@ export default function App() {
           <label>品質理由<input value={qualityReasons} onChange={(event) => setQualityReasons(event.target.value)} placeholder="例: level checked, no clip warning" /></label>
         </div>
         {preview && <div className="preview"><strong>{preview.filename}</strong><span>{preview.points} points</span><span>{preview.frequency_min_hz}–{preview.frequency_max_hz} Hz</span><span>phase: {preview.phase_status}</span><span>SHA {preview.sha256.slice(0, 12)}…</span>{preview.warnings.map((warning) => <em key={warning}>{warning}</em>)}</div>}
-        <button disabled={!preview} onClick={() => void importMeasurement()}>この測定を保存</button>
+        <button disabled={busy || !preview} title={!preview ? '測定ファイルを選択してプレビューを確認してください' : undefined} onClick={() => void importMeasurement()}>{busy ? '保存中…' : 'この測定を保存'}</button>
         <p className="hint">品質は有限なFR値から自動推定しません。実測条件を確認できない間は unknown のまま保存してください。</p>
         <div className="cards">
+          {measurements.length === 0 && <article><strong>測定はまだありません</strong><span>測定ファイルを選択してプレビュー後に保存するとここへ表示されます。</span></article>}
           {measurements.map((measurement) => <article key={measurement.id}>
             <strong>{measurement.channel_role}</strong>
             <span>{measurement.points} pts · {measurement.frequency_min_hz}–{measurement.frequency_max_hz} Hz</span>
@@ -713,8 +741,9 @@ export default function App() {
           <label>ラベル<input value={attachmentLabel} onChange={(event) => setAttachmentLabel(event.target.value)} placeholder="任意" /></label>
           <label>関連測定<select value={attachmentMeasurementId} onChange={(event) => setAttachmentMeasurementId(event.target.value)}><option value="">Project/Contextのみ</option>{measurements.map((measurement) => <option key={measurement.id} value={measurement.id}>{measurement.channel_role} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
         </div>
-        <button disabled={!attachmentFile || !projectId} onClick={() => void uploadAttachment()}>添付原本を保存</button>
+        <button disabled={busy || !attachmentFile || !projectId} title={!projectId ? 'プロジェクトを選択してください' : !attachmentFile ? '添付ファイルを選択してください' : undefined} onClick={() => void uploadAttachment()}>添付原本を保存</button>
         <div className="cards">
+          {attachments.length === 0 && <article><strong>添付原本はまだありません</strong><span>.mdat・校正ファイル・AVR設定などの原本を保存するとここへ表示されます。</span></article>}
           {attachments.map((attachment) => <article key={attachment.id}><strong>{attachment.kind}</strong><span>{attachment.filename}</span><span>{attachment.label ?? '—'} · {attachment.size_bytes} bytes</span><code>{attachment.asset_sha256.slice(0, 12)}</code></article>)}
         </div>
       </section>
@@ -733,7 +762,7 @@ export default function App() {
         </div>
         <label>除外帯域（例: 70-90, 120-130）<input value={excludedBandsText} onChange={(event) => setExcludedBandsText(event.target.value)} placeholder="任意" /></label>
         <label>意図した変更パス（例: speakers.FL.position）<input value={expectedChangesText} onChange={(event) => setExpectedChangesText(event.target.value)} /></label>
-        <div className="row action-row"><button onClick={() => void compare()}>比較して保存</button></div>
+        <div className="row action-row"><button disabled={busy} onClick={() => void compare()}>{busy ? '処理中…' : '比較して保存'}</button></div>
         {activeComparison && <>
           <div className="metrics">
             <div><span>Mean A−B</span><strong>{activeComparison.result.mean_difference_db?.toFixed(2) ?? '—'} dB</strong></div>
@@ -761,7 +790,7 @@ export default function App() {
         <div className="grid3">
           <label>Room mode上限 (Hz)<input value={maxModeHz} onChange={(event) => setMaxModeHz(event.target.value)} /></label>
           <label>音速 (m/s)<input value={soundSpeed} onChange={(event) => setSoundSpeed(event.target.value)} /></label>
-          <div className="field-action"><button disabled={!activeContext || (activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular'} onClick={() => void runAcoustics()}>選択版を解析</button></div>
+          <div className="field-action"><button disabled={busy || !activeContext || (activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular'} title={!activeContext ? '保存済みのContextを選択してください' : (activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular' ? 'この解析は矩形室専用です' : undefined} onClick={() => void runAcoustics()}>選択版を解析</button></div>
         </div>
         {activeContext && (activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular' && <p className="hint">このA01解析は矩形専用です。polygon/reference box Contextへ矩形モード・6面反射を誤適用しません。</p>}
         {acoustics && <>

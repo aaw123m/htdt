@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 
 from .cad_scene import RoomPrism
+from .user_facing_error import operation_error_message
 from .wall_editor import WallEditorWindow
 
 
@@ -40,7 +41,10 @@ class CadEditorWindow(WallEditorWindow):
         try:
             changed = self.working.replace_room_topology(room, topology)
         except ValueError as exc:
-            message = f'部屋の変更を確定できません · 壁・開口参照を確認してください · {exc}'
+            message = (
+                '部屋の変更を確定できません · 壁・開口参照を確認してください'
+                f' · {operation_error_message(exc)}'
+            )
             # Context receiver drops the shot if the window closes before the
             # deferred status update runs.
             QTimer.singleShot(0, self, lambda: self.statusBar().showMessage(message))

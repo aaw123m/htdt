@@ -49,6 +49,7 @@ from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .rew_api import RewApiClient
+from .user_facing_error import operation_error_message
 
 
 def measurement_is_synthetic(record: CadMeasurementRecord) -> bool:
@@ -234,7 +235,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         pattern_materialize_button.clicked.connect(self._materialize_target_pattern)
         pattern_buttons.addWidget(pattern_materialize_button)
         layout.addLayout(pattern_buttons)
-        self.pattern_list_label = QLabel('target patternなし')
+        self.pattern_list_label = QLabel('ターゲットパターンなし')
         self.pattern_list_label.setWordWrap(True)
         layout.addWidget(self.pattern_list_label)
 
@@ -266,11 +267,11 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             return
         presentations = self.target_service.list_presentations()
         if not presentations:
-            self.pattern_list_label.setText('target patternなし')
+            self.pattern_list_label.setText('ターゲットパターンなし')
             return
         lines = []
         for item in presentations[-6:]:
-            state = 'stale(要rebase)' if item.stale else 'current'
+            state = '古い基準(要再基準化)' if item.stale else '最新'
             lines.append(
                 f"{item.pattern_id.split(':')[-1][:8]} "
                 f"{item.anchor_kind} v{item.pattern_version} "
@@ -292,7 +293,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 spacing_m=self.pattern_spacing_field.value(),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'パターンを作成できません · {exc}')
+            self.statusBar().showMessage(f'パターンを作成できません · {operation_error_message(exc)}')
             return
         preview = self.target_service.preview(pattern)
         self.statusBar().showMessage(
@@ -304,7 +305,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
     def _materialize_target_pattern(self) -> None:
         presentations = self.target_service.list_presentations()
         if not presentations:
-            self.statusBar().showMessage('materializeするpatternがありません')
+            self.statusBar().showMessage('実体化するパターンがありません')
             return
         # Materialize the newest un-materialized or stale-anchored pattern
         # via the canonical pinned-revision authority (#987).
@@ -322,11 +323,11 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 try:
                     rebased = self.target_service.rebase(target.pattern_id)
                 except Exception as exc:
-                    self.statusBar().showMessage(f'rebaseできません · {exc}')
+                    self.statusBar().showMessage(f'再基準化できません · {operation_error_message(exc)}')
                     return
                 target_id = rebased.pattern_id
             else:
-                self.statusBar().showMessage('すべてのpatternは実体化済みです')
+                self.statusBar().showMessage('すべてのパターンは実体化済みです')
                 self._refresh_target_patterns()
                 return
         else:
@@ -336,12 +337,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                     rebased = self.target_service.rebase(target_id)
                     target_id = rebased.pattern_id
                 except Exception as exc:
-                    self.statusBar().showMessage(f'rebaseできません · {exc}')
+                    self.statusBar().showMessage(f'再基準化できません · {operation_error_message(exc)}')
                     return
         try:
             points = self.target_service.materialize(target_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'実体化できません · {exc}')
+            self.statusBar().showMessage(f'実体化できません · {operation_error_message(exc)}')
             return
         ids = ', '.join(point.measurement_point_entity_id for point in points)
         self.statusBar().showMessage(f'実体化しました · {ids}')
@@ -400,7 +401,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             )
             self.import_rew_text_bytes(raw, file_path.name)
         except Exception as exc:
-            self.statusBar().showMessage(f'REWテキスト取込失敗 · {exc}')
+            self.statusBar().showMessage(f'REWテキスト取込失敗 · {operation_error_message(exc)}')
 
     def import_rew_text_bytes(self, raw: bytes, filename: str) -> CadMeasurementRecord:
         revision, entity_id = self._saved_measurement_target()
@@ -582,7 +583,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             )
             saved = self.measurement_repository.save_comparison(str(dataset_a_id), str(dataset_b_id), result)
         except Exception as exc:
-            self.statusBar().showMessage(f'A/B比較失敗 · {exc}')
+            self.statusBar().showMessage(f'A/B比較失敗 · {operation_error_message(exc)}')
             return
         self._plot_comparison(dataset_a, dataset_b, saved.difference_db, saved.grid_hz)
         if self.measurement_compare_label is not None:
@@ -669,7 +670,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 external_source_id=str(external_id),
             )
         except Exception as exc:
-            self.statusBar().showMessage(str(exc))
+            self.statusBar().showMessage(operation_error_message(exc))
             return
         token = self.rew_job_guard.submit(
             provisional,
@@ -739,7 +740,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             if key != self._latest_rew_list_key or error == WORKER_CANCELLED:
                 return
             if error is not None:
-                self.statusBar().showMessage(f'REW一覧取得失敗 · {error}')
+                self.statusBar().showMessage(f'REW一覧取得失敗 · {operation_error_message(error)}')
                 return
             summaries = result if isinstance(result, list) else []
             if self.rew_combo is not None:
@@ -757,7 +758,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             return
         if error is not None:
             if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
-                self.statusBar().showMessage(f'REW読込失敗 · {error}')
+                self.statusBar().showMessage(f'REW読込失敗 · {operation_error_message(error)}')
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
@@ -783,7 +784,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             )
             self.measurement_repository.save(record, dataset, raw_filename=filename, raw_bytes=raw)
         except Exception as exc:
-            self.statusBar().showMessage(f'REW結果保存失敗 · {exc}')
+            self.statusBar().showMessage(f'REW結果保存失敗 · {operation_error_message(exc)}')
             return
         self.measurement_selected_id = record.measurement_id
         self._refresh_measurement_list()

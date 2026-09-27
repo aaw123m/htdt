@@ -12,22 +12,50 @@ Two mappings live here:
 * a typed exception → (code, message, recovery) map built on exception
   *types/class names*, never on message content.
 
-Exceptions whose ``str()`` is already a user-facing localized message
-(documented contract: ``LayoutError``, ``SeatingLayoutError``) keep their
-message; every other type maps to a safe generic message and keeps the raw
-text only in ``technical_detail``.
+Exceptions whose ``str()`` is already a user-facing localized message keep
+their message: the documented contract types (``LayoutError``,
+``SeatingLayoutError``) plus any exception whose text is a single, short
+line containing Japanese kana/kanji (``_looks_localized``) — domain code
+frequently raises bare ``ValueError('日本語…')`` as operator-facing
+rejections. Every other type maps to a safe generic message and keeps the
+raw text only in ``technical_detail``.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from .ui_theme import SemanticState
 
+if TYPE_CHECKING:
+    from PySide6.QtWidgets import QWidget
+
 _LOG = logging.getLogger('htdt.errors')
+
+#: Hiragana/katakana/CJK — presence means a message was authored as operator
+#: text for the Japanese UI rather than as a technical exception detail.
+_LOCALIZED_RE = re.compile(r'[ぁ-んァ-ヶ一-龥ー]')
+
+
+def _looks_localized(text: str) -> bool:
+    """Heuristic companion to ``_PRESERVE_MESSAGE_TYPES``.
+
+    Much of the domain code raises bare ``ValueError('日本語…')`` for
+    operator-facing rejections, so the type list cannot cover them. A
+    single-line message containing Japanese kana/kanji is treated as
+    already-localized operator text; multi-line dumps and long payloads
+    (pydantic errors embedding JP field names) still map to safe generics.
+    """
+    return (
+        bool(_LOCALIZED_RE.search(text))
+        and '\n' not in text
+        and len(text) <= 160
+    )
 
 
 #: Exceptions whose str() is already a localized operator-facing message by
@@ -73,6 +101,8 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
      '管理データにアクセスできませんでした',
      'データ保存先の設定を確認してください'),
     ('PreferenceError', 'preferences.error', '環境設定を適用できませんでした', None),
+    ('IngressTooLargeError', 'ingress.too_large', 'ファイルが大きすぎます',
+     'より小さいファイルを選択してください'),
 )
 
 #: Leaf-suffix → (code, message, recovery): covers the repository exception
@@ -152,7 +182,13 @@ def _map_exception(
     if isinstance(exc, KeyError):
         return 'data.missing', '対象の項目が見つかりません', None
     if isinstance(exc, (ValueError, TypeError)):
+        text = str(exc).strip()
+        if _looks_localized(text):
+            return 'operation.rejected', text, None
         return 'data.invalid', 'データを処理できませんでした', None
+    text = str(exc).strip()
+    if _looks_localized(text):
+        return 'operation.rejected', text, None
     return 'operation.failed', '操作を完了できませんでした', None
 
 
@@ -201,9 +237,43 @@ def operation_error_message(exc: BaseException) -> str:
     return _map_exception(exc)[1]
 
 
+def warn_user(
+    parent: "QWidget | None",
+    title: str,
+    exc: BaseException,
+    *,
+    effect: str | None = None,
+) -> UserFacingError:
+    """Present one operation failure as a warning dialog.
+
+    Visible text is the mapped, localized message plus its recovery hint and
+    optional effect line — never raw exception text. The exception's class
+    and message are preserved under the dialog's Details expander and in the
+    diagnostics log.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    error = to_user_facing_error(exc, title=title, effect=effect)
+    log_operation_error(error, exc)
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle(title)
+    text = error.message
+    if error.recovery:
+        text += f'\n{error.recovery}'
+    if error.effect:
+        text += f'\n{error.effect}'
+    box.setText(text)
+    if error.technical_detail:
+        box.setDetailedText(error.technical_detail)
+    box.exec()
+    return error
+
+
 __all__ = [
     'UserFacingError',
     'log_operation_error',
     'operation_error_message',
     'to_user_facing_error',
+    'warn_user',
 ]

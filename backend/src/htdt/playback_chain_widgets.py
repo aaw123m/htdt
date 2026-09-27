@@ -51,6 +51,7 @@ from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .user_facing_error import warn_user
 
 
 def _provenance(
@@ -576,7 +577,7 @@ class PlaybackChainDialog(QDialog):
                 model=self.amp_model.text().strip() or None,
             )
         except ValueError as exc:
-            QMessageBox.warning(self, "アンプ能力", str(exc))
+            warn_user(self, "アンプ能力を保存できませんでした", exc)
             return
         self._refresh_amplifier_combo()
         self.amp_status.setText(
@@ -643,7 +644,7 @@ class PlaybackChainDialog(QDialog):
                 source_reference=self.load_source_reference.text().strip(),
             )
         except ValueError as exc:
-            QMessageBox.warning(self, "スピーカー負荷", str(exc))
+            warn_user(self, "スピーカー負荷を保存できませんでした", exc)
             return
         self._refresh_load_combo()
         self.load_status.setText(f"保存しました: {_load_label(load)}")
@@ -793,7 +794,7 @@ class PlaybackChainDialog(QDialog):
             )
             evaluation = self.service.evaluate(scenario)
         except ValueError as exc:
-            QMessageBox.warning(self, "再生チェーン", str(exc))
+            warn_user(self, "再生チェーンを評価できませんでした", exc)
             return
         self.result_label.setText(evaluation_summary(evaluation))
 

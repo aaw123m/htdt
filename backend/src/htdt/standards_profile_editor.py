@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .user_facing_error import warn_user
 from .cad_standards import (
     CriterionDefinition,
     CriterionRule,
@@ -413,7 +414,7 @@ class StandardsProfileEditorDialog(QDialog):
         try:
             criterion = self._criterion_from_form()
         except ValueError as exc:
-            QMessageBox.warning(self, "基準", str(exc))
+            warn_user(self, "基準を適用できませんでした", exc)
             return
         existing = [
             i
@@ -447,7 +448,7 @@ class StandardsProfileEditorDialog(QDialog):
         try:
             profile = fn(name)
         except ValueError as exc:
-            QMessageBox.warning(self, "プロファイル", str(exc))
+            warn_user(self, "プロファイルを保存できませんでした", exc)
             return
         self.refresh_profiles()
         self.status_label.setText(
@@ -496,9 +497,7 @@ class StandardsProfileEditorDialog(QDialog):
             text = open(selected, encoding="utf-8").read()
             profile = self.service.import_profile_json(text)
         except (ValueError, OSError) as exc:
-            QMessageBox.warning(
-                self, "プロファイルインポート", str(exc)
-            )
+            warn_user(self, "プロファイルをインポートできませんでした", exc)
             return
         self.refresh_profiles()
         self.status_label.setText(
@@ -524,7 +523,7 @@ class StandardsProfileEditorDialog(QDialog):
             with open(selected, "w", encoding="utf-8") as handle:
                 handle.write(self.service.export_profile_json(profile))
         except OSError as exc:
-            QMessageBox.warning(self, "エクスポート", str(exc))
+            warn_user(self, "エクスポートできませんでした", exc)
             return
         self.status_label.setText(f"エクスポートしました: {selected}")
 

@@ -94,6 +94,7 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 
 GeometryImportDestination = Literal['entity_body', 'room_geometry']
@@ -488,7 +489,7 @@ class GeometryImportDialog(QDialog):
             self._repaired_diagnostic = None
             self.use_repaired.setEnabled(False)
             self.use_repaired.setChecked(False)
-            self.repair_result.setText(f'修復プレビューに失敗しました: {exc}')
+            self.repair_result.setText(f'修復プレビューに失敗しました: {operation_error_message(exc)}')
             set_semantic_state(self.repair_result, SemanticState.ERROR)
             return
         set_semantic_state(self.repair_result, None)
@@ -603,7 +604,7 @@ class GeometryImportDialog(QDialog):
                 self.mesh, request, repaired_mesh=repaired, repaired_diagnostic=diagnostic
             )
         except ValueError as exc:
-            self.destination_readiness.setText(f'評価できません: {exc}')
+            self.destination_readiness.setText(f'評価できません: {operation_error_message(exc)}')
             set_semantic_state(self.destination_readiness, SemanticState.ERROR)
             self._evaluated_geometry = None
             return None

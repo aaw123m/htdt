@@ -36,6 +36,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 if TYPE_CHECKING:
     from .room_geometry_input import RoomGeometryInputController
@@ -361,7 +362,7 @@ class RoomGeometryPanel(QFrame):
             changed = bool(operation())
         except (ValueError, WallTopologyError) as exc:
             self.geometry.workspace.mark_pending_editor_rejected()
-            self.notice.setText(str(exc))
+            self.notice.setText(operation_error_message(exc))
             set_semantic_state(self.notice, SemanticState.ERROR)
             self.refresh()
             return

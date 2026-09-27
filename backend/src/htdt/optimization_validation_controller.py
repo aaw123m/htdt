@@ -75,6 +75,7 @@ from .cad_applicability import applicability_authority_summary
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .native_editor import ROLE
+from .user_facing_error import operation_error_message
 
 
 _SPLIT_LABELS = {"calibration": "調整用", "holdout": "検証用"}
@@ -304,7 +305,7 @@ class ValidationControllerMixin:
             )
             self.campaign_repository.save(campaign)
         except Exception as exc:
-            self.statusBar().showMessage(f'検証条件を保存できません · {exc}')
+            self.statusBar().showMessage(f'検証条件を保存できません · {operation_error_message(exc)}')
             return
 
         self.campaign_assignments.clear()
@@ -331,7 +332,7 @@ class ValidationControllerMixin:
         try:
             campaigns = self.campaign_repository.list_for_search_spec(spec_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'検証条件を読み込めません · {exc}')
+            self.statusBar().showMessage(f'検証条件を読み込めません · {operation_error_message(exc)}')
             return
         for display_index, campaign in enumerate(campaigns, start=1):
             try:
@@ -388,7 +389,7 @@ class ValidationControllerMixin:
                 campaign.campaign_id
             )
         except Exception as exc:
-            label.setText(f'検証条件の準備状況を読み込めません · {exc}')
+            label.setText(f'検証条件の準備状況を読み込めません · {operation_error_message(exc)}')
             return
         objective_text = ", ".join(
             _objective_label(value) for value in campaign.objective_ids
@@ -432,7 +433,7 @@ class ValidationControllerMixin:
                 campaign.campaign_id
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'比較指標の根拠データを生成できません · {exc}')
+            self.statusBar().showMessage(f'比較指標の根拠データを生成できません · {operation_error_message(exc)}')
             self._campaign_selected()
             return
         self.refresh_validation_campaigns(select_campaign_id=campaign.campaign_id)
@@ -450,7 +451,7 @@ class ValidationControllerMixin:
         try:
             readiness = self.campaign_service.readiness(campaign.campaign_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'検証条件の準備状況を読み込めません · {exc}')
+            self.statusBar().showMessage(f'検証条件の準備状況を読み込めません · {operation_error_message(exc)}')
             return
         if not readiness.evidence_ready:
             self.statusBar().showMessage(
@@ -495,7 +496,7 @@ class ValidationControllerMixin:
             )
             self.validation_repository.save(record)
         except Exception as exc:
-            self.statusBar().showMessage(f'検証結果を保存できません · {exc}')
+            self.statusBar().showMessage(f'検証結果を保存できません · {operation_error_message(exc)}')
             return
 
         self.refresh_model_validations()
@@ -546,7 +547,7 @@ class ValidationControllerMixin:
                 evidence_type_override='measured',
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'検証用REW読込を開始できません · {exc}')
+            self.statusBar().showMessage(f'検証用REW読込を開始できません · {operation_error_message(exc)}')
             return
 
 
@@ -577,7 +578,7 @@ class ValidationControllerMixin:
         try:
             records = self.validation_repository.inspect_for_search_spec(spec_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'検証結果を読み込めません · {exc}')
+            self.statusBar().showMessage(f'検証結果を読み込めません · {operation_error_message(exc)}')
             return
         for display_index, record in enumerate(records, start=1):
             repeatability = '—'

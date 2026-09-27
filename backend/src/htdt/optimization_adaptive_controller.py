@@ -73,6 +73,7 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
+from .user_facing_error import operation_error_message
 
 
 class AdaptiveControllerMixin:
@@ -126,7 +127,7 @@ class AdaptiveControllerMixin:
                 proposal_limit=proposal_limit,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'Adaptive Planを作成できません · {exc}')
+            self.statusBar().showMessage(f'Adaptive Planを作成できません · {operation_error_message(exc)}')
             return
 
         self.refresh_adaptive_plans(select_plan_id=plan.plan_id)
@@ -157,7 +158,7 @@ class AdaptiveControllerMixin:
         try:
             plans = self.adaptive_repository.list_for_search_spec(spec_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'Adaptive Planを読めません · {exc}')
+            self.statusBar().showMessage(f'Adaptive Planを読めません · {operation_error_message(exc)}')
             return
 
         selected_item: QTreeWidgetItem | None = None

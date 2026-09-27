@@ -48,6 +48,7 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 
 _MODE_ITEMS: tuple[tuple[JointSearchMode, str], ...] = (
@@ -332,7 +333,7 @@ class JointOptimizationPanel(QWidget):
                 candidate_budget=self.budget_spin.value(),
             )
         except Exception as exc:  # defensive: preflight stays advisory
-            self.preflight_label.setText(f'候補数を推定できません: {exc}')
+            self.preflight_label.setText(f'候補数を推定できません: {operation_error_message(exc)}')
             return
         state = (
             '予算内'
@@ -361,7 +362,7 @@ class JointOptimizationPanel(QWidget):
             )
         except Exception as exc:
             if self._on_status is not None:
-                self._on_status(f'ジョイント最適化仕様を保存できません: {exc}')
+                self._on_status(f'ジョイント最適化仕様を保存できません: {operation_error_message(exc)}')
             return
         if self._on_status is not None:
             self._on_status(
@@ -415,7 +416,7 @@ class JointOptimizationPanel(QWidget):
             result = self.context.execute_spec(spec_id)
         except Exception as exc:
             if self._on_status is not None:
-                self._on_status(f'ジョイント最適化を実行できません: {exc}')
+                self._on_status(f'ジョイント最適化を実行できません: {operation_error_message(exc)}')
             self._refresh_execution_state()
             return
         finally:

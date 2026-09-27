@@ -55,6 +55,7 @@ from .ui_theme import (
     set_typography_role,
 )
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .user_facing_error import operation_error_message
 
 
 _EVIDENCE_LABELS: dict[str, str] = {
@@ -497,7 +498,7 @@ class InterventionPlannerPanel(QFrame):
                 detail=detail,
             )
         except ValueError as exc:
-            self._on_status(f"findingが無効です: {exc}")
+            self._on_status(f"findingが無効です: {operation_error_message(exc)}")
             return
         treatment_authority: tuple[str | None, str | None] = (None, None)
         if 'treatment' in families:
@@ -524,7 +525,7 @@ class InterventionPlannerPanel(QFrame):
                 evidence_state_floor=self.evidence_floor_combo.currentData(),
             )
         except ValueError as exc:
-            self._on_status(f"スタディを作成できません: {exc}")
+            self._on_status(f"スタディを作成できません: {operation_error_message(exc)}")
             return
         if spec is None:
             self._on_status(
@@ -605,7 +606,7 @@ class InterventionPlannerPanel(QFrame):
         try:
             application = self.service.apply(variant_id)
         except ValueError as exc:
-            self._on_status(f"適用できません: {exc}")
+            self._on_status(f"適用できません: {operation_error_message(exc)}")
             return
         self._on_status(
             "介入案を新しいSceneRevisionへ適用しました。"
