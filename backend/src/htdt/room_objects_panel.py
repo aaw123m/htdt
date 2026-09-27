@@ -9,6 +9,7 @@ off ≠ deleted); locked objects are inspectable but not editable.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
@@ -126,7 +127,13 @@ class RoomObjectsPanel(QWidget):
                 )
                 item.setData(0, _ENTITY_ROLE, entity.entity_id)
                 if hidden:
-                    item.setForeground(0, self.palette().disabled().windowText())
+                    item.setForeground(
+                        0,
+                        self.palette().color(
+                            QPalette.ColorGroup.Disabled,
+                            QPalette.ColorRole.WindowText,
+                        ),
+                    )
                 if entity.entity_id in selected:
                     item.setSelected(True)
                 if entity.entity_id == primary_id:
