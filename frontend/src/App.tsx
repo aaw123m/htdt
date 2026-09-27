@@ -333,6 +333,9 @@ export default function App() {
     contextChangeSeq.current += 1
     setAcoustics(null)
     setReadiness(null)
+    // A superseded checkMeasurementReadiness() skips its own loading-flag
+    // clear, so the invalidation that dropped it must release the flag.
+    setReadinessLoading(false)
   }, [selectedContextId])
 
   useEffect(() => {
