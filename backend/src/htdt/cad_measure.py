@@ -12,6 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import acos, asin, atan2, degrees, sqrt
 
+from .cad_display_units import (
+    LengthDisplayPolicy,
+    si_to_display,
+    _UNIT_SUFFIX,
+)
 from .cad_scene import Position3
 
 
@@ -129,16 +134,43 @@ def build_angle_result(a: MeasureEndpoint, vertex: MeasureEndpoint, b: MeasureEn
     )
 
 
-def format_measure_result(result: MeasureResult) -> str:
-    """Single-line copyable text form of a measurement."""
+def format_measure_result(
+    result: MeasureResult,
+    *,
+    policy: LengthDisplayPolicy | None = None,
+) -> str:
+    """Single-line copyable text form of a measurement.
+
+    ``policy`` is the #496 interactive display policy (D3): with it set,
+    lengths render in the preference unit/decimals exactly like the
+    inspector readouts. ``None`` keeps canonical SI metres — report/export
+    surfaces stay SI regardless. Angles are unaffected (the length policy
+    does not govern them).
+    """
 
     if result.mode == 'angle':
         assert result.angle_deg is not None
         return f'角度 {result.angle_deg:.1f}°'
     assert result.distance_m is not None
+
+    def length(value_m: float, *, signed: bool = False) -> str:
+        if policy is None:
+            body = f'{value_m:+.3f}' if signed else f'{value_m:.3f}'
+            return f'{body} m'
+        value = si_to_display(value_m, policy.unit)
+        body = (
+            f'{value:+.{policy.decimals}f}'
+            if signed
+            else f'{value:.{policy.decimals}f}'
+        )
+        return f'{body} {_UNIT_SUFFIX[policy.unit]}'
+
     return (
-        f'距離 {result.distance_m:.3f} m '
-        f'（ΔX {result.dx_m:+.3f} / ΔY {result.dy_m:+.3f} / ΔZ {result.dz_m:+.3f} m, '
-        f'水平 {result.horizontal_m:.3f} m, 方位 {result.azimuth_deg:+.1f}°, '
+        f'距離 {length(result.distance_m)} '
+        f'（ΔX {length(result.dx_m, signed=True)} / '
+        f'ΔY {length(result.dy_m, signed=True)} / '
+        f'ΔZ {length(result.dz_m, signed=True)}, '
+        f'水平 {length(result.horizontal_m)}, '
+        f'方位 {result.azimuth_deg:+.1f}°, '
         f'仰角 {result.elevation_deg:+.1f}°）'
     )

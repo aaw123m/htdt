@@ -341,7 +341,7 @@ def _saved_f1(tmp_path: Path):
 def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     from PySide6.QtWidgets import QApplication
 
-    from htdt import measurement_page_workspace
+    from htdt import file_dialog_memory, measurement_page_workspace
     from htdt.measurement_page_workspace import MeasurementPageWorkspace
     from htdt.measurement_workflow import MeasurementWorkflowController
 
@@ -353,7 +353,7 @@ def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatc
     oversized = tmp_path / 'huge.txt'
     oversized.write_bytes(b'0' * (MAX_NATIVE_REW_TEXT_FILE_BYTES + 1))
     monkeypatch.setattr(
-        measurement_page_workspace.QFileDialog,
+        file_dialog_memory.QFileDialog,
         'getOpenFileName',
         staticmethod(lambda *args, **kwargs: (str(oversized), '')),
     )
@@ -365,7 +365,7 @@ def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatc
     small = tmp_path / 'small.txt'
     small.write_bytes(b'20 70\n40 71\n')
     monkeypatch.setattr(
-        measurement_page_workspace.QFileDialog,
+        file_dialog_memory.QFileDialog,
         'getOpenFileName',
         staticmethod(lambda *args, **kwargs: (str(small), '')),
     )
@@ -379,7 +379,7 @@ def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatc
 
 
 def test_legacy_editor_dialog_uses_shared_bounded_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from htdt import measurement_editor
+    from htdt import file_dialog_memory, measurement_editor
     from htdt.measurement_editor import MeasurementEditorWindow
 
     oversized = tmp_path / 'huge.txt'
@@ -400,7 +400,7 @@ def test_legacy_editor_dialog_uses_shared_bounded_read(tmp_path: Path, monkeypat
             imported.append((raw, filename))
 
     monkeypatch.setattr(
-        measurement_editor.QFileDialog,
+        file_dialog_memory.QFileDialog,
         'getOpenFileName',
         staticmethod(lambda *args, **kwargs: (str(oversized), '')),
     )

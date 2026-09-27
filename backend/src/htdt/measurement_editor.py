@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDockWidget,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -25,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .cad_measurement_jobs import MeasurementJobApplyContext, MeasurementJobGuard, MeasurementJobToken
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_repository import CadMeasurementRepository
@@ -389,7 +389,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         return value or 'unknown'
 
     def import_rew_text_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, 'REWテキストを選択', '', 'Text (*.txt *.frd);;All files (*)')
+        path, _ = file_dialog_memory.get_open_file_name(
+            self,
+            'REWテキストを選択',
+            'measurement.rew_text',
+            'Text (*.txt *.frd);;All files (*)',
+        )
         if not path:
             return
         try:

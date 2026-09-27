@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -39,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .clock import utc_now_iso as _utc_now
 from .cad_directivity import (
     NORMALIZED_JSON_ADAPTER_ID,
@@ -756,8 +756,8 @@ class EquipmentLibraryDialog(QDialog):
             )
 
     def _attach_source_file(self) -> None:
-        selected, _filter = QFileDialog.getOpenFileName(
-            self, "出典ファイルを選択"
+        selected, _filter = file_dialog_memory.get_open_file_name(
+            self, "出典ファイルを選択", 'equipment.attach_source'
         )
         if not selected:
             return
@@ -841,8 +841,8 @@ class EquipmentLibraryDialog(QDialog):
                 self, "指向性インポート", "対応するインポートアダプタがありません"
             )
             return
-        selected, _filter = QFileDialog.getOpenFileName(
-            self, "指向性ソースを選択"
+        selected, _filter = file_dialog_memory.get_open_file_name(
+            self, "指向性ソースを選択", 'equipment.import_directivity'
         )
         if not selected:
             return

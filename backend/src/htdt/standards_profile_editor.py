@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -31,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .user_facing_error import warn_user
 from .cad_standards import (
     CriterionDefinition,
@@ -488,8 +488,8 @@ class StandardsProfileEditorDialog(QDialog):
         )
 
     def _import_profile(self) -> None:
-        selected, _filter = QFileDialog.getOpenFileName(
-            self, "プロファイルJSONを選択", "", "JSON (*.json)"
+        selected, _filter = file_dialog_memory.get_open_file_name(
+            self, "プロファイルJSONを選択", 'standards.profile_import', "JSON (*.json)"
         )
         if not selected:
             return
@@ -511,11 +511,12 @@ class StandardsProfileEditorDialog(QDialog):
                 self, "エクスポート", "プロファイルを選択してください"
             )
             return
-        selected, _filter = QFileDialog.getSaveFileName(
+        selected, _filter = file_dialog_memory.get_save_file_name(
             self,
             "プロファイルJSONを保存",
-            f"{profile.profile_id}-{profile.version}.json",
+            'standards.profile_export',
             "JSON (*.json)",
+            suggested_name=f"{profile.profile_id}-{profile.version}.json",
         )
         if not selected:
             return

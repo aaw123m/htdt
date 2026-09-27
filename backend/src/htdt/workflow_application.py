@@ -11,7 +11,6 @@ from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QInputDialog,
     QLabel,
     QListWidget,
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 from .application_pages import (
@@ -34,6 +34,7 @@ from .application_pages import (
     list_recent_revisions,
     projects_focus,
 )
+from . import file_dialog_memory
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
     CadCommandBindings,
@@ -104,7 +105,11 @@ from .application_preferences import (
     PreferenceChange,
 )
 from .cad_display_units import length_display_policy_from_preferences
+from .capture_retention import CaptureRetentionService
+from .capture_retention_ui import RetentionPolicyWidget
 from .data_management_ui import build_data_management_component
+from .reference_library_sources import build_reference_library_index
+from .file_dialog_memory import FileDialogMemoryStore
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
 from .installation_handoff import (
@@ -137,6 +142,8 @@ from .overview_workspace import OverviewWorkspace
 from .palette_search import (
     CommandPaletteProvider,
     HelpTopicPaletteProvider,
+    NavigationItemPaletteProvider,
+    PaletteNavigationItem,
     PaletteResultKind,
     PaletteSearchService,
     SceneEntityPaletteProvider,
@@ -168,6 +175,13 @@ from .support_diagnostics import (
     run_health_checks,
 )
 from .workflow_help import HelpDialog
+from .authority_graph import (
+    build_authority_graph,
+    measurement_authority_source,
+    scene_revision_authority_source,
+    system_variant_authority_source,
+)
+from .authority_inspector_ui import AuthorityInspectorDialog
 from .workflow_navigation import (
     APPLICATION_DESTINATION_LABELS,
     ApplicationDestinationId,
@@ -337,6 +351,11 @@ class WorkflowApplicationComposition:
         self.repository = repository
         self.repository_path = Path(repository.path)
         self.data_dir = self.repository_path.parent
+        # App-local last-directory memory for every native file dialog
+        # (round-8): dialogs reopen where the operator last worked.
+        file_dialog_memory.configure(
+            FileDialogMemoryStore.for_data_dir(self.data_dir)
+        )
         self.document_id = document_id
         self.capture_receiver = capture_receiver
         # ApplicationPreferences are app-local truth shared with every
@@ -425,6 +444,11 @@ class WorkflowApplicationComposition:
             self.shell,
             capture_panel=capture_panel,
             preferences_panel=preferences_panel,
+            retention_panel=RetentionPolicyWidget(
+                CaptureRetentionService(self.repository),
+                is_busy=lambda: self.data_management_controller.is_busy,
+                parent=self.shell,
+            ),
         )
         if capture_receiver is not None:
             capture_receiver.delivery_staged.connect(
@@ -784,15 +808,16 @@ class WorkflowApplicationComposition:
         revision_tag = (
             '' if head is None else f'-{head.revision_id[:8]}'
         )
-        selected, _filter = QFileDialog.getSaveFileName(
+        selected, _filter = file_dialog_memory.get_save_file_name(
             self.shell,
             "プロジェクトのエクスポート先",
-            str(
-                Path.home()
-                / f"{self.project_entry.display_name}{revision_tag}"
+            'project.export_bundle',
+            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+            suggested_name=(
+                f"{self.project_entry.display_name}{revision_tag}"
                 f"{BUNDLE_EXTENSION}"
             ),
-            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+            default_dir=self._default_export_dir(),
         )
         if not selected:
             return
@@ -825,11 +850,12 @@ class WorkflowApplicationComposition:
         """#488: staged import; a document-id collision is offered the
         explicit import-as-copy path (new project identity)."""
 
-        selected, _filter = QFileDialog.getOpenFileName(
+        selected, _filter = file_dialog_memory.get_open_file_name(
             self.shell,
             "インポートするプロジェクトバンドル",
-            str(Path.home()),
+            'project.import_bundle',
             f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+            default_dir=str(Path.home()),
         )
         if not selected:
             return
@@ -949,6 +975,146 @@ class WorkflowApplicationComposition:
                 WorkspaceId.ROOM, section, entity_id=entity.entity_id
             )
 
+        # Round-8 record providers: measurements / revisions / variants /
+        # inbox items search through the same typed deep-link handoff as
+        # entity results (round-7 deferred palette gap).
+        def measurement_items() -> tuple:
+            if not self.document_id:
+                return ()
+            records = CadMeasurementRepository(
+                self.repository
+            ).list_measurements(self.document_id)
+            revision = self.repository.latest(self.document_id)
+            entity_names = (
+                {}
+                if revision is None
+                else {
+                    entity.entity_id: entity.name
+                    for entity in revision.document.entities
+                }
+            )
+            items: list[PaletteNavigationItem] = []
+            for record in records:
+                target_name = entity_names.get(
+                    record.measurement_entity_id, record.measurement_entity_id
+                )
+                items.append(
+                    PaletteNavigationItem(
+                        item_id=record.measurement_id,
+                        title=target_name,
+                        subtitle=f'測定 · {record.channel_role}',
+                        keywords=(
+                            record.measurement_id,
+                            record.channel_role,
+                            str(record.source_kind),
+                            '測定',
+                            'measurement',
+                            'rew',
+                        ),
+                        deep_link=WorkspaceDeepLink(
+                            WorkspaceId.MEASUREMENT,
+                            'quality',
+                            entity_id=record.measurement_id,
+                            revision_id=record.scene_revision_id,
+                            kind=NavigationTargetKind.MEASUREMENT.value,
+                        ),
+                    )
+                )
+            return tuple(items)
+
+        def revision_items() -> tuple:
+            if not self.document_id:
+                return ()
+            labels = self.repository.revision_labels(self.document_id)
+            items: list[PaletteNavigationItem] = []
+            for summary in self.repository.list_revision_summaries(
+                self.document_id
+            ):
+                items.append(
+                    PaletteNavigationItem(
+                        item_id=summary.revision_id,
+                        title=revision_display_label(summary, labels),
+                        subtitle='履歴 · 部屋リビジョン',
+                        keywords=(
+                            summary.revision_id,
+                            '履歴',
+                            'リビジョン',
+                            'revision',
+                            'history',
+                        ),
+                        deep_link=WorkspaceDeepLink(
+                            WorkspaceId.ROOM,
+                            'history',
+                            entity_id=summary.revision_id,
+                            revision_id=summary.revision_id,
+                            kind=NavigationTargetKind.SCENE_REVISION.value,
+                        ),
+                    )
+                )
+            return tuple(items)
+
+        def variant_items() -> tuple:
+            if not self.document_id:
+                return ()
+            variants = CadSystemVariantRepository(
+                self.repository
+            ).list_variants(self.document_id)
+            items: list[PaletteNavigationItem] = []
+            for variant in variants:
+                items.append(
+                    PaletteNavigationItem(
+                        item_id=variant.variant_id,
+                        title=variant_display_label(variant),
+                        subtitle='システム提案 · 最適化',
+                        keywords=(
+                            variant.variant_id,
+                            variant.name,
+                            '提案',
+                            'バリアント',
+                            'variant',
+                        ),
+                        deep_link=WorkspaceDeepLink(
+                            WorkspaceId.OPTIMIZATION,
+                            'comparison',
+                            entity_id=variant.variant_id,
+                            kind=NavigationTargetKind.SYSTEM_VARIANT.value,
+                        ),
+                    )
+                )
+            return tuple(items)
+
+        def inbox_items() -> tuple:
+            records = CaptureInboxRepository(self.repository).list_items()
+            items: list[PaletteNavigationItem] = []
+            for record in records:
+                items.append(
+                    PaletteNavigationItem(
+                        item_id=record.inbox_item_id,
+                        title=(
+                            record.source_detail
+                            or record.capture_series_id
+                        ),
+                        subtitle=(
+                            '受信ボックス · '
+                            + str(record.disposition)
+                        ),
+                        keywords=(
+                            record.inbox_item_id,
+                            record.capture_series_id,
+                            str(record.primary_classification),
+                            '受信',
+                            'inbox',
+                            'capture',
+                        ),
+                        deep_link=WorkspaceDeepLink(
+                            ApplicationDestinationId.INBOX,
+                            entity_id=record.inbox_item_id,
+                            kind=NavigationTargetKind.CAPTURE_INBOX_ITEM.value,
+                        ),
+                    )
+                )
+            return tuple(items)
+
         return PaletteSearchService(
             (
                 CommandPaletteProvider(self.registry),
@@ -969,6 +1135,18 @@ class WorkflowApplicationComposition:
                     self.help_registry,
                     self._open_help_topic,
                     locale=detect_system_locale,
+                ),
+                NavigationItemPaletteProvider(
+                    'measurements', PaletteResultKind.DATA, measurement_items
+                ),
+                NavigationItemPaletteProvider(
+                    'revisions', PaletteResultKind.DATA, revision_items
+                ),
+                NavigationItemPaletteProvider(
+                    'variants', PaletteResultKind.DATA, variant_items
+                ),
+                NavigationItemPaletteProvider(
+                    'inbox-items', PaletteResultKind.DATA, inbox_items
                 ),
             ),
             on_deep_link=self._navigate_target,
@@ -1256,7 +1434,15 @@ class WorkflowApplicationComposition:
 
     def _make_library(self) -> WorkspaceMount:
         service = EquipmentLibraryService(self.repository)
-        page = ReferenceLibraryPage(service.definitions)
+        try:
+            library_index = build_reference_library_index(
+                self.repository, self.data_dir
+            )
+        except Exception:  # noqa: BLE001 - hub sections are additive; never block the page
+            library_index = None
+        page = ReferenceLibraryPage(
+            service.definitions, library_index=library_index
+        )
 
         def manage() -> None:
             dialog = EquipmentLibraryDialog(service, parent=page)
@@ -1283,6 +1469,7 @@ class WorkflowApplicationComposition:
                 else None
             ),
             export_diagnostics=self._export_diagnostics_package,
+            open_authority_graph=self._open_authority_inspector,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -1303,17 +1490,59 @@ class WorkflowApplicationComposition:
             focus_target=focus_target,
         )
 
+    def _open_authority_inspector(self, parent: QWidget) -> None:
+        """Build the live authority projection and open the inspector (#590).
+
+        Read-side only: the graph is rebuilt from the canonical
+        repositories at open time, never persisted.
+        """
+        if not self.document_id:
+            return
+        head = self.repository.current_head(self.document_id)
+        head_map = {
+            self.document_id: head.revision_id if head is not None else None
+        }
+        head_hashes = {
+            self.document_id: head.content_hash if head is not None else None
+        }
+        graph = build_authority_graph(
+            [
+                scene_revision_authority_source(
+                    self.repository.list_revision_summaries(self.document_id),
+                    head_by_document=head_map,
+                ),
+                measurement_authority_source(
+                    CadMeasurementRepository(
+                        self.repository
+                    ).list_measurements(self.document_id),
+                    head_content_hash_by_document=head_hashes,
+                ),
+                system_variant_authority_source(
+                    CadSystemVariantRepository(
+                        self.repository
+                    ).list_variants(self.document_id),
+                    head_content_hash_by_document=head_hashes,
+                ),
+            ]
+        )
+        dialog = AuthorityInspectorDialog(
+            graph, on_deep_link=self._navigate_target, parent=parent
+        )
+        dialog.exec()
+
     def _export_diagnostics_package(self, parent) -> str | None:
         """Build the bounded support bundle via DiagnosticPackageBuilder (#604).
 
         Honors the ``diagnostics.include_project_ids`` preference — project
         ids only enter the archive when the user opted in.
         """
-        selected, _filter = QFileDialog.getSaveFileName(
+        selected, _filter = file_dialog_memory.get_save_file_name(
             parent,
             "診断パッケージを保存",
-            str(self.data_dir / package_filename()),
+            'diagnostics.export_package',
             "ZIP アーカイブ (*.zip)",
+            suggested_name=package_filename(),
+            default_dir=str(self.data_dir),
         )
         if not selected:
             return None
@@ -1396,9 +1625,13 @@ class WorkflowApplicationComposition:
             template_starter=_start_from_template,
             parent=self.shell,
         )
-        wizard.navigate_requested.connect(self._navigate_target)
+        # Summary "開く" links queue inside the modal and accept() it;
+        # navigate only after exec() returns so the destination is never
+        # focused behind the still-open wizard (round-7 deferred fix).
         if wizard.exec() == wizard.DialogCode.Accepted:
             self._open_project(wizard.created_document_id)
+        for link in wizard.take_pending_navigations():
+            self._navigate_target(link)
 
     def _build_overview_service(self) -> OverviewReadinessService:
         measurement_repository = CadMeasurementRepository(self.repository)
@@ -1663,6 +1896,11 @@ class WorkflowApplicationComposition:
             )
             self.preferences = preferences
         bind_inspector_display_length_policy(workspace.inspector, preferences)
+        # #630/D3: the measure-tool readout follows the same interactive
+        # display policy as the inspector; reports/exports stay SI.
+        workspace.measure_panel.set_display_policy_provider(
+            lambda: length_display_policy_from_preferences(preferences)
+        )
 
         geometry_input = RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
@@ -2104,6 +2342,21 @@ class WorkflowApplicationComposition:
         def deactivate() -> None:
             self.registry.unbind("measurements.import_rew")
 
+        def focus_target(target: NavigationTarget) -> TargetFocusResult:
+            if target.primary_id is None:
+                return TargetFocusResult(focused=True)
+            if (
+                target.kind is NavigationTargetKind.MEASUREMENT
+                and workspace.select_measurement_id(target.primary_id)
+            ):
+                return TargetFocusResult(focused=True)
+            return TargetFocusResult(
+                focused=False,
+                message='対象の測定が品質一覧にありません',
+            )
+
+        mount.focus_target = focus_target
+        mount.focus_kinds = frozenset({NavigationTargetKind.MEASUREMENT})
         mount.on_activate = activate
         mount.on_deactivate = deactivate
         return mount
@@ -2312,6 +2565,12 @@ class WorkflowApplicationComposition:
         if note is not None:
             self.shell.statusBar().showMessage(note)
 
+    def _default_export_dir(self) -> str:
+        """First-run base for export dialogs: the ``files.export_dir``
+        preference when the operator set one, else the profile home."""
+        configured = str(self.preferences.get('files.export_dir') or '')
+        return configured or str(Path.home())
+
     def _export_capture_equipment_catalog(self) -> None:
         """Operator action behind ``equipment.export_capture_catalog``.
 
@@ -2320,11 +2579,13 @@ class WorkflowApplicationComposition:
         reports the definition count plus the exact snapshot identity.
         """
 
-        selected, _filter = QFileDialog.getSaveFileName(
+        selected, _filter = file_dialog_memory.get_save_file_name(
             self.shell,
             "Capture用機材カタログの保存先",
-            str(Path.home() / "htdt-equipment-catalog.json"),
+            'equipment.export_capture_catalog',
             "HTDT equipment catalog (*.json)",
+            suggested_name="htdt-equipment-catalog.json",
+            default_dir=self._default_export_dir(),
         )
         if not selected:
             return
@@ -2413,9 +2674,11 @@ class WorkflowApplicationComposition:
         preview.resize(760, 560)
         if preview.exec() != QDialog.DialogCode.Accepted:
             return
-        directory = QFileDialog.getExistingDirectory(
+        directory = file_dialog_memory.get_existing_directory(
             self.shell,
             "ハンドオフの保存先フォルダ",
+            'project.export_handoff',
+            default_dir=self._default_export_dir(),
         )
         if not directory:
             return
@@ -2519,9 +2782,11 @@ class WorkflowApplicationComposition:
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
             series=tuple(series),
         )
-        directory = QFileDialog.getExistingDirectory(
+        directory = file_dialog_memory.get_existing_directory(
             self.shell,
             "解析エクスポートの保存先フォルダ",
+            'project.export_analysis',
+            default_dir=self._default_export_dir(),
         )
         if not directory:
             return

@@ -268,6 +268,7 @@ class DataManagementDialog(QDialog):
         parent: QWidget | None = None,
         capture_panel: QWidget | None = None,
         preferences_panel: QWidget | None = None,
+        retention_panel: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.component = component
@@ -280,7 +281,12 @@ class DataManagementDialog(QDialog):
         component.widget.setParent(self)
         self._capture_panel = capture_panel
         self._preferences_panel = preferences_panel
-        if capture_panel is None and preferences_panel is None:
+        self._retention_panel = retention_panel
+        if (
+            capture_panel is None
+            and preferences_panel is None
+            and retention_panel is None
+        ):
             layout.addWidget(component.widget)
             self._tabs = None
         else:
@@ -290,6 +296,8 @@ class DataManagementDialog(QDialog):
                 self._tabs.addTab(preferences_panel, "環境設定")
             if capture_panel is not None:
                 self._tabs.addTab(capture_panel, "キャプチャ")
+            if retention_panel is not None:
+                self._tabs.addTab(retention_panel, "保持管理")
             layout.addWidget(self._tabs)
 
     def open_settings(self) -> None:
@@ -305,6 +313,11 @@ class DataManagementDialog(QDialog):
     def open_capture_settings(self) -> None:
         if self._tabs is not None and self._capture_panel is not None:
             self._tabs.setCurrentWidget(self._capture_panel)
+        self.open_settings()
+
+    def open_retention_settings(self) -> None:
+        if self._tabs is not None and self._retention_panel is not None:
+            self._tabs.setCurrentWidget(self._retention_panel)
         self.open_settings()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

@@ -224,8 +224,19 @@ class RoomMeasureController(QObject):
 class RoomMeasurePanel(QWidget):
     """Compact measure card: mode + reference + result + copy/cancel."""
 
-    def __init__(self, controller: RoomMeasureController, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        controller: RoomMeasureController,
+        parent: QWidget | None = None,
+        *,
+        display_policy_provider=None,
+    ) -> None:
+        """``display_policy_provider``: zero-arg callable returning the
+        current ``LengthDisplayPolicy`` (read at render time so preference
+        commits apply immediately). ``None`` keeps the SI readout; report
+        and export surfaces never call through this path."""
         super().__init__(parent)
+        self._display_policy_provider = display_policy_provider
         self.controller = controller
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -274,10 +285,18 @@ class RoomMeasurePanel(QWidget):
         controller.measurementChanged.connect(self._on_result)
         controller.stateChanged.connect(self._on_state)
 
+    def set_display_policy_provider(self, provider) -> None:
+        self._display_policy_provider = provider
+
+    def _policy(self):
+        if self._display_policy_provider is None:
+            return None
+        return self._display_policy_provider()
+
     def _on_result(self, result: MeasureResult | None) -> None:
         self.copy_button.setEnabled(result is not None)
         if result is not None:
-            text = format_measure_result(result)
+            text = format_measure_result(result, policy=self._policy())
             refs = ' → '.join(endpoint.describe() for endpoint in result.endpoints)
             self.result_label.setText(f'{text}\n{refs}')
 
@@ -291,4 +310,6 @@ class RoomMeasurePanel(QWidget):
             return
         from PySide6.QtWidgets import QApplication
 
-        QApplication.clipboard().setText(format_measure_result(self.controller.result))
+        QApplication.clipboard().setText(
+            format_measure_result(self.controller.result, policy=self._policy())
+        )

@@ -64,6 +64,16 @@ class CaptureStorageInventory:
 
 
 @dataclass(frozen=True)
+class CaptureRevisionListing:
+    """One persisted capture revision, for retention pickers."""
+
+    capture_revision_id: str
+    capture_series_id: str
+    ingestion_run_count: int
+    latest_recorded_at_utc: str
+
+
+@dataclass(frozen=True)
 class CapturePurgePlan:
     """Dry-run deletion plan for one imported Capture revision.
 
@@ -208,6 +218,32 @@ class CaptureRetentionService:
                 content_blob_count=blob_count,
                 content_blob_bytes=blob_bytes,
             )
+
+    def list_capture_revisions(self) -> tuple[CaptureRevisionListing, ...]:
+        """Persisted capture revisions, most recent activity first."""
+
+        with closing(self._connect()) as connection:
+            if not self._has_table(connection, 'capture_ingestion_runs'):
+                return ()
+            rows = connection.execute(
+                '''
+                SELECT capture_revision_id, capture_series_id,
+                       COUNT(*) AS run_count,
+                       MAX(recorded_at_utc) AS latest
+                FROM capture_ingestion_runs
+                GROUP BY capture_revision_id
+                ORDER BY latest DESC, capture_revision_id ASC
+                '''
+            ).fetchall()
+        return tuple(
+            CaptureRevisionListing(
+                capture_revision_id=str(row['capture_revision_id']),
+                capture_series_id=str(row['capture_series_id']),
+                ingestion_run_count=int(row['run_count']),
+                latest_recorded_at_utc=str(row['latest']),
+            )
+            for row in rows
+        )
 
     # ---- dry-run plan -----------------------------------------------------
 

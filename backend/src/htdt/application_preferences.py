@@ -364,7 +364,6 @@ PENDING_PREFERENCE_KEYS: frozenset[str] = frozenset(
         'compute.max_concurrency',
         'compute.scratch_dir',
         'compute.storage_ceiling_mb',
-        'files.export_dir',
         'files.portable_bundle_include_libraries',
     }
 )
