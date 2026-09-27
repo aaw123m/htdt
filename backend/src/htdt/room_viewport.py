@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from math import radians, tan
+from typing import Iterator
 
 import numpy as np
 import pyvista as pv
@@ -555,6 +557,12 @@ class RoomViewport3D(QFrame):
         self._overlays = RoomOverlayState()
         self._press_position: QPointF | None = None
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
+        # deferred_render(): compositing callers (e.g. the workspace refresh
+        # that stacks document + constraint + measure + video + proposal
+        # renderers) coalesce the per-helper ``plotter.render()`` calls into
+        # one draw of the final state instead of one full pass each.
+        self._defer_render_depth = 0
+        self._render_pending = False
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
         self.interactor.installEventFilter(self)
@@ -569,6 +577,30 @@ class RoomViewport3D(QFrame):
         except (TypeError, RuntimeError):
             # Picking is optional at this layer; Agent B may own selection input.
             pass
+
+    def _render(self) -> None:
+        if self._defer_render_depth:
+            self._render_pending = True
+            return
+        self.plotter.render()
+
+    @contextmanager
+    def deferred_render(self) -> Iterator[None]:
+        """Coalesce ``_render()`` calls into one draw at the outermost exit.
+
+        Behavior is preserved: the final scene state is rendered exactly
+        once, identical to what the last deferred ``render()`` would have
+        drawn. Rendering still happens on exit even if the body raised —
+        whatever state was reached is what gets drawn.
+        """
+        self._defer_render_depth += 1
+        try:
+            yield
+        finally:
+            self._defer_render_depth -= 1
+            if self._defer_render_depth == 0 and self._render_pending:
+                self._render_pending = False
+                self.plotter.render()
 
     def render_document(
         self,
@@ -784,7 +816,7 @@ class RoomViewport3D(QFrame):
         )
         if reset_camera:
             self.fit_scene()
-        self.plotter.render()
+        self._render()
 
     def _render_category_legend(self, categories: set[str]) -> None:
         """Small category key — appears only when two or more categories show.
@@ -848,7 +880,7 @@ class RoomViewport3D(QFrame):
                 name="measurement-direction",
                 render=False,
             )
-        self.plotter.render()
+        self._render()
 
     def render_proposed_entities(
         self,
@@ -896,7 +928,7 @@ class RoomViewport3D(QFrame):
             color=DARK_THEME.text.secondary.hex,
             render=False,
         )
-        self.plotter.render()
+        self._render()
 
     def _render_acoustic_overlay(self, document: SceneDocument) -> None:
         for entity in document.entities:
@@ -1049,7 +1081,7 @@ class RoomViewport3D(QFrame):
                 name="prediction-focus-marker",
                 render=False,
             )
-        self.plotter.render()
+        self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:
         visible = [
@@ -1277,7 +1309,7 @@ class RoomViewport3D(QFrame):
             )
         except Exception:
             return
-        self.plotter.render()
+        self._render()
 
     def begin_pan(self, position: QPointF) -> None:
         # Gesture lifetime is owned by CadInputController; this renderer only
@@ -1322,7 +1354,7 @@ class RoomViewport3D(QFrame):
         )
         camera.SetPosition(*(position + shift))
         camera.SetFocalPoint(*(focal + shift))
-        self.plotter.render()
+        self._render()
 
     def end_pan(self, position: QPointF) -> None:
         del position
@@ -1337,7 +1369,7 @@ class RoomViewport3D(QFrame):
         camera.OrthogonalizeViewUp()
         self._standard_view = CUSTOM_VIEW
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def end_orbit(self, position: QPointF) -> None:
         del position
@@ -1353,7 +1385,7 @@ class RoomViewport3D(QFrame):
         else:
             camera.Zoom(factor)
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def open_context_menu(
         self,
@@ -1407,7 +1439,7 @@ class RoomViewport3D(QFrame):
             camera.SetViewUp(0.0, 0.0, 1.0)
             self.plotter.reset_camera()
             self.plotter.reset_camera_clipping_range()
-            self.plotter.render()
+            self._render()
             return
         direction_domain, up_domain = STANDARD_VIEW_GEOMETRY[view]
         direction = np.asarray(
@@ -1441,7 +1473,7 @@ class RoomViewport3D(QFrame):
         camera.SetParallelProjection(1)
         self.plotter.reset_camera()
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def capture_camera_state(self) -> RoomCameraState:
         """Snapshot the live camera as a domain-space :class:`RoomCameraState`."""
@@ -1479,12 +1511,12 @@ class RoomViewport3D(QFrame):
             camera.SetViewAngle(float(state.view_angle))
         self._standard_view = state.standard_view or CUSTOM_VIEW
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def fit_scene(self) -> None:
         self.plotter.reset_camera()
         self.plotter.camera.zoom(0.92)
-        self.plotter.render()
+        self._render()
 
     def focus_entity(self, entity_id: str) -> None:
         if self._document is None:
@@ -1494,7 +1526,7 @@ class RoomViewport3D(QFrame):
         except KeyError:
             return
         self.plotter.camera.focal_point = domain_to_render(entity.position)
-        self.plotter.render()
+        self._render()
 
     def capture_camera_view(self) -> tuple:
         """Snapshot the current camera so a transient view can be restored."""
@@ -1523,7 +1555,7 @@ class RoomViewport3D(QFrame):
         else:
             camera.SetViewAngle(view_angle)
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def view_from(
         self,
@@ -1546,7 +1578,7 @@ class RoomViewport3D(QFrame):
         camera.SetViewUp(0.0, 0.0, 1.0)
         camera.SetViewAngle(float(view_angle_deg) if view_angle_deg else 45.0)
         self.plotter.reset_camera_clipping_range()
-        self.plotter.render()
+        self._render()
 
     def render_measure_overlay(self, result, *, draft_endpoints: tuple = ()) -> None:
         """Draw the measurement lines/points + label. Purely visual (#491)."""
@@ -1840,7 +1872,7 @@ class RoomViewport3D(QFrame):
                 color=DARK_THEME.text.secondary.hex,
                 render=False,
             )
-        self.plotter.render()
+        self._render()
 
     def render_search_domain(
         self,

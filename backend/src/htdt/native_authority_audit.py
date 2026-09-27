@@ -179,10 +179,12 @@ class _RepositoryChain:
         self.db_path = Path(db_path)
         self._repos: dict[str, Any] = {}
         # Read-only replay memos shared across every probe row: persisted
-        # authority cannot change mid-audit, so per-parent listings and the
-        # objective repository's candidate-set scans are computed once.
+        # authority cannot change mid-audit, so per-parent listings, the
+        # objective repository's candidate-set scans, and Room Simulator
+        # batch-authority replays are computed once.
         self._lists: dict[tuple[str, Any], Any] = {}
         self.objective_scans: dict[str, Any] = {}
+        self.roomsim_batches: dict[str, Any] = {}
 
     def list_once(self, label: str, key: Any, load: Callable[[], Any]) -> Any:
         """Return the canonical per-parent listing, loading it once.
@@ -697,6 +699,47 @@ def _verify_robustness_evaluation(
     return evaluations
 
 
+def _verify_roomsim_batch(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Re-attest one batch spec over the run's shared batch replay memo."""
+
+    result = chain.repo('roomsim').get_batch_spec(
+        key[0], batches=chain.roomsim_batches
+    )
+    if result is None:
+        raise ValueError(f'roomsim batch authority {key} no longer resolves')
+    return result
+
+
+def _verify_roomsim_attempt(
+    chain: _RepositoryChain, key: tuple[Any, ...]
+) -> Any:
+    """Replay the batch's canonical attempt list once per batch_run_id.
+
+    ``list_attempts`` validates every row's payload columns and each
+    completed attempt against the shared batch authority — strictly more
+    coverage than ``get_attempt``'s per-row read — so membership in the
+    canonical list satisfies the probe, while one batch-authority replay
+    per batch replaces the per-attempt refetch.
+    """
+
+    attempt_id, batch_run_id = key
+    attempts = chain.list_once(
+        'roomsim_attempts',
+        batch_run_id,
+        lambda: chain.repo('roomsim').list_attempts(
+            batch_run_id, batches=chain.roomsim_batches
+        ),
+    )
+    if attempt_id not in {item.attempt_id for item in attempts}:
+        raise ValueError(
+            f'Room Simulator attempt {attempt_id} no longer resolves in its '
+            f'canonical list for batch {batch_run_id}'
+        )
+    return attempts
+
+
 def _verify_objective_evaluation(
     chain: _RepositoryChain, key: tuple[Any, ...]
 ) -> Any:
@@ -704,11 +747,13 @@ def _verify_objective_evaluation(
 
     ``get_evaluation`` regenerates a SearchSpec's canonical candidate set
     per call; sharing ``chain.objective_scans`` across rows pays that replay
-    once per SearchSpec while preserving per-row failure semantics.
+    once per SearchSpec while preserving per-row failure semantics. The
+    Room Simulator batch memo likewise deduplicates the batch authority
+    each predicted input reference resolves against.
     """
 
     result = chain.repo('objective').get_evaluation(
-        key[0], scans=chain.objective_scans
+        key[0], scans=chain.objective_scans, batches=chain.roomsim_batches
     )
     if result is None:
         raise ValueError(f'objective authority {key} no longer resolves')
@@ -1736,13 +1781,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'roomsim_batch_spec',
         'cad_roomsim_batch_specs',
         ('batch_run_id',),
-        _get('roomsim', 'get_batch_spec'),
+        _verify_roomsim_batch,
     ),
     _ReplayProbe(
         'roomsim_attempt',
         'cad_roomsim_candidate_attempts',
-        ('attempt_id',),
-        _get('roomsim', 'get_attempt'),
+        ('attempt_id', 'batch_run_id'),
+        _verify_roomsim_attempt,
     ),
     _ReplayProbe(
         'objective_evaluation',
