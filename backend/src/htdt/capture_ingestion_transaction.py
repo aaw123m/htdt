@@ -15,7 +15,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema, require_native_tables
+from htdt.cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from htdt.capture_bundle import (
     MAX_MANIFEST_BYTES,
     MAX_SOURCE_REF_BYTES,
@@ -1083,10 +1083,7 @@ class CaptureIngestionRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

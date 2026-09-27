@@ -21,7 +21,7 @@ from .cad_geometric_acoustics_adapter import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
@@ -1984,10 +1984,7 @@ class CadPathFrequencyResponseRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

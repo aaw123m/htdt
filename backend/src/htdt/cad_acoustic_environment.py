@@ -27,7 +27,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 
 
@@ -438,10 +438,7 @@ class CadAcousticEnvironmentRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # #767: persistent schema is owned by the migration authority;

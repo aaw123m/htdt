@@ -28,6 +28,8 @@ from .cad_scene import Position3
 from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
+    connect_sqlite,
+
 )
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
@@ -136,10 +138,7 @@ class CadCalibrationRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)

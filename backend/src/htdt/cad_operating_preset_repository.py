@@ -23,7 +23,7 @@ from .cad_operating_preset import (
     TheaterOperatingPreset,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .cad_authority_refs import AuthorityRefResolver
@@ -322,10 +322,7 @@ class CadOperatingPresetRepository:
         return self._measurement_repository, self._measurement_quality_repository
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:

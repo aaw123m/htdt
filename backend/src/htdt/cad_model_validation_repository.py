@@ -31,7 +31,7 @@ from .cad_validation_metrics import (
     build_sensitivity_check,
 )
 from .comparison import FrequencyResponse
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 class CadModelValidationIntegrityError(ValueError):
@@ -94,10 +94,7 @@ class CadModelValidationRepository:
         return self.applicability_attestations.get(attestation_id)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

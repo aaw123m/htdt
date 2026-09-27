@@ -26,7 +26,7 @@ from .cad_design_brief import (
     current_brief,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .cad_system_variant_repository import CadSystemVariantRepository
 
 
@@ -76,10 +76,7 @@ class CadDesignBriefRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # #767: persistent schema is owned by the migration authority;

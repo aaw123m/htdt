@@ -19,7 +19,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
@@ -234,10 +234,7 @@ class CadSeatPriorityProfileRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:

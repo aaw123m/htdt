@@ -11,6 +11,8 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
+
 )
 from .cad_system_variant import (
     EntityLifecycleBinding,
@@ -467,10 +469,7 @@ class CadSystemVariantLifecycleRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

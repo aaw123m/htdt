@@ -27,7 +27,7 @@ from typing import Callable, Iterable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
@@ -353,10 +353,7 @@ class CaptureInboxRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

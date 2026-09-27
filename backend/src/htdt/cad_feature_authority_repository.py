@@ -42,7 +42,7 @@ from .cad_field_labels import FieldLabel, LabelSheet
 from .cad_project_bom import ProjectBOM
 from .cad_rack_infrastructure import RackDefinition, RackLayout
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .cad_sound_isolation import (
     IsolationAssembly,
     IsolationEstimate,
@@ -98,10 +98,7 @@ class CadFeatureAuthorityRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # #767: persistent schema is owned by the migration authority;

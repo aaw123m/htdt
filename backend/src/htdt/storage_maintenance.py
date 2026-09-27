@@ -46,7 +46,7 @@ from pathlib import Path
 import re
 import sqlite3
 
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 logger = logging.getLogger(__name__)
@@ -135,10 +135,7 @@ class StorageGcResult:
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys=ON')
-    return connection
+    return connect_sqlite(db_path)
 
 
 def _payload_digests(value: object, out: set[str]) -> None:

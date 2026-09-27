@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .default_document import (
     LEGACY_PROJECT_LABEL,
     SYNTHETIC_FIXTURE_LABEL,
@@ -54,10 +54,7 @@ class ProjectLibraryRepository:
         self._migrate_existing_documents()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

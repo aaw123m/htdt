@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
@@ -93,10 +93,7 @@ class CadSystemVariantRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
