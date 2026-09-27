@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import (
     TYPE_CHECKING,
@@ -149,6 +149,12 @@ class PendingMeasurementImport:
     raw_text: bytes | None = None
     raw_filename: str | None = None
     rew_snapshot: RewFrequencyResponseSnapshot | None = None
+    # Same-content / same-acquisition classification against persisted
+    # evidence — the single-file lane's equivalent of the batch lane's
+    # per-item duplicate row. 'new' means no persisted match; the flag is
+    # advisory and never blocks the explicit commit.
+    duplicate_kind: BatchDuplicateKind = 'new'
+    duplicate_of_measurement_id: str | None = None
 
     @property
     def sample_count(self) -> int:
@@ -338,6 +344,11 @@ class MeasurementView:
     assignment_position_compatibility: Literal[
         'original', 'exact', 'pose_observed'
     ]
+    # Authoritative-read failure for the bound dataset (seal/hash/raw-asset
+    # verification). The row stays listed with ``dataset_id=None`` so the
+    # measurement is visible and unusable rather than crashing the whole
+    # listing; None means the bound dataset read cleanly or never existed.
+    dataset_error: str | None = None
 
     @property
     def is_selected(self) -> bool:
@@ -627,6 +638,12 @@ class MeasurementWorkflowController:
             raw_text=raw,
             raw_filename=filename,
         )
+        duplicate_kind, duplicate_of = self._classify_duplicate(pending, raw)
+        pending = replace(
+            pending,
+            duplicate_kind=duplicate_kind,
+            duplicate_of_measurement_id=duplicate_of,
+        )
         self._pending = pending
         return pending
 
@@ -655,6 +672,12 @@ class MeasurementWorkflowController:
             scene_revision_explicit=explicit,
             rew_snapshot=snapshot,
         )
+        duplicate_kind, duplicate_of = self._classify_duplicate(pending, None)
+        pending = replace(
+            pending,
+            duplicate_kind=duplicate_kind,
+            duplicate_of_measurement_id=duplicate_of,
+        )
         self._pending = pending
         return pending
 
@@ -681,18 +704,11 @@ class MeasurementWorkflowController:
             raise MeasurementWorkflowError(
                 "取得時のシーンリビジョンを確認できません"
             )
-        pending = PendingMeasurementImport(
-            source_kind=pending.source_kind,
-            source_label=pending.source_label,
+        pending = replace(
+            pending,
             scene_revision_id=revision.revision_id,
             scene_content_hash=revision.content_hash,
-            frequency_hz=pending.frequency_hz,
-            level_db=pending.level_db,
-            has_phase_samples=pending.has_phase_samples,
             scene_revision_explicit=True,
-            raw_text=pending.raw_text,
-            raw_filename=pending.raw_filename,
-            rew_snapshot=pending.rew_snapshot,
         )
         self._pending = pending
         return pending
@@ -1074,7 +1090,18 @@ class MeasurementWorkflowController:
         lineage_parents = {event.measurement_id: event for event in lineage}
         rows: list[MeasurementView] = []
         for record in self.measurement_repository.list_measurements(self.document_id):
-            dataset = self.measurement_repository.dataset_for_measurement(record.measurement_id)
+            dataset_error: str | None = None
+            try:
+                dataset = self.measurement_repository.dataset_for_measurement(
+                    record.measurement_id
+                )
+            except Exception as exc:
+                # One row that fails its authoritative re-verification must
+                # not take the whole listing down with it: the measurement
+                # stays visible with dataset_id=None (so nothing downstream
+                # can consume it) and the failure is surfaced on the view.
+                dataset = None
+                dataset_error = str(exc)
             source_revision = self.scene_repository.get(record.scene_revision_id)
             # Effective binding = persisted record overlaid by the latest
             # append-only correction (#509). The immutable record fields stay
@@ -1219,6 +1246,15 @@ class MeasurementWorkflowController:
                     capabilities = unestablished_capability_claims(dataset)
                     if report is not None:
                         report_state = 'stale'
+            elif dataset_error is not None:
+                # A persisted report cannot bind the dataset while the
+                # dataset itself fails verification — report it as stale
+                # rather than silently 'missing'.
+                if (
+                    self.quality_repository.latest_report(record.measurement_id)
+                    is not None
+                ):
+                    report_state = 'stale'
 
             superseded_by = lineage_children.get(record.measurement_id)
             supersedes = lineage_parents.get(record.measurement_id)
@@ -1298,6 +1334,7 @@ class MeasurementWorkflowController:
                     original_import_position=record.measurement_position,
                     observed_actual_position=observed_actual_position,
                     assignment_position_compatibility=assignment_compatibility,
+                    dataset_error=dataset_error,
                 )
             )
         return tuple(rows)
