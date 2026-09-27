@@ -41,9 +41,6 @@ from .cad_scene import (
     Position3,
     is_listener_receiver_eligible,
 )
-from .r120_geometry_compiler import ExactExternalAuthorityRef
-
-
 RECTANGULAR_MODEL_KEY = 'rectangular'
 WAVE_MODEL_KEY_PREFIX = 'low-band-wave:'
 HYBRID_MODEL_KEY = 'hybrid'
@@ -434,7 +431,3 @@ def resolve_room_prediction_options(
     return tuple(options)
 
 
-def environment_profile_ref(
-    profile: AcousticEnvironmentProfile | None,
-) -> ExactExternalAuthorityRef | None:
-    return None if profile is None else profile.authority_ref()

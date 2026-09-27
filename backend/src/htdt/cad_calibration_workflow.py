@@ -24,8 +24,6 @@ crossover values only ever come from the plan's own channels — no generic
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 
@@ -48,20 +46,11 @@ from .cad_calibration import (
     render_generic_biquad_json,
 )
 from .cad_calibration_repository import CadCalibrationRepository
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class CalibrationChannelReview(BaseModel):

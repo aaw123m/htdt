@@ -15,12 +15,12 @@ diagnostic reports magnitude, phase and group delay together.
 from __future__ import annotations
 
 from hashlib import sha256
-import json
 from math import atan2, degrees, isfinite, log10, pi, sqrt
 from typing import Any, Literal, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 FIR_SCHEMA_VERSION = 1
@@ -39,18 +39,8 @@ _SYMMETRY_TOLERANCE = 1e-9
 _UNIT_CIRCLE_TOLERANCE = 1e-6
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

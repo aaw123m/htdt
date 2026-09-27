@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
 import json
 from math import acos, atan2, degrees, isfinite, sqrt
 from typing import Any, Literal, Mapping, Sequence
@@ -24,6 +23,7 @@ from .cad_scene import (
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 VIDEO_GEOMETRY_SCHEMA_VERSION = 1
@@ -67,18 +67,8 @@ PROJECTOR_SPEC_EVIDENCED_FIELDS: tuple[ProjectorSpecOpticalField, ...] = (
 _EPS = 1e-9
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float) -> float:

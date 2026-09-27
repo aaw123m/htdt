@@ -15,18 +15,14 @@ Two authorities live here:
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_bass_management import BassManagementProfile
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .cad_schema import require_native_tables, connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 
 class BassManagementConflictError(ValueError):
@@ -58,10 +54,7 @@ class CadBassManagementRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

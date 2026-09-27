@@ -4,10 +4,9 @@ from bisect import bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from hashlib import sha256
-import json
 import math
 from typing import Any, NamedTuple
+from .canonical_json import canonical_sha256 as _hash
 
 
 ALGORITHM_VERSION = 'fr-compare-1'
@@ -18,18 +17,8 @@ class ComparisonError(ValueError):
     pass
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 COMPARISON_ALGORITHM_IDENTITY = {

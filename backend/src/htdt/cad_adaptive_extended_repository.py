@@ -19,7 +19,7 @@ from .cad_extended_search import generate_extended_candidates
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 class AdaptiveObservationConflictError(ValueError):
@@ -57,10 +57,7 @@ class CadAdaptiveExtendedRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # Kept idempotent so opening an already-migrated database is harmless.

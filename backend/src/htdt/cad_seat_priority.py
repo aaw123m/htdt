@@ -10,9 +10,6 @@ probabilities — and normalize deterministically by ``sum_to_one``.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from math import isfinite
 from pathlib import Path
 import sqlite3
@@ -21,7 +18,9 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 SEAT_PRIORITY_SCHEMA_VERSION = 1
@@ -32,26 +31,8 @@ SEAT_PRIORITY_NORMALIZATION_VERSION = 'normalize-sum-to-one-v1'
 SeatPriorityRole = Literal['primary', 'secondary', 'diagnostic']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
-
-
 def _semantic_id(prefix: str, digest: str) -> str:
     return f'{prefix}:{digest[:24]}'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class SeatPriorityMember(BaseModel):
@@ -245,10 +226,7 @@ class CadSeatPriorityProfileRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:

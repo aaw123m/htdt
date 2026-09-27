@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -18,6 +17,7 @@ from .cad_scene import SceneDocument, scene_content_hash
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
@@ -52,6 +52,7 @@ from .optimization_robustness_multidimensional import (
     build_multidimensional_evaluations_from_provenance,
     build_multidimensional_sampling_plan,
 )
+from .clock import utc_now_iso as _utc_now
 
 
 PROPOSAL_ROBUSTNESS_AUTHORITY_VERSION = 'o100f-proposal-robustness-1'
@@ -69,10 +70,6 @@ class VariantBundleResolver(Protocol):
 
     def get_bundle(self, bundle_id: str) -> VariantEvaluationBundle | None:
         ...
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:
@@ -1236,10 +1233,7 @@ class CadProposalRobustnessRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

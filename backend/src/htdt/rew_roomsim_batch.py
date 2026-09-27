@@ -21,6 +21,7 @@ from .rew_api import (
     htdt_position_to_roomsim,
     roomsim_position_to_htdt,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256
 
 
 ROOMSIM_BATCH_ADAPTER_VERSION = 'rew-roomsim-position-batch-1'
@@ -123,14 +124,6 @@ class RewRoomSimControlClient(RewApiClient):
         )
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def roomsim_state_payload(snapshot: RewRoomSimSnapshot) -> dict[str, Any]:
@@ -138,7 +131,7 @@ def roomsim_state_payload(snapshot: RewRoomSimSnapshot) -> dict[str, Any]:
 
 
 def roomsim_state_sha256(snapshot: RewRoomSimSnapshot) -> str:
-    return sha256(_canonical_json(roomsim_state_payload(snapshot)).encode('utf-8')).hexdigest()
+    return canonical_sha256(roomsim_state_payload(snapshot))
 
 
 def _position(position: Mapping[str, Any]) -> dict[str, float]:

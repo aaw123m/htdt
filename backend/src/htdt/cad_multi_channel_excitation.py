@@ -17,8 +17,6 @@ coherent system response.
 from __future__ import annotations
 
 import cmath
-from hashlib import sha256
-import json
 from math import isfinite, log10, pi
 from typing import Any, Literal
 
@@ -27,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .cad_bass_management import BassManagementProfile
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 MULTI_CHANNEL_EXCITATION_SCHEMA_VERSION = 1
@@ -36,18 +35,8 @@ COHERENT_COMPOSITION_AUTHORITY_VERSION = 'mc-coherent-composition-1'
 PHASOR_CONVENTION = 'exp(+i*omega*t)'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

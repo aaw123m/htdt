@@ -19,10 +19,9 @@ is a property of the screen, not baked into any EquipmentDefinition.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
@@ -33,7 +32,8 @@ from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_equipment import FrequencyDomain
 from .cad_video_geometry import AngleRange
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from hashlib import sha256
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
     from .cad_repository import SceneRepository
@@ -60,24 +60,6 @@ TIER_LABELS: dict[str, str] = {
     'TRANSMISSION_AND_REFLECTION': '透過+反射特性',
     'MEASURED_DATASET': '実測データセット',
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _require_iso8601(value: str, name: str) -> None:

@@ -13,9 +13,6 @@ no HVAC/fan simulation is attempted: comparisons are measured evidence only.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from math import isfinite, log10
 import sqlite3
 from typing import Any, Literal
@@ -26,6 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_schema import require_native_tables
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 EquipmentState = Literal['on', 'off', 'unknown']
@@ -69,24 +68,6 @@ _CONDITION_AXES: tuple[str, ...] = (
 )
 AmbientVerdict = Literal['PASS', 'FAIL', 'UNKNOWN']
 AMBIENT_SCHEMA_VERSION = 'ambient-noise-1'
-
-
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class AmbientOperatingCondition(BaseModel):

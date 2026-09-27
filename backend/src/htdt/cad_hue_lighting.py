@@ -48,6 +48,7 @@ from .cad_equipment_device import (
     ObservedDeviceState,
     ProposedDeviceAction,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 HUE_ADAPTER_ID = 'htdt-hue-local'
@@ -61,18 +62,8 @@ _RESOURCE_KINDS = ('light', 'grouped_light', 'scene')
 _MIREK_MIN, _MIREK_MAX = 153, 500
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def kelvin_to_mirek(kelvin: float) -> int:

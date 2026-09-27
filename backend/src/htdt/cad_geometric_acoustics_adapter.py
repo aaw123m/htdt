@@ -3,10 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
 from importlib.metadata import version as distribution_version
-import json
 from math import acos, atan2, degrees, isfinite, sqrt
 from pathlib import Path
 import sqlite3
@@ -51,6 +48,7 @@ from .cad_scene import Direction3, Position3
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
@@ -61,6 +59,8 @@ from .r120_geometry_compiler import (
     PortalAuthority,
     R120CompiledGeometry,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
+from .clock import utc_now_iso as _utc_now
 
 
 DETERMINISTIC_GA_SCHEMA_VERSION = 1
@@ -121,21 +121,6 @@ class DeterministicGaUnsupportedError(ValueError):
     ) -> None:
         super().__init__(message)
         self.reason_code = reason_code
-
-
-
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
@@ -235,10 +220,6 @@ HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorit
         }
     ),
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
@@ -1571,7 +1552,6 @@ def _surface_plane(
     )
 
 
-
 def _general_surface_plane(
     compiled: R120CompiledGeometry,
     mapping: CompiledSurfaceMapping,
@@ -2888,7 +2868,6 @@ def _segment_blocked(
         if hit is not None:
             return True
     return False
-
 
 
 def _point_on_triangle_surface(
@@ -5369,10 +5348,7 @@ class CadDeterministicPathArtifactRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

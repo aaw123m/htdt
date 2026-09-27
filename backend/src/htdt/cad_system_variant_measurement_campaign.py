@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
-from hashlib import sha256
+from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
@@ -29,6 +28,7 @@ from .cad_scene import Position3
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
@@ -40,6 +40,8 @@ from .cad_system_variant_measured_lifecycle import (
     build_system_variant_measured_record,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 O100G_MEASUREMENT_PLAN_SCHEMA_VERSION = 1
@@ -50,20 +52,6 @@ O100G_MEASUREMENT_CAMPAIGN_COMPLETION_AUTHORITY_VERSION = 'o100g-system-variant-
 O100G_MEASUREMENT_CAMPAIGN_REGISTRATION_AUTHORITY_VERSION = 'o100g-system-variant-measurement-campaign-registration-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
-
-
 def _parse_timestamp(value: str, label: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value)
@@ -72,11 +60,6 @@ def _parse_timestamp(value: str, label: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
     return parsed
-
-
-def _utc_now() -> str:
-    """Repository commit clock; the only source of durable registration time."""
-    return datetime.now(timezone.utc).isoformat()
 
 
 class VariantMeasurementAcquisitionRequirement(BaseModel):
@@ -1048,10 +1031,7 @@ class CadSystemVariantMeasurementCampaignRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

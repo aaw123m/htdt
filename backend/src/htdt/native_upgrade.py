@@ -58,6 +58,7 @@ from .native_backup import (
     recover_interrupted_restore,
 )
 from .native_diagnostics import diagnostics_dir
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -175,10 +176,6 @@ class NativeUpgradePlan:
             f'{self.current_schema_version} to {self.target_schema_version}. '
             'A recovery copy will be created first.'
         )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _directory_size(path: Path) -> int | None:

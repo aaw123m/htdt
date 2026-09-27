@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from hashlib import sha256
-import json
 from math import acos, atan2, cos, degrees, isfinite, pi, sin, sqrt
 from pathlib import Path
 import sqlite3
@@ -11,11 +9,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .acoustic_benchmark import AcousticMaterial, GeometricIncidenceCondition
+from .acoustic_benchmark import AcousticMaterial
 from .cad_directivity import DirectivityDataset, evaluate_directivity
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_geometric_acoustics_adapter import (
-    BoundaryIncidenceEvaluation,
     DeterministicAcousticPath,
     DeterministicGaExecutionInput,
     DeterministicPathArtifact,
@@ -23,8 +20,9 @@ from .cad_geometric_acoustics_adapter import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R150_PATH_RESPONSE_SCHEMA_VERSION = 1
@@ -56,18 +54,8 @@ ReflectionIncidenceCondition = Literal[
 _INCIDENCE_COSINE_MATCH_TOLERANCE = 1e-9
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, name: str) -> float:
@@ -80,9 +68,6 @@ def _finite(value: float, *, name: str) -> float:
 def _phase(value: complex) -> float:
     return atan2(value.imag, value.real)
 
-
-def _complex_from_parts(real: float, imag: float) -> complex:
-    return complex(_finite(real, name='complex real'), _finite(imag, name='complex imag'))
 
 
 def _ref_payload(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
@@ -1995,10 +1980,7 @@ class CadPathFrequencyResponseRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 from uuid import uuid4
 
@@ -13,11 +12,8 @@ from .cad_av_sync import (
     _hash,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .cad_schema import require_native_tables, connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 
 class AVSyncConflictError(ValueError):
@@ -61,10 +57,7 @@ class CadAVSyncRepository:
         return self._operating_state_repository
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

@@ -51,6 +51,7 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
@@ -66,6 +67,8 @@ from .content_blobs import (
     store_content_blob,
 )
 from .limits import MAX_CAPTURE_INGEST_SOURCE_BYTES
+from .canonical_json import canonical_json as _canonical_json
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.capture_receiver')
@@ -114,20 +117,6 @@ PAIRING_TTL_MINUTES = 10
 
 class CaptureReceiverError(ValueError):
     pass
-
-
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _sha256_text(payload: bytes) -> str:
@@ -347,10 +336,7 @@ class CaptureReceiverService:
     # -- persistence ----------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

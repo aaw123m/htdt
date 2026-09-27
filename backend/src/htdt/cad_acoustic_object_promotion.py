@@ -36,8 +36,6 @@ Honesty constraints:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import cos, isfinite, pi, sin
 from typing import Any, Literal
 
@@ -49,6 +47,7 @@ from .cad_scene import (
     quaternion_to_matrix3,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 ACOUSTIC_OBJECT_PROMOTION_SCHEMA_VERSION = 1
@@ -73,18 +72,8 @@ AcousticObjectRepresentation = Literal[
 ]
 
 
-def _canonical(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(payload: object) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _rounded(value: float) -> float:

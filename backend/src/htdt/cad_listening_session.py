@@ -16,14 +16,13 @@ objective acoustic validation.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 import math
 import random
 import threading
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 LISTENING_SCHEMA_VERSION = 1
@@ -42,18 +41,8 @@ PREFERENCE_ANALYSIS_METHOD = 'descriptive_counts_v1'
 EXCERPT_BOUNDS_EQUALITY = 'matched_program_position_required'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class ListeningAlternative(BaseModel):

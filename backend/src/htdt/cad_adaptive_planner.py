@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 from uuid import uuid4
@@ -13,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_model_validation import CadModelValidationRecord
 from .cad_objective_models import CadObjectiveEvaluation
 from .cad_search_models import CadCandidate, CadSearchSpec
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 ADAPTIVE_SCHEMA_VERSION = 1
@@ -20,18 +19,8 @@ ADAPTIVE_ALGORITHM_VERSION = 'adaptive-residual-gp-1'
 AdaptiveExecutionScope = Literal['development_synthetic', 'production_owned_room']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def adaptive_timestamp_utc() -> str:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
 from itertools import combinations
 import json
 from math import isfinite, sqrt
@@ -9,23 +8,14 @@ from typing import Any, Literal, Mapping, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .comparison import FrequencyResponse, compare_frequency_responses
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _canonical_sha256
 
 
 ValidationGate = Literal['pass', 'fail', 'insufficient']
 
 
-def _canonical_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _canonical_sha256(value: Any) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 class CadObjectiveValidationSample(BaseModel):

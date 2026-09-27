@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
 import json
 from math import isfinite
 from typing import Literal
@@ -24,6 +23,7 @@ from .raw_mesh_repair import (
     make_raw_mesh_repair_lineage_ref,
     repaired_triangle_ids,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 SEMANTIC_GEOMETRY_ALGORITHM = 'htdt.r120.semantic_geometry_conversion'
@@ -37,14 +37,6 @@ GeometryCompilerReadiness = Literal[
 ]
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _remove_absent_raw_mesh_repair_lineage(payload: dict[str, object]) -> None:
@@ -53,8 +45,6 @@ def _remove_absent_raw_mesh_repair_lineage(payload: dict[str, object]) -> None:
         request.pop('raw_mesh_repair_lineage', None)
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class SemanticGeometryConversionError(ValueError):

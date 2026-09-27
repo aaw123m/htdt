@@ -17,7 +17,7 @@ from .cad_prediction_models import (
 )
 from .cad_prediction_request import verify_prediction_input, verify_prediction_output
 from .cad_repository import SceneRepository, SceneRevision
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 class CadPredictionRepository:
@@ -29,10 +29,7 @@ class CadPredictionRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

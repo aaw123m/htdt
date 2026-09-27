@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
 import json
 import math
 from pathlib import Path
@@ -28,6 +27,7 @@ from .cad_r140_executor import (
     ResourceQuantity,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
 
 
 PFFDTD_RESOURCE_ESTIMATOR_ID = (
@@ -51,18 +51,8 @@ _HDF5_METADATA_RESERVE_PER_FILE = 64 * 1024
 _JSON_METADATA_RESERVE = 16 * 1024
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 class PffdtdResourceComponent(BaseModel):

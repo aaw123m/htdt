@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import NamedTuple
@@ -33,6 +32,7 @@ from .cad_scene import acoustic_reference_position
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
@@ -43,6 +43,7 @@ from .r120_geometry_compiler import (
 )
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
 from .treatment_boundary_overlay_repository import TreatmentBoundaryOverlayRepository
+from .clock import utc_now_iso as _utc_now
 
 
 SnapshotEnvironmentResolver = Callable[
@@ -91,10 +92,6 @@ class AcousticSnapshotAuthorityResolvers(NamedTuple):
     valid_frequency_domain: SnapshotFrequencyDomainResolver | None = None
     geometric_topology_preflight: SnapshotTopologyPreflightResolver | None = None
     external_authority: SnapshotExternalAuthorityResolver | None = None
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _ref_key(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:
@@ -180,10 +177,7 @@ class CadAcousticSnapshotRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

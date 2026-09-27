@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -22,18 +21,16 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .clock import utc_now_iso as _utc_now
 
 
 ExternalAuthorityResolver = Callable[
     [ExactExternalAuthorityRef],
     ExactExternalAuthorityRef | None,
 ]
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadAcousticSolverDispatchRepository:
@@ -86,10 +83,7 @@ class CadAcousticSolverDispatchRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

@@ -43,8 +43,6 @@ versioned, project-scoped authority. Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 
@@ -58,6 +56,7 @@ from .cad_standards import (
     EvidenceBasis,
 )
 from .cad_units import convert_unit, units_convertible
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 ACOUSTIC_TARGET_SCHEMA_VERSION = 1
@@ -113,18 +112,8 @@ TargetEvaluability = Literal['AVAILABLE', 'UNKNOWN', 'UNSUPPORTED', 'BLOCKED']
 TargetVerdict = Literal['MET', 'UNMET', 'NOT_EVALUATED']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: object, *, field_name: str) -> float:

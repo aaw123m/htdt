@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
@@ -10,6 +9,7 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .r120_geometry_compiler import SurfaceBoundaryAuthorityBinding
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
@@ -19,10 +19,7 @@ from .treatment_boundary_overlay import (
     compile_treatment_boundary_composition,
     compile_treatment_boundary_overlay,
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class TreatmentBoundaryOverlayRepository:
@@ -42,10 +39,7 @@ class TreatmentBoundaryOverlayRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

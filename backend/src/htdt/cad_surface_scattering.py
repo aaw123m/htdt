@@ -22,7 +22,6 @@ solver input) rather than a fabricated coefficient.
 
 from __future__ import annotations
 
-from hashlib import sha256
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
@@ -30,6 +29,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurements import canonical_json
+from .canonical_json import canonical_sha256 as _hash
 
 
 # The seven quantity kinds the issue enumerates — never one field named
@@ -70,8 +70,6 @@ ScatteringStandard = Literal[
 ]
 
 
-def _hash(payload: Any) -> str:
-    return sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class SurfaceScatteringEvidence(BaseModel):

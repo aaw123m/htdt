@@ -3,14 +3,13 @@ from __future__ import annotations
 from bisect import bisect_left
 from collections.abc import Sequence
 from enum import StrEnum
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R160_GRID_RECONCILIATION_AUTHORITY_VERSION = 'r160-frequency-grid-reconciliation-1'
@@ -39,18 +38,8 @@ class HybridNumericalCompositionError(ValueError):
         super().__init__(f'{code.value}: {message}')
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def validate_frequency_grid(

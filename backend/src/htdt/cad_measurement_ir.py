@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .ingress import IngressTooLargeError
 from .limits import MAX_REW_TEXT_BYTES
+from .canonical_json import canonical_sha256
 
 
 REW_IR_PARSER_VERSION = 'rew-ir-text-1'
@@ -370,20 +371,12 @@ def ir_transformation_sha256(
     dataset_sha256: str,
 ) -> str:
     """Seal exact raw source + pinned importer identity + IR dataset identity."""
-    return sha256(
-        json.dumps(
-            {
+    return canonical_sha256({
                 'transformation_version': IMPORT_IR_TRANSFORMATION_VERSION,
                 'source_sha256': source_sha256,
                 'importer_version': importer_version,
                 'dataset_sha256': dataset_sha256,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
+            })
 
 
 def verify_imported_ir_dataset(

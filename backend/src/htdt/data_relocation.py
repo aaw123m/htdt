@@ -49,6 +49,7 @@ from .runtime_instance import (
     _lock_first_byte,
     _unlock_first_byte,
 )
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -146,10 +147,6 @@ def bootstrap_config_path() -> Path:
     if local_app_data:
         return Path(local_app_data) / 'HTDT' / BOOTSTRAP_FILENAME
     return Path.home() / '.htdt' / BOOTSTRAP_FILENAME
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def load_bootstrap_config(

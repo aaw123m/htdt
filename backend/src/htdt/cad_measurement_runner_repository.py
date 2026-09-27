@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
@@ -24,14 +23,11 @@ from .cad_measurement_runner import (
 from .cad_scene import is_measurement_target_eligible
 
 from .cad_schema import require_native_tables
+from .clock import utc_now_iso as _utc_now
 
 
 class RunnerError(ValueError):
     pass
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadMeasurementRunnerRepository:

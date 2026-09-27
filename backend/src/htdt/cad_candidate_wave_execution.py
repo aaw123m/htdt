@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 from hashlib import sha256
 import importlib.metadata
 import json
@@ -45,7 +44,6 @@ from .acoustic_pffdtd_impedance_adapter import (
     pffdtd_impedance_mapping_authority_payload,
 )
 from .cad_acoustic_snapshot import (
-    AcousticPredictionRequest,
     AcousticSceneSnapshot,
     TreatmentBoundarySnapshotBinding,
 )
@@ -55,7 +53,6 @@ from .treatment_boundary_overlay import (
     TreatmentBoundaryOverlay,
 )
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
-from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from .cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
@@ -73,13 +70,14 @@ from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_wave_excitation import (
     AcousticWaveExcitationAuthority,
     CadWaveExcitationRepository,
-    WaveSourceExcitationBinding,
 )
 from .r120_geometry_compiler import (
     ExactExternalAuthorityRef,
     R120CompiledGeometry,
 )
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 PFFDTD_CANDIDATE_ADAPTER_ID = 'htdt.r130a.pffdtd_candidate_wave'
@@ -96,30 +94,12 @@ COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
 )
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _digest(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
-
-
 def _file_sha256(path: Path) -> str:
     digest = sha256()
     with path.open('rb') as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b''):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CandidateWaveExecutionError(RuntimeError):
@@ -775,16 +755,6 @@ def _position_tuple(position: Any) -> tuple[float, float, float]:
         float(position.z_m),
     )
 
-
-def _vector_sub(
-    left: tuple[float, float, float],
-    right: tuple[float, float, float],
-) -> tuple[float, float, float]:
-    return (
-        left[0] - right[0],
-        left[1] - right[1],
-        left[2] - right[2],
-    )
 
 
 def _cross(

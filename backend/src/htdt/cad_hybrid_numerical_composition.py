@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from hashlib import sha256
-import json
 from math import atan2, cos, isclose, isfinite, sin
 from pathlib import Path
 import sqlite3
@@ -36,10 +34,12 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
 from .cad_wave_source_model import WaveSourceModelCompatibility
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R160_NUMERICAL_SPEC_AUTHORITY_VERSION = 'r160-numerical-hybrid-composition-spec-1'
@@ -68,18 +68,8 @@ HybridNumericalCapability = Literal['COMPLEX_SUPPORTED', 'UNSUPPORTED']
 HybridWeightLaw = Literal['linear_frequency_complementary_v1']
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _phase(value: complex) -> float:
@@ -1425,10 +1415,7 @@ class CadNumericalHybridResponseRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

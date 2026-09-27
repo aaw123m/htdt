@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 
@@ -13,6 +11,7 @@ from .cad_scene import Position3, Quaternion4
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .semantic_geometry import SemanticSurface
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 ACOUSTIC_TREATMENT_SCHEMA_VERSION = 2
@@ -87,18 +86,8 @@ EVIDENCE_BASIS_SOURCE_KINDS: dict[str, frozenset[str]] = {
 }
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class TreatmentProvenance(BaseModel):

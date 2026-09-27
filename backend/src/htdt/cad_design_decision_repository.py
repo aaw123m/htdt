@@ -30,7 +30,7 @@ from .cad_design_decision import (
     DesignDecisionRecord,
     decision_lineage_issues,
 )
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 class DesignDecisionConflictError(ValueError):
@@ -73,10 +73,7 @@ class CadDesignDecisionRepository:
             require_native_tables(connection, 'design_decisions')
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _resolve_refs(self, decision: DesignDecisionRecord) -> None:
         """Re-resolve every exact ref against canonical owners (#797)."""

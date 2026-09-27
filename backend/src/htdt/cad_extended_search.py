@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from hashlib import sha256
 from itertools import product
 import json
 from math import asin, atan2, cos, degrees, isfinite, radians, sin, sqrt
@@ -29,6 +28,7 @@ from .cad_search import (
     search_spec_current_working,
 )
 from .cad_search_models import CadCandidate, CadSearchSpec
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 EXTENDED_SEARCH_SCHEMA_VERSION = 1
@@ -39,18 +39,8 @@ ExtendedEvidenceScope = Literal['synthetic_fixture', 'owned_room']
 ExtendedParameterEvidenceSource = Literal['o90e_decision', 'synthetic_fixture']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _grid_decimal(value: float) -> Decimal:

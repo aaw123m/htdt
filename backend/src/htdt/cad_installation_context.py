@@ -17,8 +17,6 @@ channel.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite, sqrt
 from typing import Any, Literal, Sequence
 
@@ -37,6 +35,7 @@ from .cad_scene import (
     SceneEntity,
     quaternion_to_matrix3,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 INSTALLATION_CONTEXT_SCHEMA_VERSION = 1
@@ -108,18 +107,8 @@ PORT_FACE: dict[str, tuple[ClearanceAxis, ...]] = {
 }
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .capture_ingestion_transaction import (
     CaptureCoordinateAuthority,
     CaptureIngestionRepository,
@@ -40,6 +40,7 @@ from .semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 PROMOTION_DOMAIN = 'htdt.capture.semantic-promotion.v1'
@@ -248,18 +249,8 @@ class CapturePromotionReplayError(CaptureSemanticPromotionError):
         self.diagnostic = diagnostic
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 def _authority_identity_payload(
@@ -1099,10 +1090,7 @@ class CaptureSemanticPromotionRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

@@ -34,26 +34,15 @@ Honesty rules:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 import math
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
+from .canonical_json import canonical_sha256 as _hash
 
 
-def _hash(payload) -> str:
-    return sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
 
 
 WaveformChannel = Literal['luminance', 'red', 'green', 'blue']
@@ -79,8 +68,6 @@ TemporalMetricKind = Literal[
 # Versioned derived-metric identities (mandatory on results).
 MODULATION_DEPTH_VERSION = 'modulation-depth-v1'
 DOMINANT_FREQUENCY_VERSION = 'dft-dominant-frequency-v1'
-STEP_RESPONSE_VERSION = 'step-10-90-settling-v1'
-
 
 class DisplayTemporalCondition(BaseModel):
     """Exact temporal measurement condition (#1030 §2)."""
@@ -349,79 +336,6 @@ def derive_dominant_frequency_hz(
         unit='hz',
     )
 
-
-def derive_step_response(
-    waveform: TemporalLightWaveform,
-    *,
-    settle_band_fraction: float = 0.02,
-) -> tuple[TemporalMetricResult, ...]:
-    """``step-10-90-settling-v1``: 10–90 % rise time, overshoot and
-    settling time from a step waveform (first sustained transition)."""
-    if not waveform.samples or waveform.sample_rate_hz is None:
-        return ()
-    s = waveform.samples
-    lo = min(s)
-    hi = max(s)
-    span = hi - lo
-    if span <= 0.0:
-        return ()
-    t10 = lo + 0.1 * span
-    t90 = lo + 0.9 * span
-
-    def _cross(threshold: float) -> float | None:
-        for i in range(1, len(s)):
-            if s[i - 1] < threshold <= s[i]:
-                frac = (threshold - s[i - 1]) / (s[i] - s[i - 1])
-                return (i - 1 + frac) / waveform.sample_rate_hz
-        return None
-
-    rise = None
-    c10 = _cross(t10)
-    c90 = _cross(t90)
-    if c10 is not None and c90 is not None and c90 >= c10:
-        rise = c90 - c10
-    overshoot = max(0.0, (max(s) - hi) / span) if rise is not None else None
-    settle = None
-    if rise is not None:
-        band = hi * settle_band_fraction if hi > 0 else settle_band_fraction
-        last_out = None
-        for i, v in enumerate(s):
-            if abs(v - hi) > band:
-                last_out = i
-        if last_out is not None and c10 is not None:
-            settle = max(0.0, last_out / waveform.sample_rate_hz - c90)
-    results: list[TemporalMetricResult] = []
-    if rise is not None:
-        results.append(
-            TemporalMetricResult(
-                metric_kind='gtg_rise',
-                metric_version=STEP_RESPONSE_VERSION,
-                waveform_id=waveform.waveform_id,
-                value=rise,
-                unit='seconds',
-            )
-        )
-    if overshoot is not None:
-        results.append(
-            TemporalMetricResult(
-                metric_kind='overshoot',
-                metric_version=STEP_RESPONSE_VERSION,
-                waveform_id=waveform.waveform_id,
-                value=overshoot,
-                unit='fraction',
-            )
-        )
-    if settle is not None:
-        results.append(
-            TemporalMetricResult(
-                metric_kind='settling_time',
-                metric_version=STEP_RESPONSE_VERSION,
-                waveform_id=waveform.waveform_id,
-                value=settle,
-                unit='seconds',
-            )
-        )
-    return tuple(results)
 
 
 def build_display_temporal_condition(**kwargs) -> DisplayTemporalCondition:

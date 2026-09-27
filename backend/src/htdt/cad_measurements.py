@@ -20,6 +20,7 @@ from .rew_api import (
 )
 from .rew_parser import PARSER_VERSION, parse_rew_frequency_response
 from .rew_source_context import extract_rew_source_context
+from .canonical_json import canonical_json, canonical_sha256
 
 
 CAD_REW_API_SNAPSHOT_FORMAT = 'htdt-rew-api-frequency-response-snapshot-1'
@@ -47,8 +48,6 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def canonical_json(payload: Any) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
 
 def normalize_rew_capture_timestamp(
@@ -593,14 +592,12 @@ def import_transformation_sha256(
     dataset_sha256: str,
 ) -> str:
     """Seal exact raw source + pinned importer identity + dataset identity."""
-    return sha256(
-        canonical_json({
+    return canonical_sha256({
             'transformation_version': IMPORT_TRANSFORMATION_VERSION,
             'source_sha256': source_sha256,
             'importer_version': importer_version,
             'dataset_sha256': dataset_sha256,
-        }).encode('utf-8')
-    ).hexdigest()
+        })
 
 
 def verify_imported_dataset(

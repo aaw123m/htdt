@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from math import isfinite, sqrt
 from typing import Any, Literal
 from uuid import uuid4
@@ -21,6 +19,7 @@ from .cad_measurement_authorities import (
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_scene import Direction3, Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 QUALITY_ALGORITHM_VERSION = 'measurement-quality-2'
@@ -133,18 +132,8 @@ MEASUREMENT_QUALITY_CHECKS: tuple[str, ...] = (
 )
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 _ALGORITHM_CHECKS: tuple[str, ...] = (

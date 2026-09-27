@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -46,6 +45,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .clock import utc_now_iso as _utc_now
 
 
 _STATUS_JA = {
@@ -69,10 +69,6 @@ _REASON_JA = {
     "comparison_passed": "基準を満たしています",
     "comparison_failed": "基準を満たしていません",
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _profile_key(profile: StandardsProfile) -> str:

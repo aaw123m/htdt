@@ -38,7 +38,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import logging
@@ -46,7 +45,8 @@ from pathlib import Path
 import re
 import sqlite3
 
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 
 logger = logging.getLogger(__name__)
@@ -68,10 +68,6 @@ _STORAGE_LEDGER_TABLES = frozenset(
     {'cad_measurement_assets', 'htdt_storage_gc_pending'}
 )
 GC_PENDING_TABLE = 'htdt_storage_gc_pending'
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class StorageMaintenanceError(ValueError):
@@ -135,10 +131,7 @@ class StorageGcResult:
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(db_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys=ON')
-    return connection
+    return connect_sqlite(db_path)
 
 
 def _payload_digests(value: object, out: set[str]) -> None:

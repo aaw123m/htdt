@@ -18,7 +18,8 @@ from .project_identity import (
     classify_project_reference,
     resolve_project_reference,
 )
-from .cad_schema import ensure_native_schema, require_native_tables
+from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
+from .canonical_json import canonical_json as _canonical_json
 
 
 class FieldReturnError(ValueError):
@@ -37,14 +38,6 @@ HEX64 = r'^[0-9a-f]{64}$'
 UUID4_RE = re.compile(UUID4_PATTERN)
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 # --- artifact-family recognition (#674 §1) ------------------------------------
@@ -413,10 +406,7 @@ class FieldReturnRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

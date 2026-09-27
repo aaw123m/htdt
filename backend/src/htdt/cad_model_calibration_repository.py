@@ -10,7 +10,6 @@ derive from persisted history instead of a caller-supplied list.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import sqlite3
 
 from .cad_model_calibration import (
@@ -22,16 +21,13 @@ from .cad_model_calibration import (
     evaluate_holdout_discipline,
 )
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .clock import utc_now_iso as _utc_now
 
 
 class CalibrationConflictError(ValueError):
     """A calibration authority was saved twice with different content."""
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadModelCalibrationRepository:
@@ -43,10 +39,7 @@ class CadModelCalibrationRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # #767: persistent schema is owned by the migration authority;

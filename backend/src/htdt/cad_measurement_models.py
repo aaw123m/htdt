@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal
 
@@ -15,6 +14,7 @@ from .comparison import (
     comparison_algorithm_sha256,
     replay_comparison_result,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 MeasurementEvidenceType = Literal['measured', 'derived', 'predicted', 'unknown']
@@ -24,18 +24,8 @@ RadiationScope = Literal['single', 'bass_managed', 'mixed', 'unknown']
 RoutingEvidence = Literal['verified', 'manual', 'inferred', 'unknown']
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class CadMeasurementRecord(BaseModel):

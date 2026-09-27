@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
 import json
 import math
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any, Literal, Sequence
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json, canonical_sha256 as semantic_hash
 
 
 PLAN_SCHEMA = 'htdt.r130d.general3d-validation-plan-1'
@@ -27,18 +27,8 @@ SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256 = (
 )
 
 
-def canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def semantic_hash(value: object) -> str:
-    return sha256(canonical_json(value).encode('utf-8')).hexdigest()
 
 
 def load_target_window_diagnostic_plan(path: str | Path) -> dict[str, Any]:

@@ -19,6 +19,7 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -55,10 +56,7 @@ class CadAcousticTreatmentRepository:
 
     def _connect(self) -> sqlite3.Connection:
         check_native_schema_compatibility(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

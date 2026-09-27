@@ -76,6 +76,7 @@ from .cad_scene import Position3, SceneDocument, acoustic_reference_position
 from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
+    connect_sqlite,
 )
 from .managed_assets import (
     ManagedAssetError,
@@ -184,10 +185,7 @@ class CadMeasurementQualityRepository:
             raise ValueError(f'unknown document: {document_id}')
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         check_native_schema_compatibility(self.path)

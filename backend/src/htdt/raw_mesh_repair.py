@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from math import floor, isfinite, sqrt
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .cad_schema import ensure_native_schema
+from .cad_schema import ensure_native_schema, connect_sqlite
 from .content_blobs import (
     ensure_content_blob_store,
     read_content_blob,
@@ -30,6 +29,7 @@ from .raw_mesh import (
     rehydrate_raw_visual_mesh,
     serialize_raw_visual_mesh_reference,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 RAW_MESH_REPAIR_ALGORITHM_ID = 'htdt.raw_mesh_repair'
@@ -45,18 +45,8 @@ class RawMeshRepairError(ValueError):
     pass
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class ExactDuplicateVertexConsolidation(BaseModel):
@@ -743,10 +733,7 @@ class RawMeshRepairRepository:
         ensure_native_schema(self.path)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def save(self, bundle: RawMeshRepairBundle) -> bool:
         _validate_bundle_against_recomputation(bundle)

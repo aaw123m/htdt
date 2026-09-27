@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 import math
 from typing import Any, Literal
 
@@ -9,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
 
 
 PFFDTD_CAUSAL_BOUNDARY_MAPPING_ID = (
@@ -19,18 +18,8 @@ CAUSAL_BOUNDARY_AUTHORITY_VERSION = 'r130c-causal-boundary-1'
 CAUSAL_BOUNDARY_COMPILATION_VERSION = 'r130c-pffdtd-boundary-compilation-1'
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 class CausalAdmittanceBranch(BaseModel):

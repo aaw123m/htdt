@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 from uuid import uuid4
@@ -33,6 +31,7 @@ from .optimization_objectives import (
     ObjectiveVector,
 )
 from .pareto import ParetoEmptyError, ParetoResult, pareto_front
+from .canonical_json import canonical_json as canonical_joint_json, canonical_sha256 as canonical_joint_sha256
 
 
 JOINT_OPTIMIZATION_SCHEMA_VERSION = 1
@@ -63,18 +62,8 @@ JointCandidateClass = Literal['position_only', 'dsp_only', 'joint']
 JointEligibilityState = Literal['ELIGIBLE', 'BLOCKED']
 
 
-def canonical_joint_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_joint_sha256(value: Any) -> str:
-    return sha256(canonical_joint_json(value).encode('utf-8')).hexdigest()
 
 
 def device_capability_sha256(

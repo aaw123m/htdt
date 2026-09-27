@@ -15,8 +15,6 @@ provider executions instead of M*N.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import cos, pi, sin
 from typing import Any, Literal
 
@@ -30,18 +28,14 @@ from pydantic import (
 
 from .cad_equipment import FrequencyDomain
 from .cad_multi_channel_excitation import (
-    CoherentSystemResponse,
-    MultiChannelExcitationScenario,
     ScenarioSourceTransfer,
-    compose_coherent_system_response,
 )
 from .cad_prediction_provider import (
     LowBandPredictionProvider,
-    PredictionProviderReceiverIdentity,
     PredictionProviderRef,
-    PredictionProviderSourceIdentity,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_sha256 as _digest
 
 
 PREDICTION_MATRIX_SCHEMA_VERSION = 1
@@ -65,18 +59,8 @@ TERMINAL_CELL_STATES = frozenset(
 )
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class MatrixSourceRef(BaseModel):
@@ -831,24 +815,6 @@ def matrix_scenario_source_transfers(
     return tuple(transfers)
 
 
-def compose_matrix_system_response(
-    result_set: TransferMatrixResultSet,
-    spec: PredictionMatrixSpec,
-    scenario: MultiChannelExcitationScenario,
-    matrix_receiver_id: str,
-) -> CoherentSystemResponse:
-    """Compose the coherent system response for one matrix receiver row.
-
-    Materializes scenario transfers through the canonical adapter, then
-    delegates to the #492 composer — incompatible timing, normalization or
-    phasor semantics produce a typed UNSUPPORTED response rather than a
-    fabricated sum.
-    """
-
-    transfers = matrix_scenario_source_transfers(
-        result_set, spec, matrix_receiver_id
-    )
-    return compose_coherent_system_response(scenario, transfers)
 MatrixRunState = Literal[
     'QUEUED',
     'RUNNING',

@@ -19,10 +19,9 @@ AcousticSceneSnapshot ``surface_boundary_configuration``.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -40,7 +39,8 @@ from .r120_geometry_compiler import (
     SurfaceBoundaryAuthorityBinding,
 )
 from .semantic_geometry import SemanticSurface
-from hashlib import sha256
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 _MATERIAL_PREFIX = 'acoustic-material:'
@@ -59,24 +59,6 @@ SURFACE_CLASS_LABELS: dict[str, str] = {
     'object_surface': 'オブジェクト表面',
     'unknown': '不明',
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class AcousticMaterialAuthority(BaseModel):

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -36,6 +34,7 @@ from .cad_system_variant import (
     SystemVariant,
     materialize_system_variant,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 R110_COMPILED_SOURCE_SCHEMA_VERSION = 1
@@ -92,18 +91,8 @@ R110WaveExcitationState = Literal[
 ]
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class R110CapabilityStatus(BaseModel):

@@ -33,7 +33,6 @@ so re-delivery is safe.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import time
 import logging
@@ -43,6 +42,7 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -160,10 +160,6 @@ class HTDTCaptureFile(BaseModel):
     schema_version: int = Field(ge=1)
     capture_revision_id: str | None = None
     bundle_path: str | None = None
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def classify_launch_path(path: Path) -> LaunchIntentKind:

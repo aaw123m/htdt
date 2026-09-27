@@ -26,7 +26,7 @@ from .cad_search_models import CadCandidate, CadCandidateSetPage, CadSearchSpec
 from .cad_search_repository import CadSearchRepository
 from .optimization_objectives import ObjectiveVector
 from .pareto import pareto_front
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 
 class _CandidateSetScan:
@@ -119,10 +119,7 @@ class CadObjectiveRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _measurements(self) -> Any:
         if self._measurement_repository is None:

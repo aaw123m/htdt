@@ -28,7 +28,6 @@ Contract carried by this module:
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from typing import Any, Literal
 
@@ -36,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_colorimetry import ColorimeterCorrectionProfile
 from .cad_equipment import EquipmentDataProvenance
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 METER_CORRECTION_PARSER_ID = 'htdt-cgats-ccxx-1'
@@ -51,20 +51,8 @@ class CgatsParseError(ValueError):
     """Raised when the text does not satisfy the CGATS.17-style grammar."""
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict) -> str:
-    return hashlib.sha256(
-        _canonical(payload).encode('utf-8')
-    ).hexdigest()
 
 
 # ---------------------------------------------------------------------------

@@ -29,8 +29,6 @@ Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -40,6 +38,7 @@ from .cad_calibration import (
     CadTargetCurve,
     CadTargetNormalizationCondition,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 TARGET_PROFILE_AUTHORITY_VERSION = 'target-curve-profile-1'
@@ -61,18 +60,8 @@ TargetProfileSource = Literal[
 ]
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class TargetProfileTolerance(BaseModel):

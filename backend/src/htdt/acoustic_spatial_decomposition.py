@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from cmath import exp
-from hashlib import sha256
-import json
 from math import isfinite, pi, sqrt
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
+from .canonical_json import canonical_json as canonical_spatial_decomposition_json, canonical_sha256 as canonical_spatial_decomposition_sha256
 
 
 SPATIAL_FIELD_DECOMPOSITION_SCHEMA_VERSION = 1
@@ -41,20 +40,8 @@ ConditioningState = Literal[
 ]
 
 
-def canonical_spatial_decomposition_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_spatial_decomposition_sha256(value: Any) -> str:
-    return sha256(
-        canonical_spatial_decomposition_json(value).encode('utf-8')
-    ).hexdigest()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

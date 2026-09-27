@@ -24,8 +24,6 @@ validated runtime evidence for ETA, so the contract cannot express one.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from hashlib import sha256
-import json
 import threading
 import time
 from typing import Any, Literal
@@ -47,6 +45,7 @@ from .cad_r140_executor import (
     ResourceAdmissionError,
     ResourceQuantity,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 PREDICTION_EXECUTION_SCHEMA_VERSION = 1
@@ -66,18 +65,8 @@ ExecutionCurrency = Literal['CURRENT', 'STALE_SCENE', 'STALE_INPUT']
 PriorAttemptState = Literal['NONE', 'FAILED', 'CANCELLED', 'SUCCEEDED']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class PredictionExecutionScope(BaseModel):

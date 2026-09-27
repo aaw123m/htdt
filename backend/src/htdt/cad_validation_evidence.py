@@ -28,11 +28,10 @@ Evidence classes (per issue #793):
 
 from __future__ import annotations
 
-import json
-from hashlib import sha256
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 ValidationEvidenceClass = Literal['E1', 'E2', 'E3', 'E4', 'E5', 'E6']
@@ -60,18 +59,8 @@ EvidenceCoverageStatus = Literal[
 VALIDATION_SCHEMA_VERSION = 1
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class ExternalValidationDatasetRecord(BaseModel):

@@ -35,7 +35,6 @@ transaction, and applies the collision contract:
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import base64
 import hashlib
 import json
@@ -51,7 +50,7 @@ from pydantic import BaseModel
 
 from . import __version__
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetError,
@@ -59,6 +58,7 @@ from .managed_assets import (
 )
 from .native_row_integrity import verify_native_row_integrity
 from .project_library_repository import ProjectLibraryRepository
+from .clock import utc_now_iso as _utc_now
 
 
 BUNDLE_SCHEMA = 'htdt.project-bundle'
@@ -236,15 +236,8 @@ def _canonical_sha256(payload: object) -> str:
     ).hexdigest()
 
 
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 def _connect(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(path)
-    connection.row_factory = sqlite3.Row
-    connection.execute('PRAGMA foreign_keys=ON')
-    return connection
+    return connect_sqlite(path)
 
 
 def _all_tables(connection: sqlite3.Connection) -> tuple[str, ...]:
@@ -295,11 +288,6 @@ def _row_to_json(row: sqlite3.Row) -> dict:
         'values': [_cell_to_json(row[key]) for key in row.keys()],
     }
 
-
-def _row_json_bytes(row: sqlite3.Row) -> bytes:
-    return json.dumps(
-        _row_to_json(row), sort_keys=True, separators=(',', ':')
-    ).encode('utf-8')
 
 
 def _row_identity_values(row: sqlite3.Row) -> set[str]:

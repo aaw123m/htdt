@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .clock import utc_now_iso as _utc_now
 from .cad_directivity import (
     NORMALIZED_JSON_ADAPTER_ID,
     NormalizedDirectivityJsonV1,
@@ -108,12 +109,6 @@ _PORT_TYPES: tuple[tuple[str, str], ...] = (
     ("パッシブラジエータ", "passive_radiator"),
     ("その他", "other"),
 )
-
-
-def _utc_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _definition_label(definition: EquipmentDefinition) -> str:

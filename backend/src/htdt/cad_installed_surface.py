@@ -21,7 +21,6 @@ quantity semantics (normal-incidence tube data stays normal-incidence).
 
 from __future__ import annotations
 
-from hashlib import sha256
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
@@ -36,10 +35,9 @@ from .cad_material_library import (
 )
 from .cad_measurements import canonical_json
 from .cad_scene import Position3
+from .canonical_json import canonical_sha256 as _hash
 
 
-def _hash(payload: Any) -> str:
-    return sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 #: Local surface-measurement method families (#1033 §3). Method identity is

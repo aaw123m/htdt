@@ -13,8 +13,6 @@ configuration, not a mutation of the field.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 import math
 from math import atan2, isfinite, log10, pi
 from typing import Any, Literal
@@ -23,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_equipment import FrequencyDomain
 from .cad_scene import Position3
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 SPATIAL_FIELD_SCHEMA_VERSION = 1
@@ -42,18 +41,8 @@ FieldInterpolation = Literal['exact_samples', 'trilinear']
 MAX_FIELD_SAMPLES = 4_000_000
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

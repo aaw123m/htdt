@@ -16,8 +16,6 @@ energy metrics adapt to acoustic-target observations through
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Mapping
 from uuid import uuid4
@@ -25,6 +23,7 @@ from uuid import uuid4
 import numpy as np
 from .cad_schema import require_native_tables
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 IRAlignmentMode = Literal[
@@ -38,18 +37,8 @@ IR_ANALYSIS_ALGORITHM_VERSION = 'ir-analysis-2'
 IR_ANALYSIS_SCHEMA_VERSION = 'ir-analysis-2'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 IR_ANALYSIS_ALGORITHM_IDENTITY: dict[str, Any] = {

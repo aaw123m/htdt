@@ -54,6 +54,7 @@ from .raw_mesh import (
     RawMeshFormat,
     import_raw_visual_mesh,
 )
+from .canonical_json import canonical_json
 
 
 EXTERNAL_REFERENCE_STATE = 'reference_only'
@@ -181,13 +182,7 @@ def import_external_reference_mesh(
 
 
 def serialize_external_reference_mesh(reference: ExternalReferenceMesh) -> str:
-    return json.dumps(
-        reference.model_dump(mode='json'),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
+    return canonical_json(reference.model_dump(mode='json'))
 
 
 def deserialize_external_reference_mesh(payload: str) -> ExternalReferenceMesh:

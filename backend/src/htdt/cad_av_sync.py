@@ -19,13 +19,12 @@ Canonical sign convention — ``audio_minus_video_ms``:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 AVSyncMeasurementMethod = Literal['manual_external_sync_test', 'auto', 'unknown']
@@ -51,18 +50,8 @@ AV_SYNC_CONDITION_SCHEMA_VERSION = 'av-sync-condition-1'
 AV_SYNC_MEASUREMENT_SCHEMA_VERSION = 'av-latency-measurement-1'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _require_finite(value: float | None, label: str) -> None:

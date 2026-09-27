@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
@@ -19,12 +18,10 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .clock import utc_now_iso as _utc_now
 
 
 class DirectivitySourceAssetMetadata(BaseModel):
@@ -90,10 +87,7 @@ class CadDirectivityRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

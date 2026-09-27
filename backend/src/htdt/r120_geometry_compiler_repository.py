@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -11,6 +10,7 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
@@ -24,10 +24,8 @@ from .r120_geometry_compiler import (
     compile_r120_geometry,
     diagnose_r120_leak_and_portals,
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .canonical_json import canonical_json
+from .clock import utc_now_iso as _utc_now
 
 
 class _CompileInputAuthorities(NamedTuple):
@@ -104,19 +102,13 @@ def _compile_inputs_from_json(payload: str) -> _CompileInputAuthorities:
 def _diagnostic_inputs_to_json(
     portal_authority: PortalAuthority | None,
 ) -> str:
-    return json.dumps(
-        {
+    return canonical_json({
             'portal_authority': (
                 None
                 if portal_authority is None
                 else portal_authority.model_dump(mode='json')
             ),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
+        })
 
 
 def _diagnostic_inputs_from_json(payload: str) -> _DiagnosticInputAuthorities:
@@ -165,10 +157,7 @@ class R120GeometryCompilerRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

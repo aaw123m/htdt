@@ -22,26 +22,15 @@ separate authorities.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .cad_video_geometry import EvaluationStatus, _combine_status
+from .cad_video_geometry import EvaluationStatus
+from .canonical_json import canonical_sha256 as _hash
 
 
-def _hash(payload) -> str:
-    return sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
 
 
 TransformKind = Literal[
@@ -286,7 +275,3 @@ def evaluate_transform_lineage(
     )
 
 
-def transform_lineage_status(
-    evaluation: TransformLineageEvaluation,
-) -> EvaluationStatus:
-    return _combine_status(tuple(c.status for c in evaluation.checks))

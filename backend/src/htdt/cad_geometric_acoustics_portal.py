@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import sqrt
 from typing import Literal, Sequence
 
@@ -17,6 +15,7 @@ from .r120_geometry_compiler import (
     PortalDeclaration,
     R120CompiledGeometry,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 PORTAL_SIDE_SEMANTICS = (
@@ -24,18 +23,8 @@ PORTAL_SIDE_SEMANTICS = (
 )
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _vector(a: Sequence[float], b: Sequence[float]) -> tuple[float, float, float]:

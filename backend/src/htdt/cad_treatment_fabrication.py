@@ -20,8 +20,6 @@ Supported first slices:
 
 from __future__ import annotations
 
-import json
-from hashlib import sha256
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
@@ -29,6 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_treatment import AcousticTreatmentDefinition
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 _PACKAGE_PREFIX = 'treatment-fabrication:'
@@ -41,18 +40,8 @@ _FAB10_TYPES = frozenset(
 _FAB20_TYPES = frozenset({'diffuser_scattering_element'})
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _is_prime(value: int) -> bool:

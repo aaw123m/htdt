@@ -35,8 +35,6 @@ Contract properties:
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from hashlib import sha256
-import json
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -44,6 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_authority_resolver import AuthorityRef
 from .cad_units import UnitKind, convert_unit
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 RECONCILIATION_SCHEMA_VERSION = 1
@@ -103,18 +102,8 @@ ReconciliationOutcome = Literal[
 ]
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class AlignmentRef(BaseModel):

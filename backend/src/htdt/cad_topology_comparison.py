@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -21,6 +19,7 @@ from .optimization_objectives import (
     ObjectiveVector,
 )
 from .pareto import ParetoResult, pareto_front
+from .canonical_json import canonical_json as canonical_topology_comparison_json, canonical_sha256 as canonical_topology_comparison_sha256
 
 
 TOPOLOGY_COMPARISON_SCHEMA_VERSION = 1
@@ -33,18 +32,8 @@ VariantRole = Literal['current', 'proposed', 'as_built']
 EligibilityState = Literal['ELIGIBLE', 'INELIGIBLE']
 
 
-def canonical_topology_comparison_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_topology_comparison_sha256(value: Any) -> str:
-    return sha256(canonical_topology_comparison_json(value).encode('utf-8')).hexdigest()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

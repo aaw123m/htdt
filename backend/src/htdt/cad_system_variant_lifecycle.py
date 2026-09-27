@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from hashlib import sha256
-import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Mapping, Sequence
@@ -13,6 +11,7 @@ from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant import (
     EntityLifecycleBinding,
@@ -23,24 +22,15 @@ from .cad_system_variant_repository import (
     CadSystemVariantRepository,
     SystemVariantApplication,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 SYSTEM_VARIANT_AS_BUILT_SCHEMA_VERSION = 1
 SYSTEM_VARIANT_AS_BUILT_AUTHORITY_VERSION = 'o100g-system-variant-as-built-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class SceneRevisionLineageRef(BaseModel):
@@ -478,10 +468,7 @@ class CadSystemVariantLifecycleRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

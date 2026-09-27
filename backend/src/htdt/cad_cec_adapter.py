@@ -27,12 +27,11 @@ normalization path is exercised in CI without a CEC dongle.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 CEC_ADAPTER_ID = 'htdt-cec'
@@ -105,18 +104,8 @@ class CECError(RuntimeError):
         self.detail = detail
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def address_label(address: int) -> str:

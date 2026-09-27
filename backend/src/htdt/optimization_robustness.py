@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from math import asin, cos, degrees, isfinite, radians, sin
 from typing import Any, Callable, Literal, Protocol, Sequence
@@ -20,7 +19,7 @@ from .cad_extended_search import (
 from .cad_objective_models import CadObjectiveEvaluation
 from .cad_orientation_constraints import orientation_constraint_rejections
 from .cad_repository import SceneRevision
-from .cad_scene import Direction3, Position3, SceneDocument, scene_content_hash
+from .cad_scene import Direction3, SceneDocument, scene_content_hash
 from .cad_search import candidate_preview_document
 from .cad_search_models import (
     CadCandidate,
@@ -33,6 +32,7 @@ from .optimization_objectives import (
     ObjectiveMetric,
     ObjectiveVector,
 )
+from .canonical_json import canonical_json as canonical_robustness_json, canonical_sha256 as canonical_robustness_sha256
 
 
 ROBUSTNESS_SCHEMA_VERSION = 1
@@ -54,18 +54,8 @@ RobustnessAxisParameter = Literal[
 ]
 
 
-def canonical_robustness_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_robustness_sha256(value: Any) -> str:
-    return sha256(canonical_robustness_json(value).encode('utf-8')).hexdigest()
 
 
 def robustness_timestamp_utc() -> str:
@@ -1328,69 +1318,6 @@ def _copy_nominal_vector(
 ) -> ObjectiveVector:
     return nominal.vector.model_copy(update={'candidate_id': sample_id})
 
-
-def _make_sample(
-    *,
-    spec: RobustnessSpec,
-    plan: LocalPerturbation,
-    document: SceneDocument,
-    constraint_set: CadConstraintSet,
-    changed_entity_ids: Sequence[str],
-    objective_result: PerturbationObjectiveResult | None,
-    failure_reason: str | None,
-    domain_rejection_ids: tuple[str, ...],
-    created_at_utc: str,
-) -> PerturbationSample:
-    g10 = evaluate_cad_constraints(document, constraint_set)
-    o80 = orientation_constraint_rejections(
-        document,
-        constraint_set,
-        changed_entity_ids=changed_entity_ids,
-    )
-    feasible = (
-        g10.constraints_satisfied
-        and not o80
-        and not domain_rejection_ids
-    )
-    if not feasible:
-        objective_result = None
-        failure_reason = failure_reason or 'hard_constraint_violation'
-
-    payload = {
-        'schema_version': ROBUSTNESS_SCHEMA_VERSION,
-        'sample_id': plan.sample_id,
-        'robustness_spec_id': spec.robustness_spec_id,
-        'robustness_spec_sha256': spec.robustness_spec_sha256,
-        'candidate_id': spec.candidate_id,
-        'sample_index': plan.sample_index,
-        'axis_id': plan.axis_id,
-        'step': plan.step,
-        'parameter_deltas': plan.parameter_deltas,
-        'perturbed_scene_content_hash': scene_content_hash(document),
-        'feasible': feasible,
-        'g10_results': [item.model_dump(mode='json') for item in g10.results],
-        'o80_rejection_ids': list(o80),
-        'domain_rejection_ids': list(domain_rejection_ids),
-        'model_id': spec.model_id,
-        'model_version': spec.model_version,
-        'prediction_provider_id': spec.prediction_provider_id,
-        'fidelity': spec.fidelity,
-        'objective_evaluation_spec_sha256': spec.objective_evaluation_spec_sha256,
-        'prediction_result_ref': (
-            None if objective_result is None else objective_result.prediction_result_ref
-        ),
-        'objective_vector': (
-            None
-            if objective_result is None
-            else objective_result.objective_vector.identity_payload()
-        ),
-        'failure_reason': failure_reason,
-    }
-    return PerturbationSample(
-        **payload,
-        sample_sha256=canonical_robustness_sha256(payload),
-        created_at_utc=created_at_utc,
-    )
 
 
 def evaluate_local_robustness(

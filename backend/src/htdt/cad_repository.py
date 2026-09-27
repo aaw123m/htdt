@@ -19,6 +19,7 @@ from .cad_scene import SceneDocument, canonical_scene_json, scene_content_hash
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .content_blobs import (
     ensure_content_blob_store,
@@ -256,10 +257,7 @@ class SceneRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

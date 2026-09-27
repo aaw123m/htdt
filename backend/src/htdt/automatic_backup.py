@@ -51,6 +51,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME
 from .native_backup import DATABASE_NAME, BackupManifest, create_backup
+from .clock import utc_now_iso as _utc_now
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -140,10 +141,6 @@ class BackupGenerationRecord(BaseModel):
     @property
     def is_automatic(self) -> bool:
         return self.classification in AUTOMATIC_CLASSIFICATIONS
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _parse_utc(value: str) -> datetime:

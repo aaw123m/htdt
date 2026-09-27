@@ -23,11 +23,9 @@ pattern is rebased.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
-from hashlib import sha256
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -37,6 +35,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_schema import ensure_native_schema, require_native_tables
 from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 MeasurementPoseMethod = Literal[
@@ -73,24 +73,6 @@ _EXACT_CAPABLE_METHODS = frozenset(
         'imported_survey',
     }
 )
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _require_iso8601(value: str, name: str) -> None:

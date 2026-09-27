@@ -31,8 +31,6 @@ Contract properties:
 from __future__ import annotations
 
 from contextlib import closing
-from hashlib import sha256
-import json
 import sqlite3
 from typing import Any, Literal
 
@@ -44,13 +42,15 @@ from .cad_field_labels import FieldLabel, LabelSheet
 from .cad_project_bom import ProjectBOM
 from .cad_rack_infrastructure import RackDefinition, RackLayout
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 from .cad_sound_isolation import (
     IsolationAssembly,
     IsolationEstimate,
     IsolationMeasurement,
     IsolationScenario,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .clock import utc_now_iso as _utc_now
 
 
 class FeatureAuthorityConflictError(ValueError):
@@ -71,20 +71,6 @@ FeatureAuthorityKind = Literal[
     'field_label',
     'label_sheet',
 ]
-
-
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _digest(payload: Any) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _payload_digest(record: BaseModel) -> str:
@@ -109,10 +95,7 @@ class CadFeatureAuthorityRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         # #767: persistent schema is owned by the migration authority;
@@ -788,7 +771,3 @@ class CadFeatureAuthorityRepository:
         raise ValueError(f'unknown feature authority kind {kind!r}')
 
 
-def _utc_now() -> str:
-    from datetime import datetime, timezone
-
-    return datetime.now(timezone.utc).isoformat()

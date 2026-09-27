@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -25,30 +24,22 @@ from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_system_variant import EntityLifecycleBinding
 from .cad_system_variant_lifecycle import (
     CadSystemVariantLifecycleRepository,
     SystemVariantAsBuiltRecord,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 SYSTEM_VARIANT_MEASURED_SCHEMA_VERSION = 2
 SYSTEM_VARIANT_MEASURED_AUTHORITY_VERSION = 'o100g-system-variant-measured-2'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _authority_payload(
@@ -478,10 +469,7 @@ class CadSystemVariantMeasuredLifecycleRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

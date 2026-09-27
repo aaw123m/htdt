@@ -29,13 +29,12 @@ Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 PRESET_SCHEMA_VERSION = 1
@@ -83,18 +82,8 @@ PresetFreshnessState = Literal['current', 'stale', 'missing']
 OPERATING_PRESET_NOT_CONFIGURED = 'not_configured'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class PresetComponentRef(BaseModel):

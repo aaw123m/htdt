@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 from math import isfinite
 from typing import Any, Literal, Mapping, Sequence
@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_objective_models import canonical_objective_json, canonical_objective_sha256
+from .clock import utc_now_iso as _utc_now
 
 
 CAMPAIGN_SCHEMA_VERSION = 1
@@ -23,11 +24,6 @@ def _parse_timestamp(value: str, label: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f'{label} must be timezone-aware')
     return parsed
-
-
-def _utc_now() -> str:
-    """Caller-side campaign build clock; never proof of durable preregistration."""
-    return datetime.now(timezone.utc).isoformat()
 
 
 class CadValidationCampaignCandidate(BaseModel):

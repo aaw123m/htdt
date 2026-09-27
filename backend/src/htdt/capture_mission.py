@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from base64 import b64decode, b64encode
 from hashlib import sha256
-import json
 from typing import Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -22,28 +21,13 @@ from .project_identity import (
     HTDTProjectReference,
     InboundProjectRef,
 )
+from .canonical_json import canonical_json as _canonical_json, hash_parts as _hash_parts
 
 
 class CaptureMissionError(ValueError):
     """A mission, plan, or package could not be produced or decoded."""
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash_parts(prefix: str, *parts: str) -> str:
-    digest = sha256(prefix.encode('utf-8'))
-    for part in parts:
-        digest.update(b'\x00')
-        digest.update(part.encode('utf-8'))
-    return digest.hexdigest()
 
 
 def _deterministic_uuid(domain: str, *parts: str) -> str:

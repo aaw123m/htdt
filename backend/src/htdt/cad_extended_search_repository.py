@@ -16,7 +16,7 @@ from .cad_extended_search import (
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_search import generate_cad_candidates
 from .cad_search_repository import CadSearchRepository
-from .cad_schema import require_native_tables
+from .cad_schema import require_native_tables, connect_sqlite
 
 if TYPE_CHECKING:
     # CadRobustnessRepository already depends on this module, so the
@@ -58,10 +58,7 @@ class CadExtendedSearchRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

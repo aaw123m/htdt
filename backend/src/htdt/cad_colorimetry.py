@@ -42,8 +42,6 @@ source asset hash and the parser id so the provenance chain survives.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import atan2, cos, degrees, exp, radians, sin
 from typing import Literal
 
@@ -51,18 +49,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
+from .canonical_json import canonical_sha256 as _hash
 
 
-def _hash(payload) -> str:
-    return sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
 
 
 EOTFReference = Literal[
@@ -441,12 +430,6 @@ def _resolve_metric_version(
         )
     return metric_version
 
-
-def _xy_from_xyz(sample: TristimulusSample) -> tuple[float, float] | None:
-    total = sample.x + sample.y_luminance + sample.z
-    if total <= 0.0:
-        return None
-    return sample.x / total, sample.y_luminance / total
 
 
 def _xy_to_xyz(xy: tuple[float, float], luminance: float) -> tuple[float, float, float]:

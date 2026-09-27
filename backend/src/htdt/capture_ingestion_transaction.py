@@ -15,7 +15,7 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema, require_native_tables
+from htdt.cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from htdt.capture_bundle import (
     MAX_MANIFEST_BYTES,
     MAX_SOURCE_REF_BYTES,
@@ -61,6 +61,7 @@ from htdt.limits import (
     MAX_CAPTURE_INGEST_VERTEX_COUNT,
     MAX_CAPTURE_INGEST_WORKING_BYTES,
 )
+from .canonical_json import canonical_json as _canonical_json, hash_parts as _hash_parts
 
 
 UUID4_RE = re.compile(
@@ -161,14 +162,6 @@ class PersistedIngestionIntegrityError(CaptureIngestionTransactionError):
         super().__init__(
             f'{PERSISTED_INGESTION_INTEGRITY_MISMATCH}: {detail}'
         )
-
-
-def _hash_parts(prefix: str, *parts: str) -> str:
-    digest = sha256(prefix.encode('utf-8'))
-    for part in parts:
-        digest.update(b'\x00')
-        digest.update(part.encode('utf-8'))
-    return digest.hexdigest()
 
 
 def _source_evidence_id(bundle_digest: str, path: str, payload_sha256: str) -> str:
@@ -375,14 +368,87 @@ def _validate_plan_source_ref_grammar(plan: 'CaptureIngestionPlan') -> None:
                 stack.pop()
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
+
+
+def _repoint_lineage_parent(
+    connection: sqlite3.Connection,
+    table: str,
+    *,
+    column_defs: str,
+    insert_columns: str,
+    error_type: type[Exception],
+    label: str,
+) -> None:
+    """Retarget ``table``'s lineage-digest foreign key to the lineages table.
+
+    #413 demoted ``capture_ingestion_runs.lineage_digest`` from the runs
+    primary key to a non-unique projection (several processing runs may
+    share one lineage), so it can no longer parent a foreign key. The
+    shared ``capture_ingestion_lineages`` table is the unique lineage
+    parent; rebuilds ``table`` when its stored key still targets the runs
+    table or the dropped migration rename.
+    """
+    # Seed lineage rows from whatever run shape is present so child rows
+    # retain a valid parent; needed even when no rebuild runs, since a
+    # database opened before this contract may hold runs its lineage
+    # table never knew about.
+    run_tables = {
+        str(row['name'])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    for name in ('capture_ingestion_runs', 'capture_ingestion_runs_legacy'):
+        if name in run_tables:
+            connection.execute(
+                f'''
+                INSERT OR IGNORE INTO capture_ingestion_lineages(
+                    lineage_digest
+                )
+                SELECT DISTINCT lineage_digest FROM {name}
+                '''
+            )
+    parents = {
+        str(row['table'])
+        for row in connection.execute(f'PRAGMA foreign_key_list({table})')
+        if str(row['from']) == 'lineage_digest'
+    }
+    if parents == {'capture_ingestion_lineages'}:
+        return
+    if connection.in_transaction:
+        connection.commit()
+    # foreign_keys must be OFF during the rebuild: renaming the table
+    # otherwise rewrites the references other tables hold on it to the
+    # dropped legacy name.
+    connection.execute('PRAGMA foreign_keys=OFF')
+    try:
+        connection.execute('BEGIN IMMEDIATE')
+        connection.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
+        connection.execute(f'CREATE TABLE {table} (\n{column_defs}\n)')
+        connection.execute(
+            f'''
+            INSERT INTO {table}({insert_columns})
+            SELECT {insert_columns}
+            FROM {table}_legacy
+            '''
+        )
+        connection.execute(f'DROP TABLE {table}_legacy')
+        orphans = connection.execute(
+            f'PRAGMA foreign_key_check({table})'
+        ).fetchall()
+        if orphans:
+            connection.rollback()
+            raise error_type(
+                f'cannot retarget {label} to the lineages table: '
+                'unresolved foreign keys remain'
+            )
+        connection.commit()
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    finally:
+        connection.execute('PRAGMA foreign_keys=ON')
 
 
 def _validate_logical_path(value: str) -> str:
@@ -1090,10 +1156,7 @@ class CaptureIngestionRepository:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

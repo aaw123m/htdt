@@ -29,8 +29,6 @@ Honesty constraints:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal
 
@@ -58,6 +56,7 @@ from .cad_spatial_field import (
     extract_field_slice,
     probe_field,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 FIELD_EXPLORER_SCHEMA_VERSION = 1
 FIELD_EXPLORER_SESSION_AUTHORITY_VERSION = 'field-explorer-session-1'
@@ -69,18 +68,8 @@ FIELD_EXPLORER_MODE_FIELD_PRODUCER = 'analytical_rectangular_mode_field'
 MAX_FIELD_EXPLORER_SAMPLES = 4_000_000
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

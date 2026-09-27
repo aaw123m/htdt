@@ -18,9 +18,7 @@ closed rather than silently downgrading to 'unknown'.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from hashlib import sha256
-import json
+from datetime import datetime
 from math import isfinite
 from typing import Any, Literal, Sequence
 from uuid import uuid4
@@ -28,24 +26,8 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_authority_resolver import AuthorityRef
-
-
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
-
-
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .clock import utc_now_iso as _utc_now
 
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'
@@ -1378,8 +1360,6 @@ def build_electrical_load_observation(
 # the acoustic result is evaluated against the expected net polarity, never
 # collapsed into a single ambiguous 'polarity ok' flag.
 POLARITY_INVERSION_TOKEN = 'polarity_invert'
-
-
 
 
 class CadWiringVerificationCheck(BaseModel):

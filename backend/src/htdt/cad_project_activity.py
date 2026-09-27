@@ -28,8 +28,6 @@ Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Iterable, Literal, Protocol
 from uuid import uuid4
 
@@ -39,6 +37,7 @@ from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
 from .navigation_target import NavigationTarget, NavigationTargetKind
 from .workflow_navigation import DestinationId, WorkspaceId
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 ACTIVITY_EVENT_KINDS: frozenset[str] = frozenset(
@@ -100,18 +99,8 @@ ActivityEventKind = Literal[
 ]
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _link(

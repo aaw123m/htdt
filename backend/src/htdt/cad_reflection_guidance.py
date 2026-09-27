@@ -26,8 +26,6 @@ prove.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -43,24 +41,15 @@ from .cad_reflection_diagnostic import (
     ReflectionDiagnosticRequest,
 )
 from .cad_scene import Position3
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 REFLECTION_GUIDANCE_SCHEMA_VERSION = 1
 REFLECTION_GUIDANCE_AUTHORITY_VERSION = 'reflection-guidance-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 GuidanceKind = Literal[

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from contextlib import closing
-from hashlib import sha256
-import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -29,6 +27,7 @@ from .cad_repository import SceneRevision
 from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
+    connect_sqlite,
 )
 from .cad_search_models import CadSearchSpec
 from .comparison import FrequencyResponse
@@ -37,6 +36,7 @@ from .optimization_objectives import (
     ResponseObjectiveSpec,
     target_response_objectives,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
 
 
 PROVIDER_OBJECTIVE_CONNECTION_AUTHORITY_VERSION = (
@@ -44,18 +44,8 @@ PROVIDER_OBJECTIVE_CONNECTION_AUTHORITY_VERSION = (
 )
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _require_provider_band(
@@ -279,10 +269,7 @@ class CadPredictionProviderObjectiveRepository:
 
     def _connect(self) -> sqlite3.Connection:
         ensure_native_schema(self.path)
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        connection.execute('PRAGMA foreign_keys=ON')
-        return connection
+        return connect_sqlite(self.path)
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

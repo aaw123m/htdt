@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from typing import Any, Literal
 from uuid import uuid4
@@ -15,6 +14,7 @@ from .rew_roomsim_batch import (
     ROOMSIM_MODEL_ID,
     RewRoomSimPositionBatchResult,
 )
+from .canonical_json import canonical_json as canonical_roomsim_result_json, canonical_sha256 as canonical_roomsim_result_sha256
 
 
 CAD_ROOMSIM_BATCH_SCHEMA_VERSION = 1
@@ -22,18 +22,8 @@ CAD_ROOMSIM_ATTEMPT_SCHEMA_VERSION = 2
 CAD_ROOMSIM_EXECUTION_SCHEMA_VERSION = 1
 
 
-def canonical_roomsim_result_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_roomsim_result_sha256(value: Any) -> str:
-    return sha256(canonical_roomsim_result_json(value).encode('utf-8')).hexdigest()
 
 
 def roomsim_result_timestamp_utc() -> str:
