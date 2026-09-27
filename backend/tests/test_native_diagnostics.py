@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 import htdt.native_cad as native_cad
+from PySide6.QtCore import QObject
 from htdt import __version__
 from htdt.cad_scene import F1_DOCUMENT_ID
 from htdt.cad_schema import NativeSchemaError
@@ -190,8 +191,12 @@ def test_reinstall_replaces_hooks_without_stacking(tmp_path: Path) -> None:
     assert "single write" in _log_text(second.log_path)
 
 
-class _FakeApplication:
+class _FakeApplication(QObject):
+    """QObject-backed stand-in: native_cad passes the app as the receiver
+    of QTimer.singleShot, which requires a real QObject instance."""
+
     def __init__(self, argv: list[str]) -> None:
+        super().__init__()
         self.argv = argv
         self.exit_code = 0
 
