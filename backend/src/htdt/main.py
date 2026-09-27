@@ -20,7 +20,7 @@ from .conditions import classify_differences, context_differences
 from .database import SCHEMA_VERSION, Store
 from .features import FeatureDetectionError, detect_frequency_features, match_geometry_candidates
 from .geometry import room_geometry_payload
-from .models import AttachmentCreate, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
+from .models import AttachmentCreate, AttachmentKind, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
 from .placement_constraints import ConstraintSetCreate, PlacementEvaluationRequest, evaluate_constraint_set, validate_constraint_set_for_context
 from .readiness import evaluate_measurement_readiness
 from .search_space import (
@@ -543,10 +543,14 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get('/api/projects/{project_id}/measurements')
-    def list_measurements(project_id: str) -> list[dict]:
+    def list_measurements(project_id: str, context_id: str | None = Query(default=None),
+                          session_id: str | None = Query(default=None)) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
-        return store.list_measurements(project_id)
+        try:
+            return store.list_measurements(project_id, context_id, session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post('/api/projects/{project_id}/measurements', status_code=201)
     def import_measurement(project_id: str, request: MeasurementImportRequest) -> dict:
@@ -644,10 +648,15 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         }
 
     @app.get('/api/projects/{project_id}/attachments')
-    def list_attachments(project_id: str) -> list[dict]:
+    def list_attachments(project_id: str, context_id: str | None = Query(default=None),
+                         measurement_id: str | None = Query(default=None),
+                         kind: AttachmentKind | None = Query(default=None)) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
-        return store.list_attachments(project_id)
+        try:
+            return store.list_attachments(project_id, context_id, measurement_id, kind)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post('/api/projects/{project_id}/attachments', status_code=201)
     def create_attachment(project_id: str, request: AttachmentCreate) -> dict:

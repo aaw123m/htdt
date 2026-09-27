@@ -1,4 +1,5 @@
 param(
+    [string]$DataDir = "",
     [switch]$NoBrowser,
     [switch]$SkipFrontendBuild
 )
@@ -35,7 +36,13 @@ if (-not $SkipFrontendBuild) {
     }
 }
 
-$LaunchArgs = @('-m', 'htdt')
+# `python -m htdt` is a dev-only launcher that refuses to write the legacy
+# store into the default data root unless told where to put it (#598): always
+# pass an isolated directory so the script cannot exit 2 on startup.
+if (-not $DataDir) {
+    $DataDir = Join-Path $RepoRoot '.local\dev-data'
+}
+$LaunchArgs = @('-m', 'htdt', '--data-dir', $DataDir)
 if ($NoBrowser) {
     $LaunchArgs += '--no-browser'
 }

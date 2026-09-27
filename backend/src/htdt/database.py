@@ -516,10 +516,22 @@ class Store:
             'metadata': metadata,
         }
 
-    def list_measurements(self, project_id: str) -> list[dict[str, Any]]:
+    def list_measurements(self, project_id: str, context_id: str | None = None, session_id: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as db:
+            if context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
+                raise KeyError('context_not_found')
+            if session_id is not None and db.execute('SELECT id FROM sessions WHERE id = ? AND project_id = ?', (session_id, project_id)).fetchone() is None:
+                raise KeyError('session_not_found')
+            where = ['m.project_id = ?']
+            params: list[Any] = [project_id]
+            if context_id is not None:
+                where.append('m.context_id = ?')
+                params.append(context_id)
+            if session_id is not None:
+                where.append('m.session_id = ?')
+                params.append(session_id)
             rows = db.execute('''SELECT m.*, d.id AS dataset_id, d.frequency_blob, d.metadata_json, d.asset_sha256 FROM measurements m
-                               JOIN datasets d ON d.measurement_id = m.id WHERE m.project_id = ? ORDER BY m.imported_at DESC''', (project_id,)).fetchall()
+                               JOIN datasets d ON d.measurement_id = m.id WHERE ''' + ' AND '.join(where) + ' ORDER BY m.imported_at DESC', params).fetchall()
         result = []
         for row in rows:
             frequency = _unpack(row['frequency_blob']) or ()
@@ -578,9 +590,25 @@ class Store:
         return {'id': link_id, 'project_id': project_id, 'asset_sha256': asset_sha, 'measurement_id': measurement_id, 'context_id': context_id,
                 'kind': kind, 'label': label, 'filename': filename, 'size_bytes': len(raw), 'created_at': created_at, 'duplicate_asset': already_known}
 
-    def list_attachments(self, project_id: str) -> list[dict[str, Any]]:
+    def list_attachments(self, project_id: str, context_id: str | None = None, measurement_id: str | None = None,
+                         kind: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as db:
-            rows = db.execute('SELECT l.*, a.size_bytes FROM asset_links l JOIN assets a ON a.sha256 = l.asset_sha256 WHERE l.project_id = ? ORDER BY l.created_at DESC', (project_id,)).fetchall()
+            if context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
+                raise KeyError('context_not_found')
+            if measurement_id is not None and db.execute('SELECT id FROM measurements WHERE id = ? AND project_id = ?', (measurement_id, project_id)).fetchone() is None:
+                raise KeyError('measurement_not_found')
+            where = ['l.project_id = ?']
+            params: list[Any] = [project_id]
+            if context_id is not None:
+                where.append('l.context_id = ?')
+                params.append(context_id)
+            if measurement_id is not None:
+                where.append('l.measurement_id = ?')
+                params.append(measurement_id)
+            if kind is not None:
+                where.append('l.kind = ?')
+                params.append(kind)
+            rows = db.execute('SELECT l.*, a.size_bytes FROM asset_links l JOIN assets a ON a.sha256 = l.asset_sha256 WHERE ' + ' AND '.join(where) + ' ORDER BY l.created_at DESC', params).fetchall()
         return [dict(row) for row in rows]
 
     def save_comparison(self, project_id: str, dataset_a_id: str, dataset_b_id: str, spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
