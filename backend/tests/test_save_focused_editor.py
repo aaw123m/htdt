@@ -121,6 +121,7 @@ def test_ctrl_s_commits_focused_inspector_position(tmp_path, monkeypatch) -> Non
     repository = SceneRepository(tmp_path / "scenes.sqlite3")
     composition = _room_composition(repository, monkeypatch)
     mount = composition._make_room()
+    composition.preferences.set("display_input.length_unit", "m")
     assert mount.on_activate is not None
     mount.on_activate()
     workspace = mount.widget

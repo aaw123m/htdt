@@ -1648,7 +1648,13 @@ class WorkflowApplicationComposition:
         if not isinstance(workspace.viewport, RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
 
-        bind_inspector_display_length_policy(workspace.inspector, self.preferences)
+        preferences = getattr(self, "preferences", None)
+        if preferences is None:
+            preferences = ApplicationPreferenceStore.for_data_dir(
+                Path(self.repository.path).parent
+            )
+            self.preferences = preferences
+        bind_inspector_display_length_policy(workspace.inspector, preferences)
 
         geometry_input = RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
