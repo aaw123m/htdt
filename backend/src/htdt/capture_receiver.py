@@ -1103,10 +1103,11 @@ class CaptureReceiverService:
             pairing = self._require_active_pairing(token)
         except CaptureReceiverError:
             return 404, {'detail': 'unknown endpoint'}
-        if capture_instance_id:
-            bound = self._bind_capture_instance(pairing, capture_instance_id)
-            if bound is not None:
-                return bound
+        if not capture_instance_id:
+            return 400, {'detail': 'X-HTDT-Capture-Instance-ID required'}
+        bound = self._bind_capture_instance(pairing, capture_instance_id)
+        if bound is not None:
+            return bound
         try:
             receipt = json.loads(body.decode('utf-8'))
         except Exception:
@@ -1115,9 +1116,7 @@ class CaptureReceiverService:
             return 400, {'detail': 'unexpected receipt schema'}
         if receipt.get('package_id') != package_id:
             return 400, {'detail': 'receipt package mismatch'}
-        if capture_instance_id and (
-            receipt.get('capture_instance_id') != capture_instance_id
-        ):
+        if receipt.get('capture_instance_id') != capture_instance_id:
             return 400, {'detail': 'receipt device mismatch'}
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1295,7 +1294,7 @@ def _make_handler(service: CaptureReceiverService):
                 self._json(404, {'detail': 'unknown endpoint'})
                 return
             token, resource, suffix = route
-            if resource == 'capabilities':
+            if resource == 'capabilities' and not suffix:
                 document = service.capabilities_document(token)
                 if document is None:
                     self._json(404, {'detail': 'unknown endpoint'})
@@ -1358,7 +1357,7 @@ def _make_handler(service: CaptureReceiverService):
                 return
             body = self.rfile.read(length) if length else b''
             headers = {key: value for key, value in self.headers.items()}
-            if resource == 'deliveries':
+            if resource == 'deliveries' and not suffix:
                 status, response = service.handle_delivery(
                     token, headers, body
                 )
