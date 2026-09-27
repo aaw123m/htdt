@@ -469,6 +469,20 @@ class _OperationWorker(QObject):
             self.finished.emit()
 
 
+#: Operation threads that outlive their controller are re-owned here so a
+#: destroyed controller never deletes a still-running QThread under itself —
+#: the same contract as ``native_worker._LINGERING_THREADS``. The map also
+#: pins each worker's Python reference until ``finished`` fires; the pair
+#: cleans itself up through the already-connected ``finished -> quit ->
+#: deleteLater`` chain once the job returns.
+_LINGERING_OP_THREADS: dict[QThread, '_OperationWorker'] = {}
+
+
+def lingering_op_thread_count() -> int:
+    """Operation threads currently detached after their controller died."""
+    return len(_LINGERING_OP_THREADS)
+
+
 class DataManagementController(QObject):
     """Qt controller intended for Settings > Data Management in the UX110 shell.
 
@@ -498,6 +512,11 @@ class DataManagementController(QObject):
         self.backend = backend
         self.lifecycle = lifecycle
         self._active: _ActiveOperation | None = None
+        # destroy() must go through a plain callable: PySide6 silently never
+        # delivers the signal to a bound method of the object being
+        # destroyed (verified on PySide6 6.11), so a lambda keeps the detach
+        # path live. Same shape as native_worker._detach_all.
+        self.destroyed.connect(lambda: self._detach_active_thread())
 
     @property
     def is_busy(self) -> bool:
@@ -813,6 +832,31 @@ class DataManagementController(QObject):
                 data_restored=False,
             )
         )
+
+    def _detach_active_thread(self) -> None:
+        """Keep a running op thread alive if the controller is destroyed.
+
+        The shell's close guard makes this latent in orderly shutdown, but if
+        the controller is ever deleted mid-operation the still-running QThread
+        — a child of this object — would be deleted under itself. The pair is
+        re-owned at module scope until ``finished`` fires; result delivery and
+        lifecycle completion belong to the dead controller and are dropped.
+        """
+        active = self._active
+        if active is None:
+            return
+        self._active = None
+        thread = active.thread
+        # Pin the worker first: the record must never hold the last Python
+        # reference while the thread may still be running.
+        _LINGERING_OP_THREADS[thread] = active.worker
+        thread.setParent(None)
+        thread.finished.connect(
+            lambda: _LINGERING_OP_THREADS.pop(thread, None)
+        )
+        if not thread.isRunning():
+            # Finished between the last state check and the reparent.
+            _LINGERING_OP_THREADS.pop(thread, None)
 
     def _finish_active(self) -> None:
         self._active = None

@@ -26,10 +26,13 @@ import tempfile
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
 from typing import Any, Callable, Iterable, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .canonical_json import canonical_json as _canonical_json
 
 
 PREFERENCES_SCHEMA_VERSION = 1
@@ -157,6 +160,10 @@ class PreferenceDefinition:
             if not isinstance(value, str):
                 raise PreferenceValueError(f'{self.key}: expected string, got {value!r}')
         if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if not isfinite(value):
+                raise PreferenceValueError(
+                    f'{self.key}: value must be finite, got {value!r}'
+                )
             if self.min_value is not None and value < self.min_value:
                 raise PreferenceValueError(
                     f'{self.key}: {value} below minimum {self.min_value}'
@@ -335,10 +342,6 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
         ),
     )
 }
-
-
-def _canonical_json(payload: Mapping[str, Any]) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
 class ApplicationPreferences(BaseModel):

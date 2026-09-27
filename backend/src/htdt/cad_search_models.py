@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from math import isfinite
@@ -10,6 +9,8 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_constraint_models import CadConstraintSet
+from .canonical_json import canonical_json, canonical_sha256
+from .clock import utc_now_iso
 
 
 # Schema v2 binds the executable O10/constraint-engine payloads into
@@ -22,12 +23,8 @@ CAD_SEARCH_SCHEMA_VERSION = 2
 CAD_SEARCH_ALGORITHM_VERSION = 'search-space-grid-1'
 
 
-def canonical_search_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
-
-
-def canonical_search_sha256(value: Any) -> str:
-    return sha256(canonical_search_json(value).encode('utf-8')).hexdigest()
+canonical_search_json = canonical_json
+canonical_search_sha256 = canonical_sha256
 
 
 def constraint_workspace_snapshot(constraint_set: CadConstraintSet) -> tuple[str, str]:
@@ -278,4 +275,4 @@ def new_search_spec_id() -> str:
 
 
 def search_timestamp_utc() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return utc_now_iso()

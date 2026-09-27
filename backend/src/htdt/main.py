@@ -130,6 +130,10 @@ def _resolve_frontend_path(frontend_root: Path, path: str) -> Path | None:
 # HTDT_LEGACY_API opt-in so an everyday launch cannot silently recreate the
 # legacy store in the live root.
 LEGACY_API_ENV_VAR = 'HTDT_LEGACY_API'
+#: Swagger UI + the OpenAPI document hand the whole route surface to anything
+#: that reaches the loopback port, so they stay off unless explicitly opted
+#: into for development/debugging.
+LEGACY_API_DOCS_ENV_VAR = 'HTDT_LEGACY_API_DOCS'
 LEGACY_API_DISABLED_DETAIL = (
     'The legacy browser API is retired and development-only. Its store '
     '(htdt.sqlite3 + assets/) is no longer the data authority; the native '
@@ -149,7 +153,10 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         raise LegacyApiDisabledError(LEGACY_API_DISABLED_DETAIL)
     store = Store(data_dir or _default_data_dir())
     rew = rew_client or RewApiClient(os.environ.get('HTDT_REW_API_URL', DEFAULT_REW_API_URL))
-    app = FastAPI(title='Home Theater Digital Twin', version=__version__, docs_url='/api/docs', redoc_url=None, openapi_url='/api/openapi.json')
+    expose_docs = os.environ.get(LEGACY_API_DOCS_ENV_VAR) == '1'
+    app = FastAPI(title='Home Theater Digital Twin', version=__version__,
+                  docs_url='/api/docs' if expose_docs else None, redoc_url=None,
+                  openapi_url='/api/openapi.json' if expose_docs else None)
     app.state.store = store
     app.state.rew = rew
 
