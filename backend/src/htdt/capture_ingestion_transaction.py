@@ -1812,7 +1812,7 @@ class CaptureIngestionRepository:
 
         rows = connection.execute(
             '''
-            SELECT source_evidence_id, payload_sha256, byte_count, payload_blob
+            SELECT source_evidence_id, payload_sha256, payload_blob
             FROM capture_source_evidence
             WHERE length(payload_blob) > 0
             '''
