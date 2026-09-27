@@ -818,6 +818,56 @@ def test_v3_database_migrates_capture_evidence_losslessly(
     ) < legacy_size
 
 
+def test_v3_externalization_never_stores_unverified_inline_bytes(
+    tmp_path: Path,
+) -> None:
+    """An evidence row whose inline bytes fail their digest stays inline.
+
+    Copying it under the recorded digest either keys another row's bytes
+    under this digest or orphans the only copy the corrupt row has.
+    """
+    path = tmp_path / 'cad.sqlite3'
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    _legacy_database(path, plan, payloads)
+
+    # Corrupt one row's inline bytes; the recorded digest still names the
+    # original payload, so the bytes no longer verify.
+    corrupt = typed.source_evidence[0]
+    wrong_bytes = payloads[corrupt.path] + b'\x00'
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute(
+            'UPDATE capture_source_evidence SET payload_blob=? '
+            'WHERE source_evidence_id=?',
+            (wrong_bytes, corrupt.source_evidence_id),
+        )
+
+    repository = CaptureIngestionRepository(SceneRepository(path))
+
+    rows = _query(
+        path,
+        'SELECT source_evidence_id, payload_sha256, '
+        'length(payload_blob) AS n FROM capture_source_evidence',
+    )
+    by_id = {row['source_evidence_id']: row for row in rows}
+    # Verified rows externalized exactly once; the corrupt row's inline
+    # bytes were left in place, unreadable rather than silently swapped.
+    assert by_id[corrupt.source_evidence_id]['n'] == len(wrong_bytes)
+    for record in typed.source_evidence[1:]:
+        assert by_id[record.source_evidence_id]['n'] == 0
+    blob_shas = {
+        row['payload_sha256']
+        for row in _query(
+            path, 'SELECT payload_sha256 FROM htdt_content_blobs'
+        )
+    }
+    assert corrupt.payload_sha256 not in blob_shas
+    for record in typed.source_evidence[1:]:
+        assert record.payload_sha256 in blob_shas
+    with pytest.raises(CaptureIngestionTransactionError, match='missing'):
+        repository.get_source_evidence(corrupt.source_evidence_id)
+
+
 def test_v3_binding_rows_gain_normalized_source_authority_columns(
     tmp_path: Path,
 ) -> None:

@@ -1810,23 +1810,34 @@ class CaptureIngestionRepository:
         every read re-verifies both.
         """
 
-        connection.execute(
+        rows = connection.execute(
             '''
-            INSERT OR IGNORE INTO htdt_content_blobs(
-                payload_sha256, byte_count, payload_blob
-            )
-            SELECT payload_sha256, byte_count, payload_blob
+            SELECT source_evidence_id, payload_sha256, byte_count, payload_blob
             FROM capture_source_evidence
             WHERE length(payload_blob) > 0
             '''
-        )
-        connection.execute(
-            '''
-            UPDATE capture_source_evidence
-            SET payload_blob = X''
-            WHERE length(payload_blob) > 0
-            '''
-        )
+        ).fetchall()
+        for row in rows:
+            payload = bytes(row['payload_blob'])
+            # Only a payload that hashes back to its recorded digest may be
+            # externalized — the same check readers apply to inline bytes. A
+            # bulk copy under the unverified key could let one corrupt row
+            # poison a digest shared with healthy rows, and the blanket wipe
+            # would then erase the losing row's only readable bytes. Rows
+            # that fail verification keep their inline payload untouched.
+            if sha256(payload).hexdigest() != row['payload_sha256']:
+                continue
+            store_content_blob(
+                connection, payload, expected_sha256=row['payload_sha256']
+            )
+            connection.execute(
+                '''
+                UPDATE capture_source_evidence
+                SET payload_blob = X''
+                WHERE source_evidence_id=?
+                ''',
+                (row['source_evidence_id'],),
+            )
 
     @staticmethod
     def _compact_legacy_mesh_bindings(
