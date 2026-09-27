@@ -65,6 +65,19 @@ function usePlot(data: Data[], layout: Partial<Layout>) {
   return ref
 }
 
+function prefersDark(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true
+}
+
+function themedLayout(): Partial<Layout> {
+  if (!prefersDark()) return {}
+  return {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { color: '#b9b9bf' },
+  }
+}
+
 export function FrequencyPlot({ result }: { result: ComparisonResult }) {
   const data = useMemo<Data[]>(() => [
     { type: 'scatter', mode: 'lines', name: 'A', x: result.grid_hz, y: result.a_db },
@@ -77,9 +90,10 @@ export function FrequencyPlot({ result }: { result: ComparisonResult }) {
     xaxis: { type: 'log', title: { text: 'Frequency (Hz)' } },
     yaxis: { title: { text: 'Level (dB)' } },
     legend: { orientation: 'h' },
+    ...themedLayout(),
   }), [])
   const ref = usePlot(data, layout)
-  return <div ref={ref} className="plot" aria-label="A/B frequency response plot" />
+  return <div ref={ref} className="plot" role="img" aria-label="A/B frequency response plot" />
 }
 
 export function RoomPlot({ context }: { context: ContextPayload }) {
@@ -143,9 +157,10 @@ export function RoomPlot({ context }: { context: ContextPayload }) {
         aspectmode: 'data',
       },
       legend: { orientation: 'h' },
+      ...themedLayout(),
     }
     return { traces: [...boundaryTraces, speakerTrace, listenerTrace], layout: layoutValue }
   }, [context])
   const ref = usePlot(traces, layout)
-  return <div ref={ref} className="plot" aria-label="Room spatial plot" />
+  return <div ref={ref} className="plot" role="img" aria-label="Room spatial plot" />
 }

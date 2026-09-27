@@ -9,7 +9,7 @@ type Point2D = { x_m: number; y_m: number }
 type ProfileDraft = Record<string, { radius: string; margin: string }>
 type Draft = {
   id: string; kind: RuleKind; entityA: string; entityB: string; entities: string[]
-  polygon: Point2D[]; polygonGroups: Point2D[][]; edgeId: string; min: string; max: string; axis: 'x' | 'y' | 'z'; fixed: string
+  polygon: Point2D[]; edgeId: string; min: string; max: string; axis: 'x' | 'y' | 'z'; fixed: string
   distanceMode: '3d' | 'horizontal_xy'; distanceReference: 'center' | 'envelope_clearance'
   relation: 'mirror_x' | 'equal_x' | 'equal_y' | 'equal_z' | 'equal_delta_x' | 'equal_delta_y' | 'equal_delta_z'
   mirrorAxis: string; tolerance: string
@@ -105,7 +105,7 @@ function blankDraft(context: ContextRecord, count: number): Draft {
   const ids = entityIds(context)
   return {
     id: `rule-${count + 1}`, kind: 'allowed_region', entityA: ids[0] ?? '', entityB: ids[1] ?? ids[0] ?? '', entities: ids.slice(0, 1),
-    polygon: [], polygonGroups: [], edgeId: wallEdges(context)[0]?.id ?? '', min: '', max: '', axis: 'x', fixed: '',
+    polygon: [], edgeId: wallEdges(context)[0]?.id ?? '', min: '', max: '', axis: 'x', fixed: '',
     distanceMode: 'horizontal_xy', distanceReference: 'center', relation: 'equal_y', mirrorAxis: '', tolerance: '0.001',
   }
 }
@@ -115,7 +115,7 @@ function EntityPicker({ ids, selected, onChange, single = false }: {
 }) {
   return <div className="entity-picker">{ids.map((id) => {
     const active = selected.includes(id)
-    return <button key={id} type="button" className={active ? 'entity-chip active' : 'entity-chip'} onClick={() => {
+    return <button key={id} type="button" aria-pressed={active} className={active ? 'entity-chip active' : 'entity-chip'} onClick={() => {
       if (single) onChange([id])
       else onChange(active ? selected.filter((item) => item !== id) : [...selected, id])
     }}><span className="entity-dot" />{id}</button>
@@ -145,14 +145,12 @@ function arrowDelta(key: string, step: number): { x: number; y: number } | null 
   return null
 }
 
-function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode }: {
-  context: ContextRecord; points: Point2D[]; groups: Point2D[][]; onChange: (points: Point2D[]) => void
-  onGroupsChange: (groups: Point2D[][]) => void; mode: 'allowed' | 'exclusion'
+function PolygonSketch({ context, points, onChange, mode }: {
+  context: ContextRecord; points: Point2D[]; onChange: (points: Point2D[]) => void; mode: 'allowed' | 'exclusion'
 }) {
   const vertices = roomVertices(context)
   const boundary = [...vertices, vertices[0]].map((point) => mapPoint(context, point))
   const drawn = points.map((point) => mapPoint(context, point))
-  const completed = groups.map((group) => group.map((point) => mapPoint(context, point)))
   const room = context.payload.room
   const svgRef = useRef<SVGSVGElement>(null)
   const [cursor, setCursor] = useState<Point2D | null>(null)
@@ -247,7 +245,6 @@ function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode
     <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={addPoint} onKeyDown={sketchKeys} tabIndex={0}
       role="application" aria-label="Room polygon editor — click or press Enter to add a vertex, arrow keys move the cursor">
       <path className="sketch-room" d={`M ${boundary.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />
-      {completed.map((area, index) => <path key={index} className="sketch-area completed" d={`M ${area.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />)}
       {drawn.length > 1 && <path className="sketch-area" d={`M ${drawn.map((point) => `${point.x},${point.y}`).join(' L ')}${drawn.length >= 3 ? ' Z' : ''}`} />}
       {drawn.map((point, index) => <g key={index} className="sketch-vertex" tabIndex={0} role="button"
         aria-label={`Vertex ${index + 1} at ${points[index].x_m} m, ${points[index].y_m} m — arrow keys nudge, Enter removes`}
@@ -395,6 +392,12 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
     }
   }
 
+  function closeBuilder() {
+    const hasDraftWork = rules.length > 0 || draft.polygon.length > 0
+    if (hasDraftWork && !window.confirm('入力中のルールは保存されません。閉じますか？')) return
+    setOpen(false)
+  }
+
   async function save() {
     setSaving(true); setError('')
     try {
@@ -403,6 +406,7 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
         const radius = numberOrNull(values.radius)
         const margin = numberOrNull(values.margin)
         if (radius === null && margin === null) return []
+        if ((radius !== null && radius < 0) || (margin !== null && margin < 0)) throw new Error(`${entity_id}: Radius/Marginは0以上にしてください`)
         return [{ entity_id, footprint_radius_m: radius ?? 0, safety_margin_m: margin ?? 0 }]
       })
       await api(`/api/projects/${projectId}/constraint-sets`, {
@@ -418,12 +422,12 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
   if (!open) return <div className="builder-launch">
     <button type="button" className="builder-launch-button" onClick={() => setOpen(true)}><span>＋</span> ConstraintSet</button>
   </div>
-  return <div className="constraint-builder visual-builder">
+  return <div className="constraint-builder visual-builder" onKeyDown={(event) => { if (event.key === 'Escape') closeBuilder() }}>
     <div className="builder-header">
       <div><span className="section-kicker">NEW CONSTRAINT SET</span><h3>配置ルール</h3></div>
-      <button type="button" className="icon-button" aria-label="閉じる" onClick={() => setOpen(false)}>×</button>
+      <button type="button" className="icon-button" aria-label="閉じる" onClick={closeBuilder}>×</button>
     </div>
-    {error && <div className="notice error">{error}</div>}
+    {error && <div className="notice error" role="alert">{error}</div>}
     <div className="builder-name-row">
       <label><span>Name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
       <span className="status-pill neutral">R{context.revision_number}</span>
@@ -444,15 +448,15 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
       <div className="step-head"><span className="step-number">2</span><strong>Rule</strong><span className="step-count">{rules.length} saved</span></div>
       <div className="rule-kind-grid">{(Object.keys(ruleMeta) as RuleKind[]).map((kind) => {
         const meta = ruleMeta[kind]
-        return <button type="button" key={kind} className={draft.kind === kind ? 'rule-kind active' : 'rule-kind'} onClick={() => updateKind(kind)}>
+        return <button type="button" key={kind} aria-pressed={draft.kind === kind} className={draft.kind === kind ? 'rule-kind active' : 'rule-kind'} onClick={() => updateKind(kind)}>
           <span className="rule-symbol">{meta.symbol}</span><strong>{meta.label}</strong><small>{meta.short}</small>
         </button>
       })}</div>
       <div className="rule-config-head"><label><span>ID</span><input value={draft.id} onChange={(event) => setDraft({ ...draft, id: event.target.value })} /></label></div>
       {(draft.kind === 'allowed_region' || draft.kind === 'exclusion_region') && <div className="visual-rule-editor">
         <div className="visual-side"><span className="micro-label">TARGET</span><EntityPicker ids={ids} selected={draft.entities} onChange={(entities) => setDraft({ ...draft, entities })} /></div>
-        <PolygonSketch context={context} points={draft.polygon} groups={draft.polygonGroups}
-          onChange={(polygon) => setDraft({ ...draft, polygon })} onGroupsChange={(polygonGroups) => setDraft({ ...draft, polygonGroups })}
+        <PolygonSketch context={context} points={draft.polygon}
+          onChange={(polygon) => setDraft({ ...draft, polygon })}
           mode={draft.kind === 'allowed_region' ? 'allowed' : 'exclusion'} />
       </div>}
 
@@ -465,7 +469,7 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
 
       {draft.kind === 'axis_range' && <div className="compact-config">
         <div><span className="micro-label">TARGET</span><EntityPicker ids={ids} selected={[draft.entityA]} single onChange={(value) => setDraft({ ...draft, entityA: value[0] })} /></div>
-        <div className="segmented">{(['x','y','z'] as const).map((axis) => <button type="button" key={axis} className={draft.axis === axis ? 'active' : ''} onClick={() => setDraft({ ...draft, axis })}>{axis.toUpperCase()}</button>)}</div>
+        <div className="segmented">{(['x','y','z'] as const).map((axis) => <button type="button" key={axis} aria-pressed={draft.axis === axis} className={draft.axis === axis ? 'active' : ''} onClick={() => setDraft({ ...draft, axis })}>{axis.toUpperCase()}</button>)}</div>
         <div className="triple-number"><label><span>FIXED</span><div className="unit-input"><input value={draft.fixed} onChange={(event) => setDraft({ ...draft, fixed: event.target.value })} /><b>m</b></div></label>
           <label><span>MIN</span><div className="unit-input"><input value={draft.min} onChange={(event) => setDraft({ ...draft, min: event.target.value })} /><b>m</b></div></label>
           <label><span>MAX</span><div className="unit-input"><input value={draft.max} onChange={(event) => setDraft({ ...draft, max: event.target.value })} /><b>m</b></div></label></div>

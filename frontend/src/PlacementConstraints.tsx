@@ -125,6 +125,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
   const [positions, setPositions] = useState<Record<string, DraftPosition>>({})
   const [result, setResult] = useState<EvaluationResult | null>(null)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(false)
   const loadSeq = useRef(0)
 
@@ -147,7 +148,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
     setResult(null); setError(''); setSelectedId(''); setSets([])
     if (!projectId || !context) return
     setPositions(baselinePositions(context))
-    void reloadConstraintSets().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'ConstraintSet読込失敗'))
+    void reloadConstraintSets().catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'ConstraintSet読込失敗'))
   }, [projectId, context])
 
   async function evaluate() {
@@ -190,7 +191,8 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
         <span>{selected?.spec.entity_profiles.length ?? 0}<small>profiles</small></span>
       </div>
     </div>
-    {error && <div className="notice error">{error}</div>}
+    {loadError && <div className="notice error" role="alert"><span>{loadError}</span><button type="button" className="ghost compact" onClick={() => { setLoadError(''); void reloadConstraintSets().catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'ConstraintSet読込失敗')) }}>再読込</button></div>}
+    {error && <div className="notice error" role="alert">{error}</div>}
     <ConstraintBuilder key={context.id} projectId={projectId} context={context} onSaved={reloadConstraintSets} />
     <div className="constraint-toolbar">
       <label>ConstraintSet
@@ -230,13 +232,14 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
         </div>
       </div>
     </div>}
-    {result && <div className={result.feasible ? 'constraint-result-card success' : 'constraint-result-card danger'}>
+    {result && <div className={result.feasible ? 'constraint-result-card success' : 'constraint-result-card danger'} role="status">
       <div className="result-hero">
         <div><span className="section-kicker">Hard gate result</span><h3>{result.feasible ? 'この配置は設置制約を満たします' : 'この配置は探索対象から除外されます'}</h3></div>
         <strong>{result.rejections.length}</strong><span>rejections</span>
       </div>
-      {result.feasible ? <p className="hint">物理的に配置可能という判定です。音響的に優れていることはまだ意味しません。</p> : <div className="rejection-list">
-        {result.rejections.map((item, index) => <article key={`${item.constraint_id}-${index}`}>
+      {result.observations.length > 0 && <p className="hint">{result.observations.filter((item) => item.passed).length}/{result.observations.length} checks passed</p>}
+      {result.feasible ? <p className="hint">物理的に配置可能という判定です。音響的に優れていることはまだ意味しません。</p> : <div className="rejection-list" role="list">
+        {result.rejections.map((item, index) => <article key={`${item.constraint_id}-${index}`} role="listitem">
           <div className="rejection-index">{index + 1}</div>
           <div><strong>{item.constraint_id}</strong><span>{item.kind} · {item.entity_ids.join(', ')}</span><p>{item.message}</p><code>{formatValue(item.details)}</code></div>
         </article>)}

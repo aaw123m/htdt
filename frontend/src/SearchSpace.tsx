@@ -83,6 +83,7 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   const [selectedCandidateId, setSelectedCandidateId] = useState('')
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(false)
   const generateSeq = useRef(0)
   const loadSeq = useRef(0)
@@ -117,7 +118,7 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
     if (!projectId || !context) return
     const ids = Object.keys(entityPositions(context)).sort()
     setFocusEntity(ids[0] ?? '')
-    void reload().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Search Space読込失敗'))
+    void reload().catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'Search Space読込失敗'))
   }, [projectId, context])
 
   useEffect(() => {
@@ -140,18 +141,23 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   function requestPayload() {
     if (!selectedSet) throw new Error('ConstraintSetを選択してください')
     if (axes.length === 0) throw new Error('可動軸を1つ以上追加してください')
+    const parsedAxes = axes.map((item) => {
+      const min = numeric(item.min_m, `${item.entity_id}.${item.axis} min`)
+      const max = numeric(item.max_m, `${item.entity_id}.${item.axis} max`)
+      const step = numeric(item.step_m, `${item.entity_id}.${item.axis} step`)
+      if (step <= 0) throw new Error(`${item.entity_id}.${item.axis} stepは0より大きい値を入力してください`)
+      if (max < min) throw new Error(`${item.entity_id}.${item.axis} はminがmaxを超えています`)
+      return { entity_id: item.entity_id, axis: item.axis, min_m: min, max_m: max, step_m: step }
+    })
+    const limit = numeric(candidateLimit, 'candidate limit')
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50000) throw new Error('candidate limitは1〜50000の整数で入力してください')
     return {
       constraint_set_id: selectedSet.id,
       name: name.trim() || null,
       algorithm: 'deterministic_grid',
-      axes: axes.map((item) => ({
-        entity_id: item.entity_id, axis: item.axis,
-        min_m: numeric(item.min_m, `${item.entity_id}.${item.axis} min`),
-        max_m: numeric(item.max_m, `${item.entity_id}.${item.axis} max`),
-        step_m: numeric(item.step_m, `${item.entity_id}.${item.axis} step`),
-      })),
+      axes: parsedAxes,
       linked_derivations: Object.entries(derived).filter(([, master]) => master).map(([constraint_id, master_entity_id]) => ({ constraint_id, master_entity_id })),
-      candidate_limit: numeric(candidateLimit, 'candidate limit'),
+      candidate_limit: limit,
     }
   }
 
@@ -230,7 +236,8 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
         <span>{result?.feasible_candidate_count ?? '—'}<small>feasible</small></span>
       </div>
     </div>
-    {error && <div className="notice error">{error}</div>}
+    {loadError && <div className="notice error" role="alert"><span>{loadError}</span><button type="button" className="ghost compact" onClick={() => { setLoadError(''); void reload().catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'Search Space読込失敗')) }}>再読込</button></div>}
+    {error && <div className="notice error" role="alert">{error}</div>}
     <div className="search-builder">
       <div className="search-config-head">
         <label>ConstraintSet<select value={selectedSet?.id ?? ''} onChange={(event) => setConstraintSetId(event.target.value)}>
@@ -246,9 +253,12 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
           <div className="axis-selector-grid">
             {entityIds.map((entityId) => <article key={entityId}>
               <strong>{entityId}</strong>
-              <div className="segmented">{(['x', 'y', 'z'] as AxisName[]).map((axis) => <button type="button" key={axis}
-                className={axes.some((item) => item.entity_id === entityId && item.axis === axis) ? 'active' : ''}
-                onClick={() => addAxis(entityId, axis)}>{axis.toUpperCase()}</button>)}</div>
+              <div className="segmented">{(['x', 'y', 'z'] as AxisName[]).map((axis) => {
+                const active = axes.some((item) => item.entity_id === entityId && item.axis === axis)
+                return <button type="button" key={axis} aria-pressed={active} aria-label={`${entityId} ${axis.toUpperCase()}軸を追加`}
+                  className={active ? 'active' : ''}
+                  onClick={() => addAxis(entityId, axis)}>{axis.toUpperCase()}</button>
+              })}</div>
             </article>)}
           </div>
           <div className="search-axis-list">
@@ -303,13 +313,14 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
           <div className="search-map-toolbar"><label>Map entity<select value={focusEntity} onChange={(event) => setFocusEntity(event.target.value)}>{entityIds.map((id) => <option key={id}>{id}</option>)}</select></label><span>{offset + 1}–{offset + result.returned_candidate_count} / {result.feasible_candidate_count}</span></div>
           <SearchMap context={context} result={result} focusEntity={focusEntity} selectedId={selectedCandidateId} />
           <div className="search-pagination">
-            <button type="button" className="ghost" disabled={loading || offset === 0} onClick={() => void generate(selectedSpec.id, Math.max(0, offset - pageSize))}>←</button>
+            <button type="button" className="ghost" aria-label="前のページ" disabled={loading || offset === 0} onClick={() => void generate(selectedSpec.id, Math.max(0, offset - pageSize))}>←</button>
             <span>{Math.floor(offset / pageSize) + 1}</span>
-            <button type="button" className="ghost" disabled={loading || offset + pageSize >= result.feasible_candidate_count} onClick={() => void generate(selectedSpec.id, offset + pageSize)}>→</button>
+            <button type="button" className="ghost" aria-label="次のページ" disabled={loading || offset + pageSize >= result.feasible_candidate_count} onClick={() => void generate(selectedSpec.id, offset + pageSize)}>→</button>
           </div>
         </div>
         <div className="candidate-browser">
           <div className="editor-heading"><div><span className="section-kicker">Feasible page</span><h3>候補</h3></div><code>{result.candidate_set_sha256.slice(0, 10)}…</code></div>
+          {result.feasible_candidate_count === 0 && <div className="compact-empty">feasible候補がありません。可動軸・連動・ConstraintSetを見直してください。</div>}
           <div className="candidate-list">{result.candidates.map((candidate) => <button type="button" key={candidate.candidate_id}
             className={candidate.candidate_id === selectedCandidateId ? 'candidate-row active' : 'candidate-row'}
             onClick={() => setSelectedCandidateId(candidate.candidate_id)}>

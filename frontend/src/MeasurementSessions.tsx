@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, fileToBase64, parseList } from './api'
+import { CopyCode } from './copy'
 
 type Project = { id: string; name: string; created_at: string }
 type ContextRecord = { id: string; revision_number: number; created_at: string }
@@ -57,7 +58,9 @@ export function MeasurementSessionsPanel() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const loadSeq = useRef(0)
+  const measurementInputRef = useRef<HTMLInputElement>(null)
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
@@ -93,12 +96,19 @@ export function MeasurementSessionsPanel() {
     setSelectedSessionId((current) => sessionRows.some((row) => row.id === current) ? current : sessionRows[0]?.id || '')
   }
 
+  function retryLoad() {
+    setLoadError('')
+    void loadProjects()
+      .then(() => loadProject(projectId))
+      .catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : '読込に失敗しました'))
+  }
+
   useEffect(() => {
-    void loadProjects().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Project読込失敗'))
+    void loadProjects().catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'Project読込失敗'))
   }, [])
 
   useEffect(() => {
-    void loadProject(projectId).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Session読込失敗'))
+    void loadProject(projectId).catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'Session読込失敗'))
   }, [projectId])
 
   async function createSession() {
@@ -153,6 +163,7 @@ export function MeasurementSessionsPanel() {
       })
       await loadProject(projectId)
       setMeasurementFile(null)
+      if (measurementInputRef.current) measurementInputRef.current.value = ''
       setMessage(result.duplicate_asset
         ? `Sessionへ保存しました。同じRawAssetを使う既存Datasetが${result.existing_dataset_count}件あります`
         : 'Sessionへ測定を原本付きで保存しました')
@@ -177,7 +188,8 @@ export function MeasurementSessionsPanel() {
         <p className="hint">
           Sessionは「同じ測定作業のまとまり」です。repeat_groupは同条件再測定の系列なので別に保持します。既存測定を推測でSessionへ移しません。
         </p>
-        {(message || error) && <div className={error ? 'notice error' : 'notice'}>{error || message}</div>}
+        {loadError && <div className="notice error" role="alert"><span>{loadError}</span><button type="button" className="ghost compact" onClick={retryLoad}>再読込</button></div>}
+        {(message || error) && <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}>{error || message}</div>}
 
         <div className="grid2">
           <label>Project
@@ -209,7 +221,7 @@ export function MeasurementSessionsPanel() {
             <strong>{selectedSession.purpose ?? 'Untitled session'}</strong>
             <span>started: {selectedSession.started_at ?? 'unknown'}</span>
             <span>{selectedSession.measurement_count} measurement(s)</span>
-            <code>{selectedSession.id.slice(0, 8)}</code>
+            <CopyCode value={selectedSession.id} display={selectedSession.id.slice(0, 8)} />
           </div>
 
           <h3>このSessionへ測定を保存</h3>
@@ -225,7 +237,7 @@ export function MeasurementSessionsPanel() {
             <label>Repeat group<input value={repeatGroup} onChange={(event) => setRepeatGroup(event.target.value)} placeholder="任意" /></label>
           </div>
           <div className="grid4">
-            <label>REW text<input type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => setMeasurementFile(event.target.files?.[0] ?? null)} /></label>
+            <label>REW text<input ref={measurementInputRef} type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => setMeasurementFile(event.target.files?.[0] ?? null)} /></label>
             <label>Quality
               <select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value)}>
                 <option value="unknown">unknown</option><option value="usable">usable</option><option value="warning">warning</option><option value="invalid">invalid</option>
@@ -247,8 +259,9 @@ export function MeasurementSessionsPanel() {
               <strong>{measurement.channel_role}</strong>
               <span>quality: {measurement.quality_status}</span>
               <span>repeat: {measurement.repeat_group ?? '—'}</span>
-              <code>{measurement.dataset_id.slice(0, 8)}</code>
+              <CopyCode value={measurement.dataset_id} display={measurement.dataset_id.slice(0, 8)} />
             </article>)}
+            {sessionMeasurements.length === 0 && <article><strong>測定なし</strong><span>このSessionにはまだ測定が保存されていません。上のフォームからREW textをインポートしてください。</span></article>}
           </div>
         </>}
       </section>

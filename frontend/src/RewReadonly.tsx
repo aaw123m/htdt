@@ -357,7 +357,7 @@ export function RewReadonlyPanel() {
           {status && <span className="hint">{status.base_url} · read-only: {status.read_only ? 'yes' : 'no'}</span>}
         </div>
 
-        {error && <div className="notice error">{error}</div>}
+        {error && <div className="notice error" role="alert">{error}</div>}
 
         {status && !status.connected && (
           <div className="analysis-banner">
@@ -389,7 +389,7 @@ export function RewReadonlyPanel() {
                 <span>EXCL candidates: {preflight.java.exclusive_output_candidates.length ? preflight.java.exclusive_output_candidates.join(' / ') : 'none'}</span>
                 <span>mapping: {preflight.java.output_channel_mapping.length ? preflight.java.output_channel_mapping.map((item) => `${item.channelLabel ?? '?'}→HW${item.hardwareChannel ?? '?'}`).join(', ') : 'none'}</span>
               </> : <span>Java output preflight is not applicable for the selected driver.</span>}
-              {preflight.warnings.map((warning) => <em key={warning}>{warning}</em>)}
+              {preflight.warnings.map((warning, index) => <em key={index}>{warning}</em>)}
             </div>}
             <div className="grid4 rew-controls">
               <label>Measurement
