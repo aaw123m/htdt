@@ -319,7 +319,10 @@ class CadProjectActivityService:
         events.extend(self._health_events(document_id))
         events.extend(self._av_sync_events(document_id))
         events.extend(self._note_events(document_id))
-        events.sort(key=lambda item: (item.occurred_at_utc, item.event_id))
+        # Stable sort on the timestamp alone: same-tick events keep their
+        # causal emission order (generators yield dependents after the rows
+        # they describe). event_id would re-shuffle ties by hash value.
+        events.sort(key=lambda item: item.occurred_at_utc)
         return tuple(events)
 
     def recent(
@@ -358,6 +361,13 @@ class CadProjectActivityService:
         revisions = self.scene_repository.list_revisions(document_id)
         committed = [item for item in revisions if not item.detached]
         first_revision_id = committed[0].revision_id if committed else None
+        try:
+            labels = self.scene_repository.revision_labels(document_id)
+        except AttributeError:
+            labels = {}
+        # Labels are emitted immediately after the revision they annotate so a
+        # same-tick timestamp (Windows ~15.6 ms clock granularity) can never
+        # order a label ahead of the revision it causally follows.
         for index, revision in enumerate(revisions):
             kind: ActivityEventKind = 'scene_revision_saved'
             title = f'部屋リビジョン R{index + 1} を保存'
@@ -380,11 +390,30 @@ class CadProjectActivityService:
                     revision.revision_id,
                 ),
             )
-        try:
-            labels = self.scene_repository.revision_labels(document_id)
-        except AttributeError:
-            labels = {}
-        for revision_id, label in sorted(labels.items(), key=lambda item: item[1].updated_at_utc):
+            label = labels.get(revision.revision_id)
+            if label is not None:
+                yield _event(
+                    document_id=document_id,
+                    kind='scene_revision_labeled',
+                    source_kind='revision_label',
+                    source_id=revision.revision_id,
+                    occurred_at_utc=label.updated_at_utc,
+                    title=f'リビジョンにラベル「{label.label}」',
+                    detail=label.note or None,
+                    deep_link=_link(
+                        NavigationTargetKind.SCENE_REVISION,
+                        WorkspaceId.ROOM,
+                        'history',
+                        revision.revision_id,
+                    ),
+                )
+        # Labels whose revision row is gone still surface — appended at the end.
+        labeled_ids = {item.revision_id for item in revisions}
+        for revision_id, label in sorted(
+            labels.items(), key=lambda item: item[1].updated_at_utc
+        ):
+            if revision_id in labeled_ids:
+                continue
             yield _event(
                 document_id=document_id,
                 kind='scene_revision_labeled',
