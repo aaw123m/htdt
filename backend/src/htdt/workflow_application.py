@@ -64,6 +64,7 @@ from .cad_display_labels import (
 from .cad_assumption_decision_repository import CadAssumptionDecisionRepository
 from .cad_design_decision_repository import CadDesignDecisionRepository
 from .cad_equipment_binding_repository import CadEquipmentBindingRepository
+from .cad_equipment_instance_repository import CadInstalledEquipmentRepository
 from .cad_installation_context_repository import CadInstallationContextRepository
 from .cad_system_health_repository import CadSystemHealthRepository
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
@@ -907,6 +908,13 @@ class WorkflowApplicationComposition:
                 focus_kinds=frozenset({
                     NavigationTargetKind.ACTIVITY_JOB,
                     NavigationTargetKind.PROJECT_CHECKPOINT,
+                    # Authorities with no dedicated surface — their own
+                    # timeline row is the focusable record.
+                    NavigationTargetKind.OPERATING_PRESET,
+                    NavigationTargetKind.HEALTH_BASELINE,
+                    NavigationTargetKind.HEALTH_CHECK_PLAN,
+                    NavigationTargetKind.AV_SYNC_CONDITION,
+                    NavigationTargetKind.PROJECT_NOTE,
                 }),
             ),
             WorkspaceRegistration(
@@ -1928,14 +1936,42 @@ class WorkflowApplicationComposition:
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:
                 return TargetFocusResult(focused=True)
+            if target.kind is NavigationTargetKind.SCENE_REVISION:
+                if workspace.history_panel.select_revision(target.primary_id):
+                    return TargetFocusResult(focused=True)
+                return TargetFocusResult(
+                    focused=False,
+                    message='対象のリビジョンが履歴にありません',
+                )
+            entity_id = target.primary_id
+            if target.kind is NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE:
+                # Instances are their own authority; focus the bound scene
+                # entity instead of reporting a missing scene item.
+                instance = CadInstalledEquipmentRepository(
+                    self.repository
+                ).get_instance(target.primary_id)
+                if (
+                    instance is None
+                    or instance.document_id != workspace.controller.document_id
+                ):
+                    return TargetFocusResult(
+                        focused=False,
+                        message='対象の機器インスタンスがこのプロジェクトに存在しません',
+                    )
+                if instance.scene_entity_id is None:
+                    return TargetFocusResult(
+                        focused=False,
+                        message='この機器インスタンスは部屋の物体に紐付いていません',
+                    )
+                entity_id = instance.scene_entity_id
             try:
-                workspace.controller.document.entity(target.primary_id)
+                workspace.controller.document.entity(entity_id)
             except KeyError:
                 return TargetFocusResult(
                     focused=False,
                     message='対象の項目がこのプロジェクトに存在しません',
                 )
-            workspace.select_entity(target.primary_id)
+            workspace.select_entity(entity_id)
             return TargetFocusResult(focused=True)
 
         return WorkspaceMount(
@@ -1950,6 +1986,7 @@ class WorkflowApplicationComposition:
             on_close=close,
             focus_kinds=frozenset({
                 NavigationTargetKind.SCENE_ENTITY,
+                NavigationTargetKind.SCENE_REVISION,
                 NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE,
             }),
             focus_target=focus_target,
@@ -2156,6 +2193,21 @@ class WorkflowApplicationComposition:
             if select_section is None:
                 return TargetFocusResult(focused=False)
             select_section(section)
+            if (
+                target.kind is NavigationTargetKind.SYSTEM_VARIANT
+                and target.primary_id is not None
+            ):
+                panel = getattr(
+                    workspace, 'system_expansion_compare_panel', None
+                )
+                selector = getattr(panel, 'selector', None)
+                if selector is None or not selector.select_variant(
+                    target.primary_id
+                ):
+                    return TargetFocusResult(
+                        focused=False,
+                        message='対象の提案が比較一覧にありません',
+                    )
             return TargetFocusResult(focused=True)
 
         mount.on_activate = activate

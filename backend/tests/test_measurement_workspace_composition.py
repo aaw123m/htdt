@@ -56,13 +56,21 @@ def test_every_declared_context_selects_a_real_page(tmp_path: Path) -> None:
         app.processEvents()
 
 
-def test_legacy_calibration_context_normalizes_to_campaign(tmp_path: Path) -> None:
-    """#786: stale 'calibration' deep links land on a real page (campaign)."""
-    assert normalize_workspace_context(WorkspaceId.MEASUREMENT, "calibration") == "campaign"
+def test_calibration_context_selects_the_onboarding_page(
+    tmp_path: Path,
+) -> None:
+    """#786: 'calibration' deep links land on the instrument-onboarding page
+    (promoted to a canonical context in round 7 — it no longer aliases to
+    'campaign')."""
+    assert (
+        normalize_workspace_context(WorkspaceId.MEASUREMENT, "calibration")
+        == "calibration"
+    )
     app = _app()
     _, workspace = _workspace(tmp_path)
     try:
-        workspace.set_context("campaign")
+        workspace.set_context("calibration")
+        assert workspace.pages.currentIndex() == 5
     finally:
         workspace.close()
         workspace.deleteLater()

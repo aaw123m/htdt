@@ -805,7 +805,14 @@ class WorkflowShellWindow(QMainWindow):
                 message=self.router.last_block_reason or "画面を切り替えられません",
             )
         if link.section is not None and link.workspace in PROJECT_WORKSPACE_IDS:
-            self.select_context(link.section)
+            try:
+                self.select_context(link.section)
+            except ValueError:
+                # A stale or foreign link must not crash the navigation —
+                # land on the workspace and say which section was missing.
+                self.statusBar().showMessage(
+                    f"対象のセクション {link.section} はこの画面にありません"
+                )
 
         if resolution.status == "focused":
             result = self.router.focus_target(link.workspace, target)

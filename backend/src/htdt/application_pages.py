@@ -34,7 +34,11 @@ from PySide6.QtWidgets import (
 from .build_info import version_string
 from .cad_repository import SceneRepository
 from .cad_schema import connect_sqlite
-from .navigation_target import NavigationTarget, NavigationTargetKind
+from .navigation_target import (
+    NavigationTarget,
+    NavigationTargetKind,
+    navigation_target_from_uri,
+)
 from .project_library_repository import ProjectLibraryRepository
 from .native_diagnostics import diagnostics_dir
 from .ui_theme import TypographyRole, set_typography_role
@@ -671,6 +675,10 @@ class ActivityPage(QWidget):
                     )
                 ):
                     cell = QTableWidgetItem(str(value))
+                    if column == 0:
+                        cell.setData(
+                            Qt.ItemDataRole.UserRole, operation.operation_id
+                        )
                     self.operations_table.setItem(row, column, cell)
         if self.events_table is not None and self._list_events is not None:
             self.events_table.setRowCount(0)
@@ -898,9 +906,41 @@ def inbox_focus(page: CaptureInboxPage, target: NavigationTarget) -> TargetFocus
     )
 
 
+def _event_row_matches(cell: QTableWidgetItem, target: NavigationTarget) -> bool:
+    """A timeline row matches when its stored nav URI targets the same id."""
+
+    link = cell.data(Qt.ItemDataRole.UserRole)
+    if not isinstance(link, str):
+        return False
+    try:
+        linked = navigation_target_from_uri(link)
+    except ValueError:
+        return False
+    if linked.kind is not target.kind:
+        return False
+    return bool(set(linked.object_ids) & set(target.object_ids))
+
+
 def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusResult:
     if target.primary_id is None:
         return TargetFocusResult(focused=True)
+    if page.events_table is not None:
+        for row in range(page.events_table.rowCount()):
+            cell = page.events_table.item(row, 0)
+            if cell is not None and _event_row_matches(cell, target):
+                page.events_table.selectRow(row)
+                page.events_table.scrollToItem(cell)
+                return TargetFocusResult(focused=True)
+    if page.operations_table is not None:
+        for row in range(page.operations_table.rowCount()):
+            cell = page.operations_table.item(row, 0)
+            if (
+                cell is not None
+                and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
+            ):
+                page.operations_table.selectRow(row)
+                page.operations_table.scrollToItem(cell)
+                return TargetFocusResult(focused=True)
     for row in range(page.table.rowCount()):
         cell = page.table.item(row, 2)
         if (
@@ -908,6 +948,7 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
             and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
         ):
             page.table.selectRow(row)
+            page.table.scrollToItem(cell)
             return TargetFocusResult(focused=True)
     return TargetFocusResult(
         focused=False,

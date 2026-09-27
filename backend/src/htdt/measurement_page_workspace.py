@@ -467,11 +467,28 @@ class MeasurementPageWorkspace(QWidget):
         self._update_context_label()
 
     def focus_entity(self, entity_id: str) -> None:
-        for row_index, row in enumerate(self._quality_views):
-            if row.measurement_id == entity_id or row.target_entity_id == entity_id:
-                self.quality_table.selectRow(row_index)
-                self._show_quality_row(row_index)
+        def _row_index() -> int | None:
+            for index, row in enumerate(self._quality_views):
+                if (
+                    row.measurement_id == entity_id
+                    or row.target_entity_id == entity_id
+                ):
+                    return index
+            return None
+
+        row_index = _row_index()
+        if row_index is None:
+            return
+        if self.current_context_id != "quality":
+            # The selection only exists on the quality page — show it before
+            # selecting, otherwise the row changes invisibly behind the
+            # section the link specified.
+            self.set_context("quality")
+            row_index = _row_index()
+            if row_index is None:
                 return
+        self.quality_table.selectRow(row_index)
+        self._show_quality_row(row_index)
 
     def refresh(self) -> None:
         self._refresh_pending()

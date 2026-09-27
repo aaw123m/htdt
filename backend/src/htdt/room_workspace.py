@@ -5939,8 +5939,10 @@ class RoomWorkspace(QWidget):
         labels = self.controller.revision_labels()
         self.history_panel.sync_revisions(
             revisions,
-            head.revision_id if head is not None else None,
-            labels,
+            head_revision_id=(
+                head.revision_id if head is not None else None
+            ),
+            labels=labels,
         )
         self.history_panel.show_detail(
             f"リビジョン数: {len(revisions)} · HEAD: "
