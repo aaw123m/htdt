@@ -22,6 +22,15 @@ REW_API_SNAPSHOT_FORMAT = 'htdt-rew-api-frequency-response-snapshot-1'
 REW_API_ADAPTER_VERSION = 'rew-api-snapshot-1'
 
 
+class AssetIntegrityError(RuntimeError):
+    """The store references an asset that is missing on disk.
+
+    This is server-side store corruption, not a client input problem, so it
+    deliberately does not subclass ``ValueError``: API handlers map
+    ``ValueError`` to 422, which would misreport the fault as a bad request.
+    """
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -352,7 +361,7 @@ class Store:
         if existing is not None:
             target = self.root / str(existing['relative_path'])
             if not target.is_file():
-                raise ValueError(f'Raw asset {digest} is referenced by the database but missing on disk')
+                raise AssetIntegrityError(f'Raw asset {digest} is referenced by the database but missing on disk')
             return digest, target, False, True
         suffix = Path(filename).suffix.lower()
         safe_suffix = suffix if suffix and len(suffix) <= 12 else '.bin'
