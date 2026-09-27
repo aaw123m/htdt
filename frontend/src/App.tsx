@@ -1,5 +1,5 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { api, fileToBase64 } from './api'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { api, fileToBase64, parseList } from './api'
 import { FeatureCandidatePanel } from './FeatureCandidates'
 import { PlacementConstraintPanel } from './PlacementConstraints'
 import { SearchSpacePanel } from './SearchSpace'
@@ -182,6 +182,18 @@ function speakerPayload(draft: SpeakerDraft): Speaker {
   }
 }
 
+function positive(value: string, label: string): number {
+  const result = numeric(value, label)
+  if (result <= 0) throw new Error(`${label}は0より大きい値を入力してください`)
+  return result
+}
+
+function integer(value: string, label: string): number {
+  const result = numeric(value, label)
+  if (!Number.isInteger(result)) throw new Error(`${label}は整数で入力してください`)
+  return result
+}
+
 function parseExcludedBands(text: string): ExcludedBand[] {
   if (!text.trim()) return []
   return text.split(/[,;]+/).map((chunk) => {
@@ -192,10 +204,6 @@ function parseExcludedBands(text: string): ExcludedBand[] {
     if (low_hz <= 0 || high_hz <= low_hz) throw new Error(`除外帯域「${chunk.trim()}」が不正です`)
     return { low_hz, high_hz }
   })
-}
-
-function parseList(text: string): string[] {
-  return text.split(/[\n,;]+/).map((value) => value.trim()).filter(Boolean)
 }
 
 function parseRoomVertices(text: string): { vertex_id: string; x_m: number; y_m: number }[] {
@@ -270,6 +278,12 @@ export default function App() {
   const [readiness, setReadiness] = useState<MeasurementReadiness | null>(null)
   const [readinessLoading, setReadinessLoading] = useState(false)
 
+  // Monotonic guards: async responses for an old project/context/file must not
+  // overwrite state for the selection that replaced them.
+  const projectLoadSeq = useRef(0)
+  const contextChangeSeq = useRef(0)
+  const measurementFileSeq = useRef(0)
+
   const activeContext = useMemo(
     () => contexts.find((context) => context.id === selectedContextId) ?? contexts[0] ?? null,
     [contexts, selectedContextId],
@@ -282,6 +296,7 @@ export default function App() {
   }
 
   async function reloadProjectData(id: string) {
+    const seq = ++projectLoadSeq.current
     if (!id) return
     const [contextRows, measurementRows, comparisonRows, attachmentRows] = await Promise.all([
       api<ContextRecord[]>(`/api/projects/${id}/contexts`),
@@ -289,6 +304,7 @@ export default function App() {
       api<Comparison[]>(`/api/projects/${id}/comparisons`),
       api<Attachment[]>(`/api/projects/${id}/attachments`),
     ])
+    if (seq !== projectLoadSeq.current) return
     setContexts(contextRows)
     setMeasurements(measurementRows)
     setComparisons(comparisonRows)
@@ -314,6 +330,7 @@ export default function App() {
   }, [projectId])
 
   useEffect(() => {
+    contextChangeSeq.current += 1
     setAcoustics(null)
     setReadiness(null)
   }, [selectedContextId])
@@ -374,7 +391,7 @@ export default function App() {
       if (!projectId) throw new Error('先にプロジェクトを作成してください')
       const payload = {
         room: {
-          width_m: numeric(room.width, '部屋幅'), depth_m: numeric(room.depth, '部屋奥行'), height_m: numeric(room.height, '部屋高さ'),
+          width_m: positive(room.width, '部屋幅'), depth_m: positive(room.depth, '部屋奥行'), height_m: positive(room.height, '部屋高さ'),
           geometry_kind: roomGeometryKind,
           ...(roomGeometryKind === 'polygon_prism' ? { footprint_vertices: parseRoomVertices(roomVerticesText) } : {}),
         },
@@ -390,7 +407,7 @@ export default function App() {
           model: 'UMIK-1',
           serial: micSerial.trim() || null,
           connection: 'usb',
-          sample_rate_hz: numeric(micSampleRate, 'マイクsample rate'),
+          sample_rate_hz: integer(micSampleRate, 'マイクsample rate'),
           calibration_profile: micCalibrationProfile,
           calibration_filename: micCalibrationFilename.trim() || null,
         },
@@ -407,17 +424,21 @@ export default function App() {
   }
 
   async function chooseMeasurementFile(file: File | null) {
+    const seq = ++measurementFileSeq.current
     setMeasurementFile(file)
     setPreview(null)
     setMeasurementBase64('')
     if (!file) return
     try {
       const raw_base64 = await fileToBase64(file)
+      if (seq !== measurementFileSeq.current) return
       setMeasurementBase64(raw_base64)
       const result = await api<Preview>('/api/import/preview', { method: 'POST', body: JSON.stringify({ filename: file.name, raw_base64 }) })
+      if (seq !== measurementFileSeq.current) return
       setPreview(result)
       notify('取込プレビューを検証しました')
     } catch (reason) {
+      if (seq !== measurementFileSeq.current) return
       setError(reason instanceof Error ? reason.message : 'プレビュー失敗')
     }
   }
@@ -481,15 +502,21 @@ export default function App() {
   async function compare() {
     try {
       if (!projectId || !datasetA || !datasetB) throw new Error('A/Bの測定を選択してください')
+      const lowHz = positive(band.low, '帯域下限')
+      const highHz = positive(band.high, '帯域上限')
+      if (highHz <= lowHz) throw new Error('帯域上限は下限より大きい値を入力してください')
+      const refLowHz = positive(band.refLow, '基準帯域下限')
+      const refHighHz = positive(band.refHigh, '基準帯域上限')
+      if (refHighHz <= refLowHz) throw new Error('基準帯域上限は下限より大きい値を入力してください')
       const comparison = await api<Comparison>(`/api/projects/${projectId}/comparisons`, {
         method: 'POST',
         body: JSON.stringify({
           dataset_a_id: datasetA,
           dataset_b_id: datasetB,
-          low_hz: numeric(band.low, '帯域下限'),
-          high_hz: numeric(band.high, '帯域上限'),
-          reference_low_hz: numeric(band.refLow, '基準帯域下限'),
-          reference_high_hz: numeric(band.refHigh, '基準帯域上限'),
+          low_hz: lowHz,
+          high_hz: highHz,
+          reference_low_hz: refLowHz,
+          reference_high_hz: refHighHz,
           excluded_bands: parseExcludedBands(excludedBandsText),
           expected_change_paths: parseList(expectedChangesText),
           label: 'Speaker setting A/B',
@@ -505,31 +532,39 @@ export default function App() {
 
   async function checkMeasurementReadiness() {
     if (!projectId || !activeContext) return
+    const seq = contextChangeSeq.current
     setReadinessLoading(true)
     try {
       const result = await api<MeasurementReadiness>(`/api/projects/${projectId}/contexts/${activeContext.id}/measurement-readiness`)
+      if (seq !== contextChangeSeq.current) return
       setReadiness(result)
       notify(result.machine_ready
         ? '自動preflightは通過しました。物理マイク向きとRX-A4A routingは手動確認が必要です'
         : '測定preflightに未充足項目があります')
     } catch (reason) {
+      if (seq !== contextChangeSeq.current) return
       setReadiness(null)
       setError(reason instanceof Error ? reason.message : '測定preflight失敗')
     } finally {
-      setReadinessLoading(false)
+      if (seq === contextChangeSeq.current) setReadinessLoading(false)
     }
   }
 
   async function runAcoustics() {
+    const seq = contextChangeSeq.current
     try {
       if (!projectId || !activeContext) throw new Error('配置版を選択してください')
       if ((activeContext.payload.room.geometry_kind ?? 'rectangular') !== 'rectangular') throw new Error('現在のA01幾何解析は矩形室専用です。polygon室では実行しません')
-      const maxHz = numeric(maxModeHz, 'モード上限')
+      const maxHz = positive(maxModeHz, 'モード上限')
+      if (maxHz > 2000) throw new Error('モード上限は2000 Hz以下で入力してください')
       const speed = numeric(soundSpeed, '音速')
+      if (!(speed > 250 && speed < 400)) throw new Error('音速は250〜400 m/sの範囲で入力してください')
       const result = await api<AcousticAnalysis>(`/api/projects/${projectId}/contexts/${activeContext.id}/acoustics?max_hz=${encodeURIComponent(maxHz)}&sound_speed_m_s=${encodeURIComponent(speed)}`)
+      if (seq !== contextChangeSeq.current) return
       setAcoustics(result)
       notify('幾何モデル候補を計算しました。実測診断とは別表示です')
     } catch (reason) {
+      if (seq !== contextChangeSeq.current) return
       setError(reason instanceof Error ? reason.message : '解析失敗')
     }
   }
@@ -641,7 +676,7 @@ export default function App() {
       <section className="panel" id="measure">
         <div className="section-title"><h2>Measurements</h2><span>原本 + quality snapshot</span></div>
         <div className="grid2">
-          <label>測定ファイル<input type="file" accept=".txt,.dat,.frd" onChange={(event) => void chooseMeasurementFile(event.target.files?.[0] ?? null)} /></label>
+          <label>測定ファイル<input type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => void chooseMeasurementFile(event.target.files?.[0] ?? null)} /></label>
           <label>条件版<select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}><option value="">選択</option>{contexts.map((context) => <option key={context.id} value={context.id}>R{context.revision_number}</option>)}</select></label>
           <label>入力role<input value={channelRole} onChange={(event) => setChannelRole(event.target.value)} /></label>
           <label>実際の音源ID（カンマ区切り）<input value={sourceSpeakerIds} onChange={(event) => setSourceSpeakerIds(event.target.value)} /></label>

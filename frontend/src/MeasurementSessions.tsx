@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { api, fileToBase64 } from './api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { api, fileToBase64, parseList } from './api'
 
 type Project = { id: string; name: string; created_at: string }
 type ContextRecord = { id: string; revision_number: number; created_at: string }
@@ -30,10 +30,6 @@ type ImportResult = {
   existing_dataset_count: number
 }
 
-function parseList(text: string): string[] {
-  return text.split(/[\n,;]+/).map((value) => value.trim()).filter(Boolean)
-}
-
 function sessionLabel(session: MeasurementSession): string {
   const purpose = session.purpose?.trim() || 'Untitled session'
   const started = session.started_at?.trim() || session.created_at
@@ -61,6 +57,7 @@ export function MeasurementSessionsPanel() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const loadSeq = useRef(0)
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
@@ -74,6 +71,7 @@ export function MeasurementSessionsPanel() {
   }
 
   async function loadProject(id: string) {
+    const seq = ++loadSeq.current
     if (!id) {
       setContexts([])
       setSessions([])
@@ -87,6 +85,7 @@ export function MeasurementSessionsPanel() {
       api<MeasurementSession[]>(`/api/projects/${id}/sessions`),
       api<Measurement[]>(`/api/projects/${id}/measurements`),
     ])
+    if (seq !== loadSeq.current) return
     setContexts(contextRows)
     setSessions(sessionRows)
     setMeasurements(measurementRows)
@@ -169,7 +168,7 @@ export function MeasurementSessionsPanel() {
     : []
 
   return (
-    <main className="shell supplemental-shell">
+    <div className="shell supplemental-shell">
       <section className="panel">
         <div className="section-title">
           <h2>Measurement Sessions</h2>
@@ -226,7 +225,7 @@ export function MeasurementSessionsPanel() {
             <label>Repeat group<input value={repeatGroup} onChange={(event) => setRepeatGroup(event.target.value)} placeholder="任意" /></label>
           </div>
           <div className="grid4">
-            <label>REW text<input type="file" accept=".txt,.csv,.frd" onChange={(event) => setMeasurementFile(event.target.files?.[0] ?? null)} /></label>
+            <label>REW text<input type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => setMeasurementFile(event.target.files?.[0] ?? null)} /></label>
             <label>Quality
               <select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value)}>
                 <option value="unknown">unknown</option><option value="usable">usable</option><option value="warning">warning</option><option value="invalid">invalid</option>
@@ -253,6 +252,6 @@ export function MeasurementSessionsPanel() {
           </div>
         </>}
       </section>
-    </main>
+    </div>
   )
 }

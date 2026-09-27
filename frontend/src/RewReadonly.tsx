@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 
 type RewStatus = {
@@ -184,6 +184,7 @@ export function RewReadonlyPanel() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const previewSeq = useRef(0)
 
   async function refreshTargets() {
     const rows = await api<Project[]>('/api/projects')
@@ -226,18 +227,22 @@ export function RewReadonlyPanel() {
       setError('PPOは1〜384の整数で指定してください')
       return
     }
+    const seq = ++previewSeq.current
     setLoading(true)
     setError('')
     try {
       const query = new URLSearchParams({ ppo: String(parsedPpo), unit: unit.trim() || 'SPL' })
       if (smoothing.trim()) query.set('smoothing', smoothing.trim())
       const next = await api<RewFrequencyResponse>(`/api/rew/measurements/${encodeURIComponent(selectedId)}/frequency-response?${query.toString()}`)
+      // Drop the response if the user selected a different measurement mid-flight.
+      if (seq !== previewSeq.current) return
       setResponse(next)
     } catch (reason) {
+      if (seq !== previewSeq.current) return
       setResponse(null)
       setError(reason instanceof Error ? reason.message : 'FRの取得に失敗しました')
     } finally {
-      setLoading(false)
+      if (seq === previewSeq.current) setLoading(false)
     }
   }
 
@@ -245,6 +250,11 @@ export function RewReadonlyPanel() {
     void refreshStatus()
     void refreshTargets().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'HTDT保存先の取得に失敗しました'))
   }, [])
+
+  // Changing the measurement selection invalidates any preview() in flight.
+  useEffect(() => {
+    previewSeq.current += 1
+  }, [selectedId])
 
   useEffect(() => {
     setSaveResult(null)
@@ -255,15 +265,20 @@ export function RewReadonlyPanel() {
       setSessionId('')
       return
     }
+    let cancelled = false
     void Promise.all([
       api<ContextRecord[]>(`/api/projects/${projectId}/contexts`),
       api<SessionRecord[]>(`/api/projects/${projectId}/sessions`),
     ]).then(([contextRows, sessionRows]) => {
+      if (cancelled) return
       setContexts(contextRows)
       setSessions(sessionRows)
       setContextId((current) => contextRows.some((item) => item.id === current) ? current : contextRows[0]?.id ?? '')
       setSessionId((current) => sessionRows.some((item) => item.id === current) ? current : '')
-    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'HTDT保存先の取得に失敗しました'))
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(reason instanceof Error ? reason.message : 'HTDT保存先の取得に失敗しました')
+    })
+    return () => { cancelled = true }
   }, [projectId])
 
   async function saveSnapshot() {
@@ -326,7 +341,7 @@ export function RewReadonlyPanel() {
   const surroundCalHint = preflight?.java?.input_cal_file?.toLowerCase().includes('_90deg') ?? false
 
   return (
-    <main className="shell supplemental-shell">
+    <div className="shell supplemental-shell">
       <section className="panel">
         <div className="section-title">
           <h2>REW read-only browser</h2>
@@ -439,6 +454,6 @@ export function RewReadonlyPanel() {
           </>
         )}
       </section>
-    </main>
+    </div>
   )
 }

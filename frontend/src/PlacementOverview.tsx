@@ -106,11 +106,13 @@ export function PlacementOverviewPanel() {
     setComparisons([])
     setReferenceDatasetId('')
     if (!projectId) return
+    let cancelled = false
     void Promise.all([
       api<ContextRecord[]>(`/api/projects/${projectId}/contexts`),
       api<Measurement[]>(`/api/projects/${projectId}/measurements`),
       api<Comparison[]>(`/api/projects/${projectId}/comparisons`),
     ]).then(([contextRows, measurementRows, comparisonRows]) => {
+      if (cancelled) return
       setContexts(contextRows)
       setMeasurements(measurementRows)
       setComparisons(comparisonRows)
@@ -118,7 +120,10 @@ export function PlacementOverviewPanel() {
       setChannelRole(firstMeasured?.channel_role ?? '')
       const firstContext = contextRows.find((context) => context.id === firstMeasured?.context_id)
       setPointId(pointIdentity(firstContext))
-    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '配置比較データの読込に失敗しました'))
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(reason instanceof Error ? reason.message : '配置比較データの読込に失敗しました')
+    })
+    return () => { cancelled = true }
   }, [projectId])
 
   const contextsById = useMemo(() => new Map(contexts.map((context) => [context.id, context])), [contexts])
@@ -141,7 +146,7 @@ export function PlacementOverviewPanel() {
   const referenceContext = referenceMeasurement ? contextsById.get(referenceMeasurement.context_id) : undefined
 
   return (
-    <main className="shell">
+    <div className="shell">
       <section className="panel">
         <div className="section-title"><h2>Layout History</h2><span>履歴一覧 · ランキングしない</span></div>
         <p className="hint">同じchannel / measurement pointの実測を配置版ごとに並べます。移動量、品質、AVR/部屋/MLP差、保存済みA/B比較を確認できます。この一覧自体は「最良配置」を選びません。</p>
@@ -186,6 +191,6 @@ export function PlacementOverviewPanel() {
           {projectId && rows.length === 0 && <article><strong>対象実測なし</strong><span>選択したchannel / measurement pointに一致するmeasured Datasetがありません。</span></article>}
         </div>
       </section>
-    </main>
+    </div>
   )
 }

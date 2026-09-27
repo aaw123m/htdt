@@ -31,6 +31,17 @@ function numberOrNull(value: string): number | null {
   return parsed
 }
 
+// Mirrors the backend model validators in placement_constraints.py so bad rules
+// fail fast instead of round-tripping to a 422.
+function boundPair(minText: string, maxText: string, label: string, nonNegative: boolean): { min: number | null; max: number | null } {
+  const min = numberOrNull(minText)
+  const max = numberOrNull(maxText)
+  if (min === null && max === null) throw new Error(`${label}: MINまたはMAXを入力してください`)
+  if (min !== null && max !== null && max < min) throw new Error(`${label}: MAXはMIN以上にしてください`)
+  if (nonNegative && ((min !== null && min < 0) || (max !== null && max < 0))) throw new Error(`${label}: 0以上の値を入力してください`)
+  return { min, max }
+}
+
 function entityIds(context: ContextRecord): string[] {
   const mlp = context.payload.measurement_point.point_id ?? context.payload.measurement_point.label
   return [mlp, ...context.payload.speakers.map((speaker) => speaker.speaker_id)]
@@ -189,23 +200,36 @@ export function ConstraintBuilder({ projectId, context, onSaved }: {
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_ids: draft.entities, region: { vertices: draft.polygon } }
       } else if (draft.kind === 'wall_clearance') {
         if (!draft.entities.length) throw new Error('対象を選択してください')
+        if (!draft.edgeId) throw new Error('基準の壁を選択してください')
+        const { min, max } = boundPair(draft.min, draft.max, '壁離隔', true)
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_ids: draft.entities, edge_id: draft.edgeId,
-          min_m: numberOrNull(draft.min), max_m: numberOrNull(draft.max) }
+          min_m: min, max_m: max }
       } else if (draft.kind === 'axis_range') {
+        const min = numberOrNull(draft.min)
+        const max = numberOrNull(draft.max)
+        const fixed = numberOrNull(draft.fixed)
+        if (fixed === null && min === null && max === null) throw new Error('軸固定: FIXED・MIN・MAXのいずれかを入力してください')
+        if (min !== null && max !== null && max < min) throw new Error('軸固定: MAXはMIN以上にしてください')
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_id: draft.entityA, axis: draft.axis,
-          min_m: numberOrNull(draft.min), max_m: numberOrNull(draft.max), fixed_m: numberOrNull(draft.fixed) }
+          min_m: min, max_m: max, fixed_m: fixed }
       } else if (draft.kind === 'movement_budget') {
         const max = numberOrNull(draft.max)
         if (max === null) throw new Error('最大移動量を入力してください')
+        if (max < 0) throw new Error('最大移動量は0以上にしてください')
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_id: draft.entityA,
           max_distance_m: max, distance_mode: draft.distanceMode }
       } else if (draft.kind === 'pair_distance') {
+        if (draft.entityA === draft.entityB) throw new Error('相互距離は異なる2点を選択してください')
+        const { min, max } = boundPair(draft.min, draft.max, '相互距離', true)
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_a: draft.entityA, entity_b: draft.entityB,
-          min_m: numberOrNull(draft.min), max_m: numberOrNull(draft.max), distance_mode: draft.distanceMode,
+          min_m: min, max_m: max, distance_mode: draft.distanceMode,
           distance_reference: draft.distanceReference }
       } else {
+        if (draft.entityA === draft.entityB) throw new Error('連動配置は異なる2点を選択してください')
+        const tolerance = numberOrNull(draft.tolerance) ?? .001
+        if (tolerance < 0) throw new Error('TOLERANCEは0以上にしてください')
         rule = { constraint_id: draft.id.trim(), kind: draft.kind, entity_a: draft.entityA, entity_b: draft.entityB,
-          relation: draft.relation, tolerance_m: numberOrNull(draft.tolerance) ?? .001,
+          relation: draft.relation, tolerance_m: tolerance,
           ...(draft.relation === 'mirror_x' && draft.mirrorAxis.trim() ? { mirror_axis_x_m: numberOrNull(draft.mirrorAxis) } : {}) }
       }
       setRules([...rules, rule])

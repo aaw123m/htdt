@@ -30,12 +30,17 @@ export function ComparisonReportPanel() {
   useEffect(() => {
     setComparisons([])
     if (!projectId) return
-    void api<Comparison[]>(`/api/projects/${projectId}/comparisons`).then(setComparisons)
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '比較履歴の読込に失敗しました'))
+    let cancelled = false
+    void api<Comparison[]>(`/api/projects/${projectId}/comparisons`).then((rows) => {
+      if (!cancelled) setComparisons(rows)
+    }).catch((reason: unknown) => {
+      if (!cancelled) setError(reason instanceof Error ? reason.message : '比較履歴の読込に失敗しました')
+    })
+    return () => { cancelled = true }
   }, [projectId])
 
   return (
-    <main className="shell">
+    <div className="shell">
       <section className="panel">
         <div className="section-title"><h2>Saved Comparisons</h2><span>self-contained HTML / JSON</span></div>
         <p className="hint">保存済みComparisonスナップショットからレポートを生成します。現在の配置や測定を再計算しないため、過去の比較根拠をそのまま持ち出せます。</p>
@@ -61,6 +66,6 @@ export function ComparisonReportPanel() {
           {projectId && comparisons.length === 0 && <article><strong>保存済み比較なし</strong><span>A/B比較を保存するとここからレポートを取得できます。</span></article>}
         </div>
       </section>
-    </main>
+    </div>
   )
 }

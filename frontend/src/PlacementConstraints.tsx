@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { ConstraintBuilder } from './ConstraintBuilder'
 import type { ContextPayload } from './plots'
@@ -126,6 +126,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
   const [result, setResult] = useState<EvaluationResult | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const loadSeq = useRef(0)
 
   const selected = useMemo(
     () => sets.find((item) => item.id === selectedId) ?? sets[0] ?? null,
@@ -134,8 +135,10 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
   const entityIds = useMemo(() => Object.keys(positions).sort(), [positions])
 
   async function reloadConstraintSets() {
+    const seq = ++loadSeq.current
     if (!projectId || !context) return
     const items = await api<ConstraintSetRecord[]>(`/api/projects/${projectId}/constraint-sets?context_id=${encodeURIComponent(context.id)}`)
+    if (seq !== loadSeq.current) return
     setSets(items)
     setSelectedId((current) => items.some((item) => item.id === current) ? current : (items[0]?.id ?? ''))
   }

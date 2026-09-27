@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import type { ContextPayload } from './plots'
 
@@ -84,6 +84,8 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   const [offset, setOffset] = useState(0)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const generateSeq = useRef(0)
+  const loadSeq = useRef(0)
   const pageSize = 120
 
   const positions = useMemo(() => context ? entityPositions(context) : {}, [context])
@@ -96,11 +98,13 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   const selectedCandidate = result?.candidates.find((item) => item.candidate_id === selectedCandidateId) ?? null
 
   async function reload() {
+    const seq = ++loadSeq.current
     if (!projectId || !context) return
     const [sets, specs] = await Promise.all([
       api<ConstraintSetRecord[]>(`/api/projects/${projectId}/constraint-sets?context_id=${encodeURIComponent(context.id)}`),
       api<SearchSpecRecord[]>(`/api/projects/${projectId}/search-specs?context_id=${encodeURIComponent(context.id)}`),
     ])
+    if (seq !== loadSeq.current) return
     setConstraintSets(sets)
     setSavedSpecs(specs)
     setConstraintSetId((current) => sets.some((item) => item.id === current) ? current : (sets[0]?.id ?? ''))
@@ -119,6 +123,11 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   useEffect(() => {
     setPreview(null); setDerived({}); setResult(null); setOffset(0)
   }, [constraintSetId])
+
+  // Selecting a different spec invalidates any generate() still in flight.
+  useEffect(() => {
+    generateSeq.current += 1
+  }, [selectedSpecId])
 
   function addAxis(entityId: string, axis: AxisName) {
     if (axes.some((item) => item.entity_id === entityId && item.axis === axis)) return
@@ -184,9 +193,11 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
 
   async function generate(specId = selectedSpec?.id, pageOffset = offset) {
     if (!specId) return
+    const seq = ++generateSeq.current
     setLoading(true); setError('')
     try {
       const value = await api<SearchResult>(`/api/projects/${projectId}/search-specs/${specId}/generate?offset=${pageOffset}&limit=${pageSize}`, { method: 'POST' })
+      if (seq !== generateSeq.current) return
       setResult(value); setOffset(pageOffset)
       setSelectedCandidateId(value.candidates[0]?.candidate_id ?? '')
       const candidateEntities = Object.keys(value.candidates[0]?.positions ?? {})

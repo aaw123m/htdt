@@ -93,6 +93,17 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
     if (!projectId || !datasetId) return
     try {
       setError('')
+      const low = Number(lowHz)
+      const high = Number(highHz)
+      const prominence = Number(prominenceDb)
+      if (!Number.isFinite(low) || !Number.isFinite(high) || low <= 0 || high > 2000 || high <= low) {
+        setError('帯域は 0 < Low < High ≤ 2000 Hz で入力してください')
+        return
+      }
+      if (!Number.isFinite(prominence) || prominence <= 0 || prominence > 30) {
+        setError('Prominenceは0〜30 dBで入力してください')
+        return
+      }
       const query = new URLSearchParams({
         low_hz: lowHz,
         high_hz: highHz,
