@@ -4,10 +4,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import htdt.native_cad as native_cad
+from PySide6.QtCore import QObject
 
 
-class _FakeApplication:
+class _FakeApplication(QObject):
+    """QObject-backed stand-in: native_cad passes the app as the receiver
+    of QTimer.singleShot, which requires a real QObject instance."""
+
     def __init__(self, _argv: list[str]) -> None:
+        super().__init__()
         self.theme_applied = False
 
     def setApplicationVersion(self, _version: str) -> None:
