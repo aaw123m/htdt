@@ -5,7 +5,7 @@ from typing import Callable
 
 import numpy as np
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt
-from PySide6.QtGui import QGuiApplication, QMouseEvent
+from PySide6.QtGui import QGuiApplication, QKeyEvent, QMouseEvent
 
 from .cad_input import CadAxis
 from .cad_scene import (
@@ -432,11 +432,92 @@ class RoomEntityTransformController(QObject):
         )
         self._controller.working.preview_rotate(orientation)
 
+    def nudge_selection(self, dx_m: float, dy_m: float) -> bool:
+        """Arrow-key move of the selection by one grid step (round8 key parity
+        with vertex nudge in the geometry editor).
+
+        One keypress = one undoable move through the same group-aware
+        preview/commit path as a drag, including the hard-constraint gate.
+        """
+
+        if self.mode is not None or self._dragging:
+            return False
+        geometry = self.workspace.geometry_input
+        if geometry is not None and geometry.is_active:
+            return False
+        controller = self._controller
+        targets = self._edit_targets()
+        if not targets or not controller.can_edit:
+            return False
+        locked = [
+            controller.document.entity(item).name
+            for item in targets
+            if controller.view_state.is_locked(item)
+        ]
+        if locked:
+            self.workspace._set_status(
+                f"選択にロック中の項目が含まれています: {'、'.join(locked)}",
+                error=True,
+            )
+            return False
+        working = controller.working
+        if working.has_preview:
+            working.cancel_preview()
+        working.begin_group_move(targets)
+        working.preview_group_move((dx_m, dy_m, 0.0))
+        gate_message = self.commit_gate(targets) if self.commit_gate is not None else None
+        if gate_message is not None:
+            working.cancel_preview()
+            self.workspace.refresh()
+            self.workspace._set_status(f"移動を拒否しました · {gate_message}", error=True)
+            return False
+        changed = working.commit_preview()
+        if changed:
+            notes = self.workspace.controller.propagate_constraints(set(targets))
+            controller._sync_recovery()
+        else:
+            notes = ()
+        self.workspace.refresh()
+        if notes:
+            self.workspace._set_status(" / ".join(notes))
+        elif changed:
+            self.workspace._set_status("ナッジしました · 元に戻す で復元できます")
+        return changed
+
+    def _key_press(self, event: QKeyEvent) -> bool:
+        if not isinstance(event, QKeyEvent):
+            return False
+        if event.modifiers() & (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        ):
+            return False
+        step = float(self._controller.view_state.grid_step_m) * (
+            10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+        )
+        delta = {
+            Qt.Key.Key_Left: (-step, 0.0),
+            Qt.Key.Key_Right: (step, 0.0),
+            Qt.Key.Key_Up: (0.0, step),
+            Qt.Key.Key_Down: (0.0, -step),
+        }.get(event.key())
+        if delta is None:
+            return False
+        if self.nudge_selection(*delta):
+            event.accept()
+            return True
+        return False
+
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
         viewport = getattr(self, "viewport", None)
-        if viewport is None or watched is not viewport.interactor or self.mode is None:
+        if viewport is None or watched is not viewport.interactor:
             return False
         event_type = event.type()
+        if event_type == QEvent.Type.KeyPress:
+            return self._key_press(event)
+        if self.mode is None:
+            return False
         if event_type == QEvent.Type.MouseButtonPress:
             mouse = event  # type: ignore[assignment]
             if isinstance(mouse, QMouseEvent) and mouse.button() == Qt.MouseButton.LeftButton:
