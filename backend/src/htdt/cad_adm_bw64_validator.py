@@ -30,6 +30,8 @@ from xml.etree import ElementTree
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .xml_guard import contains_xml_doctype
+
 
 ADM_VALIDATOR_AUTHORITY_VERSION = 'adm-bw64-validator-1'
 
@@ -212,6 +214,8 @@ class AdmSummary(BaseModel):
 
 
 def summarize_adm(xml_payload: bytes) -> AdmSummary | None:
+    if contains_xml_doctype(xml_payload):
+        return None
     try:
         root = ElementTree.fromstring(xml_payload)
     except ElementTree.ParseError:

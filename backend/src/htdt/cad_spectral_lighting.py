@@ -30,6 +30,7 @@ from xml.etree import ElementTree
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
+from .xml_guard import contains_xml_doctype
 
 
 SPECTRAL_LIGHTING_AUTHORITY_VERSION = 'spectral-lighting-1'
@@ -232,6 +233,10 @@ def parse_spectral_xml(
     Extracts the SPD table plus any *published* CCT/chromaticity/lux
     fields; nothing is computed during import.
     """
+    if contains_xml_doctype(text):
+        return ParsedSpectralDoc(
+            'invalid', None, 'XML DOCTYPE/ENTITY declarations are not permitted'
+        )
     try:
         root = ElementTree.fromstring(text)
     except ElementTree.ParseError as exc:

@@ -33,6 +33,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .ingress import read_file_bounded
+from .limits import MAX_ATTACHMENT_BYTES
+
 
 SpatialDatasetLicense = Literal[
     'cc0_public',
@@ -200,7 +203,7 @@ def load_sofa_dataset_profile(
         ) from exc
 
     path = Path(sofa_path)
-    file_bytes = path.read_bytes()
+    file_bytes = read_file_bounded(path, MAX_ATTACHMENT_BYTES)
     file_hash = sha256(file_bytes).hexdigest()
 
     with h5py.File(path, 'r') as handle:
