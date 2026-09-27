@@ -13,7 +13,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_topology_comparison import TopologyComparisonEvaluation
 from .cad_robust_pareto import O90RobustParetoEvaluation

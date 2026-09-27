@@ -24,7 +24,6 @@ from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository

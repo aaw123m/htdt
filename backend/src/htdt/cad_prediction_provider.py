@@ -23,7 +23,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .comparison import FrequencyResponse
 from .r120_geometry_compiler import ExactExternalAuthorityRef

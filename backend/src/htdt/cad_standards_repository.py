@@ -11,7 +11,6 @@ from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_standards import (
     StandardsEvaluation,

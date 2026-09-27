@@ -19,7 +19,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 from .clock import utc_now_iso as _utc_now

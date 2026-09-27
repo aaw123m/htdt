@@ -20,10 +20,9 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
+from .canonical_json import canonical_sha256 as _semantic_hash
 from .clock import utc_now_iso as _utc_now
 
 
@@ -1056,17 +1055,6 @@ def _result_ref(
         artifacts=result.artifacts,
     )
 
-
-def _artifact_for(
-    result: AcousticSolverResultEnvelope,
-    observable: str,
-) -> AcousticSolverObservableArtifact | None:
-    matches = [item for item in result.artifacts if item.observable == observable]
-    if len(matches) > 1:
-        raise ValueError(
-            f'solver result contains duplicate {observable} artifacts'
-        )
-    return None if not matches else matches[0]
 
 
 def _validity(

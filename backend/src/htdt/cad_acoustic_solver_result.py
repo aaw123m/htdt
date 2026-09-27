@@ -16,7 +16,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash

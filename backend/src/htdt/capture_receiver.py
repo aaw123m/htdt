@@ -52,7 +52,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,

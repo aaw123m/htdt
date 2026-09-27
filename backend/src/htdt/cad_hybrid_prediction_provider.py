@@ -36,7 +36,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_wave_excitation import AcousticWaveExcitationAuthority
 from .comparison import FrequencyResponse

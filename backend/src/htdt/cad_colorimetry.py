@@ -431,12 +431,6 @@ def _resolve_metric_version(
     return metric_version
 
 
-def _xy_from_xyz(sample: TristimulusSample) -> tuple[float, float] | None:
-    total = sample.x + sample.y_luminance + sample.z
-    if total <= 0.0:
-        return None
-    return sample.x / total, sample.y_luminance / total
-
 
 def _xy_to_xyz(xy: tuple[float, float], luminance: float) -> tuple[float, float, float]:
     x, y = xy

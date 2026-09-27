@@ -20,7 +20,6 @@ from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef

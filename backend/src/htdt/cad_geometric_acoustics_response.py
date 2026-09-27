@@ -9,11 +9,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .acoustic_benchmark import AcousticMaterial, GeometricIncidenceCondition
+from .acoustic_benchmark import AcousticMaterial
 from .cad_directivity import DirectivityDataset, evaluate_directivity
 from .cad_equipment import EquipmentDefinition, FrequencyDomain
 from .cad_geometric_acoustics_adapter import (
-    BoundaryIncidenceEvaluation,
     DeterministicAcousticPath,
     DeterministicGaExecutionInput,
     DeterministicPathArtifact,
@@ -69,9 +68,6 @@ def _finite(value: float, *, name: str) -> float:
 def _phase(value: complex) -> float:
     return atan2(value.imag, value.real)
 
-
-def _complex_from_parts(real: float, imag: float) -> complex:
-    return complex(_finite(real, name='complex real'), _finite(imag, name='complex imag'))
 
 
 def _ref_payload(ref: ExactExternalAuthorityRef) -> tuple[str, str, str]:

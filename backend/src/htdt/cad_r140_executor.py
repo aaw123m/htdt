@@ -26,7 +26,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 from .clock import utc_now_iso as _utc_now

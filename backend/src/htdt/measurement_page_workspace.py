@@ -137,13 +137,6 @@ def _evidence_label(value: str) -> str:
     }.get(value, value)
 
 
-def _source_label(value: str) -> str:
-    return {
-        "rew_api": "REW API",
-        "rew_text": "REWテキスト",
-        "unknown": "未確認",
-    }.get(value, value)
-
 
 def _channel_role_label(value: str) -> str:
     return {

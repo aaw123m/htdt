@@ -45,7 +45,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
-from .cad_video_geometry import EvaluationStatus, _combine_status
+from .cad_video_geometry import EvaluationStatus
 from .canonical_json import canonical_sha256 as _hash
 
 
@@ -461,38 +461,6 @@ def _band_candidates(
         )
     ]
 
-
-def _level_at(
-    profile: SourceUsableOutputProfile,
-    frequency_hz: float | None,
-    duration_class: OutputDurationClass,
-) -> float | None:
-    """Best in-domain level at a frequency (nearest sample when no exact
-    match); burst/thermal samples never serve continuous queries."""
-
-    candidates = [
-        s for s in profile.samples
-        if s.duration_class == duration_class
-    ]
-    if not candidates:
-        return None
-    if frequency_hz is None:
-        return max(s.level_db_spl for s in candidates)
-    exact = [
-        s for s in candidates
-        if s.frequency_hz is not None
-        and abs(s.frequency_hz - frequency_hz) < 1e-6
-    ]
-    if exact:
-        return max(s.level_db_spl for s in exact)
-    banded = [
-        s for s in candidates
-        if s.band is not None
-        and s.band.minimum_hz <= frequency_hz <= s.band.maximum_hz
-    ]
-    if banded:
-        return min(s.level_db_spl for s in banded)
-    return None
 
 
 def _policy_candidates(

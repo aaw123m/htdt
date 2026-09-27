@@ -18,7 +18,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository

@@ -22,7 +22,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .clock import utc_now_iso as _utc_now

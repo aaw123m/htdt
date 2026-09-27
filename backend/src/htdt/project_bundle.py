@@ -289,11 +289,6 @@ def _row_to_json(row: sqlite3.Row) -> dict:
     }
 
 
-def _row_json_bytes(row: sqlite3.Row) -> bytes:
-    return json.dumps(
-        _row_to_json(row), sort_keys=True, separators=(',', ':')
-    ).encode('utf-8')
-
 
 def _row_identity_values(row: sqlite3.Row) -> set[str]:
     """Every record-identity value a row exposes: plain text columns plus

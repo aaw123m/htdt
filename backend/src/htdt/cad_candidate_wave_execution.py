@@ -44,7 +44,6 @@ from .acoustic_pffdtd_impedance_adapter import (
     pffdtd_impedance_mapping_authority_payload,
 )
 from .cad_acoustic_snapshot import (
-    AcousticPredictionRequest,
     AcousticSceneSnapshot,
     TreatmentBoundarySnapshotBinding,
 )
@@ -54,7 +53,6 @@ from .treatment_boundary_overlay import (
     TreatmentBoundaryOverlay,
 )
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
-from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from .cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
@@ -72,7 +70,6 @@ from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_wave_excitation import (
     AcousticWaveExcitationAuthority,
     CadWaveExcitationRepository,
-    WaveSourceExcitationBinding,
 )
 from .r120_geometry_compiler import (
     ExactExternalAuthorityRef,
@@ -758,16 +755,6 @@ def _position_tuple(position: Any) -> tuple[float, float, float]:
         float(position.z_m),
     )
 
-
-def _vector_sub(
-    left: tuple[float, float, float],
-    right: tuple[float, float, float],
-) -> tuple[float, float, float]:
-    return (
-        left[0] - right[0],
-        left[1] - right[1],
-        left[2] - right[2],
-    )
 
 
 def _cross(

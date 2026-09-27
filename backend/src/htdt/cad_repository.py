@@ -20,7 +20,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .content_blobs import (
     ensure_content_blob_store,

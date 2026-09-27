@@ -12,7 +12,6 @@ from .cad_schema import (
     ensure_native_schema,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_system_variant import (
     EntityLifecycleBinding,

@@ -29,7 +29,6 @@ from .cad_schema import (
     check_native_schema_compatibility,
     require_native_tables,
     connect_sqlite,
-
 )
 from .cad_system_variant import materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
