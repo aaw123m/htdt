@@ -238,6 +238,27 @@ def _mean(values: tuple[float, ...]) -> float:
     return sum(values) / len(values)
 
 
+def _validate_response(response: FrequencyResponse, label: str) -> None:
+    if not response.frequency_hz:
+        raise ComparisonError(f'{label} has no frequency samples')
+    if len(response.frequency_hz) != len(response.level_db):
+        raise ComparisonError(
+            f'{label} frequency_hz/level_db length mismatch: '
+            f'{len(response.frequency_hz)} != {len(response.level_db)}'
+        )
+    if not all(math.isfinite(f) and f > 0.0 for f in response.frequency_hz):
+        raise ComparisonError(
+            f'{label} frequencies must be finite and positive for log2 interpolation'
+        )
+    if not all(math.isfinite(level) for level in response.level_db):
+        raise ComparisonError(f'{label} levels must be finite')
+
+
+def _validate_band(bounds: tuple[float, float], label: str) -> None:
+    if len(bounds) != 2 or not all(math.isfinite(bound) for bound in bounds):
+        raise ComparisonError(f'{label} must be a pair of finite frequencies')
+
+
 def compare_frequency_responses(
     a: FrequencyResponse,
     b: FrequencyResponse,
@@ -246,8 +267,16 @@ def compare_frequency_responses(
     reference_band_hz: tuple[float, float] | None = None,
     excluded_bands: tuple[tuple[float, float], ...] = (),
 ) -> ComparisonResult:
+    _validate_response(a, 'response a')
+    _validate_response(b, 'response b')
+    if not math.isfinite(low_hz) or not math.isfinite(high_hz):
+        raise ComparisonError('Comparison band bounds must be finite')
     if high_hz <= low_hz:
         raise ComparisonError('Invalid comparison band')
+    if reference_band_hz is not None:
+        _validate_band(reference_band_hz, 'reference_band_hz')
+    for band in excluded_bands:
+        _validate_band(band, 'excluded band')
     overlap_low = max(low_hz, a.frequency_hz[0], b.frequency_hz[0])
     overlap_high = min(high_hz, a.frequency_hz[-1], b.frequency_hz[-1])
     if overlap_high <= overlap_low:

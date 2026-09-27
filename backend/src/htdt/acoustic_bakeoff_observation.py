@@ -213,6 +213,12 @@ def evaluate_sampled_observable(expected, raw: RawObservableObservation) -> Bake
             f'observable {expected.observable_id} has no expected samples; '
             'a specialized R100B evaluator is required'
         )
+    if expected.acceptance_relation != 'matches_reference':
+        raise ValueError(
+            f'observable {expected.observable_id} acceptance relation '
+            f'{expected.acceptance_relation} requires a specialized evaluator; '
+            'the sampled evaluator scores matches_reference authority only'
+        )
     if raw.observable_id != expected.observable_id:
         raise ValueError(
             f'raw observable id {raw.observable_id} does not match {expected.observable_id}'
@@ -404,7 +410,7 @@ def evaluate_monotonic_convergence_observable(
         status=status,
         summary=summary,
         absolute_error=final_absolute,
-        relative_error=final_relative,
+        relative_error=final_relative if isfinite(final_relative) else None,
     )
 
 

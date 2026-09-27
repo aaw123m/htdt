@@ -143,7 +143,7 @@ class BenchmarkObservable(BaseModel):
     preprocessing: str | None = Field(default=None, min_length=1)
     metric_id: str = Field(min_length=1)
     metric_version: str = Field(min_length=1)
-    tolerance: float | None = Field(default=None, gt=0.0)
+    tolerance: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
     tolerance_unit: str | None = Field(default=None, min_length=1)
     reference: dict[str, Any]
     """Reference payload keyed by observable kind:
@@ -236,6 +236,15 @@ class EvaluationProfile(BaseModel):
     version: str = Field(min_length=1)
     # Per-observable tolerance overrides by observable_id.
     tolerance_overrides: dict[str, float] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def finite_overrides(self) -> 'EvaluationProfile':
+        for observable_id, tolerance in self.tolerance_overrides.items():
+            if not math.isfinite(float(tolerance)) or tolerance <= 0.0:
+                raise ValueError(
+                    f'tolerance override for {observable_id} must be finite and positive'
+                )
+        return self
 
 
 class ObservableEvaluation(BaseModel):
@@ -332,11 +341,20 @@ def _band_values(
         or not frequencies
     ):
         return [], [], 'UNKNOWN'
+    pairs: list[tuple[float, float]] = []
+    for raw_f, raw_v in zip(frequencies, values):
+        try:
+            f_value, v_value = float(raw_f), float(raw_v)
+        except (TypeError, ValueError):
+            return [], [], 'UNKNOWN'
+        # A non-finite frequency must not silently drop a sample out of band.
+        if not math.isfinite(f_value) or not math.isfinite(v_value):
+            return [], [], 'UNKNOWN'
+        pairs.append((f_value, v_value))
     band = observable.valid_band_hz
     pairs = [
-        (float(f), float(v))
-        for f, v in zip(frequencies, values)
-        if band is None or (band[0] <= float(f) <= band[1])
+        pair for pair in pairs
+        if band is None or (band[0] <= pair[0] <= band[1])
     ]
     if not pairs:
         return [], [], 'UNKNOWN'
@@ -399,15 +417,17 @@ def evaluate_observable(
         return _result('UNKNOWN', reason='no tolerance bound supplied')
 
     if observable.kind == 'magnitude_fr':
-        _, ref_values, failure = _band_values(
+        ref_freqs, ref_values, failure = _band_values(
             observable, reference, 'magnitude_db'
         )
         if failure is not None:
             return _result('UNKNOWN', reason='reference magnitude_fr data missing')
-        _, pred_values, failure = _band_values(
+        pred_freqs, pred_values, failure = _band_values(
             observable, prediction, 'magnitude_db'
         )
-        if failure is not None or len(pred_values) != len(ref_values):
+        # Pairing is positional: identical counts at different frequencies
+        # would compare values against the wrong grid point.
+        if failure is not None or pred_freqs != ref_freqs:
             return _result('UNKNOWN', reason='prediction magnitude_fr data missing or misaligned')
         error = _rms_error(ref_values, pred_values)
         return _result(
@@ -416,11 +436,11 @@ def evaluate_observable(
 
     if observable.kind == 'complex_transfer':
         for key in ('real', 'imaginary'):
-            _, ref_values, failure = _band_values(observable, reference, key)
+            ref_freqs, ref_values, failure = _band_values(observable, reference, key)
             if failure is not None:
                 return _result('UNKNOWN', reason=f'reference {key} data missing')
-            _, pred_values, failure = _band_values(observable, prediction, key)
-            if failure is not None or len(pred_values) != len(ref_values):
+            pred_freqs, pred_values, failure = _band_values(observable, prediction, key)
+            if failure is not None or pred_freqs != ref_freqs:
                 return _result(
                     'UNKNOWN',
                     reason=f'prediction {key} data missing or misaligned',
