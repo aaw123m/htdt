@@ -59,11 +59,9 @@ class MissionReconciliationReport(BaseModel):
     decision surface only.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.mission-reconciliation'] = (
-        'htdt.capture.mission-reconciliation'
-    )
+    schema_: Literal['htdt.capture.mission-reconciliation'] = Field(default='htdt.capture.mission-reconciliation', alias='schema')
     report_version: Literal[1] = 1
     mission_id: str
     plan_sha256: str
@@ -227,11 +225,9 @@ class RebaseDecision(BaseModel):
     """Explicit recorded decision to reuse returned evidence under current
     authority — a project-side decision, never a mutation of the source."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.reconciliation-decision'] = (
-        'htdt.capture.reconciliation-decision'
-    )
+    schema_: Literal['htdt.capture.reconciliation-decision'] = Field(default='htdt.capture.reconciliation-decision', alias='schema')
     decision_version: Literal[1] = 1
     decision_id: str
     mission_id: str = Field(min_length=1)

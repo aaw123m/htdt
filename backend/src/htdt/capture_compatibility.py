@@ -41,11 +41,9 @@ class ProtocolSupportRegistry(BaseModel):
     UI guidance cannot drift on independent version tables.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.protocol-support-registry'] = (
-        'htdt.protocol-support-registry'
-    )
+    schema_: Literal['htdt.protocol-support-registry'] = Field(default='htdt.protocol-support-registry', alias='schema')
     registry_version: int = Field(ge=1)
     entries: tuple[ProtocolSupportEntry, ...]
 
@@ -70,9 +68,9 @@ class ProtocolSupportRegistry(BaseModel):
 class ProductCompatibilityIdentity(BaseModel):
     """Build/protocol capability identity a product exposes for diagnosis."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.product-compatibility'] = 'htdt.product-compatibility'
+    schema_: Literal['htdt.product-compatibility'] = Field(default='htdt.product-compatibility', alias='schema')
     schema_version: Literal[1] = 1
     product: str = Field(min_length=1)
     app_version: str = Field(min_length=1)

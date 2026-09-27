@@ -8,7 +8,7 @@ from pathlib import Path
 import sqlite3
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from uuid import uuid4
 
@@ -54,10 +54,10 @@ class LegacyDataError(ValueError):
     """Raised when legacy-data inspection or migration cannot run safely."""
 
 
-class LegacyDataReport(BaseModel, frozen=True):
+class LegacyDataReport(BaseModel, frozen=True, serialize_by_alias=True):
     """Read-only inventory of the retired browser data authority (#598)."""
 
-    schema: Literal['htdt.legacy-data.report'] = 'htdt.legacy-data.report'
+    schema_: Literal['htdt.legacy-data.report'] = Field(default='htdt.legacy-data.report', alias='schema')
     schema_version: Literal['1.0.0'] = '1.0.0'
     state: Literal[
         'absent', 'empty', 'populated', 'migrated', 'unreadable',
@@ -69,10 +69,10 @@ class LegacyDataReport(BaseModel, frozen=True):
     detail: str | None = None
 
 
-class LegacyMigrationResult(BaseModel, frozen=True):
+class LegacyMigrationResult(BaseModel, frozen=True, serialize_by_alias=True):
     """Outcome of the bounded one-way legacy -> native migration."""
 
-    schema: Literal['htdt.legacy-data.migration'] = 'htdt.legacy-data.migration'
+    schema_: Literal['htdt.legacy-data.migration'] = Field(default='htdt.legacy-data.migration', alias='schema')
     schema_version: Literal['1.0.0'] = '1.0.0'
     state: Literal['nothing_to_migrate', 'migrated', 'already_migrated']
     imported_projects: int = 0

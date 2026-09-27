@@ -36,11 +36,9 @@ class EquipmentCatalogEntry(BaseModel):
 class EquipmentCatalogSnapshot(BaseModel):
     """Deterministic offline picker snapshot; not an equipment authority itself."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, serialize_by_alias=True)
 
-    schema: Literal['htdt.equipment.catalog-snapshot'] = (
-        'htdt.equipment.catalog-snapshot'
-    )
+    schema_: Literal['htdt.equipment.catalog-snapshot'] = Field(default='htdt.equipment.catalog-snapshot', alias='schema')
     schema_version: Literal[1] = 1
     authority_version: Literal[
         'o100c-equipment-definition-1'

@@ -42,9 +42,9 @@ class HTDTProjectReference(BaseModel):
     human presentation only — routing never keys on them.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.project-reference'] = 'htdt.project-reference'
+    schema_: Literal['htdt.project-reference'] = Field(default='htdt.project-reference', alias='schema')
     schema_version: Literal[1] = 1
     identity_authority: Literal['htdt-project-identity-1'] = (
         PROJECT_IDENTITY_AUTHORITY
@@ -82,11 +82,9 @@ class HTDTLegacyProjectRef(BaseModel):
     through explicit staging/user mapping rather than silent reinterpretation.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.project-reference.legacy'] = (
-        'htdt.project-reference.legacy'
-    )
+    schema_: Literal['htdt.project-reference.legacy'] = Field(default='htdt.project-reference.legacy', alias='schema')
     schema_version: Literal[1] = 1
     legacy_project_ref: str = Field(min_length=1)
 
@@ -102,9 +100,9 @@ class HTDTProjectDestination(BaseModel):
     routing record can change generation without mutating the project.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.project-destination'] = 'htdt.project-destination'
+    schema_: Literal['htdt.project-destination'] = Field(default='htdt.project-destination', alias='schema')
     schema_version: Literal[1] = 1
     project: HTDTProjectReference
     receiver_instance_id: str

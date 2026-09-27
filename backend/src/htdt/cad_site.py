@@ -106,9 +106,9 @@ class SiteSpace(BaseModel):
     remain a degenerate site.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.site-space'] = 'htdt.site-space'
+    schema_: Literal['htdt.site-space'] = Field(default='htdt.site-space', alias='schema')
     schema_version: Literal[1] = 1
     space_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
@@ -134,7 +134,7 @@ class SiteSpace(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema,
+            'schema': self.schema_,
             'schema_version': self.schema_version,
             'space_id': self.space_id,
             'authority_version': self.authority_version,
@@ -236,9 +236,9 @@ class SpaceRelationship(BaseModel):
     ``isolation_source_receiver`` keep their measurement/routing semantics.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.space-relationship'] = 'htdt.space-relationship'
+    schema_: Literal['htdt.space-relationship'] = Field(default='htdt.space-relationship', alias='schema')
     schema_version: Literal[1] = 1
     relationship_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
@@ -266,7 +266,7 @@ class SpaceRelationship(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         return {
-            'schema': self.schema,
+            'schema': self.schema_,
             'schema_version': self.schema_version,
             'relationship_id': self.relationship_id,
             'authority_version': self.authority_version,

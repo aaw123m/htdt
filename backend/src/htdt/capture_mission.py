@@ -211,9 +211,9 @@ MissionPurpose = Literal[
 class HTDTCaptureTaskPlan(BaseModel):
     """Versioned Capture-side task plan produced by HTDT (#563)."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.task-plan'] = 'htdt.capture.task-plan'
+    schema_: Literal['htdt.capture.task-plan'] = Field(default='htdt.capture.task-plan', alias='schema')
     plan_version: Literal[1] = 1
     plan_id: str = Field(pattern=UUID4_PATTERN)
     plan_sha256: str = Field(pattern=HEX64)
@@ -226,11 +226,9 @@ class HTDTCaptureTaskPlan(BaseModel):
 class MissionBaseline(BaseModel):
     """Exact issuing design authority a mission is generated from (#664)."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.mission-baseline'] = (
-        'htdt.capture.mission-baseline'
-    )
+    schema_: Literal['htdt.capture.mission-baseline'] = Field(default='htdt.capture.mission-baseline', alias='schema')
     baseline_version: Literal[1] = 1
     project: HTDTProjectReference
     document_id: str = Field(min_length=1)
@@ -243,9 +241,9 @@ class MissionBaseline(BaseModel):
 class CaptureMission(BaseModel):
     """One project-specific field mission: plan + issuing baseline."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.mission'] = 'htdt.capture.mission'
+    schema_: Literal['htdt.capture.mission'] = Field(default='htdt.capture.mission', alias='schema')
     mission_version: Literal[1] = 1
     mission_id: str = Field(pattern=UUID4_PATTERN)
     mission_sha256: str = Field(pattern=HEX64)
@@ -266,7 +264,7 @@ class CaptureMission(BaseModel):
 class MissionPackageDependency(BaseModel):
     """Bounded dependency descriptor embedded in a mission package."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
     dependency_id: str = Field(pattern=UUID4_PATTERN)
     kind: Literal[
@@ -279,7 +277,7 @@ class MissionPackageDependency(BaseModel):
         'repair_request',
     ]
     role: Literal['required', 'optional']
-    schema: str = Field(min_length=1)
+    schema_: str = Field(min_length=1, alias='schema')
     schema_version: int = Field(ge=1)
     payload_sha256: str = Field(pattern=HEX64)
     payload_base64: str
@@ -297,11 +295,9 @@ class MissionPackageDependency(BaseModel):
 class CaptureMissionPackage(BaseModel):
     """One-step versioned mission envelope with bounded dependencies."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.capture.mission-package'] = (
-        'htdt.capture.mission-package'
-    )
+    schema_: Literal['htdt.capture.mission-package'] = Field(default='htdt.capture.mission-package', alias='schema')
     package_version: Literal[1] = 1
     package_id: str = Field(pattern=UUID4_PATTERN)
     package_sha256: str = Field(pattern=HEX64)
@@ -738,7 +734,7 @@ def build_mission_package(
                 {
                     'kind': item.kind,
                     'role': item.role,
-                    'schema': item.schema,
+                    'schema': item.schema_,
                     'schema_version': item.schema_version,
                     'payload_sha256': item.payload_sha256,
                 }
@@ -782,7 +778,7 @@ def decode_mission_package(payload: bytes | str) -> CaptureMissionPackage:
                     {
                         'kind': item.kind,
                         'role': item.role,
-                        'schema': item.schema,
+                        'schema': item.schema_,
                         'schema_version': item.schema_version,
                         'payload_sha256': item.payload_sha256,
                     }

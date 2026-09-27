@@ -47,7 +47,7 @@ import tempfile
 from uuid import uuid4
 import zipfile
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__
 from .cad_repository import SceneRepository
@@ -145,9 +145,9 @@ class BundleRootIdentity(BaseModel):
 
 
 class ProjectBundleManifest(BaseModel):
-    model_config = {'frozen': True}
+    model_config = {'frozen': True, 'serialize_by_alias': True}
 
-    schema: str = BUNDLE_SCHEMA
+    schema_: str = Field(default=BUNDLE_SCHEMA, alias='schema')
     schema_version: str = BUNDLE_SCHEMA_VERSION
     source_htdt_version: str
     exported_at_utc: str
@@ -755,9 +755,9 @@ def import_project_bundle(
                 )
             )
         )
-        if manifest.schema != BUNDLE_SCHEMA:
+        if manifest.schema_ != BUNDLE_SCHEMA:
             raise BundleManifestInvalidError(
-                f'unsupported bundle schema: {manifest.schema}'
+                f'unsupported bundle schema: {manifest.schema_}'
             )
         if manifest.schema_version != BUNDLE_SCHEMA_VERSION:
             raise BundleManifestInvalidError(

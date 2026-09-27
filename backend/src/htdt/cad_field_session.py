@@ -102,9 +102,9 @@ class FieldSession(BaseModel):
     stale.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.field-session'] = 'htdt.field-session'
+    schema_: Literal['htdt.field-session'] = Field(default='htdt.field-session', alias='schema')
     schema_version: Literal[1] = 1
     session_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
@@ -153,7 +153,7 @@ class FieldSession(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema,
+            'schema': self.schema_,
             'schema_version': self.schema_version,
             'session_id': self.session_id,
             'authority_version': self.authority_version,
@@ -296,9 +296,9 @@ class FieldEvidenceRecord(BaseModel):
     without desktop reconciliation.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.field-evidence'] = 'htdt.field-evidence'
+    schema_: Literal['htdt.field-evidence'] = Field(default='htdt.field-evidence', alias='schema')
     schema_version: Literal[1] = 1
     record_id: str = Field(min_length=1)
     session_id: str = Field(min_length=1)
@@ -338,7 +338,7 @@ class FieldEvidenceRecord(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema,
+            'schema': self.schema_,
             'schema_version': self.schema_version,
             'record_id': self.record_id,
             'session_id': self.session_id,

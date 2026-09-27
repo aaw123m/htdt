@@ -183,11 +183,9 @@ class MeasurementPoseObservation(BaseModel):
     provenance; it never merges into or overwrites the planned target.
     """
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', serialize_by_alias=True)
 
-    schema: Literal['htdt.measurement-pose-observation'] = (
-        'htdt.measurement-pose-observation'
-    )
+    schema_: Literal['htdt.measurement-pose-observation'] = Field(default='htdt.measurement-pose-observation', alias='schema')
     schema_version: Literal[1] = 1
     observation_id: str = Field(min_length=1)
     authority_version: str = Field(min_length=1)
@@ -261,7 +259,7 @@ class MeasurementPoseObservation(BaseModel):
 
     def identity_payload(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            'schema': self.schema,
+            'schema': self.schema_,
             'schema_version': self.schema_version,
             'observation_id': self.observation_id,
             'authority_version': self.authority_version,
