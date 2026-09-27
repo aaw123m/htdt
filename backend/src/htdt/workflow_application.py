@@ -42,7 +42,20 @@ from .cad_input import (
     unbind_cad_input_commands,
 )
 from .cad_view_state import StandardView
+from .activity_center import (
+    ACTIVITY_HISTORY_FILENAME,
+    TERMINAL_STATES,
+    ActivityCenter,
+    OperationState,
+)
 from .capture_inbox import CaptureInboxRepository
+from .cad_av_sync_repository import CadAVSyncRepository
+from .cad_calibration_repository import CadCalibrationRepository
+from .cad_design_checkpoint_repository import CadDesignCheckpointRepository
+from .cad_operating_preset_repository import CadOperatingPresetRepository
+from .cad_project_activity import CadProjectActivityService
+from .cad_project_activity_repository import CadProjectActivityNoteRepository
+from .cad_system_variant_lifecycle import CadSystemVariantLifecycleRepository
 from .commissioning_plan import CommissioningPlanRepository
 from .cad_display_labels import (
     revision_display_label,
@@ -101,7 +114,13 @@ from .installation_handoff import (
 from .installation_output_authority import InstallationReportService
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
-from .navigation_target import NavigationTarget, NavigationTargetKind
+from .help_registry import build_help_registry
+from .localization import detect_system_locale
+from .navigation_target import (
+    NavigationTarget,
+    NavigationTargetKind,
+    navigation_target_from_uri,
+)
 from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .optimization_workflow_workspace import build_optimization_workspace_mount
 from .project_bundle import (
@@ -116,6 +135,7 @@ from .overview_readiness import OverviewReadinessService
 from .overview_workspace import OverviewWorkspace
 from .palette_search import (
     CommandPaletteProvider,
+    HelpTopicPaletteProvider,
     PaletteResultKind,
     PaletteSearchService,
     SceneEntityPaletteProvider,
@@ -141,6 +161,11 @@ from .user_facing_error import (
 )
 from .workspace_dirty_state import WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
+from .support_diagnostics import (
+    DiagnosticPackageBuilder,
+    package_filename,
+    run_health_checks,
+)
 from .workflow_help import HelpDialog
 from .workflow_navigation import (
     APPLICATION_DESTINATION_LABELS,
@@ -329,6 +354,9 @@ class WorkflowApplicationComposition:
 
         self.registry = CommandRegistry()
         register_default_commands(self.registry)
+        # Canonical offline help/glossary registry (#623) — indexed by the
+        # palette's help provider and rendered by HelpDialog.topic.
+        self.help_registry = build_help_registry()
         self._restore_rebind_note: str | None = None
 
         registrations = build_canonical_workspace_registrations(
@@ -365,10 +393,16 @@ class WorkflowApplicationComposition:
             reopen_data_handles=self._reopen_data_handles,
             thaw_mutations=self._thaw_data_mutations,
         )
+        # Application activity center (#603): one registry for every
+        # app-scoped long-running operation; history persists next to the
+        # data root so the next session can see what ran/failed last.
+        self.activity_center = ActivityCenter()
+        self.activity_center.subscribe(self._persist_activity_history)
         self.data_management_controller = DataManagementController(
             backend,
             lifecycle,
             parent=self.shell,
+            activity_center=self.activity_center,
         )
         self.data_management_component = build_data_management_component(
             self.data_management_controller
@@ -923,6 +957,11 @@ class WorkflowApplicationComposition:
                     help_destinations(),
                     self._open_help_topic,
                 ),
+                HelpTopicPaletteProvider(
+                    self.help_registry,
+                    self._open_help_topic,
+                    locale=detect_system_locale,
+                ),
             ),
             on_deep_link=self._navigate_target,
         )
@@ -957,7 +996,15 @@ class WorkflowApplicationComposition:
         if topic_id == 'help.palette':
             HelpDialog.palette_usage(parent=self.shell).exec()
             return True
-        return False
+        topic = self.help_registry.get(topic_id)
+        if topic is None:
+            return False
+        HelpDialog.topic(
+            topic,
+            locale=detect_system_locale(),
+            parent=self.shell,
+        ).exec()
+        return True
 
     def _open_project(self, document_id: str) -> None:
         """Switch the whole composition to another persisted document (#649)."""
@@ -1130,14 +1177,74 @@ class WorkflowApplicationComposition:
         )
 
     def _make_activity(self) -> WorkspaceMount:
+        # Cross-workspace project timeline (#772): the service projects
+        # revisions, variants, captures, measurements, calibrations,
+        # checkpoints, presets, health runs, AV-sync results and notes into
+        # one read-only chronological view with deep links back to the
+        # owning surface.
+        repository = self.repository
+        measurement_repository = CadMeasurementRepository(repository)
+        variant_repository = CadSystemVariantRepository(repository)
+        activity_service = CadProjectActivityService(
+            scene_repository=repository,
+            variant_repository=variant_repository,
+            variant_lifecycle_repository=CadSystemVariantLifecycleRepository(
+                scene_repository=repository,
+                variant_repository=variant_repository,
+            ),
+            calibration_repository=CadCalibrationRepository(
+                scene_repository=repository,
+                system_variant_repository=variant_repository,
+                measurement_repository=measurement_repository,
+                quality_repository=CadMeasurementQualityRepository(
+                    measurement_repository
+                ),
+            ),
+            capture_inbox=CaptureInboxRepository(repository),
+            measurement_repository=measurement_repository,
+            checkpoint_repository=CadDesignCheckpointRepository(repository),
+            preset_repository=CadOperatingPresetRepository(repository),
+            health_repository=CadSystemHealthRepository(repository),
+            av_sync_repository=CadAVSyncRepository(repository),
+            notes_repository=CadProjectActivityNoteRepository(repository),
+        )
+
+        def operations() -> tuple:
+            return (
+                *self.activity_center.active(),
+                *reversed(self.activity_center.recent(30)),
+            )
+
         page = ActivityPage(
-            lambda limit: list_recent_revisions(self.repository, limit)
+            lambda limit: list_recent_revisions(self.repository, limit),
+            list_operations=operations,
+            list_events=lambda limit: activity_service.recent(
+                self.document_id, limit=limit
+            ),
+            open_link=self._open_activity_link,
         )
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
             focus_target=lambda target: activity_focus(page, target),
         )
+
+    def _open_activity_link(self, uri: str) -> bool:
+        try:
+            target = navigation_target_from_uri(uri)
+        except ValueError:
+            return False
+        return self.shell.navigate_to_target(target).ok
+
+    def _persist_activity_history(self, operation: object) -> None:
+        if getattr(operation, 'state', None) not in TERMINAL_STATES:
+            return
+        try:
+            self.activity_center.persist_history(
+                self.data_dir / ACTIVITY_HISTORY_FILENAME
+            )
+        except OSError:
+            pass  # app-local diagnostics only — never block the operation
 
     def _make_library(self) -> WorkspaceMount:
         service = EquipmentLibraryService(self.repository)
@@ -1167,6 +1274,7 @@ class WorkflowApplicationComposition:
                 if self.capture_receiver is not None
                 else None
             ),
+            export_diagnostics=self._export_diagnostics_package,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -1186,6 +1294,51 @@ class WorkflowApplicationComposition:
             on_activate=page.refresh,
             focus_target=focus_target,
         )
+
+    def _export_diagnostics_package(self, parent) -> str | None:
+        """Build the bounded support bundle via DiagnosticPackageBuilder (#604).
+
+        Honors the ``diagnostics.include_project_ids`` preference — project
+        ids only enter the archive when the user opted in.
+        """
+        selected, _filter = QFileDialog.getSaveFileName(
+            parent,
+            "診断パッケージを保存",
+            str(self.data_dir / package_filename()),
+            "ZIP アーカイブ (*.zip)",
+        )
+        if not selected:
+            return None
+        if not selected.lower().endswith('.zip'):
+            selected += '.zip'
+        project_ids = {
+            entry.project_id: entry.display_name
+            for entry in self.project_library.list_projects()
+        }
+        failures: dict[str, object] = {}
+        history_path = self.data_dir / ACTIVITY_HISTORY_FILENAME
+        for operation in (
+            *ActivityCenter.load_history(history_path),
+            *self.activity_center.failed(50),
+        ):
+            if operation.state is OperationState.FAILED:
+                failures[operation.operation_id] = operation.model_dump(
+                    mode='json'
+                )
+        builder = DiagnosticPackageBuilder(
+            self.data_dir,
+            health_report=run_health_checks(self.data_dir, owns_lock=True),
+            operation_failures=tuple(failures.values()),
+            preferences_summary=dict(self.preferences.snapshot().values),
+            project_ids=project_ids,
+        )
+        plan = builder.plan(
+            include_project_ids=bool(
+                self.preferences.get('diagnostics.include_project_ids')
+            )
+        )
+        result = builder.build(Path(selected), plan)
+        return str(result.path)
 
     def _open_commissioning_wizard(self) -> None:
         """First-run project commissioning wizard (#588).

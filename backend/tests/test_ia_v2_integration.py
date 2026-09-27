@@ -229,11 +229,12 @@ def test_preferences_widget_fails_closed_on_newer_schema_file(
     assert all(not editor.isEnabled() for editor in widget._editors.values())
     assert "上書きできません" in widget.status.text()
 
-    # The sanctioned recovery preserves the file and re-enables writes.
+    # The sanctioned recovery preserves the file and re-enables writes
+    # (pending keys stay disabled — see PENDING_PREFERENCE_KEYS).
     widget.reset_button.click()
     assert store.write_allowed
     assert path.with_name(path.name + ".recovery").is_file()
-    assert widget._editors["general.language"].isEnabled()
+    assert widget._editors["display_input.length_unit"].isEnabled()
 
     widget.deleteLater()
     app.processEvents()

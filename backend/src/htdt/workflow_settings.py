@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .application_preferences import (
+    PENDING_PREFERENCE_KEYS,
     ApplicationPreferenceStore,
     PreferenceCategory,
     PreferenceDefinition,
@@ -114,10 +115,16 @@ class PreferencesWidget(QWidget):
     @staticmethod
     def _row_label(definition: PreferenceDefinition) -> QLabel:
         text = definition.key
+        if definition.key in PENDING_PREFERENCE_KEYS:
+            text += "（準備中）"
         if definition.restart_required:
             text += "（再起動が必要）"
         label = QLabel(text)
-        if definition.description:
+        if definition.key in PENDING_PREFERENCE_KEYS:
+            label.setToolTip(
+                "この設定はまだ実装されていないため、現在は変更できません。"
+            )
+        elif definition.description:
             label.setToolTip(definition.description)
         return label
 
@@ -167,7 +174,14 @@ class PreferencesWidget(QWidget):
             )
             editor = line
         editor.setObjectName(f"preferenceEditor:{key}")
-        if definition.description:
+        if key in PENDING_PREFERENCE_KEYS:
+            # Persisted value still loads, but no production consumer reads
+            # it yet — show it, disabled, instead of a working-looking no-op.
+            editor.setEnabled(False)
+            editor.setToolTip(
+                "この設定はまだ実装されていないため、現在は変更できません。"
+            )
+        elif definition.description:
             editor.setToolTip(definition.description)
         self._editors[key] = editor
         return editor
@@ -227,8 +241,8 @@ class PreferencesWidget(QWidget):
         finally:
             self._loading = False
         writable = self._store.write_allowed
-        for editor in self._editors.values():
-            editor.setEnabled(writable)
+        for key, editor in self._editors.items():
+            editor.setEnabled(writable and key not in PENDING_PREFERENCE_KEYS)
         if not writable:
             detail = self._store.load_error or "unknown"
             self.status.setText(
