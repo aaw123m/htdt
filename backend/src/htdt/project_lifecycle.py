@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from dataclasses import dataclass
-import hashlib
 import json
 import logging
 from pathlib import Path
@@ -35,6 +34,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
+from .canonical_json import canonical_sha256
 from .native_backup import DATABASE_NAME
 from .clock import utc_now_iso as _utc_now
 
@@ -171,9 +171,7 @@ class ProjectDeletionPlan(BaseModel):
             'total_rows': self.total_rows,
             'estimated_bytes': self.estimated_bytes,
         }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')
-        ).hexdigest()
+        return canonical_sha256(payload)
 
 
 class ProjectTombstone(BaseModel):

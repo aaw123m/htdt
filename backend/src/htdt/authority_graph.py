@@ -27,12 +27,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from hashlib import sha256
-import json
 from typing import Any, Iterable, Mapping, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .canonical_json import canonical_sha256
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
 
@@ -284,9 +283,7 @@ class AuthorityGraph(BaseModel):
             ),
             'edges': sorted(e.edge_id for e in self.edges),
         }
-        return sha256(
-            json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')
-        ).hexdigest()
+        return canonical_sha256(payload)
 
     def to_snapshot(self) -> dict[str, Any]:
         """Machine-readable lineage snapshot for diagnostics/reproducibility."""

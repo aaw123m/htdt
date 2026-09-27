@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+import weakref
 
 from PySide6.QtCore import QPointF, Qt
 from PySide6.QtWidgets import (
@@ -84,7 +85,11 @@ from .data_management import (
     DataManagementBackend,
     DataManagementController,
 )
-from .application_preferences import ApplicationPreferenceStore
+from .application_preferences import (
+    ApplicationPreferenceStore,
+    PreferenceChange,
+)
+from .cad_display_units import length_display_policy_from_preferences
 from .data_management_ui import build_data_management_component
 from .equipment_catalog_export import export_equipment_catalog_snapshot
 from .equipment_library import EquipmentLibraryDialog, EquipmentLibraryService
@@ -128,7 +133,7 @@ from .room_acoustics_panel import (
 )
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
-from .room_workspace import RoomWorkspace
+from .room_workspace import RoomWorkspace, SelectionInspector
 from . import dirty_state_dialog
 from .user_facing_error import (
     operation_error_message,
@@ -151,6 +156,46 @@ from .workflow_shell import (
     WorkspaceRegistration,
     build_canonical_workspace_registrations,
 )
+
+
+_DISPLAY_LENGTH_PREFERENCE_KEYS = frozenset(
+    {'display_input.length_unit', 'display_input.numeric_precision'}
+)
+
+
+def bind_inspector_display_length_policy(
+    inspector: SelectionInspector,
+    preferences: ApplicationPreferenceStore,
+) -> None:
+    """Apply the #496 length display policy to a room inspector, live.
+
+    ``display_input.length_unit`` / ``display_input.numeric_precision`` are
+    user-local presentation state — canonical storage stays SI metres. The
+    subscription re-applies on later commits; the weakref keeps a destroyed
+    inspector from breaking unrelated preference writes.
+    """
+
+    inspector_ref = weakref.ref(inspector)
+
+    def apply() -> None:
+        target = inspector_ref()
+        if target is None:
+            return
+        policy = length_display_policy_from_preferences(preferences)
+        try:
+            target.set_display_units(
+                length_unit=policy.unit, precision=policy.decimals
+            )
+        except RuntimeError:
+            # Qt object already destroyed.
+            pass
+
+    def on_change(change: PreferenceChange) -> None:
+        if change.key in _DISPLAY_LENGTH_PREFERENCE_KEYS:
+            apply()
+
+    apply()
+    preferences.subscribe(on_change)
 
 
 _ROOM_TOOL_COMMAND_IDS = (
@@ -1449,6 +1494,8 @@ class WorkflowApplicationComposition:
         workspace = RoomWorkspace(self.repository, self.document_id)
         if not isinstance(workspace.viewport, RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
+
+        bind_inspector_display_length_policy(workspace.inspector, self.preferences)
 
         geometry_input = RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)

@@ -27,8 +27,6 @@ See ``docs/ISSUE_1057_YAMAHA_RXA4A_QUALIFICATION_*.md``.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -40,6 +38,7 @@ from .cad_device_compatibility import (
     InterfaceProvenance,
     NormalizedDeviceCapability,
 )
+from .canonical_json import canonical_sha256
 
 
 RXA4A_MODEL = 'RX-A4A'
@@ -281,14 +280,7 @@ def build_rxa4a_capability_matrix(
 
 
 def _packet_hash(payload: Any) -> str:
-    return sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-        ).encode('utf-8')
-    ).hexdigest()
+    return canonical_sha256(payload)
 
 
 # ----------------------------------------------------------------------

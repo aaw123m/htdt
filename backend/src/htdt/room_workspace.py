@@ -57,6 +57,12 @@ from .cad_constraints import evaluate_cad_constraints
 from .cad_constraint_policy import blocking_candidate_violations
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_display_labels import revision_display_label
+from .cad_display_units import (
+    DEFAULT_DISPLAY_DECIMALS,
+    DISPLAY_LENGTH_UNITS,
+    display_to_si,
+    si_to_display,
+)
 from .cad_repository import SceneRevision
 from .cad_scene_history import diff_scene_documents, diff_summary_lines
 from .cad_measure import format_measure_result
@@ -2211,11 +2217,10 @@ class MetricSpinBox(_PendingTextSpinBox):
     page scrolling from silently editing values.
     """
 
+    # Conversion semantics come from cad_display_units (#496) — this class
+    # adds only Qt cosmetics (suffix text, step sizes) on top of them.
     UNIT_SCALES: dict[str, float] = {
-        'm': 1.0,
-        'cm': 100.0,
-        'mm': 1000.0,
-        'inch': 39.37007874015748,
+        unit: si_to_display(1.0, unit) for unit in DISPLAY_LENGTH_UNITS
     }
     UNIT_SUFFIXES: dict[str, str] = {
         'm': ' m',
@@ -2230,12 +2235,7 @@ class MetricSpinBox(_PendingTextSpinBox):
         'mm': 1.0,
         'inch': 0.05,
     }
-    UNIT_DECIMALS: dict[str, int] = {
-        'm': 3,
-        'cm': 2,
-        'mm': 1,
-        'inch': 3,
-    }
+    UNIT_DECIMALS: dict[str, int] = dict(DEFAULT_DISPLAY_DECIMALS)
 
     def __init__(
         self,
@@ -2270,13 +2270,13 @@ class MetricSpinBox(_PendingTextSpinBox):
         self._apply_unit()
         if decimals is not None:
             self.setDecimals(decimals)
-        self.setValue(value_m * self.UNIT_SCALES[unit])
+        self.setValue(si_to_display(value_m, unit))
 
     def value_m(self) -> float:
-        return self.value() / self.UNIT_SCALES[self._display_unit]
+        return display_to_si(self.value(), self._display_unit)
 
     def set_value_m(self, value: float) -> None:
-        self.setValue(value * self.UNIT_SCALES[self._display_unit])
+        self.setValue(si_to_display(value, self._display_unit))
 
     def stepBy(self, steps: int) -> None:
         modifiers = QGuiApplication.keyboardModifiers()
