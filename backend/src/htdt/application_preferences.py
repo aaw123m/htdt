@@ -344,6 +344,31 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
 }
 
 
+#: Keys whose editor persists a value but no production consumer reads yet
+#: (round-6 feature-gap audit). The preferences UI renders them disabled
+#: and marked '準備中' rather than letting a dead control pretend to work.
+#: Wire the consumer, then remove the key here.
+PENDING_PREFERENCE_KEYS: frozenset[str] = frozenset(
+    {
+        'general.language',
+        'general.startup_destination',
+        'general.reopen_last_project',
+        'display_input.angle_unit',
+        'display_input.theme',
+        'display_input.reduced_motion',
+        'display_input.high_contrast',
+        'integrations.rew_host',
+        'integrations.rew_port',
+        'compute.preferred_backend',
+        'compute.max_concurrency',
+        'compute.scratch_dir',
+        'compute.storage_ceiling_mb',
+        'files.export_dir',
+        'files.portable_bundle_include_libraries',
+    }
+)
+
+
 class ApplicationPreferences(BaseModel):
     """Immutable snapshot of application-local preference values.
 
@@ -692,6 +717,7 @@ __all__ = [
     'ApplicationPreferenceStore',
     'ApplicationPreferences',
     'IncompatiblePreferencesError',
+    'PENDING_PREFERENCE_KEYS',
     'PREFERENCES_FILENAME',
     'PREFERENCES_RECOVERY_SUFFIX',
     'PREFERENCES_SCHEMA_VERSION',

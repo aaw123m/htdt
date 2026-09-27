@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING
 import unicodedata
 
 from .command_registry import (
@@ -22,7 +23,11 @@ from .command_registry import (
     CommandContext,
     CommandRegistry,
 )
+from .localization import PresentationLocale
 from .workflow_navigation import WorkspaceDeepLink
+
+if TYPE_CHECKING:
+    from .help_registry import HelpRegistry
 
 
 class PaletteResultKind(StrEnum):
@@ -379,6 +384,67 @@ class StaticPaletteProvider(PaletteSearchProvider):
         return self._on_open(destination_id)
 
 
+class HelpTopicPaletteProvider(PaletteSearchProvider):
+    """Searchable help topics from the shipped :class:`HelpRegistry` (#623/585).
+
+    Complements the static help destinations: the registry's bilingual
+    titles/summaries/keyword aliases are indexed, so "speaker" and
+    "スピーカー" both reach the same topic. Activation opens the topic
+    through the composition's ``_open_help_topic``.
+    """
+
+    name = "help-topics"
+
+    def __init__(
+        self,
+        registry: "HelpRegistry",
+        on_open: Callable[[str], bool],
+        *,
+        locale: Callable[[], PresentationLocale] | None = None,
+    ) -> None:
+        self._registry = registry
+        self._on_open = on_open
+        self._locale = locale
+
+    def _content(self, topic):
+        locale = (
+            self._locale()
+            if self._locale is not None
+            else PresentationLocale.JAPANESE
+        )
+        return topic.localized(locale)
+
+    def search(
+        self,
+        query: str,
+        *,
+        context: CommandContext | None = None,
+        limit: int = 12,
+    ) -> tuple[PaletteResult, ...]:
+        if not _normalized(query):
+            return ()
+        results: list[PaletteResult] = []
+        for hit in self._registry.search(query, limit=limit):
+            topic = hit.topic
+            content = self._content(topic)
+            results.append(
+                PaletteResult(
+                    result_id=f"{self.name}:{topic.topic_id}",
+                    kind=PaletteResultKind.HELP,
+                    title=content.title,
+                    subtitle=content.summary,
+                    keywords=topic.keywords,
+                    icon_key="help",
+                    score=hit.score,
+                )
+            )
+        return tuple(results[:limit])
+
+    def activate(self, result: PaletteResult) -> bool:
+        topic_id = result.result_id.split(":", 1)[1]
+        return self._on_open(topic_id)
+
+
 class PaletteSearchService:
     """Fuses providers; owns recent-result memory for the Suggested group."""
 
@@ -559,6 +625,7 @@ def help_destinations() -> tuple[_StaticDestination, ...]:
 
 __all__ = [
     "CommandPaletteProvider",
+    "HelpTopicPaletteProvider",
     "PaletteResult",
     "PaletteResultKind",
     "PaletteSearchProvider",

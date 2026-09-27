@@ -6,6 +6,14 @@ from pathlib import Path
 from typing import Callable
 from uuid import uuid4
 
+from .activity_center import (
+    ActivityCenter,
+    NavigationPolicy,
+    OperationClass,
+    OperationProgress,
+    OperationTransitionError,
+    ProgressKind,
+)
 from .data_relocation import (
     DataRelocationBlockedError,
     ManagedDataRelocationPlan,
@@ -71,6 +79,16 @@ class DataOperationPhase(str, Enum):
     SCANNING = 'scanning'
     COLLECTING = 'collecting'
     RELOADING = 'reloading'
+
+
+_OPERATION_TITLES: dict[DataOperationKind, str] = {
+    DataOperationKind.CREATE_BACKUP: 'バックアップの作成',
+    DataOperationKind.VALIDATE_RESTORE: 'バックアップの検証',
+    DataOperationKind.RESTORE: 'バックアップからの復元',
+    DataOperationKind.RELOCATE: 'データフォルダの移動',
+    DataOperationKind.SCAN_STORAGE: 'ストレージのスキャン',
+    DataOperationKind.GC_STORAGE: '未参照アセットの削除',
+}
 
 
 @dataclass(frozen=True)
@@ -507,10 +525,17 @@ class DataManagementController(QObject):
         backend: DataManagementBackend,
         lifecycle: ApplicationDataLifecycle,
         parent: QObject | None = None,
+        *,
+        activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__(parent)
         self.backend = backend
         self.lifecycle = lifecycle
+        # When wired, every operation is mirrored into the application
+        # activity center (#603) so progress/history is visible app-wide.
+        self.activity_center = activity_center
+        if self.activity_center is not None:
+            self.progress_changed.connect(self._mirror_progress)
         self._active: _ActiveOperation | None = None
         # destroy() must go through a plain callable: PySide6 silently never
         # delivers the signal to a bound method of the object being
@@ -718,9 +743,60 @@ class DataManagementController(QObject):
             worker=worker,
             lifecycle_mode=lifecycle_mode,
         )
+        self._submit_operation(operation_id, kind, lifecycle_mode)
         self.busy_changed.emit(True)
         thread.start()
         return operation_id
+
+    def _submit_operation(
+        self,
+        operation_id: str,
+        kind: DataOperationKind,
+        lifecycle_mode: str,
+    ) -> None:
+        center = self.activity_center
+        if center is None:
+            return
+        exclusive = lifecycle_mode in ('backup', 'restore', 'relocate')
+        center.submit(
+            operation_id=operation_id,
+            operation_kind=kind.value,
+            operation_class=OperationClass.DATA_MANAGEMENT,
+            title=_OPERATION_TITLES[kind],
+            navigation_policy=(
+                NavigationPolicy.EXCLUSIVE
+                if exclusive
+                else NavigationPolicy.BACKGROUNDABLE
+            ),
+            navigation_block_reason=(
+                'データ管理操作の実行中はプロジェクトを切り替えられません'
+                if exclusive
+                else None
+            ),
+        )
+        center.mark_running(operation_id)
+
+    @Slot(object)
+    def _mirror_progress(self, progress: object) -> None:
+        center = self.activity_center
+        if center is None:
+            return
+        operation_id = getattr(progress, 'operation_id', None)
+        if operation_id is None:
+            return
+        snapshot = center.get(operation_id)
+        if snapshot is None or not snapshot.is_active:
+            return
+        try:
+            center.update_progress(
+                operation_id,
+                OperationProgress(
+                    kind=ProgressKind.INDETERMINATE,
+                    stage_label=progress.message_ja,
+                ),
+            )
+        except OperationTransitionError:
+            pass
 
     @Slot(object)
     def _capture_success(self, result: object) -> None:
@@ -770,6 +846,14 @@ class DataManagementController(QObject):
 
         result = active.result
         self._finish_active()
+        if self.activity_center is not None:
+            try:
+                self.activity_center.complete(
+                    active.operation_id,
+                    result_summary=f'{_OPERATION_TITLES[active.kind]}が完了しました',
+                )
+            except OperationTransitionError:
+                pass
         if lifecycle_error is not None:
             message = (
                 'データは復元されましたが、画面の再読み込みに失敗しました'
@@ -820,6 +904,14 @@ class DataManagementController(QObject):
             lifecycle_detail = f' / reload failed: {lifecycle_exc}'
 
         self._finish_active()
+        if self.activity_center is not None:
+            try:
+                self.activity_center.fail(
+                    active.operation_id,
+                    error_summary=self._failure_message(active.kind),
+                )
+            except OperationTransitionError:
+                pass
         self.operation_failed.emit(
             DataOperationFailure(
                 operation_id=active.operation_id,
@@ -870,6 +962,19 @@ class DataManagementController(QObject):
         message_ja: str,
         exc: Exception,
     ) -> None:
+        # Lifecycle-begin failures never reach ``_start``; register the
+        # operation then fail it so activity history still records it.
+        if self.activity_center is not None:
+            try:
+                self._submit_operation(operation_id, kind, 'none')
+            except OperationTransitionError:
+                pass
+            try:
+                self.activity_center.fail(
+                    operation_id, error_summary=message_ja
+                )
+            except OperationTransitionError:
+                pass
         self.operation_failed.emit(
             DataOperationFailure(
                 operation_id=operation_id,

@@ -5,6 +5,8 @@ from __future__ import annotations
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from .command_registry import CommandRegistry
+from .help_registry import HelpTopic
+from .localization import PresentationLocale
 from .ui_theme import TypographyRole, set_typography_role
 
 
@@ -51,6 +53,27 @@ class HelpDialog(QDialog):
             ),
             parent,
         )
+
+    @classmethod
+    def topic(
+        cls,
+        topic: HelpTopic,
+        *,
+        locale: PresentationLocale = PresentationLocale.JAPANESE,
+        parent: QWidget | None = None,
+    ) -> "HelpDialog":
+        """Render one :class:`HelpTopic` — localized title, summary, sections."""
+
+        content = topic.localized(locale)
+        lines = [content.summary]
+        for section in content.sections:
+            lines.append(f"■ {section.heading}")
+            lines.append(section.body)
+        if topic.related_commands:
+            lines.append(
+                "関連操作: " + ", ".join(topic.related_commands)
+            )
+        return cls(content.title, tuple(lines), parent)
 
 
 __all__ = ["HelpDialog"]

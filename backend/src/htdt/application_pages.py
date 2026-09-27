@@ -520,21 +520,93 @@ class CaptureInboxPage(QWidget):
         self._sync_detail()
 
 
+_OPERATION_STATE_LABELS = {
+    "queued": "待機中",
+    "preflighting": "準備中",
+    "running": "実行中",
+    "cancellation_requested": "キャンセル要求中",
+    "cancelled": "キャンセル",
+    "completed": "完了",
+    "failed": "失敗",
+    "completed_for_historical_input": "完了（旧入力）",
+    "result_stale": "結果が古い",
+}
+
+
 class ActivityPage(QWidget):
-    """Activity: recent persisted scene revisions across projects."""
+    """Activity: app operations, the projected project timeline, revisions.
+
+    Sections (all read-mostly):
+
+    * ``operations`` — live/recent :class:`ApplicationOperation` rows from the
+      application-scoped ActivityCenter (data-management jobs, etc.),
+    * ``timeline`` — human-readable project events projected by
+      :class:`CadProjectActivityService` (variants, captures, measurements,
+      checkpoints, notes); a row's nav URI deep link opens on double-click,
+    * ``revisions`` — the raw persisted scene-revision ledger (latest first).
+    """
 
     def __init__(
         self,
         list_revisions: Callable[[int], tuple],
+        list_operations: Callable[[], tuple] | None = None,
+        list_events: Callable[[int], tuple] | None = None,
+        open_link: Callable[[str], bool] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_revisions = list_revisions
+        self._list_operations = list_operations
+        self._list_events = list_events
+        self._open_link = open_link
         layout = _page_layout(
             self,
             "アクティビティ",
-            "保存・昇格などの永続化された記録（最新順）です。",
+            "実行中の操作・プロジェクトの記録（最新順）です。",
         )
+        if self._list_operations is not None:
+            operations_heading = QLabel("操作")
+            set_typography_role(
+                operations_heading, TypographyRole.SECTION_TITLE
+            )
+            layout.addWidget(operations_heading)
+            self.operations_table = QTableWidget(0, 3)
+            self.operations_table.setHorizontalHeaderLabels(
+                ("状態", "操作", "更新時刻")
+            )
+            self.operations_table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
+            self.operations_table.setEditTriggers(
+                QTableWidget.EditTrigger.NoEditTriggers
+            )
+            layout.addWidget(self.operations_table, 1)
+        else:
+            self.operations_table = None
+        if self._list_events is not None:
+            timeline_heading = QLabel("プロジェクトタイムライン")
+            set_typography_role(
+                timeline_heading, TypographyRole.SECTION_TITLE
+            )
+            layout.addWidget(timeline_heading)
+            self.events_table = QTableWidget(0, 3)
+            self.events_table.setHorizontalHeaderLabels(
+                ("時刻", "内容", "詳細")
+            )
+            self.events_table.horizontalHeader().setSectionResizeMode(
+                1, QHeaderView.ResizeMode.Stretch
+            )
+            self.events_table.setEditTriggers(
+                QTableWidget.EditTrigger.NoEditTriggers
+            )
+            self.events_table.itemActivated.connect(self._activate_event)
+            self.events_table.itemDoubleClicked.connect(self._activate_event)
+            layout.addWidget(self.events_table, 1)
+        else:
+            self.events_table = None
+        revisions_heading = QLabel("リビジョン履歴")
+        set_typography_role(revisions_heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(revisions_heading)
         self.table = QTableWidget(0, 3)
         self.table.setHorizontalHeaderLabels(("時刻", "プロジェクト", "リビジョン"))
         self.table.horizontalHeader().setSectionResizeMode(
@@ -544,7 +616,45 @@ class ActivityPage(QWidget):
         layout.addWidget(self.table, 1)
         self.refresh()
 
+    def _activate_event(self, item: QTableWidgetItem) -> None:
+        anchor = self.events_table.item(item.row(), 0)
+        link = anchor.data(Qt.ItemDataRole.UserRole) if anchor is not None else None
+        if link and self._open_link is not None:
+            self._open_link(str(link))
+
     def refresh(self) -> None:
+        if self.operations_table is not None and self._list_operations is not None:
+            self.operations_table.setRowCount(0)
+            for operation in self._list_operations():
+                row = self.operations_table.rowCount()
+                self.operations_table.insertRow(row)
+                state = getattr(operation.state, "value", operation.state)
+                detail = (
+                    operation.error_summary
+                    or operation.result_summary
+                    or operation.operation_kind
+                )
+                for column, value in enumerate(
+                    (
+                        _OPERATION_STATE_LABELS.get(state, str(state)),
+                        f"{operation.title} — {detail}",
+                        operation.updated_at,
+                    )
+                ):
+                    cell = QTableWidgetItem(str(value))
+                    self.operations_table.setItem(row, column, cell)
+        if self.events_table is not None and self._list_events is not None:
+            self.events_table.setRowCount(0)
+            for event in self._list_events(50):
+                row = self.events_table.rowCount()
+                self.events_table.insertRow(row)
+                for column, value in enumerate(
+                    (event.occurred_at_utc, event.title, event.detail or "")
+                ):
+                    cell = QTableWidgetItem(str(value))
+                    if column == 0 and event.deep_link is not None:
+                        cell.setData(Qt.ItemDataRole.UserRole, event.deep_link)
+                    self.events_table.setItem(row, column, cell)
         self.table.setRowCount(0)
         for created_at, document_id, revision_id in self._list_revisions(50):
             row = self.table.rowCount()
@@ -644,16 +754,18 @@ class ReferenceLibraryPage(QWidget):
 
 
 class SupportPage(QWidget):
-    """Support: diagnostics locations and version — the support owner page."""
+    """Support: diagnostics locations, version, and package export (#604)."""
 
     def __init__(
         self,
         data_dir: Path,
         status_provider: Callable[[], tuple[str, ...]] | None = None,
+        export_diagnostics: Callable[[QWidget], str | None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._status_provider = status_provider
+        self._export_diagnostics = export_diagnostics
         layout = _page_layout(
             self,
             "サポート",
@@ -677,8 +789,31 @@ class SupportPage(QWidget):
         )
         note.setWordWrap(True)
         layout.addWidget(note)
+        if self._export_diagnostics is not None:
+            self.export_button = QPushButton("診断パッケージをエクスポート", self)
+            self.export_button.setObjectName("supportExportDiagnostics")
+            self.export_button.clicked.connect(self._run_export)
+            layout.addWidget(self.export_button)
+            self.export_status = QLabel(self)
+            self.export_status.setObjectName("supportExportStatus")
+            self.export_status.setWordWrap(True)
+            layout.addWidget(self.export_status)
+        else:
+            self.export_button = None
+            self.export_status = None
         layout.addStretch(1)
         self.refresh()
+
+    def _run_export(self) -> None:
+        try:
+            path = self._export_diagnostics(self)
+        except Exception as exc:
+            self.export_status.setText(
+                f"診断パッケージを作成できませんでした: {exc}"
+            )
+            return
+        if path is not None:
+            self.export_status.setText(f"保存しました: {path}")
 
     def refresh(self) -> None:
         """Re-render live status lines (e.g. effective receiver state)."""
