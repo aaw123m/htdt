@@ -395,9 +395,20 @@ class CadJointOptimizationRepository:
     def _validated_spec_authorities(
         self,
         row: sqlite3.Row,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> tuple[JointOptimizationSpec, _ResolvedSpecAuthorities]:
-        """Deserialize one persisted spec row and replay its exact authority."""
+        """Deserialize one persisted spec row and replay its exact authority.
 
+        ``_authority`` optionally shares resolved spec authorities across a
+        batch of reads so a spec referenced by many rows pays the full
+        authority replay once per operation instead of once per row.
+        """
+
+        key = ('spec', row['spec_id'])
+        if _authority is not None and key in _authority:
+            resolved = _authority[key]
+            assert isinstance(resolved, tuple)
+            return resolved
         spec = JointOptimizationSpec.model_validate_json(row['payload_json'])
         if (
             row['spec_id'] != spec.spec_id
@@ -409,10 +420,19 @@ class CadJointOptimizationRepository:
             raise ValueError(
                 'persisted JointOptimizationSpec row disagrees with its payload'
             )
-        return spec, self._require_spec_authority(spec)
+        resolved = (spec, self._require_spec_authority(spec))
+        if _authority is not None:
+            _authority[key] = resolved
+        return resolved
 
-    def _validated_spec(self, row: sqlite3.Row) -> JointOptimizationSpec:
-        spec, _authorities = self._validated_spec_authorities(row)
+    def _validated_spec(
+        self,
+        row: sqlite3.Row,
+        _authority: dict[tuple[str, str], object] | None = None,
+    ) -> JointOptimizationSpec:
+        spec, _authorities = self._validated_spec_authorities(
+            row, _authority=_authority
+        )
         return spec
 
     def save_spec(self, spec: JointOptimizationSpec) -> JointOptimizationSpec:
@@ -467,9 +487,23 @@ class CadJointOptimizationRepository:
                 (spec_id,),
             ).fetchone()
 
-    def get_spec(self, spec_id: str) -> JointOptimizationSpec | None:
+    def get_spec(
+        self,
+        spec_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
+    ) -> JointOptimizationSpec | None:
+        if authorities is not None:
+            cached = authorities.get(('spec', spec_id))
+            if cached is not None:
+                assert isinstance(cached, tuple)
+                return cached[0]
         row = self._spec_row(spec_id)
-        return None if row is None else self._validated_spec(row)
+        return (
+            None
+            if row is None
+            else self._validated_spec(row, _authority=authorities)
+        )
 
     def list_specs(
         self,
@@ -485,16 +519,30 @@ class CadJointOptimizationRepository:
                 """,
                 (document_id,),
             ).fetchall()
-        return tuple(self._validated_spec(row) for row in rows)
+        shared: dict[tuple[str, str], object] = {}
+        return tuple(
+            self._validated_spec(row, _authority=shared) for row in rows
+        )
 
     def _persisted_spec_for_candidate(
         self,
         candidate: JointCandidate,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> tuple[JointOptimizationSpec, _ResolvedSpecAuthorities]:
-        row = self._spec_row(candidate.parent_spec_id)
-        if row is None:
-            raise ValueError('JointCandidate references unpersisted JointOptimizationSpec')
-        spec, authorities = self._validated_spec_authorities(row)
+        key = ('spec', candidate.parent_spec_id)
+        cached = None if _authority is None else _authority.get(key)
+        if cached is not None:
+            assert isinstance(cached, tuple)
+            spec, authorities = cached
+        else:
+            row = self._spec_row(candidate.parent_spec_id)
+            if row is None:
+                raise ValueError(
+                    'JointCandidate references unpersisted JointOptimizationSpec'
+                )
+            spec, authorities = self._validated_spec_authorities(
+                row, _authority=_authority
+            )
         if spec.semantic_sha256 != candidate.parent_spec_sha256:
             raise ValueError('JointCandidate parent spec hash mismatch')
         if candidate.evaluator != spec.evaluator:
@@ -504,11 +552,19 @@ class CadJointOptimizationRepository:
     def _require_candidate_authority(
         self,
         candidate: JointCandidate,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> JointOptimizationSpec:
-        spec, spec_authorities = self._persisted_spec_for_candidate(candidate)
-        variant = self.system_variant_repository.get_variant(
-            candidate.physical_system_variant_id
+        spec, spec_authorities = self._persisted_spec_for_candidate(
+            candidate, _authority=_authority
         )
+        variant_key = ('variant', candidate.physical_system_variant_id)
+        variant = None if _authority is None else _authority.get(variant_key)
+        if variant is None:
+            variant = self.system_variant_repository.get_variant(
+                candidate.physical_system_variant_id
+            )
+            if variant is not None and _authority is not None:
+                _authority[variant_key] = variant
         if variant is None:
             raise ValueError('JointCandidate references unknown physical SystemVariant')
         if variant.variant_sha256 != candidate.physical_system_variant_sha256:
@@ -524,7 +580,12 @@ class CadJointOptimizationRepository:
         quality_report = None
         calibration = candidate.calibration_candidate
         if calibration is not None:
-            plan = self.calibration_repository.get_plan(calibration.plan_id)
+            plan_key = ('plan', calibration.plan_id)
+            plan = None if _authority is None else _authority.get(plan_key)
+            if plan is None:
+                plan = self.calibration_repository.get_plan(calibration.plan_id)
+                if plan is not None and _authority is not None:
+                    _authority[plan_key] = plan
             if plan is None:
                 raise ValueError('JointCandidate references unknown CalibrationPlan')
             if plan.plan_semantic_sha256 != calibration.plan_semantic_sha256:
@@ -548,9 +609,18 @@ class CadJointOptimizationRepository:
                 raise ValueError(
                     'JointCandidate CalibrationPlan quality authority mismatch'
                 )
-            quality_report = self.calibration_repository.quality_repository.get_report(
-                plan.measurement_quality_report_id
+            report_key = ('report', plan.measurement_quality_report_id)
+            quality_report = (
+                None if _authority is None else _authority.get(report_key)
             )
+            if quality_report is None:
+                quality_report = (
+                    self.calibration_repository.quality_repository.get_report(
+                        plan.measurement_quality_report_id
+                    )
+                )
+                if quality_report is not None and _authority is not None:
+                    _authority[report_key] = quality_report
             if (
                 quality_report is None
                 or quality_report.report_sha256
@@ -588,11 +658,18 @@ class CadJointOptimizationRepository:
         )
         return spec
 
-    def save_candidate(self, candidate: JointCandidate) -> JointCandidate:
+    def save_candidate(
+        self,
+        candidate: JointCandidate,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
+    ) -> JointCandidate:
         candidate = JointCandidate.model_validate(
             candidate.model_dump(mode='python')
         )
-        spec = self._require_candidate_authority(candidate)
+        spec = self._require_candidate_authority(
+            candidate, _authority=authorities
+        )
         calibration_plan_id = (
             None
             if candidate.calibration_candidate is None
@@ -619,6 +696,8 @@ class CadJointOptimizationRepository:
                     raise ValueError(
                         'JointCandidate ID already exists with different semantics'
                     )
+                if authorities is not None:
+                    authorities[('candidate', persisted.candidate_id)] = persisted
                 return persisted
             count_row = connection.execute(
                 """
@@ -652,9 +731,21 @@ class CadJointOptimizationRepository:
                     candidate.model_dump_json(),
                 ),
             )
+        if authorities is not None:
+            authorities[('candidate', candidate.candidate_id)] = candidate
         return candidate
 
-    def get_candidate(self, candidate_id: str) -> JointCandidate | None:
+    def get_candidate(
+        self,
+        candidate_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
+    ) -> JointCandidate | None:
+        if authorities is not None:
+            cached = authorities.get(('candidate', candidate_id))
+            if cached is not None:
+                assert isinstance(cached, JointCandidate)
+                return cached
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 """
@@ -667,12 +758,16 @@ class CadJointOptimizationRepository:
         if row is None:
             return None
         candidate = JointCandidate.model_validate_json(row['payload_json'])
-        self._require_candidate_authority(candidate)
+        self._require_candidate_authority(candidate, _authority=authorities)
+        if authorities is not None:
+            authorities[('candidate', candidate_id)] = candidate
         return candidate
 
     def list_candidates(
         self,
         spec_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> tuple[JointCandidate, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
@@ -688,9 +783,32 @@ class CadJointOptimizationRepository:
             JointCandidate.model_validate_json(row['payload_json'])
             for row in rows
         )
+        shared: dict[tuple[str, str], object] = (
+            {} if authorities is None else authorities
+        )
         for candidate in candidates:
-            self._require_candidate_authority(candidate)
+            self._require_candidate_authority(candidate, _authority=shared)
+            shared[('candidate', candidate.candidate_id)] = candidate
         return candidates
+
+    def count_candidates(self, spec_id: str) -> int:
+        """Persisted candidate count for one spec.
+
+        Metadata only — unlike ``list_candidates`` this does not replay
+        per-candidate authority; use it for display counters, never to make
+        claims about candidate payloads.
+        """
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS candidate_count
+                FROM cad_joint_candidates
+                WHERE spec_id=?
+                """,
+                (spec_id,),
+            ).fetchone()
+        assert row is not None
+        return int(row['candidate_count'])
 
     def _evaluation_context(
         self,
@@ -698,6 +816,7 @@ class CadJointOptimizationRepository:
         spec: JointOptimizationSpec,
         candidate: JointCandidate,
         evaluation: JointCandidateEvaluationBinding,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> JointEvaluationAuthorityContext:
         """Resolve the exact persisted authorities resolvers/evaluators use.
 
@@ -708,14 +827,24 @@ class CadJointOptimizationRepository:
         after the candidate was admitted.
         """
 
-        revision = self.scene_repository.get(spec.scene_revision_id)
+        revision_key = ('revision', spec.scene_revision_id)
+        revision = None if _authority is None else _authority.get(revision_key)
+        if revision is None:
+            revision = self.scene_repository.get(spec.scene_revision_id)
+            if revision is not None and _authority is not None:
+                _authority[revision_key] = revision
         if revision is None:
             raise ValueError(
                 'joint evaluation baseline SceneRevision evidence disappeared'
             )
-        variant = self.system_variant_repository.get_variant(
-            candidate.physical_system_variant_id
-        )
+        variant_key = ('variant', candidate.physical_system_variant_id)
+        variant = None if _authority is None else _authority.get(variant_key)
+        if variant is None:
+            variant = self.system_variant_repository.get_variant(
+                candidate.physical_system_variant_id
+            )
+            if variant is not None and _authority is not None:
+                _authority[variant_key] = variant
         if variant is None:
             raise ValueError(
                 'joint evaluation physical SystemVariant evidence disappeared'
@@ -723,16 +852,30 @@ class CadJointOptimizationRepository:
         plan = None
         quality_report = None
         if candidate.calibration_candidate is not None:
-            plan = self.calibration_repository.get_plan(
-                candidate.calibration_candidate.plan_id
-            )
+            plan_key = ('plan', candidate.calibration_candidate.plan_id)
+            plan = None if _authority is None else _authority.get(plan_key)
+            if plan is None:
+                plan = self.calibration_repository.get_plan(
+                    candidate.calibration_candidate.plan_id
+                )
+                if plan is not None and _authority is not None:
+                    _authority[plan_key] = plan
             if plan is None:
                 raise ValueError(
                     'joint evaluation CalibrationPlan evidence disappeared'
                 )
-            quality_report = self.calibration_repository.quality_repository.get_report(
-                plan.measurement_quality_report_id
+            report_key = ('report', plan.measurement_quality_report_id)
+            quality_report = (
+                None if _authority is None else _authority.get(report_key)
             )
+            if quality_report is None:
+                quality_report = (
+                    self.calibration_repository.quality_repository.get_report(
+                        plan.measurement_quality_report_id
+                    )
+                )
+                if quality_report is not None and _authority is not None:
+                    _authority[report_key] = quality_report
             if quality_report is None:
                 raise ValueError(
                     'joint evaluation MeasurementQualityReport evidence '
@@ -792,6 +935,7 @@ class CadJointOptimizationRepository:
     def _require_evaluation_authority(
         self,
         evaluation: JointCandidateEvaluationBinding,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> None:
         """Replay the exact evidence/evaluator authority one binding claims.
 
@@ -807,7 +951,9 @@ class CadJointOptimizationRepository:
         so disappeared or tampered evidence fails closed.
         """
 
-        spec = self.get_spec(evaluation.parent_spec_id)
+        spec = self.get_spec(
+            evaluation.parent_spec_id, authorities=_authority
+        )
         if spec is None:
             raise ValueError(
                 'joint evaluation references unpersisted JointOptimizationSpec'
@@ -816,7 +962,9 @@ class CadJointOptimizationRepository:
             raise ValueError('joint evaluation parent spec hash mismatch')
         if evaluation.evaluator != spec.evaluator:
             raise ValueError('joint evaluation evaluator authority mismatch')
-        candidate = self.get_candidate(evaluation.candidate_id)
+        candidate = self.get_candidate(
+            evaluation.candidate_id, authorities=_authority
+        )
         if candidate is None:
             raise ValueError('joint evaluation references unpersisted JointCandidate')
         if candidate.candidate_sha256 != evaluation.candidate_sha256:
@@ -846,6 +994,7 @@ class CadJointOptimizationRepository:
             spec=spec,
             candidate=candidate,
             evaluation=evaluation,
+            _authority=_authority,
         )
         resolved = tuple(
             self._resolve_evaluation_input(context, ref)
@@ -887,6 +1036,7 @@ class CadJointOptimizationRepository:
     def _validated_evaluation(
         self,
         row: sqlite3.Row,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateEvaluationBinding:
         """Deserialize one persisted evaluation row and replay its authority."""
 
@@ -903,17 +1053,19 @@ class CadJointOptimizationRepository:
             raise ValueError(
                 'persisted joint evaluation row disagrees with its payload'
             )
-        self._require_evaluation_authority(evaluation)
+        self._require_evaluation_authority(evaluation, _authority=_authority)
         return evaluation
 
     def save_evaluation(
         self,
         evaluation: JointCandidateEvaluationBinding,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateEvaluationBinding:
         evaluation = JointCandidateEvaluationBinding.model_validate(
             evaluation.model_dump(mode='python')
         )
-        self._require_evaluation_authority(evaluation)
+        self._require_evaluation_authority(evaluation, _authority=authorities)
         with closing(self._connect()) as connection, connection:
             # BEGIN IMMEDIATE holds the write lock so the duplicate recheck
             # and the insert are serialized, matching spec/candidate saves.
@@ -927,7 +1079,9 @@ class CadJointOptimizationRepository:
                 (evaluation.evaluation_binding_id,),
             ).fetchone()
             if existing is not None:
-                persisted = self._validated_evaluation(existing)
+                persisted = self._validated_evaluation(
+                    existing, _authority=authorities
+                )
                 if persisted != evaluation:
                     raise ValueError(
                         'joint evaluation ID already exists with different semantics'
@@ -953,6 +1107,8 @@ class CadJointOptimizationRepository:
     def get_evaluation(
         self,
         evaluation_binding_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateEvaluationBinding | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -963,11 +1119,17 @@ class CadJointOptimizationRepository:
                 """,
                 (evaluation_binding_id,),
             ).fetchone()
-        return None if row is None else self._validated_evaluation(row)
+        return (
+            None
+            if row is None
+            else self._validated_evaluation(row, _authority=authorities)
+        )
 
     def list_evaluations(
         self,
         spec_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> tuple[JointCandidateEvaluationBinding, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
@@ -979,12 +1141,20 @@ class CadJointOptimizationRepository:
                 """,
                 (spec_id,),
             ).fetchall()
-        return tuple(self._validated_evaluation(row) for row in rows)
+        shared: dict[tuple[str, str], object] = (
+            {} if authorities is None else authorities
+        )
+        return tuple(
+            self._validated_evaluation(row, _authority=shared)
+            for row in rows
+        )
 
     def pareto_front(
         self,
         spec_id: str,
         objective_ids: Sequence[str] | None = None,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> ParetoResult:
         """Compute the joint Pareto front from canonically bound evaluations.
 
@@ -995,12 +1165,15 @@ class CadJointOptimizationRepository:
         before comparison.
         """
 
-        spec = self.get_spec(spec_id)
+        shared: dict[tuple[str, str], object] = (
+            {} if authorities is None else authorities
+        )
+        spec = self.get_spec(spec_id, authorities=shared)
         if spec is None:
             raise ValueError(
                 'joint Pareto references unpersisted JointOptimizationSpec'
             )
-        candidates = self.list_candidates(spec_id)
+        candidates = self.list_candidates(spec_id, authorities=shared)
         eligible_ids = {
             item.candidate_id
             for item in candidates
@@ -1008,7 +1181,7 @@ class CadJointOptimizationRepository:
         }
         evaluations = tuple(
             evaluation
-            for evaluation in self.list_evaluations(spec_id)
+            for evaluation in self.list_evaluations(spec_id, authorities=shared)
             if evaluation.candidate_id in eligible_ids
         )
         return joint_pareto_front(evaluations, candidates, objective_ids)
@@ -1016,8 +1189,11 @@ class CadJointOptimizationRepository:
     def _require_selection_authority(
         self,
         selection: JointCandidateSelection,
+        _authority: dict[tuple[str, str], object] | None = None,
     ) -> None:
-        spec = self.get_spec(selection.parent_spec_id)
+        spec = self.get_spec(
+            selection.parent_spec_id, authorities=_authority
+        )
         if spec is None:
             raise ValueError(
                 'joint selection references unpersisted JointOptimizationSpec'
@@ -1025,14 +1201,18 @@ class CadJointOptimizationRepository:
         if spec.semantic_sha256 != selection.parent_spec_sha256:
             raise ValueError('joint selection parent spec hash mismatch')
 
-        candidate = self.get_candidate(selection.candidate_id)
+        candidate = self.get_candidate(
+            selection.candidate_id, authorities=_authority
+        )
         if candidate is None:
             raise ValueError('joint selection references unpersisted JointCandidate')
         if candidate.candidate_sha256 != selection.candidate_sha256:
             raise ValueError('joint selection candidate hash mismatch')
 
         if selection.evaluation_binding_id is not None:
-            evaluation = self.get_evaluation(selection.evaluation_binding_id)
+            evaluation = self.get_evaluation(
+                selection.evaluation_binding_id, authorities=_authority
+            )
             if evaluation is None:
                 raise ValueError(
                     'joint selection references unpersisted evaluation binding'
@@ -1047,11 +1227,13 @@ class CadJointOptimizationRepository:
     def save_selection(
         self,
         selection: JointCandidateSelection,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateSelection:
         selection = JointCandidateSelection.model_validate(
             selection.model_dump(mode='python')
         )
-        self._require_selection_authority(selection)
+        self._require_selection_authority(selection, _authority=authorities)
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 """
@@ -1091,6 +1273,8 @@ class CadJointOptimizationRepository:
     def get_selection(
         self,
         selection_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateSelection | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1106,12 +1290,14 @@ class CadJointOptimizationRepository:
         selection = JointCandidateSelection.model_validate_json(
             row['payload_json']
         )
-        self._require_selection_authority(selection)
+        self._require_selection_authority(selection, _authority=authorities)
         return selection
 
     def latest_selection(
         self,
         spec_id: str,
+        *,
+        authorities: dict[tuple[str, str], object] | None = None,
     ) -> JointCandidateSelection | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1129,5 +1315,5 @@ class CadJointOptimizationRepository:
         selection = JointCandidateSelection.model_validate_json(
             row['payload_json']
         )
-        self._require_selection_authority(selection)
+        self._require_selection_authority(selection, _authority=authorities)
         return selection

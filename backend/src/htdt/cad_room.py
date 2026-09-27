@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .cad_document import CommandPresentation, EditStateError, WorkingDocument
-from .cad_scene import RoomPrism, SceneDocument, scene_content_hash
+from .cad_scene import RoomPrism, SceneDocument
 from .cad_wall_models import WallTopology
 
 
@@ -74,7 +74,7 @@ class RoomWorkingDocument(WorkingDocument):
         # model_copy(update=...) does not revalidate by design; validate the exact
         # snapshot that will become part of history before it can be committed.
         validated = SceneDocument.model_validate(after.model_dump(mode='python'))
-        before_hash = scene_content_hash(before)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             ReplaceRoomCommand(
                 before,
@@ -83,4 +83,4 @@ class RoomWorkingDocument(WorkingDocument):
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash

@@ -621,6 +621,7 @@ def build_proposal_robustness_spec(
     _selected_nominal_vector(nominal_bundle, objectives)
     objective_contract = _objective_contract_payload(nominal_bundle, objectives)
     contract_sha = canonical_robustness_sha256(objective_contract)
+    nominal_scene_hash = scene_content_hash(nominal_scene)
 
     ordered_axes = tuple(sorted(axes, key=lambda item: item.axis_id))
     if not ordered_axes:
@@ -648,7 +649,7 @@ def build_proposal_robustness_spec(
         'topology_candidate_id': topology_candidate.candidate_id,
         'topology_candidate_sha256': topology_candidate.candidate_sha256,
         'candidate_set_sha256': candidate_set_sha256,
-        'materialized_scene_content_hash': scene_content_hash(nominal_scene),
+        'materialized_scene_content_hash': nominal_scene_hash,
         'constraint_snapshot_sha256': topology_spec.constraint_snapshot_sha256,
         'g10_constraint_spec_sha256': topology_spec.g10_constraint_spec_sha256,
         'nominal_bundle_id': nominal_bundle.bundle_id,
@@ -676,7 +677,7 @@ def build_proposal_robustness_spec(
         topology_candidate_id=topology_candidate.candidate_id,
         topology_candidate_sha256=topology_candidate.candidate_sha256,
         candidate_set_sha256=candidate_set_sha256,
-        materialized_scene_content_hash=scene_content_hash(nominal_scene),
+        materialized_scene_content_hash=nominal_scene_hash,
         constraint_snapshot_sha256=topology_spec.constraint_snapshot_sha256,
         g10_constraint_spec_sha256=topology_spec.g10_constraint_spec_sha256,
         nominal_bundle_id=nominal_bundle.bundle_id,

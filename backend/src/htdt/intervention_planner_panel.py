@@ -136,6 +136,10 @@ class InterventionPlannerPanel(QFrame):
         self._on_navigate = on_navigate
         self._head_revision_id: str | None = None
         self._family_checks: dict[InterventionFamily, QCheckBox] = {}
+        # Alternatives for the currently selected study, keyed by id —
+        # populated by _on_study_selection so row clicks and Apply reuse the
+        # validated list instead of re-running list_alternatives per click.
+        self._alternatives: dict[str, InterventionAlternative] = {}
 
         set_surface_role(self, SurfaceRole.BASE)
         layout = QVBoxLayout(self)
@@ -364,12 +368,14 @@ class InterventionPlannerPanel(QFrame):
 
     def _on_study_selection(self) -> None:
         self.alternative_tree.clear()
+        self._alternatives.clear()
         self.alternative_detail.setText("介入案を選択してください。")
         self.apply_button.setEnabled(False)
         spec_id = self._selected_spec_id()
         if spec_id is None:
             return
         for alternative in self.planner.list_alternatives(spec_id):
+            self._alternatives[alternative.alternative_id] = alternative
             item = QTreeWidgetItem(
                 [
                     _FAMILY_LABELS.get(
@@ -400,10 +406,7 @@ class InterventionPlannerPanel(QFrame):
         alternative_id = items[0].data(1, Qt.ItemDataRole.UserRole)
         if spec_id is None or alternative_id is None:
             return None
-        for alternative in self.planner.list_alternatives(str(spec_id)):
-            if alternative.alternative_id == str(alternative_id):
-                return alternative
-        return None
+        return self._alternatives.get(str(alternative_id))
 
     def _on_alternative_selection(self) -> None:
         alternative = self._selected_alternative()

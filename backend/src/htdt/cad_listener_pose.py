@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import sqlite3
+from collections.abc import Sequence
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -470,29 +471,64 @@ class CadListenerPoseRepository:
             )
 
     def get_pose(self, pose_id: str) -> ListenerPoseAuthority | None:
+        return self._poses_by_id((pose_id,)).get(pose_id)
+
+    def _poses_by_id(
+        self,
+        pose_ids: Sequence[str],
+    ) -> dict[str, ListenerPoseAuthority]:
+        unique_ids = tuple(dict.fromkeys(pose_ids))
+        if not unique_ids:
+            return {}
+        placeholders = ','.join('?' for _ in unique_ids)
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
-                'SELECT payload_json FROM cad_listener_poses WHERE pose_id=?',
-                (pose_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return ListenerPoseAuthority.model_validate_json(row['payload_json'])
+            rows = connection.execute(
+                'SELECT pose_id, payload_json FROM cad_listener_poses'
+                f' WHERE pose_id IN ({placeholders})',
+                unique_ids,
+            ).fetchall()
+        return {
+            row['pose_id']: ListenerPoseAuthority.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
+        }
 
     def list_poses_for_seat(
         self,
         seat_entity_id: str,
     ) -> tuple[ListenerPoseAuthority, ...]:
+        return self.list_poses_for_seats((seat_entity_id,)).get(
+            seat_entity_id, ()
+        )
+
+    def list_poses_for_seats(
+        self,
+        seat_entity_ids: Sequence[str],
+    ) -> dict[str, tuple[ListenerPoseAuthority, ...]]:
+        """Poses for many seats in one query, grouped by seat_entity_id.
+
+        UI panels refresh pose lists for every seat in the document; doing
+        one query per seat multiplies connection and validation cost by the
+        seat count on every refresh.
+        """
+        unique_ids = tuple(dict.fromkeys(seat_entity_ids))
+        if not unique_ids:
+            return {}
+        placeholders = ','.join('?' for _ in unique_ids)
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_listener_poses'
-                ' WHERE seat_entity_id=? ORDER BY pose_id ASC',
-                (seat_entity_id,),
+                'SELECT seat_entity_id, payload_json FROM cad_listener_poses'
+                f' WHERE seat_entity_id IN ({placeholders})'
+                ' ORDER BY seat_entity_id ASC, pose_id ASC',
+                unique_ids,
             ).fetchall()
-        return tuple(
-            ListenerPoseAuthority.model_validate_json(row['payload_json'])
-            for row in rows
-        )
+        grouped: dict[str, list[ListenerPoseAuthority]] = {}
+        for row in rows:
+            grouped.setdefault(row['seat_entity_id'], []).append(
+                ListenerPoseAuthority.model_validate_json(row['payload_json'])
+            )
+        return {seat_id: tuple(poses) for seat_id, poses in grouped.items()}
 
     def select_pose(
         self,
@@ -576,11 +612,43 @@ class CadListenerPoseRepository:
                 ' ORDER BY seat_entity_id ASC',
                 (document_id,),
             ).fetchall()
+        poses = self._poses_by_id(tuple(row['pose_id'] for row in rows))
         result: dict[str, ListenerPoseAuthority] = {}
         for row in rows:
-            pose = self.get_pose(row['pose_id'])
+            pose = poses.get(row['pose_id'])
             if pose is None or pose.semantic_sha256 != row['pose_sha256']:
                 continue
+            result[row['seat_entity_id']] = pose
+        return result
+
+    def selected_poses_for_document(
+        self,
+        document_id: str,
+    ) -> dict[str, ListenerPoseAuthority]:
+        """Verified selections for every seat in the document.
+
+        Same contract as ``selected_pose`` — a persisted pose whose semantic
+        hash no longer matches the recorded selection raises — but resolves
+        all seats in two queries instead of two per seat.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT seat_entity_id, pose_id, pose_sha256'
+                ' FROM cad_listener_pose_selections WHERE document_id=?'
+                ' ORDER BY seat_entity_id ASC',
+                (document_id,),
+            ).fetchall()
+        poses = self._poses_by_id(tuple(row['pose_id'] for row in rows))
+        result: dict[str, ListenerPoseAuthority] = {}
+        for row in rows:
+            pose = poses.get(row['pose_id'])
+            if pose is None:
+                continue
+            if pose.semantic_sha256 != row['pose_sha256']:
+                raise ValueError(
+                    f'selected listener pose {row["pose_id"]} hash mismatch — '
+                    'refusing to resolve a different pose than was selected'
+                )
             result[row['seat_entity_id']] = pose
         return result
 
@@ -597,6 +665,8 @@ class CadListenerPoseRepository:
         document_id: str,
         seat_entity_id: str,
     ) -> ListenerPoseAuthority | None:
+        """Verified selection for one seat; the batch variant is
+        ``selected_poses_for_document`` for whole-document refreshes."""
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT pose_id, pose_sha256 FROM cad_listener_pose_selections'

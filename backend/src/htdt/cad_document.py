@@ -613,7 +613,7 @@ class WorkingDocument:
     def __init__(self, document: SceneDocument, *, source_revision_id: str | None = None, saved_content_hash: str | None = None) -> None:
         self._document = document
         self._source_revision_id = source_revision_id
-        self._saved_hash = saved_content_hash or scene_content_hash(document)
+        self._saved_hash = saved_content_hash or self._content_hash()
         self._history = CommandHistory()
         self._preview_kind: Literal['move', 'rotate'] | None = None
         self._preview_entity_ids: tuple[str, ...] = ()
@@ -658,7 +658,30 @@ class WorkingDocument:
 
     @property
     def is_dirty(self) -> bool:
-        return scene_content_hash(self._document) != self._saved_hash
+        return self._content_hash() != self._saved_hash
+
+    @property
+    def _document(self) -> SceneDocument:
+        return self._document_value
+
+    @_document.setter
+    def _document(self, document: SceneDocument) -> None:
+        self._document_value = document
+        self._content_hash_cache: str | None = None
+
+    def _content_hash(self) -> str:
+        """Canonical content hash of the committed document, memoized.
+
+        ``SceneDocument`` is immutable and every mutation path reassigns
+        ``self._document`` (which clears this cache via the setter), so the
+        hash is computed at most once per committed state instead of on
+        every ``is_dirty`` poll / edit boundary.
+        """
+        cached = self._content_hash_cache
+        if cached is None:
+            cached = scene_content_hash(self._document_value)
+            self._content_hash_cache = cached
+        return cached
 
     @property
     def undo_label(self) -> str | None:
@@ -754,9 +777,9 @@ class WorkingDocument:
             ),
         )
         self._clear_preview()
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def cancel_preview(self) -> bool:
         if not self.has_preview:
@@ -792,9 +815,9 @@ class WorkingDocument:
                 subject_names=tuple(entity.name for entity in before),
             ),
         )
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def move_entity(self, entity_id: str, position: Position3) -> bool:
         if self.has_preview:
@@ -807,9 +830,9 @@ class WorkingDocument:
             position,
             presentation=CommandPresentation(action='move', subject_names=(before_entity.name,)),
         )
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def rotate_entity(self, entity_id: str, orientation: Quaternion4) -> bool:
         if self.has_preview:
@@ -822,9 +845,9 @@ class WorkingDocument:
             orientation,
             presentation=CommandPresentation(action='rotate', subject_names=(before_entity.name,)),
         )
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def add_entities(
         self,
@@ -848,7 +871,7 @@ class WorkingDocument:
         insertion_index = len(self._document.entities) if index is None else int(index)
         if not 0 <= insertion_index <= len(self._document.entities):
             raise EditStateError(f'entity insertion index out of range: {insertion_index}')
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             AddEntitiesCommand(
                 entities=validated,
@@ -860,7 +883,7 @@ class WorkingDocument:
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def add_entity(
         self,
@@ -905,7 +928,7 @@ class WorkingDocument:
         payload.update(updates)
         payload['entity_id'] = target_entity_id
         after = SceneEntity.model_validate(payload)
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             ReplaceEntityCommand(
                 before=before,
@@ -918,7 +941,7 @@ class WorkingDocument:
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def delete_entity(self, entity_id: str) -> bool:
         return self.delete_entities((entity_id,))
@@ -942,7 +965,7 @@ class WorkingDocument:
         missing = set(unique_ids) - {entity.entity_id for _, entity in removed}
         if missing:
             raise EditStateError(f'entities not in the scene: {sorted(missing)}')
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             DeleteEntitiesCommand(
                 removed=tuple(removed),
@@ -953,7 +976,7 @@ class WorkingDocument:
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def update_entities(self, updates: dict[str, dict[str, Any]]) -> bool:
         """Apply per-entity field updates as one Undo step (#480 batch edit).
@@ -976,7 +999,7 @@ class WorkingDocument:
             payload['entity_id'] = entity_id
             before.append(source)
             after.append(SceneEntity.model_validate(payload))
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             UpdateEntitiesCommand(
                 before=tuple(before),
@@ -988,7 +1011,7 @@ class WorkingDocument:
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def replace_document(
         self,
@@ -1003,7 +1026,7 @@ class WorkingDocument:
         validated = SceneDocument.model_validate(document.model_dump(mode='python'))
         if validated.document_id != self._document.document_id:
             raise EditStateError('document replacement must preserve document_id')
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(
             ReplaceDocumentCommand(
                 before=self._document,
@@ -1012,7 +1035,7 @@ class WorkingDocument:
             ),
             self._document,
         )
-        return scene_content_hash(self._document) != before_hash
+        return self._content_hash() != before_hash
 
     def push_command(self, command: EditCommand) -> bool:
         """Push one arbitrary command through the shared undo history.
@@ -1077,10 +1100,10 @@ class WorkingDocument:
         overlapping = {entity.entity_id for entity in added} & current.keys()
         if overlapping:
             raise EditStateError(f'entities already exist: {sorted(overlapping)}')
-        before_hash = scene_content_hash(self._document)
+        before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
         return (
-            scene_content_hash(self._document) != before_hash
+            self._content_hash() != before_hash
             or command is not inner
         )
 
@@ -1103,7 +1126,7 @@ class WorkingDocument:
     def mark_saved(self, revision_id: str, content_hash: str) -> None:
         if self.has_preview:
             raise EditStateError('cannot mark a document saved while a preview is active')
-        actual = scene_content_hash(self._document)
+        actual = self._content_hash()
         if actual != content_hash:
             raise EditStateError('saved content hash does not match the working document')
         self._source_revision_id = revision_id

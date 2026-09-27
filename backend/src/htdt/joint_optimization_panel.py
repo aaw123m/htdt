@@ -449,8 +449,8 @@ class JointOptimizationPanel(QWidget):
             dsp_count = len(spec.dsp_variables)
             mode = 'joint' if spec.dsp_variables else 'placement_only'
             reasons = self._spec_staleness(spec.spec_id)
-            candidates = len(
-                self.context.joint_repository.list_candidates(spec.spec_id)
+            candidates = self.context.joint_repository.count_candidates(
+                spec.spec_id
             )
             state = (
                 'stale: ' + ', '.join(reasons)

@@ -452,7 +452,10 @@ class SceneRepository:
             lambda payload: store_content_blob(connection, payload),
         )
         payload_json = canonical_scene_json(document)
-        content_hash = scene_content_hash(document)
+        # scene_content_hash(document) is sha256 over this same canonical
+        # string — hashing the payload directly avoids a second full
+        # serialization.
+        content_hash = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
         head = self._head_revision_row(connection, document.document_id)
         parent = None
         if parent_revision_id is None:
@@ -597,7 +600,7 @@ class SceneRepository:
                 lambda payload: store_content_blob(connection, payload),
             )
             payload_json = canonical_scene_json(document)
-            content_hash = scene_content_hash(document)
+            content_hash = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
             if source_revision_id is not None:
                 source = connection.execute(
                     'SELECT * FROM scene_revisions WHERE revision_id=?',

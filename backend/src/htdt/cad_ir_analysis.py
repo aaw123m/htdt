@@ -570,8 +570,13 @@ def run_ir_analysis(
     if columns:
         peak = max(c.max() for c in columns if c.size) or 1.0
         spec_freqs = np.fft.rfftfreq(window_n, d=1.0 / fs)
+        # Magnitude ratios use 20·log10; clamping the ratio at 1e-6 lands
+        # exactly on the -120 dB floor and avoids log10(0).
         spec_levels = tuple(
-            tuple(float(v) for v in np.maximum(10.0 * np.log10(c / peak), -120.0))
+            tuple(
+                float(v)
+                for v in 20.0 * np.log10(np.maximum(c / peak, 1e-6))
+            )
             for c in columns
         )
         spec_freq_tuple = tuple(float(f) for f in spec_freqs)
