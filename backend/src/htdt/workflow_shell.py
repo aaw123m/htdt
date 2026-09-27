@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TypeAlias
@@ -55,6 +56,9 @@ from .workspace_dirty_state import (
     DirtyResolutionAction,
     WorkspaceDirtyState,
 )
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 DeactivationGuard: TypeAlias = Callable[[], tuple[bool, str | None]]
@@ -659,6 +663,9 @@ class WorkflowShellWindow(QMainWindow):
         self._navigation_resolver = NavigationResolver()
         self._selected_context: dict[DestinationId, str] = {}
         self._close_guards: list[CloseGuard] = []
+        # Hooks fire once a close has passed every guard and the exit-time
+        # dirty-state resolution — the point where the close is committed.
+        self._close_hooks: list[Callable[[], None]] = []
         self._data_mutations_frozen = False
         for registration in registration_tuple:
             if registration.contexts:
@@ -919,6 +926,41 @@ class WorkflowShellWindow(QMainWindow):
     def register_close_guard(self, guard: CloseGuard) -> None:
         self._close_guards.append(guard)
 
+    def register_close_hook(self, hook: Callable[[], None]) -> None:
+        """Register a callback run after close checks pass, before teardown.
+
+        Unlike a close guard a hook cannot veto; it is for cheap committed-
+        close work like persisting window state. Hook failures are logged
+        and never abort the close.
+        """
+        self._close_hooks.append(hook)
+
+    def selected_contexts(self) -> dict[str, str]:
+        """Current per-workspace context selections (for persistence)."""
+        return {
+            str(workspace_id): context_id
+            for workspace_id, context_id in self._selected_context.items()
+        }
+
+    def seed_selected_contexts(self, contexts: Mapping[str, str]) -> None:
+        """Pre-seed context selections for persistence restore.
+
+        Unknown workspaces and contexts the registration does not declare
+        are dropped rather than replayed into a context bar that cannot
+        select them.
+        """
+        for workspace, context_id in contexts.items():
+            try:
+                destination = normalize_destination_id(workspace)
+            except ValueError:
+                continue
+            registration = self._registrations.get(destination)
+            if registration is None or not registration.contexts:
+                continue
+            known = {ctx.context_id for ctx in registration.contexts}
+            if context_id in known:
+                self._selected_context[destination] = context_id
+
     def freeze_data_mutations(self) -> None:
         self._data_mutations_frozen = True
         self.rail.setEnabled(False)
@@ -951,6 +993,11 @@ class WorkflowShellWindow(QMainWindow):
             self.statusBar().showMessage(reason or "現在の作業を完了してから終了してください")
             event.ignore()
             return
+        for hook in self._close_hooks:
+            try:
+                hook()
+            except Exception:
+                _LOGGER.exception("close hook failed")
         self.router.shutdown()
         super().closeEvent(event)
 

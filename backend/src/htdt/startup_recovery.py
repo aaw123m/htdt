@@ -232,6 +232,44 @@ def record_launch(
     return record
 
 
+def annotate_launch(
+    data_dir,
+    launch_id: str,
+    *,
+    project_ref: str | None = None,
+    workspace: str | None = None,
+) -> None:
+    """Attach the project/workspace this launch went on to open.
+
+    ``record_launch`` runs before the project library resolves, so the
+    record starts without identity context; annotating once the project is
+    known lets the next recovery surface name the project that was being
+    opened when the session died.
+    """
+
+    metadata = load_recovery_metadata(data_dir)
+    _store_metadata(
+        data_dir,
+        RecoveryMetadata(
+            records=tuple(
+                (
+                    record.model_copy(
+                        update={
+                            'last_project_ref': project_ref
+                            or record.last_project_ref,
+                            'last_workspace': workspace
+                            or record.last_workspace,
+                        }
+                    )
+                    if record.launch_id == launch_id
+                    else record
+                )
+                for record in metadata.records
+            )
+        ),
+    )
+
+
 def complete_launch(
     data_dir,
     launch_id: str,
@@ -463,6 +501,7 @@ __all__ = [
     'ResetScope',
     'SafeModePolicy',
     'StartupFailureClass',
+    'annotate_launch',
     'classify_startup_failure',
     'complete_launch',
     'decide_launch',

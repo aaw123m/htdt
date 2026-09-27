@@ -149,6 +149,7 @@ def build_workflow_shell(
     project_library: 'ProjectLibraryRepository | None' = None,
     capture_receiver: 'CaptureReceiverController | None' = None,
     preferences: 'ApplicationPreferenceStore | None' = None,
+    safe_mode: bool = False,
 ) -> 'WorkflowShellWindow':
     """Build the integrated workflow application while preserving the public API."""
 
@@ -160,7 +161,96 @@ def build_workflow_shell(
         project_library=project_library,
         capture_receiver=capture_receiver,
         preferences=preferences,
+        safe_mode=safe_mode,
     )
+
+
+# Button label/role for every choice ``LaunchDecision.choices`` may offer.
+# The dialog renders the decision's choice list verbatim — a choice the
+# decision model emits but the dialog never renders is a dead end the user
+# can read but never click (round8).
+_RECOVERY_CHOICE_PRESENTATION = {
+    'open_normal': ('Open normally', 'accept'),
+    'open_safe_mode': ('Open in Safe Mode', 'destructive'),
+    'open_diagnostics': ('Open diagnostics', 'action'),
+    'verify_data': ('Verify data now', 'action'),
+    'choose_another_project': ('Choose another project', 'action'),
+}
+
+
+def _choose_recovery_action(
+    launch_decision,
+    diagnostics: NativeDiagnostics,
+):
+    """Show the recovery dialog; return (safe_mode_policy, post_launch_action).
+
+    ``post_launch_action`` is a choice the dialog itself cannot perform —
+    'verify_data' opens Settings > Data Management after launch, and
+    'choose_another_project' lands on the Projects destination instead of
+    auto-opening the project the failed session was bound to.
+    """
+
+    from PySide6.QtWidgets import QMessageBox
+
+    box = QMessageBox(
+        QMessageBox.Icon.Warning,
+        "HTDT recovered from an unexpected session",
+        "HTDT recovered from an unexpected previous session.\n\n"
+        + "\n".join(
+            f"- {reason}" for reason in launch_decision.reasons
+        )
+        + (
+            "\n\nThe previous failure looks data-related — "
+            "consider Verify data or restoring a backup."
+            if launch_decision.restore_recommended
+            else "\n\nThis does not look like project-data "
+            "corruption; restoring a backup is not the first "
+            "recovery step."
+        ),
+    )
+    role_map = {
+        'accept': QMessageBox.ButtonRole.AcceptRole,
+        'destructive': QMessageBox.ButtonRole.DestructiveRole,
+        'action': QMessageBox.ButtonRole.ActionRole,
+    }
+    buttons = {}
+    for choice in launch_decision.choices:
+        presentation = _RECOVERY_CHOICE_PRESENTATION.get(choice)
+        if presentation is None:
+            continue
+        label, role = presentation
+        buttons[choice] = box.addButton(label, role_map[role])
+    if 'open_normal' not in buttons:
+        buttons['open_normal'] = box.addButton(
+            "Open normally", QMessageBox.ButtonRole.AcceptRole
+        )
+    box.exec()
+    clicked = box.clickedButton()
+    choice = next(
+        (c for c, button in buttons.items() if button is clicked),
+        'open_normal',
+    )
+    if choice == 'open_safe_mode':
+        diagnostics.logger.info(
+            "safe mode selected: project authority stays read-only"
+        )
+        return launch_decision.safe_mode_policy, None
+    if choice == 'open_diagnostics':
+        QMessageBox.information(
+            None,
+            "HTDT diagnostics",
+            f"Diagnostics are stored at:\n{diagnostics.log_path}\n\n"
+            "Use Support > Package Diagnostics for a support "
+            "bundle.",
+        )
+        # Diagnostics consulted first, then a guarded launch — unchanged
+        # semantics from the original three-button surface.
+        return launch_decision.safe_mode_policy, None
+    if choice in ('verify_data', 'choose_another_project'):
+        diagnostics.logger.info("recovery launch action: %s", choice)
+        return None, choice
+    diagnostics.logger.info("recovery launch: opening normally")
+    return None, None
 
 
 def _packaged_application_icon() -> Path | None:
@@ -403,6 +493,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # initialization. The launch record is written up front so a
         # crash in this attempt counts as a failed launch next time.
         from .startup_recovery import (
+            annotate_launch,
             classify_startup_failure,
             complete_launch,
             decide_launch,
@@ -436,62 +527,28 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             ),
             metadata=recovery_metadata,
             build_id=version_string(),
+            explicit_safe_mode=bool(getattr(args, 'safe_mode', False)),
             renderer_failure_detected=(
                 last_failure == 'renderer_initialization'
             ),
         )
         safe_mode_policy = None
-        if launch_decision.mode != 'normal':
-            from PySide6.QtWidgets import QMessageBox
-
+        post_launch_action = None
+        if launch_decision.mode == 'safe_mode':
+            # An explicit --safe-mode launch IS the user's choice — showing
+            # the recovery dialog again would ask them to repeat it.
+            safe_mode_policy = launch_decision.safe_mode_policy
+            diagnostics.logger.info(
+                'safe mode requested explicitly; skipping recovery dialog'
+            )
+        elif launch_decision.mode != 'normal':
             diagnostics.logger.warning(
                 "recovery launch offered: %s",
                 '; '.join(launch_decision.reasons),
             )
-            normal_button = QMessageBox.ButtonRole.AcceptRole
-            box = QMessageBox(
-                QMessageBox.Icon.Warning,
-                "HTDT recovered from an unexpected session",
-                "HTDT recovered from an unexpected previous session.\n\n"
-                + "\n".join(
-                    f"- {reason}" for reason in launch_decision.reasons
-                )
-                + (
-                    "\n\nThe previous failure looks data-related — "
-                    "consider Verify data or restoring a backup."
-                    if launch_decision.restore_recommended
-                    else "\n\nThis does not look like project-data "
-                    "corruption; restoring a backup is not the first "
-                    "recovery step."
-                ),
+            safe_mode_policy, post_launch_action = _choose_recovery_action(
+                launch_decision, diagnostics
             )
-            open_normal = box.addButton("Open normally", normal_button)
-            safe_mode = box.addButton(
-                "Open in Safe Mode",
-                QMessageBox.ButtonRole.DestructiveRole,
-            )
-            diagnostics_button = box.addButton(
-                "Open diagnostics",
-                QMessageBox.ButtonRole.ActionRole,
-            )
-            box.exec()
-            clicked = box.clickedButton()
-            if clicked is safe_mode:
-                safe_mode_policy = launch_decision.safe_mode_policy
-                diagnostics.logger.info(
-                    "safe mode selected: project authority stays read-only"
-                )
-            elif clicked is diagnostics_button:
-                QMessageBox.information(
-                    None,
-                    "HTDT diagnostics",
-                    f"Diagnostics are stored at:\n{diagnostics.log_path}\n\n"
-                    "Use Support > Package Diagnostics for a support "
-                    "bundle.",
-                )
-                safe_mode_policy = launch_decision.safe_mode_policy
-            else:
-                diagnostics.logger.info("recovery launch: opening normally")
         launch_record = record_launch(
             args.data_dir,
             build_id=version_string(),
@@ -587,6 +644,19 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         project_entry = project_library.resolve_startup_document(
             args.document_id
         )
+        # Which project this launch committed to opening — recorded so the
+        # next recovery dialog can name (and avoid) the suspect project.
+        try:
+            annotate_launch(
+                args.data_dir,
+                launch_record.launch_id,
+                project_ref=(
+                    getattr(project_entry, 'project_id', None)
+                    or project_entry.document_id
+                ),
+            )
+        except Exception:
+            diagnostics.logger.exception('launch record annotation failed')
         # #926: the Capture receiver is one application-scoped service owned
         # by the data root — the workflow shell composes it and the app exit
         # stops it. The legacy fallback window deliberately runs without it.
@@ -595,16 +665,28 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if not args.legacy_ui:
             try:
                 from .application_preferences import ApplicationPreferenceStore
-                from .capture_receiver_controller import (
-                    CaptureReceiverController,
-                )
 
                 preferences = ApplicationPreferenceStore.for_data_dir(
                     args.data_dir
                 )
-                capture_receiver = CaptureReceiverController(
-                    repository, preferences
-                )
+                if (
+                    safe_mode_policy is not None
+                    and not safe_mode_policy.live_integrations
+                ):
+                    # Safe Mode policy: live integrations stay off so the
+                    # capture listener cannot repeat the failure on record.
+                    diagnostics.logger.info(
+                        'safe mode: capture receiver not started '
+                        '(live_integrations=False)'
+                    )
+                else:
+                    from .capture_receiver_controller import (
+                        CaptureReceiverController,
+                    )
+
+                    capture_receiver = CaptureReceiverController(
+                        repository, preferences
+                    )
             except Exception:
                 diagnostics.logger.exception(
                     'capture receiver controller init failed; '
@@ -619,9 +701,36 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 project_library,
                 capture_receiver=capture_receiver,
                 preferences=preferences,
+                safe_mode=safe_mode_policy is not None,
             )
         )
         window.show()
+        # Recovery-dialog follow-throughs the dialog could not perform
+        # itself (#739): Verify data opens the data-management surface and
+        # Choose another project lands on the Projects destination instead
+        # of auto-entering the project the failed session was bound to.
+        if post_launch_action == 'verify_data':
+            settings_dialog = getattr(
+                getattr(window, 'workflow_application', None),
+                'settings_dialog',
+                None,
+            )
+            if settings_dialog is not None:
+                settings_dialog.open_settings()
+        elif post_launch_action == 'choose_another_project':
+            navigate = getattr(window, 'navigate', None)
+            if navigate is not None:
+                navigate('projects')
+        # #755: the periodic trigger point the scheduler was designed for —
+        # the first in-app caller. Safe Mode leaves background jobs off.
+        application = getattr(window, 'workflow_application', None)
+        if application is not None and safe_mode_policy is None:
+            try:
+                application.start_automatic_backup()
+            except Exception:
+                diagnostics.logger.exception(
+                    'automatic backup tick failed to start'
+                )
         if capture_receiver is not None:
             start_error = capture_receiver.start_if_requested()
             if start_error:
@@ -767,6 +876,13 @@ def main(argv: list[str] | None = None) -> int:
         "--legacy-ui",
         action="store_true",
         help="launch the legacy OptimizationWorkspaceWindow composition instead of the default workflow shell (rollback)",
+    )
+    # #739: an explicit Safe Mode entry point — the only way to reach the
+    # guarded launch when a crash loop is too fast to use the dialog.
+    parser.add_argument(
+        "--safe-mode",
+        action="store_true",
+        help="launch in Safe Mode (no integrations, saved layout or auto-open intents) without prompting",
     )
     # Accepted for compatibility: the workflow shell is the default launch
     # path since UX160, so the old opt-in flag no longer has an effect.
