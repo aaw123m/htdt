@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 import pyqtgraph as pg
+from pyqtgraph.exporters import ImageExporter
 from PySide6.QtCore import Qt, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -36,6 +38,14 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .analysis_export import (
+    AnalysisExportMeta,
+    build_analysis_export,
+    comparison_metadata_entries,
+    comparison_side_series,
+    render_analysis_csv,
+    series_from_comparison,
+)
 from .cad_display_labels import saved_label
 from .cad_measurement_models import (
     MEASUREMENT_ATTACHMENT_KINDS,
@@ -48,6 +58,7 @@ from .cad_measurement_quality import (
 )
 from .cad_repository import SceneRepository
 from .cad_scene import Direction3
+from .export_io import write_text_atomic
 from .ingress import read_file_bounded
 from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .measurement_analysis import (
@@ -3453,6 +3464,33 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_result.setWordWrap(True)
         result_layout.addWidget(self.comparison_result)
 
+        comparison_export_row = QHBoxLayout()
+        self.comparison_export_csv_button = QPushButton(
+            "この比較をCSVで保存…", result_card
+        )
+        self.comparison_export_csv_button.setToolTip(
+            "保存済み比較の差分・両側レベルと判定メタデータを"
+            "解析エクスポート形式のCSVで書き出します。"
+        )
+        self.comparison_export_csv_button.setEnabled(False)
+        self.comparison_export_csv_button.clicked.connect(
+            self._export_saved_comparison
+        )
+        comparison_export_row.addWidget(self.comparison_export_csv_button)
+        self.comparison_export_png_button = QPushButton(
+            "差分プロットをPNGで保存…", result_card
+        )
+        self.comparison_export_png_button.setToolTip(
+            "現在表示している差分プロットを画像として書き出します。"
+        )
+        self.comparison_export_png_button.setEnabled(False)
+        self.comparison_export_png_button.clicked.connect(
+            self._export_difference_plot_png
+        )
+        comparison_export_row.addWidget(self.comparison_export_png_button)
+        comparison_export_row.addStretch(1)
+        result_layout.addLayout(comparison_export_row)
+
         self.comparison_history = QTableWidget(0, 7, result_card)
         self.comparison_history.setHorizontalHeaderLabels(
             ["作成時刻", "帯域", "参照帯域", "除外", "RMS差", "レベル差", "形状RMS"]
@@ -3862,6 +3900,8 @@ class MeasurementPageWorkspace(QWidget):
         # comparison (#586): preview never poses as saved evidence.
         self._last_comparison = None
         self.comparison_state_label.setText("プレビュー（未保存）")
+        self.comparison_export_csv_button.setEnabled(False)
+        self.comparison_export_png_button.setEnabled(False)
         self._preview_comparison_pair()
 
     def _plot_dataset_trace(
@@ -4096,7 +4136,113 @@ class MeasurementPageWorkspace(QWidget):
             name="A − B",
         )
         self.difference_plot.enableAutoRange()
+        self.comparison_export_csv_button.setEnabled(True)
+        self.comparison_export_png_button.setEnabled(True)
         self._update_context_label()
+
+    def _export_saved_comparison(self) -> None:
+        """Write the shown saved comparison as an analysis CSV (#R9).
+
+        The export carries all three curves the workspace renders — side A
+        levels, side B levels and the A−B difference — plus the verdict
+        metadata, keyed by the immutable ``comparison_id``. Like every
+        comparison surface it reads the persisted record, never a
+        recomputed preview.
+        """
+        saved = self._last_comparison
+        if saved is None:
+            return
+        head = self.controller.scene_repository.current_head(
+            self.controller.document_id
+        )
+        current_revision_id = head.revision_id if head is not None else None
+        export = build_analysis_export(
+            document_id=self.controller.document_id,
+            title=f'比較 {saved.comparison_id}',
+            generated_at_utc=datetime.now(timezone.utc).isoformat(),
+            series=(
+                comparison_side_series(
+                    saved, 'a', current_scene_revision_id=current_revision_id
+                ),
+                comparison_side_series(
+                    saved, 'b', current_scene_revision_id=current_revision_id
+                ),
+                series_from_comparison(
+                    saved,
+                    current_scene_revision_id=current_revision_id,
+                ),
+            ),
+            metadata=comparison_metadata_entries(saved)
+            + (
+                AnalysisExportMeta(
+                    key=(
+                        f'comparison.{saved.comparison_id}'
+                        '.semantics_json'
+                    ),
+                    value=saved.semantics_json,
+                ),
+            )
+            if saved.semantics_json
+            else comparison_metadata_entries(saved),
+        )
+        selected, _selected_filter = file_dialog_memory.get_save_file_name(
+            self,
+            "比較結果の保存先",
+            'measurement.export_comparison',
+            "CSV (*.csv)",
+            suggested_name=f'htdt-comparison-{saved.comparison_id[:8]}.csv',
+        )
+        if not selected:
+            return
+        if not selected.lower().endswith('.csv'):
+            selected += '.csv'
+        try:
+            write_text_atomic(Path(selected), render_analysis_csv(export))
+        except OSError as exc:
+            self._operation_error_notice(
+                "比較をエクスポートできませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"比較をCSVで書き出しました: {selected}", SemanticState.SUCCESS
+        )
+
+    def _export_difference_plot_png(self) -> None:
+        """Snapshot the difference plot to PNG (#R9).
+
+        ``ImageExporter`` renders what is on screen, so the PNG inherits
+        the live axis state — zoom/pan included; the menu's リセット gives
+        the canonical full view first.
+        """
+        if self._last_comparison is None:
+            return
+        selected, _selected_filter = file_dialog_memory.get_save_file_name(
+            self,
+            "差分プロットの保存先",
+            'measurement.export_comparison_png',
+            "PNG (*.png)",
+            suggested_name=(
+                'htdt-comparison-'
+                f'{self._last_comparison.comparison_id[:8]}.png'
+            ),
+        )
+        if not selected:
+            return
+        if not selected.lower().endswith('.png'):
+            selected += '.png'
+        exporter = ImageExporter(self.difference_plot.plotItem)
+        exporter.parameters()['width'] = 1280
+        try:
+            exporter.export(selected)
+        except (OSError, ValueError) as exc:
+            self._operation_error_notice(
+                "比較プロットを保存できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"差分プロットをPNGで書き出しました: {selected}",
+            SemanticState.SUCCESS,
+        )
 
     def _toggle_comparison_cursor(self, checked: bool) -> None:
         self._comparison_cursor.set_active(checked)

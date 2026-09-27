@@ -32,8 +32,10 @@ import json
 import os
 import shutil
 import sqlite3
+import tempfile
 import uuid
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -88,6 +90,32 @@ def failure_correlation_id(seed: str | None = None) -> str:
     if seed is None:
         return uuid.uuid4().hex[:4].upper()
     return sha256(seed.encode('utf-8')).hexdigest()[:4].upper()
+
+
+@contextmanager
+def _staged_zip_archive(destination: Path):
+    """Open a ZIP for writing on a sibling temp file; promote on success.
+
+    A failure anywhere in the block removes the staged file — the chosen
+    path never holds a truncated archive.
+    """
+
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f'.{destination.name}.',
+        suffix='.tmp',
+        dir=destination.parent,
+    )
+    os.close(descriptor)
+    staging = Path(temp_name)
+    try:
+        with zipfile.ZipFile(
+            staging, 'w', compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            yield archive
+        os.replace(staging, destination)
+    except BaseException:
+        staging.unlink(missing_ok=True)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -740,9 +768,7 @@ class DiagnosticPackageBuilder:
             }
             skipped.append(name)
 
-        with zipfile.ZipFile(
-            destination, 'w', compression=zipfile.ZIP_DEFLATED
-        ) as archive:
+        with _staged_zip_archive(destination) as archive:
             if PackageCategory.LOGS in plan.categories and diag_dir.exists():
                 for log_file in sorted(diag_dir.glob(f'{LOG_FILENAME}*')):
                     try:

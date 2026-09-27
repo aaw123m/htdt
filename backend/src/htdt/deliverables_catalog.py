@@ -171,6 +171,7 @@ class DeliverablesCatalogService:
             title: str,
             *,
             formats: tuple[str, ...],
+            member_file: str | None = None,
             action_section: str | None = None,
         ) -> DeliverableEntry:
             availability: DeliverableAvailability
@@ -185,6 +186,22 @@ class DeliverablesCatalogService:
                 reason = '一部のセクションが未確定です（警告あり）。'
             else:
                 availability = 'available'
+            # When this deliverable has no generator of its own it ships
+            # inside the handoff package — name the exact member file so
+            # the row never promises a standalone artifact.
+            if (
+                member_file is not None
+                and availability in ('available', 'available_degraded')
+            ):
+                member_note = (
+                    f'ハンドオフパッケージ内の {member_file} '
+                    'として書き出せます。'
+                )
+                reason = (
+                    member_note
+                    if reason is None
+                    else f'{reason} {member_note}'
+                )
             return DeliverableEntry(
                 deliverable_id=deliverable_id,
                 category='installation_field',
@@ -204,54 +221,75 @@ class DeliverablesCatalogService:
         installation_handoff = _install_entry(
             'installation.handoff',
             '設置ハンドオフパッケージ',
-            formats=('csv', 'md', 'json'),
+            formats=('csv', 'html', 'json'),
             action_section='geometry',
         )
         drawing_set = _install_entry(
             'installation.drawing_set',
             '設置図面セット',
-            formats=('svg', 'pdf'),
+            formats=('csv', 'html', 'json'),
+            member_file='dimension_sheets.csv',
             action_section='geometry',
         )
 
         bom_reason: str | None = None
+        bom_blocked = False
         if install_reason is not None:
             bom_reason = install_reason
+            bom_blocked = True
         elif not install_entities and not role_defined_speakers:
             bom_reason = '設計権威に機材・スピーカーがありません。'
+            bom_blocked = True
+        else:
+            # No standalone BOM generator exists — the equipment install
+            # list ships as a handoff package member.
+            bom_reason = (
+                'ハンドオフパッケージ内の installation_coordinates.csv '
+                'として書き出せます。'
+            )
         bom = DeliverableEntry(
             deliverable_id='installation.bom',
             category='installation_field',
             title='機材BOM',
-            availability='blocked' if bom_reason else 'available',
+            availability='blocked' if bom_blocked else 'available',
             reason=bom_reason,
             source_authorities=source_pins,
-            expected_formats=('csv', 'json'),
+            expected_formats=('csv', 'html', 'json'),
             command_id='installation.export_handoff',
             action=(
                 WorkspaceDeepLink(WorkspaceId.ROOM, 'placement')
-                if bom_reason is not None
+                if bom_blocked
                 else None
             ),
         )
 
         labels_reason: str | None = None
+        labels_blocked = False
         if install_reason is not None:
             labels_reason = install_reason
+            labels_blocked = True
         elif not install_entities:
             labels_reason = 'ラベル対象の設置機材・ケーブル権威がありません。'
+            labels_blocked = True
+        else:
+            # No standalone label generator exists — the entity list
+            # ships as a handoff package member.
+            labels_reason = (
+                'ハンドオフパッケージ内の installation_coordinates.csv '
+                'として書き出せます。'
+            )
         field_labels = DeliverableEntry(
             deliverable_id='field.labels',
             category='installation_field',
             title='現場ラベル',
-            availability='blocked' if labels_reason else 'available',
+            availability='blocked' if labels_blocked else 'available',
             reason=labels_reason,
             source_authorities=source_pins,
-            expected_formats=('csv', 'pdf'),
+            expected_formats=('csv', 'html', 'json'),
             command_id='installation.export_handoff',
             action=(
                 WorkspaceDeepLink(WorkspaceId.ROOM, 'placement')
-                if labels_reason is not None
+                if labels_blocked
                 else None
             ),
         )
@@ -284,16 +322,19 @@ class DeliverablesCatalogService:
             deliverable_id='commissioning.report',
             category='commissioning_verification',
             title='コミッショニングレポート',
+            # No generator exists for this deliverable yet — the row is
+            # honest about that instead of advertising formats a click
+            # cannot produce.
             availability=(
-                'available' if commissioning_plans else 'not_applicable'
+                'blocked' if commissioning_plans else 'not_applicable'
             ),
             reason=(
-                None
+                'レポートの書き出し機能はまだ実装されていません。'
                 if commissioning_plans
                 else 'コミッショニング権威がまだありません。'
             ),
             source_authorities=source_pins,
-            expected_formats=('md', 'html'),
+            expected_formats=(),
             action=WorkspaceDeepLink(WorkspaceId.OVERVIEW),
         )
 
@@ -306,7 +347,7 @@ class DeliverablesCatalogService:
             availability='available',
             reason='アプリケーション共通の書き出し（プロジェクト非依存）。',
             source_authorities=('application_scope',),
-            expected_formats=('csv', 'json'),
+            expected_formats=('json',),
             command_id='equipment.export_capture_catalog',
         )
 
