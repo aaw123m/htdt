@@ -101,4 +101,5 @@ Verification: `cd backend && TMPDIR=/c/t C:/devin/python/python.exe -m pytest -q
 - Scoped tests: 43 passed (`test_room_inspector`, `test_authority_graph`,
   `test_cad_readiness_planner`, `test_project_lifecycle`, `test_cad_yamaha_rxa4a`,
   `test_help_registry`, `test_cad_display_units`, `test_workflow_help`).
-- Full suite: `pytest -q -n 4` — see run result below.
+- Full suite: `cd backend && TMPDIR=/c/t PYTHONIOENCODING=utf-8
+  C:/devin/python/python.exe -m pytest -q -n 4` — all tests passed (exit 0).
