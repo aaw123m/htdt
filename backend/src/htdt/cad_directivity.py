@@ -20,6 +20,7 @@ from .cad_equipment import (
     InterpolationMethod,
     InterpolationProvenance,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 DIRECTIVITY_DATASET_SCHEMA_VERSION = 1
@@ -50,18 +51,8 @@ DirectivityEvaluationRequest = Literal['magnitude', 'complex']
 DirectivityEvaluationDecision = Literal['SUPPORTED', 'UNSUPPORTED']
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

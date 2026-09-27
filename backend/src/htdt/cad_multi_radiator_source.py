@@ -35,8 +35,6 @@ one.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal
 from uuid import uuid4
@@ -47,6 +45,7 @@ from .cad_bass_management import FrequencyBand
 from .cad_equipment import EquipmentDataProvenance
 from .cad_scene import Offset3
 from .cad_video_geometry import EvaluationStatus
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 MULTI_RADIATOR_SOURCE_AUTHORITY_VERSION = 'multi-radiator-source-1'
@@ -69,18 +68,8 @@ RadiatorTransferEvidence = Literal[
 ]
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _finite(value: object, *, field_name: str) -> float:

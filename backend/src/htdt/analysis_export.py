@@ -34,10 +34,8 @@ is never rewritten for byte determinism.
 from __future__ import annotations
 
 import csv
-from hashlib import sha256
 import html
 import io
-import json
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -49,6 +47,7 @@ from .cad_measurement_models import (
     CadMeasurementRecord,
 )
 from .csv_export import csv_safe_row
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 ANALYSIS_EXPORT_SCHEMA_VERSION = 1
@@ -72,18 +71,8 @@ _SERIES_COLORS = (
 )
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _format_number(value: float) -> str:

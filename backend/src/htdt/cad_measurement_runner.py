@@ -12,8 +12,6 @@ is never equated with completed planned evidence.
 from __future__ import annotations
 
 from datetime import datetime
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 from uuid import uuid4
 
@@ -24,6 +22,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 RunnerCellStatus = Literal[
@@ -39,18 +38,8 @@ RunnerPurpose = Literal['measurement', 'calibration', 'holdout', 'diagnostic']
 RUNNER_SCHEMA_VERSION = 'measurement-runner-1'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _require_aware_timestamp(value: str, label: str) -> str:

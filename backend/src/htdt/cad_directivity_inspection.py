@@ -33,8 +33,6 @@ Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 from uuid import uuid4
@@ -43,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_directivity import DirectivityDataset, evaluate_directivity
 from .cad_equipment import EquipmentDefinition
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 INSPECTION_CONFIRMATION_AUTHORITY_VERSION = 'directivity-inspection-confirmation-1'
@@ -51,18 +50,8 @@ DirectivitySlicePlane = Literal['horizontal', 'vertical']
 InspectionStatus = Literal['AVAILABLE', 'UNKNOWN']
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class DirectivityAxisMarker(BaseModel):

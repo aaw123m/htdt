@@ -4,7 +4,6 @@ import cmath
 import csv
 from dataclasses import dataclass
 from datetime import datetime
-from hashlib import sha256
 import io
 import json
 from math import cos, isfinite, log10, pi, sin
@@ -30,6 +29,7 @@ from .cad_repository import SceneRevision
 from .cad_scene import Position3
 from .cad_system_variant import SystemVariant
 from .csv_export import csv_safe_row
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 CALIBRATION_PLAN_SCHEMA_VERSION = 1
@@ -60,18 +60,8 @@ CalibrationLifecycleState = Literal[
 BiquadFilterType = Literal['peaking', 'low_pass', 'high_pass', 'all_pass']
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, name: str) -> float:

@@ -27,7 +27,6 @@ from __future__ import annotations
 import csv
 from hashlib import sha256
 import io
-import json
 import os
 from pathlib import Path
 import shutil
@@ -44,6 +43,7 @@ from .report import (
     render_installation_csv,
     render_installation_report_html,
 )
+from .canonical_json import canonical_json as _canonical_json
 
 
 class HandoffReview(BaseModel):
@@ -377,14 +377,6 @@ HANDOFF_MANIFEST_FILENAME = 'handoff_manifest.json'
 HANDOFF_PACKAGE_GENERATOR = 'installation-handoff-1'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def build_handoff_manifest(

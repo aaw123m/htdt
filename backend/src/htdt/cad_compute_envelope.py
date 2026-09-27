@@ -21,7 +21,6 @@ showing requested vs. executed specs and requires explicit acceptance.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -33,6 +32,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_schema import ensure_native_schema, require_native_tables
+from .canonical_json import canonical_json as _canonical
 
 
 ProblemClass = Literal[
@@ -57,14 +57,6 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 class WorkloadSpec(BaseModel):

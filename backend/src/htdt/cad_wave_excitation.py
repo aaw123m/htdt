@@ -32,6 +32,7 @@ from .cad_schema import (
 )
 from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 WAVE_EXCITATION_AUTHORITY_VERSION = 'r110-wave-excitation-2'
@@ -63,18 +64,8 @@ EXTERNAL_WAVE_EXCITATION_EVIDENCE_KINDS = frozenset(
 )
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _utc_now() -> str:

@@ -28,7 +28,6 @@ a live ``upsd``; a real socket transport lands with the hardware slice.
 from __future__ import annotations
 
 from hashlib import sha256
-import json
 from typing import Any, Literal, Protocol
 from uuid import uuid4
 
@@ -39,6 +38,7 @@ from .cad_power_thermal_telemetry import (
     OperatingPowerObservation,
     PowerEventObservation,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 NUT_ADAPTER_ID = 'htdt-nut'
@@ -88,18 +88,8 @@ class NUTError(RuntimeError):
         self.detail = detail
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def parse_quoted(text: str) -> str:

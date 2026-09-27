@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -40,6 +39,7 @@ from .cad_system_variant_measured_lifecycle import (
     build_system_variant_measured_record,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 O100G_MEASUREMENT_PLAN_SCHEMA_VERSION = 1
@@ -50,18 +50,8 @@ O100G_MEASUREMENT_CAMPAIGN_COMPLETION_AUTHORITY_VERSION = 'o100g-system-variant-
 O100G_MEASUREMENT_CAMPAIGN_REGISTRATION_AUTHORITY_VERSION = 'o100g-system-variant-measurement-campaign-registration-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _parse_timestamp(value: str, label: str) -> datetime:

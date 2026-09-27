@@ -27,7 +27,6 @@ The bridge keeps three things mechanically separate:
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -39,25 +38,14 @@ from .cad_external_admission import (
     external_asset_file,
 )
 from .cad_validation_corpus import CorpusSplitRole
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 FLAIR_AUTHORITY_VERSION = 'flair-bridge-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict) -> str:
-    return hashlib.sha256(
-        _canonical(payload).encode('utf-8')
-    ).hexdigest()
 
 
 def _provenance(ref: str) -> EquipmentDataProvenance:

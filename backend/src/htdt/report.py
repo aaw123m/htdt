@@ -49,6 +49,7 @@ from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_standards import StandardsEvaluation, StandardsProfile
 from .cad_video_geometry import ProjectorSpecification, VideoGeometryEvaluation
 from .csv_export import csv_safe_row
+from .canonical_json import canonical_json as _canonical
 
 
 REPORT_SCHEMA_VERSION = 1
@@ -210,14 +211,6 @@ INSTALLATION_OUTPUT_AUTHORITY_VERSION = 'installation-output-5'
 INSTALLATION_REPORT_RENDERER_VERSION = 'installation-report-3'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _semantic_digest(value: Any) -> str:

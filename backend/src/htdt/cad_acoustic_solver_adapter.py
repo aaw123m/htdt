@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -13,6 +11,7 @@ from .cad_acoustic_snapshot import (
 )
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 ACOUSTIC_SOLVER_ADAPTER_SCHEMA_VERSION = 1
@@ -24,18 +23,8 @@ AcousticSolverDomain = Literal['wave', 'geometric']
 SolverDispatchState = Literal['READY', 'BLOCKED', 'UNSUPPORTED']
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _domain_contains(

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -40,6 +39,7 @@ from .capture_semantic_promotion import (
     validate_capture_alignment,
 )
 from .semantic_geometry import SemanticCoordinateTransform
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256
 
 
 INBOX_ITEM_DOMAIN = 'htdt.capture.inbox-item.v1'
@@ -302,20 +302,10 @@ class CaptureInboxStageResult(BaseModel):
         return self.item.lineage_digest
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _inbox_hash(domain: str, value: object) -> str:
-    return sha256(
-        _canonical_json({'domain': domain, 'payload': value}).encode('utf-8')
-    ).hexdigest()
+    return canonical_sha256({'domain': domain, 'payload': value})
 
 
 def _utc_now() -> str:

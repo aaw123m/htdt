@@ -32,6 +32,7 @@ from .cad_media_source_capability import (
     SourceCapabilityObservation,
     SourceCapabilityState,
 )
+from .canonical_json import canonical_sha256 as _hash
 
 
 WAVE_QUALIFICATION_AUTHORITY_VERSION = 'wave-qualification-1'
@@ -41,16 +42,6 @@ def _sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
-def _hash(payload: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
 
 
 WaveSuite = Literal[

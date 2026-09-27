@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hashlib import sha256
 import json
 from math import asin, cos, degrees, isfinite, radians, sin
 from typing import Any, Callable, Literal, Protocol, Sequence
@@ -33,6 +32,7 @@ from .optimization_objectives import (
     ObjectiveMetric,
     ObjectiveVector,
 )
+from .canonical_json import canonical_json as canonical_robustness_json, canonical_sha256 as canonical_robustness_sha256
 
 
 ROBUSTNESS_SCHEMA_VERSION = 1
@@ -54,18 +54,8 @@ RobustnessAxisParameter = Literal[
 ]
 
 
-def canonical_robustness_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_robustness_sha256(value: Any) -> str:
-    return sha256(canonical_robustness_json(value).encode('utf-8')).hexdigest()
 
 
 def robustness_timestamp_utc() -> str:

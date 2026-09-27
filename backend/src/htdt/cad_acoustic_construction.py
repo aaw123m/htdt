@@ -24,8 +24,6 @@ Deliberate first-slice scope:
 from __future__ import annotations
 
 import cmath
-import json
-from hashlib import sha256
 from math import isfinite, pi
 from typing import Any, Literal
 from uuid import uuid4
@@ -34,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .acoustic_benchmark import SpecificImpedancePoint
 from .cad_acoustic_material import AcousticMaterialAuthority
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 _CONSTRUCTION_PREFIX = 'acoustic-construction:'
@@ -50,18 +49,8 @@ _MODEL_ID = 'miki_1990'
 _PROVIDER_ID = 'htdt-tmm-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class ConstructionLayer(BaseModel):

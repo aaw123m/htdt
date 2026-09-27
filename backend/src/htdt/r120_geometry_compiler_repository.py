@@ -24,6 +24,7 @@ from .r120_geometry_compiler import (
     compile_r120_geometry,
     diagnose_r120_leak_and_portals,
 )
+from .canonical_json import canonical_json
 
 
 def _utc_now() -> str:
@@ -104,19 +105,13 @@ def _compile_inputs_from_json(payload: str) -> _CompileInputAuthorities:
 def _diagnostic_inputs_to_json(
     portal_authority: PortalAuthority | None,
 ) -> str:
-    return json.dumps(
-        {
+    return canonical_json({
             'portal_authority': (
                 None
                 if portal_authority is None
                 else portal_authority.model_dump(mode='json')
             ),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
+        })
 
 
 def _diagnostic_inputs_from_json(payload: str) -> _DiagnosticInputAuthorities:

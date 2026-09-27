@@ -14,14 +14,13 @@ for that revision — 'stale' here means "not current", never "invalid".
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_repository import SceneRevision
 from .cad_scene import SceneDocument, SceneEntity
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 IMPACT_SCHEMA_VERSION = 1
@@ -77,18 +76,8 @@ ArtifactKind = Literal[
 ]
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

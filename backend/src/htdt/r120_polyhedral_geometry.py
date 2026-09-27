@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from hashlib import sha256
 import json
 from math import isfinite, sqrt
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R120_POLYHEDRAL_COMPILER_ID = 'htdt.r120.polyhedral_geometry_compiler'
@@ -18,18 +18,8 @@ RepresentationState = Literal['READY', 'UNSUPPORTED']
 TopologySeverity = Literal['info', 'error']
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class R120PolyhedralGeometryError(ValueError):

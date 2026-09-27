@@ -40,6 +40,7 @@ from .semantic_geometry import (
     make_semantic_geometry_conversion_request,
     raw_triangle_ids,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 PROMOTION_DOMAIN = 'htdt.capture.semantic-promotion.v1'
@@ -248,18 +249,8 @@ class CapturePromotionReplayError(CaptureSemanticPromotionError):
         self.diagnostic = diagnostic
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 def _authority_identity_payload(

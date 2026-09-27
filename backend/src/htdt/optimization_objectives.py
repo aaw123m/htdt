@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from hashlib import sha256
 from itertools import combinations
-import json
 from math import isfinite, sqrt
 from typing import Any, Literal, Mapping, Sequence
 
@@ -10,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_seat_priority import SeatPriorityProfile
 from .comparison import ComparisonError, FrequencyResponse, compare_frequency_responses
+from .canonical_json import canonical_json as canonical_objective_definition_json, canonical_sha256 as canonical_objective_definition_sha256
 
 
 OBJECTIVE_ALGORITHM_VERSION = 'objective-vector-1'
@@ -24,18 +23,8 @@ class ObjectiveError(ValueError):
     pass
 
 
-def canonical_objective_definition_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_objective_definition_sha256(value: Any) -> str:
-    return sha256(canonical_objective_definition_json(value).encode('utf-8')).hexdigest()
 
 
 class ObjectiveValidDomain(BaseModel):

@@ -61,6 +61,7 @@ from htdt.limits import (
     MAX_CAPTURE_INGEST_VERTEX_COUNT,
     MAX_CAPTURE_INGEST_WORKING_BYTES,
 )
+from .canonical_json import canonical_json as _canonical_json
 
 
 UUID4_RE = re.compile(
@@ -375,14 +376,6 @@ def _validate_plan_source_ref_grammar(plan: 'CaptureIngestionPlan') -> None:
                 stack.pop()
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _validate_logical_path(value: str) -> str:

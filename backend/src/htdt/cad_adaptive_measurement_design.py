@@ -16,28 +16,17 @@ retain their own versioned identity.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite, sqrt
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Position3
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 _SHA256_PATTERN = r'^[0-9a-f]{64}$'

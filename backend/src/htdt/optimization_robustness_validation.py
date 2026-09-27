@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from hashlib import sha256
-import json
 from math import isclose
 from typing import Any, Literal, Sequence
 
@@ -24,6 +22,7 @@ from .optimization_robustness import (
     UncertaintyAxis,
     apply_local_perturbation,
 )
+from .canonical_json import canonical_json as canonical_o90e_json, canonical_sha256 as canonical_o90e_sha256
 
 
 O90E_SCHEMA_VERSION = 1
@@ -54,18 +53,8 @@ O90ESupportState = Literal[
 ]
 
 
-def canonical_o90e_json(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_o90e_sha256(value: Any) -> str:
-    return sha256(canonical_o90e_json(value).encode('utf-8')).hexdigest()
 
 
 def _semantic_id(prefix: str, digest: str) -> str:

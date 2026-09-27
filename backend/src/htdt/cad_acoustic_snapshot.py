@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import (
@@ -11,6 +9,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 if TYPE_CHECKING:
     from .cad_listener_pose import ListenerPoseAuthority
@@ -74,18 +73,8 @@ ReceiverReferenceSemantics = Literal[
 ]
 
 
-def _canonical(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(payload: object) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _unique(values: tuple[str, ...]) -> tuple[str, ...]:

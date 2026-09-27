@@ -23,23 +23,14 @@ Policy:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from pathlib import PurePath, PureWindowsPath
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .canonical_json import canonical_json, canonical_sha256 as _hash
 
 
-def canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 REW_SOURCE_CONTEXT_ADAPTER_VERSION = 'rew-source-context-1'
 
@@ -182,8 +173,6 @@ class RewMeasurementSourceContext(BaseModel):
         }
 
 
-def _hash(payload: Any) -> str:
-    return sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _text(value: Any) -> str | None:

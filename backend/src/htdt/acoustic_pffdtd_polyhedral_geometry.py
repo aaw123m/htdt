@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 import math
 from pathlib import Path
 from typing import Any, Literal, Sequence
@@ -33,6 +32,7 @@ from .r120_polyhedral_geometry import (
     R120PolyhedralSemanticGeometry,
     validate_r120_polyhedral_topology,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
 
 
 PFFDTD_POLYHEDRAL_GEOMETRY_ADAPTER_ID = (
@@ -59,18 +59,8 @@ PFFDTD_POLYHEDRAL_EXECUTED_GRID_VERSION = (
 )
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 def _exact_ref(

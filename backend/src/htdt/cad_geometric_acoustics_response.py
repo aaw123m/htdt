@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing
-from hashlib import sha256
-import json
 from math import acos, atan2, cos, degrees, isfinite, pi, sin, sqrt
 from pathlib import Path
 import sqlite3
@@ -25,6 +23,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_schema import require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R150_PATH_RESPONSE_SCHEMA_VERSION = 1
@@ -56,18 +55,8 @@ ReflectionIncidenceCondition = Literal[
 _INCIDENCE_COSINE_MATCH_TOLERANCE = 1e-9
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, name: str) -> float:

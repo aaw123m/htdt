@@ -26,8 +26,6 @@ Contract (per the issue):
 from __future__ import annotations
 
 from contextlib import closing
-from hashlib import sha256
-import json
 from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
@@ -45,6 +43,7 @@ from .cad_scene import (
 )
 from .cad_standards_profiles import dolby_atmos_home_5_1_2_profile
 from .project_lifecycle import ProjectLibrary
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 TEMPLATE_SCHEMA_VERSION = 1
@@ -65,18 +64,8 @@ TEMPLATE_PROJECT_KINDS: frozenset[str] = frozenset(
 )
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class TemplateAuthorityRef(BaseModel):

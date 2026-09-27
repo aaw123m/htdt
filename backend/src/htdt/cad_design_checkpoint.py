@@ -25,8 +25,6 @@ as-built/measured physical evidence.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal
@@ -38,6 +36,7 @@ from .cad_constraint_models import CadConstraintSet
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import SceneDocument
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 CHECKPOINT_SCHEMA_VERSION = 1
@@ -72,18 +71,8 @@ CHECKPOINT_COMPONENT_KINDS: frozenset[str] = frozenset(
 )
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def constraint_workspace_sha256(constraint_set: CadConstraintSet) -> str:

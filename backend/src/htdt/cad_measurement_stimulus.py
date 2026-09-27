@@ -37,7 +37,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 from uuid import uuid4
@@ -45,20 +44,11 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _utc_now() -> str:

@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from pathlib import Path
 import sqlite3
 from typing import Any, Literal, Protocol, Sequence
@@ -18,6 +16,7 @@ from .cad_schema import (
 )
 from .cad_topology_comparison import TopologyComparisonEvaluation
 from .cad_robust_pareto import O90RobustParetoEvaluation
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 MULTIFIDELITY_SCHEMA_VERSION = 1
@@ -71,18 +70,8 @@ class O90RobustParetoEvaluationResolver(Protocol):
         ...
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _utc_now() -> str:

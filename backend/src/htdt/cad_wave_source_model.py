@@ -26,8 +26,6 @@ closes the gap:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -40,6 +38,7 @@ from .cad_wave_excitation import (
     AcousticWaveExcitationAuthority,
     WaveSourceExcitationBinding,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 WAVE_SOURCE_MODEL_AUTHORITY_VERSION = 'wave-source-model-compatibility-1'
@@ -82,18 +81,8 @@ WaveSourcePointBasis = Literal[
 ]
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class WaveSourceModelCompatibility(BaseModel):

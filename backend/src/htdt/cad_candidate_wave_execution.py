@@ -80,6 +80,7 @@ from .r120_geometry_compiler import (
     R120CompiledGeometry,
 )
 from .r120_geometry_compiler_repository import R120GeometryCompilerRepository
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _digest
 
 
 PFFDTD_CANDIDATE_ADAPTER_ID = 'htdt.r130a.pffdtd_candidate_wave'
@@ -96,18 +97,8 @@ COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION = (
 )
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: object) -> str:
-    return sha256(_canonical_json(value).encode('utf-8')).hexdigest()
 
 
 def _file_sha256(path: Path) -> str:

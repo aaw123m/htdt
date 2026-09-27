@@ -4,9 +4,7 @@ from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from hashlib import sha256
 from importlib.metadata import version as distribution_version
-import json
 from math import acos, atan2, degrees, isfinite, sqrt
 from pathlib import Path
 import sqlite3
@@ -61,6 +59,7 @@ from .r120_geometry_compiler import (
     PortalAuthority,
     R120CompiledGeometry,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 DETERMINISTIC_GA_SCHEMA_VERSION = 1
@@ -124,18 +123,8 @@ class DeterministicGaUnsupportedError(ValueError):
 
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(

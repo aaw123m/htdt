@@ -29,10 +29,9 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurements import canonical_json
+from .canonical_json import canonical_sha256 as _hash
 
 
-def _hash(payload: Any) -> str:
-    return sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 # ---------------------------------------------------------------------------

@@ -22,8 +22,6 @@ manufacturer-level "supported" badge.
 
 from __future__ import annotations
 
-import json
-from hashlib import sha256
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -35,6 +33,7 @@ from .cad_device_adapter import (
     CalibrationAdapterService,
     DeviceBindingMismatchError,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 NormalizedDeviceCapability = Literal[
@@ -93,18 +92,8 @@ _TIER_ORDER = (
 )
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class DeviceCompatibilityRow(BaseModel):

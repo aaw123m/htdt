@@ -19,6 +19,7 @@ from .project_identity import (
     resolve_project_reference,
 )
 from .cad_schema import ensure_native_schema, require_native_tables
+from .canonical_json import canonical_json as _canonical_json
 
 
 class FieldReturnError(ValueError):
@@ -37,14 +38,6 @@ HEX64 = r'^[0-9a-f]{64}$'
 UUID4_RE = re.compile(UUID4_PATTERN)
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 # --- artifact-family recognition (#674 §1) ------------------------------------

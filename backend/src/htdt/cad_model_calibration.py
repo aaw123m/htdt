@@ -16,8 +16,6 @@ separately.
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import ceil, exp, floor, isfinite, log, log2, sqrt
 from typing import TYPE_CHECKING, Any, Literal, Protocol, Sequence
 
@@ -25,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 if TYPE_CHECKING:
     from .cad_acoustic_snapshot import AcousticSceneSnapshot
@@ -58,18 +57,8 @@ IdentifiabilityState = Literal[
 ]
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: float, *, field_name: str) -> float:

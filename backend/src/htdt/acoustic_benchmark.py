@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
+from .canonical_json import canonical_json as canonical_benchmark_json, canonical_sha256 as canonical_benchmark_sha256
 
 
 BenchmarkCapability = Literal[
@@ -53,18 +54,8 @@ BenchmarkAcceptanceRelation = Literal[
 ]
 
 
-def canonical_benchmark_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def canonical_benchmark_sha256(payload: object) -> str:
-    return sha256(canonical_benchmark_json(payload).encode('utf-8')).hexdigest()
 
 
 class AcousticVertex(BaseModel):

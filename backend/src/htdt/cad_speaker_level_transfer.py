@@ -32,8 +32,6 @@ This module keeps the three authorities separate and composable:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite, log10, pi
 from typing import Any, Literal
 from uuid import uuid4
@@ -46,6 +44,7 @@ from .cad_speaker_impedance import (
     ImpedanceSample,
     SpeakerElectricalImpedanceAuthority,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 SPEAKER_LEVEL_TRANSFER_AUTHORITY_VERSION = 'speaker-level-transfer-1'
@@ -74,18 +73,8 @@ TransferComputationStatus = Literal[
 ]
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def _finite(value: object, *, field_name: str) -> float:

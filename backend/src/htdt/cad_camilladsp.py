@@ -52,6 +52,7 @@ from .cad_external_calibration import (
     IncludeDependency,
     OpaqueArtifactSection,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 CAMILLADSP_ADAPTER_ID = 'htdt-camilladsp'
@@ -86,18 +87,8 @@ class CamillaDSPError(RuntimeError):
         self.detail = detail
 
 
-def _canonical(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 #: CamillaDSP configs are small hand-written files; a hard input bound keeps

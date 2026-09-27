@@ -40,14 +40,13 @@ Contract properties:
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .report import InstallationEntityOutput, InstallationOutput
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 DRAWING_SPEC_SCHEMA_VERSION = 1
@@ -95,18 +94,8 @@ _MARGIN_MM = 15.0
 _TITLE_BLOCK_MM = 28.0
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _finite(value: object, *, field_name: str) -> float:

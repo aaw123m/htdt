@@ -40,6 +40,7 @@ from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 import segno
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 LABEL_PAYLOAD_VERSION = 'htdt-label-v1'
@@ -89,18 +90,8 @@ _LABEL_MARGIN_MM = 10.0
 _LABEL_GAP_MM = 5.0
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 def _checksum(project_id: str, target_kind: str, target_id: str,

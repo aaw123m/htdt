@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from typing import Any, Literal, Mapping, Sequence
 from uuid import uuid4
 
@@ -18,24 +16,15 @@ from .cad_validation_metrics import (
     build_trend_checks,
 )
 from .comparison import FrequencyResponse, compare_frequency_responses
+from .canonical_json import canonical_json as _canon, canonical_sha256 as _hash
 
 
 VALIDATION_ALGORITHM_VERSION = 'model-validation-2'
 EvidenceScope = Literal['synthetic_fixture', 'owned_room']
 
 
-def _canon(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(value: Any) -> str:
-    return sha256(_canon(value).encode('utf-8')).hexdigest()
 
 
 class CadValidationPair(BaseModel):

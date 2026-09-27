@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -12,24 +10,15 @@ from .cad_system_variant import (
     VariantEntityDiff,
     materialize_system_variant,
 )
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
 
 
 TOPOLOGY_SPACE_SCHEMA_VERSION = 1
 TOPOLOGY_SPACE_AUTHORITY_VERSION = 'o100b-topology-space-1'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _digest(value: Any) -> str:
-    return sha256(_canonical(value).encode('utf-8')).hexdigest()
 
 
 class TopologyOperation(BaseModel):

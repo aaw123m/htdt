@@ -14,6 +14,7 @@ from .limits import (
     MAX_CAPTURE_INGEST_FACE_COUNT,
     MAX_CAPTURE_INGEST_VERTEX_COUNT,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 RAW_MESH_IMPORTER_ID = 'htdt.raw_visual_mesh'
@@ -43,18 +44,8 @@ MAX_RAW_MESH_VERTICES = MAX_CAPTURE_INGEST_VERTEX_COUNT
 MAX_RAW_MESH_TRIANGLES = MAX_CAPTURE_INGEST_FACE_COUNT
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 class RawMeshVertex(BaseModel):

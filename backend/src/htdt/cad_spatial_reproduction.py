@@ -26,7 +26,6 @@ baking HRTF data into solver code.
 
 from __future__ import annotations
 
-import json
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
@@ -35,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 SpatialDatasetLicense = Literal[
@@ -55,18 +55,8 @@ PersonalizationScope = Literal['generic', 'individualized', 'mixed']
 SPATIAL_PROFILE_SCHEMA_VERSION = 1
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 def normalize_spherical_position(

@@ -66,6 +66,7 @@ from .content_blobs import (
     store_content_blob,
 )
 from .limits import MAX_CAPTURE_INGEST_SOURCE_BYTES
+from .canonical_json import canonical_json as _canonical_json
 
 
 _LOGGER = logging.getLogger('htdt.capture_receiver')
@@ -116,14 +117,6 @@ class CaptureReceiverError(ValueError):
     pass
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _utc_now() -> str:

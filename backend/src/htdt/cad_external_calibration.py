@@ -19,7 +19,6 @@ mirror that.
 
 from __future__ import annotations
 
-import json
 import re
 from hashlib import sha256
 from math import isfinite
@@ -28,6 +27,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_calibration import CadCalibrationExportSnapshot
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
 
 
 _EQUALIZER_APO_IMPORTER_ID = 'htdt-import-equalizer-apo'
@@ -57,18 +57,8 @@ _FILTER_TYPE_MAP: dict[str, str] = {
 _NUMBER = r'-?\d+(?:\.\d+)?'
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: dict[str, Any]) -> str:
-    return sha256(_canonical(payload).encode('utf-8')).hexdigest()
 
 
 class ImportedFilterBand(BaseModel):

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from math import isfinite, sqrt
 from typing import Any, Literal, Sequence
 
@@ -26,6 +24,7 @@ from .r120_geometry_compiler import (
     SurfaceBoundaryAuthorityBinding,
 )
 from .semantic_geometry import SemanticAcousticGeometry, SemanticSurface
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256
 
 
 TREATMENT_BOUNDARY_OVERLAY_COMPILER_ID = 'htdt.r120.treatment_boundary_overlay'
@@ -49,14 +48,6 @@ TreatmentBoundaryCapabilityState = Literal['AVAILABLE', 'UNKNOWN']
 TransmissionCapabilityState = Literal['UNKNOWN']
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _jsonable(value: Any) -> Any:
@@ -72,7 +63,7 @@ def _jsonable(value: Any) -> Any:
 
 
 def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(_jsonable(payload)).encode('utf-8')).hexdigest()
+    return canonical_sha256(_jsonable(payload))
 
 
 FOOTPRINT_DERIVATION_VERSION = 'treatment-footprint-derivation-1'

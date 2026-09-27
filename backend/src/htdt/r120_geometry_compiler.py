@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from hashlib import sha256
 import json
 from math import isfinite, sqrt
 from typing import Literal
@@ -10,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_repository import SceneRevision
 from .semantic_geometry import SemanticAcousticGeometry
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 
 
 R120_GEOMETRY_COMPILER_ID = 'htdt.r120.solver_neutral_geometry_compiler'
@@ -36,18 +36,8 @@ PortalDeclarationMode = Literal['unknown', 'explicit_none', 'explicit_list']
 DiagnosticSeverity = Literal['info', 'warning', 'error', 'blocked']
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _semantic_hash(payload: object) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _normalized_edge(a: int, b: int) -> tuple[int, int]:

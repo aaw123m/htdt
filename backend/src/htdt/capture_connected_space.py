@@ -37,6 +37,7 @@ from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
 )
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256
 
 
 CONNECTED_SPACE_SCHEMA = 'htdt.capture.connected-spaces'
@@ -55,20 +56,10 @@ class ConnectedSpacePromotionError(ValueError):
     pass
 
 
-def _canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def _hash(domain: str, payload: object) -> str:
-    return sha256(
-        _canonical_json({'domain': domain, 'payload': payload}).encode('utf-8')
-    ).hexdigest()
+    return canonical_sha256({'domain': domain, 'payload': payload})
 
 
 def _utc_now() -> str:

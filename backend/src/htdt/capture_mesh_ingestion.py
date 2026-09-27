@@ -8,6 +8,7 @@ from typing import Any, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from htdt.raw_mesh import RawVisualMesh, import_raw_visual_mesh
+from .canonical_json import canonical_json as _canonical_json
 
 
 CAPTURE_MESH_BINDING_DOMAIN = 'htdt.capture.raw-visual-mesh-binding.v1'
@@ -210,11 +211,3 @@ def _binding_id(handoff_id: str, raw_mesh_semantic_hash: str) -> str:
     return f'capture-raw-mesh-binding:{digest.hexdigest()}'
 
 
-def _canonical_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )

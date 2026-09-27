@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Position3
+from .canonical_json import canonical_json as canonical_prediction_json, canonical_sha256 as prediction_result_sha256
 
 
 PredictionResultKind = Literal[
@@ -30,25 +31,12 @@ PredictionRunStatus = Literal['completed']
 PredictionModeClass = Literal['axial', 'tangential', 'oblique']
 
 
-def canonical_prediction_json(payload: object) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
 def prediction_input_hash(input_snapshot_json: str) -> str:
     return sha256(input_snapshot_json.encode('utf-8')).hexdigest()
 
 
-def prediction_result_sha256(result_identity_payload: object) -> str:
-    """SHA-256 over the canonical versioned prediction-result identity payload."""
-    return sha256(
-        canonical_prediction_json(result_identity_payload).encode('utf-8')
-    ).hexdigest()
 
 
 class CadPredictedRoomMode(BaseModel):

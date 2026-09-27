@@ -18,8 +18,6 @@ from __future__ import annotations
 
 from contextlib import closing
 from datetime import datetime, timezone
-from hashlib import sha256
-import json
 from math import isfinite
 import sqlite3
 from typing import Any, Literal
@@ -38,6 +36,7 @@ from .cad_scene import (
 )
 
 from .cad_schema import require_native_tables
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
 PatternAnchorKind = Literal['seat', 'measurement_point', 'explicit_point']
@@ -46,18 +45,8 @@ PatternPointPurpose = Literal['measurement', 'calibration', 'holdout', 'diagnost
 TARGET_PATTERN_SCHEMA_VERSION = 'measurement-target-pattern-1'
 
 
-def _canonical_json(payload: Any) -> str:
-    return json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(',', ':'),
-        allow_nan=False,
-    )
 
 
-def _hash(payload: Any) -> str:
-    return sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
 
 
 def _position_payload(position: Position3) -> dict[str, float]:
