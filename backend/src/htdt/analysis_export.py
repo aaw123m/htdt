@@ -363,6 +363,75 @@ def series_from_comparison(
     )
 
 
+def _band_text(band: tuple[float, float] | None) -> str | None:
+    if band is None:
+        return None
+    return f'{_format_number(band[0])}-{_format_number(band[1])} Hz'
+
+
+def comparison_metadata_entries(
+    comparison: CadMeasurementComparison,
+) -> tuple[AnalysisExportMeta, ...]:
+    """Scalar verdict + spec context of a persisted A/B comparison.
+
+    The difference curve travels as a series, but the headline verdict the
+    workspace shows (metrics, band spec, side labels, level compatibility)
+    is metadata — without it an export carries the trace but not the
+    comparison's actual result. Keys are namespaced by comparison id so
+    every entry is unique within a bundle.
+    """
+
+    prefix = f'comparison.{comparison.comparison_id}'
+    entries: list[AnalysisExportMeta] = [
+        AnalysisExportMeta(
+            key=f'{prefix}.algorithm_version',
+            value=comparison.algorithm_version,
+        ),
+        AnalysisExportMeta(
+            key=f'{prefix}.requested_band_hz',
+            value=_band_text(comparison.requested_band_hz) or 'unknown',
+        ),
+        AnalysisExportMeta(
+            key=f'{prefix}.actual_band_hz',
+            value=_band_text(comparison.actual_band_hz) or 'unknown',
+        ),
+        AnalysisExportMeta(
+            key=f'{prefix}.valid_points', value=str(comparison.valid_points)
+        ),
+        AnalysisExportMeta(
+            key=f'{prefix}.total_grid_points',
+            value=str(comparison.total_grid_points),
+        ),
+    ]
+    optional: tuple[tuple[str, Any], ...] = (
+        ('label_a', comparison.label_a),
+        ('label_b', comparison.label_b),
+        ('level_compatibility', comparison.level_compatibility),
+        ('reference_band_hz', _band_text(comparison.reference_band_hz)),
+        ('excluded_bands_hz', ' / '.join(
+            _band_text(band) or '' for band in comparison.excluded_bands
+        ) or None),
+        ('mean_difference_db', comparison.mean_difference_db),
+        ('rms_difference_db', comparison.rms_difference_db),
+        ('level_offset_db', comparison.level_offset_db),
+        ('shape_rms_db', comparison.shape_rms_db),
+    )
+    for name, value in optional:
+        if value is None:
+            continue
+        entries.append(
+            AnalysisExportMeta(
+                key=f'{prefix}.{name}',
+                value=(
+                    _format_number(value)
+                    if isinstance(value, float)
+                    else str(value)
+                ),
+            )
+        )
+    return tuple(entries)
+
+
 def series_from_prediction(
     points: tuple[tuple[float, float], ...],
     *,

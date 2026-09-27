@@ -301,7 +301,7 @@ def _batch_status_label(value: str) -> str:
 
 
 def _mismatch_label(code: str) -> str:
-    """Advisory A/B semantic-difference codes (#483)."""
+    """Advisory A/B semantic-difference codes (#483/#852)."""
     return {
         "evidence_type": "証拠種別が異なります",
         "channel_role": "入力役割が異なります",
@@ -309,7 +309,22 @@ def _mismatch_label(code: str) -> str:
         "source_speakers": "音源スピーカーが異なります",
         "scene_revision": "測定時の部屋状態が異なります",
         "smoothing": "入力スムージング処理が異なります",
+        "acquisition_context": "取得条件が異なります",
+        "routing_profile": "ルーティングプロファイルが異なります",
+        "level_reference": "レベル基準が異なります",
+        "timing_reference": "タイミング基準が異なります",
+        "radiation_scope": "放射範囲が異なります",
     }.get(code, code)
+
+
+def _level_compatibility_label(value: str | None) -> str:
+    """Persisted level-compat verdict of a saved comparison (#852)."""
+    return {
+        "absolute_level_comparable": "絶対レベルで比較可能",
+        "normalized_shape_comparable": "形状比較（参照帯域でレベル正規化）",
+        "diagnostic_only": "診断のみ（レベル差は絶対的な音圧差ではありません）",
+        None: "—",
+    }.get(value, str(value))
 
 
 def _spatial_change_label(change_kind: str) -> str:
@@ -853,10 +868,25 @@ class MeasurementPageWorkspace(QWidget):
             self.pending_import_label.setText("まだ読み込まれていません")
             return
         phase = "位相サンプルあり" if pending.has_phase_samples else "位相サンプルなし"
+        duplicate_note = ""
+        if pending.duplicate_of_measurement_id is not None:
+            duplicate_name = next(
+                (
+                    view.effective_target_name
+                    for view in getattr(self, "_quality_views", ())
+                    if view.measurement_id == pending.duplicate_of_measurement_id
+                ),
+                pending.duplicate_of_measurement_id,
+            )
+            duplicate_note = (
+                f"\n注意: {_duplicate_kind_label(pending.duplicate_kind)}の測定が"
+                f"既に保存されています（{duplicate_name}）。"
+            )
         self.pending_import_label.setText(
             f"{pending.source_label}\n"
             f"{pending.sample_count:,} 点 · {_format_band(pending.frequency_band_hz)} · {phase}\n"
             "保存前の一時データです。意味付けは「割り当て」で確定します。"
+            + duplicate_note
         )
         self.import_preview_plot.plot(
             pending.frequency_hz,
@@ -1561,6 +1591,34 @@ class MeasurementPageWorkspace(QWidget):
             else:
                 self._set_notice(
                     "保存を保留しました。取得時の配置を選び直すか、後で保存してください。",
+                    SemanticState.WARNING,
+                )
+                return
+        pending = self.controller.pending_import
+        if (
+            pending is not None
+            and pending.duplicate_of_measurement_id is not None
+        ):
+            duplicate_name = next(
+                (
+                    view.effective_target_name
+                    for view in getattr(self, "_quality_views", ())
+                    if view.measurement_id == pending.duplicate_of_measurement_id
+                ),
+                pending.duplicate_of_measurement_id,
+            )
+            answer = QMessageBox.question(
+                self,
+                "同じ測定が既に保存されています",
+                f"{_duplicate_kind_label(pending.duplicate_kind)}の測定が既に"
+                f"保存されています（{duplicate_name}）。\n"
+                "新しい測定としてもう一度保存しますか？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                self._set_notice(
+                    "保存をキャンセルしました。既存の測定はそのままです。",
                     SemanticState.WARNING,
                 )
                 return
@@ -2617,7 +2675,7 @@ class MeasurementPageWorkspace(QWidget):
                 _channel_role_label(row.effective_channel_role),
                 _evidence_label(row.evidence_type),
                 row.effective_target_name,
-                _quality_label(row.quality_status),
+                "検証エラー" if row.dataset_error else _quality_label(row.quality_status),
                 _phase_label(row.phase_status),
                 _capability_decision_label(row.common_timing_capability),
                 "現在の配置" if row.scene_matches_current else "測定時の配置",
@@ -2712,7 +2770,13 @@ class MeasurementPageWorkspace(QWidget):
             if row.effective_source_speaker_ids
             else "未指定"
         )
-        self.quality_detail.setText(
+        detail_lines: list[str] = []
+        if row.dataset_error:
+            detail_lines.append(
+                "この測定の周波数応答データを検証できませんでした"
+                f"（{row.dataset_error}）。比較・解析からは除外されています。"
+            )
+        detail_lines.append(
             f"{row.effective_target_name} · {_evidence_label(row.evidence_type)} · "
             f"{_channel_role_label(row.effective_channel_role)}\n"
             f"品質: {_quality_label(row.quality_status)} · {reasons}\n"
@@ -2721,6 +2785,11 @@ class MeasurementPageWorkspace(QWidget):
             f"共通タイミング: {_capability_decision_label(row.common_timing_capability)} · "
             f"{scene}\n"
             f"音源: {source_speakers} · {captured}"
+        )
+        self.quality_detail.setText("\n".join(detail_lines))
+        set_semantic_state(
+            self.quality_detail,
+            SemanticState.ERROR if row.dataset_error else None,
         )
 
         # Replay-validated quality report summary (#468): profile name/version
@@ -2848,6 +2917,13 @@ class MeasurementPageWorkspace(QWidget):
         if row is None or row.dataset_id is None:
             self.provenance_label.setText("")
             self.phase_state_label.setText("")
+            if row is not None and row.dataset_error:
+                show_plot_state(
+                    self.quality_plot,
+                    "この測定のデータを検証できませんでした",
+                    detail="保存時の検証に失敗したため、このデータは利用できません。",
+                )
+                return
             # Designed no-data state instead of an empty dark graph (#579).
             show_plot_state(
                 self.quality_plot,
@@ -3603,7 +3679,18 @@ class MeasurementPageWorkspace(QWidget):
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
 
         self._preview_comparison_pair()
-        comparisons = self.controller.saved_comparisons()
+        try:
+            comparisons = self.controller.saved_comparisons()
+        except Exception as exc:
+            # One row that fails comparison re-verification must not take
+            # the workspace down: the history reads stay empty and the
+            # failure is surfaced instead of an unhandled exception.
+            comparisons = ()
+            self._set_notice(
+                "比較履歴を読み込めませんでした · "
+                + operation_error_message(exc),
+                SemanticState.ERROR,
+            )
         self._saved_comparisons = comparisons
         self.comparison_history.setRowCount(len(comparisons))
         for row_index, comparison in enumerate(comparisons):
@@ -3683,7 +3770,66 @@ class MeasurementPageWorkspace(QWidget):
         saved = comparisons[row_index]
         self._last_comparison = saved
         self.comparison_state_label.setText("保存済み比較")
+        self._bind_saved_pair(saved)
         self._show_comparison(saved)
+
+    def _bind_saved_pair(self, saved: CadMeasurementComparison) -> None:
+        """Re-seat the dataset selectors on the saved A/B pair.
+
+        History reload must reopen the comparison it names — the FR/phase
+        overlay, cursor readout and mismatch row all follow the persisted
+        pair instead of whatever preview happened to be selected. When a
+        side has since left the eligible set (disposition, retired
+        evidence) the live overlay is cleared rather than left showing an
+        unrelated pair; the saved labels and metrics still render from
+        the record itself.
+        """
+        a_index = self.measured_combo.findData(saved.dataset_a_id)
+        b_index = self.predicted_combo.findData(saved.dataset_b_id)
+        if a_index < 0 or b_index < 0:
+            # The persisted pair may have been compared under a different
+            # preset — retry against the superset 'any' candidate lists
+            # before concluding a side left the eligible set.
+            any_index = self.preset_combo.findData("any")
+            if any_index >= 0 and self.preset_combo.currentIndex() != any_index:
+                self.preset_combo.blockSignals(True)
+                self.preset_combo.setCurrentIndex(any_index)
+                self.preset_combo.blockSignals(False)
+                candidates_a, candidates_b = self._comparison_candidate_groups()
+                self._fill_dataset_combo(self.measured_combo, candidates_a, "A")
+                self._fill_dataset_combo(
+                    self.predicted_combo,
+                    candidates_b,
+                    "B",
+                    exclude_dataset_id=saved.dataset_a_id,
+                )
+                a_index = self.measured_combo.findData(saved.dataset_a_id)
+                b_index = self.predicted_combo.findData(saved.dataset_b_id)
+        if a_index < 0 or b_index < 0:
+            for combo in (self.measured_combo, self.predicted_combo):
+                combo.blockSignals(True)
+                combo.setCurrentIndex(-1)
+                combo.blockSignals(False)
+            self.comparison_plot.clear()
+            self.comparison_plot.addItem(
+                self._comparison_cursor.line, ignoreBounds=True
+            )
+            self.phase_compare_plot.clear()
+            self.phase_compare_plot.setVisible(False)
+            self._cursor_traces = []
+            self.mismatch_label.setText("")
+            show_plot_state(
+                self.comparison_plot,
+                "この保存済み比較の測定データは現在の比較候補にありません",
+            )
+            return
+        self.measured_combo.blockSignals(True)
+        self.measured_combo.setCurrentIndex(a_index)
+        self.measured_combo.blockSignals(False)
+        self.predicted_combo.blockSignals(True)
+        self.predicted_combo.setCurrentIndex(b_index)
+        self.predicted_combo.blockSignals(False)
+        self._preview_comparison_pair()
 
     def _dataset_a_changed(self) -> None:
         a_id = self.measured_combo.currentData()
@@ -3891,8 +4037,35 @@ class MeasurementPageWorkspace(QWidget):
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             )
             self.comparison_metrics.setItem(row_index, 1, value_item)
+        identity_lines: list[str] = []
+        if saved.label_a is not None or saved.label_b is not None:
+            identity_lines.append(
+                f"A: {saved.label_a or '—'}　→　B: {saved.label_b or '—'}"
+            )
+        if saved.level_compatibility is not None:
+            identity_lines.append(
+                "レベル互換性: "
+                + _level_compatibility_label(saved.level_compatibility)
+            )
+        if saved.semantics_json:
+            # The persisted semantics are the record's verdict — show them
+            # as stored, not recomputed against the live project (#852).
+            try:
+                saved_mismatches = json.loads(saved.semantics_json).get(
+                    "mismatches"
+                ) or ()
+            except (TypeError, ValueError):
+                saved_mismatches = ()
+            if saved_mismatches:
+                identity_lines.append(
+                    "保存時の注意: "
+                    + "、".join(
+                        _mismatch_label(code) for code in saved_mismatches
+                    )
+                )
         self.comparison_result.setText(
-            f"有効点 {saved.valid_points:,} / {saved.total_grid_points:,} · "
+            ("\n".join(identity_lines) + "\n" if identity_lines else "")
+            + f"有効点 {saved.valid_points:,} / {saved.total_grid_points:,} · "
             f"平均差 {mean} · RMS差 {rms} · レベル差 {offset} · 形状RMS {shape}\n"
             + " · ".join(spec_lines)
         )
