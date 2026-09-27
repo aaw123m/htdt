@@ -117,6 +117,37 @@ def test_candidate_configuration_identity_is_deterministic_and_resource_sensitiv
     assert first.as_external_ref().semantic_hash_sha256 == first.semantic_sha256
 
 
+def test_candidate_configuration_rejects_sub_nyquist_ppw(
+    tmp_path: Path,
+) -> None:
+    # Spatial Nyquist: below 2 points per wavelength the Cartesian grid
+    # cannot represent even one wavelength at fmax — the solver would run
+    # and return numbers carrying no wave physics. Fail at the spec.
+    store = ExactJsonAuthorityStore(tmp_path / 'authorities')
+    density = store.put_json(
+        'density', '1', {'quantity': 'air_density_kg_m3', 'value': 1.2}
+    )
+    humidity = store.put_json(
+        'humidity', '1', {'quantity': 'relative_humidity_percent', 'value': 50.0}
+    )
+    kwargs = {
+        'expected_pffdtd_commit_sha': 'a' * 40,
+        'fmax_hz': 100.0,
+        'duration_s': 0.03,
+        'frequency_samples_hz': (40.0, 80.0),
+        'density_kg_m3': 1.2,
+        'density_authority_ref': density,
+        'relative_humidity_percent': 50.0,
+        'humidity_authority_ref': humidity,
+        'resource': _resource(threads=2),
+    }
+    with pytest.raises(ValidationError):
+        build_pffdtd_candidate_configuration(
+            **kwargs, points_per_wavelength=1.99
+        )
+    build_pffdtd_candidate_configuration(**kwargs, points_per_wavelength=2.0)
+
+
 def test_candidate_numerical_output_preserves_raw_complex_shape_and_rejects_bad_shape() -> None:
     valid = CandidateNumericalOutput(
         receiver_ids=('r1',),

@@ -67,6 +67,33 @@ def test_etc_and_markers_are_derived():
     assert result.effective_alignment == 'none'
 
 
+def test_markers_delay_anchored_to_time_zero():
+    # Direct arrival sits at the declared time_zero_sample, not at the
+    # window start: a reflection 3 ms after t0 must report delay_s ~= 3 ms
+    # (never inflated by the pre-t0 offset), and pre-t0 energy is never
+    # reported as a reflection marker.
+    t0 = int(0.010 * FS)
+    refl = t0 + int(0.003 * FS)
+    n = int(0.2 * FS)
+    h = np.zeros(n)
+    h[100] = 0.8   # pre-t0 transient: inside the window, before the direct
+    h[t0] = 1.0    # direct arrival at the declared time zero
+    h[refl] = 0.5  # reflection 3 ms after the direct arrival
+    spec = _spec(time_zero_sample=t0)
+    result = run_ir_analysis(
+        spec, tuple(float(v) for v in h), created_at='2026-09-23T00:00:00+00:00'
+    )
+    assert result.markers
+    assert all(m.delay_s > 0.0 for m in result.markers)
+    # No marker precedes the direct arrival at the declared time-zero.
+    assert all(m.time_s * FS > t0 for m in result.markers)
+    # The 0.5-amplitude peak 3 ms after t0 reads ~3 ms — never ~13 ms.
+    reflection = min(result.markers, key=lambda m: abs(m.delay_s - 0.003))
+    assert reflection.delay_s == pytest.approx(0.003, abs=1.5 / FS)
+    assert reflection.time_s == pytest.approx(refl / FS, abs=1.5 / FS)
+    assert reflection.level_db == pytest.approx(-6.0, abs=2.0)
+
+
 def test_decay_metrics_estimate_on_clean_ir():
     ir = _ir(tau_s=0.05, length_s=1.0)
     result = run_ir_analysis(_spec(), ir, created_at='2026-09-23T00:00:00+00:00')
