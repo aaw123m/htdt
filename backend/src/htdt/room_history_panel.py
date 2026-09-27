@@ -96,6 +96,16 @@ class RoomHistoryPanel(QWidget):
     def selected_revision_id(self) -> str | None:
         return self._selected_revision_id
 
+    def select_revision(self, revision_id: str) -> bool:
+        """Focus the row for ``revision_id`` — navigation deep-link entry."""
+        for index in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(index)
+            if item.data(0, _REVISION_ROLE) == revision_id:
+                self.tree.setCurrentItem(item)
+                self.tree.scrollToItem(item)
+                return True
+        return False
+
     def _on_current_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
         self._selected_revision_id = None if current is None else str(current.data(0, _REVISION_ROLE))
         if self._previewing:

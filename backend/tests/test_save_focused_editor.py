@@ -11,6 +11,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFrame
 
 import htdt.workflow_application as workflow_application
+from htdt.application_preferences import ApplicationPreferenceStore
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, is_unassigned_speaker_role, make_f1_scene, room_vertices
 from htdt.command_registry import CommandRegistry, register_default_commands
@@ -91,6 +92,12 @@ def _room_composition(repository: SceneRepository, monkeypatch) -> object:
     composition = object.__new__(workflow_application.WorkflowApplicationComposition)
     composition.repository = repository
     composition.document_id = F1_DOCUMENT_ID
+    composition.preferences = ApplicationPreferenceStore(
+        repository.path.parent / 'preferences.json'
+    )
+    # These tests enter meter-scale values; the app default display unit is
+    # mm, so pin the inspector's display policy to metres explicitly.
+    composition.preferences.set('display_input.length_unit', 'm')
     composition.registry = CommandRegistry()
     register_default_commands(composition.registry)
     return composition

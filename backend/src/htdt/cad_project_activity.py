@@ -36,7 +36,11 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
 from .navigation_target import NavigationTarget, NavigationTargetKind
-from .workflow_navigation import DestinationId, WorkspaceId
+from .workflow_navigation import (
+    ApplicationDestinationId,
+    DestinationId,
+    WorkspaceId,
+)
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
 
 
@@ -483,8 +487,9 @@ class CadProjectActivityService:
                 detail=f'バンドル {item.bundle_digest[:12]}…',
                 deep_link=_link(
                     NavigationTargetKind.CAPTURE_INBOX_ITEM,
-                    WorkspaceId.MEASUREMENT,
-                    'import',
+                    # The Inbox page lists this item and focuses its row.
+                    ApplicationDestinationId.INBOX,
+                    None,
                     item.inbox_item_id,
                 ),
             )
@@ -499,8 +504,8 @@ class CadProjectActivityService:
                     detail=item.disposition_reason or None,
                     deep_link=_link(
                         NavigationTargetKind.CAPTURE_INBOX_ITEM,
-                        WorkspaceId.MEASUREMENT,
-                        'import',
+                        ApplicationDestinationId.INBOX,
+                        None,
                         item.inbox_item_id,
                     ),
                 )
@@ -517,8 +522,8 @@ class CadProjectActivityService:
                     detail=item.disposition_reason or None,
                     deep_link=_link(
                         NavigationTargetKind.CAPTURE_INBOX_ITEM,
-                        WorkspaceId.MEASUREMENT,
-                        'import',
+                        ApplicationDestinationId.INBOX,
+                        None,
                         item.inbox_item_id,
                     ),
                 )
@@ -541,7 +546,9 @@ class CadProjectActivityService:
                 deep_link=_link(
                     NavigationTargetKind.MEASUREMENT,
                     WorkspaceId.MEASUREMENT,
-                    'comparison',
+                    # The quality table is the surface where a measurement
+                    # id resolves to a selectable row.
+                    'quality',
                     measurement.measurement_id,
                 ),
             )
@@ -626,7 +633,7 @@ class CadProjectActivityService:
                 detail=checkpoint.note,
                 deep_link=_link(
                     NavigationTargetKind.PROJECT_CHECKPOINT,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     checkpoint.checkpoint_id,
                 ),
@@ -643,7 +650,7 @@ class CadProjectActivityService:
                 detail=' / '.join(restore.applied_components),
                 deep_link=_link(
                     NavigationTargetKind.PROJECT_CHECKPOINT,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     restore.checkpoint_id,
                 ),
@@ -664,7 +671,7 @@ class CadProjectActivityService:
                 detail=preset.purpose_note,
                 deep_link=_link(
                     NavigationTargetKind.OPERATING_PRESET,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     preset.preset_id,
                 ),
@@ -681,7 +688,7 @@ class CadProjectActivityService:
                     detail=applied.device_context,
                     deep_link=_link(
                         NavigationTargetKind.OPERATING_PRESET,
-                        WorkspaceId.OVERVIEW,
+                        ApplicationDestinationId.ACTIVITY,
                         None,
                         preset.preset_id,
                     ),
@@ -701,7 +708,7 @@ class CadProjectActivityService:
                 title=f'健全性ベースライン「{baseline.name}」を固定',
                 deep_link=_link(
                     NavigationTargetKind.HEALTH_BASELINE,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     baseline.baseline_id,
                 ),
@@ -720,7 +727,7 @@ class CadProjectActivityService:
                 detail=detail,
                 deep_link=_link(
                     NavigationTargetKind.HEALTH_CHECK_PLAN,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     run.plan_id,
                 ),
@@ -743,8 +750,8 @@ class CadProjectActivityService:
                     title='AV同期を記録',
                     deep_link=_link(
                         NavigationTargetKind.AV_SYNC_CONDITION,
-                        WorkspaceId.MEASUREMENT,
-                        'quality',
+                        ApplicationDestinationId.ACTIVITY,
+                        None,
                         condition.condition_id,
                     ),
                 )
@@ -764,7 +771,7 @@ class CadProjectActivityService:
                 detail=note.body,
                 deep_link=_link(
                     NavigationTargetKind.PROJECT_NOTE,
-                    WorkspaceId.OVERVIEW,
+                    ApplicationDestinationId.ACTIVITY,
                     None,
                     note.note_id,
                 ),
