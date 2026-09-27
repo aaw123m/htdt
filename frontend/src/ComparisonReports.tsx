@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
+import { CopyCode } from './copy'
 
 type Project = { id: string; name: string }
 type Comparison = {
@@ -19,6 +20,16 @@ export function ComparisonReportPanel() {
   const [projectId, setProjectId] = useState('')
   const [comparisons, setComparisons] = useState<Comparison[]>([])
   const [error, setError] = useState('')
+
+  function retryLoad() {
+    setError('')
+    void api<Project[]>('/api/projects').then(async (items) => {
+      setProjects(items)
+      const id = projectId || items[0]?.id || ''
+      setProjectId((current) => current || items[0]?.id || '')
+      if (id) setComparisons(await api<Comparison[]>(`/api/projects/${id}/comparisons`))
+    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '読込に失敗しました'))
+  }
 
   useEffect(() => {
     void api<Project[]>('/api/projects').then((items) => {
@@ -45,7 +56,7 @@ export function ComparisonReportPanel() {
         <div className="section-title"><h2>Saved Comparisons</h2><span>self-contained HTML / JSON</span></div>
         <p className="hint">保存済みComparisonスナップショットからレポートを生成します。現在の配置や測定を再計算しないため、過去の比較根拠をそのまま持ち出せます。</p>
         <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">選択</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-        {error && <div className="notice error">{error}</div>}
+        {error && <div className="notice error" role="alert"><span>{error}</span><button type="button" className="ghost compact" onClick={retryLoad}>再読込</button></div>}
         <div className="cards">
           {comparisons.map((comparison) => {
             const a = comparison.result.measurement_a
@@ -60,7 +71,7 @@ export function ComparisonReportPanel() {
                 <a className="button-link" href={`${base}/report.html`}>HTML report</a>
                 <a className="button-link" href={`${base}/report.json`}>JSON snapshot</a>
               </div>
-              <code>{comparison.id}</code>
+              <CopyCode value={comparison.id} display={comparison.id.slice(0, 13)} />
             </article>
           })}
           {projectId && comparisons.length === 0 && <article><strong>保存済み比較なし</strong><span>A/B比較を保存するとここからレポートを取得できます。</span></article>}

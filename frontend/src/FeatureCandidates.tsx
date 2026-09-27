@@ -138,7 +138,7 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
         <label>Prominence dB<input value={prominenceDb} onChange={(event) => setProminenceDb(event.target.value)} /></label>
       </div>
       <button disabled={loading || !projectId || !datasetId} title={!datasetId ? 'Datasetを選択してください' : undefined} onClick={() => void analyze()}>{loading ? '解析中…' : '特徴と幾何候補を解析'}</button>
-      {error && <div className="notice error">{error}</div>}
+      {error && <div className="notice error" role="alert">{error}</div>}
       {result && <>
         <div className="analysis-banner">
           <strong>{result.classification}</strong>
@@ -146,7 +146,7 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
           <span>{result.feature_detection.parameters.ppo} PPO</span>
           <span>match ±{result.match_parameters.tolerance_octaves.toFixed(4)} oct</span>
         </div>
-        {result.warnings.length > 0 && <div className="preview"><strong>Interpretation warnings</strong>{result.warnings.map((warning) => <em key={warning}>{warning}</em>)}</div>}
+        {result.warnings.length > 0 && <div className="preview"><strong>Interpretation warnings</strong>{result.warnings.map((warning, index) => <em key={index}>{warning}</em>)}</div>}
         <p className="hint">candidate matching: {result.eligible_for_candidate_matching ? 'enabled' : 'disabled'} · baseline {result.feature_detection.parameters.baseline_window_octaves.toFixed(3)} oct · min spacing {result.feature_detection.parameters.min_spacing_octaves.toFixed(3)} oct</p>
         <div className="analysis-grid wide">
           {result.feature_detection.features.length === 0 && <div><strong>特徴なし</strong><span>現在の帯域・prominence条件ではpeak/dipを検出しませんでした。</span></div>}

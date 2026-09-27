@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
+import { CopyCode } from './copy'
 import type { ContextPayload } from './plots'
 
 type Project = { id: string; name: string }
@@ -93,6 +94,25 @@ export function PlacementOverviewPanel() {
   const [referenceDatasetId, setReferenceDatasetId] = useState('')
   const [error, setError] = useState('')
 
+  function retryLoad() {
+    setError('')
+    void api<Project[]>('/api/projects').then((items) => {
+      setProjects(items)
+      const id = projectId || items[0]?.id || ''
+      setProjectId((current) => current || items[0]?.id || '')
+      if (!id) return
+      return Promise.all([
+        api<ContextRecord[]>(`/api/projects/${id}/contexts`),
+        api<Measurement[]>(`/api/projects/${id}/measurements`),
+        api<Comparison[]>(`/api/projects/${id}/comparisons`),
+      ]).then(([contextRows, measurementRows, comparisonRows]) => {
+        setContexts(contextRows)
+        setMeasurements(measurementRows)
+        setComparisons(comparisonRows)
+      })
+    }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '読込に失敗しました'))
+  }
+
   useEffect(() => {
     void api<Project[]>('/api/projects').then((items) => {
       setProjects(items)
@@ -159,7 +179,7 @@ export function PlacementOverviewPanel() {
             return <option key={row.dataset_id} value={row.dataset_id}>R{context?.revision_number ?? '?'} · {row.quality_status} · {row.dataset_id.slice(0, 8)}</option>
           })}</select></label>
         </div>
-        {error && <div className="notice error">{error}</div>}
+        {error && <div className="notice error" role="alert"><span>{error}</span><button type="button" className="ghost compact" onClick={retryLoad}>再読込</button></div>}
         <div className="cards">
           {rows.map((measurement) => {
             const context = contextsById.get(measurement.context_id)
@@ -185,7 +205,7 @@ export function PlacementOverviewPanel() {
                     <div className="row"><a className="button-link" href={`/api/projects/${projectId}/comparisons/${comparison.id}/report.html`}>比較レポート</a></div>
                   </>
                   : <small>基準との保存済みA/B比較なし</small>}
-              <code>{measurement.dataset_id}</code>
+              <CopyCode value={measurement.dataset_id} />
             </article>
           })}
           {projectId && rows.length === 0 && <article><strong>対象実測なし</strong><span>選択したchannel / measurement pointに一致するmeasured Datasetがありません。</span></article>}
