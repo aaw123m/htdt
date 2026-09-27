@@ -37,7 +37,7 @@ and behavior-preserving, plus new findings.
 
 ## Summary stats
 
-- 362 files changed: +774 / −5307 LOC net (≈ −4.5k lines of duplicated machinery).
+- 362 files changed: +934 / −4512 LOC net (≈ −3.6k lines of duplicated machinery, on top of the round-2 security/tests merges).
 - 462 canonical-JSON/hash helper copies → 1 leaf (`htdt.canonical_json`), 82 `_utc_now` copies → `htdt.clock`, 111 `_connect` bodies → `cad_schema.connect_sqlite`, 2 repoint scaffolds → 1 shared migration, 3 `_hash_parts` → `canonical_json.hash_parts`.
 - 12 dead symbols removed (4 round-1 finding-G + 8 private helpers) + freed imports.
 - 30 pydantic `schema` shadow warnings eliminated.
