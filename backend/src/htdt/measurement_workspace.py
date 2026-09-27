@@ -23,7 +23,9 @@ class _MeasurementScrollArea(QScrollArea):
         content.setMinimumSize(0, 0)
         content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setWidget(content)
-        QTimer.singleShot(0, self._sync_content_extent)
+        # Context receiver keeps the deferred size sync from firing on a
+        # destroyed scroll area.
+        QTimer.singleShot(0, self, self._sync_content_extent)
 
     def sizeHint(self) -> QSize:
         # The content is deliberately taller than the viewport. Returning its size
@@ -57,7 +59,7 @@ class MeasurementWorkspaceWindow(MeasurementEditorWindow):
         self.measurement_scroll: QScrollArea | None = None
         super().__init__(repository, document_id)
         self._fit_initial_size_to_screen()
-        QTimer.singleShot(0, self._fit_initial_size_to_screen)
+        QTimer.singleShot(0, self, self._fit_initial_size_to_screen)
 
     def _fit_initial_size_to_screen(self) -> None:
         """Keep the first product window inside the usable logical screen area."""

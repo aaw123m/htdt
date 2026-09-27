@@ -1150,7 +1150,7 @@ class RoomViewport3D(QFrame):
                     dtype=float,
                 )
                 quad = pv.PolyData(points, [4, 0, 1, 2, 3])
-                quad.active_t_coords = np.asarray(
+                quad.active_texture_coordinates = np.asarray(
                     [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
                     dtype=float,
                 )

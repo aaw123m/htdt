@@ -210,3 +210,59 @@ def test_render_unbatched_still_draws_immediately() -> None:
     vp._render()
     vp._render()
     assert vp.plotter.renders == 2
+
+
+class _MeshRecordingPlotter:
+    """GPU-free plotter stand-in that captures ``add_mesh`` calls."""
+
+    def __init__(self) -> None:
+        self.renders = 0
+        self.meshes: list = []
+        self.kwargs: list[dict] = []
+
+    def add_mesh(self, mesh, **kwargs):
+        self.meshes.append(mesh)
+        self.kwargs.append(kwargs)
+        return object()
+
+    def render(self) -> None:
+        self.renders += 1
+
+
+def test_render_underlays_registers_tcoords_and_actors() -> None:
+    # Regression for the pyvista-0.49 pin: ``active_t_coords`` was removed
+    # upstream and assigning it raised PyVistaAttributeError the moment a
+    # raster underlay was imported. The supported API must leave a real VTK
+    # TCoords array on the quad for ``texture=`` mapping to consume.
+    from PySide6.QtWidgets import QApplication
+
+    from htdt.room_viewport import UnderlayRenderItem
+
+    QApplication.instance() or QApplication(["htdt-test"])
+    vp = RoomViewport3D()
+    vp.plotter = _MeshRecordingPlotter()
+
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    image[..., 0] = 128
+    vp.set_aux_render_state(
+        underlays=(
+            UnderlayRenderItem(
+                underlay_id="u-1",
+                name="floor plan",
+                quad_domain=((0.0, 0.0, 0.0), (2.0, 0.0, 0.0), (2.0, 3.0, 0.0), (0.0, 3.0, 0.0)),
+                image=image,
+                segments_domain=(((0.0, 0.0, 0.01), (1.0, 1.0, 0.01)),),
+                opacity=0.5,
+                elevation_m=0.0,
+            ),
+        )
+    )
+    vp._render_underlays()
+
+    assert len(vp.plotter.meshes) == 2
+    quad = vp.plotter.meshes[0]
+    assert quad.GetPointData().GetTCoords() is not None
+    assert quad.active_texture_coordinates.shape == (4, 2)
+    assert vp.plotter.kwargs[0]["texture"] is not None
+    assert vp.plotter.kwargs[0]["name"] == "underlay-u-1"
+    assert set(vp._actor_underlay_ids.values()) == {"u-1"}
