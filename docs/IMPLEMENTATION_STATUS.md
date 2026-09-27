@@ -2,6 +2,7 @@
 
 > 更新: 2026-09-21 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR #291の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue #170 StandardsProfile + workspace integration実装 / Issue #101: PR #289 R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR #295 R130D target-window diagnostic後もNOT_VALIDATED、PR #292 R150 bounded one-Portal first-order reflectionをmain反映、PR #287 R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧browser/backendの詳細履歴は[2026-09-16 archive](IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md)へ保存する。
+> 注記: `.github/workflows` のGitHub Actions CIはこのmirrorでは削除済み（commit `b47f052`）。本書の「CI #nnn PASS」「Windows Release Artifact #nn」等は当時の実行記録であり、現在の検証はlocalのbackend test suiteと `scripts/` のpackaging/validation gateで行う。
 
 ## 正本ドキュメントの責任分担と更新チェックリスト
 
@@ -187,7 +188,7 @@ directivity検証・表示単位・target profile・installation datum・cable r
 
 - `backend/src/htdt/acoustic_bakeoff.py`: candidate/run/observable/hard-gate/decision authority、R100A + candidate semantic hash binding、candidate capability coverage、selection fail-closed validation、`preflight` / `validate-run` CLIを実装。
 - `benchmarks/acoustics/r100b_candidates.json`: PFFDTD `main@aa319f6...`、MFEM `v4.10@d964264...`、pyroomacoustics `v0.10.1@f02b01d...` をversion pin。probe capabilityはverified capabilityではない。
-- `.github/workflows/ci.yml`: Windows CIでR100B authority preflightを実行。
+- `.github/workflows/ci.yml`: Windows CIでR100B authority preflightを実行していた（workflowは `b47f052` で削除済み。現行の検証はlocalで `python -m pytest backend/tests/test_acoustic_bakeoff*` を実行する）。
 - `backend/tests/test_acoustic_bakeoff.py`: source pin、coverage gap、semantic hash、unknown fixture、capability mismatch、hard-gate selection block、reference-only selection blockを検証。
 - `wave-portal-split-room-v1` はPR #160でMFEM candidateへ `portal_continuity` probe capabilityを明示し、fixture PASSまで確認済み。`hybrid-overlap-continuity-v1` は引き続き意図的にcandidate未割当で、未実装capabilityを黙ってclaimしない。
 - PR #111でcandidate/run/selection authorityはmain反映済み（CI #588 PASS）。

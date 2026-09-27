@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
-from htdt.cad_repository import SceneRepository
-from htdt.equipment_catalog_export import export_equipment_catalog_snapshot
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'backend' / 'src'))
+
+from htdt.cad_repository import SceneRepository  # noqa: E402
+from htdt.equipment_catalog_export import export_equipment_catalog_snapshot  # noqa: E402
 
 
 def main() -> int:

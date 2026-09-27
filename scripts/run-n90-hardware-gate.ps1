@@ -26,6 +26,13 @@ if (-not (Test-Path $Harness)) {
     throw "Missing N90 A15 harness: $Harness"
 }
 
+# Same interpreter convention as the sibling hardware gates: the repo venv
+# (untracked, so it survives the detached-HEAD gate checkout below).
+$Python = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $Python)) {
+    throw "Missing $Python. Use the existing Windows Python 3.12 environment before running the hardware gate."
+}
+
 if ($PreflightOnly) {
     & git -C $RepoRoot ls-remote --exit-code origin "refs/heads/$Branch" | Out-Null
     if ($LASTEXITCODE -ne 0) {
@@ -82,7 +89,7 @@ try {
         "--update-installer", $UpdateInstaller,
         "--work-root", $WorkRoot
     )
-    & py -3.12 @HarnessArgs
+    & $Python @HarnessArgs
     $GateExit = $LASTEXITCODE
     Write-Host "N90_GATE_EXIT=$GateExit"
     if ($GateExit -ne 0) {

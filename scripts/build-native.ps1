@@ -1,8 +1,8 @@
 param(
     [string]$OutputDir = "",
     # Interpreter that seeds the build venv. Defaults to the current `python`
-    # on PATH so callers (e.g. actions/setup-python in windows-release.yml)
-    # control the toolchain; the script never resolves the py launcher itself.
+    # on PATH so the caller controls the toolchain; the script never
+    # resolves the py launcher itself.
     [string]$PythonExe = ""
 )
 
@@ -42,6 +42,13 @@ if ($InterpreterInfo[2] -ne "AMD64") {
 }
 Write-Host "Build interpreter: $PythonExe ($PythonVersion)"
 
+# Fail fast if the hash-pinned lock has drifted from backend/pyproject.toml;
+# this is a pure consistency check and needs no venv.
+& $PythonExe (Join-Path $RepoRoot "scripts\check_dependency_lock.py")
+if ($LASTEXITCODE -ne 0) {
+    throw "Dependency lock consistency check failed with exit code $LASTEXITCODE"
+}
+
 try {
     if (Test-Path $WorkRoot) {
         Remove-Item -Recurse -Force $WorkRoot
@@ -55,6 +62,12 @@ try {
     & $Python -m pip install --disable-pip-version-check --require-hashes -r $LockFile
     if ($LASTEXITCODE -ne 0) {
         throw "Locked dependency install failed with exit code $LASTEXITCODE"
+    }
+    # Assert the build venv now holds every locked distribution at exactly
+    # the locked version — nothing may be silently moved by the install.
+    & $Python (Join-Path $RepoRoot "scripts\check_dependency_lock.py") --verify-installed
+    if ($LASTEXITCODE -ne 0) {
+        throw "Post-install dependency lock verification failed with exit code $LASTEXITCODE"
     }
 
     $BrandingSource = Join-Path $RepoRoot "assets\branding\HTDT-AppIcon-source.jpg"
@@ -117,8 +130,8 @@ try {
     } | ConvertTo-Json | Set-Content -Path $BuildInfoFile -Encoding utf8
 
     # No --clean: the build workpath is already wiped above, and PyInstaller's
-    # content-keyed config-dir cache is safe to keep — CI restores it between
-    # runs to skip re-analysing an unchanged dependency graph.
+    # content-keyed config-dir cache is safe to keep across runs — it skips
+    # re-analysing an unchanged dependency graph.
     & $Python -m PyInstaller `
         --noconfirm `
         --onedir `
