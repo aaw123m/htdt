@@ -30,6 +30,7 @@ from .cad_schema import ensure_native_schema, require_native_tables, connect_sql
 from .capture_ingestion_transaction import (
     CaptureIngestionPlan,
     CaptureIngestionRepository,
+    _repoint_lineage_parent,
 )
 from .capture_semantic_promotion import (
     CaptureAlignmentMethod,
@@ -473,63 +474,10 @@ class CaptureInboxRepository:
     def _repoint_items_lineage_parent(
         self, connection: sqlite3.Connection
     ) -> None:
-        """Retarget the inbox items table's lineage foreign key.
-
-        #413 demoted ``capture_ingestion_runs.lineage_digest`` from the
-        runs primary key to a non-unique projection (several processing
-        runs may share one lineage), so it can no longer parent a foreign
-        key. The shared ``capture_ingestion_lineages`` table is the unique
-        lineage parent; rebuilds this table when its stored key still
-        targets the runs table or the dropped migration rename.
-        """
-        # Seed lineage rows from whatever run shape is present so child
-        # rows retain a valid parent; needed even when no rebuild runs,
-        # since a database opened before this contract may hold runs its
-        # lineage table never knew about.
-        run_tables = {
-            str(row['name'])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
-        for name in ('capture_ingestion_runs',
-                     'capture_ingestion_runs_legacy'):
-            if name in run_tables:
-                connection.execute(
-                    f'''
-                    INSERT OR IGNORE INTO capture_ingestion_lineages(
-                        lineage_digest
-                    )
-                    SELECT DISTINCT lineage_digest FROM {name}
-                    '''
-                )
-        parents = {
-            str(row['table'])
-            for row in connection.execute(
-                'PRAGMA foreign_key_list(capture_inbox_items)'
-            )
-            if str(row['from']) == 'lineage_digest'
-        }
-        if parents == {'capture_ingestion_lineages'}:
-            return
-        if connection.in_transaction:
-            connection.commit()
-        # foreign_keys must be OFF during the rebuild: renaming the items
-        # table otherwise rewrites the references the promotion,
-        # supersession, and registration tables hold on it to the dropped
-        # legacy name.
-        connection.execute('PRAGMA foreign_keys=OFF')
-        try:
-            connection.execute('BEGIN IMMEDIATE')
-            connection.execute(
-                '''
-                ALTER TABLE capture_inbox_items
-                RENAME TO capture_inbox_items_legacy
-                '''
-            )
-            connection.execute(
-                '''
-                CREATE TABLE capture_inbox_items (
+        _repoint_lineage_parent(
+            connection,
+            'capture_inbox_items',
+            column_defs='''
                     lineage_digest TEXT PRIMARY KEY
                         REFERENCES capture_ingestion_lineages(lineage_digest),
                     inbox_item_id TEXT NOT NULL UNIQUE,
@@ -561,12 +509,8 @@ class CaptureInboxRepository:
                     disposition_at_utc TEXT,
                     operator_notes TEXT NOT NULL,
                     has_connected_space_document INTEGER NOT NULL
-                )
-                '''
-            )
-            connection.execute(
-                '''
-                INSERT INTO capture_inbox_items(
+            ''',
+            insert_columns='''
                     lineage_digest, inbox_item_id, scope,
                     capture_series_id, capture_revision_id, bundle_digest,
                     parent_revision_id, capture_session_ids_json,
@@ -580,40 +524,10 @@ class CaptureInboxRepository:
                     evidence_conflict_detail, disposition,
                     disposition_reason, disposition_at_utc, operator_notes,
                     has_connected_space_document
-                )
-                SELECT lineage_digest, inbox_item_id, scope,
-                    capture_series_id, capture_revision_id, bundle_digest,
-                    parent_revision_id, capture_session_ids_json,
-                    coordinate_space_ids_json, arrival_source,
-                    source_detail, first_arrived_at_utc, arrival_count,
-                    primary_classification, classification_flags_json,
-                    conflict_lineage_digest, bundle_validation,
-                    validation_detail, dependency_state, dependency_detail,
-                    alignment_state, alignment_detail,
-                    world_alignment_authority_id, evidence_conflict_state,
-                    evidence_conflict_detail, disposition,
-                    disposition_reason, disposition_at_utc, operator_notes,
-                    has_connected_space_document
-                FROM capture_inbox_items_legacy
-                '''
-            )
-            connection.execute('DROP TABLE capture_inbox_items_legacy')
-            orphans = connection.execute(
-                'PRAGMA foreign_key_check(capture_inbox_items)'
-            ).fetchall()
-            if orphans:
-                connection.rollback()
-                raise CaptureInboxError(
-                    'cannot retarget inbox items to the lineages table: '
-                    'unresolved foreign keys remain'
-                )
-            connection.commit()
-        except Exception:
-            if connection.in_transaction:
-                connection.rollback()
-            raise
-        finally:
-            connection.execute('PRAGMA foreign_keys=ON')
+            ''',
+            error_type=CaptureInboxError,
+            label='inbox items',
+        )
 
     # ------------------------------------------------------------------
     # staging

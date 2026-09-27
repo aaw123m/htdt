@@ -370,6 +370,87 @@ def _validate_plan_source_ref_grammar(plan: 'CaptureIngestionPlan') -> None:
 
 
 
+def _repoint_lineage_parent(
+    connection: sqlite3.Connection,
+    table: str,
+    *,
+    column_defs: str,
+    insert_columns: str,
+    error_type: type[Exception],
+    label: str,
+) -> None:
+    """Retarget ``table``'s lineage-digest foreign key to the lineages table.
+
+    #413 demoted ``capture_ingestion_runs.lineage_digest`` from the runs
+    primary key to a non-unique projection (several processing runs may
+    share one lineage), so it can no longer parent a foreign key. The
+    shared ``capture_ingestion_lineages`` table is the unique lineage
+    parent; rebuilds ``table`` when its stored key still targets the runs
+    table or the dropped migration rename.
+    """
+    # Seed lineage rows from whatever run shape is present so child rows
+    # retain a valid parent; needed even when no rebuild runs, since a
+    # database opened before this contract may hold runs its lineage
+    # table never knew about.
+    run_tables = {
+        str(row['name'])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    for name in ('capture_ingestion_runs', 'capture_ingestion_runs_legacy'):
+        if name in run_tables:
+            connection.execute(
+                f'''
+                INSERT OR IGNORE INTO capture_ingestion_lineages(
+                    lineage_digest
+                )
+                SELECT DISTINCT lineage_digest FROM {name}
+                '''
+            )
+    parents = {
+        str(row['table'])
+        for row in connection.execute(f'PRAGMA foreign_key_list({table})')
+        if str(row['from']) == 'lineage_digest'
+    }
+    if parents == {'capture_ingestion_lineages'}:
+        return
+    if connection.in_transaction:
+        connection.commit()
+    # foreign_keys must be OFF during the rebuild: renaming the table
+    # otherwise rewrites the references other tables hold on it to the
+    # dropped legacy name.
+    connection.execute('PRAGMA foreign_keys=OFF')
+    try:
+        connection.execute('BEGIN IMMEDIATE')
+        connection.execute(f'ALTER TABLE {table} RENAME TO {table}_legacy')
+        connection.execute(f'CREATE TABLE {table} (\n{column_defs}\n)')
+        connection.execute(
+            f'''
+            INSERT INTO {table}({insert_columns})
+            SELECT {insert_columns}
+            FROM {table}_legacy
+            '''
+        )
+        connection.execute(f'DROP TABLE {table}_legacy')
+        orphans = connection.execute(
+            f'PRAGMA foreign_key_check({table})'
+        ).fetchall()
+        if orphans:
+            connection.rollback()
+            raise error_type(
+                f'cannot retarget {label} to the lineages table: '
+                'unresolved foreign keys remain'
+            )
+        connection.commit()
+    except Exception:
+        if connection.in_transaction:
+            connection.rollback()
+        raise
+    finally:
+        connection.execute('PRAGMA foreign_keys=ON')
+
+
 def _validate_logical_path(value: str) -> str:
     if unicodedata.normalize('NFC', value) != value:
         raise ValueError('capture logical path must be NFC-normalized')
