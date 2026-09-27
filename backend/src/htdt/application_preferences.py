@@ -450,13 +450,22 @@ class ApplicationPreferenceStore:
         values: dict[str, object] = {}
         opaque: dict[str, object] = {}
         invalid_keys: list[str] = []
+        unserializable_keys: list[str] = []
         for key, value in payload['values'].items():
             definition = self._definitions.get(key)
             if definition is None:
                 # Unknown persisted keys are never applied, but they are kept
                 # verbatim so a later durable write round-trips a future
-                # build's settings instead of silently destroying them.
-                opaque[key] = value
+                # build's settings instead of silently destroying them. A
+                # value the strict canonical writer cannot emit (e.g. NaN —
+                # json.loads admits it) would poison every later _persist,
+                # so it is dropped and reported like an invalid value.
+                try:
+                    _canonical_json(value)
+                except ValueError:
+                    unserializable_keys.append(key)
+                else:
+                    opaque[key] = value
                 continue
             try:
                 values[key] = definition.validate(value)
@@ -465,14 +474,23 @@ class ApplicationPreferenceStore:
         self._values = values
         self._opaque_values = opaque
         self._load_state = (
-            PreferenceLoadState.PARTIAL_INVALID_VALUE if invalid_keys
+            PreferenceLoadState.PARTIAL_INVALID_VALUE
+            if invalid_keys or unserializable_keys
             else PreferenceLoadState.OK
         )
+        problems: list[str] = []
         if invalid_keys:
-            self._load_error = (
+            problems.append(
                 f'invalid stored value(s) for {sorted(invalid_keys)!r}; '
                 'reset to default'
             )
+        if unserializable_keys:
+            problems.append(
+                'dropped unserializable unknown key(s) '
+                f'{sorted(unserializable_keys)!r}'
+            )
+        if problems:
+            self._load_error = '; '.join(problems)
 
     def _check_writable(self) -> None:
         if self._load_state in _WRITE_REFUSED_STATES:

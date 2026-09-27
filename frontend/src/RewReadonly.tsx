@@ -252,8 +252,10 @@ export function RewReadonlyPanel() {
   }, [])
 
   // Changing the measurement selection invalidates any preview() in flight.
+  // Its stale finally can no longer clear the spinner, so this effect must.
   useEffect(() => {
     previewSeq.current += 1
+    setLoading(false)
   }, [selectedId])
 
   useEffect(() => {

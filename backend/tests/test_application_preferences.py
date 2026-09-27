@@ -143,6 +143,30 @@ def test_unknown_future_key_preserved_on_rewrite(tmp_path) -> None:
     assert 'future.new_feature' not in ApplicationPreferenceStore(path).snapshot().values
 
 
+def test_unserializable_opaque_key_dropped_not_poisoned(tmp_path) -> None:
+    # json.loads admits bare NaN/Infinity, which the strict canonical writer
+    # later refuses. A poisoned unknown key must not make every save raise.
+    path = tmp_path / 'prefs.json'
+    path.write_text(
+        '{"schema_version": %d, "authority": "htdt-application-preferences",'
+        ' "values": {"future.good": 1, "future.bad": NaN}}'
+        % PREFERENCES_SCHEMA_VERSION,
+        encoding='utf-8',
+    )
+    store = ApplicationPreferenceStore(path)
+
+    assert store.load_state == PreferenceLoadState.PARTIAL_INVALID_VALUE
+    assert store.load_error is not None
+    assert store.write_allowed
+    # Persisting drops the unserializable key and keeps the healthy opaque one.
+    store.set('display_input.theme', 'dark')
+    persisted = path.read_text(encoding='utf-8')
+    assert 'future.bad' not in persisted
+    persisted_payload = json.loads(persisted)
+    assert persisted_payload['values']['future.good'] == 1
+    assert persisted_payload['values']['display_input.theme'] == 'dark'
+
+
 def test_newer_schema_blocks_durable_writes(tmp_path) -> None:
     path = tmp_path / 'prefs.json'
     _write_payload(path, PREFERENCES_SCHEMA_VERSION + 1, {'display_input.theme': 'dark'})
