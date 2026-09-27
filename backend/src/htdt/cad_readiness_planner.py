@@ -23,11 +23,11 @@ Contract properties (per the issue):
 
 from __future__ import annotations
 
-from hashlib import sha256
-import json
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .canonical_json import canonical_sha256
 
 
 READINESS_PLANNER_SCHEMA_VERSION = 1
@@ -35,18 +35,13 @@ READINESS_PLANNER_SCHEMA_VERSION = 1
 
 def _action_id(document_id: str, action_kind: str, deep_link: str) -> str:
     """Deterministic action id — same state always yields the same id."""
-    digest = sha256(
-        json.dumps(
-            {
-                'document_id': document_id,
-                'action_kind': action_kind,
-                'deep_link': deep_link,
-            },
-            sort_keys=True,
-            separators=(',', ':'),
-            allow_nan=False,
-        ).encode('utf-8')
-    ).hexdigest()
+    digest = canonical_sha256(
+        {
+            'document_id': document_id,
+            'action_kind': action_kind,
+            'deep_link': deep_link,
+        }
+    )
     return f'readiness-action:{digest[:32]}'
 
 

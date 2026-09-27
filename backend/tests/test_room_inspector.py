@@ -12,6 +12,11 @@ from PySide6.QtCore import QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import QApplication, QFrame
 
+from htdt.application_preferences import ApplicationPreferenceStore
+from htdt.cad_display_units import (
+    DEFAULT_DISPLAY_DECIMALS,
+    display_to_si,
+)
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
 from htdt.room_workspace import (
@@ -21,6 +26,7 @@ from htdt.room_workspace import (
     SelectionInspector,
     Vector3Editor,
 )
+from htdt.workflow_application import bind_inspector_display_length_policy
 
 
 def _app() -> QApplication:
@@ -381,6 +387,56 @@ def test_pending_text_survives_section_hide_show(tmp_path) -> None:
     section.setVisible(True)
     app.processEvents()
     assert "1.75" in field.lineEdit().text()
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_metric_spinbox_conversion_matches_display_unit_authority() -> None:
+    """#496: the spinbox must reuse cad_display_units conversion semantics."""
+
+    _app()
+    field = MetricSpinBox()
+    field.set_display_unit("inch")
+    field.setValue(10.0)
+    # display_to_si uses the exact 0.0254 m/inch definition, not a divide by
+    # the display scale (1/0.0254) — the two differ by a few ulp.
+    assert field.value_m() == display_to_si(10.0, "inch")
+    field.set_display_unit("mm")
+    assert field.value_m() == display_to_si(field.value(), "mm")
+    # Per-unit default decimals follow the authority policy (inch: 2).
+    assert MetricSpinBox.UNIT_DECIMALS == DEFAULT_DISPLAY_DECIMALS
+
+
+def test_inspector_display_units_follow_application_preferences(tmp_path) -> None:
+    """#496 wiring: display_input.* preferences drive inspector fields."""
+
+    app, workspace = _workspace(tmp_path)
+    preferences = ApplicationPreferenceStore(tmp_path / "prefs.json")
+    bind_inspector_display_length_policy(workspace.inspector, preferences)
+    app.processEvents()
+
+    field = workspace.inspector.position_fields["X"]
+    # Store default is 'mm' at precision 2 — bound on apply.
+    assert field.suffix() == " mm"
+    assert field.decimals() == 2
+
+    entity = workspace.controller.add_object("seat")
+    workspace.select_entity(entity.entity_id)
+    app.processEvents()
+    x_m = workspace.controller.document.entity(entity.entity_id).position.x_m
+    assert field.value() == pytest.approx(x_m * 1000.0)
+
+    # A later preference commit re-renders fields in the new unit.
+    preferences.set("display_input.length_unit", "cm")
+    preferences.set("display_input.numeric_precision", 4)
+    app.processEvents()
+    assert field.suffix() == " cm"
+    assert field.decimals() == 4
+    assert field.value() == pytest.approx(x_m * 100.0)
+    # Canonical storage stays SI metres.
+    assert field.value_m() == pytest.approx(x_m)
 
     workspace.close()
     workspace.deleteLater()

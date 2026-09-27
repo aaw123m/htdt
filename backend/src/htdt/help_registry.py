@@ -31,11 +31,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from hashlib import sha256
 from typing import Iterable, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .canonical_json import canonical_sha256
 from .command_registry import CommandRegistry, default_command_definitions
 from .localization import HTDT_TERMINOLOGY, PresentationLocale, TermId
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
@@ -334,15 +334,11 @@ class HelpRegistry:
     def fingerprint(self) -> str:
         """Stable digest over topic ids + content versions."""
 
-        import json as _json
-
         payload = {
             topic_id: topic.content_version
             for topic_id, topic in sorted(self._topics.items())
         }
-        return sha256(
-            _json.dumps(payload, sort_keys=True, allow_nan=False).encode('utf-8')
-        ).hexdigest()
+        return canonical_sha256(payload)
 
 
 def shortcut_reference(
