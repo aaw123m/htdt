@@ -255,6 +255,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .sketch-room.muted { fill: rgba(0,0,0,.018); }
 .sketch-area { fill: rgba(0,113,227,.13); stroke: #0071e3; stroke-width: 2.4; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
 .polygon-sketch.exclusion .sketch-area { fill: rgba(216,62,62,.12); stroke: #d23b3b; }
+.sketch-vertex { cursor: pointer; }
 .sketch-point { fill: #fff; stroke: #0071e3; stroke-width: 3; vector-effect: non-scaling-stroke; }
 .polygon-sketch.exclusion .sketch-point { stroke: #d23b3b; }
 .sketch-index { text-anchor: middle; font-size: 9px; font-weight: 800; fill: #111114; pointer-events: none; }
@@ -269,6 +270,15 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .wall-edge.active .wall-node { fill: #0071e3; stroke: #0071e3; }
 .wall-number { text-anchor: middle; font-size: 9px; font-weight: 800; fill: #6e6e73; pointer-events: none; }
 .wall-edge.active .wall-number { fill: #fff; }
+.polygon-sketch svg:focus-visible { outline: 2px solid rgba(0,113,227,.55); outline-offset: -2px; }
+.sketch-vertex:focus, .wall-edge:focus { outline: none; }
+.sketch-vertex:focus .sketch-point { stroke: #ff9500; stroke-width: 5; }
+.wall-edge:focus .wall-line { stroke: #ff9500; }
+.wall-edge:focus .wall-node { stroke: #ff9500; }
+.sketch-cursor { pointer-events: none; }
+.sketch-cursor circle { fill: rgba(255,149,0,.12); stroke: #ff9500; stroke-width: 2; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.sketch-cursor line { stroke: #ff9500; stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.sketch-hint { position: absolute; left: 12px; bottom: 12px; margin: 0; padding: 4px 11px; border-radius: 999px; background: rgba(255,255,255,.88); border: 1px solid var(--line); color: var(--muted); font-size: .7rem; line-height: 1.5; backdrop-filter: blur(10px); }
 .selected-wall { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border-radius: 999px; background: rgba(255,255,255,.84); backdrop-filter: blur(12px); border: 1px solid var(--line); }
 .selected-wall span { color: var(--subtle); font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; }
 .selected-wall strong { color: var(--accent); font-size: .78rem; }

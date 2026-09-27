@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from 'react'
+import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import { api } from './api'
 import type { ContextPayload } from './plots'
 
@@ -67,6 +67,40 @@ function wallEdges(context: ContextRecord) {
     end: vertices[(index + 1) % vertices.length],
   }))
 }
+
+// Ray-cast even-odd test in room coordinates (m).
+function pointInPolygon(x: number, y: number, vertices: { x_m: number; y_m: number }[]): boolean {
+  let inside = false
+  for (let index = 0, prev = vertices.length - 1; index < vertices.length; prev = index++) {
+    const a = vertices[index]
+    const b = vertices[prev]
+    if ((a.y_m > y) !== (b.y_m > y) && x < ((b.x_m - a.x_m) * (y - a.y_m)) / (b.y_m - a.y_m) + a.x_m) inside = !inside
+  }
+  return inside
+}
+
+// Closest point on the polygon boundary — pulls out-of-footprint clicks onto
+// the nearest wall so a polygon room never emits a vertex the backend 422s on.
+function snapToPolygon(x: number, y: number, vertices: { x_m: number; y_m: number }[]): Point2D {
+  let best = { x_m: x, y_m: y }
+  let bestDistance = Infinity
+  for (let index = 0; index < vertices.length; index++) {
+    const a = vertices[index]
+    const b = vertices[(index + 1) % vertices.length]
+    const dx = b.x_m - a.x_m
+    const dy = b.y_m - a.y_m
+    const length2 = dx * dx + dy * dy
+    const t = length2 === 0 ? 0 : Math.min(1, Math.max(0, ((x - a.x_m) * dx + (y - a.y_m) * dy) / length2))
+    const px = a.x_m + t * dx
+    const py = a.y_m + t * dy
+    const distance2 = (x - px) * (x - px) + (y - py) * (y - py)
+    if (distance2 < bestDistance) {
+      bestDistance = distance2
+      best = { x_m: px, y_m: py }
+    }
+  }
+  return best
+}
 function blankDraft(context: ContextRecord, count: number): Draft {
   const ids = entityIds(context)
   return {
@@ -100,6 +134,17 @@ function mapPoint(context: ContextRecord, point: { x_m: number; y_m: number }) {
     y: MAP_H - MAP_PAD - point.y_m / depth * (MAP_H - MAP_PAD * 2),
   }
 }
+const NUDGE_STEP_M = 0.05
+const NUDGE_STEP_SHIFT_M = 0.25
+
+function arrowDelta(key: string, step: number): { x: number; y: number } | null {
+  if (key === 'ArrowLeft') return { x: -step, y: 0 }
+  if (key === 'ArrowRight') return { x: step, y: 0 }
+  if (key === 'ArrowUp') return { x: 0, y: step }
+  if (key === 'ArrowDown') return { x: 0, y: -step }
+  return null
+}
+
 function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode }: {
   context: ContextRecord; points: Point2D[]; groups: Point2D[][]; onChange: (points: Point2D[]) => void
   onGroupsChange: (groups: Point2D[][]) => void; mode: 'allowed' | 'exclusion'
@@ -108,26 +153,114 @@ function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode
   const boundary = [...vertices, vertices[0]].map((point) => mapPoint(context, point))
   const drawn = points.map((point) => mapPoint(context, point))
   const completed = groups.map((group) => group.map((point) => mapPoint(context, point)))
+  const room = context.payload.room
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [cursor, setCursor] = useState<Point2D | null>(null)
+  const [hint, setHint] = useState('')
+  const footprintOnly = room.geometry_kind === 'polygon_prism' && (room.footprint_vertices?.length ?? 0) >= 3
+  const center = {
+    x_m: vertices.reduce((sum, vertex) => sum + vertex.x_m, 0) / vertices.length,
+    y_m: vertices.reduce((sum, vertex) => sum + vertex.y_m, 0) / vertices.length,
+  }
+  const cursorPoint = cursor ? mapPoint(context, cursor) : null
+
+  function commitPoint(rawX: number, rawY: number) {
+    let x = Math.min(room.width_m, Math.max(0, rawX))
+    let y = Math.min(room.depth_m, Math.max(0, rawY))
+    if (footprintOnly && !pointInPolygon(x, y, vertices)) {
+      const snapped = snapToPolygon(x, y, vertices)
+      x = snapped.x_m
+      y = snapped.y_m
+      setHint('部屋の外側だったため、最も近い境界上の点へ寄せました')
+    } else {
+      setHint('')
+    }
+    const point = { x_m: Math.round(x * 100) / 100, y_m: Math.round(y * 100) / 100 }
+    setCursor(point)
+    onChange([...points, point])
+  }
 
   function addPoint(event: MouseEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect()
     const sx = (event.clientX - rect.left) / rect.width * MAP_W
     const sy = (event.clientY - rect.top) / rect.height * MAP_H
-    const room = context.payload.room
-    const x = Math.min(room.width_m, Math.max(0, (sx - MAP_PAD) / (MAP_W - MAP_PAD * 2) * room.width_m))
-    const y = Math.min(room.depth_m, Math.max(0, (MAP_H - MAP_PAD - sy) / (MAP_H - MAP_PAD * 2) * room.depth_m))
-    onChange([...points, { x_m: Math.round(x * 100) / 100, y_m: Math.round(y * 100) / 100 }])
+    commitPoint(
+      (sx - MAP_PAD) / (MAP_W - MAP_PAD * 2) * room.width_m,
+      (MAP_H - MAP_PAD - sy) / (MAP_H - MAP_PAD * 2) * room.depth_m,
+    )
+  }
+
+  function removePoint(index: number) {
+    onChange(points.filter((_, itemIndex) => itemIndex !== index))
+    svgRef.current?.focus()
+  }
+
+  function sketchKeys(event: KeyboardEvent<SVGSVGElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      const target = cursor ?? center
+      commitPoint(target.x_m, target.y_m)
+      return
+    }
+    const delta = arrowDelta(event.key, event.shiftKey ? NUDGE_STEP_SHIFT_M : NUDGE_STEP_M)
+    if (!delta) return
+    event.preventDefault()
+    const base = cursor ?? center
+    const next = {
+      x_m: Math.round(Math.min(room.width_m, Math.max(0, base.x_m + delta.x)) * 100) / 100,
+      y_m: Math.round(Math.min(room.depth_m, Math.max(0, base.y_m + delta.y)) * 100) / 100,
+    }
+    if (footprintOnly && !pointInPolygon(next.x_m, next.y_m, vertices)) {
+      setHint('カーソルは部屋の内側にのみ移動できます')
+      return
+    }
+    setHint('')
+    setCursor(next)
+  }
+
+  function vertexKeys(event: KeyboardEvent<SVGGElement>, index: number) {
+    const point = points[index]
+    if (!point) return
+    event.stopPropagation()
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      removePoint(index)
+      return
+    }
+    const delta = arrowDelta(event.key, event.shiftKey ? NUDGE_STEP_SHIFT_M : NUDGE_STEP_M)
+    if (!delta) return
+    event.preventDefault()
+    const next = {
+      x_m: Math.round(Math.min(room.width_m, Math.max(0, point.x_m + delta.x)) * 100) / 100,
+      y_m: Math.round(Math.min(room.depth_m, Math.max(0, point.y_m + delta.y)) * 100) / 100,
+    }
+    // A vertex already outside the footprint stays nudgeable so bad input can be rescued.
+    if (footprintOnly && pointInPolygon(point.x_m, point.y_m, vertices) && !pointInPolygon(next.x_m, next.y_m, vertices)) {
+      setHint('頂点は部屋の外へ移動できません')
+      return
+    }
+    setHint('')
+    onChange(points.map((item, itemIndex) => (itemIndex === index ? next : item)))
   }
 
   return <div className={`polygon-sketch ${mode}`}>
-    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={addPoint} role="img" aria-label="room polygon editor">
+    <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={addPoint} onKeyDown={sketchKeys} tabIndex={0}
+      role="application" aria-label="Room polygon editor — click or press Enter to add a vertex, arrow keys move the cursor">
       <path className="sketch-room" d={`M ${boundary.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />
       {completed.map((area, index) => <path key={index} className="sketch-area completed" d={`M ${area.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />)}
       {drawn.length > 1 && <path className="sketch-area" d={`M ${drawn.map((point) => `${point.x},${point.y}`).join(' L ')}${drawn.length >= 3 ? ' Z' : ''}`} />}
-      {drawn.map((point, index) => <g key={`${point.x}-${point.y}-${index}`}>
+      {drawn.map((point, index) => <g key={`${point.x}-${point.y}-${index}`} className="sketch-vertex" tabIndex={0} role="button"
+        aria-label={`Vertex ${index + 1} at ${points[index].x_m} m, ${points[index].y_m} m — arrow keys nudge, Enter removes`}
+        onClick={(event) => { event.stopPropagation(); removePoint(index) }}
+        onKeyDown={(event) => vertexKeys(event, index)}>
         <circle className="sketch-point" cx={point.x} cy={point.y} r="7" />
         <text className="sketch-index" x={point.x} y={point.y + 3}>{index + 1}</text>
       </g>)}
+      {cursorPoint && <g className="sketch-cursor" aria-hidden="true">
+        <circle cx={cursorPoint.x} cy={cursorPoint.y} r="10" />
+        <line x1={cursorPoint.x - 15} y1={cursorPoint.y} x2={cursorPoint.x + 15} y2={cursorPoint.y} />
+        <line x1={cursorPoint.x} y1={cursorPoint.y - 15} x2={cursorPoint.x} y2={cursorPoint.y + 15} />
+      </g>}
       <text className="sketch-front" x={MAP_W / 2} y={MAP_H - 8}>FRONT</text>
     </svg>
     <div className="sketch-toolbar">
@@ -135,6 +268,7 @@ function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode
       <button type="button" className="ghost compact" disabled={!points.length} onClick={() => onChange(points.slice(0, -1))}>↶</button>
       <button type="button" className="ghost compact" disabled={!points.length} onClick={() => onChange([])}>Clear</button>
     </div>
+    {hint && <p className="sketch-hint">{hint}</p>}
   </div>
 }
 function WallEdgePicker({ context, selected, onChange }: {
@@ -143,14 +277,35 @@ function WallEdgePicker({ context, selected, onChange }: {
   const vertices = roomVertices(context)
   const boundary = [...vertices, vertices[0]].map((point) => mapPoint(context, point))
   const edges = wallEdges(context)
+  const edgeRefs = useRef<(SVGGElement | null)[]>([])
+  const selectedIndex = edges.findIndex((edge) => edge.id === selected)
+
+  function edgeKeys(event: KeyboardEvent<SVGGElement>, index: number) {
+    let next = -1
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % edges.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index - 1 + edges.length) % edges.length
+    else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onChange(edges[index].id)
+      return
+    } else return
+    event.preventDefault()
+    onChange(edges[next].id)
+    edgeRefs.current[next]?.focus()
+  }
+
   return <div className="wall-picker">
-    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="img" aria-label="wall edge picker">
+    <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} role="radiogroup" aria-label="Wall edge picker">
       <path className="sketch-room muted" d={`M ${boundary.map((point) => `${point.x},${point.y}`).join(' L ')} Z`} />
       {edges.map((edge, index) => {
         const start = mapPoint(context, edge.start)
         const end = mapPoint(context, edge.end)
         const active = edge.id === selected
-        return <g key={edge.id} className={active ? 'wall-edge active' : 'wall-edge'} onClick={() => onChange(edge.id)}>
+        return <g key={edge.id} ref={(node) => { edgeRefs.current[index] = node }}
+          className={active ? 'wall-edge active' : 'wall-edge'} role="radio" aria-checked={active}
+          tabIndex={active || (selectedIndex < 0 && index === 0) ? 0 : -1}
+          aria-label={`Wall ${index + 1}: ${edge.start.vertex_id} to ${edge.end.vertex_id}`}
+          onClick={() => onChange(edge.id)} onKeyDown={(event) => edgeKeys(event, index)}>
           <line className="wall-hit" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
           <line className="wall-line" x1={start.x} y1={start.y} x2={end.x} y2={end.y} />
           <circle className="wall-node" cx={(start.x + end.x) / 2} cy={(start.y + end.y) / 2} r="11" />
@@ -159,7 +314,7 @@ function WallEdgePicker({ context, selected, onChange }: {
       })}
       <text className="sketch-front" x={MAP_W / 2} y={MAP_H - 8}>FRONT</text>
     </svg>
-    <div className="selected-wall"><span>Wall</span><strong>{Math.max(0, edges.findIndex((edge) => edge.id === selected)) + 1}</strong></div>
+    <div className="selected-wall"><span>Wall</span><strong>{selectedIndex < 0 ? '—' : selectedIndex + 1}</strong></div>
   </div>
 }
 

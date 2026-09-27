@@ -636,15 +636,16 @@ export default function App() {
           <p className="hint">ホームシアター基準は48 kHz・天井向き・個体別90°校正。校正ファイル原本はRaw attachmentsで保存します。</p>
           <h3>Speakers — 現在の3.0.2を初期行として表示。増減可能</h3>
           <div className="speaker-table">
-            {speakers.map((speaker, index) => (
-              <div className="speaker-row" key={`${speaker.speaker_id}-${index}`}>
-                <input value={speaker.speaker_id} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, speaker_id: event.target.value } : item))} aria-label="Speaker ID" />
-                <input value={speaker.role} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, role: event.target.value } : item))} aria-label="Speaker role" />
-                <input placeholder="model" value={speaker.model} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, model: event.target.value } : item))} />
-                {(['x', 'y', 'z'] as const).map((axis) => <input key={axis} placeholder={axis.toUpperCase()} value={speaker[axis]} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, [axis]: event.target.value } : item))} />)}
-                <button type="button" className="ghost" onClick={() => setSpeakers(speakers.filter((_, i) => i !== index))}>削除</button>
+            {speakers.map((speaker, index) => {
+              const rowLabel = speaker.role.trim() || speaker.speaker_id.trim() || `speaker ${index + 1}`
+              return <div className="speaker-row" key={`${speaker.speaker_id}-${index}`}>
+                <input value={speaker.speaker_id} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, speaker_id: event.target.value } : item))} aria-label={`${rowLabel} speaker ID`} />
+                <input value={speaker.role} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, role: event.target.value } : item))} aria-label={`${rowLabel} role`} />
+                <input placeholder="model" value={speaker.model} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, model: event.target.value } : item))} aria-label={`${rowLabel} model`} />
+                {(['x', 'y', 'z'] as const).map((axis) => <input key={axis} placeholder={axis.toUpperCase()} value={speaker[axis]} onChange={(event) => setSpeakers(speakers.map((item, i) => i === index ? { ...item, [axis]: event.target.value } : item))} aria-label={`${rowLabel} ${axis.toUpperCase()} position (m)`} />)}
+                <button type="button" className="ghost" aria-label={`${rowLabel} を削除`} onClick={() => setSpeakers(speakers.filter((_, i) => i !== index))}>削除</button>
               </div>
-            ))}
+            })}
           </div>
           <div className="row">
             <button type="button" className="ghost" onClick={() => setSpeakers([...speakers, { speaker_id: `SP${speakers.length + 1}`, role: 'other', model: '', x: '', y: '', z: '' }])}>スピーカー追加</button>
