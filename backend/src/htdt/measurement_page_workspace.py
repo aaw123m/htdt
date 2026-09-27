@@ -2052,7 +2052,7 @@ class MeasurementPageWorkspace(QWidget):
                 purposes=self._selected_campaign_purposes(),
             )
         except Exception as exc:
-            self.campaign_preview_label.setText(str(exc))
+            self.campaign_preview_label.setText(operation_error_message(exc))
             return
         self.campaign_preview_label.setText(
             f"{preview.cell_count} セル = 音源 {preview.source_count} × "
@@ -2213,7 +2213,7 @@ class MeasurementPageWorkspace(QWidget):
             )
         except Exception as exc:
             self._set_notice(
-                f"パターンを適用できませんでした · {exc}",
+                f"パターンを適用できませんでした · {operation_error_message(exc)}",
                 SemanticState.ERROR,
             )
             return
@@ -2246,7 +2246,7 @@ class MeasurementPageWorkspace(QWidget):
             )
         except Exception as exc:
             self._set_notice(
-                f"計画を開けませんでした · {exc}", SemanticState.ERROR
+                f"計画を開けませんでした · {operation_error_message(exc)}", SemanticState.ERROR
             )
             return
         self._set_notice(
@@ -3971,7 +3971,7 @@ class MeasurementPageWorkspace(QWidget):
         if error is not None:
             if error != WORKER_CANCELLED:
                 self._set_notice(
-                    f"{error_prefix} · {error}",
+                    f"{error_prefix} · {operation_error_message(error)}",
                     SemanticState.ERROR,
                 )
             return

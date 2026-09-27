@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from .capture_receiver import ReceiverPairing, ReceiverPairingPayload
 from .capture_receiver_controller import CaptureReceiverController
+from .user_facing_error import operation_error_message
 
 
 def _qr_pixmap(text: str, *, module: int = 6, quiet: int = 4) -> QPixmap:
@@ -185,7 +186,7 @@ class PairingDialog(QDialog):
                 self._pairing.pairing_id
             )
         except Exception as exc:
-            self.status_label.setText(f"確認できませんでした · {exc}")
+            self.status_label.setText(f"確認できませんでした · {operation_error_message(exc)}")
             return
         self._pairing = pairing
         self.status_label.setText("ペアリングを確定しました。")
@@ -200,7 +201,7 @@ class PairingDialog(QDialog):
         try:
             self._controller.service.revoke_pairing(pairing_id)
         except Exception as exc:
-            self.status_label.setText(f"解除できませんでした · {exc}")
+            self.status_label.setText(f"解除できませんでした · {operation_error_message(exc)}")
             return
         self.status_label.setText("デバイスのペアリングを解除しました。")
         self._refresh_pairings()

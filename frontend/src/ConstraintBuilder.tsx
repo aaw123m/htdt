@@ -265,7 +265,7 @@ function PolygonSketch({ context, points, groups, onChange, onGroupsChange, mode
     </svg>
     <div className="sketch-toolbar">
       <span className={points.length >= 3 ? 'status-pill success' : 'status-pill neutral'}>{points.length} pts</span>
-      <button type="button" className="ghost compact" disabled={!points.length} onClick={() => onChange(points.slice(0, -1))}>↶</button>
+      <button type="button" className="ghost compact" disabled={!points.length} aria-label="直前の頂点を取り消す" title="直前の頂点を取り消す" onClick={() => onChange(points.slice(0, -1))}>↶</button>
       <button type="button" className="ghost compact" disabled={!points.length} onClick={() => onChange([])}>Clear</button>
     </div>
     {hint && <p className="sketch-hint">{hint}</p>}

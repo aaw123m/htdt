@@ -166,14 +166,24 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
     } finally { setLoading(false) }
   }
 
-  if (!context) return null
+  if (!context) {
+    return <section className="panel constraint-panel" id="constraints">
+      <div className="section-title premium-title">
+        <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>Placement Constraints</h2></div>
+      </div>
+      <div className="empty-state">
+        <div className="empty-icon">⌁</div><strong>Contextがまだありません</strong>
+        <p>Step 2でContextを保存すると、配置制約の定義と候補判定ができるようになります。</p>
+      </div>
+    </section>
+  }
   return <section className="panel constraint-panel" id="constraints">
     <div className="section-title premium-title">
       <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>Placement Constraints</h2></div>
       <span className="status-pill neutral">Context R{context.revision_number}</span>
     </div>
     <div className="constraint-intro">
-      <div><strong>置ける場所だけを、探索へ。</strong><p>家具・通路・壁離隔・筐体余白・左右連動をhard gateとして先に判定します。</p></div>
+      <div><strong>置ける場所だけを、探索へ。</strong><p>家具・通路・壁離隔・筐体余白・左右連動を必須条件として先に判定します。</p></div>
       <div className="constraint-summary">
         <span>{sets.length}<small>saved sets</small></span>
         <span>{selected?.spec.constraints.length ?? 0}<small>hard rules</small></span>
@@ -215,7 +225,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
           </div>)}
         </div>
         <div className="row action-row">
-          <button type="button" disabled={loading || !selected.integrity_valid} onClick={() => void evaluate()}>{loading ? 'Checking…' : '配置可能性を判定'}</button>
+          <button type="button" disabled={loading || !selected.integrity_valid} title={!selected.integrity_valid ? 'このConstraintSetは整合性エラーのため判定できません' : undefined} onClick={() => void evaluate()}>{loading ? '判定中…' : '配置可能性を判定'}</button>
           <button type="button" className="ghost" onClick={() => { setPositions(baselinePositions(context)); setResult(null) }}>基準位置へ戻す</button>
         </div>
       </div>

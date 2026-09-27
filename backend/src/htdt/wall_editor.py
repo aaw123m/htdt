@@ -37,6 +37,7 @@ from .cad_walls import (
 )
 from .native_editor import default_data_dir
 from .room_editor import RoomEditorWindow
+from .user_facing_error import operation_error_message
 
 
 def _wall_prism(room: RoomPrism, wall: WallSegment) -> pv.PolyData:
@@ -478,7 +479,7 @@ class WallEditorWindow(RoomEditorWindow):
                 second_wall_id=second_id,
             )
         except WallTopologyError as exc:
-            self.statusBar().showMessage(f'壁を分割できません · {exc}')
+            self.statusBar().showMessage(f'壁を分割できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(new_room, new_topology):
             self._sync_recovery()
@@ -508,7 +509,7 @@ class WallEditorWindow(RoomEditorWindow):
                 merged_wall_id=merged_id,
             )
         except WallTopologyError as exc:
-            self.statusBar().showMessage(f'壁を結合できません · {exc}')
+            self.statusBar().showMessage(f'壁を結合できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(new_room, new_topology):
             self._sync_recovery()
@@ -530,7 +531,7 @@ class WallEditorWindow(RoomEditorWindow):
                 replacement_wall_id=replacement_id,
             )
         except WallTopologyError as exc:
-            self.statusBar().showMessage(f'壁を削除できません · {exc}')
+            self.statusBar().showMessage(f'壁を削除できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(new_room, new_topology):
             self._sync_recovery()
@@ -562,7 +563,7 @@ class WallEditorWindow(RoomEditorWindow):
         try:
             new_topology = add_opening(room, topology, opening)
         except WallTopologyError as exc:
-            self.statusBar().showMessage(f'開口を追加できません · {exc}')
+            self.statusBar().showMessage(f'開口を追加できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(room, new_topology):
             self._sync_recovery()
@@ -582,7 +583,7 @@ class WallEditorWindow(RoomEditorWindow):
         try:
             new_topology = add_constraint_binding(room, topology, binding)
         except (ValueError, WallTopologyError) as exc:
-            self.statusBar().showMessage(f'クリアランス参照を追加できません · {exc}')
+            self.statusBar().showMessage(f'クリアランス参照を追加できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(room, new_topology):
             self._sync_recovery()
@@ -608,7 +609,7 @@ class WallEditorWindow(RoomEditorWindow):
             validate_wall_topology(room, candidate)
         except WallTopologyError as exc:
             self._refresh_wall_inspector()
-            self.statusBar().showMessage(f'壁厚を変更できません · {exc}')
+            self.statusBar().showMessage(f'壁厚を変更できません · {operation_error_message(exc)}')
             return
         if self.working.replace_room_topology(room, candidate):
             self._sync_recovery()
@@ -732,7 +733,7 @@ class WallEditorWindow(RoomEditorWindow):
                 except WallTopologyError as exc:
                     self.wall_drag_preview_room = None
                     self.wall_drag_preview_topology = None
-                    self.statusBar().showMessage(f'この位置には移動できません · {exc}')
+                    self.statusBar().showMessage(f'この位置には移動できません · {operation_error_message(exc)}')
                     self._render_wall_overlay(before_room, before_topology)
                     return True
                 self.wall_drag_preview_room = preview_room

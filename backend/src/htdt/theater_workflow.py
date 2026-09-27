@@ -9,6 +9,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID, Position3, Size3, make_empty_scene
 from .theater_document import TheaterWorkingDocument
 from .theater_editor import TheaterEditorWindow
+from .user_facing_error import operation_error_message
 
 
 class TheaterWorkflowWindow(TheaterEditorWindow):
@@ -179,7 +180,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
             )
             changed = self.working.replace_entities(replacements)
         except (TheaterObjectError, EditStateError, ValueError) as exc:
-            self.statusBar().showMessage(f'スピーカーを座席へ向けられません · {exc}')
+            self.statusBar().showMessage(f'スピーカーを座席へ向けられません · {operation_error_message(exc)}')
             return
         if changed:
             self._sync_recovery()

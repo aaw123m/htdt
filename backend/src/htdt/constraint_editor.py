@@ -36,6 +36,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID, Position3, room_vertices
 from .native_editor import ROLE
 from .theater_workflow import TheaterWorkflowWindow
+from .user_facing_error import operation_error_message
 
 
 class ConstraintEditorWindow(TheaterWorkflowWindow):
@@ -146,7 +147,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
         try:
             evaluate_cad_constraints(self.working.committed_document, candidate)
         except (CadConstraintAdapterError, ValueError) as exc:
-            self.statusBar().showMessage(f'制約を追加できません · {exc}')
+            self.statusBar().showMessage(f'制約を追加できません · {operation_error_message(exc)}')
             return False
         self.constraint_set = candidate
         self.constraint_repository.save(candidate)
@@ -202,7 +203,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
                 half_depth_m=0.90,
             )
         except ValueError as exc:
-            self.statusBar().showMessage(str(exc))
+            self.statusBar().showMessage(operation_error_message(exc))
             return
         constraint = CadExclusionRegionConstraint(
             constraint_id=f'walkway-{uuid4().hex[:10]}',
@@ -228,7 +229,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
                 half_depth_m=1.00,
             )
         except ValueError as exc:
-            self.statusBar().showMessage(str(exc))
+            self.statusBar().showMessage(operation_error_message(exc))
             return
         constraint = CadAllowedRegionConstraint(
             constraint_id=f'allowed-{uuid4().hex[:10]}',
@@ -404,10 +405,10 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
             )
         except (CadConstraintAdapterError, ValueError) as exc:
             if self.constraint_summary_label is not None:
-                self.constraint_summary_label.setText(f'制約を評価できません · {exc}')
+                self.constraint_summary_label.setText(f'制約を評価できません · {operation_error_message(exc)}')
             self.constraint_tree.clear()
             if self.constraint_detail_label is not None:
-                self.constraint_detail_label.setText(str(exc))
+                self.constraint_detail_label.setText(operation_error_message(exc))
             self._render_constraint_overlay(CadConstraintEvaluation(constraints_satisfied=False, results=()))
             return
 
@@ -669,7 +670,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
                 blocked = blocking_candidate_violations(before, candidate, set(selection))
             except (CadConstraintAdapterError, ValueError) as exc:
                 super().cancel_preview()
-                self.statusBar().showMessage(f'移動を確定できません · 制約評価エラー · {exc}')
+                self.statusBar().showMessage(f'移動を確定できません · 制約評価エラー · {operation_error_message(exc)}')
                 return False
             if blocked:
                 self.constraint_last_rejected = candidate

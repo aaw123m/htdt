@@ -232,7 +232,7 @@ code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .step-count { margin-left: auto; color: var(--subtle); font-size: .72rem; }
 .compact-profiles { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 .compact-profiles .profile-card { grid-template-columns: 1fr 1fr; padding: 12px; }
-.unit-input { display: grid; grid-template-columns: 1fr auto; align-items: center; border: 1px solid var(--line-strong); border-radius: 13px; background: rgba(255,255,255,.92); overflow: hidden; }
+.unit-input { display: grid; grid-template-columns: 1fr auto; align-items: center; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.92); overflow: hidden; }
 .unit-input:focus-within { border-color: rgba(0,113,227,.48); box-shadow: 0 0 0 4px rgba(0,113,227,.08); }
 .unit-input input { border: 0; box-shadow: none !important; background: transparent; padding-right: 4px; }
 .unit-input b { padding-right: 10px; color: var(--subtle); font-size: .72rem; font-weight: 600; }

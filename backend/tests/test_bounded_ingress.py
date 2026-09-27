@@ -407,4 +407,6 @@ def test_legacy_editor_dialog_uses_shared_bounded_read(tmp_path: Path, monkeypat
     MeasurementEditorWindow.import_rew_text_dialog(StubEditor())  # type: ignore[arg-type]
 
     assert imported == []
-    assert messages and 'too large' in messages[0]
+    # The dialog surfaces the mapped operator message (R6: no raw exc text);
+    # IngressTooLargeError maps to the size-specific JP message.
+    assert messages and '大きすぎ' in messages[0]

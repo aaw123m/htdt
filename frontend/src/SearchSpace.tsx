@@ -206,7 +206,17 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
     finally { setLoading(false) }
   }
 
-  if (!context) return null
+  if (!context) {
+    return <section className="panel search-panel" id="search">
+      <div className="section-title premium-title">
+        <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>Search Space</h2></div>
+      </div>
+      <div className="empty-state">
+        <div className="empty-icon">⌁</div><strong>Contextがまだありません</strong>
+        <p>Contextを保存すると、可動軸と連動規則から探索候補を生成できます。</p>
+      </div>
+    </section>
+  }
   return <section className="panel search-panel" id="search">
     <div className="section-title premium-title">
       <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>Search Space</h2></div>
@@ -260,14 +270,14 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
                 <option value="">OFF</option><option value={link.entity_a}>{link.entity_a} → {link.entity_b}</option><option value={link.entity_b}>{link.entity_b} → {link.entity_a}</option>
               </select>
             </article>)}
-            {linkedConstraints.length === 0 && <div className="compact-empty">linked placementなし</div>}
+            {linkedConstraints.length === 0 && <div className="compact-empty">連動条件なし</div>}
           </div>
         </div>
       </>}
 
       <div className="search-actions">
-        <button type="button" className="ghost" disabled={loading || !selectedSet || axes.length === 0} onClick={() => void runPreview()}>候補数を確認</button>
-        <button type="button" disabled={loading || !selectedSet || axes.length === 0} onClick={() => void saveSpec()}>SearchSpecを保存</button>
+        <button type="button" className="ghost" disabled={loading || !selectedSet || axes.length === 0} title={!selectedSet ? 'ConstraintSetを選択してください' : axes.length === 0 ? '可動軸を1つ以上追加してください' : undefined} onClick={() => void runPreview()}>候補数を確認</button>
+        <button type="button" disabled={loading || !selectedSet || axes.length === 0} title={!selectedSet ? 'ConstraintSetを選択してください' : axes.length === 0 ? '可動軸を1つ以上追加してください' : undefined} onClick={() => void saveSpec()}>SearchSpecを保存</button>
         {preview && <div className="search-preview-pill"><strong>{preview.raw_candidate_count}</strong><span>raw candidates</span></div>}
       </div>
     </div>
@@ -276,8 +286,8 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
       <label>Saved SearchSpec<select value={selectedSpec?.id ?? ''} onChange={(event) => { setSelectedSpecId(event.target.value); setResult(null); setOffset(0) }}>
         <option value="">選択</option>{savedSpecs.map((item) => <option key={item.id} value={item.id}>{item.name ?? item.id.slice(0, 8)}</option>)}
       </select></label>
-      <button type="button" disabled={loading || !selectedSpec?.integrity_valid} onClick={() => void generate(selectedSpec?.id, 0)}>{loading ? 'Generating…' : '候補を生成'}</button>
-      <button type="button" className="ghost" disabled={!selectedSpec} onClick={loadSelectedAsDraft}>複製して編集</button>
+      <button type="button" disabled={loading || !selectedSpec?.integrity_valid} title={!selectedSpec ? '保存済みSearchSpecを選択してください' : !selectedSpec.integrity_valid ? 'このSearchSpecは整合性エラーのため生成できません' : undefined} onClick={() => void generate(selectedSpec?.id, 0)}>{loading ? '生成中…' : '候補を生成'}</button>
+      <button type="button" className="ghost" disabled={!selectedSpec} title={!selectedSpec ? '保存済みSearchSpecを選択してください' : undefined} onClick={loadSelectedAsDraft}>複製して編集</button>
       {selectedSpec && <span className="immutable-mark">◇ immutable · {selectedSpec.spec.algorithm_version} · {selectedSpec.id.slice(0, 8)}</span>}
     </div>
 

@@ -83,6 +83,7 @@ from .optimization_extended_controller import ExtendedSearchControllerMixin
 from .optimization_measurement_controller import MeasurementPlanControllerMixin
 from .optimization_search_controller import SearchControllerMixin, candidate_cloud_points
 from .optimization_validation_controller import ValidationControllerMixin
+from .user_facing_error import operation_error_message
 class OptimizationWorkspaceWindow(
     ValidationControllerMixin,
     MeasurementPlanControllerMixin,
@@ -991,8 +992,8 @@ class OptimizationWorkspaceWindow(
         except Exception as exc:
             self.pareto_tree.clear()
             if self.pareto_summary_label is not None:
-                self.pareto_summary_label.setText(f'Pareto比較を作成できません · {exc}')
-            self.statusBar().showMessage(f'Pareto比較を拒否しました · {exc}')
+                self.pareto_summary_label.setText(f'Pareto比較を作成できません · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'Pareto比較を拒否しました · {operation_error_message(exc)}')
             return
 
         non_dominated = set(pareto_set.result.non_dominated_candidate_ids)

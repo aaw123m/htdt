@@ -406,7 +406,7 @@ export function RewReadonlyPanel() {
               <label>Smoothing<input value={smoothing} onChange={(event) => setSmoothing(event.target.value)} placeholder="空欄=指定なし" /></label>
             </div>
             <div className="row action-row">
-              <button type="button" disabled={!selectedId || loading} onClick={() => void preview()}>{loading ? '取得中…' : '96 PPO FRをプレビュー'}</button>
+              <button type="button" disabled={!selectedId || loading} onClick={() => void preview()}>{loading ? '取得中…' : `${ppo} PPO FRをプレビュー`}</button>
               {measurements.length > selectableMeasurements.length && <span className="hint">UUIDを持たない項目はFR選択から除外しています。</span>}
             </div>
           </>

@@ -82,6 +82,7 @@ from .optimization_search_controller import (
     CandidateTreeItem,
     _candidate_matches_filter,
 )
+from .user_facing_error import operation_error_message
 
 
 class ExtendedSearchControllerMixin:
@@ -366,7 +367,7 @@ class ExtendedSearchControllerMixin:
                 step=float(self.extended_step_field.value()),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'extended軸が不正です · {exc}')
+            self.statusBar().showMessage(f'extended軸が不正です · {operation_error_message(exc)}')
             return
         key = (entity_id, parameter)
         self.extended_axes[key] = axis

@@ -47,6 +47,8 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .user_facing_error import warn_user
+from .user_facing_error import operation_error_message
 
 
 # Inspector suggestion list only — not a persisted enum. Custom roles remain
@@ -836,7 +838,7 @@ class SystemExpansionRoomPanel(QFrame):
                 max_returned_candidates=24,
             )
         except ValueError as exc:
-            self.authoring_status.setText(f"作成できません: {exc}")
+            self.authoring_status.setText(f"作成できません: {operation_error_message(exc)}")
             return
         self.authoring_status.setText(
             f"提案を保存しました。配置候補 {len(result.candidate_variant_ids)} 件を"
@@ -1140,7 +1142,7 @@ class SystemExpansionOptimizePanel(QFrame):
                 include_current=True,
             )
         except (ValueError, KeyError) as exc:
-            self.summary.setText(f"評価できません: {exc}")
+            self.summary.setText(f"評価できません: {operation_error_message(exc)}")
             return
         evaluated = sum(
             1
@@ -1191,7 +1193,7 @@ class SystemExpansionOptimizePanel(QFrame):
         try:
             application = self.service.apply(variant_id)
         except ValueError as exc:
-            self.summary.setText(f"適用できません: {exc}")
+            self.summary.setText(f"適用できません: {operation_error_message(exc)}")
             return
         self.summary.setText(
             "提案を新しいSceneRevisionへ適用しました。"
@@ -1270,7 +1272,7 @@ class SystemExpansionRobustnessPanel(QFrame):
         try:
             view = self.service.proposal_robustness_presentation(self._variant_id)
         except (KeyError, ValueError) as exc:
-            self.summary.setText(f"ばらつきauthorityを表示できません: {exc}")
+            self.summary.setText(f"ばらつきauthorityを表示できません: {operation_error_message(exc)}")
             self.advanced_label.clear()
             return
         if view is None:
@@ -1585,7 +1587,7 @@ class SystemExpansionMeasurementPanel(QFrame):
         try:
             self.service.record_as_built(variant_id, confirmed_by=confirmed_by)
         except ValueError as exc:
-            QMessageBox.warning(self, "実設置を記録", str(exc))
+            warn_user(self, "実設置を記録できませんでした", exc)
             return
         self.refresh()
 
@@ -1627,7 +1629,7 @@ class SystemExpansionMeasurementPanel(QFrame):
                 purpose=dialog.purpose_edit.text(),
             )
         except ValueError as exc:
-            QMessageBox.warning(self, "測定計画", str(exc))
+            warn_user(self, "測定計画を作成できませんでした", exc)
             return
         self.refresh()
 

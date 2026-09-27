@@ -33,6 +33,7 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 
 _CATEGORY_LABELS: dict[PreferenceCategory, str] = {
@@ -177,7 +178,7 @@ class PreferencesWidget(QWidget):
         try:
             self._store.set(key, value)
         except PreferenceError as exc:
-            self.status.setText(f"保存できませんでした: {exc}")
+            self.status.setText(f"保存できませんでした: {operation_error_message(exc)}")
             set_semantic_state(self.status, SemanticState.ERROR)
             self.reload()
             return
@@ -194,7 +195,7 @@ class PreferencesWidget(QWidget):
                 # file; the old document is preserved under .recovery first.
                 self._store.reset_persisted_file()
         except PreferenceError as exc:
-            self.status.setText(f"既定値への復元に失敗しました: {exc}")
+            self.status.setText(f"既定値への復元に失敗しました: {operation_error_message(exc)}")
             set_semantic_state(self.status, SemanticState.ERROR)
         self.reload()
 

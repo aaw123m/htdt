@@ -79,6 +79,7 @@ from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED
+from .user_facing_error import operation_error_message
 
 
 class CandidateTreeItem(QTreeWidgetItem):
@@ -237,7 +238,7 @@ class SearchControllerMixin:
                 step_m=float(self.search_step_field.value()),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'探索軸を追加できません · {exc}')
+            self.statusBar().showMessage(f'探索軸を追加できません · {operation_error_message(exc)}')
             return
 
         self._upsert_search_axis(item)
@@ -417,7 +418,7 @@ class SearchControllerMixin:
                 mirror_axis_x_m=mirror_axis,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'連動変数を追加できません · {exc}')
+            self.statusBar().showMessage(f'連動変数を追加できません · {operation_error_message(exc)}')
             return
 
         for index in range(self.search_linked_tree.topLevelItemCount()):
@@ -487,7 +488,7 @@ class SearchControllerMixin:
             )
             self.search_repository.save(spec)
         except Exception as exc:
-            self.statusBar().showMessage(f'探索設定を保存できません · {exc}')
+            self.statusBar().showMessage(f'探索設定を保存できません · {operation_error_message(exc)}')
             return
 
         self.search_selected_spec_id = spec.search_spec_id
@@ -731,7 +732,7 @@ class SearchControllerMixin:
             self._refresh_search_binding_state()
             return
         if error is not None:
-            self.statusBar().showMessage(f'候補生成に失敗しました · {error}')
+            self.statusBar().showMessage(f'候補生成に失敗しました · {operation_error_message(error)}')
             self._refresh_search_binding_state()
             return
         if not isinstance(result, CadCandidateSetPage):
@@ -895,7 +896,7 @@ class SearchControllerMixin:
                 current_document_id=self.document_id,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'候補を適用できません · {exc}')
+            self.statusBar().showMessage(f'候補を適用できません · {operation_error_message(exc)}')
             self._refresh_search_binding_state()
             return
         if not changed:

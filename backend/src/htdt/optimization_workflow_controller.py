@@ -58,6 +58,7 @@ from .optimization_validation_controller import ValidationControllerMixin
 from .rew_api import RewApiClient
 from .room_workspace import RoomWorkspaceController
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
+from .user_facing_error import operation_error_message
 
 
 class _StatusProxy:
@@ -462,7 +463,7 @@ class OptimizationWorkflowController(
                 self.objective_repository.save_pareto_set(pareto_set)
         except Exception as exc:
             self.pareto_tree.clear()
-            self.pareto_summary_label.setText(f"Pareto比較を作成できません · {exc}")
+            self.pareto_summary_label.setText(f"Pareto比較を作成できません · {operation_error_message(exc)}")
             return
 
         non_dominated = set(pareto_set.result.non_dominated_candidate_ids)
@@ -587,7 +588,7 @@ class OptimizationWorkflowController(
             if task_key != self._latest_rew_list_key or error == WORKER_CANCELLED:
                 return
             if error is not None:
-                self.statusChanged.emit(f"REW一覧取得失敗 · {error}")
+                self.statusChanged.emit(f"REW一覧取得失敗 · {operation_error_message(error)}")
                 return
             summaries = result if isinstance(result, list) else []
             with QSignalBlocker(self.rew_combo):
@@ -612,7 +613,7 @@ class OptimizationWorkflowController(
             return
         if error is not None:
             if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
-                self.statusChanged.emit(f"REW読込失敗 · {error}")
+                self.statusChanged.emit(f"REW読込失敗 · {operation_error_message(error)}")
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
@@ -644,7 +645,7 @@ class OptimizationWorkflowController(
                 raw_bytes=raw,
             )
         except Exception as exc:
-            self.statusChanged.emit(f"REW結果保存失敗 · {exc}")
+            self.statusChanged.emit(f"REW結果保存失敗 · {operation_error_message(exc)}")
             return
         self.refresh_measurement_plans()
         self.refresh_validation_campaigns()

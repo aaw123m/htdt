@@ -76,6 +76,7 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
   const [prominenceDb, setProminenceDb] = useState('3')
   const [result, setResult] = useState<FeatureResult | null>(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (!measurements.some((measurement) => measurement.dataset_id === datasetId)) {
@@ -90,7 +91,8 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
   }, [projectId])
 
   async function analyze() {
-    if (!projectId || !datasetId) return
+    if (!projectId || !datasetId || loading) return
+    setLoading(true)
     try {
       setError('')
       const low = Number(lowHz)
@@ -113,6 +115,8 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
       setResult(payload)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '特徴候補の解析に失敗しました')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -133,7 +137,7 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
         <label>High Hz<input value={highHz} onChange={(event) => setHighHz(event.target.value)} /></label>
         <label>Prominence dB<input value={prominenceDb} onChange={(event) => setProminenceDb(event.target.value)} /></label>
       </div>
-      <button disabled={!projectId || !datasetId} onClick={() => void analyze()}>特徴と幾何候補を解析</button>
+      <button disabled={loading || !projectId || !datasetId} title={!datasetId ? 'Datasetを選択してください' : undefined} onClick={() => void analyze()}>{loading ? '解析中…' : '特徴と幾何候補を解析'}</button>
       {error && <div className="notice error">{error}</div>}
       {result && <>
         <div className="analysis-banner">

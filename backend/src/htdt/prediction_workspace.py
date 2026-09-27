@@ -37,6 +37,7 @@ from .cad_scene import F1_DOCUMENT_ID, acoustic_reference_position, domain_to_re
 from .measurement_workspace import MeasurementWorkspaceWindow
 from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
+from .user_facing_error import operation_error_message
 
 
 class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
@@ -322,7 +323,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                 constraint_workspace_hash=constraint_hash,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'予測を開始できません · {exc}')
+            self.statusBar().showMessage(f'予測を開始できません · {operation_error_message(exc)}')
             return
 
         self._prediction_tokens[token.job_id] = token
@@ -392,7 +393,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             self.statusBar().showMessage('予測キャンセル済み · 結果は保存/適用しません')
             return
         if error is not None:
-            self.statusBar().showMessage(f'予測失敗 · {error}')
+            self.statusBar().showMessage(f'予測失敗 · {operation_error_message(error)}')
             return
         if not isinstance(result, tuple) or not result or not all(
             isinstance(item, CadPredictionResult) for item in result
@@ -418,10 +419,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         try:
             self.prediction_repository.save_run(result)
         except ValueError as exc:
-            self.statusBar().showMessage(f'予測結果を拒否しました · {exc}')
+            self.statusBar().showMessage(f'予測結果を拒否しました · {operation_error_message(exc)}')
             return
         except sqlite3.Error as exc:
-            self.statusBar().showMessage(f'予測を保存できませんでした · {exc}')
+            self.statusBar().showMessage(f'予測を保存できませんでした · {operation_error_message(exc)}')
             return
         self.prediction_selected_run_id = result[0].run_id
         self._refresh_prediction_results()
