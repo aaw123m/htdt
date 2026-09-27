@@ -138,7 +138,7 @@ def _format_length(value_m: float, policy: LengthDisplayPolicy | None) -> str:
 
 def _format_signed_length(value_m: float, policy: LengthDisplayPolicy | None) -> str:
     if policy is None:
-        return f'{value_m:+.3f}'
+        return f'{value_m:+.3f} m'
     text = format_length_m(value_m, policy)
     return text if value_m < 0 else f'+{text}'
 
@@ -149,15 +149,18 @@ def format_measure_result(
 ) -> str:
     """Single-line copyable text form of a measurement.
 
-    ``policy`` is the #496 display-unit presentation policy; when omitted the
-    canonical SI metre/degree rendering is kept (callers without a preference
-    boundary — exports, tests — stay unchanged).
+    ``policy`` is the #496 interactive display policy: with it set, lengths
+    render in the preference unit/decimals exactly like the inspector
+    readouts. ``None`` keeps canonical SI metres — report/export surfaces
+    stay SI regardless. Angles are unaffected (the length policy does not
+    govern them).
     """
 
     if result.mode == 'angle':
         assert result.angle_deg is not None
         return f'角度 {result.angle_deg:.1f}°'
     assert result.distance_m is not None
+
     return (
         f'距離 {_format_length(result.distance_m, policy)} '
         f'（ΔX {_format_signed_length(result.dx_m, policy)} '

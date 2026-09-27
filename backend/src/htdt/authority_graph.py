@@ -555,6 +555,129 @@ def scene_revision_authority_source(
     return StaticAuthoritySource(contributions)
 
 
+def measurement_authority_source(
+    measurements: Iterable[Any],
+    *,
+    head_content_hash_by_document: Mapping[str, str | None] | None = None,
+) -> 'StaticAuthoritySource':
+    """Map persisted :class:`~htdt.cad_measurement_models.CadMeasurementRecord`s.
+
+    One node per measurement plus a MEASURED_FOR edge to the scene revision
+    it was recorded against, so the explorer can answer "which measurements
+    belong to this room state". A measurement whose ``scene_content_hash``
+    no longer matches the document's head revision hash is reported
+    ``stale`` with the reason recorded — that is the practical "old data"
+    answer the inspector exists to give.
+    """
+
+    contributions: list[AuthorityNode | AuthorityEdge] = []
+    heads = head_content_hash_by_document or {}
+    for record in measurements:
+        node_id = f'measurement:measurement:{record.measurement_id}'
+        head_hash = heads.get(record.document_id)
+        stale = head_hash is not None and record.scene_content_hash != head_hash
+        lifecycle = (
+            AuthorityLifecycle.MEASURED
+            if record.evidence_type == 'measured'
+            else AuthorityLifecycle.DERIVED
+        )
+        contributions.append(
+            AuthorityNode(
+                node_id=node_id,
+                domain=AuthorityDomain.MEASUREMENT,
+                node_type='measurement',
+                label=f'測定 {record.measurement_entity_id} ({record.evidence_type})',
+                lifecycle=lifecycle,
+                authority_id=record.measurement_id,
+                authority_hash=record.scene_content_hash,
+                created_at_utc=record.captured_at or record.imported_at,
+                stale=stale,
+                stale_reasons=(
+                    ('測定時の部屋リビジョン内容と現在のヘッドが一致しません',)
+                    if stale
+                    else ()
+                ),
+                deep_link=WorkspaceDeepLink(
+                    WorkspaceId.MEASUREMENT,
+                    entity_id=record.measurement_id,
+                    kind='measurement',
+                ),
+            )
+        )
+        contributions.append(
+            AuthorityEdge(
+                kind=AuthorityEdgeKind.MEASURED_FOR,
+                source=node_id,
+                target=f'room:scene_revision:{record.scene_revision_id}',
+            )
+        )
+    return StaticAuthoritySource(contributions)
+
+
+def system_variant_authority_source(
+    variants: Iterable[Any],
+    *,
+    head_content_hash_by_document: Mapping[str, str | None] | None = None,
+) -> 'StaticAuthoritySource':
+    """Map persisted :class:`~htdt.cad_system_variant.SystemVariant`s.
+
+    One node per variant, DERIVED_FROM its baseline scene revision, a
+    SUPERSEDES edge to its parent variant when present, and BINDS_TO the
+    owning document. A variant whose baseline hash no longer matches the
+    document head's content hash is stale — it was proposed on room state
+    that has since changed.
+    """
+
+    contributions: list[AuthorityNode | AuthorityEdge] = []
+    heads = head_content_hash_by_document or {}
+    for variant in variants:
+        node_id = f'optimization:system_variant:{variant.variant_id}'
+        head_hash = heads.get(variant.document_id)
+        stale = (
+            head_hash is not None
+            and variant.baseline_content_hash != head_hash
+        )
+        contributions.append(
+            AuthorityNode(
+                node_id=node_id,
+                domain=AuthorityDomain.OPTIMIZATION,
+                node_type='system_variant',
+                label=variant.name,
+                lifecycle=AuthorityLifecycle.PROPOSED,
+                authority_id=variant.variant_id,
+                authority_hash=variant.variant_sha256,
+                created_at_utc=variant.created_at_utc,
+                stale=stale,
+                stale_reasons=(
+                    ('基準となった部屋リビジョン内容と現在のヘッドが一致しません',)
+                    if stale
+                    else ()
+                ),
+                deep_link=WorkspaceDeepLink(
+                    WorkspaceId.OPTIMIZATION,
+                    entity_id=variant.variant_id,
+                    kind='system_variant',
+                ),
+            )
+        )
+        contributions.append(
+            AuthorityEdge(
+                kind=AuthorityEdgeKind.DERIVED_FROM,
+                source=node_id,
+                target=f'room:scene_revision:{variant.baseline_revision_id}',
+            )
+        )
+        if variant.parent_variant_id:
+            contributions.append(
+                AuthorityEdge(
+                    kind=AuthorityEdgeKind.SUPERSEDES,
+                    source=node_id,
+                    target=f'optimization:system_variant:{variant.parent_variant_id}',
+                )
+            )
+    return StaticAuthoritySource(contributions)
+
+
 @dataclass(slots=True)
 class StaticAuthoritySource:
     """In-memory source; tests and thin adapters over repositories."""
@@ -581,5 +704,7 @@ __all__ = [
     'HARD_MAX_HOPS',
     'StaticAuthoritySource',
     'build_authority_graph',
+    'measurement_authority_source',
     'scene_revision_authority_source',
+    'system_variant_authority_source',
 ]

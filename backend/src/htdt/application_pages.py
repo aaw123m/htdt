@@ -725,18 +725,44 @@ def list_recent_revisions(repository: SceneRepository, limit: int = 50) -> tuple
     return tuple((str(a), str(b), str(c)) for a, b, c in rows)
 
 
+_LIBRARY_FAMILY_TITLES = {
+    "equipment": "機材・スピーカー定義",
+    "treatment": "吸音・処理材",
+    "target_curve": "目標カーブ",
+    "standard_profile": "基準プロファイル",
+    "instrument": "測定機器",
+    "material": "音響材料",
+    "operating_profile": "動作プロファイル",
+}
+
+_LIBRARY_SCOPE_LABELS = {
+    "builtin": "同梱",
+    "user_library": "ユーザーライブラリ",
+    "project_local": "プロジェクト",
+    "imported_dependency": "依存として取り込み",
+    "historical": "履歴",
+}
+
+
 class ReferenceLibraryPage(QWidget):
-    """Reference library: equipment/source definitions shared across projects."""
+    """Reference library: equipment/source definitions shared across projects.
+
+    ``library_index`` (the #630 hub read model) renders one additional
+    read-only section per registered authority family — speakers, materials,
+    standards profiles — so shared authorities are discoverable in one place.
+    """
 
     manage_requested = Signal()
 
     def __init__(
         self,
         list_definitions: Callable[[], tuple],
+        library_index=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_definitions = list_definitions
+        self._library_index = library_index
         layout = _page_layout(
             self,
             "ライブラリ",
@@ -753,6 +779,33 @@ class ReferenceLibraryPage(QWidget):
         manage = QPushButton("機材ライブラリを管理…")
         manage.clicked.connect(lambda: self.manage_requested.emit())
         layout.addWidget(manage)
+
+        self._family_frames: dict[str, tuple[QLabel, QTableWidget]] = {}
+        if library_index is not None:
+            for family in library_index.families():
+                header = QLabel(
+                    _LIBRARY_FAMILY_TITLES.get(str(family), str(family)),
+                    self,
+                )
+                set_typography_role(header, TypographyRole.SECTION_TITLE)
+                table = QTableWidget(0, 4, self)
+                table.setHorizontalHeaderLabels(
+                    ("名前", "区分", "スコープ", "バージョン")
+                )
+                table.horizontalHeader().setSectionResizeMode(
+                    0, QHeaderView.ResizeMode.Stretch
+                )
+                table.setEditTriggers(
+                    QTableWidget.EditTrigger.NoEditTriggers
+                )
+                table.setSelectionBehavior(
+                    QTableWidget.SelectionBehavior.SelectRows
+                )
+                header.hide()
+                table.hide()
+                layout.addWidget(header)
+                layout.addWidget(table)
+                self._family_frames[str(family)] = (header, table)
         self.refresh()
 
     def refresh(self) -> None:
@@ -776,6 +829,40 @@ class ReferenceLibraryPage(QWidget):
                         getattr(definition, "definition_id", ""),
                     )
                 self.table.setItem(row, column, item)
+        self._refresh_family_sections()
+
+    def _refresh_family_sections(self) -> None:
+        if self._library_index is None:
+            return
+        for family, (header, table) in self._family_frames.items():
+            try:
+                entries = self._library_index.entries(family=family)
+            except Exception:  # noqa: BLE001 - a broken provider must not blank the page
+                entries = ()
+            header.setVisible(bool(entries))
+            table.setVisible(bool(entries))
+            table.setRowCount(0)
+            for entry in entries:
+                row = table.rowCount()
+                table.insertRow(row)
+                for column, value in enumerate(
+                    (
+                        entry.display_name,
+                        entry.capability_summary
+                        or entry.source_summary
+                        or "",
+                        _LIBRARY_SCOPE_LABELS.get(
+                            str(entry.scope), str(entry.scope)
+                        ),
+                        entry.version,
+                    )
+                ):
+                    cell = QTableWidgetItem(str(value))
+                    if column == 0:
+                        cell.setData(
+                            Qt.ItemDataRole.UserRole, entry.semantic_key
+                        )
+                    table.setItem(row, column, cell)
 
     def focus_definition(self, definition_id: str) -> TargetFocusResult:
         for row in range(self.table.rowCount()):
@@ -800,11 +887,13 @@ class SupportPage(QWidget):
         data_dir: Path,
         status_provider: Callable[[], tuple[str, ...]] | None = None,
         export_diagnostics: Callable[[QWidget], str | None] | None = None,
+        open_authority_graph: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._status_provider = status_provider
         self._export_diagnostics = export_diagnostics
+        self._open_authority_graph = open_authority_graph
         layout = _page_layout(
             self,
             "サポート",
@@ -828,6 +917,15 @@ class SupportPage(QWidget):
         )
         note.setWordWrap(True)
         layout.addWidget(note)
+        if self._open_authority_graph is not None:
+            self.authority_button = QPushButton("権威グラフを開く", self)
+            self.authority_button.setObjectName("supportOpenAuthorityGraph")
+            self.authority_button.clicked.connect(
+                lambda: self._open_authority_graph(self)
+            )
+            layout.addWidget(self.authority_button)
+        else:
+            self.authority_button = None
         if self._export_diagnostics is not None:
             self.export_button = QPushButton("診断パッケージをエクスポート", self)
             self.export_button.setObjectName("supportExportDiagnostics")

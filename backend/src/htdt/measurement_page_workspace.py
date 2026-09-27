@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QFrame,
     QHeaderView,
@@ -36,6 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .cad_display_labels import saved_label
 from .cad_measurement_models import (
     MEASUREMENT_ATTACHMENT_KINDS,
@@ -490,6 +490,20 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_table.selectRow(row_index)
         self._show_quality_row(row_index)
 
+    def select_measurement_id(self, measurement_id: str) -> bool:
+        """Deep-link/palette focus port: select the quality row for
+        ``measurement_id``; returns False when the record is absent."""
+        self.refresh()
+        for index, row in enumerate(self._quality_views):
+            if row.measurement_id != measurement_id:
+                continue
+            if self.current_context_id != "quality":
+                self.set_context("quality")
+            self.quality_table.selectRow(index)
+            self._show_quality_row(index)
+            return True
+        return False
+
     def refresh(self) -> None:
         self._refresh_pending()
         self._refresh_batch()
@@ -500,10 +514,10 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_onboarding()
 
     def import_rew_text_dialog(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = file_dialog_memory.get_open_file_name(
             self,
             "REWテキストを選択",
-            "",
+            'measurement.rew_text',
             "REW text (*.txt *.frd);;All files (*)",
         )
         if not path:
@@ -527,10 +541,10 @@ class MeasurementPageWorkspace(QWidget):
 
     def import_rew_batch_dialog(self) -> None:
         """Stage one or many REW text exports into the batch queue (#446)."""
-        paths, _ = QFileDialog.getOpenFileNames(
+        paths, _ = file_dialog_memory.get_open_file_names(
             self,
             "REWテキストを追加（複数選択可）",
-            "",
+            'measurement.rew_text',
             "REW text (*.txt *.frd);;All files (*)",
         )
         if not paths:
@@ -576,10 +590,10 @@ class MeasurementPageWorkspace(QWidget):
         item_id = selected[0].data(Qt.ItemDataRole.UserRole)
         if not isinstance(item_id, str):
             return
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = file_dialog_memory.get_open_file_name(
             self,
             "添付ファイルを選択",
-            "",
+            'measurement.attach',
             "All files (*)",
         )
         if not path:
@@ -3104,8 +3118,8 @@ class MeasurementPageWorkspace(QWidget):
         row = self._selected_quality_view()
         if row is None:
             return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "添付ファイルを選択", "", "All files (*)"
+        path, _ = file_dialog_memory.get_open_file_name(
+            self, "添付ファイルを選択", 'measurement.attach', "All files (*)"
         )
         if not path:
             return

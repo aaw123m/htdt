@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -38,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidgetAction,
 )
 
+from . import file_dialog_memory
 from .cad_document import (
     CommandHistoryEntry,
     CommandPresentation,
@@ -4458,10 +4458,10 @@ class RoomWorkspace(QWidget):
         if self.controller.document.room is None:
             self._set_status("先に部屋を作成してください", error=True)
             return False
-        path_text, _ = QFileDialog.getOpenFileName(
+        path_text, _ = file_dialog_memory.get_open_file_name(
             self,
             "下図をインポート",
-            "",
+            'room.import_underlay',
             "下図ファイル (*.png *.jpg *.jpeg *.pdf *.dxf)",
         )
         if not path_text:
@@ -6390,10 +6390,10 @@ class RoomWorkspace(QWidget):
         """
 
         if file_path is None:
-            file_path, _filter = QFileDialog.getOpenFileName(
+            file_path, _filter = file_dialog_memory.get_open_file_name(
                 self,
                 "ジオメトリをインポート",
-                "",
+                'room.import_geometry',
                 "メッシュ (*.obj *.glb *.meshbin *.ply *.stl);;すべてのファイル (*)",
             )
             if not file_path:

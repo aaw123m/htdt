@@ -95,6 +95,10 @@ class CommissioningWizard(QDialog):
         # the wizard stays free of repository wiring.
         self._template_starter = template_starter
         self._used_instantiation = None
+        # Summary "開く" links queue here: the wizard is exec()'d modal, so
+        # navigating immediately would focus the destination behind the
+        # still-open dialog. The composition drains the queue after exec().
+        self._queued_links: list[object] = []
 
         self.setWindowTitle('プロジェクト初期設定')
         self.setModal(True)
@@ -356,6 +360,22 @@ class CommissioningWizard(QDialog):
                 CommissioningPlanRepository(self._data_dir).save(plan)
         self.accept()
 
+    def _queue_navigation(self, link: object) -> None:
+        """Queue a summary link and close the modal before navigating.
+
+        Emitted ``navigate_requested`` still fires for non-modal embedders;
+        the composition instead consumes :meth:`take_pending_navigations`
+        after ``exec()`` returns so focus lands after the wizard closes.
+        """
+        self._queued_links.append(link)
+        self.navigate_requested.emit(link)
+        self.accept()
+
+    def take_pending_navigations(self) -> tuple[object, ...]:
+        """Drain queued summary links (post-``exec()`` navigation list)."""
+        links, self._queued_links = tuple(self._queued_links), []
+        return links
+
     def _rebuild_summary(self) -> None:
         while self.summary_list.count():
             item = self.summary_list.takeAt(0)
@@ -389,7 +409,7 @@ class CommissioningWizard(QDialog):
             if requirement.link is not None:
                 button = QPushButton('開く')
                 button.clicked.connect(
-                    lambda checked=False, link=requirement.link: self.navigate_requested.emit(link)
+                    lambda checked=False, link=requirement.link: self._queue_navigation(link)
                 )
                 row.addWidget(button)
             container = QWidget()

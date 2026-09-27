@@ -445,6 +445,110 @@ class HelpTopicPaletteProvider(PaletteSearchProvider):
         return self._on_open(topic_id)
 
 
+@dataclass(frozen=True, slots=True)
+class PaletteNavigationItem:
+    """One authority record projected into palette search (round-8).
+
+    ``deep_link`` carries the typed ``kind`` so activation flows through
+    the same ``NavigationTarget`` resolution the rest of the shell uses —
+    a record whose link is None renders as unavailable instead of
+    pretending to be reachable.
+    """
+
+    item_id: str
+    title: str
+    subtitle: str
+    keywords: tuple[str, ...] = ()
+    deep_link: WorkspaceDeepLink | None = None
+
+
+class NavigationItemPaletteProvider(PaletteSearchProvider):
+    """Searches projected authority records and activates via deep links.
+
+    One provider per domain (measurements, scene revisions, system
+    variants, capture-inbox items — the round-7 deferred set). Like
+    ``SceneEntityPaletteProvider``/``HelpTopicPaletteProvider`` it answers
+    real queries only; the empty-query Suggested group stays curated.
+    ``items_source`` re-reads live authority on every search so results
+    always address current records.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        kind: PaletteResultKind,
+        items_source: Callable[[], Iterable[PaletteNavigationItem]],
+        *,
+        icon_key: str = "data",
+        unavailable_reason: str = "この項目は開けません",
+    ) -> None:
+        self.name = name
+        self._kind = kind
+        self._items_source = items_source
+        self._icon_key = icon_key
+        self._unavailable_reason = unavailable_reason
+
+    def _items(self) -> tuple[PaletteNavigationItem, ...]:
+        try:
+            return tuple(self._items_source())
+        except Exception:
+            # A mid-restore repository read must never break the palette —
+            # the provider contributes nothing until authority is readable.
+            return ()
+
+    def search(
+        self,
+        query: str,
+        *,
+        context: CommandContext | None = None,
+        limit: int = 12,
+    ) -> tuple[PaletteResult, ...]:
+        normalized = _normalized(query)
+        if not normalized:
+            return ()
+        results: list[PaletteResult] = []
+        for item in self._items():
+            score = max(
+                _score_text(
+                    normalized, item.title, exact=100, prefix=80, substring=60
+                ),
+                _score_text(
+                    normalized, item.item_id, exact=70, prefix=50, substring=30
+                ),
+                max(
+                    (
+                        _score_text(
+                            normalized, kw, exact=70, prefix=55, substring=35
+                        )
+                        for kw in item.keywords
+                    ),
+                    default=0,
+                ),
+            )
+            if score == 0:
+                continue
+            results.append(
+                PaletteResult(
+                    result_id=f"{self.name}:{item.item_id}",
+                    kind=self._kind,
+                    title=item.title,
+                    subtitle=item.subtitle,
+                    keywords=item.keywords,
+                    icon_key=self._icon_key,
+                    available=item.deep_link is not None,
+                    disabled_reason=(
+                        None
+                        if item.deep_link is not None
+                        else self._unavailable_reason
+                    ),
+                    deep_link=item.deep_link,
+                    score=score,
+                )
+            )
+        results.sort(key=lambda item: item.score, reverse=True)
+        return tuple(results[:limit])
+
+
 class PaletteSearchService:
     """Fuses providers; owns recent-result memory for the Suggested group."""
 
@@ -626,6 +730,8 @@ def help_destinations() -> tuple[_StaticDestination, ...]:
 __all__ = [
     "CommandPaletteProvider",
     "HelpTopicPaletteProvider",
+    "NavigationItemPaletteProvider",
+    "PaletteNavigationItem",
     "PaletteResult",
     "PaletteResultKind",
     "PaletteSearchProvider",

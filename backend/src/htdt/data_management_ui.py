@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -21,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .data_management import (
     BackupCreateResult,
     BackupMetadata,
@@ -76,11 +76,13 @@ class QtDataManagementDialogProvider:
         *,
         suggested_name: str,
     ) -> Path | None:
-        selected, _filter = QFileDialog.getSaveFileName(
+        selected, _filter = file_dialog_memory.get_save_file_name(
             parent,
             "バックアップの保存先",
-            str(Path.home() / suggested_name),
+            'data.backup.save',
             "HTDTバックアップ (*.htdt-backup)",
+            suggested_name=suggested_name,
+            default_dir=str(Path.home()),
         )
         if not selected:
             return None
@@ -90,19 +92,21 @@ class QtDataManagementDialogProvider:
         return path
 
     def choose_restore_file(self, parent: QWidget) -> Path | None:
-        selected, _filter = QFileDialog.getOpenFileName(
+        selected, _filter = file_dialog_memory.get_open_file_name(
             parent,
             "復元するバックアップを選択",
-            str(Path.home()),
+            'data.backup.restore',
             "HTDTバックアップ (*.htdt-backup)",
+            default_dir=str(Path.home()),
         )
         return None if not selected else Path(selected)
 
     def choose_relocation_destination(self, parent: QWidget) -> Path | None:
-        selected = QFileDialog.getExistingDirectory(
+        selected = file_dialog_memory.get_existing_directory(
             parent,
             "データの移動先フォルダを選択",
-            str(Path.home()),
+            'data.relocate',
+            default_dir=str(Path.home()),
         )
         return None if not selected else Path(selected)
 
