@@ -19,6 +19,7 @@ from htdt.cad_geometric_constraints import (
     make_symmetric_pair_constraint,
 )
 from htdt.cad_repository import (
+    AuthoringConstraintConflictError,
     AuthoringConstraintIntegrityError,
     SceneRepository,
 )
@@ -182,6 +183,30 @@ def test_constraint_add_remove_participate_in_undo(tmp_path: Path) -> None:
     assert controller.authoring_constraints.constraints == ()
     assert controller.undo()
     assert len(controller.authoring_constraints.constraints) == 1
+
+
+def test_constraint_save_rejects_a_head_that_moved(tmp_path: Path) -> None:
+    """A stale pre-lock head resolution must not supersede the live head."""
+    repository = _repository(tmp_path)
+    payload = AuthoringConstraintSet().model_dump(mode='json')
+    first = repository.save_authoring_constraints(F1_DOCUMENT_ID, payload)
+    second = repository.save_authoring_constraints(F1_DOCUMENT_ID, payload)
+
+    # Simulate a save whose head was resolved before a racing writer
+    # committed: the pointer row already names ``second``, so writing a
+    # revision superseding the stale ``first`` head must be refused.
+    repository.authoring_constraint_head = lambda document_id: first
+    with pytest.raises(AuthoringConstraintConflictError):
+        repository.save_authoring_constraints(F1_DOCUMENT_ID, payload)
+    del repository.authoring_constraint_head
+
+    # The live head is untouched and no third revision was persisted.
+    head = repository.authoring_constraint_head(F1_DOCUMENT_ID)
+    assert head is not None
+    assert head.constraint_revision_id == second.constraint_revision_id
+    assert len(
+        repository.list_authoring_constraint_revisions(F1_DOCUMENT_ID)
+    ) == 2
 
 
 def test_corrupt_constraint_authority_fails_closed(tmp_path: Path) -> None:

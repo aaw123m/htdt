@@ -49,6 +49,15 @@ class AuthoringConstraintIntegrityError(ValueError):
     """
 
 
+class AuthoringConstraintConflictError(ValueError):
+    """The constraint head moved between pre-lock resolution and commit.
+
+    A save resolving a stale head would insert a revision that supersedes
+    the wrong parent and overwrite a live head pointer, silently forking
+    the lineage; the conflict refuses the write instead.
+    """
+
+
 def _constraint_revision_sha256(payload: dict[str, Any]) -> str:
     canonical = json.dumps(
         payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False
@@ -1168,6 +1177,36 @@ class SceneRepository:
             )
         return revision
 
+    def _authoring_head_pointer_id(
+        self, connection: sqlite3.Connection, document_id: str
+    ) -> object:
+        """Head revision id the pointer row claims, read on ``connection``.
+
+        Returns the raw ``head_constraint_revision_id`` value (or ``None``
+        when no pointer row exists or the row is a legacy singleton payload).
+        An unparsable pointer means the row changed since the caller's
+        pre-lock resolution — reported as a conflict, not corruption, since
+        ``authoring_constraint_head`` already fails closed on retained
+        corrupt state before the write lock is taken.
+        """
+        row = connection.execute(
+            'SELECT payload_json FROM authoring_constraint_sets '
+            'WHERE document_id=?',
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            stored = json.loads(row['payload_json'])
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise AuthoringConstraintConflictError(
+                'authoring constraint head pointer changed while saving '
+                f'document {document_id}; re-resolve and retry'
+            ) from exc
+        if not isinstance(stored, dict):
+            return None
+        return stored.get(self._CONSTRAINT_HEAD_KEY)
+
     def _authoring_head_row(self, document_id: str) -> sqlite3.Row | None:
         """Raw singleton head-pointer row — never auto-purged on corruption.
 
@@ -1271,6 +1310,19 @@ class SceneRepository:
         updated_at = datetime.now(timezone.utc).isoformat()
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # Compare-and-swap under the write lock: the head resolved above
+            # was a pre-lock hint. The pointer row is re-read on this
+            # connection so a concurrent save can never be superseded out of
+            # the lineage — the scene revision save applies the same rule.
+            claimed = self._authoring_head_pointer_id(connection, document_id)
+            expected = (
+                None if head is None else head.constraint_revision_id or None
+            )
+            if claimed != expected:
+                raise AuthoringConstraintConflictError(
+                    'authoring constraint head moved while saving document '
+                    f'{document_id}; re-resolve and retry'
+                )
             connection.execute(
                 'INSERT INTO authoring_constraint_revisions('
                 'constraint_revision_id, document_id, supersedes_id, '
