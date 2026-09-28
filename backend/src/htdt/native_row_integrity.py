@@ -650,6 +650,8 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_amplifier_output_capabilities',
     'cad_analysis_studies',
     'cad_applicability_attestations',
+    'cad_auralization_artifacts',
+    'cad_auralization_render_specs',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_cable_runs',

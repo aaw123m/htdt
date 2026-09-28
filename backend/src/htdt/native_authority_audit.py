@@ -2669,6 +2669,16 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'applied-settings authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
     ),
+    'cad_auralization_artifacts': (
+        'STRUCTURAL_ONLY',
+        'auralization artifact authority; canonical replay path pending '
+        '— strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_render_specs': (
+        'STRUCTURAL_ONLY',
+        'auralization render spec authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_av_latency_measurements': (
         'STRUCTURAL_ONLY',
         'AV latency measurement authority; canonical replay path '

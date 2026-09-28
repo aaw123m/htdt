@@ -79,6 +79,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_auralization_artifacts ( artifact_id TEXT PRIMARY KEY, artifact_semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, output_asset_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_render_specs ( spec_id TEXT PRIMARY KEY, spec_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_av_latency_measurements ( measurement_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, condition_id TEXT NOT NULL, status TEXT NOT NULL, measurement_sha256 TEXT NOT NULL, captured_at_utc TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,

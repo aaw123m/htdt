@@ -93,7 +93,11 @@ from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .export_io import claim_export_stem, write_export_files
 from .availability_reasons import availability_reason
-from .command_palette import CommandPaletteController
+from .command_palette import (
+    CommandPaletteController,
+    CommandShortcutBinder,
+    flush_focused_text_editor,
+)
 from .capture_receiver_controller import CaptureReceiverController
 from .capture_receiver_settings import CaptureReceiverPanel
 from .command_registry import (
@@ -2725,6 +2729,25 @@ class WorkflowApplicationComposition:
         original_activate = mount.on_activate
         original_deactivate = mount.on_deactivate
 
+        # Workspace-scoped shortcuts over the shared registry — the Room
+        # mount's CommandShortcutBinder pattern applied to the Optimize
+        # workspace. WidgetWithChildrenShortcut scopes Ctrl+S/Z/Y to this
+        # widget tree, so the Room binder over the same command ids never
+        # conflicts; execute() re-checks live availability on every fire.
+        shortcuts = CommandShortcutBinder(
+            workspace,
+            self.registry,
+            command_ids=("project.save", "edit.undo", "edit.redo"),
+            shortcut_context=Qt.ShortcutContext.WidgetWithChildrenShortcut,
+        )
+
+        def save_with_pending_edits() -> None:
+            # project.save is a GLOBAL shortcut: it fires while a form field
+            # still owns focus, before editingFinished commits the value —
+            # flush it first like the Room mount's commit_pending_editor.
+            flush_focused_text_editor(workspace)
+            controller.save()
+
         def edit_idle() -> bool:
             return (
                 controller.active_search_worker_count() == 0
@@ -2740,7 +2763,7 @@ class WorkflowApplicationComposition:
                 original_activate()
             self.registry.bind(
                 "project.save",
-                execute=controller.save,
+                execute=save_with_pending_edits,
                 availability=lambda: _available(
                     edit_idle() and controller.working.is_dirty,
                     'project.save.unavailable_or_busy',
@@ -2770,6 +2793,7 @@ class WorkflowApplicationComposition:
                     'optimization.compare.requires_spec_selection',
                 ),
             )
+            shortcuts.refresh()
 
         def deactivate() -> None:
             if original_deactivate is not None:

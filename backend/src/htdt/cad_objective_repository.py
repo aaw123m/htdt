@@ -425,8 +425,19 @@ class CadObjectiveRepository:
         row: sqlite3.Row,
         scans: dict[str, _CandidateSetScan] | None = None,
         batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
     ) -> CadObjectiveEvaluation:
-        """Deserialize one persisted evaluation and replay its exact authority."""
+        """Deserialize one persisted evaluation and replay its exact authority.
+
+        ``validated`` optionally memoizes the replay outcome per sealed
+        evaluation identity (``evaluation_id`` + ``evaluation_sha256``) so a
+        caller validating the same immutable rows against unchanged persisted
+        state — e.g. a view refresh that lists evaluations, resolves a
+        Pareto set and saves it — replays the candidate-set/input/vector
+        derivation once per distinct evaluation instead of once per call.
+        The row/payload/column equality checks still run on every call, so a
+        rewritten row never passes on a stale hit.
+        """
 
         evaluation = CadObjectiveEvaluation.model_validate_json(row['payload_json'])
         if (
@@ -455,9 +466,21 @@ class CadObjectiveRepository:
                 'objective evaluation predates authority attestation and is '
                 'non-authoritative'
             )
-        authority = self._require_evaluation_authority(
-            evaluation, scans=scans, batches=batches
+        authority = (
+            None
+            if validated is None
+            else validated.get(
+                (evaluation.evaluation_id, evaluation.evaluation_sha256)
+            )
         )
+        if authority is None:
+            authority = self._require_evaluation_authority(
+                evaluation, scans=scans, batches=batches
+            )
+            if validated is not None:
+                validated[
+                    (evaluation.evaluation_id, evaluation.evaluation_sha256)
+                ] = authority
         if row['candidate_set_sha256'] != authority.candidate_set_sha256:
             raise ValueError(
                 'persisted objective evaluation candidate-set authority mismatch'
@@ -474,6 +497,7 @@ class CadObjectiveRepository:
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
         batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
     ) -> CadObjectiveEvaluation | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -483,7 +507,7 @@ class CadObjectiveRepository:
         return (
             None
             if row is None
-            else self._validated_evaluation(row, scans, batches)
+            else self._validated_evaluation(row, scans, batches, validated)
         )
 
     def get_evaluations(
@@ -492,6 +516,7 @@ class CadObjectiveRepository:
         *,
         scans: dict[str, _CandidateSetScan] | None = None,
         batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
     ) -> dict[str, CadObjectiveEvaluation | None]:
         """Batch ``get_evaluation`` over one connection and one replay memo.
 
@@ -523,7 +548,7 @@ class CadObjectiveRepository:
                 None
                 if rows[evaluation_id] is None
                 else self._validated_evaluation(
-                    rows[evaluation_id], shared, shared_batches
+                    rows[evaluation_id], shared, shared_batches, validated
                 )
             )
             for evaluation_id in ids
@@ -548,19 +573,34 @@ class CadObjectiveRepository:
             else CadObjectiveEvaluation.model_validate_json(row['payload_json'])
         )
 
-    def list_evaluations(self, search_spec_id: str) -> tuple[CadObjectiveEvaluation, ...]:
+    def list_evaluations(
+        self,
+        search_spec_id: str,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> tuple[CadObjectiveEvaluation, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_objective_evaluations WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        scans: dict[str, _CandidateSetScan] = {}
-        batches: dict[str, Any] = {}
+        shared_scans: dict[str, _CandidateSetScan] = {} if scans is None else scans
+        shared_batches: dict[str, Any] = {} if batches is None else batches
         return tuple(
-            self._validated_evaluation(row, scans, batches) for row in rows
+            self._validated_evaluation(row, shared_scans, shared_batches, validated)
+            for row in rows
         )
 
-    def _require_pareto_authority(self, pareto_set: CadParetoSet) -> None:
+    def _require_pareto_authority(
+        self,
+        pareto_set: CadParetoSet,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> None:
         """Replay the exact authority one Pareto set is bound to.
 
         Revalidates the SceneRevision/SearchSpec binding, reloads every
@@ -568,7 +608,10 @@ class CadObjectiveRepository:
         verifies exact evaluation SHA/candidate/binding, and requires the
         canonical recomputed front to equal the submitted result. Missing
         or mismatched authority fails closed; used by both save-time
-        validation and authoritative reads.
+        validation and authoritative reads. Callers resolving several
+        Pareto sets over the same unchanged persisted state share the
+        ``scans``/``batches``/``validated`` memos so each referenced
+        evaluation replays its authority once, not once per set.
         """
 
         self._resolve_binding(
@@ -580,11 +623,14 @@ class CadObjectiveRepository:
         )
 
         evaluations: list[CadObjectiveEvaluation] = []
-        scans: dict[str, _CandidateSetScan] = {}
-        batches: dict[str, Any] = {}
+        shared_scans: dict[str, _CandidateSetScan] = {} if scans is None else scans
+        shared_batches: dict[str, Any] = {} if batches is None else batches
         for ref in pareto_set.evaluations:
             evaluation = self.get_evaluation(
-                ref.evaluation_id, scans=scans, batches=batches
+                ref.evaluation_id,
+                scans=shared_scans,
+                batches=shared_batches,
+                validated=validated,
             )
             if evaluation is None:
                 raise ValueError(f'Pareto objective evaluation does not exist: {ref.evaluation_id}')
@@ -611,7 +657,13 @@ class CadObjectiveRepository:
         if expected != pareto_set.result:
             raise ValueError('Pareto result does not match referenced objective evaluations')
 
-    def _validated_pareto_set(self, row: sqlite3.Row) -> CadParetoSet:
+    def _validated_pareto_set(
+        self,
+        row: sqlite3.Row,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> CadParetoSet:
         """Deserialize one persisted Pareto row and replay its exact authority."""
 
         pareto_set = CadParetoSet.model_validate_json(row['payload_json'])
@@ -626,11 +678,22 @@ class CadObjectiveRepository:
             or row['created_at_utc'] != pareto_set.created_at_utc
         ):
             raise ValueError('persisted CadParetoSet row disagrees with its payload')
-        self._require_pareto_authority(pareto_set)
+        self._require_pareto_authority(
+            pareto_set, scans=scans, batches=batches, validated=validated
+        )
         return pareto_set
 
-    def save_pareto_set(self, pareto_set: CadParetoSet) -> None:
-        self._require_pareto_authority(pareto_set)
+    def save_pareto_set(
+        self,
+        pareto_set: CadParetoSet,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> None:
+        self._require_pareto_authority(
+            pareto_set, scans=scans, batches=batches, validated=validated
+        )
 
         with closing(self._connect()) as connection, connection:
             connection.execute(
@@ -652,29 +715,58 @@ class CadObjectiveRepository:
                 ),
             )
 
-    def find_pareto_set_by_sha(self, search_spec_id: str, pareto_sha256: str) -> CadParetoSet | None:
+    def find_pareto_set_by_sha(
+        self,
+        search_spec_id: str,
+        pareto_sha256: str,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> CadParetoSet | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_pareto_sets WHERE search_spec_id=? AND pareto_sha256=? '
                 'ORDER BY seq DESC LIMIT 1',
                 (search_spec_id, pareto_sha256),
             ).fetchone()
-        return None if row is None else self._validated_pareto_set(row)
+        return (
+            None
+            if row is None
+            else self._validated_pareto_set(row, scans, batches, validated)
+        )
 
-    def get_pareto_set(self, pareto_set_id: str) -> CadParetoSet | None:
+    def get_pareto_set(
+        self,
+        pareto_set_id: str,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> CadParetoSet | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_pareto_sets WHERE pareto_set_id=?',
                 (pareto_set_id,),
             ).fetchone()
-        return None if row is None else self._validated_pareto_set(row)
+        return (
+            None
+            if row is None
+            else self._validated_pareto_set(row, scans, batches, validated)
+        )
 
     def latest_evaluations_by_candidate(
         self,
         search_spec_id: str,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
     ) -> tuple[CadObjectiveEvaluation, ...]:
         """Return the latest immutable evaluation for each candidate, preserving candidate first-seen order."""
-        evaluations = self.list_evaluations(search_spec_id)
+        evaluations = self.list_evaluations(
+            search_spec_id, scans=scans, batches=batches, validated=validated
+        )
         order: list[str] = []
         latest: dict[str, CadObjectiveEvaluation] = {}
         for evaluation in evaluations:
@@ -683,10 +775,20 @@ class CadObjectiveRepository:
             latest[evaluation.candidate_id] = evaluation
         return tuple(latest[candidate_id] for candidate_id in order)
 
-    def list_pareto_sets(self, search_spec_id: str) -> tuple[CadParetoSet, ...]:
+    def list_pareto_sets(
+        self,
+        search_spec_id: str,
+        *,
+        scans: dict[str, _CandidateSetScan] | None = None,
+        batches: dict[str, Any] | None = None,
+        validated: dict[tuple[str, str], _EvaluationAuthority] | None = None,
+    ) -> tuple[CadParetoSet, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_pareto_sets WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),
             ).fetchall()
-        return tuple(self._validated_pareto_set(row) for row in rows)
+        return tuple(
+            self._validated_pareto_set(row, scans, batches, validated)
+            for row in rows
+        )
