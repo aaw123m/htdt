@@ -949,6 +949,42 @@ class RoomWorkspaceController:
         if self.constraint_set is not None:
             self.constraint_repository.save(self.constraint_set)
 
+    def _apply_placement_constraints(self, constraint_set) -> None:
+        """Persist the hard-constraint set, then swap it in-memory.
+
+        Persist-first ordering: a failed save raises before any in-memory
+        state changes, so an apply/revert failure cannot leave the
+        controller diverged from disk.
+        """
+
+        self.constraint_repository.save(constraint_set)
+        self.constraint_set = constraint_set
+        self._sync_recovery()
+
+    def update_placement_constraints(
+        self,
+        new_set,
+        *,
+        presentation: CommandPresentation | None = None,
+    ) -> bool:
+        """Commit a hard-constraint (#486) change as its own Undo step.
+
+        Placement constraints are stored beside the scene (not inside the
+        document), so the command carries no entity edit — Undo restores
+        the previous persisted set and nothing else. Mirrors
+        ``update_authoring_constraints`` (#843).
+        """
+
+        before = self.constraint_set
+        if before is None or new_set == before:
+            return False
+        return self.working.apply_entity_set_edit(
+            apply_side=lambda: self._apply_placement_constraints(new_set),
+            revert_side=lambda: self._apply_placement_constraints(before),
+            presentation=presentation
+            or CommandPresentation(action='edit', detail='配置制約'),
+        )
+
     def evaluate_constraints(self) -> object:
         if self.constraint_set is None:
             return None
@@ -1064,8 +1100,12 @@ class RoomWorkspaceController:
         revision = self.repository.get(revision_id)
         if revision is None:
             raise EditStateError("対象のリビジョンが見つかりません")
+        if self.recovery_candidate is not None:
+            raise EditStateError("復旧可能な下書きを処理してから履歴を復元してください")
         if self.working.has_preview:
             raise EditStateError("プレビュー中は復元できません")
+        if self.working.is_dirty:
+            raise EditStateError("未保存の変更を保存または元に戻してから履歴を復元してください")
         head = self.repository.current_head(self.document_id)
         if head is not None and revision.revision_id == head.revision_id:
             raise EditStateError("現在の先頭版と同じ内容です")
@@ -1426,20 +1466,26 @@ class RoomWorkspaceController:
                 )
         return self._constraint_state
 
-    def _save_authoring_constraints(self) -> None:
-        if self._constraint_state is None:
+    def _save_authoring_constraints(self, state=None) -> None:
+        state = self._constraint_state if state is None else state
+        if state is None:
             return
         self.repository.save_authoring_constraints(
             self.document_id,
-            self._constraint_state.model_dump(mode='json'),
+            state.model_dump(mode='json'),
             scene_revision_id=self.working.source_revision_id,
         )
 
     def _apply_constraint_state(self, state) -> None:
-        """Swap the in-memory set and persist one versioned revision."""
+        """Persist one versioned revision, then swap the in-memory set.
 
+        Persist-first ordering: a failed save raises before any in-memory
+        state changes, so an apply/revert failure cannot leave the
+        controller diverged from disk.
+        """
+
+        self._save_authoring_constraints(state)
         self._constraint_state = state
-        self._save_authoring_constraints()
         self._sync_recovery()
 
     def update_authoring_constraints(
@@ -3847,6 +3893,7 @@ class RoomWorkspace(QWidget):
         self._palette_user_open = False
         self._viewport_factory = viewport_factory or (lambda owner: RoomViewport3D(owner))
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
+        self.system_expansion.apply_guard = self._system_expansion_apply_block_reason
         self._proposed_variant_id: str | None = None
         self._proposed_selected_id: str | None = None
         self._pending_editor_rejected = False
@@ -5186,6 +5233,17 @@ class RoomWorkspace(QWidget):
         self._proposed_selected_id = None
         self._render()
 
+    def _system_expansion_apply_block_reason(self) -> str | None:
+        """Veto for variant apply: a new head must never orphan a draft."""
+
+        if self.controller.recovery_candidate is not None:
+            return "復旧可能な下書きを処理してから提案を適用してください"
+        if self.controller.working.has_preview:
+            return "プレビュー中は提案を適用できません"
+        if self.controller.is_dirty:
+            return "未保存の変更を保存または破棄してから提案を適用してください"
+        return None
+
     def _proposal_entity_selected(self, entity_id: object) -> None:
         self._proposed_selected_id = str(entity_id)
         self._render()
@@ -5383,59 +5441,59 @@ class RoomWorkspace(QWidget):
         if constraint_set is None:
             self._set_status("制約セットを読み込めません", error=True)
             return
-        room = self.controller.document.room
+        document = self.controller.document
         try:
-            if kind == "walkway":
-                constraint = make_walkway_constraint(
-                    self.controller.document, room, constraint_set
+            if kind == "add_walkway":
+                if not selected:
+                    self._set_status("通路の対象を選択してください", error=True)
+                    return
+                new_set = add_constraint(
+                    constraint_set,
+                    make_walkway_constraint(document, selected[0]),
                 )
-            elif kind == "allowed":
+            elif kind == "add_allowed":
                 if not selected:
                     self._set_status("許可領域の対象を選択してください", error=True)
                     return
-                constraint = make_allowed_region_constraint(
-                    self.controller.document,
-                    room,
+                new_set = add_constraint(
                     constraint_set,
-                    entity_id=selected[0],
+                    make_allowed_region_constraint(document, selected[0]),
                 )
-            elif kind == "wall_clearance":
+            elif kind == "add_wall":
                 if not selected:
                     self._set_status("壁離隔の対象を選択してください", error=True)
                     return
-                constraint = make_wall_clearance_constraint(
-                    self.controller.document,
+                new_set = add_constraint(
                     constraint_set,
-                    entity_id=selected[0],
-                    min_m=self.constraints_panel.distance_m(),
+                    make_wall_clearance_constraint(
+                        document,
+                        selected[0],
+                        wall_id=self.constraints_panel.selected_wall_id(),
+                        min_m=self.constraints_panel.distance_m(),
+                    ),
                 )
-            elif kind == "pair_distance":
+            elif kind == "add_pair":
                 if len(selected) < 2:
                     self._set_status("物体間離隔は2項目を選択してください", error=True)
                     return
-                constraint = make_pair_distance_constraint(
-                    self.controller.document,
+                new_set = add_constraint(
                     constraint_set,
-                    entity_a_id=selected[0],
-                    entity_b_id=selected[1],
-                    min_m=self.constraints_panel.distance_m(),
+                    make_pair_distance_constraint(
+                        document,
+                        selected[0],
+                        selected[1],
+                        min_m=self.constraints_panel.distance_m(),
+                    ),
                 )
             elif kind == "delete":
                 constraint_id = self.constraints_panel.selected_constraint_id()
                 if constraint_id is None:
                     self._set_status("削除する制約を選択してください", error=True)
                     return
-                self.controller.constraint_set = remove_constraint(
-                    constraint_set, constraint_id
-                )
-                constraint = None
+                new_set = remove_constraint(constraint_set, constraint_id)
             else:
                 return
-            if constraint is not None:
-                self.controller.constraint_set = add_constraint(
-                    constraint_set, constraint
-                )
-            self.controller.save_constraints()
+            self.controller.update_placement_constraints(new_set)
         except (EditStateError, ValueError) as exc:
             self._set_operation_error("拘束を保存できませんでした", exc, effect='変更は保存されていません')
             return

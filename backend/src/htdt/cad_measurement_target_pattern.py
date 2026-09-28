@@ -350,6 +350,12 @@ def materialize_target_pattern(
     base_revision = scene_repository.get(pattern.anchor_revision_id)
     if base_revision is None or base_revision.document_id != pattern.document_id:
         raise ValueError('pattern anchor SceneRevision is unavailable')
+    # Draft guard: materialization writes a new head outside the owning
+    # workspace's working document; a persisted draft would be orphaned.
+    if scene_repository.recovery(pattern.document_id) is not None:
+        raise ValueError(
+            '未保存の部屋の下書きを保存または破棄してからターゲットを生成してください'
+        )
     head = scene_repository.latest(pattern.document_id)
     if head is None or head.revision_id != base_revision.revision_id:
         raise ValueError(

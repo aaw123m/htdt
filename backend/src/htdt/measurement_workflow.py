@@ -1041,6 +1041,14 @@ class MeasurementWorkflowController:
         )
 
         revision = self.latest_revision()
+        # Draft guard: this path writes a new head outside the owning
+        # workspace's working document. A persisted draft (keep_draft or an
+        # unresolved crash-recovery snapshot) would be orphaned — its later
+        # save could never land on the moved head.
+        if self.scene_repository.recovery(self.document_id) is not None:
+            raise MeasurementWorkflowError(
+                "未保存の部屋の下書きを保存または破棄してから測定点を追加してください"
+            )
         if listener_pose is None:
             # A seat with a selected pose derives its measurement point from
             # the pose authority (#632); without one the seat's own
