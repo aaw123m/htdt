@@ -57,40 +57,85 @@ _SAMPLE_STATE_LABELS = {
 }
 
 
-def _slice_pixmap(view: FieldSliceView) -> QPixmap:
-    """Render a slice view to an image — derived display product only."""
+def _ramp_rgb(t: float) -> tuple[int, int, int]:
+    """Sequential blue->cyan->yellow->red ramp shared by slice + scale bar."""
 
-    n_rows = len(view.rows)
-    n_cols = len(view.column_coordinates_m)
-    finite = [
-        value
-        for row in view.rows
-        for value in row
-        if isfinite(value)
-    ]
-    lo = min(finite) if finite else 0.0
-    hi = max(finite) if finite else 1.0
-    span = hi - lo if hi > lo else 1.0
+    t = min(1.0, max(0.0, t))
+    r = int(255 * min(1.0, max(0.0, 2 * t - 0.5)))
+    g = int(255 * min(1.0, max(0.0, 2 * t if t < 0.5 else 2 * (1 - t))))
+    b = int(255 * min(1.0, max(0.0, 1.5 - 2 * t)))
+    return r, g, b
+
+
+def _slice_stats(view: FieldSliceView) -> tuple[float, float, int]:
+    """(min, max, non-rendered count) over the slice's finite samples."""
+
     masked = set(view.masked_positions)
-    image = QImage(n_cols, n_rows, QImage.Format.Format_RGB32)
+    lo: float | None = None
+    hi: float | None = None
+    hidden = 0
     for row_i, row in enumerate(view.rows):
         for col_i, value in enumerate(row):
             if (row_i, col_i) in masked or not isfinite(value):
-                image.setPixel(col_i, row_i, 0xFF404040)
+                hidden += 1
+                continue
+            lo = value if lo is None else min(lo, value)
+            hi = value if hi is None else max(hi, value)
+    return (lo if lo is not None else 0.0, hi if hi is not None else 1.0, hidden)
+
+
+def _slice_pixmap(view: FieldSliceView) -> QPixmap:
+    """Render a slice view to an image — derived display product only.
+
+    Orientation convention: x_m runs right; z_m runs up (vertical sections
+    read upright, not sideways); for the horizontal plan y_m runs top→down
+    so the room front stays at the image top — matching the 3D viewport's
+    plan orientation.
+    """
+
+    n_rows = len(view.rows)
+    n_cols = len(view.column_coordinates_m)
+    horizontal = 'x_m' if 'x_m' in (view.row_axis, view.column_axis) else 'y_m'
+    vertical = 'z_m' if 'z_m' in (view.row_axis, view.column_axis) else (
+        'y_m' if horizontal == 'x_m' else 'x_m'
+    )
+    flip_vertical = vertical == 'z_m'
+    width = n_rows if view.row_axis == horizontal else n_cols
+    height = n_cols if view.row_axis == horizontal else n_rows
+    lo, hi, _hidden = _slice_stats(view)
+    span = hi - lo if hi > lo else 1.0
+    masked = set(view.masked_positions)
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    for row_i, row in enumerate(view.rows):
+        for col_i, value in enumerate(row):
+            px = row_i if view.row_axis == horizontal else col_i
+            py = col_i if view.row_axis == horizontal else row_i
+            if flip_vertical:
+                py = height - 1 - py
+            if (row_i, col_i) in masked or not isfinite(value):
+                image.setPixel(px, py, 0xFF404040)
                 continue
             t = (value - lo) / span
-            # Simple sequential blue->cyan->yellow->red ramp.
-            r = int(255 * min(1.0, max(0.0, 2 * t - 0.5)))
-            g = int(255 * min(1.0, max(0.0, 2 * t if t < 0.5 else 2 * (1 - t))))
-            b = int(255 * min(1.0, max(0.0, 1.5 - 2 * t)))
-            image.setPixel(col_i, row_i, (0xFF << 24) | (r << 16) | (g << 8) | b)
+            r, g, b = _ramp_rgb(t)
+            image.setPixel(px, py, (0xFF << 24) | (r << 16) | (g << 8) | b)
     pixmap = QPixmap.fromImage(image).scaled(
-        max(240, n_cols * 8),
-        max(240, n_rows * 8),
+        max(240, width * 8),
+        max(240, height * 8),
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.FastTransformation,
     )
     return pixmap
+
+
+def _scale_bar_pixmap(width: int = 240, height: int = 12) -> QPixmap:
+    """Horizontal ramp strip matching ``_slice_pixmap``'s normalization range."""
+
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    for x in range(width):
+        r, g, b = _ramp_rgb(x / max(1, width - 1))
+        for y in range(height):
+            image.setPixel(x, y, (0xFF << 24) | (r << 16) | (g << 8) | b)
+    return QPixmap.fromImage(image)
 
 
 class FieldExplorerPanel(QWidget):
@@ -175,6 +220,19 @@ class FieldExplorerPanel(QWidget):
         self.field_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.field_image_label.setMinimumHeight(220)
         layout.addWidget(self.field_image_label)
+
+        scale_row = QHBoxLayout()
+        self.field_scale_lo = QLabel('')
+        self.field_scale_lo.setStyleSheet('font-size: 10px;')
+        scale_row.addWidget(self.field_scale_lo)
+        self.field_scale_bar = QLabel()
+        self.field_scale_bar.setFixedHeight(12)
+        scale_row.addWidget(self.field_scale_bar, 1)
+        self.field_scale_hi = QLabel('')
+        self.field_scale_hi.setStyleSheet('font-size: 10px;')
+        scale_row.addWidget(self.field_scale_hi)
+        self.field_scale_bar.hide()
+        layout.addLayout(scale_row)
 
         self.field_status_label = QLabel('')
         self.field_status_label.setWordWrap(True)
@@ -403,13 +461,22 @@ class FieldExplorerPanel(QWidget):
             self.field_status_label.setText(f'断面を表示できません · {operation_error_message(exc)}')
             return
         self.field_image_label.setPixmap(_slice_pixmap(view))
-        axes = (
-            f'{view.column_axis} × {view.row_axis}'
+        lo, hi, hidden = _slice_stats(view)
+        horizontal = 'x_m' if 'x_m' in (view.row_axis, view.column_axis) else 'y_m'
+        vertical = 'z_m' if 'z_m' in (view.row_axis, view.column_axis) else (
+            'y_m' if horizontal == 'x_m' else 'x_m'
         )
+        axes = f'{horizontal} → / {vertical} ↑'
+        self.field_scale_bar.setPixmap(_scale_bar_pixmap())
+        self.field_scale_bar.show()
+        self.field_scale_lo.setText(f'{lo:.4g}')
+        self.field_scale_hi.setText(f'{hi:.4g} {view.unit}')
+        masked_note = f' · masked {hidden}' if hidden else ''
         self.field_status_label.setText(
             f'{_QUANTITY_LABELS.get(quantity, quantity)} · {axes} · '
+            f'{lo:.4g}…{hi:.4g} {view.unit} · '
             f'{len(view.column_coordinates_m)}x{len(view.row_coordinates_m)} '
-            f'サンプル · {view.sample_state}'
+            f'サンプル · {view.sample_state}{masked_note}'
         )
 
     def _run_probe(self) -> None:

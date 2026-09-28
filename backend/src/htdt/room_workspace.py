@@ -816,6 +816,37 @@ class RoomWorkspaceController:
             return
         self._persist_view_state()
 
+    def set_selection_many(
+        self,
+        entity_ids: list[str] | tuple[str, ...],
+        *,
+        additive: bool = False,
+    ) -> None:
+        """Marquee/area selection: ordered ids, first = primary; additive unions.
+
+        Stale ids are dropped rather than raising; an empty non-additive set
+        clears the selection (marquee over empty space).
+        """
+        selection = []
+        for entity_id in entity_ids:
+            try:
+                self.document.entity(entity_id)
+            except KeyError:
+                continue
+            if entity_id not in selection:
+                selection.append(entity_id)
+        if additive:
+            merged = list(self.view_state.selection)
+            merged.extend(eid for eid in selection if eid not in merged)
+            self.view_state.set_selection(
+                merged, primary_id=self.view_state.selected_id
+            )
+        else:
+            self.view_state.set_selection(
+                selection, primary_id=selection[0] if selection else None
+            )
+        self._persist_view_state()
+
     def set_entities_hidden(self, entity_ids: tuple[str, ...], hidden: bool) -> int:
         changed = 0
         for entity_id in entity_ids:
@@ -3852,6 +3883,9 @@ class RoomWorkspace(QWidget):
         empty_signal = getattr(viewport_widget, "emptyClicked", None)
         if empty_signal is not None and hasattr(empty_signal, "connect"):
             empty_signal.connect(self._empty_clicked)
+        marquee_signal = getattr(viewport_widget, "entitiesMarqueeSelected", None)
+        if marquee_signal is not None and hasattr(marquee_signal, "connect"):
+            marquee_signal.connect(self._entities_marquee_selected)
         self._suppress_next_select = False
         self._saved_camera_view: tuple | None = None
         self._video_evaluation = None
@@ -5153,6 +5187,18 @@ class RoomWorkspace(QWidget):
             self._suppress_next_select = False
             return
         self._entity_picked(entity_id, None)
+
+    def _entities_marquee_selected(self, entity_ids: object, additive: object = False) -> None:
+        """Left-drag marquee: replace selection, or Shift-extend it.
+
+        Measure mode swallows the gesture — a region of space is not an
+        endpoint, so the marquee is inert there rather than misfiring.
+        """
+        if self.measure_controller.is_active:
+            return
+        ids = [str(item) for item in entity_ids]
+        self.controller.set_selection_many(ids, additive=bool(additive))
+        self._after_selection_changed()
 
     def _empty_clicked(self, display_position: object) -> None:
         """Click on empty space: measure free-point or clear selection."""
