@@ -50,6 +50,33 @@ class _FakeActor:
         return self._bounds
 
 
+class _FakeCamera:
+    """Camera double holding position/focal/view-up like vtkCamera."""
+
+    def __init__(self) -> None:
+        self.position = (0.0, 0.0, 0.0)
+        self.focal_point = (0.0, 0.0, 0.0)
+        self.view_up = (0.0, 0.0, 1.0)
+
+    def GetPosition(self):  # noqa: N802 - vtk shape
+        return self.position
+
+    def SetPosition(self, *v):  # noqa: N802 - vtk shape
+        self.position = tuple(float(x) for x in v)
+
+    def GetFocalPoint(self):  # noqa: N802
+        return self.focal_point
+
+    def SetFocalPoint(self, *v):  # noqa: N802
+        self.focal_point = tuple(float(x) for x in v)
+
+    def GetViewUp(self):  # noqa: N802
+        return self.view_up
+
+    def SetViewUp(self, *v):  # noqa: N802
+        self.view_up = tuple(float(x) for x in v)
+
+
 class _RecordingPlotter:
     """Plotter double recording render calls and every add_* kwarg set."""
 
@@ -57,6 +84,10 @@ class _RecordingPlotter:
         self.renders = 0
         self.add_calls: list[tuple[str, dict]] = []
         self.point_labels: list[list[str]] = []
+        self.camera = _FakeCamera()
+        # pyvista's Plotter.render() early-outs while this is True; the fake
+        # mirrors that so suppression regressions surface as extra renders.
+        self.suppress_rendering = False
 
     def clear(self) -> None:
         pass
@@ -75,6 +106,10 @@ class _RecordingPlotter:
 
     def add_legend(self, *args, **kwargs):
         self.add_calls.append(("add_legend", kwargs))
+        # pyvista's add_legend has no render kwarg and renders internally —
+        # honour suppress_rendering like Plotter.render() does.
+        if not self.suppress_rendering:
+            self.render()
 
     def add_axes(self, *args, **kwargs):
         self.add_calls.append(("add_axes", kwargs))
@@ -442,10 +477,13 @@ def test_marquee_selects_entities_intersecting_projected_bounds(_app) -> None:
 
 def test_click_through_cycles_front_to_back_candidates(_app) -> None:
     viewport = _viewport(_app)
-    front = _FakeActor("e1")
-    viewport._actor_entity_ids[id(front)] = "e1"
-    viewport._last_display_position = lambda: QPointF(40.0, 40.0)
-    viewport.pick_actor_candidates = lambda _p: ("e1", "e2", "e3")
+    viewport.interactor.resize(800, 600)
+    front, mid, rear = _FakeActor("e1"), _FakeActor("e2"), _FakeActor("e3")
+    for actor, entity_id in ((front, "e1"), (mid, "e2"), (rear, "e3")):
+        viewport._actor_entity_ids[id(actor)] = entity_id
+    picker = _FakePicker(actor=front, props=(front, mid, rear))
+    viewport.plotter.iren = _FakeIren(picker)
+    viewport.interactor.GetEventPosition = lambda: (40.0, 559.0)
 
     picked: list[str] = []
     viewport.entityPicked.connect(lambda eid, _pos: picked.append(eid))
@@ -454,9 +492,78 @@ def test_click_through_cycles_front_to_back_candidates(_app) -> None:
         assert picked[-1] == expected
 
     # Moving the click point resets the cycle to the picked actor's slot.
-    viewport._last_display_position = lambda: QPointF(80.0, 40.0)
+    viewport.interactor.GetEventPosition = lambda: (80.0, 559.0)
     viewport._picked_actor(front)
     assert picked[-1] == "e1"
+    # The pick callback must read the completed pick's prop list — a nested
+    # picker.Pick inside the callback fires EndPickEvent and recurses.
+    assert picker.pick_args == []
+
+
+class _EventedPicker(_FakePicker):
+    """Picker double whose Pick() fires the pick callback — as vtkPicker
+    fires EndPickEvent on every Pick, including nested ones."""
+
+    def Pick(self, x: float, y: float, z: float, renderer) -> int:
+        self.pick_args.append((x, y, z))
+        viewport = getattr(self, "_viewport", None)
+        if self._actor is not None and viewport is not None:
+            viewport._picked_actor(self._actor)
+        return 1
+
+
+def test_pick_dispatch_is_reentry_safe(_app) -> None:
+    # EndPickEvent fires on every picker.Pick; a nested pick issued while a
+    # pick is being dispatched (consumer re-picking, or the callback itself)
+    # must be dropped, not recursed into.
+    viewport = _viewport(_app)
+    viewport.interactor.resize(800, 600)
+    actor = _FakeActor("entity-e1")
+    viewport._actor_entity_ids[id(actor)] = "e1"
+    picker = _EventedPicker(actor=actor, props=(actor,))
+    picker._viewport = viewport
+    viewport.plotter.iren = _FakeIren(picker)
+    viewport.interactor.GetEventPosition = lambda: (40.0, 559.0)
+
+    emitted: list[str] = []
+    viewport.entityPicked.connect(lambda eid, _pos: emitted.append(eid))
+    viewport.pick_actor_at(QPointF(40.0, 40.0))
+    # One outer pick, one dispatch, one emission — no recursion, and the
+    # dispatch consumed the completed pick's props instead of re-picking.
+    assert emitted == ["e1"]
+    assert len(picker.pick_args) == 1
+
+
+def test_marquee_drag_does_not_rotate_camera(_app) -> None:
+    # The trackball style rotates on left-drag; once the marquee owns the
+    # gesture the press-time camera pose is restored and further moves are
+    # consumed before VTK can orbit mid-box-select.
+    viewport = _viewport(_app)
+    viewport.interactor.resize(800, 600)
+    plotter = _RecordingPlotter()
+    viewport.plotter = plotter
+    camera = plotter.camera
+
+    press = _mouse(QEvent.Type.MouseButtonPress, (50.0, 50.0))
+    assert viewport.eventFilter(viewport.interactor, press) is False
+    # Sub-threshold moves still pass through — a plain drag under the click
+    # slop keeps orbiting.
+    small = _mouse(QEvent.Type.MouseMove, (52.0, 52.0))
+    assert viewport.eventFilter(viewport.interactor, small) is False
+    # The style already orbited during the slop — simulate that drift.
+    camera.SetPosition(9.0, 9.0, 9.0)
+    camera.SetViewUp(0.5, 0.5, 0.5)
+    big = _mouse(QEvent.Type.MouseMove, (140.0, 140.0))
+    assert viewport.eventFilter(viewport.interactor, big) is True
+    assert viewport._marquee_active is True
+    assert tuple(camera.GetPosition()) == pytest.approx((0.0, 0.0, 0.0))
+    assert tuple(camera.GetViewUp()) == pytest.approx((0.0, 0.0, 1.0))
+    # Mid-marquee moves are consumed, not delivered to the trackball.
+    further = _mouse(QEvent.Type.MouseMove, (160.0, 160.0))
+    assert viewport.eventFilter(viewport.interactor, further) is True
+    release = _mouse(QEvent.Type.MouseButtonRelease, (160.0, 160.0))
+    assert viewport.eventFilter(viewport.interactor, release) is False
+    assert viewport._press_camera_state is None
 
 
 def test_idle_render_timer_is_off(_app) -> None:

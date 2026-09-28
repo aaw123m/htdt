@@ -471,7 +471,7 @@ class FieldExplorerPanel(QWidget):
         self.field_scale_bar.show()
         self.field_scale_lo.setText(f'{lo:.4g}')
         self.field_scale_hi.setText(f'{hi:.4g} {view.unit}')
-        masked_note = f' · masked {hidden}' if hidden else ''
+        masked_note = f' · マスク {hidden}' if hidden else ''
         self.field_status_label.setText(
             f'{_QUANTITY_LABELS.get(quantity, quantity)} · {axes} · '
             f'{lo:.4g}…{hi:.4g} {view.unit} · '

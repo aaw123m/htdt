@@ -570,6 +570,9 @@ class RoomViewport3D(QFrame):
         self._marquee_band: QRubberBand | None = None
         self._marquee_active = False
         self._suppress_next_pick = False
+        # Camera pose at left-press, restored when the marquee activates so a
+        # box-select drag cannot net-rotate the trackball camera.
+        self._press_camera_state: tuple[tuple[float, ...], ...] | None = None
         # (entity_id, actor) for every pickable entity actor — the marquee
         # hit-test set. Mirrors _actor_entity_ids membership.
         self._marquee_actors: list[tuple[str, object]] = []
@@ -578,6 +581,9 @@ class RoomViewport3D(QFrame):
         self._cycle_position: QPointF | None = None
         self._cycle_ids: tuple[str, ...] = ()
         self._cycle_index = 0
+        # vtkPicker.Pick fires EndPickEvent, which re-enters this widget's
+        # pick callback — never re-pick while dispatching one.
+        self._in_pick_dispatch = False
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         # deferred_render(): compositing callers (e.g. the workspace refresh
         # that stacks document + constraint + measure + video + proposal
@@ -868,16 +874,22 @@ class RoomViewport3D(QFrame):
             (_CATEGORY_LEGEND_LABELS[category], _category_color(category))
             for category in sorted(categories)
         ]
-        self.plotter.add_legend(
-            labels=labels,
-            loc="lower right",
-            face="rectangle",
-            size=(0.17, 0.035 * len(labels) + 0.02),
-            bcolor=DARK_THEME.text.secondary.hex,
-            border=False,
-            background_opacity=0.55,
-            name="semantic-category-legend",
-        )
+        # add_legend has no render kwarg and renders internally; suppress so
+        # the scene rebuild still ends in a single draw.
+        self.plotter.suppress_rendering = True
+        try:
+            self.plotter.add_legend(
+                labels=labels,
+                loc="lower right",
+                face="rectangle",
+                size=(0.17, 0.035 * len(labels) + 0.02),
+                bcolor=DARK_THEME.text.secondary.hex,
+                border=False,
+                background_opacity=0.55,
+                name="semantic-category-legend",
+            )
+        finally:
+            self.plotter.suppress_rendering = False
 
     def render_measurement_overlay(
         self,
@@ -1263,28 +1275,43 @@ class RoomViewport3D(QFrame):
             # collapse the region selection just committed.
             self._suppress_next_pick = False
             return
-        underlay_id = self._actor_underlay_ids.get(id(actor))
-        if underlay_id is not None:
-            picked = getattr(self.plotter, "picked_position", None)
-            if picked is not None:
-                array = np.asarray(picked, dtype=float).reshape(-1)
-                if array.size >= 3:
-                    # Render space -> domain space (Y negated).
-                    self.underlayClicked.emit(
-                        underlay_id,
-                        float(array[0]),
-                        float(-array[1]),
-                    )
+        if self._in_pick_dispatch:
+            # vtkPicker.Pick fires EndPickEvent: any nested pick (a connected
+            # slot calling pick_actor_at, or this callback re-picking) would
+            # recurse. Nested dispatches are dropped; the outer pick result
+            # already carries everything needed.
             return
-        entity_id = self._actor_entity_ids.get(id(actor))
-        if entity_id is not None:
-            entity_id = self._cycle_pick_candidate(entity_id)
-            self.entityPicked.emit(entity_id, self._last_display_position())
-            self.entitySelected.emit(entity_id)
-            return
-        proposed_id = self._actor_proposed_entity_ids.get(id(actor))
-        if proposed_id is not None:
-            self.proposedEntitySelected.emit(proposed_id)
+        self._in_pick_dispatch = True
+        try:
+            underlay_id = self._actor_underlay_ids.get(id(actor))
+            if underlay_id is not None:
+                picked = getattr(self.plotter, "picked_position", None)
+                if picked is not None:
+                    array = np.asarray(picked, dtype=float).reshape(-1)
+                    if array.size >= 3:
+                        # Render space -> domain space (Y negated).
+                        self.underlayClicked.emit(
+                            underlay_id,
+                            float(array[0]),
+                            float(-array[1]),
+                        )
+                return
+            entity_id = self._actor_entity_ids.get(id(actor))
+            if entity_id is not None:
+                # The picker's Prop3D list is already populated by the pick
+                # that fired this event — cycling must read it, not re-Pick
+                # (a nested Pick fires EndPickEvent and recurses).
+                entity_id = self._cycle_pick_candidate(
+                    entity_id, self._current_pick_candidates()
+                )
+                self.entityPicked.emit(entity_id, self._last_display_position())
+                self.entitySelected.emit(entity_id)
+                return
+            proposed_id = self._actor_proposed_entity_ids.get(id(actor))
+            if proposed_id is not None:
+                self.proposedEntitySelected.emit(proposed_id)
+        finally:
+            self._in_pick_dispatch = False
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         from PySide6.QtCore import QEvent
@@ -1293,15 +1320,22 @@ class RoomViewport3D(QFrame):
         if obj is self.interactor and isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._press_position = QPointF(event.position())
+                self._press_camera_state = self._camera_state()
             elif (
                 event.type() == QEvent.Type.MouseMove
                 and self._press_position is not None
                 and event.buttons() & Qt.MouseButton.LeftButton
             ):
                 self._update_marquee(event.position())
+                # Once the band owns the gesture, consume moves so the
+                # trackball style never sees them — otherwise every box
+                # select would also orbit the camera.
+                if self._marquee_active:
+                    return True
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 pressed = self._press_position
                 self._press_position = None
+                self._press_camera_state = None
                 if self._marquee_active:
                     self._finish_marquee(event)
                 else:
@@ -1333,6 +1367,10 @@ class RoomViewport3D(QFrame):
             )
         self._marquee_band.setGeometry(rect.toAlignedRect())
         if not self._marquee_active:
+            # Moves before the threshold already reached the trackball and
+            # rotated a few px; restore the press-time pose so the marquee
+            # region is evaluated against the view the user drew it over.
+            self._restore_camera_state(self._press_camera_state)
             self._marquee_active = True
             self._marquee_band.show()
 
@@ -1353,6 +1391,33 @@ class RoomViewport3D(QFrame):
         self.entitiesMarqueeSelected.emit(
             self.pick_entities_in_region(rect), additive
         )
+
+    def _camera_state(self):
+        """(position, focal_point, view_up) snapshot, or None if unavailable."""
+
+        try:
+            camera = self.plotter.camera
+            if camera is None:
+                return None
+            return (
+                tuple(float(v) for v in camera.GetPosition()),
+                tuple(float(v) for v in camera.GetFocalPoint()),
+                tuple(float(v) for v in camera.GetViewUp()),
+            )
+        except Exception:
+            return None
+
+    def _restore_camera_state(self, state) -> None:
+        if state is None:
+            return
+        try:
+            camera = self.plotter.camera
+            camera.SetPosition(*state[0])
+            camera.SetFocalPoint(*state[1])
+            camera.SetViewUp(*state[2])
+        except Exception:
+            return
+        self._render()
 
     # -- Picking -------------------------------------------------------------
     #
@@ -1452,19 +1517,38 @@ class RoomViewport3D(QFrame):
             props = picker.GetProp3Ds()
         except Exception:
             return ()
+        return self._candidates_from_props(props)
+
+    def _current_pick_candidates(self) -> tuple[str, ...]:
+        """Front-to-back entity ids of the pick that just fired — no re-Pick.
+
+        Only safe inside ``_picked_actor`` (the picker's Prop3D collection is
+        populated by the pick whose EndPickEvent invoked the callback).
+        """
+
+        try:
+            props = self.plotter.iren.picker.GetProp3Ds()
+        except Exception:
+            return ()
+        return self._candidates_from_props(props)
+
+    def _candidates_from_props(self, props) -> tuple[str, ...]:
         ordered: list[str] = []
         if props is not None:
-            props.InitTraversal()
-            while True:
-                prop = props.GetNextProp()
-                if prop is None:
-                    break
-                entity_id = self._actor_entity_ids.get(id(prop))
-                if entity_id is not None and entity_id not in ordered:
-                    ordered.append(entity_id)
+            try:
+                props.InitTraversal()
+                while True:
+                    prop = props.GetNextProp()
+                    if prop is None:
+                        break
+                    entity_id = self._actor_entity_ids.get(id(prop))
+                    if entity_id is not None and entity_id not in ordered:
+                        ordered.append(entity_id)
+            except Exception:
+                pass
         return tuple(ordered)
 
-    def _cycle_pick_candidate(self, entity_id: str) -> str:
+    def _cycle_pick_candidate(self, entity_id: str, candidates: tuple[str, ...]) -> str:
         """Click-through: repeated clicks at one spot walk the hit stack.
 
         VTK already reports every intersected prop via ``GetProp3Ds``; the
@@ -1473,9 +1557,6 @@ class RoomViewport3D(QFrame):
         """
 
         position = self._last_display_position()
-        candidates = (
-            self.pick_actor_candidates(position) if position is not None else ()
-        )
         if entity_id not in candidates:
             candidates = (entity_id, *candidates)
         if (
