@@ -119,6 +119,14 @@ route to the live composition (F2).
 - `settings_dialog` left open across a close+respawn switch stays bound
   to the old composition's data-root services — operations remain valid;
   its hidden parent is cosmetic only.
+- Environment flake, unrelated to isolation: under `pytest -n 4` on
+  Windows, `test_cad_hybrid_prediction_provider::
+  test_evidence_lifecycle_rejects_illegal_promotions` can land its
+  content-addressed authority tmp file at exactly 260 chars
+  (`%TEMP%\pytest-*\popen-gw0\…\authorities\<sha>.<rand>.tmp`) and
+  `write_text` fails `ERROR_PATH_NOT_FOUND`. It passes in isolation;
+  fix would be shortening the fixture tmp layout or enabling long
+  paths — out of scope here.
 
 ## Tests
 
@@ -139,4 +147,5 @@ Regression: `test_window_state`, `test_project_switch_lifecycle`,
 `test_launch_intents`, `test_workflow_integration`, `test_ui_workflows`,
 `test_native_launch`, `test_runtime_instance`,
 `test_review_round9_prefs`, `test_review_round7_workflow` — all green;
-full suite `pytest backend/tests -q -n 4` green.
+full suite `pytest backend/tests -q -n 4`: 2060 passed, 1 skipped,
+1 environment flake (MAX_PATH, see Deferred — passes in isolation).
