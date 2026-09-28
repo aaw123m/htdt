@@ -55,7 +55,11 @@ class NativeWorker(QObject):
             if self.cancel_event.is_set():
                 self.completed.emit(self.key, None, WORKER_CANCELLED)
             else:
-                self.completed.emit(self.key, None, str(exc))
+                # Emit the exception itself, not str(exc): consumer surfaces
+                # map by exception class (operation_error_message), and a
+                # stringified payload would erase that type information
+                # across the thread boundary.
+                self.completed.emit(self.key, None, exc)
             return
         if self.cancel_event.is_set():
             self.completed.emit(self.key, None, WORKER_CANCELLED)

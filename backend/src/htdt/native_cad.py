@@ -935,19 +935,9 @@ def main(argv: list[str] | None = None) -> int:
     # #621: resolve the managed root through the documented precedence and
     # fail closed when a configured location is unavailable.
     from .data_relocation import (
-        ManagedDataUnavailableError,
         assert_managed_root_available,
         resolve_data_dir,
     )
-
-    try:
-        args.data_dir, data_dir_source = resolve_data_dir(
-            args.data_dir, default=default_data_dir()
-        )
-        assert_managed_root_available(args.data_dir, data_dir_source)
-    except ManagedDataUnavailableError as exc:
-        print(f"HTDTのデータディレクトリが利用不可です: {exc}", file=sys.stderr)
-        return 1
 
     if args.backup is not None:
         launch_mode = "backup"
@@ -962,6 +952,34 @@ def main(argv: list[str] | None = None) -> int:
     else:
         launch_mode = "gui"
     maintenance_request = launch_mode != "gui"
+
+    try:
+        args.data_dir, data_dir_source = resolve_data_dir(
+            args.data_dir, default=default_data_dir()
+        )
+        assert_managed_root_available(args.data_dir, data_dir_source)
+    except Exception as exc:
+        # The managed root resolution can also raise raw OSError (permission
+        # denied reading the bootstrap config, relocation journal I/O) — every
+        # failure here precedes QApplication, so the packaged GUI launch would
+        # exit with no visible reason without report_launch_failure.
+        if maintenance_request:
+            print(
+                f"HTDTのデータディレクトリが利用不可です: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        report_launch_failure(
+            title="HTDTのデータディレクトリを開けません",
+            reason=concise_reason(exc),
+            recovery=(
+                "保存先のドライブやフォルダを確認してからHTDTを起動し直して"
+                "ください。データを移動した場合は --data-dir で新しい場所を"
+                "指定してください。"
+            ),
+            log_path=None,
+        )
+        return 1
     diagnostics = configure_diagnostics(args.data_dir)
     install_exception_hooks(diagnostics)
     diagnostics.log_session_start(launch_mode)

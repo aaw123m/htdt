@@ -5285,7 +5285,7 @@ class RoomWorkspace(QWidget):
                 self.controller.constraint_set,
                 None,
                 self.controller.document,
-                evaluate_error=str(exc),
+                evaluate_error=operation_error_message(exc),
             )
             return
         self.constraints_panel.sync_state(

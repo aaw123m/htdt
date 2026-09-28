@@ -119,6 +119,7 @@ class CommandSearchResult:
 AvailabilityProvider = Callable[[], CommandAvailability]
 CommandExecutor = Callable[[], None]
 DeepLinkHandler = Callable[[WorkspaceDeepLink], bool | None]
+CommandErrorHandler = Callable[['CommandDefinition', BaseException], None]
 
 
 @dataclass(slots=True)
@@ -150,6 +151,7 @@ class CommandRegistry:
     def __init__(self, *, deep_link_handler: DeepLinkHandler | None = None) -> None:
         self._commands: dict[str, _RegisteredCommand] = {}
         self._deep_link_handler = deep_link_handler
+        self._error_handler: CommandErrorHandler | None = None
         self._data_mutations_frozen = False
 
     @property
@@ -170,6 +172,17 @@ class CommandRegistry:
 
     def set_deep_link_handler(self, handler: DeepLinkHandler | None) -> None:
         self._deep_link_handler = handler
+
+    def set_error_handler(self, handler: CommandErrorHandler | None) -> None:
+        """Install the single failure surface for executor exceptions.
+
+        Without a handler, executor exceptions propagate out of ``execute``
+        (the caller — a Qt slot — lets them reach ``sys.excepthook``). With
+        one, the exception is reported there and ``execute`` returns True:
+        the command was dispatched, its handler is what makes the failure
+        visible to the operator.
+        """
+        self._error_handler = handler
 
     def register(
         self,
@@ -250,7 +263,12 @@ class CommandRegistry:
                 return False
 
         if command.execute is not None:
-            command.execute()
+            try:
+                command.execute()
+            except Exception as exc:
+                if self._error_handler is None:
+                    raise
+                self._error_handler(command.definition, exc)
             return True
         return navigated
 

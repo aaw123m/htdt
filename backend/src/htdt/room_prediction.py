@@ -84,6 +84,7 @@ from .cad_scene import (
 from .cad_search_models import constraint_workspace_snapshot
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .r120_geometry_compiler import ExactExternalAuthorityRef
+from .user_facing_error import operation_error_message
 from .room_prediction_options import (
     HYBRID_MODEL_KEY,
     HYBRID_MODEL_KEY_PREFIX,
@@ -832,7 +833,7 @@ class RoomPredictionController(QObject):
                     self.stateChanged.emit(
                         RoomPredictionRunState(
                             False,
-                            f"予測を開始できません · {exc}",
+                            f"予測を開始できません · {operation_error_message(exc)}",
                             error=True,
                         )
                     )
@@ -872,7 +873,11 @@ class RoomPredictionController(QObject):
             )
         except Exception as exc:
             self.stateChanged.emit(
-                RoomPredictionRunState(False, f"予測を開始できません · {exc}", error=True)
+                RoomPredictionRunState(
+                    False,
+                    f"予測を開始できません · {operation_error_message(exc)}",
+                    error=True,
+                )
             )
             return False
 
@@ -976,7 +981,7 @@ class RoomPredictionController(QObject):
         elif error is not None:
             final_state = RoomPredictionRunState(
                 False,
-                f"予測に失敗しました · {error}",
+                f"予測に失敗しました · {operation_error_message(error)}",
                 error=True,
             )
         else:
@@ -985,13 +990,13 @@ class RoomPredictionController(QObject):
             except ValueError as exc:
                 final_state = RoomPredictionRunState(
                     False,
-                    f"予測結果を拒否しました · {exc}",
+                    f"予測結果を拒否しました · {operation_error_message(exc)}",
                     error=True,
                 )
             except sqlite3.Error as exc:
                 final_state = RoomPredictionRunState(
                     False,
-                    f"予測結果を保存できませんでした · {exc}",
+                    f"予測結果を保存できませんでした · {operation_error_message(exc)}",
                     error=True,
                 )
             else:

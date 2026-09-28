@@ -319,7 +319,7 @@ class SearchControllerMixin:
                 )
             except Exception as exc:
                 self.statusBar().showMessage(
-                    f'プリセットを追加できません · {exc}'
+                    f'プリセットを追加できません · {operation_error_message(exc)}'
                 )
                 return
             self._upsert_search_axis(item)

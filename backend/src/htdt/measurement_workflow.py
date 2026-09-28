@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import (
@@ -108,6 +109,9 @@ from .cad_scene import (
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .rew_api import RewFrequencyResponseSnapshot
 from .rew_parser import parse_rew_frequency_response
+from .user_facing_error import operation_error_message
+
+_LOGGER = logging.getLogger('htdt.measurement_workflow')
 
 
 class MeasurementWorkflowError(ValueError):
@@ -1100,8 +1104,13 @@ class MeasurementWorkflowController:
                 # not take the whole listing down with it: the measurement
                 # stays visible with dataset_id=None (so nothing downstream
                 # can consume it) and the failure is surfaced on the view.
+                _LOGGER.warning(
+                    'dataset re-verification failed for %s: %r',
+                    record.measurement_id,
+                    exc,
+                )
                 dataset = None
-                dataset_error = str(exc)
+                dataset_error = operation_error_message(exc)
             source_revision = self.scene_repository.get(record.scene_revision_id)
             # Effective binding = persisted record overlaid by the latest
             # append-only correction (#509). The immutable record fields stay
@@ -2036,7 +2045,7 @@ class MeasurementWorkflowController:
             try:
                 parsed = parse_rew_frequency_response(raw)
             except Exception as exc:
-                error = str(exc)
+                error = operation_error_message(exc)
             else:
                 pending = PendingMeasurementImport(
                     source_kind='rew_text',
@@ -2101,7 +2110,7 @@ class MeasurementWorkflowController:
                     rew_snapshot=snapshot,
                 )
             except Exception as exc:
-                error = str(exc)
+                error = operation_error_message(exc)
             kind, duplicate_of = self._classify_duplicate(pending, None)
             entry = _BatchEntry(
                 item_id=uuid4().hex,
@@ -2292,7 +2301,8 @@ class MeasurementWorkflowController:
                 try:
                     self._install_staged_attachments(entry)
                 except Exception as exc:
-                    entry.error = str(exc)
+                    _LOGGER.warning('attachment install failed: %r', exc)
+                    entry.error = operation_error_message(exc)
                     outcomes.append(
                         BatchCommitOutcome(
                             item=self._batch_item_view(entry),
@@ -2340,13 +2350,14 @@ class MeasurementWorkflowController:
                 self._save_acquisition_context_for_commit(entry)
                 self._install_staged_attachments(entry)
             except Exception as exc:
-                entry.error = str(exc)
+                _LOGGER.warning('batch commit failed for staged item: %r', exc)
+                entry.error = operation_error_message(exc)
                 outcomes.append(
                     BatchCommitOutcome(
                         item=self._batch_item_view(entry),
                         outcome='failed',
                         measurement_id=None,
-                        error=str(exc),
+                        error=entry.error,
                     )
                 )
                 continue

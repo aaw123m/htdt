@@ -316,6 +316,7 @@ def install_exception_hooks(diagnostics: NativeDiagnostics) -> None:
             diagnostics.log_uncaught(exc_type, exc, tb)
         except Exception:
             pass
+        _surface_uncaught_on_statusbar(diagnostics)
         if previous_sys is not None:
             try:
                 previous_sys(exc_type, exc, tb)
@@ -346,6 +347,48 @@ def install_exception_hooks(diagnostics: NativeDiagnostics) -> None:
     threading.excepthook = _thread_hook
 
     _install_qt_message_handler(diagnostics)
+
+
+def _surface_uncaught_on_statusbar(diagnostics: NativeDiagnostics) -> None:
+    """Best-effort non-modal notice that an uncaught exception was logged.
+
+    PySide6 routes exceptions escaping a slot to ``sys.excepthook``; without
+    this notice the operator sees nothing at all — the failure only exists
+    in the diagnostics log. Runs only on the GUI thread with a live window;
+    worker-thread exceptions stay log-only (their owner surfaces them via
+    the ``completed`` error channel).
+    """
+    try:
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+    except Exception:
+        return
+    try:
+        app = QApplication.instance()
+        if app is None or QThread.currentThread() is not app.thread():
+            return
+        window = app.activeWindow()
+        if window is None:
+            window = next(
+                (
+                    widget
+                    for widget in app.topLevelWidgets()
+                    if widget.isVisible()
+                ),
+                None,
+            )
+        if window is None or not hasattr(window, 'statusBar'):
+            return
+        where = (
+            f'詳細: {diagnostics.log_path}'
+            if diagnostics.log_path is not None
+            else '詳細は診断ログを確認してください'
+        )
+        window.statusBar().showMessage(
+            f'予期しないエラーが発生しました（{where}）', 10000
+        )
+    except Exception:
+        pass
 
 
 def concise_reason(exc: BaseException, *, max_chars: int = 300) -> str:

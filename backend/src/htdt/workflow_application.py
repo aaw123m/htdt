@@ -173,6 +173,7 @@ from . import dirty_state_dialog
 from .user_facing_error import (
     operation_error_message,
     to_user_facing_error,
+    warn_user,
 )
 from .workspace_dirty_state import WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
@@ -433,6 +434,14 @@ class WorkflowApplicationComposition:
 
         self.registry = CommandRegistry()
         register_default_commands(self.registry)
+        # One failure surface for every command executor: an exception that
+        # would otherwise escape the Qt slot into sys.excepthook is reported
+        # as a mapped operator warning instead of only reaching the log.
+        self.registry.set_error_handler(
+            lambda definition, exc: warn_user(
+                self.shell, f'「{definition.display_name}」', exc
+            )
+        )
         # Canonical offline help/glossary registry (#623) — indexed by the
         # palette's help provider and rendered by HelpDialog.topic.
         self.help_registry = build_help_registry()
@@ -659,7 +668,8 @@ class WorkflowApplicationComposition:
             _LOGGER.warning('automatic backup failed: %s', error)
             if operation_id is not None:
                 self.activity_center.fail(
-                    operation_id, error_summary=str(error)
+                    operation_id,
+                    error_summary=operation_error_message(error),
                 )
             self.shell.statusBar().showMessage(
                 '自動バックアップを作成できませんでした'
@@ -1080,11 +1090,16 @@ class WorkflowApplicationComposition:
                 result = import_project_bundle(
                     self.repository, Path(selected), import_as_copy=True
                 )
-            except ProjectBundleError as retry_exc:
-                QMessageBox.warning(
-                    self.shell, "インポートできません", str(retry_exc)
+            except Exception as retry_exc:
+                warn_user(
+                    self.shell, "インポートできませんでした", retry_exc
                 )
                 return
+        except Exception as exc:
+            warn_user(
+                self.shell, "インポートできませんでした", exc
+            )
+            return
         QMessageBox.information(
             self.shell,
             "プロジェクトをインポートしました",
@@ -2830,10 +2845,16 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
-        result = export_equipment_catalog_snapshot(
-            self.repository,
-            Path(selected),
-        )
+        try:
+            result = export_equipment_catalog_snapshot(
+                self.repository,
+                Path(selected),
+            )
+        except Exception as exc:
+            warn_user(
+                self.shell, "機材カタログを書き出せませんでした", exc
+            )
+            return
         box = QMessageBox(self.shell)
         box.setWindowTitle("Capture用機材カタログを書き出しました")
         box.setIcon(QMessageBox.Icon.Information)
@@ -2923,7 +2944,13 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
-        outputs = write_handoff_package(handoff, directory)
+        try:
+            outputs = write_handoff_package(handoff, directory)
+        except Exception as exc:
+            warn_user(
+                self.shell, "設置ハンドオフを書き出せませんでした", exc
+            )
+            return
         QMessageBox.information(
             self.shell,
             "設置ハンドオフを書き出しました",
@@ -3073,19 +3100,27 @@ class WorkflowApplicationComposition:
         # never overwrites or mixes with a previous export — a fresh
         # ``analysis-N`` stem is claimed and the three members are
         # published atomically or not at all.
-        stem = claim_export_stem(
-            target, 'analysis', ('_export.csv', '_export.json', '_report.html')
-        )
-        written = tuple(
-            write_export_files(
+        try:
+            stem = claim_export_stem(
                 target,
-                {
-                    f'{stem}_export.csv': render_analysis_csv(export),
-                    f'{stem}_export.json': render_analysis_json(export),
-                    f'{stem}_report.html': render_analysis_html(export),
-                },
-            ).values()
-        )
+                'analysis',
+                ('_export.csv', '_export.json', '_report.html'),
+            )
+            written = tuple(
+                write_export_files(
+                    target,
+                    {
+                        f'{stem}_export.csv': render_analysis_csv(export),
+                        f'{stem}_export.json': render_analysis_json(export),
+                        f'{stem}_report.html': render_analysis_html(export),
+                    },
+                ).values()
+            )
+        except Exception as exc:
+            warn_user(
+                self.shell, "解析エクスポートを書き出せませんでした", exc
+            )
+            return
         box = QMessageBox(self.shell)
         box.setWindowTitle("解析エクスポートを書き出しました")
         box.setIcon(QMessageBox.Icon.Information)

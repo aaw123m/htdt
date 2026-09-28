@@ -240,7 +240,7 @@ class ExtendedSearchControllerMixin:
                 self.extended_repository.save_capability(capability)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Synthetic extended capabilityを保存できません · {exc}'
+                f'Synthetic extended capabilityを保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
@@ -278,7 +278,7 @@ class ExtendedSearchControllerMixin:
             parameters = tuple(parameters)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended parameter evidenceを読み込めません · {exc}'
+                f'extended parameter evidenceを読み込めません · {operation_error_message(exc)}'
             )
             return
         evidence = []
@@ -331,7 +331,7 @@ class ExtendedSearchControllerMixin:
                 capability = existing
         except Exception as exc:
             self.statusBar().showMessage(
-                f'owned-room extended capabilityを保存できません · {exc}'
+                f'owned-room extended capabilityを保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
@@ -492,7 +492,7 @@ class ExtendedSearchControllerMixin:
             self.extended_repository.save_spec(spec)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Extended SearchSpecを保存できません · {exc}'
+                f'Extended SearchSpecを保存できません · {operation_error_message(exc)}'
             )
             return
 
@@ -761,7 +761,7 @@ class ExtendedSearchControllerMixin:
             return
         if error is not None:
             self.statusBar().showMessage(
-                f'Extended候補生成に失敗しました · {error}'
+                f'Extended候補生成に失敗しました · {operation_error_message(error)}'
             )
             self._refresh_extended_binding_state()
             return
@@ -961,7 +961,7 @@ class ExtendedSearchControllerMixin:
             )
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended候補を適用できません · {exc}'
+                f'extended候補を適用できません · {operation_error_message(exc)}'
             )
             self._refresh_extended_binding_state()
             return
