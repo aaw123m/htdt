@@ -107,8 +107,9 @@ scroll contract is honest.
 - **Projects table elided timestamps**: only column 0 was `Stretch`, so
   作成日時 (ISO `2026-09-28T1…`) truncated at its fixed default width.
   Non-stretch data columns are now `ResizeToContents` in the Projects
-  table and in Activity's 操作 (`更新時刻`) and タイムライン (`時刻`)
-  tables — the same defect shape in all three.
+  table, Activity's 操作 (`更新時刻`) and タイムライン (`時刻`) tables,
+  and the 部屋→履歴 `シーン履歴` tree (caught during end-to-end GUI
+  verification — the same defect shape in all four).
 - **Hardcoded color**: `authority_inspector_ui.py` painted stale-warning
   text `color: #b45309` — the only untokenized UI-text color in the app;
   now `set_semantic_state(SemanticState.WARNING)` so it follows the theme.

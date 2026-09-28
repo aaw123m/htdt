@@ -12,6 +12,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -52,6 +53,12 @@ class RoomHistoryPanel(QWidget):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(("時刻", "ラベル", "内容"))
+        self.tree.header().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.tree.header().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.Stretch
+        )
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
         self.tree.currentItemChanged.connect(self._on_current_changed)

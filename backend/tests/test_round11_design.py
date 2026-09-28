@@ -187,3 +187,16 @@ def test_projects_table_sizes_data_columns_to_contents(
         )
     page.deleteLater()
     app.processEvents()
+
+
+def test_history_tree_sizes_timestamp_column_to_contents() -> None:
+    from htdt.room_history_panel import RoomHistoryPanel
+
+    app = _app()
+    panel = RoomHistoryPanel()
+    header = panel.tree.header()
+    assert header.sectionResizeMode(0) == (
+        QHeaderView.ResizeMode.ResizeToContents
+    )
+    panel.deleteLater()
+    app.processEvents()
