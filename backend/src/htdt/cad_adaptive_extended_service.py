@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from .cad_adaptive_extended import (
     AdaptiveExecutionScope,
     CadAdaptiveExtendedPlan,
@@ -34,7 +36,13 @@ class CadAdaptiveExtendedPlannerService:
                 'adaptive extended planner repositories must share one native CAD database'
             )
 
-    def _all_candidates(self, extended_spec, base_spec):
+    def _all_candidates(
+        self,
+        extended_spec,
+        base_spec,
+        *,
+        cancelled: Callable[[], bool] | None = None,
+    ):
         candidates = []
         offset = 0
         candidate_set_sha256: str | None = None
@@ -45,6 +53,7 @@ class CadAdaptiveExtendedPlannerService:
                 extended_spec,
                 offset=offset,
                 limit=500,
+                cancelled=cancelled,
             )
             if candidate_set_sha256 is None:
                 candidate_set_sha256 = page.candidate_set_sha256
@@ -68,6 +77,7 @@ class CadAdaptiveExtendedPlannerService:
         execution_scope: AdaptiveExecutionScope,
         length_scale_normalized: float = 0.5,
         proposal_limit: int = 20,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> CadAdaptiveExtendedPlan:
         extended_spec = self.extended_repository.get_spec(extended_search_id)
         if extended_spec is None:
@@ -92,6 +102,7 @@ class CadAdaptiveExtendedPlannerService:
         candidates, candidate_set_sha256 = self._all_candidates(
             extended_spec,
             base_spec,
+            cancelled=is_cancelled,
         )
         observations = self.adaptive_extended_repository.current_observations(
             extended_search_id
@@ -116,6 +127,7 @@ class CadAdaptiveExtendedPlannerService:
             execution_scope=execution_scope,
             length_scale_normalized=length_scale_normalized,
             proposal_limit=proposal_limit,
+            is_cancelled=is_cancelled,
         )
         existing = self.adaptive_extended_repository.find_plan_by_sha(
             extended_search_id,

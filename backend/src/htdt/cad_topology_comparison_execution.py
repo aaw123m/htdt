@@ -28,7 +28,7 @@ independent cost/effort ObjectiveVector axes bind to the persisted
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
 from .cad_amplifier_headroom import (
     AmplifierOutputCapability,
@@ -293,6 +293,10 @@ def _resolve_bound_equipment(
     )
 
 
+class TopologyComparisonCancelled(RuntimeError):
+    """Cooperative cancellation observed inside a comparison run."""
+
+
 def execute_topology_comparison(
     *,
     scene_repository: SceneRepository,
@@ -313,6 +317,7 @@ def execute_topology_comparison(
     directivity_repository: CadDirectivityRepository | None = None,
     cost_repository: CadInstallationCostRepository | None = None,
     equipment_binding_repository=None,
+    is_cancelled: Callable[[], bool] | None = None,
     created_at_utc: str,
 ) -> TopologyComparisonExecution:
     """Run the canonical O100D sequence and persist the comparison graph.
@@ -397,6 +402,10 @@ def execute_topology_comparison(
     cost_plans: dict[str, _LanePlan] = {}
 
     for variant in variants:
+        if is_cancelled is not None and is_cancelled():
+            raise TopologyComparisonCancelled(
+                'topology comparison cancelled during lane planning'
+            )
         scene = materialized[variant.variant_id]
 
         coverage = policy.coverage
@@ -577,6 +586,10 @@ def execute_topology_comparison(
     executions: list[CandidateExecution] = []
     bundles: list[VariantEvaluationBundle] = []
     for variant in variants:
+        if is_cancelled is not None and is_cancelled():
+            raise TopologyComparisonCancelled(
+                'topology comparison cancelled during evaluation'
+            )
         scene = materialized[variant.variant_id]
         lane_statuses: list[LaneStatus] = []
         metrics: list[ObjectiveMetric] = []

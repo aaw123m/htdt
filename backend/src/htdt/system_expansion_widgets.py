@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from .cad_scene import is_unassigned_speaker_role
 from .cad_topology_search import PlacementAngleAxis
+from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .system_expansion_workflow import (
     MeasurementPlanOptions,
     ProposalEquipmentChange,
@@ -417,6 +418,8 @@ class SystemExpansionRoomPanel(QFrame):
     ) -> None:
         super().__init__(parent)
         self.service = service
+        self._pool = NativeWorkerPool(self)
+        self._equipment_available = False
         self.setMinimumWidth(0)
         self.setSizePolicy(
             QSizePolicy.Policy.Ignored,
@@ -531,13 +534,21 @@ class SystemExpansionRoomPanel(QFrame):
         author_layout.addWidget(self.existing_button)
         author_layout.addWidget(self.existing_area)
 
+        create_row = QHBoxLayout()
+        create_row.setContentsMargins(0, 0, 0, 0)
         self.create_proposal_button = QPushButton("提案を作成")
         self.create_proposal_button.setToolTip(
             "提案と配置候補を既存のO100B探索authorityで作成"
         )
         set_primary_action(self.create_proposal_button)
         self.create_proposal_button.clicked.connect(self._create_proposal)
-        author_layout.addWidget(self.create_proposal_button)
+        create_row.addWidget(self.create_proposal_button)
+        self.cancel_proposal_button = QPushButton("作成を中止")
+        self.cancel_proposal_button.setEnabled(False)
+        self.cancel_proposal_button.clicked.connect(self._cancel_proposal)
+        create_row.addWidget(self.cancel_proposal_button)
+        create_row.addStretch(1)
+        author_layout.addLayout(create_row)
         library_row = QHBoxLayout()
         library_row.setContentsMargins(0, 0, 0, 0)
         library_row.setSpacing(6)
@@ -742,7 +753,8 @@ class SystemExpansionRoomPanel(QFrame):
                 if index >= 0:
                     combo.setCurrentIndex(index)
             combo.blockSignals(False)
-        self.create_proposal_button.setEnabled(bool(choices))
+        self._equipment_available = bool(choices)
+        self._refresh_run_state()
         if not choices:
             self.authoring_status.setText(
                 "機器 / 音源モデルがありません。先に機器定義を登録してください。"
@@ -828,17 +840,34 @@ class SystemExpansionRoomPanel(QFrame):
         for link_row in self._link_rows():
             links.extend(link_row.rules())
         removes, overrides = self._existing_ops()
-        try:
-            result = self.service.create_topology_proposal(
-                proposal_name=self.proposal_name.text(),
+        proposal_name = self.proposal_name.text()
+        self.authoring_status.setText("配置候補を生成しています…")
+        self._refresh_run_state()
+        self._pool.start(
+            'create_topology_proposal',
+            lambda cancel_event: self.service.create_topology_proposal(
+                proposal_name=proposal_name,
                 speakers=drafts,
                 linked_rules=links,
                 remove_role_ids=removes,
                 equipment_overrides=overrides,
                 max_returned_candidates=24,
+                is_cancelled=cancel_event.is_set,
+            ),
+            self._proposal_completed,
+            on_finished=lambda _key: self._refresh_run_state(),
+        )
+
+    def _proposal_completed(self, key, result, error) -> None:
+        if error == WORKER_CANCELLED:
+            self.authoring_status.setText(
+                "提案の作成を中止しました"
             )
-        except ValueError as exc:
-            self.authoring_status.setText(f"作成できません: {operation_error_message(exc)}")
+            return
+        if error is not None:
+            self.authoring_status.setText(
+                f"作成できません: {operation_error_message(error)}"
+            )
             return
         self.authoring_status.setText(
             f"提案を保存しました。配置候補 {len(result.candidate_variant_ids)} 件を"
@@ -846,6 +875,22 @@ class SystemExpansionRoomPanel(QFrame):
         )
         self.selector.refresh()
         self.selector.select_variant(result.template_variant_id)
+
+    def _cancel_proposal(self) -> None:
+        self._pool.cancel('create_topology_proposal')
+
+    def is_running(self) -> bool:
+        return self._pool.active_count > 0
+
+    def dispose(self) -> None:
+        self._pool.shutdown()
+
+    def _refresh_run_state(self) -> None:
+        running = self.is_running()
+        self.create_proposal_button.setEnabled(
+            self._equipment_available and not running
+        )
+        self.cancel_proposal_button.setEnabled(running)
 
     def refresh(self) -> None:
         self._refresh_equipment()
@@ -992,6 +1037,7 @@ class SystemExpansionOptimizePanel(QFrame):
     ) -> None:
         super().__init__(parent)
         self.service = service
+        self._pool = NativeWorkerPool(self)
         set_surface_role(self, SurfaceRole.RAISED)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -1041,15 +1087,21 @@ class SystemExpansionOptimizePanel(QFrame):
 
         actions = QHBoxLayout()
         self.evaluate_button = QPushButton("提案を評価 / 比較を更新")
+        self.cancel_button = QPushButton("評価を中止")
+        self.cancel_button.setEnabled(False)
         self.robustness_button = QPushButton("ばらつき耐性を確認")
         self.apply_button = QPushButton("この提案を適用…")
         set_primary_action(self.apply_button)
         actions.addWidget(self.evaluate_button)
+        actions.addWidget(self.cancel_button)
         actions.addWidget(self.robustness_button)
         actions.addWidget(self.apply_button)
         actions.addStretch(1)
         layout.addLayout(actions)
         self.evaluate_button.clicked.connect(self._evaluate)
+        self.cancel_button.clicked.connect(
+            lambda: self._pool.cancel('evaluate_proposals')
+        )
         self.robustness_button.clicked.connect(self._robustness)
         self.apply_button.clicked.connect(self._apply)
         self.selector.changed.connect(lambda _variant_id: self.refresh())
@@ -1136,14 +1188,34 @@ class SystemExpansionOptimizePanel(QFrame):
         if not variant_ids:
             self.summary.setText("評価対象の提案がありません。")
             return
-        try:
-            execution = self.service.evaluate_proposals(
+        self.summary.setText(
+            f"{len(variant_ids) + 1} 候補の比較評価を実行しています…"
+        )
+        self._refresh_run_state()
+        self._pool.start(
+            'evaluate_proposals',
+            lambda cancel_event: self.service.evaluate_proposals(
                 variant_ids,
                 include_current=True,
+                is_cancelled=cancel_event.is_set,
+            ),
+            self._evaluation_completed,
+            on_finished=lambda _key: self._refresh_run_state(),
+        )
+
+    def _evaluation_completed(self, key, result, error) -> None:
+        if error == WORKER_CANCELLED:
+            self.summary.setText(
+                "評価を中止しました · 完了した候補の証跡は保持されています"
             )
-        except (ValueError, KeyError) as exc:
-            self.summary.setText(f"評価できません: {operation_error_message(exc)}")
+            self.refresh()
             return
+        if error is not None:
+            self.summary.setText(
+                f"評価できません: {operation_error_message(error)}"
+            )
+            return
+        execution = result
         evaluated = sum(
             1
             for candidate in execution.candidates
@@ -1154,6 +1226,19 @@ class SystemExpansionOptimizePanel(QFrame):
             f"{len(execution.candidates)} 候補の証跡を永続化しました。"
         )
         self.refresh()
+
+    def is_running(self) -> bool:
+        return self._pool.active_count > 0
+
+    def dispose(self) -> None:
+        self._pool.shutdown()
+
+    def _refresh_run_state(self) -> None:
+        running = self.is_running()
+        self.evaluate_button.setEnabled(not running)
+        self.apply_button.setEnabled(not running)
+        self.robustness_button.setEnabled(not running)
+        self.cancel_button.setEnabled(running)
 
     def _robustness(self) -> None:
         variant_id = self.selector.current_variant_id()

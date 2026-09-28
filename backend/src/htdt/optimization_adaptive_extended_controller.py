@@ -5,6 +5,8 @@ from PySide6.QtWidgets import QTreeWidgetItem
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .developer_mode import developer_mode_enabled
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED
+from .user_facing_error import operation_error_message
 
 
 class AdaptiveExtendedControllerMixin:
@@ -44,20 +46,37 @@ class AdaptiveExtendedControllerMixin:
             if self.adaptive_extended_proposal_limit_field is None
             else int(self.adaptive_extended_proposal_limit_field.value())
         )
-        try:
-            plan = self.adaptive_extended_service.build_and_save(
-                extended_search_id=extended_spec.extended_search_id,
-                validation_id=validation.validation_id,
+        extended_search_id = extended_spec.extended_search_id
+        validation_id = validation.validation_id
+        self.statusBar().showMessage('Adaptive Extended Planを計算しています…')
+        self._refresh_adaptive_run_state()
+        self._adaptive_pool.start(
+            'adaptive_extended:build',
+            lambda cancel_event: self.adaptive_extended_service.build_and_save(
+                extended_search_id=extended_search_id,
+                validation_id=validation_id,
                 execution_scope=scope,
                 length_scale_normalized=length_scale,
                 proposal_limit=proposal_limit,
-            )
-        except Exception as exc:
+                is_cancelled=cancel_event.is_set,
+            ),
+            self._adaptive_extended_build_completed,
+            on_finished=lambda _key: self._refresh_adaptive_run_state(),
+        )
+
+    def _adaptive_extended_build_completed(self, key, result, error) -> None:
+        if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
-                f'Adaptive Extended Planを作成できません · {exc}'
+                'Adaptive Extended Plan計算を中止しました'
             )
             return
-
+        if error is not None:
+            self.statusBar().showMessage(
+                f'Adaptive Extended Planを作成できません · '
+                f'{operation_error_message(error)}'
+            )
+            return
+        plan = result
         self.refresh_adaptive_extended_plans(select_plan_id=plan.plan_id)
         mode = (
             'synthetic開発'
@@ -68,6 +87,9 @@ class AdaptiveExtendedControllerMixin:
             f'O80A Adaptive Extended Planを保存しました · {mode} · '
             f'次候補 {plan.selected_candidate_id[:12]}'
         )
+
+    def cancel_adaptive_extended_build(self) -> None:
+        self._adaptive_pool.cancel('adaptive_extended:build')
 
     def refresh_adaptive_extended_plans(
         self,

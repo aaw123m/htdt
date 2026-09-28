@@ -73,6 +73,7 @@ from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
 from .native_editor import ROLE
+from .native_worker import WORKER_CANCELLED
 from .user_facing_error import operation_error_message
 
 
@@ -119,17 +120,34 @@ class AdaptiveControllerMixin:
             if self.adaptive_proposal_limit_field is None
             else int(self.adaptive_proposal_limit_field.value())
         )
-        try:
-            plan = self.adaptive_service.build_and_save(
-                validation_id=record.validation_id,
+        validation_id = record.validation_id
+        self.statusBar().showMessage('Adaptive Planを計算しています…')
+        self._refresh_adaptive_run_state()
+        self._adaptive_pool.start(
+            'adaptive:build',
+            lambda cancel_event: self.adaptive_service.build_and_save(
+                validation_id=validation_id,
                 execution_scope=scope,
                 length_scale_m=length_scale,
                 proposal_limit=proposal_limit,
-            )
-        except Exception as exc:
-            self.statusBar().showMessage(f'Adaptive Planを作成できません · {operation_error_message(exc)}')
-            return
+                is_cancelled=cancel_event.is_set,
+            ),
+            self._adaptive_build_completed,
+            on_finished=lambda _key: self._refresh_adaptive_run_state(),
+        )
 
+    def _adaptive_build_completed(self, key, result, error) -> None:
+        if error == WORKER_CANCELLED:
+            self.statusBar().showMessage(
+                'Adaptive Plan計算を中止しました'
+            )
+            return
+        if error is not None:
+            self.statusBar().showMessage(
+                f'Adaptive Planを作成できません · {operation_error_message(error)}'
+            )
+            return
+        plan = result
         self.refresh_adaptive_plans(select_plan_id=plan.plan_id)
         mode = (
             'synthetic開発'
@@ -140,6 +158,23 @@ class AdaptiveControllerMixin:
             f'O70 Adaptive Planを保存しました · {mode} · '
             f'次候補 {plan.selected_candidate_id[:12]}'
         )
+
+    def cancel_adaptive_build(self) -> None:
+        self._adaptive_pool.cancel('adaptive:build')
+
+    def active_adaptive_worker_count(self) -> int:
+        return self._adaptive_pool.active_count
+
+    def _refresh_adaptive_run_state(self) -> None:
+        running = self._adaptive_pool.active_count > 0
+        if getattr(self, 'adaptive_build_button', None) is not None:
+            self.adaptive_build_button.setEnabled(not running)
+        if getattr(self, 'adaptive_cancel_button', None) is not None:
+            self.adaptive_cancel_button.setEnabled(running)
+        if getattr(self, 'adaptive_extended_build_button', None) is not None:
+            self.adaptive_extended_build_button.setEnabled(not running)
+        if getattr(self, 'adaptive_extended_cancel_button', None) is not None:
+            self.adaptive_extended_cancel_button.setEnabled(running)
 
     def refresh_adaptive_plans(
         self,

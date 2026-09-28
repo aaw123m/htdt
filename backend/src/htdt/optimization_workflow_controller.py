@@ -217,6 +217,7 @@ class OptimizationWorkflowController(
         self._extended_pool = NativeWorkerPool(self)
         self._extended_task_spec_ids: dict[str, tuple[str, str]] = {}
         self._current_extended_task_id: str | None = None
+        self._adaptive_pool = NativeWorkerPool(self)
         self._disposed = False
 
         self.viewport = None
@@ -271,6 +272,8 @@ class OptimizationWorkflowController(
             return False, "候補生成が完了またはキャンセルされるまで画面を切り替えられません"
         if self._rew_tasks:
             return False, "REW読込が完了するまで画面を切り替えられません"
+        if self._adaptive_pool.active_count:
+            return False, "Adaptive Plan計算が完了またはキャンセルされるまで画面を切り替えられません"
         return self.scene.before_deactivate()
 
     def dirty_state(self) -> WorkspaceDirtyState:
@@ -278,6 +281,8 @@ class OptimizationWorkflowController(
         if self.active_search_worker_count() or self.active_extended_worker_count():
             return 'busy'
         if self._rew_tasks:
+            return 'busy'
+        if self._adaptive_pool.active_count:
             return 'busy'
         return self.scene.dirty_state()
 
@@ -379,6 +384,7 @@ class OptimizationWorkflowController(
             self._search_pool.shutdown(),
             self._extended_pool.shutdown(),
             self._rew_pool.shutdown(),
+            self._adaptive_pool.shutdown(),
         )
         if any(not report.all_stopped for report in reports):
             self.statusChanged.emit(
@@ -753,6 +759,13 @@ class OptimizationWorkflowController(
         self.search_spec_tree = QTreeWidget()
         self.search_spec_tree.setHeaderLabels(["探索設定", "入力状態", "状態"])
         self.search_spec_tree.itemSelectionChanged.connect(self._search_spec_selected)
+        self.search_reauthor_button = QPushButton("同じ条件で再探索")
+        self.search_reauthor_button.setToolTip(
+            "選択した探索設定の軸・候補上限・連動変数を現在の部屋へ再作成します"
+        )
+        self.search_reauthor_button.clicked.connect(
+            self.reauthor_selected_search_spec
+        )
         self.search_generate_button = QPushButton("候補を生成")
         self.search_generate_button.clicked.connect(self.generate_search_candidates_async)
         self.search_cancel_button = QPushButton("生成をキャンセル")
@@ -875,6 +888,9 @@ class OptimizationWorkflowController(
         self.adaptive_proposal_limit_field.setValue(20)
         self.adaptive_build_button = QPushButton("次の測定候補を計算・保存")
         self.adaptive_build_button.clicked.connect(self.build_selected_adaptive_plan)
+        self.adaptive_cancel_button = QPushButton("計算を中止")
+        self.adaptive_cancel_button.setEnabled(False)
+        self.adaptive_cancel_button.clicked.connect(self.cancel_adaptive_build)
         self.adaptive_tree = QTreeWidget()
         self.adaptive_tree.setHeaderLabels(["計画 / 候補", "範囲", "取得値", "補正指標"])
         self.adaptive_tree.itemSelectionChanged.connect(self._adaptive_selected)
@@ -958,6 +974,11 @@ class OptimizationWorkflowController(
         )
         self.adaptive_extended_build_button.clicked.connect(
             self.build_selected_adaptive_extended_plan
+        )
+        self.adaptive_extended_cancel_button = QPushButton("計算を中止")
+        self.adaptive_extended_cancel_button.setEnabled(False)
+        self.adaptive_extended_cancel_button.clicked.connect(
+            self.cancel_adaptive_extended_build
         )
         self.adaptive_extended_tree = QTreeWidget()
         self.adaptive_extended_tree.setHeaderLabels(

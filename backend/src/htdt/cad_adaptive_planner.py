@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from math import isfinite
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 from uuid import uuid4
 
 import numpy as np
@@ -359,6 +359,7 @@ def build_adaptive_plan(
     execution_scope: AdaptiveExecutionScope,
     length_scale_m: float = 0.5,
     proposal_limit: int = 20,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> CadAdaptivePlan:
     require_validation_scope(validation, execution_scope)
     if validation.document_id != spec.document_id:
@@ -428,6 +429,8 @@ def build_adaptive_plan(
     evidence_refs: dict[str, CadAdaptiveEvaluationRef] = {}
     measured_set = set(measured_ids)
     for candidate in candidates:
+        if is_cancelled is not None and is_cancelled():
+            raise RuntimeError('adaptive plan build cancelled')
         if candidate.candidate_id in measured_set:
             continue
         evaluation = _predicted_evaluation(

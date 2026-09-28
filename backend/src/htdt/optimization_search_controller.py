@@ -504,6 +504,60 @@ class SearchControllerMixin:
             f'総候補 {estimate["raw_candidate_count"]}'
         )
 
+    def reauthor_selected_search_spec(self) -> None:
+        """Re-author the selected spec onto the current saved revision (#8).
+
+        One click restores the same grid — axes, candidate limit, name, and
+        linked variables — on the new baseline so a stale spec no longer
+        requires re-entering the whole authoring form.
+        """
+        spec = self._selected_search_spec()
+        if spec is None:
+            self.statusBar().showMessage('再作成する探索設定を選択してください')
+            return
+        if (
+            self.working is not None
+            and search_spec_current_working(
+                spec,
+                self.working,
+                self.constraint_set,
+                current_document_id=self.document_id,
+            )
+        ):
+            self.statusBar().showMessage(
+                '選択した探索設定は現在の部屋・制約に一致しています'
+            )
+            return
+        try:
+            revision = self._saved_search_revision()
+            new_spec, estimate = build_cad_search_spec(
+                revision,
+                self.constraint_set,
+                spec.axes,
+                candidate_limit=spec.candidate_limit,
+                name=spec.name,
+                linked_variables=spec.linked_variables,
+            )
+            self.search_repository.save(new_spec)
+        except Exception as exc:
+            self.statusBar().showMessage(
+                f'探索設定を再作成できません · {operation_error_message(exc)}'
+            )
+            return
+
+        self.search_selected_spec_id = new_spec.search_spec_id
+        self.search_candidate_page = None
+        self.search_selected_candidate_id = None
+        self.search_preview_candidate_id = None
+        self._refresh_search_specs()
+        self._remove_search_overlays()
+        linked_count = int(estimate.get('linked_derivation_count', 0))
+        self.statusBar().showMessage(
+            '同じ条件で探索設定を再作成しました · '
+            f'独立軸 {len(new_spec.axes)} · 連動 {linked_count} · '
+            f'総候補 {estimate["raw_candidate_count"]}'
+        )
+
     def _refresh_search_specs(self) -> None:
         tree = self.search_spec_tree
         if tree is None:
@@ -631,6 +685,16 @@ class SearchControllerMixin:
             )
         if self.search_generate_button is not None:
             self.search_generate_button.setEnabled(not busy and bool(current))
+        if self.search_reauthor_button is not None:
+            self.search_reauthor_button.setEnabled(
+                not busy
+                and spec is not None
+                and not current
+                and self.working is not None
+                and self.working.source_revision_id is not None
+                and not self.working.is_dirty
+                and not self.working.has_preview
+            )
         if self.search_generate_reason_label is not None:
             if self.working is None or self.working.source_revision_id is None:
                 reason = "部屋を保存してから候補を生成できます。"
