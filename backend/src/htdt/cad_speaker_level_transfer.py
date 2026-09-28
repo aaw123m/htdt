@@ -32,6 +32,7 @@ This module keeps the three authorities separate and composable:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from math import isfinite, log10, pi
 from typing import Any, Literal
 from uuid import uuid4
@@ -212,7 +213,9 @@ class AmplifierOutputImpedanceAuthority(BaseModel):
             assert self.scalar_ohm is not None
             return complex(self.scalar_ohm, 0.0)
         if self.tier == 'complex_curve':
-            return _interpolated_complex(self.samples, frequency_hz)
+            return _interpolated_complex(
+                self.samples, frequency_hz, self.interpolation
+            )
         return None
 
     def magnitude_at(self, frequency_hz: float) -> float | None:
@@ -228,15 +231,22 @@ class AmplifierOutputImpedanceAuthority(BaseModel):
             assert (
                 self.damping_factor is not None
                 and self.damping_factor_reference_load_ohm is not None
+                and self.damping_factor_reference_frequency_hz is not None
             )
+            if frequency_hz != self.damping_factor_reference_frequency_hz:
+                return None
             return (
                 self.damping_factor_reference_load_ohm / self.damping_factor
             )
         if self.tier == 'complex_curve':
-            value = _interpolated_complex(self.samples, frequency_hz)
+            value = _interpolated_complex(
+                self.samples, frequency_hz, self.interpolation
+            )
             return abs(value) if value is not None else None
         if self.tier == 'magnitude_curve':
-            return _interpolated_magnitude(self.samples, frequency_hz)
+            return _interpolated_magnitude(
+                self.samples, frequency_hz, self.interpolation
+            )
         return None
 
 
@@ -483,15 +493,29 @@ def build_speaker_electrical_path(
     )
 
 
+def _nearest_sample(
+    ordered: Sequence[ImpedanceSample], frequency_hz: float
+) -> ImpedanceSample:
+    """In-band nearest-frequency lookup; ties resolve to the lower sample."""
+    return min(
+        ordered, key=lambda sample: abs(sample.frequency_hz - frequency_hz)
+    )
+
+
 def _interpolated_complex(
-    samples: tuple[ImpedanceSample, ...], frequency_hz: float
+    samples: tuple[ImpedanceSample, ...],
+    frequency_hz: float,
+    interpolation: ImpedanceInterpolation | None = None,
 ) -> complex | None:
-    """Linear complex interpolation between curve samples."""
+    """Complex curve lookup honoring the declared interpolation policy."""
     ordered = sorted(samples, key=lambda sample: sample.frequency_hz)
     if frequency_hz < ordered[0].frequency_hz or (
         frequency_hz > ordered[-1].frequency_hz
     ):
         return None
+    if interpolation == 'nearest':
+        sample = _nearest_sample(ordered, frequency_hz)
+        return complex(sample.real(), sample.imag())
     previous = ordered[0]
     for sample in ordered:
         if sample.frequency_hz >= frequency_hz:
@@ -509,13 +533,17 @@ def _interpolated_complex(
 
 
 def _interpolated_magnitude(
-    samples: tuple[ImpedanceSample, ...], frequency_hz: float
+    samples: tuple[ImpedanceSample, ...],
+    frequency_hz: float,
+    interpolation: ImpedanceInterpolation | None = None,
 ) -> float | None:
     ordered = sorted(samples, key=lambda sample: sample.frequency_hz)
     if frequency_hz < ordered[0].frequency_hz or (
         frequency_hz > ordered[-1].frequency_hz
     ):
         return None
+    if interpolation == 'nearest':
+        return _nearest_sample(ordered, frequency_hz).magnitude()
     previous = ordered[0]
     for sample in ordered:
         if sample.frequency_hz >= frequency_hz:
@@ -610,6 +638,9 @@ def _load_impedance_at(
             frequency_hz > ordered[-1].frequency_hz
         ):
             return None
+        if load.interpolation == 'nearest':
+            sample = _nearest_sample(ordered, frequency_hz)
+            return complex(sample.real(), sample.imag())
         previous = ordered[0]
         for sample in ordered:
             if sample.frequency_hz >= frequency_hz:

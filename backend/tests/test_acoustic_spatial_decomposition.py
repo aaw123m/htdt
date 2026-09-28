@@ -269,6 +269,21 @@ def test_sample_spacing_is_authority_and_both_well_conditioned_cases_recover() -
     )
 
 
+def test_matrix_conditioning_small_eigenvalue_stays_accurate() -> None:
+    # For a 2x2 phasor matrix with |det| << Frobenius^2, the naive
+    # lambda_min = F - sqrt(F^2 - 4|det|^2) loses the small eigenvalue's
+    # digits (kappa reported ~5% low near the 1e8 threshold). The product
+    # identity lmin = |det|^2 / lmax keeps it exact.
+    from htdt.acoustic_spatial_decomposition import _matrix_conditioning
+
+    _det, abs_det, kappa = _matrix_conditioning(
+        1.0 + 0.0j, 0.0 + 0.0j, 0.0 + 0.0j, 1.0e-8 + 0.0j
+    )
+    assert abs_det == pytest.approx(1.0e-8)
+    # numpy reference: cond(diag(1, 1e-8)) = 1e8 exactly.
+    assert kappa == pytest.approx(1.0e8, rel=1.0e-9)
+
+
 def test_half_wavelength_spacing_is_blocked_as_singular_without_epsilon_substitution() -> None:
     _, _, result = _case(
         frequencies_hz=(343.0,),
@@ -283,8 +298,14 @@ def test_half_wavelength_spacing_is_blocked_as_singular_without_epsilon_substitu
     assert item.status == 'BLOCKED'
     assert item.conditioning.state == 'SINGULAR'
     assert item.conditioning.abs_determinant < item.conditioning.minimum_abs_determinant
-    assert item.conditioning.condition_number_2 is None
-    assert item.conditioning.condition_number_is_infinite is True
+    # The computed determinant is a nonzero floating-point residue, so the
+    # condition number is finite (huge), not a cancellation-produced inf.
+    assert item.conditioning.condition_number_2 is not None
+    assert (
+        item.conditioning.condition_number_2
+        > item.conditioning.maximum_condition_number_2
+    )
+    assert item.conditioning.condition_number_is_infinite is False
     assert item.incident_pressure is None
     assert item.reflected_pressure is None
     assert item.reflection_coefficient is None

@@ -724,6 +724,14 @@ def materialize_fir_artifact(
     )
     if step is not None:
         taps = np.round(taps / step) * step
+        if new_format in ('pcm16', 'pcm24'):
+            # Signed PCM saturates one format LSB below +full scale: +1.0
+            # is not representable (int16 tops at 32767/32768), so taps
+            # clamp to the format's representable range.
+            format_lsb = (
+                1.0 / 32768.0 if new_format == 'pcm16' else 1.0 / 8388608.0
+            )
+            taps = np.clip(taps, -1.0, 1.0 - format_lsb)
         quantized = True
     if new_format == 'float32':
         taps = np.asarray(taps, dtype=np.float32).astype(float)
