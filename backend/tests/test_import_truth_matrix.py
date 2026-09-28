@@ -13,6 +13,7 @@ import base64
 import io
 import json
 import os
+import random
 import struct
 import zipfile
 from hashlib import sha256
@@ -775,14 +776,21 @@ def test_polar_table_valid_minimal() -> None:
     assert result.diagnostic.import_state == 'IMPORTED'
 
 
-@pytest.mark.parametrize('raw', [
-    b'',                                           # empty
-    os.urandom(2048),                              # garbage
-    b'no metadata header\n1,2,3\n',                # wrong structure
-    b'# schema=htdt.polar-table.v2\n# delimiter=csv\n',  # declared schema mismatch
-    'メタデータ\n'.encode('cp932'),                  # wrong encoding
+@pytest.mark.parametrize('case', [
+    'empty',
+    'garbage',
+    'wrong_structure',
+    'schema_mismatch',
+    'wrong_encoding',
 ])
-def test_polar_table_rejects_hostile(raw: bytes) -> None:
+def test_polar_table_rejects_hostile(case: str) -> None:
+    raw = {
+        'empty': b'',
+        'garbage': random.Random(1337).randbytes(2048),
+        'wrong_structure': b'no metadata header\n1,2,3\n',
+        'schema_mismatch': b'# schema=htdt.polar-table.v2\n# delimiter=csv\n',
+        'wrong_encoding': 'メタデータ\n'.encode('cp932'),
+    }[case]
     result = import_directivity_asset(
         raw_source_bytes=raw,
         explicit_source_format='polar_table',
