@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from math import radians, tan
+from math import hypot, isfinite, radians, tan
 from typing import Iterator
 
 import numpy as np
 import pyvista as pv
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtWidgets import QFrame, QRubberBand, QVBoxLayout, QWidget
 from pyvistaqt import QtInteractor
 
 from .cad_prediction_models import CadPredictionResult
@@ -526,6 +526,9 @@ class RoomViewport3D(QFrame):
     #: Emitted for every successful entity pick with the display position; lets
     #: controllers read keyboard modifiers at pick time (Ctrl = additive select).
     entityPicked = Signal(object, object)
+    #: Emitted on left-drag release: (entity ids whose projected bounds
+    #: intersect the marquee rect, additive) — Shift held extends the selection.
+    entitiesMarqueeSelected = Signal(object, bool)
     # (underlay_id, domain_x, domain_y) — emitted when an underlay quad/line
     # is picked, used by the calibration/tracing flow.
     underlayClicked = Signal(object, float, float)
@@ -538,7 +541,12 @@ class RoomViewport3D(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.plotter = QtInteractor(self)
+        # auto_update=False: pyvistaqt otherwise starts a 200 ms timer that
+        # re-renders the whole scene 5x/s forever while the widget is visible.
+        # Every mutation path below already renders explicitly through
+        # _render()/deferred_render(), and VTK's move observers are removed by
+        # pyvistaqt, so nothing relied on the idle re-render.
+        self.plotter = QtInteractor(self, auto_update=False)
         self.interactor = self.plotter.interactor
         layout.addWidget(self.interactor)
 
@@ -556,6 +564,26 @@ class RoomViewport3D(QFrame):
         self._locked_ids: frozenset[str] = frozenset()
         self._overlays = RoomOverlayState()
         self._press_position: QPointF | None = None
+        # Left-drag marquee: band widget + lifecycle; a release pick that lands
+        # on an actor right after a marquee is suppressed so it cannot
+        # collapse the just-computed region selection.
+        self._marquee_band: QRubberBand | None = None
+        self._marquee_active = False
+        self._suppress_next_pick = False
+        # Camera pose at left-press, restored when the marquee activates so a
+        # box-select drag cannot net-rotate the trackball camera.
+        self._press_camera_state: tuple[tuple[float, ...], ...] | None = None
+        # (entity_id, actor) for every pickable entity actor — the marquee
+        # hit-test set. Mirrors _actor_entity_ids membership.
+        self._marquee_actors: list[tuple[str, object]] = []
+        # Click-through cycling: repeated clicks within a few px of the same
+        # point walk the picker's front-to-back candidate list.
+        self._cycle_position: QPointF | None = None
+        self._cycle_ids: tuple[str, ...] = ()
+        self._cycle_index = 0
+        # vtkPicker.Pick fires EndPickEvent, which re-enters this widget's
+        # pick callback — never re-pick while dispatching one.
+        self._in_pick_dispatch = False
         self._search_domain_handles: dict[int, tuple[str, str, str, bool]] = {}
         # deferred_render(): compositing callers (e.g. the workspace refresh
         # that stacks document + constraint + measure + video + proposal
@@ -628,6 +656,12 @@ class RoomViewport3D(QFrame):
         self._actor_proposed_entity_ids.clear()
         self._actor_underlay_ids.clear()
         self._search_domain_handles.clear()
+        self._marquee_actors.clear()
+        # NOTE: _cycle_* state is intentionally NOT reset here — selection
+        # changes re-render the scene on every click, and wiping the cycle
+        # history would make click-through cycling unreachable. Stale state
+        # self-corrects: the next click's candidate tuple differs whenever
+        # the rebuilt scene's hit stack changed, resetting the index then.
         self.plotter.clear()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
 
@@ -642,6 +676,7 @@ class RoomViewport3D(QFrame):
                     lighting=False,
                     pickable=False,
                     name="room-floor",
+                    render=False,
                 )
 
         self._render_underlays()
@@ -658,6 +693,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.34,
                     pickable=False,
                     name="room-grid-minor",
+                    render=False,
                 )
             major_grid = _grid_mesh(document, step_m=2.0, z_m=0.004)
             if major_grid is not None:
@@ -668,6 +704,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.58,
                     pickable=False,
                     name="room-grid-major",
+                    render=False,
                 )
 
         room_mesh = _room_wireframe(document)
@@ -679,6 +716,7 @@ class RoomViewport3D(QFrame):
                 opacity=0.78,
                 pickable=False,
                 name="room-shell",
+                render=False,
             )
 
         semantic_categories: set[str] = set()
@@ -718,8 +756,10 @@ class RoomViewport3D(QFrame):
                 specular_power=12.0,
                 pickable=True,
                 name=f"entity-{entity.entity_id}",
+                render=False,
             )
             self._actor_entity_ids[id(actor)] = entity.entity_id
+            self._marquee_actors.append((entity.entity_id, actor))
             # Semantic glyph proxies read as the entity's type at a glance;
             # they are render-only, pick back to the entity, and dim with it.
             glyph_opacity = (0.55 if is_locked else 0.98) if not focused_out else 0.12
@@ -739,8 +779,10 @@ class RoomViewport3D(QFrame):
                     specular_power=16.0,
                     pickable=True,
                     name=f"glyph-{entity.entity_id}-{index}",
+                    render=False,
                 )
                 self._actor_entity_ids[id(glyph_actor)] = entity.entity_id
+                self._marquee_actors.append((entity.entity_id, glyph_actor))
             if (
                 entity.size_m is not None
                 and entity.body_geometry is not None
@@ -756,6 +798,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.45,
                     pickable=False,
                     name=f"envelope-{entity.entity_id}",
+                    render=False,
                 )
             semantic_categories.add(category)
 
@@ -773,6 +816,7 @@ class RoomViewport3D(QFrame):
                         opacity=0.95,
                         pickable=False,
                         name=f"selection-{ray.role}-{selected_id}",
+                        render=False,
                     )
         # Secondary (non-primary) members of a multi-selection get the outline
         # without direction rays — the primary stays visually distinct (#480).
@@ -801,6 +845,7 @@ class RoomViewport3D(QFrame):
                 opacity=0.5,
                 pickable=False,
                 name=f"selection-marker-{entity_id}",
+                render=False,
             )
 
         if overlays.acoustics:
@@ -831,16 +876,22 @@ class RoomViewport3D(QFrame):
             (_CATEGORY_LEGEND_LABELS[category], _category_color(category))
             for category in sorted(categories)
         ]
-        self.plotter.add_legend(
-            labels=labels,
-            loc="lower right",
-            face="rectangle",
-            size=(0.17, 0.035 * len(labels) + 0.02),
-            bcolor=DARK_THEME.text.secondary.hex,
-            border=False,
-            background_opacity=0.55,
-            name="semantic-category-legend",
-        )
+        # add_legend has no render kwarg and renders internally; suppress so
+        # the scene rebuild still ends in a single draw.
+        self.plotter.suppress_rendering = True
+        try:
+            self.plotter.add_legend(
+                labels=labels,
+                loc="lower right",
+                face="rectangle",
+                size=(0.17, 0.035 * len(labels) + 0.02),
+                bcolor=DARK_THEME.text.secondary.hex,
+                border=False,
+                background_opacity=0.55,
+                name="semantic-category-legend",
+            )
+        finally:
+            self.plotter.suppress_rendering = False
 
     def render_measurement_overlay(
         self,
@@ -932,6 +983,8 @@ class RoomViewport3D(QFrame):
 
     def _render_acoustic_overlay(self, document: SceneDocument) -> None:
         for entity in document.entities:
+            if entity.entity_id in self._hidden_ids:
+                continue
             reference = acoustic_reference_position(entity)
             if reference is not None:
                 self.plotter.add_mesh(
@@ -940,6 +993,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.92,
                     pickable=False,
                     name=f"reference-{entity.entity_id}",
+                    render=False,
                 )
             if entity.kind != "speaker" or entity.aim_xyz is None:
                 continue
@@ -956,6 +1010,7 @@ class RoomViewport3D(QFrame):
                 opacity=0.80,
                 pickable=False,
                 name=f"aim-{entity.entity_id}",
+                render=False,
             )
 
     def render_prediction_results(
@@ -1087,7 +1142,11 @@ class RoomViewport3D(QFrame):
         visible = [
             entity
             for entity in document.entities
-            if (
+            # Hidden entities are not rendered (and not pickable); labeling
+            # them would leave a floating annotation for invisible geometry —
+            # the same contract as the mesh path above (#482).
+            if entity.entity_id not in self._hidden_ids
+            and (
                 not self._overlays.focus_selection
                 or selected_id is None
                 or entity.entity_id == selected_id
@@ -1105,6 +1164,7 @@ class RoomViewport3D(QFrame):
             point_size=0,
             always_visible=True,
             name="entity-labels",
+            render=False,
         )
 
     def set_aux_render_state(
@@ -1162,6 +1222,7 @@ class RoomViewport3D(QFrame):
                     pickable=True,
                     show_scalar_bar=False,
                     name=f"underlay-{item.underlay_id}",
+                    render=False,
                 )
                 self._actor_underlay_ids[id(actor)] = item.underlay_id
             if item.segments_domain:
@@ -1191,6 +1252,7 @@ class RoomViewport3D(QFrame):
                     opacity=min(1.0, item.opacity + 0.2),
                     pickable=True,
                     name=f"underlay-lines-{item.underlay_id}",
+                    render=False,
                 )
                 self._actor_underlay_ids[id(actor)] = item.underlay_id
 
@@ -1206,30 +1268,52 @@ class RoomViewport3D(QFrame):
                 style="wireframe",
                 pickable=False,
                 name=f"guide-{index}",
+                render=False,
             )
 
     def _picked_actor(self, actor) -> None:
-        underlay_id = self._actor_underlay_ids.get(id(actor))
-        if underlay_id is not None:
-            picked = getattr(self.plotter, "picked_position", None)
-            if picked is not None:
-                array = np.asarray(picked, dtype=float).reshape(-1)
-                if array.size >= 3:
-                    # Render space -> domain space (Y negated).
-                    self.underlayClicked.emit(
-                        underlay_id,
-                        float(array[0]),
-                        float(-array[1]),
-                    )
+        if self._suppress_next_pick:
+            # The vtk release pick that lands after a marquee drag must not
+            # collapse the region selection just committed.
+            self._suppress_next_pick = False
             return
-        entity_id = self._actor_entity_ids.get(id(actor))
-        if entity_id is not None:
-            self.entityPicked.emit(entity_id, self._last_display_position())
-            self.entitySelected.emit(entity_id)
+        if self._in_pick_dispatch:
+            # vtkPicker.Pick fires EndPickEvent: any nested pick (a connected
+            # slot calling pick_actor_at, or this callback re-picking) would
+            # recurse. Nested dispatches are dropped; the outer pick result
+            # already carries everything needed.
             return
-        proposed_id = self._actor_proposed_entity_ids.get(id(actor))
-        if proposed_id is not None:
-            self.proposedEntitySelected.emit(proposed_id)
+        self._in_pick_dispatch = True
+        try:
+            underlay_id = self._actor_underlay_ids.get(id(actor))
+            if underlay_id is not None:
+                picked = getattr(self.plotter, "picked_position", None)
+                if picked is not None:
+                    array = np.asarray(picked, dtype=float).reshape(-1)
+                    if array.size >= 3:
+                        # Render space -> domain space (Y negated).
+                        self.underlayClicked.emit(
+                            underlay_id,
+                            float(array[0]),
+                            float(-array[1]),
+                        )
+                return
+            entity_id = self._actor_entity_ids.get(id(actor))
+            if entity_id is not None:
+                # The picker's Prop3D list is already populated by the pick
+                # that fired this event — cycling must read it, not re-Pick
+                # (a nested Pick fires EndPickEvent and recurses).
+                entity_id = self._cycle_pick_candidate(
+                    entity_id, self._current_pick_candidates()
+                )
+                self.entityPicked.emit(entity_id, self._last_display_position())
+                self.entitySelected.emit(entity_id)
+                return
+            proposed_id = self._actor_proposed_entity_ids.get(id(actor))
+            if proposed_id is not None:
+                self.proposedEntitySelected.emit(proposed_id)
+        finally:
+            self._in_pick_dispatch = False
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802
         from PySide6.QtCore import QEvent
@@ -1238,47 +1322,314 @@ class RoomViewport3D(QFrame):
         if obj is self.interactor and isinstance(event, QMouseEvent):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._press_position = QPointF(event.position())
+                self._press_camera_state = self._camera_state()
+            elif (
+                event.type() == QEvent.Type.MouseMove
+                and self._press_position is not None
+                and event.buttons() & Qt.MouseButton.LeftButton
+            ):
+                self._update_marquee(event.position())
+                # Once the band owns the gesture, consume moves so the
+                # trackball style never sees them — otherwise every box
+                # select would also orbit the camera.
+                if self._marquee_active:
+                    return True
             elif event.type() == QEvent.Type.MouseButtonRelease and event.button() == Qt.MouseButton.LeftButton:
                 pressed = self._press_position
                 self._press_position = None
-                moved = pressed is None or (
-                    (event.position() - pressed).manhattanLength() < 6.0
-                )
-                if moved and self.pick_actor_at(event.position()) is None:
-                    self.emptyClicked.emit(event.position())
+                self._press_camera_state = None
+                if self._marquee_active:
+                    self._finish_marquee(event)
+                else:
+                    moved = pressed is None or (
+                        (event.position() - pressed).manhattanLength() < 6.0
+                    )
+                    if moved and self.pick_actor_at(event.position()) is None:
+                        self.emptyClicked.emit(event.position())
         return False
 
+    _MARQUEE_THRESHOLD_PX = 6.0
+    _CYCLE_HYSTERESIS_PX = 4.0
+
+    def _update_marquee(self, position: QPointF) -> None:
+        """Grow/activate the left-drag rubber band once past the click slop."""
+
+        origin = self._press_position
+        if origin is None:
+            return
+        rect = QRectF(origin, position).normalized()
+        if not self._marquee_active and (
+            rect.width() < self._MARQUEE_THRESHOLD_PX
+            and rect.height() < self._MARQUEE_THRESHOLD_PX
+        ):
+            return
+        if self._marquee_band is None:
+            self._marquee_band = QRubberBand(
+                QRubberBand.Shape.Rectangle, self.interactor
+            )
+        self._marquee_band.setGeometry(rect.toAlignedRect())
+        if not self._marquee_active:
+            # Moves before the threshold already reached the trackball and
+            # rotated a few px; restore the press-time pose so the marquee
+            # region is evaluated against the view the user drew it over.
+            self._restore_camera_state(self._press_camera_state)
+            self._marquee_active = True
+            self._marquee_band.show()
+
+    def _finish_marquee(self, event) -> None:
+        """Resolve the marquee rect into an ordered entity selection signal."""
+
+        band = self._marquee_band
+        self._marquee_active = False
+        if band is not None:
+            rect = QRectF(band.geometry())
+            band.hide()
+        else:
+            rect = QRectF(event.position(), event.position())
+        # VTK still delivers its release pick for this gesture; suppress it so
+        # a release over an entity cannot collapse the marquee selection.
+        self._suppress_next_pick = True
+        additive = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        self.entitiesMarqueeSelected.emit(
+            self.pick_entities_in_region(rect), additive
+        )
+
+    def _camera_state(self):
+        """(position, focal_point, view_up) snapshot, or None if unavailable."""
+
+        try:
+            camera = self.plotter.camera
+            if camera is None:
+                return None
+            return (
+                tuple(float(v) for v in camera.GetPosition()),
+                tuple(float(v) for v in camera.GetFocalPoint()),
+                tuple(float(v) for v in camera.GetViewUp()),
+            )
+        except Exception:
+            return None
+
+    def _restore_camera_state(self, state) -> None:
+        if state is None:
+            return
+        try:
+            camera = self.plotter.camera
+            camera.SetPosition(*state[0])
+            camera.SetFocalPoint(*state[1])
+            camera.SetViewUp(*state[2])
+        except Exception:
+            return
+        self._render()
+
+    # -- Picking -------------------------------------------------------------
+    #
+    # Coordinate contract: every public pick entry point and every emitted
+    # position uses the Qt widget convention — top-left origin, device-
+    # independent pixels, the same space as ``QMouseEvent.position()``. VTK
+    # display coordinates (bottom-left origin, physical pixels) are produced
+    # or consumed only at the picker boundary via the two helpers below; the
+    # interactor's ``GetEventPosition`` already reports VTK convention.
+
+    def _widget_to_display_position(self, position) -> tuple[float, float] | None:
+        """Qt widget coords -> VTK display coords (flip Y, scale by DPR)."""
+
+        try:
+            if position is None:
+                return None
+            dpr = float(self.interactor.devicePixelRatioF())
+            if not isfinite(dpr) or dpr <= 0.0:
+                dpr = 1.0
+            height = float(self.interactor.height())
+            x = float(position.x()) * dpr
+            y = (height - 1.0 - float(position.y())) * dpr
+        except Exception:
+            return None
+        if not (isfinite(x) and isfinite(y)):
+            return None
+        return (x, y)
+
+    def _display_to_widget_position(self, position) -> QPointF | None:
+        """VTK display coords -> Qt widget coords (inverse of the above)."""
+
+        try:
+            if position is None:
+                return None
+            dpr = float(self.interactor.devicePixelRatioF())
+            if not isfinite(dpr) or dpr <= 0.0:
+                dpr = 1.0
+            height = float(self.interactor.height())
+            x = float(position[0]) / dpr
+            y = (height - 1.0) - float(position[1]) / dpr
+        except Exception:
+            return None
+        if not (isfinite(x) and isfinite(y)):
+            return None
+        return QPointF(x, y)
+
     def _last_display_position(self) -> QPointF | None:
+        """Last VTK pick event position, returned in Qt widget coords."""
+
         try:
             pos = self.interactor.GetEventPosition()
         except Exception:
             return None
-        return QPointF(float(pos[0]), float(pos[1]))
+        return self._display_to_widget_position(pos)
 
     def pick_actor_at(self, position: QPointF):
-        """Run the shared picker at a display position; return the actor or None."""
+        """Run the shared picker at a Qt display position; actor or None."""
 
+        display = self._widget_to_display_position(position)
+        if display is None:
+            return None
         try:
             picker = self.plotter.iren.picker
             renderer = self.plotter.iren.get_poked_renderer()
-            picker.Pick(float(position.x()), float(position.y()), 0.0, renderer)
+            picker.Pick(display[0], display[1], 0.0, renderer)
             return picker.GetActor()
         except Exception:
             return None
 
     def pick_world_position(self, position: QPointF) -> tuple[float, float, float] | None:
-        """Render-space world position under a display point (or None)."""
+        """Render-space world position under a Qt display point (or None)."""
 
+        display = self._widget_to_display_position(position)
+        if display is None:
+            return None
         try:
             picker = self.plotter.iren.picker
             renderer = self.plotter.iren.get_poked_renderer()
-            picker.Pick(float(position.x()), float(position.y()), 0.0, renderer)
+            picker.Pick(display[0], display[1], 0.0, renderer)
             picked = picker.GetPickPosition()
         except Exception:
             return None
         if picked is None:
             return None
         return (float(picked[0]), float(picked[1]), float(picked[2]))
+
+    def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:
+        """Entity ids under a Qt display point, ordered front-to-back."""
+
+        display = self._widget_to_display_position(position)
+        if display is None:
+            return ()
+        try:
+            picker = self.plotter.iren.picker
+            renderer = self.plotter.iren.get_poked_renderer()
+            picker.Pick(display[0], display[1], 0.0, renderer)
+            props = picker.GetProp3Ds()
+        except Exception:
+            return ()
+        return self._candidates_from_props(props)
+
+    def _current_pick_candidates(self) -> tuple[str, ...]:
+        """Front-to-back entity ids of the pick that just fired — no re-Pick.
+
+        Only safe inside ``_picked_actor`` (the picker's Prop3D collection is
+        populated by the pick whose EndPickEvent invoked the callback).
+        """
+
+        try:
+            props = self.plotter.iren.picker.GetProp3Ds()
+        except Exception:
+            return ()
+        return self._candidates_from_props(props)
+
+    def _candidates_from_props(self, props) -> tuple[str, ...]:
+        ordered: list[str] = []
+        if props is not None:
+            try:
+                props.InitTraversal()
+                while True:
+                    prop = props.GetNextProp()
+                    if prop is None:
+                        break
+                    entity_id = self._actor_entity_ids.get(id(prop))
+                    if entity_id is not None and entity_id not in ordered:
+                        ordered.append(entity_id)
+            except Exception:
+                pass
+        return tuple(ordered)
+
+    def _cycle_pick_candidate(self, entity_id: str, candidates: tuple[str, ...]) -> str:
+        """Click-through: repeated clicks at one spot walk the hit stack.
+
+        VTK already reports every intersected prop via ``GetProp3Ds``; the
+        front-to-back list is cycled while the click point stays inside the
+        hysteresis radius and the candidate set is unchanged.
+        """
+
+        position = self._last_display_position()
+        if entity_id not in candidates:
+            candidates = (entity_id, *candidates)
+        if (
+            position is not None
+            and self._cycle_position is not None
+            and hypot(
+                position.x() - self._cycle_position.x(),
+                position.y() - self._cycle_position.y(),
+            )
+            <= self._CYCLE_HYSTERESIS_PX
+            and self._cycle_ids == candidates
+        ):
+            index = (self._cycle_index + 1) % len(candidates)
+        else:
+            index = candidates.index(entity_id)
+        self._cycle_position = position
+        self._cycle_ids = candidates
+        self._cycle_index = index
+        return candidates[index]
+
+    def pick_entities_in_region(self, rect: QRectF) -> list[str]:
+        """Entity ids whose projected bounds intersect a Qt-space marquee rect."""
+
+        try:
+            dpr = float(self.interactor.devicePixelRatioF())
+            if not isfinite(dpr) or dpr <= 0.0:
+                dpr = 1.0
+            height = float(self.interactor.height())
+            if not isfinite(height) or height <= 0.0:
+                return []
+            x_lo = min(float(rect.left()), float(rect.right())) * dpr
+            x_hi = max(float(rect.left()), float(rect.right())) * dpr
+            # Qt y grows downward; VTK display y grows upward — the rect's
+            # top edge maps to the larger display y.
+            y_lo = (height - 1.0 - max(float(rect.top()), float(rect.bottom()))) * dpr
+            y_hi = (height - 1.0 - min(float(rect.top()), float(rect.bottom()))) * dpr
+        except Exception:
+            return []
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for entity_id, actor in self._marquee_actors:
+            if entity_id in seen:
+                continue
+            try:
+                bounds = actor.GetBounds()
+            except Exception:
+                continue
+            if bounds is None or len(bounds) != 6:
+                continue
+            xs: list[float] = []
+            ys: list[float] = []
+            try:
+                for cx in (bounds[0], bounds[1]):
+                    for cy in (bounds[2], bounds[3]):
+                        for cz in (bounds[4], bounds[5]):
+                            sx, sy = self.world_to_screen((cx, cy, cz))
+                            xs.append(sx)
+                            ys.append(sy)
+            except Exception:
+                continue
+            if not xs or not all(isfinite(v) for v in (*xs, *ys)):
+                continue
+            if (
+                x_lo <= max(xs)
+                and x_hi >= min(xs)
+                and y_lo <= max(ys)
+                and y_hi >= min(ys)
+            ):
+                ordered.append(entity_id)
+                seen.add(entity_id)
+        return ordered
 
     def world_to_screen(self, position: tuple[float, float, float]) -> tuple[float, float]:
         """Project a render-space world point to display coordinates (snap selector)."""
@@ -1623,6 +1974,7 @@ class RoomViewport3D(QFrame):
                 color=DARK_THEME.viewport.selection_outline.hex,
                 pickable=False,
                 name=f"measure-point-{index}",
+                render=False,
             )
         if result is not None:
             if result.mode == 'distance' and len(result.endpoints) == 2:
@@ -1633,6 +1985,7 @@ class RoomViewport3D(QFrame):
                     line_width=4,
                     pickable=False,
                     name="measure-line",
+                    render=False,
                 )
             elif result.mode == 'angle' and len(result.endpoints) == 3:
                 a, v, b = result.endpoints
@@ -1643,7 +1996,9 @@ class RoomViewport3D(QFrame):
                         line_width=4,
                         pickable=False,
                         name=label,
+                        render=False,
                     )
+        self._render()
 
     def render_constraint_overlay(self, constraint_set, evaluation, *, highlight_result=None) -> None:
         """Render region polygons/wall bands/pair connectors for constraints (#486)."""
@@ -1690,6 +2045,7 @@ class RoomViewport3D(QFrame):
                     line_width=5 if is_highlighted else 2,
                     pickable=False,
                     name=f"constraint-region-{constraint.constraint_id}",
+                    render=False,
                 )
             elif isinstance(constraint, CadWallClearanceConstraint):
                 try:
@@ -1703,6 +2059,7 @@ class RoomViewport3D(QFrame):
                     line_width=6 if is_highlighted else 3,
                     pickable=False,
                     name=f"constraint-wall-{constraint.constraint_id}",
+                    render=False,
                 )
             elif isinstance(constraint, CadPairDistanceConstraint):
                 try:
@@ -1720,6 +2077,7 @@ class RoomViewport3D(QFrame):
                     line_width=5 if is_highlighted else 2,
                     pickable=False,
                     name=f"constraint-pair-{constraint.constraint_id}",
+                    render=False,
                 )
 
         # Violating entities get a red marker so a failure is spatially obvious.
@@ -1737,7 +2095,9 @@ class RoomViewport3D(QFrame):
                 color='red',
                 pickable=False,
                 name=f"constraint-violation-{entity_id}",
+                render=False,
             )
+        self._render()
 
     def render_video_overlay(self, evaluation) -> None:
         """Projector cone + sightline + collision overlays from one evaluation (#455).
@@ -1748,6 +2108,19 @@ class RoomViewport3D(QFrame):
         """
 
         if evaluation is None:
+            return
+        document = self._document
+        # Staleness guard (same contract as render_prediction_results): an
+        # evaluation computed against a previous scene revision must not draw
+        # over edited geometry — sightlines/cones would be misinformation.
+        baseline_hash = getattr(
+            getattr(evaluation, 'target', None), 'scene_content_hash', None
+        )
+        if (
+            document is not None
+            and baseline_hash is not None
+            and baseline_hash != scene_content_hash(document)
+        ):
             return
         projection = getattr(evaluation, 'projection', None)
         surface = getattr(evaluation, 'surface', None)
@@ -1765,6 +2138,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.85,
                     pickable=False,
                     name=f"video-cone-{index}",
+                    render=False,
                 )
             # Image aperture rectangle.
             ring = np.asarray(corners + [corners[0]], dtype=float)
@@ -1774,6 +2148,7 @@ class RoomViewport3D(QFrame):
                 line_width=3,
                 pickable=False,
                 name="video-aperture",
+                render=False,
             )
             if projection.optical_axis_intersection is not None:
                 self.plotter.add_mesh(
@@ -1785,12 +2160,14 @@ class RoomViewport3D(QFrame):
                     line_width=2,
                     pickable=False,
                     name="video-optical-axis",
+                    render=False,
                 )
             self.plotter.add_mesh(
                 pv.Sphere(radius=0.05, center=lens_render),
                 color=cone_color,
                 pickable=False,
                 name="video-lens",
+                render=False,
             )
 
         if surface is not None:
@@ -1807,6 +2184,7 @@ class RoomViewport3D(QFrame):
                 line_width=3,
                 pickable=False,
                 name="video-aperture",
+                render=False,
             )
             self.plotter.add_mesh(
                 pv.Sphere(
@@ -1816,6 +2194,7 @@ class RoomViewport3D(QFrame):
                 color=surface_color,
                 pickable=False,
                 name="video-display-center",
+                render=False,
             )
 
         image_center = None
@@ -1824,7 +2203,6 @@ class RoomViewport3D(QFrame):
         elif surface is not None:
             image_center = surface.image_center
 
-        document = self._document
         if document is not None and image_center is not None:
             for seat_result in evaluation.sightlines:
                 binding = next(
@@ -1860,6 +2238,7 @@ class RoomViewport3D(QFrame):
                     opacity=0.9,
                     pickable=False,
                     name=f"video-sightline-{seat_result.seat_entity_id}",
+                    render=False,
                 )
             for collision in evaluation.collisions:
                 if not collision.intersects_or_violates_clearance:
@@ -1879,7 +2258,9 @@ class RoomViewport3D(QFrame):
                     line_width=4,
                     pickable=False,
                     name=f"video-collision-{collision.entity_a}-{collision.entity_b}",
+                    render=False,
                 )
+        self._render()
 
     def render_history_ghost(self, document: SceneDocument, *, label: str | None = None) -> None:
         """Ghost a historical revision over the current scene — read-only (#485)."""
@@ -1893,6 +2274,7 @@ class RoomViewport3D(QFrame):
                 opacity=0.55,
                 pickable=False,
                 name=f"history-ghost-{entity.entity_id}",
+                render=False,
             )
         if label:
             self.plotter.add_text(
@@ -1941,6 +2323,7 @@ class RoomViewport3D(QFrame):
                 opacity=0.95 if bright else 0.7,
                 pickable=False,
                 name=name,
+                render=False,
             )
             for tag, point in (("min", low), ("max", high)):
                 actor = self.plotter.add_mesh(
@@ -1948,6 +2331,7 @@ class RoomViewport3D(QFrame):
                     color=axis_colors[axis],
                     pickable=True,
                     name=f"{name}-{tag}",
+                    render=False,
                 )
                 self._search_domain_handles[id(actor)] = (
                     entity.entity_id,
@@ -1995,6 +2379,7 @@ class RoomViewport3D(QFrame):
                 color='tomato',
                 render=False,
             )
+        self._render()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.plotter.close()
