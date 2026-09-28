@@ -2094,6 +2094,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_applicability_attestations',
     'cad_applied_preset_states',
     'cad_applied_settings',
+    'cad_auralization_artifacts',
+    'cad_auralization_render_specs',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_bass_management_profiles',
