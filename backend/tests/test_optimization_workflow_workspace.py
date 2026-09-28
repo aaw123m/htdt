@@ -199,7 +199,9 @@ def test_undo_redo_refresh_spec_trees(tmp_path, monkeypatch) -> None:
     app.processEvents()
 
 
-def test_ux140_workflow_application_binds_commands_without_legacy_qactions(monkeypatch) -> None:
+def test_ux140_workflow_application_binds_commands_without_legacy_qactions(
+    monkeypatch, tmp_path
+) -> None:
     app = _app()
     events: list[str] = []
 
@@ -259,6 +261,9 @@ def test_ux140_workflow_application_binds_commands_without_legacy_qactions(monke
     composition = object.__new__(workflow_application.WorkflowApplicationComposition)
     composition.repository = object()
     composition.document_id = "document-1"
+    composition.preferences = (
+        workflow_application.ApplicationPreferenceStore(tmp_path / "prefs.json")
+    )
     composition.registry = CommandRegistry()
     register_default_commands(composition.registry)
 

@@ -14,7 +14,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from .application_preferences import ApplicationPreferenceStore
+from .application_preferences import (
+    ApplicationPreferenceStore,
+    PreferenceChange,
+)
 from .cad_repository import SceneRepository
 from .capture_receiver import CaptureReceiverService, ReceiverDeliveryRecord
 
@@ -62,6 +65,12 @@ class CaptureReceiverController(QObject):
             )
         self.service = service
         self.last_error: str | None = None
+        self._shutdown_requested = False
+        # The preference is the single write path: Settings > キャプチャ
+        # goes through ``set_enabled`` while the 環境設定 checkbox writes
+        # the same key through ``store.set`` — apply on every committed
+        # change so both surfaces stay in sync with the live service.
+        preferences.subscribe(self._on_preference_change)
 
     # -- requested policy ------------------------------------------------
 
@@ -76,12 +85,9 @@ class CaptureReceiverController(QObject):
     def set_enabled(self, enabled: bool) -> str | None:
         """Flip the requested policy; returns an error detail on failure."""
         self.preferences.set(PREFERENCE_KEY, bool(enabled))
-        if enabled:
-            return self._start()
-        self.service.stop()
-        self.last_error = None
-        self.changed.emit()
-        return None
+        # A same-value write emits no change event; apply explicitly so a
+        # retry after a failed start still reaches the service.
+        return self._apply_requested()
 
     def set_port(self, port: int) -> str | None:
         """Update the durable port; re-binds live when already running."""
@@ -92,15 +98,44 @@ class CaptureReceiverController(QObject):
         self.changed.emit()
         return None
 
+    def _on_preference_change(self, change: PreferenceChange) -> None:
+        if self._shutdown_requested or change.key != PREFERENCE_KEY:
+            return
+        self._apply_requested()
+
+    def _apply_requested(self) -> str | None:
+        """Bring the live service in line with the requested policy."""
+        if self.requested_enabled == self.running:
+            # Panels still refresh — a foreign write can leave them stale
+            # even when the service already matches the policy.
+            self.changed.emit()
+            return self.last_error
+        if self.requested_enabled:
+            return self._start()
+        return self._stop()
+
+    def _stop(self) -> str | None:
+        try:
+            self.service.stop()
+        except Exception as exc:
+            # Never raise inside a store notification — surface it like a
+            # failed start instead.
+            self.last_error = str(exc)
+            _LOGGER.warning('capture receiver failed to stop: %s', exc)
+        else:
+            self.last_error = None
+        self.changed.emit()
+        return self.last_error
+
     # -- lifecycle --------------------------------------------------------
 
     def start_if_requested(self) -> str | None:
         """Apply the persisted policy at app startup; failures stay soft."""
-        if not self.requested_enabled:
-            return None
-        return self._start()
+        return self._apply_requested()
 
     def _start(self) -> str | None:
+        if self.running:
+            return self.last_error
         try:
             self.service.start()
         except Exception as exc:
@@ -114,6 +149,7 @@ class CaptureReceiverController(QObject):
 
     def shutdown(self) -> None:
         """Stop the socket on app exit without changing requested policy."""
+        self._shutdown_requested = True
         try:
             self.service.stop()
         except Exception as exc:

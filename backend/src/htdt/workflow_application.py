@@ -179,6 +179,7 @@ from .room_acoustics_panel import (
     RoomTreatmentPanel,
     SurfaceMaterialPanel,
 )
+from .rew_api import RewApiClient, validate_rew_api_url
 from .room_transform_input import RoomEntityTransformController
 from .room_viewport import RoomViewport3D
 from .room_workspace import RoomWorkspace, SelectionInspector
@@ -228,6 +229,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _DISPLAY_LENGTH_PREFERENCE_KEYS = frozenset(
     {'display_input.length_unit', 'display_input.numeric_precision'}
+)
+
+_REW_ENDPOINT_PREFERENCE_KEYS = frozenset(
+    {'integrations.rew_host', 'integrations.rew_port'}
 )
 
 
@@ -597,6 +602,10 @@ class WorkflowApplicationComposition:
         )
         self._apply_project_title()
         self._build_project_menu()
+        # Mounted workspaces cache their controllers — a mid-session
+        # endpoint flip reaches them through this rebind hook instead of
+        # needing a remount or restart.
+        self.preferences.subscribe(self._on_preference_change)
 
     def _language_policy(self) -> LanguagePolicy:
         """Stored language choice, guarded: unknown/stale values fall back to
@@ -722,6 +731,43 @@ class WorkflowApplicationComposition:
             ),
             project_ref=self._window_state_project_ref(),
         )
+
+    # -- REW endpoint preference (#740) -------------------------------------
+
+    def _make_rew_client(self) -> RewApiClient:
+        """REW API client bound to the persisted endpoint preference."""
+        return RewApiClient(self.preferences.rew_api_base_url())
+
+    def _on_preference_change(self, change: PreferenceChange) -> None:
+        if change.key in _REW_ENDPOINT_PREFERENCE_KEYS:
+            self._apply_rew_endpoint()
+
+    def _apply_rew_endpoint(self) -> None:
+        """Rebind mounted REW clients to the persisted endpoint.
+
+        Updating ``base_url`` in place keeps in-flight work untouched and
+        picks the new endpoint up on the next request; injected non-
+        ``RewApiClient`` test doubles are left alone.
+        """
+        try:
+            base_url = validate_rew_api_url(
+                self.preferences.rew_api_base_url()
+            )
+        except ValueError:
+            # Definition constraints make this unreachable; stay fail-closed
+            # rather than clobbering a working client with a bad URL.
+            return
+        for workspace_id in (
+            WorkspaceId.MEASUREMENT,
+            WorkspaceId.OPTIMIZATION,
+        ):
+            mount = self.shell.router.mount(workspace_id)
+            controller = getattr(
+                getattr(mount, 'widget', None), 'controller', None
+            )
+            client = getattr(controller, 'rew_client', None)
+            if isinstance(client, RewApiClient):
+                client.base_url = base_url
 
     # -- automatic backup tick (#755 round8) -------------------------------
 
@@ -2750,7 +2796,11 @@ class WorkflowApplicationComposition:
         return CommandAvailability.available()
 
     def _make_measurement(self) -> WorkspaceMount:
-        controller = MeasurementWorkflowController(self.repository, self.document_id)
+        controller = MeasurementWorkflowController(
+            self.repository,
+            self.document_id,
+            rew_client=self._make_rew_client(),
+        )
         mount = build_measurement_workspace_mount(controller)
         workspace = mount.widget
         original_activate = mount.on_activate
@@ -2804,6 +2854,7 @@ class WorkflowApplicationComposition:
             self.repository,
             self.document_id,
             on_navigate=self._navigate_target,
+            rew_client=self._make_rew_client(),
         )
         workspace = mount.widget
         controller = workspace.controller  # type: ignore[attr-defined]

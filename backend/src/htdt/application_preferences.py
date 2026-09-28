@@ -265,8 +265,11 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
         PreferenceDefinition(
             key='integrations.rew_host',
             category=PreferenceCategory.INTEGRATIONS,
-            value_type=PreferenceValueType.STRING,
+            value_type=PreferenceValueType.ENUM,
             default='127.0.0.1',
+            # The REW API consumer is loopback-only (validate_rew_api_url),
+            # so no other host is a usable value.
+            allowed_values=('127.0.0.1', 'localhost'),
             description='REW API host.',
         ),
         PreferenceDefinition(
@@ -274,7 +277,9 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             category=PreferenceCategory.INTEGRATIONS,
             value_type=PreferenceValueType.INTEGER,
             default=4735,
-            min_value=1,
+            # validate_rew_api_url accepts 1024-65535; a wider editor would
+            # persist an endpoint the client then refuses.
+            min_value=1024,
             max_value=65535,
             description='REW API port.',
         ),
@@ -351,15 +356,12 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
 #: Wire the consumer, then remove the key here.
 PENDING_PREFERENCE_KEYS: frozenset[str] = frozenset(
     {
-        'general.language',
         'general.startup_destination',
         'general.reopen_last_project',
         'display_input.angle_unit',
         'display_input.theme',
         'display_input.reduced_motion',
         'display_input.high_contrast',
-        'integrations.rew_host',
-        'integrations.rew_port',
         'compute.preferred_backend',
         'compute.max_concurrency',
         'compute.scratch_dir',
