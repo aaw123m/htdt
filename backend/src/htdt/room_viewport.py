@@ -2204,6 +2204,15 @@ class RoomViewport3D(QFrame):
             image_center = surface.image_center
 
         if document is not None and image_center is not None:
+            # The evaluator's eye positions are the authority: they carry the
+            # binding's local offset rotated into the world frame, and are None
+            # for bindings without eye authority (legacy). Recomputing the eye
+            # here from the raw local offset would ignore seat orientation and
+            # would fabricate an eye point the evaluator never produced.
+            viewing_eyes = {
+                item.seat_entity_id: item.eye_position
+                for item in getattr(evaluation, 'viewing', ())
+            }
             for seat_result in evaluation.sightlines:
                 binding = next(
                     (
@@ -2216,17 +2225,13 @@ class RoomViewport3D(QFrame):
                 if binding is None:
                     continue
                 try:
-                    seat = document.entity(seat_result.seat_entity_id)
+                    document.entity(seat_result.seat_entity_id)
                 except KeyError:
                     continue
-                eye = seat.position
-                eye_render = domain_to_render(
-                    type(eye)(
-                        x_m=eye.x_m + binding.eye_reference_offset_local_m.x_m,
-                        y_m=eye.y_m + binding.eye_reference_offset_local_m.y_m,
-                        z_m=eye.z_m + binding.eye_reference_offset_local_m.z_m,
-                    )
-                )
+                eye_position = viewing_eyes.get(seat_result.seat_entity_id)
+                if eye_position is None:
+                    continue
+                eye_render = domain_to_render(eye_position)
                 blocked = bool(seat_result.blocked_sample_ids)
                 color = 'red' if blocked or seat_result.status == 'FAIL' else (
                     'goldenrod' if seat_result.status == 'UNKNOWN' else 'seagreen'
