@@ -799,3 +799,37 @@ def test_measurement_workspace_is_page_based_and_shell_mountable(tmp_path: Path)
     second_mount.widget.deleteLater()
     workspace.deleteLater()
     app.processEvents()
+
+
+def test_import_success_notice_carries_next_step_action(tmp_path: Path) -> None:
+    """Post-import notice must not dead-end the workflow (round-13): the
+    success row includes a button that advances to the assignment page."""
+    app = _app()
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller = MeasurementWorkflowController(scene_repository, revision.document_id)
+    workspace = MeasurementPageWorkspace(controller)
+
+    assert workspace.notice_action.isHidden()
+    assert workspace.notice_row.isHidden()
+
+    controller.stage_rew_text(b"20 70\n40 71\n80 69\n", "ui-next.txt")
+    # The dialog wrapper is bypassed; drive the same success path.
+    workspace._set_notice(
+        "読み込みました。次に「割り当て」で測定点と入力役割を確認してください。",
+        None,
+        action=("割り当てへ進む", lambda: workspace.set_context("assignment")),
+    )
+    assert not workspace.notice_action.isHidden()
+    assert workspace.notice_action.text() == "割り当てへ進む"
+
+    workspace.notice_action.click()
+    app.processEvents()
+    assert workspace.current_context_id == "assignment"
+
+    # A later plain notice clears the action again.
+    workspace._set_notice("別の通知", None)
+    assert workspace.notice_action.isHidden()
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()

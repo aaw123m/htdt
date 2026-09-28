@@ -559,6 +559,10 @@ class WorkflowApplicationComposition:
                 self._announce_capture_delivery
             )
         self.shell.settingsRequested.connect(self.settings_dialog.open_settings)
+        self.shell.paletteRequested.connect(self.command_palette.open)
+        self.shell.helpRequested.connect(
+            lambda: self._open_help_topic('help.shortcuts')
+        )
         self.shell.register_close_guard(self._can_close_application)
         self.shell.workflow_application = self  # type: ignore[attr-defined]
         # Window-state persistence: restore geometry + last workspace now
@@ -1433,7 +1437,14 @@ class WorkflowApplicationComposition:
                 StaticPaletteProvider(
                     'settings',
                     PaletteResultKind.SETTINGS,
-                    settings_destinations(),
+                    # Capture settings exist only when the receiver service is
+                    # live — surfacing the entry without it would be a dead link.
+                    tuple(
+                        destination
+                        for destination in settings_destinations()
+                        if destination.destination_id != 'settings.capture'
+                        or self.capture_receiver is not None
+                    ),
                     self._open_settings_destination,
                 ),
                 StaticPaletteProvider(

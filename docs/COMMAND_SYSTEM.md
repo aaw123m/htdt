@@ -43,6 +43,11 @@ Scene保存、Undo/Redo、測定、予測、Pareto計算などのdomain authorit
 | `navigation.room` | 部屋 | — | global / room | `room` |
 | `navigation.measurements` | 測定 | — | global / measurement | `measurement` |
 | `navigation.optimization` | 最適化 | — | global / optimization | `optimization` |
+| `navigation.projects` | プロジェクト | — | global | `app/projects` |
+| `navigation.inbox` | 取り込み | — | global | `app/inbox` |
+| `navigation.activity` | アクティビティ | — | global | `app/activity` |
+| `navigation.library` | ライブラリ | — | global | `app/library` |
+| `navigation.support` | サポート | — | global | `app/support` |
 | `project.save` | 保存 | Ctrl+S | global | — |
 | `edit.undo` | 元に戻す | Ctrl+Z | global / room | — |
 | `edit.redo` | やり直す | Ctrl+Y / Ctrl+Shift+Z | global / room | — |

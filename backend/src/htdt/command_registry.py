@@ -13,7 +13,12 @@ from .availability_reasons import (
     localized_reason_message,
 )
 from .localization import PresentationLocale
-from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
+from .workflow_navigation import (
+    APPLICATION_DESTINATION_LABELS,
+    ApplicationDestinationId,
+    WorkspaceDeepLink,
+    WorkspaceId,
+)
 
 class CommandContext(StrEnum):
     GLOBAL = 'global'
@@ -390,6 +395,64 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             contexts=frozenset({CommandContext.GLOBAL, CommandContext.OPTIMIZATION}),
             keywords=('optimize', 'optimization', '候補'),
             deep_link=WorkspaceDeepLink(WorkspaceId.OPTIMIZATION),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        # Application-scope destinations: the rail is the only other route to
+        # these surfaces, so without palette entries they were unreachable by
+        # keyboard or search (round-13).
+        CommandDefinition(
+            command_id='navigation.projects',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.PROJECTS
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('projects', 'project', '切替', 'project library'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.PROJECTS),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.inbox',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.INBOX
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('inbox', 'capture', '受信', 'キャプチャ'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.INBOX),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.activity',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.ACTIVITY
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('activity', 'ジョブ', '操作履歴'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.ACTIVITY),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.library',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.LIBRARY
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('library', '機材', 'equipment', '再利用'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.LIBRARY),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.support',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.SUPPORT
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('support', 'help', 'ヘルプ', '診断', 'diagnostics'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.SUPPORT),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
             mutates_managed_data=False,
         ),
