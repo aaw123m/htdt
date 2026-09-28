@@ -26,6 +26,8 @@ exercise the seams with new tests on a Windows box
 | 7 | Extended lane leaked raw `str(exc)` into the status bar in five places (capability save, parameter evidence read, spec save, apply) and mixed English into JP surfaces (`missing capability`, `current`/`stale`, `raw N · feasible N`, `extended候補preview`). | LOW polish | FIXED — all errors route through `operation_error_message`; labels/summary JP-ified (`能力情報なし`, `最新`/`変更あり`, `総候補/有効/集合`). Base lane's `候補preview`/`1 command` strings JP-ified too. |
 | 8 | Post-apply dead-end: `apply_candidate_positions` mutates the committed working document → content hash changes → the just-used SearchSpec becomes stale, and there is no affordance to re-author the same axes on the new revision (must re-enter every axis/preset manually). | MED completeness | DEFERRED — sketch below. |
 | 9 | `find_pareto_set_by_sha` replays `_require_pareto_authority` (all evaluations + front recompute), then `save_pareto_set` replays it again — double O(evals) per view action. | LOW compute | DEFERRED — safe fix is a save-time `validated=True` fast path or an authority memo; sketch below. |
+| 10 | After apply, spec rows correctly flip to stale — but **Undo/Redo only called `_rebuild()`**, so spec/extended trees kept showing stale labels after the undo restored positions until a save or re-selection (found during E2E verification: undo restored state yet rows still read 以前の部屋). | LOW polish | FIXED — `undo()`/`redo()` now call `_refresh_search_specs()`/`_refresh_extended_specs()` like `save()` does. |
+| 11 | **Ctrl+Z/Ctrl+Y do nothing in the Optimize workspace.** `edit.undo` is bound in the command registry on activation, but `CommandShortcutBinder` — the class that materializes QShortcuts — only exists inside `CadInputController`, which only the Room workspace instantiates. Undo is reachable via the Ctrl+K palette (元に戻す), yet the apply status message advertises "Undoで全位置を復元できます" and users will hit the dead shortcut. | MED UX | DEFERRED — needs a shared binder decision (lift `CommandShortcutBinder` to the workspace mount, or bind per-workspace); sketch below. |
 
 ## What already works (verified by reading both ends)
 
@@ -104,6 +106,15 @@ all public; only the button and a `spec.stale` state join are missing.
 could hand its replayed front to a private `_persist_validated` — either
 keeps the fail-closed contract while halving comparison-view cost.
 
+### #11 Keyboard undo in Optimize
+
+`CommandShortcutBinder` lives in `command_palette.py` but is instantiated
+only inside `CadInputController` (Room workspace). The optimization mount
+(`build_optimization_workspace_mount` / workspace `activate`) would need to
+instantiate one binder against the shared registry — a ~20-line change,
+deferred because shortcut ownership between coexisting workspaces is a
+shell-level decision (Room and Optimize mounts must not both answer Ctrl+Z).
+
 ### Topology-lane per-page rescan (out of #1's diff)
 
 `cad_topology_search.py` paginates `generate_search_space` identically —
@@ -116,6 +127,15 @@ New `backend/tests/test_round9_optimizer.py` (6 tests): single-enumeration
 paging, page-concat integrity, cancel-on-cache-hit, per-spec cache keying,
 `variant_for_sha256` happy/miss/cross-document paths, tampered-row
 fail-closed. `test_joint_optimization_panel.py` updated for worker
-execution + one new test covering live UI/cancel/partial-results. Ran the
-scoped suites (search space, cad search, extended search, joint execution,
-joint optimization, panel, workflow workspace, system expansion): all pass.
+execution + one new test covering live UI/cancel/partial-results.
+`test_optimization_workflow_workspace.py::test_undo_redo_refresh_spec_trees`
+covers #10. Ran the scoped suites (search space, cad search, extended
+search, joint execution, joint optimization, panel, workflow workspace,
+system expansion): all pass.
+
+E2E on the real app (seeded synthetic demo, `--seed-synthetic-demo`):
+spec authoring → save → 401-candidate generation → prev/next paging
+consistent and instant (memo), non-mutating preview → apply in one command →
+Undo restores positions, extended tree JP labels + generation summary
+JP, joint panel renders with the new 実行を中止 button. Joint execution
+itself is untestable end-to-end until #4 is resolved.

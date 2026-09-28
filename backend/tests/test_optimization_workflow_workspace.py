@@ -168,6 +168,37 @@ def test_ux140_real_workspace_has_no_legacy_mainwindow_or_docks(tmp_path) -> Non
     app.processEvents()
 
 
+def test_undo_redo_refresh_spec_trees(tmp_path, monkeypatch) -> None:
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    workspace = OptimizationWorkflowWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeOptimizationViewport(parent),
+    )
+    calls = {"search": 0, "extended": 0}
+    monkeypatch.setattr(
+        workspace.controller,
+        "_refresh_search_specs",
+        lambda: calls.__setitem__("search", calls["search"] + 1),
+    )
+    monkeypatch.setattr(
+        workspace.controller,
+        "_refresh_extended_specs",
+        lambda: calls.__setitem__("extended", calls["extended"] + 1),
+    )
+
+    workspace.controller.scene.add_object("measurement_point")
+    assert workspace.controller.undo()
+    assert workspace.controller.redo()
+
+    assert calls == {"search": 2, "extended": 2}
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
 def test_ux140_workflow_application_binds_commands_without_legacy_qactions(monkeypatch) -> None:
     app = _app()
     events: list[str] = []
