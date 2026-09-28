@@ -153,10 +153,16 @@ def test_composition_close_persists_state_for_next_launch(
     shell.close()
     app.processEvents()
 
-    loaded = load_window_state(tmp_path / "data")
+    # Round-9: state lands per-project, not in the global file.
+    project_ref = composition.project_entry.project_id
+    assert load_window_state(tmp_path / "data") is None
+    loaded = load_window_state(
+        tmp_path / "data", project_ref=project_ref
+    )
     assert loaded is not None
     assert loaded.workspace == 'activity'
     assert loaded.geometry_b64
+    assert loaded.project_ref == project_ref
 
 
 def test_safe_mode_skips_layout_restore(tmp_path: Path) -> None:

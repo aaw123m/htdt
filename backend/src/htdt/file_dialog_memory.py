@@ -43,10 +43,15 @@ class FileDialogMemoryStore:
     Same conventions as :class:`LibraryMetaStore`: corrupt or foreign
     content degrades to empty (a remembered dir is convenience, never
     evidence), writes go through tmp + fsync + ``os.replace``.
+
+    ``path=None`` makes the store ephemeral: it still remembers within
+    the process (dialog memory works during the session) but never
+    reads or writes the filesystem — the Safe Mode shape, where
+    persisted UI state is left untouched by policy (#739).
     """
 
-    def __init__(self, path: Path) -> None:
-        self.path = Path(path)
+    def __init__(self, path: Path | None) -> None:
+        self.path = None if path is None else Path(path)
         self._dirs: dict[str, str] = {}
         self._load()
 
@@ -54,8 +59,13 @@ class FileDialogMemoryStore:
     def for_data_dir(cls, data_dir: Path) -> 'FileDialogMemoryStore':
         return cls(Path(data_dir) / FILE_DIALOG_DIRS_FILENAME)
 
+    @classmethod
+    def ephemeral(cls) -> 'FileDialogMemoryStore':
+        """In-process-only store: no restore, no persistence (safe mode)."""
+        return cls(None)
+
     def _load(self) -> None:
-        if not self.path.exists():
+        if self.path is None or not self.path.exists():
             return
         try:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
@@ -75,6 +85,8 @@ class FileDialogMemoryStore:
             }
 
     def _persist(self) -> None:
+        if self.path is None:
+            return
         payload = {
             'schema_version': SCHEMA_VERSION,
             'authority': 'htdt-file-dialog-dirs',
@@ -130,7 +142,13 @@ _fallback_store: FileDialogMemoryStore | None = None
 
 
 def configure(store: FileDialogMemoryStore) -> None:
-    """Bind the process-wide store (called once by the composition)."""
+    """Bind the process-wide store (called once by the composition).
+
+    Pass ``FileDialogMemoryStore.ephemeral()`` under Safe Mode so dialog
+    memory keeps working in-session without reading or writing the
+    persisted file — and so the tempfile fallback store below can never
+    leak state to disk either.
+    """
     global _active_store
     _active_store = store
 

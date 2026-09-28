@@ -252,7 +252,7 @@ class ProjectLibraryRepository:
         return self.get_project(project_id)
 
     def resolve_startup_document(
-        self, document_id: str | None
+        self, document_id: str | None, *, skip_last_opened: bool = False
     ) -> ProjectLibraryEntry:
         """Resolve the document the shell should open without --document-id.
 
@@ -262,12 +262,23 @@ class ProjectLibraryRepository:
         never silently binds to the legacy default document id (#781),
         which only becomes a project through the content migration path
         when it actually carries a scene.
+
+        ``skip_last_opened`` implements Safe Mode's
+        ``auto_open_last_project=False``: the last-opened project is the
+        prime suspect when the previous launch died, so the shell opens
+        the next most recent project instead — or a fresh default project
+        when the library holds only the suspect. The skipped project stays
+        in the library untouched (and its ``last_opened`` ranking keeps it
+        out of the auto-open slot until the user deliberately opens it).
         """
 
         if document_id is not None:
             entry = self.ensure_document_registered(document_id)
             return self.open_project(entry.project_id)
-        entry = self.most_recent_project()
+        recents = self.recent_projects()
+        entry = recents[1] if (skip_last_opened and len(recents) > 1) else None
+        if entry is None and not skip_last_opened:
+            entry = recents[0] if recents else None
         if entry is None:
             entry = self.create_project(DEFAULT_PROJECT_NAME)
         return self.open_project(entry.project_id)

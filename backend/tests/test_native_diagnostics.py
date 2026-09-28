@@ -222,7 +222,9 @@ class _FakeProjectLibraryRepository:
     def __init__(self, _repository) -> None:
         pass
 
-    def resolve_startup_document(self, document_id: str | None):
+    def resolve_startup_document(
+        self, document_id: str | None, *, skip_last_opened: bool = False
+    ):
         return SimpleNamespace(document_id=document_id or F1_DOCUMENT_ID)
 
 

@@ -32,10 +32,17 @@ class _FakeProjectLibraryRepository:
     """Schema-bypassing stand-in: the real library verifies the migrated
     schema, which these tests never create."""
 
-    def __init__(self, _repository) -> None:
-        pass
+    calls: list[dict] = []
 
-    def resolve_startup_document(self, document_id: str | None):
+    def __init__(self, _repository) -> None:
+        type(self).calls = []
+
+    def resolve_startup_document(
+        self, document_id: str | None, *, skip_last_opened: bool = False
+    ):
+        type(self).calls.append(
+            {'document_id': document_id, 'skip_last_opened': skip_last_opened}
+        )
         return SimpleNamespace(
             document_id=document_id or 'default-project-document'
         )
@@ -82,6 +89,8 @@ def test_default_launch_builds_workflow_shell(tmp_path: Path, monkeypatch) -> No
     assert 'workflow' in created and 'legacy' not in created
     assert created['workflow'].shown
     assert app.theme_applied
+    # Normal launches keep the most-recent-project behavior.
+    assert _FakeProjectLibraryRepository.calls[-1]['skip_last_opened'] is False
 
 
 def test_legacy_ui_flag_selects_legacy_composition(tmp_path: Path, monkeypatch) -> None:
@@ -224,6 +233,8 @@ def test_safe_mode_choice_skips_capture_and_marks_safe_mode(
     assert receiver.constructed == 0
     # Background jobs stay off under the Safe Mode policy.
     assert backups == []
+    # auto_open_last_project=False reaches the startup resolver (#739 r9).
+    assert _FakeProjectLibraryRepository.calls[-1]['skip_last_opened'] is True
 
     from htdt.startup_recovery import load_recovery_metadata
 
@@ -261,6 +272,7 @@ def test_explicit_safe_mode_flag_skips_dialog_and_capture(
     )
     assert captured_kwargs.get('safe_mode') is True
     assert receiver.constructed == 0
+    assert _FakeProjectLibraryRepository.calls[-1]['skip_last_opened'] is True
 
 
 def test_verify_data_choice_opens_data_management(
@@ -306,7 +318,7 @@ def test_launch_record_is_annotated_with_project_ref(
         native_cad,
         'ProjectLibraryRepository',
         lambda _repo: SimpleNamespace(
-            resolve_startup_document=lambda document_id: SimpleNamespace(
+            resolve_startup_document=lambda document_id, **_: SimpleNamespace(
                 document_id=document_id or 'doc-1', project_id='proj-xyz'
             )
         ),

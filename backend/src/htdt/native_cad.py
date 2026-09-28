@@ -641,8 +641,15 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # #450: resolve the project to open through the library — most recent
         # project wins, existing documents migrate in as named projects, and
         # an explicit --document-id still binds (and registers) directly.
+        # Safe Mode enforces auto_open_last_project=False: the project the
+        # previous session was bound to is the prime suspect, so it is
+        # skipped and the next project (or a fresh default) opens instead.
         project_entry = project_library.resolve_startup_document(
-            args.document_id
+            args.document_id,
+            skip_last_opened=(
+                safe_mode_policy is not None
+                and not safe_mode_policy.auto_open_last_project
+            ),
         )
         # Which project this launch committed to opening — recorded so the
         # next recovery dialog can name (and avoid) the suspect project.
