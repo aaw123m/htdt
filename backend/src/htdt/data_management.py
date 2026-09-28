@@ -92,6 +92,18 @@ _OPERATION_TITLES: dict[DataOperationKind, str] = {
 }
 
 
+def _format_bytes(value: int) -> str:
+    size = float(value)
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if size < 1024.0 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size):,} {unit}"
+            return f"{size:,.1f} {unit}"
+        size /= 1024.0
+    return f"{value:,} B"
+
+
 @dataclass(frozen=True)
 class BackupMetadata:
     backup_path: Path
@@ -152,6 +164,53 @@ class RelocationResult:
     plan: ManagedDataRelocationPlan
     destination_dir: Path
     parked_dir: Path
+
+
+def _result_summary(kind: DataOperationKind, result: object) -> str:
+    """Real outcome for the persisted Activity Center record.
+
+    Mirrors what the completion dialogs already show — destination, counts,
+    and recovery anchors — so the record a user returns to says what
+    actually happened, not just that something finished.
+    """
+    if isinstance(result, BackupCreateResult):
+        return f'バックアップを作成しました · {result.metadata.backup_path}'
+    if isinstance(result, RestoreResult):
+        summary = f'バックアップから復元しました · {result.metadata.backup_path}'
+        if result.migration_performed:
+            summary += (
+                f' · DB移行 v{result.restored_native_schema_version}'
+                f'→v{result.final_native_schema_version}'
+            )
+        if result.pre_restore_backup is not None:
+            summary += f' · 復元前バックアップ: {result.pre_restore_backup}'
+        return summary
+    if isinstance(result, RestorePreview):
+        return (
+            f'バックアップを検証しました · {result.metadata.backup_path}'
+            f'（{result.metadata.file_count} ファイル）'
+        )
+    if isinstance(result, RelocationResult):
+        return (
+            f'データフォルダを {result.destination_dir} に移動しました'
+            f'（退避先: {result.parked_dir}）'
+        )
+    if isinstance(result, StorageGcResult):
+        summary = (
+            f'{result.deleted_files} 件の孤立アセットを削除し、'
+            f'{_format_bytes(result.freed_bytes)} を回収しました'
+        )
+        if result.skipped_digests:
+            summary += f'（スキップ {len(result.skipped_digests)} 件）'
+        return summary
+    if isinstance(result, StorageReport):
+        if result.orphan_candidates:
+            return (
+                f'削除候補 {len(result.orphan_candidates)} 件 / '
+                f'{_format_bytes(result.reclaimable_bytes)} を回収可能'
+            )
+        return 'スキャンが完了しました · 削除候補はありません'
+    return f'{_OPERATION_TITLES[kind]}が完了しました'
 
 
 @dataclass(frozen=True)
@@ -858,7 +917,7 @@ class DataManagementController(QObject):
             try:
                 self.activity_center.complete(
                     active.operation_id,
-                    result_summary=f'{_OPERATION_TITLES[active.kind]}が完了しました',
+                    result_summary=_result_summary(active.kind, result),
                 )
             except OperationTransitionError:
                 pass

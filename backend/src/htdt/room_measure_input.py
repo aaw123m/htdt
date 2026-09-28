@@ -89,6 +89,8 @@ class RoomMeasureController(QObject):
         self.result = None
         self.measurementChanged.emit(None)
         self.stateChanged.emit()
+        # stateChanged leaves the stale click-to-measure prompt otherwise.
+        self.workspace._set_status("計測を中止しました")
         self.workspace.refresh()
 
     def set_mode(self, mode: str) -> None:
@@ -207,6 +209,14 @@ class RoomMeasureController(QObject):
                 a, b = self._endpoints[:2]
                 self.result = build_distance_result(a, b)
             self.measurementChanged.emit(self.result)
+            self.stateChanged.emit()
+            # Later clicks only append to _endpoints without changing the
+            # result — stop prompting for endpoints once it is computed.
+            self.workspace._set_status(
+                "計測結果を表示しました · 新しい計測は「計測開始」で開始"
+            )
+            self._render()
+            return
         self.stateChanged.emit()
         self._render()
 
