@@ -8,7 +8,12 @@ import zipfile
 
 import pytest
 
-from htdt.database import SCHEMA_VERSION, Store, canonical_json_sha256
+from htdt.database import (
+    SCHEMA_VERSION,
+    Store,
+    canonical_json_sha256,
+    dataset_row_sha256,
+)
 from htdt.migration_guard import MigrationOpenError
 
 
@@ -104,6 +109,43 @@ def _create_v4_root(root: Path, *, hashless_constraint_set: bool = False) -> Pat
     return root
 
 
+def _create_v5_root(root: Path) -> Path:
+    """v5 store: current tables minus the v6 ``datasets.dataset_sha256`` column."""
+    root = _create_v4_root(root)
+    asset_bytes = b'v5-measurement-blob'
+    digest = hashlib.sha256(asset_bytes).hexdigest()
+    relative = f'assets/{digest}.bin'
+    (root / relative).write_bytes(asset_bytes)
+    db = sqlite3.connect(root / 'htdt.sqlite3')
+    try:
+        db.executescript('''
+        CREATE TABLE search_specs (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+            context_id TEXT NOT NULL REFERENCES contexts(id),
+            constraint_set_id TEXT NOT NULL REFERENCES constraint_sets(id),
+            name TEXT, spec_json TEXT NOT NULL, spec_sha256 TEXT NOT NULL, created_at TEXT NOT NULL
+        );
+        INSERT INTO contexts(id, project_id, revision_number, parent_context_id, created_at, payload_json)
+            VALUES ('c1','p1',1,NULL,'2026-09-15T00:00:00+00:00','{}');
+        INSERT INTO measurements(id, project_id, context_id, channel_role, evidence_type,
+            source_speaker_ids_json, radiation_scope, imported_at)
+            VALUES ('m1','p1','c1','front_left','measured','[]','single','2026-09-15T00:00:00+00:00');
+        UPDATE metadata SET value='5' WHERE key='schema_version';
+        ''')
+        db.execute(
+            'INSERT INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
+            (digest, relative, 'a.frd', len(asset_bytes), '2026-09-15T00:00:00+00:00'),
+        )
+        db.execute(
+            'INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            ('d1', 'm1', digest, 'frequency_response', b'\x00', b'\x01', None, '{}', '2026-09-15T00:00:00+00:00'),
+        )
+        db.commit()
+    finally:
+        db.close()
+    return root
+
+
 def _schema_version(root: Path) -> int:
     db = sqlite3.connect(root / 'htdt.sqlite3')
     try:
@@ -117,7 +159,7 @@ def test_v1_open_creates_pre_migration_backup_before_upgrade(tmp_path: Path) -> 
 
     store = Store(root)
 
-    assert SCHEMA_VERSION == 5
+    assert SCHEMA_VERSION == 6
     assert _schema_version(root) == SCHEMA_VERSION
     assert store.migrated_from_schema_version == 1
     assert store.pre_migration_backup.is_file()
@@ -172,7 +214,7 @@ def test_v3_open_adds_empty_constraint_sets_table_after_pre_migration_backup(tmp
 
     store = Store(root)
 
-    assert _schema_version(root) == SCHEMA_VERSION == 5
+    assert _schema_version(root) == SCHEMA_VERSION == 6
     assert store.migrated_from_schema_version == 3
     assert store.list_constraint_sets('p1') == []
     with store.connect() as db:
@@ -195,7 +237,7 @@ def test_v3_open_adds_empty_constraint_sets_table_after_pre_migration_backup(tmp
 def test_v4_open_adds_empty_search_specs_after_pre_migration_backup(tmp_path: Path) -> None:
     root = _create_v4_root(tmp_path / 'legacy-v4')
     store = Store(root)
-    assert _schema_version(root) == SCHEMA_VERSION == 5
+    assert _schema_version(root) == SCHEMA_VERSION == 6
     assert store.migrated_from_schema_version == 4
     assert store.list_search_specs('p1') == []
     with store.connect() as db:
@@ -203,7 +245,7 @@ def test_v4_open_adds_empty_search_specs_after_pre_migration_backup(tmp_path: Pa
     assert 'search_specs' in tables
     with zipfile.ZipFile(store.pre_migration_backup, 'r') as archive:
         manifest = json.loads(archive.read('manifest.json'))
-        assert manifest == {'reason': 'pre_migration', 'schema_version': 4, 'target_schema_version': 5}
+        assert manifest == {'reason': 'pre_migration', 'schema_version': 4, 'target_schema_version': SCHEMA_VERSION}
 
 
 def test_v4_hashless_constraint_set_is_normalized_before_v5_integrity_check(tmp_path: Path) -> None:
@@ -224,6 +266,40 @@ def test_v4_hashless_constraint_set_is_normalized_before_v5_integrity_check(tmp_
         assert 'spec_sha256' not in legacy_columns
     finally:
         legacy.close()
+
+
+def test_v5_open_backfills_dataset_sha256_after_pre_migration_backup(tmp_path: Path) -> None:
+    root = _create_v5_root(tmp_path / 'legacy-v5')
+    store = Store(root)
+    assert _schema_version(root) == SCHEMA_VERSION == 6
+    assert store.migrated_from_schema_version == 5
+    with store.connect() as db:
+        columns = {row[1] for row in db.execute('PRAGMA table_info(datasets)')}
+        assert 'dataset_sha256' in columns
+        row = db.execute(
+            "SELECT dataset_sha256 FROM datasets WHERE id='d1'"
+        ).fetchone()
+    assert row is not None
+    # Backfill is the real row hash, not a placeholder.
+    db2 = sqlite3.connect(root / 'htdt.sqlite3')
+    try:
+        blobs = db2.execute(
+            "SELECT kind, frequency_blob, level_blob, phase_blob, metadata_json FROM datasets WHERE id='d1'"
+        ).fetchone()
+    finally:
+        db2.close()
+    assert row[0] == dataset_row_sha256(*blobs)
+    with zipfile.ZipFile(store.pre_migration_backup, 'r') as archive:
+        manifest = json.loads(archive.read('manifest.json'))
+        assert manifest == {'reason': 'pre_migration', 'schema_version': 5, 'target_schema_version': SCHEMA_VERSION}
+        snapshot = tmp_path / 'snapshot-v5.sqlite3'
+        snapshot.write_bytes(archive.read('htdt.sqlite3'))
+    snapshot_db = sqlite3.connect(snapshot)
+    try:
+        legacy_columns = {r[1] for r in snapshot_db.execute('PRAGMA table_info(datasets)')}
+        assert 'dataset_sha256' not in legacy_columns
+    finally:
+        snapshot_db.close()
 
 
 def test_failed_migration_restores_v1_database_and_raw_assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

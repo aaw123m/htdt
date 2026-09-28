@@ -95,7 +95,9 @@ def build_report_payload(
     }
 
 
-def _svg_chart(result: dict[str, Any], t: dict[str, str]) -> str:
+def _svg_chart(result: dict[str, Any], t: dict[str, str] | None = None) -> str:
+    if t is None:
+        t = _REPORT_STRINGS['en']
     raw_grid = result.get('grid_hz')
     raw_a = result.get('a_db')
     raw_b = result.get('b_db')

@@ -895,7 +895,9 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
                 'フィルタ書き出し',
                 'generic biquad',
             ),
-            mutates_managed_data=False,
+            # export_settings persists the export snapshot + 'exported'
+            # lifecycle event — a file-only command this is not.
+            mutates_managed_data=True,
         ),
     )
 
