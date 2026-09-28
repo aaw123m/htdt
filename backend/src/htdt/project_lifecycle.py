@@ -125,6 +125,10 @@ class DeletionBlocker(BaseModel):
         'unknown_project',
     ]
     detail: str = Field(min_length=1)
+    #: Subject count the kind describes — lets the UI localize the blocker
+    #: without parsing the (diagnostic) English detail. 0 for state
+    #: blockers that name no countable subject.
+    count: int = Field(default=0, ge=0)
 
 
 class ProjectDeletionPlan(BaseModel):
@@ -796,6 +800,7 @@ class ProjectLibrary:
                         f'{descendants} project(s) were cloned from this '
                         'project; retire them first'
                     ),
+                    count=descendants,
                 )
             )
         if pending_missions:
@@ -806,6 +811,7 @@ class ProjectLibrary:
                         f'{pending_missions} capture mission package(s) still '
                         'target this project; cancel or retire them first'
                     ),
+                    count=pending_missions,
                 )
             )
         if pending_inbox:
@@ -816,6 +822,7 @@ class ProjectLibrary:
                         f'{pending_inbox} capture inbox item(s) are still '
                         'pending in this project scope'
                     ),
+                    count=pending_inbox,
                 )
             )
 

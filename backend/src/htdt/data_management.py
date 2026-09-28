@@ -23,6 +23,7 @@ from .data_relocation import (
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from .automatic_backup import AutomaticBackupScheduler
 from .cad_schema import (
     NATIVE_SCHEMA_VERSION,
     NativeSchemaCompatibility,
@@ -223,6 +224,13 @@ class DataManagementBackend:
     def create_backup(self, destination: Path) -> BackupCreateResult:
         destination = Path(destination)
         manifest = native_create_backup(self.data_dir, destination)
+        # The manual generation already covers the current data, so the
+        # automatic scheduler must not archive the same bytes again on its
+        # next tick — best-effort mark, never gates the backup itself.
+        try:
+            AutomaticBackupScheduler(self.data_dir).record_external_generation()
+        except Exception:  # noqa: BLE001
+            pass
         # The live database is the snapshot source, so its stored version is
         # the version the archive actually contains — the manifest field was
         # verified against the staged snapshot during creation.

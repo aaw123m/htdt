@@ -392,6 +392,11 @@ class OptimizationWorkflowWorkspace(QWidget):
         self._optimization_stack.setCurrentWidget(self._optimization_pages[page_id])
         if page_id == "setup":
             self.search_domain_preview.refresh()
+            # The joint panel gates its create/run actions on the latest
+            # robustness spec — refresh whenever the setup page shows so a
+            # spec authored this session is picked up without an app restart.
+            if getattr(self, 'joint_optimization_panel', None) is not None:
+                self.joint_optimization_panel.refresh()
         if page_id == "robustness":
             self.controller.refresh_robustness_view()
             if getattr(self, 'robustness_authoring_panel', None) is not None:
@@ -438,6 +443,8 @@ class OptimizationWorkflowWorkspace(QWidget):
 
     def refresh_from_authorities(self) -> None:
         self.controller.refresh_from_authorities()
+        if getattr(self, 'joint_optimization_panel', None) is not None:
+            self.joint_optimization_panel.refresh()
         if hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
         if hasattr(self, "system_expansion_measurement_panel"):
