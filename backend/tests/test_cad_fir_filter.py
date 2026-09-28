@@ -219,6 +219,30 @@ def test_materialization_resample_is_band_limited() -> None:
     assert spec_out[peak_bin] == pytest.approx(n_out / 2.0, rel=0.05)
 
 
+def test_materialization_pcm_clamps_to_representable_range() -> None:
+    # Signed PCM saturates one LSB below +full scale: a +1.0 tap is not
+    # representable in int16 (max 32767/32768) or int24 and must clamp,
+    # not silently land on an overflow value labeled as PCM.
+    artifact = build_fir_filter_artifact(
+        filter_class='mixed_phase',
+        sample_rate_hz=48000.0,
+        taps=(0.5, 1.0, -1.0, 0.25),
+        tap_format='float64',
+        channel_id='FL',
+        time_reference_sample=0,
+        source_producer='test',
+        source_version='1',
+    )
+    pcm16, _ = materialize_fir_artifact(artifact, tap_format='pcm16')
+    assert pcm16.taps == pytest.approx(
+        (0.5, 1.0 - 1.0 / 32768.0, -1.0, 0.25)
+    )
+    pcm24, _ = materialize_fir_artifact(artifact, tap_format='pcm24')
+    assert pcm24.taps == pytest.approx(
+        (0.5, 1.0 - 1.0 / 8388608.0, -1.0, 0.25)
+    )
+
+
 def test_materialization_rescales_time_reference_sample() -> None:
     # time_reference_sample marks a physical instant: after a rate change
     # its index must scale with the resample ratio, not clamp the source

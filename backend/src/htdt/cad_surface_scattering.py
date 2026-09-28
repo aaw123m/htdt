@@ -337,8 +337,8 @@ def ga_scatter_fraction(
         return None
     if not evidence.values:
         return None
-    # Deterministic reduction to one scalar: band-center-weighted mean is a
-    # declared reduced model, not a hidden conversion.
+    # Deterministic reduction to one scalar: an unweighted mean across the
+    # declared bands is a declared reduced model, not a hidden conversion.
     return sum(evidence.values) / len(evidence.values)
 
 

@@ -165,6 +165,116 @@ def test_damping_factor_derived_keeps_reference():
     assert not amp.supports_complex_transfer
 
 
+def test_damping_factor_derived_resolves_only_at_reference_frequency():
+    # The DF figure is exact at its declared reference frequency — it is
+    # not a broadband constant, so off-reference lookups fail closed.
+    amp = _amp(
+        tier='damping_factor_derived',
+        scalar_ohm=None,
+        damping_factor=400.0,
+        damping_factor_reference_load_ohm=8.0,
+        damping_factor_reference_frequency_hz=50.0,
+    )
+    assert amp.magnitude_at(50.0) == pytest.approx(0.02)
+    assert amp.magnitude_at(49.9) is None
+    assert amp.magnitude_at(100.0) is None
+    assert amp.magnitude_at(20000.0) is None
+
+    result = evaluate_speaker_level_transfer(
+        path=_path(load_impedance_ids=('load-mag',)),
+        amplifier_impedance=amp,
+        cable_profile=_cable(),
+        load_impedances=(_magnitude_load(),),
+        frequencies_hz=(40.0, 50.0, 60.0),
+    )
+    assert result.status == 'computed_magnitude'
+    assert len(result.points) == 1
+    assert result.points[0].frequency_hz == pytest.approx(50.0)
+    assert sum(
+        'not defined at this frequency' in reason
+        for reason in result.reasons
+    ) == 2
+
+
+def test_declared_nearest_interpolation_is_honored():
+    nearest_amp = _amp(
+        tier='magnitude_curve',
+        scalar_ohm=None,
+        samples=(
+            ImpedanceSample(frequency_hz=100.0, magnitude_ohm=8.0),
+            ImpedanceSample(frequency_hz=200.0, magnitude_ohm=4.0),
+        ),
+        interpolation='nearest',
+    )
+    assert nearest_amp.magnitude_at(160.0) == pytest.approx(4.0)
+    assert nearest_amp.magnitude_at(140.0) == pytest.approx(8.0)
+    assert nearest_amp.magnitude_at(150.0) == pytest.approx(8.0)  # tie -> lower
+
+    linear_amp = _amp(
+        tier='magnitude_curve',
+        scalar_ohm=None,
+        samples=(
+            ImpedanceSample(frequency_hz=100.0, magnitude_ohm=8.0),
+            ImpedanceSample(frequency_hz=200.0, magnitude_ohm=4.0),
+        ),
+        interpolation='linear',
+    )
+    assert linear_amp.magnitude_at(160.0) == pytest.approx(5.6)
+    assert linear_amp.magnitude_at(150.0) == pytest.approx(6.0)
+
+
+def test_complex_curve_declared_nearest_interpolation_is_honored():
+    amp = _amp(
+        tier='complex_curve',
+        scalar_ohm=None,
+        samples=(
+            ImpedanceSample(frequency_hz=100.0, real_ohm=8.0, imag_ohm=0.0),
+            ImpedanceSample(frequency_hz=200.0, real_ohm=4.0, imag_ohm=2.0),
+        ),
+        interpolation='nearest',
+    )
+    assert amp.complex_at(160.0) == pytest.approx(complex(4.0, 2.0))
+    assert amp.magnitude_at(160.0) == pytest.approx(
+        abs(complex(4.0, 2.0))
+    )
+
+    nearest_load = build_speaker_impedance_authority(
+        impedance_id='load-near',
+        version='1',
+        equipment_definition=_definition('spk-near'),
+        tier='complex_curve',
+        nominal_impedance_ohm=8.0,
+        minimum_impedance_ohm=4.0,
+        minimum_frequency_hz=1000.0,
+        samples=(
+            ImpedanceSample(frequency_hz=100.0, real_ohm=8.0, imag_ohm=0.0),
+            ImpedanceSample(frequency_hz=200.0, real_ohm=4.0, imag_ohm=2.0),
+        ),
+        interpolation='nearest',
+        valid_frequency_domain=DOMAIN,
+        provenance=_provenance('load-near', '5'),
+    )
+    result = evaluate_speaker_level_transfer(
+        path=_path(load_impedance_ids=('load-near',)),
+        amplifier_impedance=_amp(scalar_ohm=1.0),
+        cable_profile=_cable(series_resistance_ohm_per_m=0.0),
+        load_impedances=(nearest_load,),
+        frequencies_hz=(160.0,),
+        source_voltage_v=1.0,
+    )
+    assert result.status == 'computed_complex'
+    assert len(result.points) == 1
+    # nearest sample at 160 Hz is the 200 Hz point: z_load = 4 + 2j;
+    # linear would produce z_load = 5.6 + 1.2j and a different transfer.
+    transfer = complex(4.0, 2.0) / complex(5.0, 2.0)
+    assert result.points[0].voltage_transfer_real == pytest.approx(
+        transfer.real
+    )
+    assert result.points[0].voltage_transfer_imag == pytest.approx(
+        transfer.imag
+    )
+
+
 def test_amplifier_tier_field_contracts():
     with pytest.raises(ValidationError):
         _amp(tier='scalar', scalar_ohm=None)

@@ -707,7 +707,14 @@ def _matrix_conditioning(
         - 4.0 * abs_determinant * abs_determinant,
     )
     lambda_max = 0.5 * (frobenius_squared + sqrt(discriminant))
-    lambda_min = 0.5 * (frobenius_squared - sqrt(discriminant))
+    # lambda_min through the product identity lmax*lmin = |det|^2: the
+    # difference of two near-equal terms cancels the small eigenvalue's
+    # significant digits and underestimates the condition number.
+    lambda_min = (
+        abs_determinant * abs_determinant / lambda_max
+        if lambda_max > 0.0
+        else 0.0
+    )
     if lambda_min <= 0.0:
         condition_number = float('inf')
     else:
