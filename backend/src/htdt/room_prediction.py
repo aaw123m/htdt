@@ -1284,9 +1284,17 @@ class RoomPredictionPanel(QWidget):
 
         form = QFormLayout()
         self.model = QComboBox()
+        self.model.setMinimumContentsLength(12)
+        self.model.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.model.currentIndexChanged.connect(self._option_changed)
         form.addRow("モデル", self.model)
         self.receiver = QComboBox()
+        self.receiver.setMinimumContentsLength(12)
+        self.receiver.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.receiver.currentIndexChanged.connect(self._option_changed)
         form.addRow("受音点", self.receiver)
         self.max_mode = QDoubleSpinBox()
@@ -1295,6 +1303,10 @@ class RoomPredictionPanel(QWidget):
         self.max_mode.setSuffix(" Hz")
         form.addRow("モード上限", self.max_mode)
         self.environment = QComboBox()
+        self.environment.setMinimumContentsLength(12)
+        self.environment.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.environment.currentIndexChanged.connect(self._environment_changed)
         form.addRow("環境", self.environment)
         env_row = QHBoxLayout()
@@ -1304,13 +1316,19 @@ class RoomPredictionPanel(QWidget):
         env_row.addStretch(1)
         form.addRow("", env_row)
         self.source_receiver = QCheckBox(
-            "診断: 音源(speaker)を受音点として使う"
+            "診断: 音源を受音点として使う"
         )
         self.source_receiver.setToolTip(
             "診断/authoring専用モードです — speakerの音響基準点はリスニング位置ではありません"
         )
         self.source_receiver.toggled.connect(lambda _checked: self.refresh())
         form.addRow("", self.source_receiver)
+        diagnostic_note = QLabel(
+            "speakerの音響基準点はリスニング位置ではありません。"
+        )
+        diagnostic_note.setWordWrap(True)
+        set_typography_role(diagnostic_note, TypographyRole.SECONDARY)
+        form.addRow("", diagnostic_note)
         self.option_state = QLabel()
         self.option_state.setWordWrap(True)
         set_typography_role(self.option_state, TypographyRole.SECONDARY)

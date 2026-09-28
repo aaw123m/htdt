@@ -953,7 +953,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         layout.addWidget(metrics_card)
         layout.addWidget(pareto_card, 1)
-        return body
+        return _scroll_page(body)
 
     def _build_robustness_page(self, viewport_widget: QWidget) -> QWidget:
         body = QWidget()

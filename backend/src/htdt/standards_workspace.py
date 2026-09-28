@@ -341,11 +341,21 @@ class StandardsCriterionPanel(QFrame):
 
         self.profile_combo = QComboBox()
         self.profile_combo.setAccessibleName("規格プロファイル")
+        # Long profile names must not widen the dock — cap the size hint;
+        # the popup still shows full text.
+        self.profile_combo.setMinimumContentsLength(12)
+        self.profile_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.profile_combo.currentIndexChanged.connect(self._profile_changed)
         layout.addWidget(self.profile_combo)
 
         self.target_combo = QComboBox()
         self.target_combo.setAccessibleName("規格ターゲット")
+        self.target_combo.setMinimumContentsLength(12)
+        self.target_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.target_combo.currentIndexChanged.connect(self.refresh)
         layout.addWidget(self.target_combo)
 

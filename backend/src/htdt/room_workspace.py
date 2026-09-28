@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol, cast
 from uuid import uuid4
 
-from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -2364,7 +2364,6 @@ class Vector3Editor(QFrame):
     """
 
     AXES: tuple[str, ...] = ('X', 'Y', 'Z')
-    _WIDE_BREAKPOINT = 278
 
     def __init__(
         self,
@@ -2409,8 +2408,23 @@ class Vector3Editor(QFrame):
         outer.addWidget(self._unknown_label)
         self._baseline_display: tuple[float, float, float] | None = None
 
+    def minimumSizeHint(self) -> QSize:
+        # The stacked arrangement is the floor — the wide row reflows away
+        # under the inspector's dock width, so it must not inflate the hint.
+        w = max(group.minimumSizeHint().width() for group in self._groups)
+        h = sum(
+            group.minimumSizeHint().height() for group in self._groups
+        ) + self._grid.verticalSpacing() * (len(self._groups) - 1)
+        return QSize(w, h + self.layout().spacing())
+
+    def _wide_minimum(self) -> int:
+        """Width at which the 3-in-a-row arrangement actually fits."""
+        return sum(
+            group.minimumSizeHint().width() for group in self._groups
+        ) + self._grid.horizontalSpacing() * (len(self._groups) - 1)
+
     def _relayout(self) -> None:
-        wide = self.width() >= self._WIDE_BREAKPOINT
+        wide = self.width() >= self._wide_minimum()
         for index, group in enumerate(self._groups):
             if wide:
                 self._grid.addWidget(group, 0, index)
@@ -3824,6 +3838,8 @@ class RoomWorkspace(QWidget):
         self.transform_input = None
         self.geometry_panel: QWidget | None = None
         self.acoustics_panel: QWidget | None = None
+        self._geometry_page: QScrollArea | None = None
+        self._acoustics_page: QScrollArea | None = None
         self.prediction_results: tuple = ()
         # Spatial link of the selected interpretation finding (Issue #469).
         self.prediction_focus: PredictionSpatialLink | None = None
@@ -3927,7 +3943,7 @@ class RoomWorkspace(QWidget):
         self.objects_page = QScrollArea()
         self.objects_page.setWidgetResizable(True)
         self.objects_page.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.objects_page.setFrameShape(QFrame.Shape.NoFrame)
         self.objects_page.setWidget(objects_body)
@@ -3971,7 +3987,7 @@ class RoomWorkspace(QWidget):
         self.placement_panel = QScrollArea()
         self.placement_panel.setWidgetResizable(True)
         self.placement_panel.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.placement_panel.setFrameShape(QFrame.Shape.NoFrame)
         self.placement_panel.setWidget(placement_body)
@@ -3992,7 +4008,7 @@ class RoomWorkspace(QWidget):
         self.history_page = QScrollArea()
         self.history_page.setWidgetResizable(True)
         self.history_page.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self.history_page.setFrameShape(QFrame.Shape.NoFrame)
         self.history_page.setWidget(self.history_body)
@@ -4058,25 +4074,38 @@ class RoomWorkspace(QWidget):
     def attach_transform_input(self, controller) -> None:
         self.transform_input = controller
 
+    def _dock_scroll_page(self, panel: QWidget) -> QScrollArea:
+        """Stack page chrome shared by the dock pages: resizable, frameless,
+        and honestly scrollable when the content outgrows the dock width."""
+
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        page.setFrameShape(QFrame.Shape.NoFrame)
+        page.setWidget(panel)
+        return page
+
     def attach_geometry_panel(self, panel: QWidget) -> None:
-        if self.geometry_panel is not None:
-            self.right_stack.removeWidget(self.geometry_panel)
-            self.geometry_panel.setParent(None)
+        if self._geometry_page is not None:
+            self.right_stack.removeWidget(self._geometry_page)
+            self._geometry_page.setParent(None)
         self.geometry_panel = panel
-        panel.setParent(self.right_stack)
-        self.right_stack.addWidget(panel)
+        self._geometry_page = self._dock_scroll_page(panel)
+        self.right_stack.addWidget(self._geometry_page)
         if self.current_context == "geometry":
-            self.right_stack.setCurrentWidget(panel)
+            self.right_stack.setCurrentWidget(self._geometry_page)
 
     def attach_acoustics_panel(self, panel: QWidget) -> None:
-        if self.acoustics_panel is not None:
-            self.right_stack.removeWidget(self.acoustics_panel)
-            self.acoustics_panel.setParent(None)
+        if self._acoustics_page is not None:
+            self.right_stack.removeWidget(self._acoustics_page)
+            self._acoustics_page.setParent(None)
         self.acoustics_panel = panel
-        panel.setParent(self.right_stack)
-        self.right_stack.addWidget(panel)
+        self._acoustics_page = self._dock_scroll_page(panel)
+        self.right_stack.addWidget(self._acoustics_page)
         if self.current_context == "acoustics":
-            self.right_stack.setCurrentWidget(panel)
+            self.right_stack.setCurrentWidget(self._acoustics_page)
 
     def set_prediction_results(self, results: object) -> None:
         self.prediction_results = results if isinstance(results, tuple) else ()
@@ -5120,8 +5149,8 @@ class RoomWorkspace(QWidget):
         self.tools.set_context(context_id)
         self._palette_user_open = False
         self._update_responsive_layout()
-        if context_id == "geometry" and self.geometry_panel is not None:
-            self.right_stack.setCurrentWidget(self.geometry_panel)
+        if context_id == "geometry" and self._geometry_page is not None:
+            self.right_stack.setCurrentWidget(self._geometry_page)
             refresh = getattr(self.geometry_panel, "refresh", None)
             if callable(refresh):
                 refresh()
@@ -5137,8 +5166,8 @@ class RoomWorkspace(QWidget):
             self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
-            if self.acoustics_panel is not None:
-                self.right_stack.setCurrentWidget(self.acoustics_panel)
+            if self._acoustics_page is not None:
+                self.right_stack.setCurrentWidget(self._acoustics_page)
                 refresh = getattr(self.acoustics_panel, "refresh", None)
                 if callable(refresh):
                     refresh()
