@@ -304,27 +304,41 @@ def test_successful_gui_startup_unchanged(
 def test_lock_contention_is_visible_for_gui_launch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
 ) -> None:
+    """Round9 #10: a bare second GUI launch forwards an activation intent
+    and exits cleanly — contention is logged + reported as information,
+    no longer a hard failure."""
     data_dir = tmp_path / "data"
     guard = SingleInstanceGuard(data_dir)
     assert guard.acquire()
-    reported: list[dict] = []
+    notified: list = []
     monkeypatch.setattr(
-        native_cad, "report_launch_failure", lambda **kwargs: reported.append(kwargs)
+        native_cad,
+        "_notify_instance_active",
+        lambda _diagnostics: notified.append(1),
+    )
+    monkeypatch.setattr(
+        native_cad,
+        "report_launch_failure",
+        lambda **kwargs: pytest.fail(
+            f"forwarded launch must not report failure: {kwargs}"
+        ),
     )
     try:
-        assert native_cad.main(["--data-dir", str(data_dir)]) == 2
+        assert native_cad.main(["--data-dir", str(data_dir)]) == 0
     finally:
         guard.release()
 
-    assert len(reported) == 1
-    assert reported[0]["title"] == "HTDTはすでに起動しています"
-    assert "使用中" in reported[0]["reason"]
-    assert reported[0]["log_path"] == data_dir / "diagnostics" / LOG_FILENAME
+    assert notified == [1]
+
+    from htdt.launch_intents import drain_launch_intents
+
+    (queued,) = drain_launch_intents(data_dir)
+    assert queued.intent.kind == 'activate'
 
     captured = capsys.readouterr()
-    assert "使用中" in captured.err
+    assert "転送" in captured.err
 
-    text = _log_text(reported[0]["log_path"])
+    text = _log_text(data_dir / "diagnostics" / LOG_FILENAME)
     assert "already in use by another process" in text
 
 

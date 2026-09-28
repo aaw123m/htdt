@@ -134,6 +134,54 @@ def test_restore_only_recommended_for_data_relevant_failures() -> None:
     assert 'verify_data' in data.choices
 
 
+def test_restore_backup_choice_requires_backups_and_data_failure() -> None:
+    """Round9 #11: 'restore_backup' is offered only when it can succeed."""
+
+    # Data-relevant failure + existing generations -> offered.
+    decision = decide_launch(
+        unclean_previous_session=True,
+        metadata=RecoveryMetadata(),
+        build_id='b1',
+        failure_class='project_data',
+        backup_restore_available=True,
+    )
+    assert 'restore_backup' in decision.choices
+    assert 'verify_data' in decision.choices
+    assert decision.backup_restore_available
+
+    # Same failure class but nothing to restore -> never offered.
+    no_backups = decide_launch(
+        unclean_previous_session=True,
+        metadata=RecoveryMetadata(),
+        build_id='b1',
+        failure_class='project_data',
+        backup_restore_available=False,
+    )
+    assert 'restore_backup' not in no_backups.choices
+    assert 'verify_data' in no_backups.choices
+
+    # Backups exist but the crash was renderer/config class -> restore is
+    # not the relevant first step.
+    renderer = decide_launch(
+        unclean_previous_session=True,
+        metadata=RecoveryMetadata(),
+        build_id='b1',
+        failure_class='renderer_initialization',
+        backup_restore_available=True,
+    )
+    assert 'restore_backup' not in renderer.choices
+    assert 'verify_data' not in renderer.choices
+
+    # Normal launch: no dialog at all regardless of available backups.
+    normal = decide_launch(
+        unclean_previous_session=False,
+        metadata=RecoveryMetadata(),
+        build_id='b1',
+        backup_restore_available=True,
+    )
+    assert normal.choices == ()
+
+
 def test_renderer_failure_detected_also_offers_recovery() -> None:
     decision = decide_launch(
         unclean_previous_session=False,

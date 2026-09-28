@@ -315,3 +315,55 @@ def test_busy_progress_failure_and_restart_required_are_presented(
     assert widget.preview_metadata.isHidden()
 
     component.close()
+
+
+def test_saved_generations_are_browsable_and_previewable(
+    app: QApplication,
+    tmp_path: Path,
+) -> None:
+    """Round9 audit: the data-management page lists restorable generations
+    directly instead of making the user hunt for the archive file."""
+
+    data_dir = tmp_path / "data"
+    generations_dir = tmp_path / "data-backups"
+    generations_dir.mkdir(parents=True)
+    newest = generations_dir / (
+        "htdt-backup-manual-20260901T000000Z-abcd1234.htdt-backup"
+    )
+    newest.write_bytes(b"newest")
+    (generations_dir / "unrelated.txt").write_text("noise")
+
+    controller = _FakeController(data_dir)
+    component = build_data_management_component(controller)
+    widget = component.widget
+
+    assert not widget.generations_row.isHidden()
+    assert widget.generations_combo.count() == 1
+    assert widget.generations_combo.itemText(0) == newest.name
+
+    widget.generation_restore_button.click()
+
+    # The picked generation goes through the same preview->confirm->
+    # restore pipeline as a file-picked archive.
+    assert controller.preview_requests == [newest]
+    assert widget.generation_restore_button.isEnabled()
+    assert not widget.restore_button.isEnabled()
+
+    controller.restore_preview_ready.emit(_preview(newest))
+    assert widget.restore_button.isEnabled()
+
+    component.close()
+
+
+def test_generations_row_hides_when_nothing_is_saved(
+    app: QApplication,
+    tmp_path: Path,
+) -> None:
+    controller = _FakeController(tmp_path / "data")
+    component = build_data_management_component(controller)
+    widget = component.widget
+
+    assert widget.generations_combo.count() == 0
+    assert widget.generations_row.isHidden()
+
+    component.close()

@@ -20,7 +20,7 @@ from htdt.cad_scene import (
     Size3,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.launch_intents import build_launch_intent
+from htdt.launch_intents import build_activation_intent, build_launch_intent
 from htdt.launch_router import route_launch_intent
 from htdt.native_backup import create_backup
 from htdt.project_bundle import export_project_bundle
@@ -276,6 +276,17 @@ def test_unknown_suffix_is_invalid_or_unsupported(tmp_path: Path) -> None:
     assert result.outcome == 'invalid_or_unsupported'
 
 
+def test_activation_intent_reports_activated(tmp_path: Path) -> None:
+    """'activate' carries no file work; the shell already raised the window."""
+
+    repository = _repository(tmp_path)
+    result = route_launch_intent(
+        build_activation_intent(tmp_path), repository=repository
+    )
+    assert result.outcome == 'activated'
+    assert result.document_id is None
+
+
 @pytest.mark.parametrize(
     'outcome',
     [
@@ -283,6 +294,7 @@ def test_unknown_suffix_is_invalid_or_unsupported(tmp_path: Path) -> None:
         'staged_for_review',
         'already_staged',
         'preview_opened',
+        'activated',
         'user_action_required',
         'blocked_dirty_state',
         'invalid_or_unsupported',

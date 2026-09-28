@@ -240,3 +240,38 @@ def test_policy_roundtrip(tmp_path: Path) -> None:
     scheduler.save_policy(policy)
     reloaded = AutomaticBackupScheduler(data_dir)
     assert reloaded.policy == policy
+
+
+def test_list_restorable_backups_merges_generations_and_upgrade_snapshots(
+    tmp_path: Path,
+) -> None:
+    """Round9 #11: the recovery surface and the data-management page list
+    automatic generations AND pre-upgrade recovery copies together,
+    newest encoded stamp first."""
+
+    from htdt.automatic_backup import list_restorable_backups
+    from htdt.native_upgrade import UPGRADE_RECOVERY_DIRNAME
+
+    _seed_data(tmp_path)
+    data_dir = tmp_path / 'data'
+    scheduler = _scheduler(tmp_path)
+    scheduler.run_due('periodic')
+    (generation,) = scheduler.list_generations()
+
+    snapshot_dir = data_dir / UPGRADE_RECOVERY_DIRNAME
+    snapshot_dir.mkdir(parents=True)
+    # A newer stamp than any generation: it must sort first.
+    snapshot = snapshot_dir / (
+        'pre-upgrade-v2-to-v3-20990101T000000Z-abcdef12.htdt-backup'
+    )
+    snapshot.write_bytes(b'snapshot')
+
+    listed = list_restorable_backups(data_dir)
+    assert listed[0] == snapshot
+    assert generation in listed
+
+    # Missing directories / empty dirs simply yield fewer candidates.
+    for other in ('data-empty',):
+        empty_dir = tmp_path / other
+        empty_dir.mkdir()
+        assert list_restorable_backups(empty_dir) == ()

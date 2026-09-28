@@ -73,6 +73,7 @@ RecoveryChoice = Literal[
     'open_normal',
     'open_safe_mode',
     'open_diagnostics',
+    'restore_backup',
     'verify_data',
     'choose_another_project',
 ]
@@ -390,6 +391,10 @@ class LaunchDecision(BaseModel):
     #: True only when the evidence class makes data recovery relevant —
     #: never for renderer/config/integration crashes (#739 §4).
     restore_recommended: bool = False
+    #: True only when a restorable archive actually exists on disk
+    #: (round9 #11) — the 'restore_backup' choice is never offered
+    #: without one.
+    backup_restore_available: bool = False
     safe_mode_policy: SafeModePolicy | None = None
 
 
@@ -401,6 +406,7 @@ def decide_launch(
     explicit_safe_mode: bool = False,
     renderer_failure_detected: bool = False,
     failure_class: StartupFailureClass | None = None,
+    backup_restore_available: bool = False,
 ) -> LaunchDecision:
     """Choose the launch mode from concrete evidence (#739 §1).
 
@@ -429,6 +435,7 @@ def decide_launch(
             ),
             failure_class=known_class,
             restore_recommended=restore,
+            backup_restore_available=backup_restore_available,
             safe_mode_policy=SafeModePolicy(
                 renderer='skip_3d' if renderer_failure_detected else 'reduced'
             ),
@@ -450,11 +457,17 @@ def decide_launch(
             reasons=(),
             failure_class=known_class,
             restore_recommended=restore,
+            backup_restore_available=backup_restore_available,
         )
 
     choices: list[RecoveryChoice] = ['open_normal', 'open_safe_mode']
     choices.append('open_diagnostics')
     if restore:
+        if backup_restore_available:
+            # Offered only when an automatic/pre-upgrade generation
+            # actually exists — the restore flow still runs the full
+            # validate-preview-confirm journey in Data Management.
+            choices.append('restore_backup')
         choices.append('verify_data')
     choices.append('choose_another_project')
 
@@ -464,6 +477,7 @@ def decide_launch(
         choices=tuple(choices),
         failure_class=known_class,
         restore_recommended=restore,
+        backup_restore_available=backup_restore_available,
         safe_mode_policy=SafeModePolicy(
             renderer='skip_3d' if renderer_failure_detected else 'reduced'
         ),

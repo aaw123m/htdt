@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from htdt.launch_intents import (
+    build_activation_intent,
     build_launch_intent,
     classify_launch_path,
     complete_queued_intent,
@@ -106,3 +107,19 @@ def test_describe_intent_is_human_readable(tmp_path: Path) -> None:
     text = describe_launch_intent(intent)
     assert 'x.htdt-backup' in text
     assert 'バックアップ' in text
+
+
+def test_activation_intent_roundtrip(tmp_path: Path) -> None:
+    """A bare second launch queues 'activate' for the running instance."""
+
+    intent = build_activation_intent(tmp_path)
+    assert intent.kind == 'activate'
+    assert intent.path == str(tmp_path)
+    assert intent.source == 'forwarded'
+
+    forward_launch_intent(tmp_path, intent)
+    (queued,) = drain_launch_intents(tmp_path)
+    assert queued.intent == intent
+    assert 'HTDT' in describe_launch_intent(queued.intent)
+    complete_queued_intent(queued, succeeded=True)
+    assert drain_launch_intents(tmp_path) == ()
