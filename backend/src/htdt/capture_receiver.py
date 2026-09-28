@@ -33,11 +33,13 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
 import logging
+import os
 from pathlib import Path
 import secrets
 import sqlite3
 import ssl
 import subprocess
+import tempfile
 import threading
 import unicodedata
 import uuid
@@ -416,7 +418,26 @@ class CaptureReceiverService:
                         key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
                     ),
                 )
-            generate_self_signed_cert(cert_path, key_path)
+            # openssl writes the pair non-atomically; stage beside the
+            # canonical names and promote, or a torn credential survives
+            # under the exists-guard and bricks every later start.
+            cert_fd, staged_cert_name = tempfile.mkstemp(
+                prefix=f'.{cert_path.name}.', suffix='.tmp', dir=self._data_dir
+            )
+            os.close(cert_fd)
+            staged_cert = Path(staged_cert_name)
+            key_fd, staged_key_name = tempfile.mkstemp(
+                prefix=f'.{key_path.name}.', suffix='.tmp', dir=self._data_dir
+            )
+            os.close(key_fd)
+            staged_key = Path(staged_key_name)
+            try:
+                generate_self_signed_cert(staged_cert, staged_key)
+                os.replace(staged_cert, cert_path)
+                os.replace(staged_key, key_path)
+            finally:
+                staged_cert.unlink(missing_ok=True)
+                staged_key.unlink(missing_ok=True)
             return (
                 read_file_bounded(
                     cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
@@ -1185,10 +1206,19 @@ class CaptureReceiverService:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         cert_path = self._data_dir / 'receiver-cert.pem'
         key_path = self._data_dir / 'receiver-key.pem'
-        if not cert_path.exists():
-            cert_path.write_bytes(cert_pem)
-            key_path.write_bytes(key_pem)
-        context.load_cert_chain(str(cert_path), str(key_path))
+        if not (cert_path.exists() and key_path.exists()):
+            write_bytes_atomic(cert_path, cert_pem)
+            write_bytes_atomic(key_path, key_pem)
+        try:
+            context.load_cert_chain(str(cert_path), str(key_path))
+        except ssl.SSLError:
+            # A credential that cannot load at all is unrecoverable state
+            # (e.g. an interrupted write from an older build); regenerate
+            # once instead of failing every subsequent start.
+            cert_path.unlink(missing_ok=True)
+            key_path.unlink(missing_ok=True)
+            cert_pem, key_pem = self._ensure_certificate()
+            context.load_cert_chain(str(cert_path), str(key_path))
         handler = _make_handler(self)
         server = ThreadingHTTPServer((host, port), handler)
         server.daemon_threads = True

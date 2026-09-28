@@ -16,6 +16,7 @@ from .cad_acoustic_treatment import (
     evaluate_treatment_surface_binding,
 )
 from .cad_repository import SceneRepository
+from .export_io import write_bytes_atomic
 from .ingress import IngressTooLargeError, read_file_bounded
 from .cad_schema import (
     check_native_schema_compatibility,
@@ -89,7 +90,7 @@ class CadAcousticTreatmentRepository:
             if not identical:
                 raise ValueError('content-addressed treatment source asset hash collision')
         else:
-            target.write_bytes(data)
+            write_bytes_atomic(target, data)
             created_asset_file = True
         try:
             with closing(self._connect()) as connection, connection:

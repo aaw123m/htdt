@@ -6,6 +6,8 @@ import subprocess
 
 import numpy as np
 
+from .export_io import write_text_atomic
+
 
 def pffdtd_git_head(upstream_root: Path) -> str:
     return subprocess.check_output(
@@ -77,7 +79,7 @@ def apply_pffdtd_runtime_compatibility_patches(upstream_root: Path) -> dict[str,
                 f"PFFDTD compatibility patch {patch['patch_id']} expected exactly one "
                 f"{before!r} in {relative_path.as_posix()}"
             )
-        source_path.write_text(source.replace(before, after, 1), encoding='utf-8')
+        write_text_atomic(source_path, source.replace(before, after, 1))
         applied.append(
             {
                 'patch_id': patch['patch_id'],

@@ -4,7 +4,9 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 from uuid import uuid4
 
@@ -4352,11 +4354,25 @@ class MeasurementPageWorkspace(QWidget):
             return
         if not selected.lower().endswith('.png'):
             selected += '.png'
+        target = Path(selected)
         exporter = ImageExporter(self.difference_plot.plotItem)
         exporter.parameters()['width'] = 1280
+        staging: Path | None = None
         try:
-            exporter.export(selected)
+            # ImageExporter only reports write failure via its return value
+            # (QImage.save is False, never an exception); publish via a
+            # sibling temp so a torn write never masquerades as the export.
+            descriptor, staging_name = tempfile.mkstemp(
+                prefix=f'.{target.name}.', suffix='.png', dir=target.parent
+            )
+            os.close(descriptor)
+            staging = Path(staging_name)
+            if not exporter.export(str(staging)):
+                raise OSError(f'PNGの書き込みに失敗しました: {selected}')
+            os.replace(staging, target)
         except (OSError, ValueError) as exc:
+            if staging is not None:
+                staging.unlink(missing_ok=True)
             self._operation_error_notice(
                 "比較プロットを保存できませんでした", exc
             )

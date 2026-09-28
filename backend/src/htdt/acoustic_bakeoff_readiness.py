@@ -25,6 +25,7 @@ from .acoustic_benchmark import (
     canonical_benchmark_json,
     load_acoustic_benchmark_manifest,
 )
+from .export_io import write_text_atomic
 
 
 ReadinessStatus = Literal['PASS', 'FAIL', 'BLOCKED', 'NOT_APPLICABLE']
@@ -948,7 +949,7 @@ def main(argv: list[str] | None = None) -> int:
     rendered = json.dumps(payload, indent=2, sort_keys=True, allow_nan=False) + '\n'
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding='utf-8')
+        write_text_atomic(args.output, rendered)
     print(rendered, end='')
     if args.expect_decision is not None and report.decision != args.expect_decision:
         return 2

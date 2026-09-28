@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -103,15 +104,39 @@ def _create_pre_migration_backup(
             'target_schema_version': target_version,
             'reason': 'pre_migration',
         }
-        with zipfile.ZipFile(archive_path, 'x', compression=zipfile.ZIP_DEFLATED) as archive:
-            archive.write(snapshot_db, 'htdt.sqlite3')
-            archive.writestr('manifest.json', json.dumps(manifest, sort_keys=True, allow_nan=False))
-            archive.writestr('assets/', b'')
-            assets_dir = root / 'assets'
-            if assets_dir.is_dir():
-                for asset in assets_dir.rglob('*'):
-                    if asset.is_file():
-                        archive.write(asset, f'assets/{asset.relative_to(assets_dir).as_posix()}')
+        # Stage the archive in the backups dir and hardlink-publish it:
+        # ZipFile's __exit__ writes a central directory even when the body
+        # raised, so a direct 'x'-mode write can leave a member-incomplete
+        # archive that opens cleanly and looks like a full backup. os.link
+        # is atomic and keeps the 'x' no-clobber semantics.
+        descriptor, staged_name = tempfile.mkstemp(
+            prefix=f'.{archive_path.name}.', suffix='.tmp', dir=backups_dir
+        )
+        os.close(descriptor)
+        staged = Path(staged_name)
+        try:
+            with zipfile.ZipFile(
+                staged, 'w', compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                archive.write(snapshot_db, 'htdt.sqlite3')
+                archive.writestr(
+                    'manifest.json',
+                    json.dumps(manifest, sort_keys=True, allow_nan=False),
+                )
+                archive.writestr('assets/', b'')
+                assets_dir = root / 'assets'
+                if assets_dir.is_dir():
+                    for asset in assets_dir.rglob('*'):
+                        if asset.is_file():
+                            archive.write(
+                                asset,
+                                f'assets/{asset.relative_to(assets_dir).as_posix()}',
+                            )
+            # Hardlink publish is atomic: archive_path is either the whole
+            # staged archive or untouched — never a torn member set.
+            os.link(staged, archive_path)
+        finally:
+            staged.unlink(missing_ok=True)
     return archive_path
 
 

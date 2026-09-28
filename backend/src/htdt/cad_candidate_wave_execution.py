@@ -65,6 +65,7 @@ from .cad_acoustic_solver_result import (
     build_acoustic_solver_result_envelope,
 )
 from .cad_equipment import FrequencyDomain
+from .export_io import write_text_atomic
 from .cad_r110_source import R110CompiledSourceModel
 from .cad_r110_source_repository import CadR110SourceRepository
 from .cad_wave_excitation import (
@@ -2415,9 +2416,9 @@ class PffdtdCandidateWaveExecutor:
         sim_dir = run_dir / 'sim'
         sim_dir.mkdir()
         model_path = run_dir / 'pffdtd_model.json'
-        model_path.write_text(
+        write_text_atomic(
+            model_path,
             json.dumps(model, indent=2, sort_keys=True, allow_nan=False) + '\n',
-            encoding='utf-8',
         )
 
         material_files: dict[str, str] = {}
