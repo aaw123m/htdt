@@ -243,29 +243,32 @@ def parse_ies_lm63(
         candela.append(
             tuple(v * mult_f for v in raw[h * nv:(h + 1) * nv])
         )
-    units: PhotometricUnits = 'candela' if int(units_type) == 1 else (
-        'candela_per_klm'
-    )
-    # LM-63: units_type 1 = feet, 2 = meters — candela units come from
-    # photometric_type and lumens; we keep candela values verbatim and
-    # record lumens separately.
+    # LM-63: candela values are absolute candela for every goniometer
+    # photometric_type (1=C, 2=B, 3=A); units_type is the luminaire
+    # dimension unit (1 = feet, 2 = meters), not a photometric unit. The
+    # candela mesh stays verbatim and lumens are recorded separately.
     units = 'candela'
-    artifact = PhotometricArtifact(
-        artifact_id=artifact_id,
-        source_format='ies_lm63',
-        source_sha256=_sha256_text(text),
-        manufacturer=keywords.get('MANUFAC'),
-        luminaire_label=keywords.get('LUMINAIRE'),
-        catalog_number=keywords.get('LUMCAT') or keywords.get('LUMCATNO'),
-        lumens_per_lamp=lumens_f,
-        lamp_count=lamp_count_i,
-        units=units,
-        vertical_angles_deg=tuple(vertical),
-        horizontal_angles_deg=tuple(horizontal),
-        candela=tuple(candela),
-        symmetry=keywords.get('SYMMETRY'),
-        notes=f'LM-63 photometric_type={photo_type}',
-    )
+    try:
+        artifact = PhotometricArtifact(
+            artifact_id=artifact_id,
+            source_format='ies_lm63',
+            source_sha256=_sha256_text(text),
+            manufacturer=keywords.get('MANUFAC'),
+            luminaire_label=keywords.get('LUMINAIRE'),
+            catalog_number=keywords.get('LUMCAT') or keywords.get('LUMCATNO'),
+            lumens_per_lamp=lumens_f,
+            lamp_count=lamp_count_i,
+            units=units,
+            vertical_angles_deg=tuple(vertical),
+            horizontal_angles_deg=tuple(horizontal),
+            candela=tuple(candela),
+            symmetry=keywords.get('SYMMETRY'),
+            notes=f'LM-63 photometric_type={photo_type}',
+        )
+    except ValueError as exc:
+        return ParsedPhotometricFile(
+            'invalid', None, f'LM-63 values violate the artifact contract: {exc}'
+        )
     return ParsedPhotometricFile('valid', artifact, 'parsed LM-63 file')
 
 
@@ -304,6 +307,11 @@ def parse_eulumdat(
         return ParsedPhotometricFile(
             'invalid', None, 'malformed LDT header block'
         )
+    if dtype not in _LDT_DTYPE_TO_UNITS:
+        return ParsedPhotometricFile(
+            'invalid', None,
+            f'unsupported LDT measurement type: {dtype!r}',
+        )
     if mc < 1 or ng < 1:
         return ParsedPhotometricFile(
             'invalid', None, 'empty LDT angle grid'
@@ -324,23 +332,28 @@ def parse_eulumdat(
         return ParsedPhotometricFile(
             'invalid', None, 'non-numeric LDT candela value'
         )
-    artifact = PhotometricArtifact(
-        artifact_id=artifact_id,
-        source_format='eulumdat_ldt',
-        source_sha256=_sha256_text(text),
-        manufacturer=company or None,
-        luminaire_label=lines[7].strip() or None,
-        lumens_per_lamp=(
-            lumens_total if isfinite(lumens_total) else None
-        ),
-        lamp_count=None,
-        units=_LDT_DTYPE_TO_UNITS.get(dtype, 'candela_per_klm'),
-        vertical_angles_deg=vertical,
-        horizontal_angles_deg=horizontal,
-        candela=tuple(candela_rows),
-        symmetry=lines[2].strip() or None,
-        notes='EULUMDAT import; dtype=' + dtype,
-    )
+    try:
+        artifact = PhotometricArtifact(
+            artifact_id=artifact_id,
+            source_format='eulumdat_ldt',
+            source_sha256=_sha256_text(text),
+            manufacturer=company or None,
+            luminaire_label=lines[7].strip() or None,
+            lumens_per_lamp=(
+                lumens_total if isfinite(lumens_total) else None
+            ),
+            lamp_count=None,
+            units=_LDT_DTYPE_TO_UNITS[dtype],
+            vertical_angles_deg=vertical,
+            horizontal_angles_deg=horizontal,
+            candela=tuple(candela_rows),
+            symmetry=lines[2].strip() or None,
+            notes='EULUMDAT import; dtype=' + dtype,
+        )
+    except ValueError as exc:
+        return ParsedPhotometricFile(
+            'invalid', None, f'LDT values violate the artifact contract: {exc}'
+        )
     return ParsedPhotometricFile('valid', artifact, 'parsed LDT file')
 
 
