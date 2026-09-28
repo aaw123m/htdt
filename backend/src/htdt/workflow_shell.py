@@ -977,6 +977,20 @@ class WorkflowShellWindow(QMainWindow):
             for workspace_id, context_id in self._selected_context.items()
         }
 
+    def reset_selected_contexts(self) -> None:
+        """Reset context selections to each registration's default.
+
+        The live map is process state, not project state — a project
+        switch reseeds it from the target project's persisted record via
+        ``seed_selected_contexts``, so selections made under the outgoing
+        project must not linger through the merge-only seed.
+        """
+        self._selected_context = {
+            registration.workspace_id: registration.contexts[0].context_id
+            for registration in self._registrations.values()
+            if registration.contexts
+        }
+
     def seed_selected_contexts(self, contexts: Mapping[str, str]) -> None:
         """Pre-seed context selections for persistence restore.
 

@@ -959,9 +959,28 @@ class WorkflowApplicationComposition:
             safe_mode=self.safe_mode,
         )
         self._spawned_compositions.append(composition)
+        # The close hooks shut this composition's backup runner down; the
+        # respawned composition needs its own due check or automatic
+        # backups silently stop for the rest of the process lifetime.
+        if self._automatic_backup_runner is not None:
+            composition.start_automatic_backup()
         composition.shell.show()
         composition.shell.raise_()
         composition.shell.activateWindow()
+
+    def live_composition(self) -> 'WorkflowApplicationComposition':
+        """The deepest spawned composition — the window the user sees.
+
+        ``_switch_to_project`` chains compositions by closing the old
+        shell and spawning a new one, while the launch-intent pump keeps
+        addressing the FIRST window it was bound to. Routing must never
+        rebind a closed composition to a new project while the visible
+        window stays behind.
+        """
+        composition = self
+        while composition._spawned_compositions:
+            composition = composition._spawned_compositions[-1]
+        return composition
 
     def _new_project(self) -> None:
         name, ok = QInputDialog.getText(
@@ -1544,6 +1563,12 @@ class WorkflowApplicationComposition:
             opened = self._open_project_entry(document_id)
         except ProjectLibraryError as exc:
             return operation_error_message(exc)
+        # The switch is committed: persist the outgoing project's live
+        # layout under ITS project ref before rebinding — the close hook
+        # only fires at shell close, so without this the outgoing
+        # project's mid-session window-state changes are dropped and the
+        # live context map leaks into the target project.
+        self._save_window_state()
         self.shell.dispose_data_workspaces()
         self._unbind_workspace_commands()
         self._bind_project_entry(opened)
@@ -1552,6 +1577,10 @@ class WorkflowApplicationComposition:
         self.shell.navigation_history.drop_unscoped_project_entries()
         if not self.shell.navigate(WorkspaceId.OVERVIEW):
             raise RuntimeError('プロジェクト切替後の概要画面を再構築できませんでした')
+        # Replay the target project's own persisted layout — the same
+        # artifact the close+respawn path restores at composition build.
+        self.shell.reset_selected_contexts()
+        self._restore_window_state()
         return None
 
     def _open_project_entry(self, document_id: str) -> ProjectLibraryEntry:
