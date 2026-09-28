@@ -3902,6 +3902,7 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_state_label.setText("プレビュー（未保存）")
         self.comparison_export_csv_button.setEnabled(False)
         self.comparison_export_png_button.setEnabled(False)
+        self._update_context_label()
         self._preview_comparison_pair()
 
     def _plot_dataset_trace(
