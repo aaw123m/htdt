@@ -35,11 +35,19 @@ class HelpDialog(QDialog):
     def shortcuts(
         cls, registry: CommandRegistry, parent: QWidget | None = None
     ) -> "HelpDialog":
-        lines = tuple(
+        # Shell-level QShortcuts are registered outside the command registry
+        # (palette open, navigation history, help) — listing only registry
+        # shortcuts would render an incomplete reference.
+        lines = (
+            "Ctrl+K  コマンドパレットを開く",
+            "Alt+←  前の画面に戻る",
+            "Alt+→  次の画面に進む",
+            "F1  ショートカット一覧（ヘルプ）",
+        ) + tuple(
             f"{definition.shortcut}  {definition.display_name}"
             for definition in registry.definitions()
             if definition.shortcut
-        ) or ("ショートカットはまだ登録されていません。",)
+        )
         return cls("キーボードショートカット一覧", lines, parent)
 
     @classmethod

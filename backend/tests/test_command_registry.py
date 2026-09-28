@@ -14,6 +14,7 @@ from htdt.command_registry import (
     default_command_definitions,
     register_default_commands,
 )
+from htdt.workflow_navigation import ApplicationDestinationId
 
 
 REQUIRED_COMMAND_IDS = {
@@ -21,6 +22,11 @@ REQUIRED_COMMAND_IDS = {
     'navigation.room',
     'navigation.measurements',
     'navigation.optimization',
+    'navigation.projects',
+    'navigation.inbox',
+    'navigation.activity',
+    'navigation.library',
+    'navigation.support',
     'project.save',
     'edit.undo',
     'edit.redo',
@@ -181,6 +187,12 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'navigation.room',
         'navigation.measurements',
         'navigation.optimization',
+        # Application-scope destinations stay navigation-only (round-13).
+        'navigation.projects',
+        'navigation.inbox',
+        'navigation.activity',
+        'navigation.library',
+        'navigation.support',
         'room.view.fit_selection',
         'room.view.fit_all',
         'room.select.all',
@@ -281,3 +293,50 @@ def test_data_mutation_freeze_reason_surfaces_in_search_results() -> None:
     )
     assert result.availability.enabled is False
     assert result.availability.disabled_reason == DATA_MUTATIONS_FROZEN_REASON
+
+
+APPLICATION_NAV_COMMANDS = {
+    'navigation.projects': ApplicationDestinationId.PROJECTS,
+    'navigation.inbox': ApplicationDestinationId.INBOX,
+    'navigation.activity': ApplicationDestinationId.ACTIVITY,
+    'navigation.library': ApplicationDestinationId.LIBRARY,
+    'navigation.support': ApplicationDestinationId.SUPPORT,
+}
+
+
+def test_application_destinations_navigate_through_deep_links() -> None:
+    """Every rail destination is also palette-reachable (round-13)."""
+    registry = _registry_with_defaults()
+    navigated: list[WorkspaceDeepLink] = []
+    registry.set_deep_link_handler(lambda target: navigated.append(target))
+
+    for command_id, destination in APPLICATION_NAV_COMMANDS.items():
+        definition = registry.definition(command_id)
+        assert definition.deep_link == WorkspaceDeepLink(destination)
+        assert registry.availability(command_id).enabled is True
+        assert registry.execute(command_id) is True
+
+    assert [link.workspace for link in navigated] == list(
+        APPLICATION_NAV_COMMANDS.values()
+    )
+
+
+def test_application_destinations_searchable_japanese_and_english() -> None:
+    registry = _registry_with_defaults()
+
+    hits = {r.definition.command_id for r in registry.search('サポート')}
+    assert 'navigation.support' in hits
+    hits = {r.definition.command_id for r in registry.search('support')}
+    assert 'navigation.support' in hits
+    hits = {r.definition.command_id for r in registry.search('取り込み')}
+    assert 'navigation.inbox' in hits
+    hits = {r.definition.command_id for r in registry.search('inbox')}
+    assert 'navigation.inbox' in hits
+    hits = {r.definition.command_id for r in registry.search('ライブラリ')}
+    assert 'navigation.library' in hits
+    hits = {r.definition.command_id for r in registry.search('library')}
+    assert 'navigation.library' in hits
+    hits = {r.definition.command_id for r in registry.search('アクティビティ')}
+    assert 'navigation.activity' in hits
+    hits = {r.definition.command_id for r in registry.search('プロジェクト')}
+    assert 'navigation.projects' in hits

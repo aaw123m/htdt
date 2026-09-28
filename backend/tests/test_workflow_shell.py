@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QShortcut
 from PySide6.QtWidgets import QApplication, QLabel
 
 from htdt.navigation_target import (
@@ -320,6 +321,41 @@ def test_settings_utility_emits_without_becoming_a_workspace() -> None:
     assert events == ["settings"]
     assert window.current_workspace_id is WorkspaceId.OVERVIEW
     assert window.navigation_labels == ("概要", "部屋", "測定", "最適化")
+    window.close()
+    window.deleteLater()
+    app.processEvents()
+
+
+def test_context_bar_palette_button_and_help_shortcut() -> None:
+    """The palette needs a visible entry point — Ctrl+K alone is not
+    discoverable — and F1 must reach help (round-13)."""
+    app = _app()
+
+    def factory(workspace_id: WorkspaceId):
+        return lambda: WorkspaceMount.from_widget(QLabel(workspace_id.value))
+
+    window = WorkflowShellWindow(_registrations(factory))
+    events: list[str] = []
+    window.paletteRequested.connect(lambda: events.append("palette"))
+    window.helpRequested.connect(lambda: events.append("help"))
+
+    button = window.context_bar._palette_button
+    assert button.isEnabled()
+    button.click()
+    app.processEvents()
+
+    keys = {
+        shortcut.key().toString()
+        for shortcut in window.findChildren(QShortcut)
+    }
+    assert "F1" in keys
+    help_shortcut = next(
+        s for s in window.findChildren(QShortcut) if s.key().toString() == "F1"
+    )
+    help_shortcut.activated.emit()
+    app.processEvents()
+
+    assert events == ["palette", "help"]
     window.close()
     window.deleteLater()
     app.processEvents()

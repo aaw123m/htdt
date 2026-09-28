@@ -51,13 +51,20 @@ def test_shortcuts_lists_only_commands_with_shortcuts() -> None:
     assert dialog.windowTitle() == 'キーボードショートカット一覧'
 
 
-def test_shortcuts_empty_registry_shows_fallback_line() -> None:
+def test_shortcuts_lists_shell_level_shortcuts() -> None:
+    """Shell QShortcuts (Ctrl+K / Alt+Left/Right / F1) live outside the
+    registry — the reference must still list them (round-13)."""
     _app()
     dialog = _shortcuts_dialog(
         CommandDefinition(command_id='a', display_name='保存')
     )
     texts = [label.text() for label in dialog.findChildren(QLabel)]
-    assert 'ショートカットはまだ登録されていません。' in texts
+    assert 'Ctrl+K  コマンドパレットを開く' in texts
+    assert 'Alt+←  前の画面に戻る' in texts
+    assert 'Alt+→  次の画面に進む' in texts
+    assert 'F1  ショートカット一覧（ヘルプ）' in texts
+    # And a registry command without a shortcut still contributes nothing.
+    assert all('保存' not in text for text in texts[1:])
 
 
 def test_palette_usage_dialog_has_fixed_content() -> None:

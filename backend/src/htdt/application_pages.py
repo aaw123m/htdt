@@ -1134,6 +1134,15 @@ class ReferenceLibraryPage(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         layout.addWidget(self.table, 1)
+        self.empty_label = QLabel(
+            "まだ定義はありません。"
+            "「機材ライブラリを管理…」で機材や素材を登録できます。",
+            self,
+        )
+        set_typography_role(self.empty_label, TypographyRole.SECONDARY)
+        self.empty_label.setWordWrap(True)
+        self.empty_label.setVisible(False)
+        layout.addWidget(self.empty_label)
         manage = QPushButton("機材ライブラリを管理…")
         manage.clicked.connect(lambda: self.manage_requested.emit())
         layout.addWidget(manage)
@@ -1187,6 +1196,7 @@ class ReferenceLibraryPage(QWidget):
                         getattr(definition, "definition_id", ""),
                     )
                 self.table.setItem(row, column, item)
+        self.empty_label.setVisible(self.table.rowCount() == 0)
         self._refresh_family_sections()
 
     def _refresh_family_sections(self) -> None:

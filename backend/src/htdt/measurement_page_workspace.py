@@ -471,12 +471,23 @@ class MeasurementPageWorkspace(QWidget):
         root.addWidget(self.context_label)
 
         self._last_operation_error_detail: str | None = None
-        self.notice = QLabel(self)
+        # Notice + optional next-step action: success text alone still leaves
+        # the flow dead-ended, so import/commit notices can carry the button
+        # that continues the workflow (round-13).
+        self.notice_row = QWidget(self)
+        notice_row_layout = QHBoxLayout(self.notice_row)
+        notice_row_layout.setContentsMargins(24, 8, 24, 8)
+        notice_row_layout.setSpacing(8)
+        self.notice = QLabel(self.notice_row)
         self.notice.setObjectName("measurementWorkspaceNotice")
         self.notice.setWordWrap(True)
-        self.notice.setVisible(False)
-        self.notice.setContentsMargins(24, 8, 24, 8)
-        root.addWidget(self.notice)
+        notice_row_layout.addWidget(self.notice, 1)
+        self.notice_action = QPushButton(self.notice_row)
+        self.notice_action.setObjectName("measurementWorkspaceNoticeAction")
+        self.notice_action.setVisible(False)
+        notice_row_layout.addWidget(self.notice_action)
+        self.notice_row.setVisible(False)
+        root.addWidget(self.notice_row)
 
         self.pages = QStackedWidget(self)
         self.pages.setObjectName("measurementPageStack")
@@ -577,6 +588,7 @@ class MeasurementPageWorkspace(QWidget):
         self._set_notice(
             "読み込みました。次に「割り当て」で測定点と入力役割を確認してください。",
             SemanticState.SUCCESS,
+            action=("割り当てへ進む", lambda: self.set_context("assignment")),
         )
         self.refresh()
 
@@ -617,6 +629,7 @@ class MeasurementPageWorkspace(QWidget):
         self._set_notice(
             f"{len(items)} 件を読み込みました。「割り当て」で項目の意味付けと保存を行ってください。",
             SemanticState.SUCCESS,
+            action=("割り当てへ進む", lambda: self.set_context("assignment")),
         )
         self.refresh()
 
@@ -4462,9 +4475,19 @@ class MeasurementPageWorkspace(QWidget):
         self,
         message: str,
         state: SemanticState | None,
+        *,
+        action: tuple[str, Callable[[], None]] | None = None,
     ) -> None:
         self.notice.setText(message)
-        self.notice.setVisible(bool(message))
+        if self.notice_action.receivers("clicked()"):
+            self.notice_action.clicked.disconnect()
+        self.notice_action.setVisible(False)
+        if action is not None:
+            label, callback = action
+            self.notice_action.setText(label)
+            self.notice_action.clicked.connect(callback)
+            self.notice_action.setVisible(True)
+        self.notice_row.setVisible(bool(message))
         set_semantic_state(self.notice, state)
 
     def _operation_error_notice(

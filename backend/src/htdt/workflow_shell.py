@@ -500,7 +500,12 @@ class WorkflowRail(QFrame):
 
 
 class TopContextBar(QFrame):
-    def __init__(self, on_context_selected: Callable[[str], None], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        on_context_selected: Callable[[str], None],
+        on_palette: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("workflowContextBar")
         set_surface_role(self, SurfaceRole.RAISED)
@@ -548,6 +553,19 @@ class TopContextBar(QFrame):
         set_control_size(self._project_button, ControlSize.COMPACT)
         self._project_button.setToolTip("プロジェクトを切り替える")
         self._layout.addWidget(self._project_button)
+
+        # Visible entry point into the command palette: Ctrl+K alone is not
+        # discoverable, and the palette is the app's primary action surface.
+        self._palette_button = QPushButton("検索・操作")
+        self._palette_button.setObjectName("workflowPaletteButton")
+        set_control_size(self._palette_button, ControlSize.COMPACT)
+        self._palette_button.setToolTip(
+            "機能・画面・項目を検索 (Ctrl+K)"
+        )
+        self._palette_button.setEnabled(on_palette is not None)
+        if on_palette is not None:
+            self._palette_button.clicked.connect(lambda checked=False: on_palette())
+        self._layout.addWidget(self._palette_button)
 
     @property
     def context_labels(self) -> tuple[str, ...]:
@@ -649,6 +667,8 @@ class WorkflowShellWindow(QMainWindow):
 
     settingsRequested = Signal()
     projectSwitchRequested = Signal()
+    paletteRequested = Signal()
+    helpRequested = Signal()
 
     def __init__(
         self,
@@ -701,7 +721,10 @@ class WorkflowShellWindow(QMainWindow):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
 
-        self.context_bar = TopContextBar(self._select_current_context)
+        self.context_bar = TopContextBar(
+            self._select_current_context,
+            on_palette=self.paletteRequested.emit,
+        )
         content_layout.addWidget(self.context_bar)
 
         self.router = WorkspaceRouter(registration_tuple)
@@ -715,6 +738,7 @@ class WorkflowShellWindow(QMainWindow):
         # intentionally independent of Scene Undo inside any workspace.
         QShortcut(QKeySequence("Alt+Left"), self, activated=self.navigation_back)
         QShortcut(QKeySequence("Alt+Right"), self, activated=self.navigation_forward)
+        QShortcut(QKeySequence("F1"), self, activated=self.helpRequested.emit)
         self.context_bar.set_project_identity(None, None)
         if not self.navigate(initial_workspace):
             raise RuntimeError("initial workflow workspace could not be activated")
