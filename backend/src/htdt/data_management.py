@@ -853,21 +853,31 @@ class DataManagementController(QObject):
             lifecycle_error = exc
 
         result = active.result
-        self._finish_active()
-        if self.activity_center is not None:
-            try:
-                self.activity_center.complete(
-                    active.operation_id,
-                    result_summary=f'{_OPERATION_TITLES[active.kind]}が完了しました',
-                )
-            except OperationTransitionError:
-                pass
-        if lifecycle_error is not None:
-            message = (
+        lifecycle_message = (
+            (
                 'データは復元されましたが、画面の再読み込みに失敗しました'
                 if active.kind is DataOperationKind.RESTORE
                 else 'バックアップは作成されましたが、編集状態の復帰に失敗しました'
             )
+            if lifecycle_error is not None
+            else None
+        )
+        self._finish_active()
+        if self.activity_center is not None:
+            try:
+                # When the post-operation lifecycle step fails the data op
+                # did complete, but recording a bare 'finished' claims a
+                # clean outcome the operator never got — record the real
+                # outcome text the failure card shows.
+                self.activity_center.complete(
+                    active.operation_id,
+                    result_summary=lifecycle_message
+                    or f'{_OPERATION_TITLES[active.kind]}が完了しました',
+                )
+            except OperationTransitionError:
+                pass
+        if lifecycle_error is not None:
+            message = lifecycle_message
             self.operation_failed.emit(
                 DataOperationFailure(
                     operation_id=active.operation_id,
