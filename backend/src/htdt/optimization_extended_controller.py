@@ -761,7 +761,7 @@ class ExtendedSearchControllerMixin:
             return
         if error is not None:
             self.statusBar().showMessage(
-                f'Extended候補生成に失敗しました · {error}'
+                f'Extended候補生成に失敗しました · {operation_error_message(error)}'
             )
             self._refresh_extended_binding_state()
             return

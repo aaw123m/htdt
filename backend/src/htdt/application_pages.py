@@ -42,7 +42,7 @@ from .navigation_target import (
 from .project_library_repository import ProjectLibraryRepository
 from .native_diagnostics import diagnostics_dir
 from .ui_theme import TypographyRole, set_typography_role
-from .user_facing_error import warn_user
+from .user_facing_error import operation_error_message, warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
 
@@ -946,7 +946,8 @@ class SupportPage(QWidget):
             path = self._export_diagnostics(self)
         except Exception as exc:
             self.export_status.setText(
-                f"診断パッケージを作成できませんでした: {exc}"
+                "診断パッケージを作成できませんでした: "
+                f"{operation_error_message(exc)}"
             )
             return
         if path is not None:

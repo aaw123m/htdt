@@ -590,23 +590,29 @@ class CommandHistory:
     def push(self, command: EditCommand, document: SceneDocument) -> SceneDocument:
         if command.is_noop:
             return document
+        # Apply before mutating history: a command that fails its before-state
+        # check must neither truncate the redo tail nor be recorded as applied.
+        new_document = command.apply(document)
         self._commands = self._commands[: self._index]
         self._commands.append(command)
         self._index += 1
-        return command.apply(document)
+        return new_document
 
     def undo(self, document: SceneDocument) -> SceneDocument:
         if not self.can_undo:
             return document
+        # Revert before moving the index: a failed revert must not consume
+        # the command — it stays applied and undoable.
+        new_document = self._commands[self._index - 1].revert(document)
         self._index -= 1
-        return self._commands[self._index].revert(document)
+        return new_document
 
     def redo(self, document: SceneDocument) -> SceneDocument:
         if not self.can_redo:
             return document
-        command = self._commands[self._index]
+        new_document = self._commands[self._index].apply(document)
         self._index += 1
-        return command.apply(document)
+        return new_document
 
 
 class WorkingDocument:

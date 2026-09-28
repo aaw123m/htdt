@@ -23,6 +23,7 @@ raw text only in ``technical_detail``.
 
 from __future__ import annotations
 
+import errno as _errno
 import logging
 import re
 from dataclasses import dataclass
@@ -103,6 +104,11 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
     ('PreferenceError', 'preferences.error', '環境設定を適用できませんでした', None),
     ('IngressTooLargeError', 'ingress.too_large', 'ファイルが大きすぎます',
      'より小さいファイルを選択してください'),
+    # RewApiUnavailable must precede its RewApiError base: pattern lookup is
+    # MRO-membership based, so the more specific entry must come first.
+    ('RewApiUnavailable', 'rew.unavailable', 'REWに接続できませんでした',
+     'REWが起動していてAPIが有効か確認してください'),
+    ('RewApiError', 'rew.api', 'REWデータを取得できませんでした', None),
 )
 
 #: Leaf-suffix → (code, message, recovery): covers the repository exception
@@ -178,6 +184,12 @@ def _map_exception(
     if isinstance(exc, PermissionError):
         return 'io.permission', 'ファイルへのアクセスが拒否されました', None
     if isinstance(exc, OSError):
+        if getattr(exc, 'errno', None) == _errno.ENOSPC:
+            return (
+                'io.no_space',
+                'ディスク容量が不足しています',
+                '空き容量を確保してから再試行してください',
+            )
         return 'io.error', 'ファイルにアクセスできませんでした', None
     if isinstance(exc, KeyError):
         return 'data.missing', '対象の項目が見つかりません', None
