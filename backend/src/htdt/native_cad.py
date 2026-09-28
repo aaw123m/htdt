@@ -419,6 +419,14 @@ def _route_launch_intent(
     from .launch_intents import describe_launch_intent
     from .launch_router import route_launch_intent
 
+    application = getattr(window, 'workflow_application', None)
+    if application is not None:
+        # The pump stays bound to the first window it was given; after a
+        # close+respawn project switch that shell is closed and hidden.
+        # Route through the live composition instead of silently
+        # rebinding the dead one.
+        application = application.live_composition()
+        window = application.shell
     window.raise_()
     window.activateWindow()
     diagnostics.logger.info(
@@ -430,7 +438,6 @@ def _route_launch_intent(
 
     result = route_launch_intent(intent, repository=repository)
     outcome = result.outcome
-    application = getattr(window, 'workflow_application', None)
 
     if outcome == 'activated':
         # The raise/activate above is the whole effect; a second-instance
