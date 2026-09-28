@@ -12,7 +12,7 @@ candidate and every decision is reproducible from the policy's hash.
 
 from __future__ import annotations
 
-from math import isfinite, log10
+from math import isfinite, log2, log10
 from statistics import pvariance
 from typing import Any, Literal, Sequence
 
@@ -366,6 +366,14 @@ def _interpolate_db(
     points: Sequence[tuple[float, float]],
     frequency_hz: float,
 ) -> float | None:
+    """Level-vs-frequency lookup, linear in log2 frequency.
+
+    Same interpolation convention as the canonical frequency-response
+    comparison authority (``linear_in_log2_frequency``) — a target curve
+    is a function on a log-frequency axis, so linear-in-Hz interpolation
+    would skew every mid-segment residual. Frequencies outside the
+    declared point range clamp flat to the nearest endpoint level.
+    """
     ordered = sorted(points)
     if not ordered:
         return None
@@ -373,9 +381,10 @@ def _interpolate_db(
         return ordered[0][1]
     if frequency_hz >= ordered[-1][0]:
         return ordered[-1][1]
+    x = log2(frequency_hz)
     for (f_a, v_a), (f_b, v_b) in zip(ordered, ordered[1:]):
         if f_a <= frequency_hz <= f_b:
-            fraction = (frequency_hz - f_a) / (f_b - f_a)
+            fraction = (x - log2(f_a)) / (log2(f_b) - log2(f_a))
             return v_a + fraction * (v_b - v_a)
     return ordered[-1][1]
 
@@ -385,7 +394,15 @@ def _fractional_octave_smooth(
     magnitudes_db: Sequence[float],
     fraction_octaves: float,
 ) -> tuple[float, ...]:
-    """Arithmetic-mean smoothing over a fractional-octave window."""
+    """Power-mean smoothing over a fractional-octave window.
+
+    Same convention as the measurement-analysis smoothing authority
+    (``fractional-octave-power-mean-1``): levels in a window combine as
+    ``10*log10(mean(10^(L/10)))``, so deep narrow dips do not drag the
+    smoothed level the way an arithmetic dB mean would. The window is
+    ``center * 2^(+-fraction_octaves/2)`` — the same ±1/(2N)-octave span
+    for ``fraction_octaves = 1/N``.
+    """
     center_fraction = 2.0 ** (fraction_octaves / 2.0)
     smoothed: list[float] = []
     for center, _ in zip(frequencies, magnitudes_db):
@@ -396,7 +413,8 @@ def _fractional_octave_smooth(
             for f, v in zip(frequencies, magnitudes_db)
             if low <= f <= high
         ]
-        smoothed.append(sum(window) / len(window))
+        power = sum(10.0 ** (v / 10.0) for v in window) / len(window)
+        smoothed.append(10.0 * log10(power))
     return tuple(smoothed)
 
 

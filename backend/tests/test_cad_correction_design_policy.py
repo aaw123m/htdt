@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import math
 
 import pytest
 
@@ -185,3 +186,66 @@ def test_spatially_variable_band_hands_off_to_geometry() -> None:
     assert band.position_spread_db > 4.0
     assert band.recommend_geometry_review is True
     assert band.max_allowed_boost_db == pytest.approx(2.0)
+
+
+def test_target_interpolation_is_log_frequency() -> None:
+    # Target curves interpolate linearly in log2 frequency (the canonical
+    # comparison authority's convention). Target: (20, 0) -> (160, -8);
+    # at 80 Hz log2 gives -8 * 2/3 = -5.333, linear-in-Hz gives -3.429.
+    target = CadTargetCurve(
+        points=(
+            CadTargetCurvePoint(frequency_hz=20.0, level_db=0.0),
+            CadTargetCurvePoint(frequency_hz=160.0, level_db=-8.0),
+        ),
+        normalization=CadTargetNormalizationCondition(
+            method='absolute_level', reference_level_db=0.0
+        ),
+    )
+    policy = _policy(
+        correction_bands=((20.0, 200.0),),
+        seat_ids=('seat-a',),
+        min_positions=1,
+    )
+    measurements = (
+        PositionMagnitudeSample(
+            position_id='seat-a',
+            frequencies_hz=(80.0,),
+            magnitudes_db=(0.0,),
+        ),
+    )
+    evidence = aggregate_position_magnitudes(measurements, target, policy)
+    # residual = 0 - (-8 * 2/3) = +5.333
+    assert evidence.bands[0].aggregated_error_db == pytest.approx(
+        16.0 / 3.0, rel=1e-6
+    )
+
+
+def test_fractional_octave_smoothing_is_power_mean() -> None:
+    # 1/3-octave smoothing must combine levels as power (the
+    # fractional-octave-power-mean-1 convention): a -20 dB dip inside a
+    # window dominated by two 0 dB samples yields -1.74 dB, not the
+    # -6.67 dB an arithmetic dB mean would give.
+    third_oct = 1.0 / 3.0
+    policy = _policy(
+        correction_bands=((20.0, 200.0),),
+        seat_ids=('seat-a',),
+        min_positions=1,
+        smoothing='fractional_octave',
+        smoothing_fraction_octaves=third_oct,
+    )
+    measurements = (
+        PositionMagnitudeSample(
+            position_id='seat-a',
+            frequencies_hz=(89.1, 100.0, 112.2),
+            magnitudes_db=(0.0, -20.0, 0.0),
+        ),
+    )
+    evidence = aggregate_position_magnitudes(
+        measurements, _target(), policy
+    )
+    center = 10.0 * math.log10((1.0 + 0.01 + 1.0) / 3.0)
+    edge = 10.0 * math.log10((1.0 + 0.01) / 2.0)
+    expected = (edge + center + edge) / 3.0
+    assert evidence.bands[0].aggregated_error_db == pytest.approx(
+        expected, rel=1e-6
+    )

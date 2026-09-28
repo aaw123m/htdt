@@ -104,11 +104,55 @@ def test_mode_shape_is_reconstructed_only():
             MeasuredModeResidue(position_id='m2', amplitude=1.0),
         ),
     )
-    shape = reconstruct_mode_shape(mode, evaluation_positions=(_pos(0.5, 0.5), _pos(2.0, 0.5)))
+    shape = reconstruct_mode_shape(
+        mode,
+        evaluation_positions=(_pos(0.5, 0.5), _pos(2.0, 0.5)),
+        evaluation_position_ids=('m1', 'm2'),
+    )
     assert shape.kind == 'reconstructed'
     assert shape.normalized_values == (0.5, 1.0)
     with pytest.raises(ValueError, match='explicit'):
         reconstruct_mode_shape(mode)
+    # Missing ids: Position3 carries no identity, so positions without
+    # their ids cannot be bound to residue amplitudes at all.
+    with pytest.raises(ValueError, match='explicit'):
+        reconstruct_mode_shape(
+            mode,
+            evaluation_positions=(_pos(0.5, 0.5), _pos(2.0, 0.5)),
+        )
+
+
+def test_mode_shape_binds_values_by_position_id():
+    # Residues are keyed by position_id; caller-supplied evaluation order
+    # must not silently swap which position carries which amplitude.
+    mode = _mode(
+        'm-1',
+        42.0,
+        residues=(
+            MeasuredModeResidue(position_id='m1', amplitude=0.5),
+            MeasuredModeResidue(position_id='m2', amplitude=1.0),
+        ),
+    )
+    swapped = reconstruct_mode_shape(
+        mode,
+        evaluation_positions=(_pos(2.0, 0.5), _pos(0.5, 0.5)),
+        evaluation_position_ids=('m2', 'm1'),
+    )
+    # m2 has amplitude 1.0 -> normalized 1.0 comes first in evaluation order.
+    assert swapped.normalized_values == (1.0, 0.5)
+    # A position id with no residue (or a missing residue id) fails closed.
+    with pytest.raises(ValueError, match='residue positions'):
+        reconstruct_mode_shape(
+            mode,
+            evaluation_positions=(_pos(0.5, 0.5), _pos(2.0, 0.5)),
+            evaluation_position_ids=('m1', 'm3'),
+        )
+    with pytest.raises(ValueError, match='residue positions'):
+        reconstruct_mode_shape(
+            mode,
+            evaluation_positions=(_pos(0.5, 0.5),),
+            evaluation_position_ids=('m1',),
+        )
 
 
 def test_shape_cannot_exceed_normalization():

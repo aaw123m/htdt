@@ -158,6 +158,37 @@ def test_band_filtered_analysis():
     assert result.decay_db and len(result.decay_db) == len(result.decay_time_s)
 
 
+def test_empty_analysis_window_fails_closed():
+    # window bounds that pass the spec validator can still round to an
+    # empty sample range at the given rate — that must fail with a clear
+    # ValueError, not a raw numpy FFT error on a zero-length frame.
+    spec = _spec(window_start_s=1.5 / FS, window_end_s=2.4 / FS)
+    with pytest.raises(ValueError, match='no IR evidence'):
+        run_ir_analysis(spec, _ir(), created_at='2026-09-23T00:00:00+00:00')
+
+
+def test_silent_ir_fails_closed():
+    # Zero-energy evidence makes the ETC/Schroeder normalizations divide
+    # by a zero peak/total; the sealed result must be finite with unknown
+    # metrics, not crash canonical JSON on NaN.
+    spec = _spec()
+    ir = tuple(0.0 for _ in range(4800))
+    result = run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+    assert all(v == -120.0 for v in result.etc_db)
+    assert all(v == -140.0 for v in result.decay_db)
+    assert result.usable_dynamic_range_db is None
+    assert all(m.status == 'unknown' for m in result.metrics)
+    assert all(m.status == 'unknown' for m in result.energy_metrics)
+    assert 'silent' in ' '.join(result.warnings).lower()
+
+
+def test_nonfinite_ir_fails_closed():
+    spec = _spec()
+    ir = (0.5, -0.5, float('inf'), 0.25, 0.0, 0.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match='finite'):
+        run_ir_analysis(spec, ir, created_at='2026-09-23T00:00:00+00:00')
+
+
 def test_spectrogram_records_transform_settings():
     ir = _ir(length_s=0.4)
     spec = _spec(tf_window_s=0.02, tf_overlap=0.5)
