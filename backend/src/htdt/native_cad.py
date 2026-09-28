@@ -194,6 +194,87 @@ def _restorable_backups(data_dir: Path) -> list[Path]:
         return []
 
 
+def _create_startup_splash(app) -> object | None:
+    """Minimal honest splash for the pre-window phase (round8-lifecycle).
+
+    Painted programmatically — no image asset dependency — and every
+    failure inside returns None so a cosmetic surface can never break
+    launch. Messages come from ``_splash_status`` at each init seam.
+    """
+    try:
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+        from PySide6.QtWidgets import QApplication, QSplashScreen
+
+        # QPixmap aborts the process without a live QGuiApplication — a
+        # fatal, not a Python exception, so it must be gated explicitly.
+        if QApplication.instance() is None:
+            return None
+        pixmap = QPixmap(460, 240)
+        pixmap.fill(QColor('#1b1d23'))
+        painter = QPainter(pixmap)
+        try:
+            painter.setPen(QColor('#3c4048'))
+            painter.drawRect(pixmap.rect().adjusted(0, 0, -1, -1))
+            painter.setPen(QColor('#e8eaed'))
+            title_font = QFont()
+            title_font.setPointSize(15)
+            title_font.setBold(True)
+            painter.setFont(title_font)
+            painter.drawText(
+                pixmap.rect().adjusted(0, 54, 0, 0),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                'Home Theater Digital Twin',
+            )
+            painter.setPen(QColor('#9aa0a8'))
+            version_font = QFont()
+            version_font.setPointSize(9)
+            painter.setFont(version_font)
+            painter.drawText(
+                pixmap.rect().adjusted(0, 96, 0, 0),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                version_string(),
+            )
+        finally:
+            painter.end()
+        return QSplashScreen(pixmap)
+    except Exception:
+        return None
+
+
+def _splash_status(splash, app, message: str | None = None) -> None:
+    """Update the splash's progress line; a processEvents keeps it live.
+
+    ``message=None`` pumps the event loop without touching the text — used
+    to re-show the splash after a modal dialog owned the screen. Fully
+    exception-safe: launch must never depend on a cosmetic surface.
+    """
+    if splash is None:
+        return
+    try:
+        if message:
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QColor
+
+            splash.showMessage(
+                message,
+                alignment=Qt.AlignmentFlag.AlignBottom
+                | Qt.AlignmentFlag.AlignHCenter,
+                color=QColor('#c8ccd2'),
+            )
+        app.processEvents()
+    except Exception:
+        pass
+
+
+def _close_splash(splash) -> None:
+    if splash is not None:
+        try:
+            splash.close()
+        except Exception:
+            pass
+
+
 def _choose_recovery_action(
     launch_decision,
     diagnostics: NativeDiagnostics,
@@ -528,6 +609,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     # #739: set before the try so failure paths can complete the record
     # only when this attempt got far enough to create one.
     launch_record = None
+    splash = None
     try:
         app = QApplication([sys.argv[0]])
         app.setApplicationVersion(version_string())
@@ -610,6 +692,19 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             ),
             started_at_utc=datetime.now(timezone.utc).isoformat(),
         )
+        # Round8-lifecycle deferred item: an honest splash for the
+        # pre-window phase — shown only after the recovery decision is
+        # resolved (dialogs are user input, not loading), and hidden while
+        # the upgrade notices own the screen since a splash is
+        # always-on-top. Cosmetic only: _create_startup_splash returns
+        # None rather than breaking launch.
+        splash = _create_startup_splash(app)
+        if splash is not None:
+            try:
+                splash.show()
+            except Exception:
+                splash = None
+        _splash_status(splash, app, 'データ形式を確認しています…')
         # #606: run the explicit upgrade lifecycle before any repository
         # opens the store — preflight, mandatory recovery copy, migration,
         # verification and an operational journal entry.
@@ -617,11 +712,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if upgrade_plan.requires_data_update:
             from PySide6.QtWidgets import QMessageBox
 
+            if splash is not None:
+                splash.hide()
             QMessageBox.information(
                 None,
                 "HTDT データ更新",
                 upgrade_plan.upgrade_copy_ja,
             )
+            if splash is not None:
+                splash.show()
+            _splash_status(splash, app)
+        _splash_status(splash, app, 'データ形式を更新しています…')
         upgrade_event = execute_native_upgrade(args.data_dir)
         if upgrade_event.outcome == 'completed':
             diagnostics.logger.info(
@@ -632,6 +733,8 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
             from PySide6.QtWidgets import QMessageBox
 
+            if splash is not None:
+                splash.hide()
             QMessageBox.information(
                 None,
                 "HTDT データ更新",
@@ -639,6 +742,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 f"{upgrade_event.from_schema} から {upgrade_event.to_schema} "
                 "へ更新しました。先に復旧用コピーを作成しています。",
             )
+            if splash is not None:
+                splash.show()
+            _splash_status(splash, app)
+        _splash_status(splash, app, 'プロジェクトデータを開いています…')
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
         # #627: surface what the legacy default document actually holds
         # (untouched synthetic fixture vs. real user project) in diagnostics.
@@ -695,6 +802,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # Safe Mode enforces auto_open_last_project=False: the project the
         # previous session was bound to is the prime suspect, so it is
         # skipped and the next project (or a fresh default) opens instead.
+        _splash_status(splash, app, '起動するプロジェクトを確認しています…')
         project_entry = project_library.resolve_startup_document(
             args.document_id,
             skip_last_opened=(
@@ -720,6 +828,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # stops it. The legacy fallback window deliberately runs without it.
         capture_receiver = None
         preferences = None
+        _splash_status(splash, app, '連携サービスを初期化しています…')
         if not args.legacy_ui:
             try:
                 from .application_preferences import ApplicationPreferenceStore
@@ -750,6 +859,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                     'capture receiver controller init failed; '
                     'receiver stays disabled'
                 )
+        _splash_status(splash, app, 'ウィンドウを構築しています…')
         window = (
             OptimizationWorkspaceWindow(repository, project_entry.document_id)
             if args.legacy_ui
@@ -763,6 +873,11 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         )
         window.show()
+        if splash is not None:
+            try:
+                splash.finish(window)
+            except Exception:
+                _close_splash(splash)
         # Recovery-dialog follow-throughs the dialog could not perform
         # itself (#739): Verify data opens the data-management surface and
         # Choose another project lands on the Projects destination instead
@@ -875,6 +990,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         return exit_code
     except IncompatibleNewerSchemaError as exc:
+        _close_splash(splash)
         if launch_record is not None:
             complete_launch(
                 args.data_dir,
@@ -891,6 +1007,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except NativeUpgradeError as exc:
+        _close_splash(splash)
         if launch_record is not None:
             complete_launch(
                 args.data_dir,
@@ -907,6 +1024,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         )
         return 1
     except Exception as exc:
+        _close_splash(splash)
         if launch_record is not None:
             try:
                 complete_launch(

@@ -163,7 +163,13 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         read_button = QPushButton('選択REWを読込')
         read_button.clicked.connect(self.read_selected_rew_async)
         rew_row.addWidget(read_button)
-        cancel_button = QPushButton('読込キャンセル')
+        # Honest affordance (round10 cancel audit): the REW HTTP read cannot
+        # be interrupted mid-call — cancelling marks the job so its late
+        # result is discarded, it does not abort the request.
+        cancel_button = QPushButton('読込の待機をやめる')
+        cancel_button.setToolTip(
+            '実行中のREW読込を中断せず、結果が届いても適用しないようにします'
+        )
         cancel_button.clicked.connect(self.cancel_rew_read)
         rew_row.addWidget(cancel_button)
         layout.addLayout(rew_row)
@@ -718,7 +724,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         token = self._rew_tokens.get(token_id)
         if token is not None:
             self.rew_job_guard.cancel(token)
-            self.statusBar().showMessage('REW読込をキャンセルしました · 遅延結果は適用しません')
+            self.statusBar().showMessage('REW読込の待機をやめました · 遅延結果は適用しません')
         self._current_rew_token_id = None
 
     @property

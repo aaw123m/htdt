@@ -61,6 +61,11 @@ class AutomaticBackupRunner(QObject):
             if not should:
                 _LOGGER.info('automatic backup not due: %s', reason)
                 return None
+            # Cheap cooperative-cancellation seam between the read-only
+            # evaluate and the copy phase — a window closing during the scan
+            # skips the backup entirely instead of starting it mid-shutdown.
+            if _cancel.is_set():
+                return None
             self.backup_started.emit()
             result = scheduler.run_due('periodic')
             if result is None:

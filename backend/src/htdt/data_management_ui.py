@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -17,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -33,7 +36,12 @@ from .data_management import (
     RestorePreview,
     RestoreResult,
 )
-from .automatic_backup import list_restorable_backups
+from .automatic_backup import (
+    AutomaticBackupPolicy,
+    AutomaticBackupScheduler,
+    backups_dir,
+    list_restorable_backups,
+)
 from .data_relocation import ManagedDataRelocationPlan
 from .legacy_data import inspect_legacy_store
 from .storage_maintenance import (
@@ -51,6 +59,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 
 _BACKUP_SUFFIX = ".htdt-backup"
@@ -495,6 +504,119 @@ class DataManagementWidget(QWidget):
         generations_layout.addWidget(self.generation_restore_button)
         operations_layout.addWidget(self.generations_row)
         layout.addWidget(operations_card)
+
+        # Round9-prefs deferred item: the automatic-backup policy already
+        # exists (AutomaticBackupPolicy, persisted next to the data root) but
+        # had no UI — expose it here, commit-on-change. The runner builds a
+        # fresh scheduler per launch tick, so edits apply from the next
+        # launch check; the label says so rather than pretending live-apply.
+        policy_card = QFrame(content)
+        policy_card.setObjectName("dataManagementBackupPolicyCard")
+        set_surface_role(policy_card, SurfaceRole.RAISED)
+        policy_layout = QVBoxLayout(policy_card)
+        policy_layout.setContentsMargins(18, 16, 18, 16)
+        policy_layout.setSpacing(12)
+
+        policy_title = QLabel("自動バックアップ", policy_card)
+        set_typography_role(policy_title, TypographyRole.SECTION_TITLE)
+        policy_layout.addWidget(policy_title)
+
+        policy_intro = QLabel(
+            "起動時に前回のバックアップからの経過時間を確認し、期限が"
+            "過ぎていれば自動で世代を作成します。変更は次回の起動時"
+            "チェックから適用されます。",
+            policy_card,
+        )
+        policy_intro.setWordWrap(True)
+        set_typography_role(policy_intro, TypographyRole.BODY)
+        policy_layout.addWidget(policy_intro)
+
+        self._backup_scheduler = AutomaticBackupScheduler(
+            self.controller.backend.data_dir
+        )
+        self._backup_policy = self._backup_scheduler.load_policy()
+        self._backup_policy_dir = self._backup_policy.backup_dir
+
+        self.backup_policy_enabled = QCheckBox(
+            "自動バックアップを有効にする", policy_card
+        )
+        self.backup_policy_enabled.setObjectName(
+            "dataManagementBackupPolicyEnabled"
+        )
+        self.backup_policy_enabled.setChecked(self._backup_policy.enabled)
+        self.backup_policy_enabled.toggled.connect(
+            self._save_backup_policy
+        )
+        policy_layout.addWidget(self.backup_policy_enabled)
+
+        policy_form = QFormLayout()
+        policy_form.setSpacing(8)
+        self.backup_interval_spin = QDoubleSpinBox(policy_card)
+        self.backup_interval_spin.setObjectName(
+            "dataManagementBackupIntervalSpin"
+        )
+        self.backup_interval_spin.setRange(0.5, 2160.0)
+        self.backup_interval_spin.setDecimals(1)
+        self.backup_interval_spin.setSingleStep(1.0)
+        self.backup_interval_spin.setSuffix(" 時間ごと")
+        self.backup_interval_spin.setValue(self._backup_policy.interval_hours)
+        self.backup_interval_spin.valueChanged.connect(
+            self._save_backup_policy
+        )
+        policy_form.addRow("作成間隔", self.backup_interval_spin)
+
+        self.backup_keep_spin = QSpinBox(policy_card)
+        self.backup_keep_spin.setObjectName("dataManagementBackupKeepSpin")
+        self.backup_keep_spin.setRange(1, 100)
+        self.backup_keep_spin.setSuffix(" 世代")
+        self.backup_keep_spin.setValue(self._backup_policy.keep_generations)
+        self.backup_keep_spin.valueChanged.connect(self._save_backup_policy)
+        policy_form.addRow("最新世代の保持数", self.backup_keep_spin)
+
+        self.backup_keep_daily_spin = QSpinBox(policy_card)
+        self.backup_keep_daily_spin.setObjectName(
+            "dataManagementBackupKeepDailySpin"
+        )
+        self.backup_keep_daily_spin.setRange(0, 366)
+        self.backup_keep_daily_spin.setSuffix(" 日分")
+        self.backup_keep_daily_spin.setValue(
+            self._backup_policy.keep_daily_generations
+        )
+        self.backup_keep_daily_spin.valueChanged.connect(
+            self._save_backup_policy
+        )
+        policy_form.addRow("日次バックアップの保持", self.backup_keep_daily_spin)
+        policy_layout.addLayout(policy_form)
+
+        dir_row = QWidget(policy_card)
+        dir_layout = QHBoxLayout(dir_row)
+        dir_layout.setContentsMargins(0, 0, 0, 0)
+        dir_layout.setSpacing(10)
+        self.backup_dir_label = QLabel(dir_row)
+        self.backup_dir_label.setObjectName("dataManagementBackupDirLabel")
+        self.backup_dir_label.setWordWrap(True)
+        dir_layout.addWidget(self.backup_dir_label, 1)
+        self.backup_dir_button = QPushButton("変更…", dir_row)
+        self.backup_dir_button.setObjectName(
+            "dataManagementBackupDirButton"
+        )
+        set_control_size(self.backup_dir_button, ControlSize.STANDARD)
+        self.backup_dir_button.clicked.connect(
+            self._choose_backup_policy_dir
+        )
+        dir_layout.addWidget(self.backup_dir_button)
+        self.backup_dir_reset_button = QPushButton("既定に戻す", dir_row)
+        self.backup_dir_reset_button.setObjectName(
+            "dataManagementBackupDirResetButton"
+        )
+        set_control_size(self.backup_dir_reset_button, ControlSize.STANDARD)
+        self.backup_dir_reset_button.clicked.connect(
+            self._reset_backup_policy_dir
+        )
+        dir_layout.addWidget(self.backup_dir_reset_button)
+        policy_layout.addWidget(dir_row)
+        self._refresh_backup_dir_label()
+        layout.addWidget(policy_card)
 
         storage_card = QFrame(content)
         storage_card.setObjectName("dataManagementStorageCard")
@@ -946,6 +1068,70 @@ class DataManagementWidget(QWidget):
                 f"{suffix} HTDTを終了して再起動してください。"
             )
 
+    # ---- automatic backup policy (round10) ------------------------------
+
+    def _save_backup_policy(self, *_args: object) -> None:
+        policy = AutomaticBackupPolicy(
+            enabled=self.backup_policy_enabled.isChecked(),
+            interval_hours=float(self.backup_interval_spin.value()),
+            keep_generations=int(self.backup_keep_spin.value()),
+            keep_daily_generations=int(
+                self.backup_keep_daily_spin.value()
+            ),
+            backup_dir=self._backup_policy_dir,
+        )
+        try:
+            self._backup_scheduler.save_policy(policy)
+        except (OSError, ValueError) as exc:
+            self._show_status(
+                "自動バックアップ設定を保存できませんでした",
+                operation_error_message(exc),
+                SemanticState.ERROR,
+            )
+            return
+        self._backup_policy = policy
+        self._backup_scheduler.policy = policy
+        self._show_status(
+            "自動バックアップ設定を更新しました",
+            "次回の起動時チェックから適用されます。",
+            SemanticState.SUCCESS,
+        )
+
+    def _choose_backup_policy_dir(self) -> None:
+        selected = file_dialog_memory.get_existing_directory(
+            self,
+            "自動バックアップの保存先フォルダを選択",
+            'backup.policy_dir',
+            default_dir=str(
+                backups_dir(
+                    self.controller.backend.data_dir, self._backup_policy
+                )
+            ),
+        )
+        if not selected:
+            return
+        self._backup_policy_dir = selected
+        self._refresh_backup_dir_label()
+        self._save_backup_policy()
+
+    def _reset_backup_policy_dir(self) -> None:
+        self._backup_policy_dir = None
+        self._refresh_backup_dir_label()
+        self._save_backup_policy()
+
+    def _refresh_backup_dir_label(self) -> None:
+        effective = backups_dir(
+            self.controller.backend.data_dir,
+            self._backup_policy.model_copy(
+                update={'backup_dir': self._backup_policy_dir}
+            ),
+        )
+        suffix = "（既定）" if self._backup_policy_dir is None else ""
+        self.backup_dir_label.setText(f"保存先: {effective}{suffix}")
+        self.backup_dir_reset_button.setVisible(
+            self._backup_policy_dir is not None
+        )
+
     def _show_status(
         self,
         title: str,
@@ -982,6 +1168,15 @@ class DataManagementWidget(QWidget):
         self.storage_button.setEnabled(available)
         self.generations_combo.setEnabled(available)
         self.generation_restore_button.setEnabled(available)
+        for control in (
+            self.backup_policy_enabled,
+            self.backup_interval_spin,
+            self.backup_keep_spin,
+            self.backup_keep_daily_spin,
+            self.backup_dir_button,
+            self.backup_dir_reset_button,
+        ):
+            control.setEnabled(available)
         self.restore_button.setEnabled(
             available and self._restore_preview is not None
         )
