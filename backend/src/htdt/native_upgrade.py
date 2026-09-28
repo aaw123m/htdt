@@ -394,7 +394,14 @@ def _snapshot_name(plan: NativeUpgradePlan) -> str:
     )
 
 
-def _list_upgrade_snapshots(data_dir: Path) -> list[Path]:
+def list_upgrade_snapshots(data_dir: Path) -> list[Path]:
+    """Every retained pre-upgrade recovery copy, oldest first.
+
+    These are ordinary validated ``.htdt-backup`` archives kept under
+    ``upgrade-recovery/`` — the restore path treats them exactly like
+    automatic generations.
+    """
+
     directory = upgrade_snapshot_dir(data_dir)
     if not directory.is_dir():
         return []
@@ -413,7 +420,7 @@ def _list_upgrade_snapshots(data_dir: Path) -> list[Path]:
 def prune_upgrade_snapshots(data_dir: Path, *, keep: int = KEEP_UPGRADE_SNAPSHOTS) -> None:
     """Bound pre-upgrade retention — only ever called after verification."""
 
-    snapshots = _list_upgrade_snapshots(data_dir)
+    snapshots = list_upgrade_snapshots(data_dir)
     for stale in snapshots[:-keep] if keep > 0 else snapshots:
         try:
             stale.unlink()

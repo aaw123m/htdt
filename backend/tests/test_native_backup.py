@@ -172,6 +172,34 @@ def test_native_backup_round_trip_restores_database_and_content_addressed_assets
     assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
 
 
+def test_restore_over_unreadable_database_falls_back_to_forensic_copy(
+    tmp_path: Path,
+):
+    """Round9: the live DB being too corrupt to back up must not abort the
+    restore — evacuated bytes survive as a raw forensic copy and the swap
+    still proceeds."""
+
+    data_dir = tmp_path / 'data'
+    repository, first, _digest, _raw = _seed_data(data_dir)
+    backup_path = tmp_path / 'baseline.htdt-backup'
+    manifest = create_backup(data_dir, backup_path)
+
+    live_db = data_dir / 'cad-scenes.sqlite3'
+    corrupt_bytes = b'\x00' * 4096 + live_db.read_bytes()[4096:]
+    live_db.write_bytes(corrupt_bytes)
+
+    restored, pre_restore = restore_backup(data_dir, backup_path)
+
+    assert restored == manifest
+    assert pre_restore is not None and pre_restore.is_file()
+    # The fallback artifact is a raw copy (not a valid archive) that keeps
+    # the unreadable bytes for forensics.
+    assert 'pre-restore-unverified' in pre_restore.name
+    assert pre_restore.read_bytes() == corrupt_bytes
+    reopened = SceneRepository(data_dir / 'cad-scenes.sqlite3')
+    assert reopened.latest(first.document_id).revision_id == first.revision_id
+
+
 def test_backup_covers_every_legacy_archive_generation(tmp_path: Path):
     """#759: re-migrations archive to numbered generations
     (``htdt.migrated.sqlite3.1``, ``htdt.migrated.assets.1``) — all of them

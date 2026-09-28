@@ -66,6 +66,9 @@ LaunchIntentKind = Literal[
     'open_project',
     'preview_capture',
     'preview_backup',
+    # A bare second launch: asks the lock-holding instance to surface its
+    # window. Carries no file path — ``path`` holds the data dir.
+    'activate',
     'unknown',
 ]
 LaunchIntentSource = Literal[
@@ -83,6 +86,7 @@ LaunchIntentOutcome = Literal[
     'staged_for_review',
     'already_staged',
     'preview_opened',
+    'activated',
     'user_action_required',
     'blocked_dirty_state',
     'invalid_or_unsupported',
@@ -228,6 +232,23 @@ def build_launch_intent(
     )
 
 
+def build_activation_intent(data_dir: Path) -> HTDTLaunchIntent:
+    """The 'surface the running window' signal for single-instance reuse.
+
+    A second GUI process that cannot take the data-dir lock drops this on
+    the forward queue; the running instance's dispatch already raises and
+    activates its window, so the outcome needs no further GUI work.
+    """
+
+    return HTDTLaunchIntent(
+        intent_id=uuid4().hex,
+        kind='activate',
+        path=str(Path(data_dir)),
+        source='forwarded',
+        received_at_utc=_utc_now(),
+    )
+
+
 def intents_dir(data_dir: Path) -> Path:
     return Path(data_dir) / INTENTS_DIRNAME
 
@@ -333,6 +354,8 @@ def describe_launch_intent(intent: HTDTLaunchIntent) -> str:
     """Short user-facing description for dialogs and logs."""
 
     name = Path(intent.path).name
+    if intent.kind == 'activate':
+        return 'HTDT の起動要求'
     if intent.kind == 'open_project':
         return f'プロジェクト "{intent.detail or name}"'
     if intent.kind == 'preview_capture':
@@ -349,6 +372,7 @@ __all__ = [
     'LaunchIntentOutcome',
     'LaunchIntentResult',
     'QueuedLaunchIntent',
+    'build_activation_intent',
     'build_launch_intent',
     'classify_launch_path',
     'complete_queued_intent',

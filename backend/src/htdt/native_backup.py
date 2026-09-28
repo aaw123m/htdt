@@ -1389,7 +1389,32 @@ def _restore_backup(
                     f'{uuid4().hex[:8]}.htdt-backup'
                 )
             )
-            _create_backup(data_dir, pre_backup)
+            try:
+                _create_backup(data_dir, pre_backup)
+            except Exception as exc:
+                # The live store may itself be corrupt — that is the main
+                # reason this restore is running. A failed safety snapshot
+                # must not abort the restore: the journaled swap below
+                # still evacuates every live byte into the rollback dir,
+                # and the raw database is preserved unverified so support
+                # retains the failing bytes.
+                _LOGGER.warning(
+                    'pre-restore backup of live data failed (%s); '
+                    'preserving raw copy instead', exc
+                )
+                forensic = parent / (
+                    f'{data_dir.name}-pre-restore-unverified-'
+                    f'{datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")}-'
+                    f'{uuid4().hex[:8]}.sqlite3'
+                )
+                try:
+                    shutil.copyfile(existing_database, forensic)
+                    pre_backup = forensic
+                except OSError:
+                    _LOGGER.warning(
+                        'raw pre-restore copy also failed', exc_info=True
+                    )
+                    pre_backup = None
 
         rollback_root = parent / f'.{data_dir.name}{RESTORE_ROLLBACK_SUFFIX}{uuid4().hex}'
         rollback_root.mkdir(parents=False, exist_ok=False)

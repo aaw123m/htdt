@@ -173,9 +173,25 @@ _RECOVERY_CHOICE_PRESENTATION = {
     'open_normal': ('通常どおり開く', 'accept'),
     'open_safe_mode': ('セーフモードで開く', 'destructive'),
     'open_diagnostics': ('診断を開く', 'action'),
+    'restore_backup': ('バックアップから復元', 'action'),
     'verify_data': ('今すぐデータを検証', 'action'),
     'choose_another_project': ('別のプロジェクトを選択', 'action'),
 }
+
+
+def _restorable_backups(data_dir: Path) -> list[Path]:
+    """Newest-first restorable archives; empty when none exist.
+
+    Read-only listing — generation/snapshot discovery must never break
+    the launch path it advises.
+    """
+
+    try:
+        from .automatic_backup import list_restorable_backups
+
+        return list(list_restorable_backups(Path(data_dir)))
+    except Exception:
+        return []
 
 
 def _choose_recovery_action(
@@ -245,11 +261,38 @@ def _choose_recovery_action(
         # Diagnostics consulted first, then a guarded launch — unchanged
         # semantics from the original three-button surface.
         return launch_decision.safe_mode_policy, None
-    if choice in ('verify_data', 'choose_another_project'):
+    if choice in ('verify_data', 'choose_another_project', 'restore_backup'):
         diagnostics.logger.info("recovery launch action: %s", choice)
         return None, choice
     diagnostics.logger.info("recovery launch: opening normally")
     return None, None
+
+
+def _notify_instance_active(diagnostics: NativeDiagnostics) -> None:
+    """Second-launch notice: the running instance was asked to surface.
+
+    Informational, never an error — the forwarded activation intent raises
+    the existing window while this process exits. Falls back to stderr
+    when Qt cannot present a dialog.
+    """
+
+    message = (
+        "HTDTはすでに起動しています。\n\n"
+        "実行中のウィンドウを前面に表示しました。"
+        "プロジェクト・キャプチャ・バックアップファイルはそのウィンドウで"
+        "開けます。"
+    )
+    try:
+        from PySide6.QtWidgets import QApplication, QMessageBox
+
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication([sys.argv[0]])
+        QMessageBox.information(None, "HTDTはすでに起動しています", message)
+        return
+    except Exception:
+        diagnostics.logger.debug('already-running notice dialog unavailable')
+    write_stderr(f'HTDTはすでに起動しています\n{message}')
 
 
 def _packaged_application_icon() -> Path | None:
@@ -299,6 +342,11 @@ def _route_launch_intent(
     result = route_launch_intent(intent, repository=repository)
     outcome = result.outcome
     application = getattr(window, 'workflow_application', None)
+
+    if outcome == 'activated':
+        # The raise/activate above is the whole effect; a second-instance
+        # activation must not pop a dialog over the user's work.
+        return result
 
     if outcome == 'routed_and_opened':
         if application is None:
@@ -504,6 +552,9 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
         unclean = previous_session_unexpected_end(args.data_dir)
         recovery_metadata = load_recovery_metadata(args.data_dir)
+        # Round9 #11: the 'restore from backup' recovery choice exists only
+        # when a restorable generation actually exists on disk.
+        restorable_backups = _restorable_backups(args.data_dir)
         # The runtime.json marker is only produced by an installed
         # single-instance forwarder; the launch records are the durable
         # unclean evidence this build itself guarantees — a previous
@@ -530,6 +581,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             renderer_failure_detected=(
                 last_failure == 'renderer_initialization'
             ),
+            backup_restore_available=bool(restorable_backups),
         )
         safe_mode_policy = None
         post_launch_action = None
@@ -715,14 +767,34 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # itself (#739): Verify data opens the data-management surface and
         # Choose another project lands on the Projects destination instead
         # of auto-entering the project the failed session was bound to.
-        if post_launch_action == 'verify_data':
-            settings_dialog = getattr(
-                getattr(window, 'workflow_application', None),
-                'settings_dialog',
-                None,
-            )
+        if post_launch_action in ('verify_data', 'restore_backup'):
+            application = getattr(window, 'workflow_application', None)
+            settings_dialog = getattr(application, 'settings_dialog', None)
             if settings_dialog is not None:
+                # Show the settings surface FIRST so its restore-preview
+                # signal subscription exists before preview_restore runs.
                 settings_dialog.open_settings()
+            if post_launch_action == 'restore_backup':
+                # Same surface as the forwarded .htdt-backup open path:
+                # validate + preview the newest generation — the restore
+                # itself remains an explicit user confirmation there.
+                controller = getattr(
+                    application, 'data_management_controller', None
+                )
+                newest = (
+                    restorable_backups[0] if restorable_backups else None
+                )
+                if controller is None or newest is None:
+                    diagnostics.logger.warning(
+                        'restore_backup chosen but no controller/generation'
+                    )
+                else:
+                    try:
+                        controller.preview_restore(newest)
+                    except Exception as exc:
+                        diagnostics.logger.warning(
+                            'restore preview failed for %s: %s', newest, exc
+                        )
         elif post_launch_action == 'choose_another_project':
             navigate = getattr(window, 'navigate', None)
             if navigate is not None:
@@ -969,13 +1041,18 @@ def main(argv: list[str] | None = None) -> int:
     guard = SingleInstanceGuard(args.data_dir)
     if not guard.acquire():
         diagnostics.log_lock_contention(read_lock_metadata(args.data_dir))
-        # #612: a second launch carrying file-open intents hands them to the
-        # running instance through the drop queue, then exits quietly — a
-        # double-clicked project file must not surface a failure.
-        if args.open_paths:
-            # Deferred: the forwarding path is reached only when another
-            # instance already holds the data-directory lock.
-            from .launch_intents import build_launch_intent, forward_launch_intent
+        # #612 + round9: a second GUI launch is not a failure — its
+        # file-open intents are handed to the running instance through the
+        # drop queue, an activation intent raises its window, and the
+        # second process exits cleanly after telling the user. A lock held
+        # only by a dead process is impossible (the OS owns the lock), so
+        # reaching this point means a live instance will drain the queue.
+        if not maintenance_request:
+            from .launch_intents import (
+                build_activation_intent,
+                build_launch_intent,
+                forward_launch_intent,
+            )
 
             forwarded = True
             for path in args.open_paths:
@@ -986,11 +1063,25 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 except OSError:
                     forwarded = False
+            try:
+                forward_launch_intent(
+                    args.data_dir,
+                    build_activation_intent(args.data_dir),
+                )
+            except OSError:
+                forwarded = False
             if forwarded:
                 write_stderr(
                     "実行中のHTDTインスタンスへドキュメントオープン要求を"
                     "転送しました"
+                    if args.open_paths
+                    else "実行中のHTDTインスタンスへ起動要求を転送しました"
                 )
+                if not args.open_paths:
+                    # A bare relaunch: the raise lands inside the running
+                    # instance — report it on this side so the user sees a
+                    # deliberate outcome, not a silently vanishing launch.
+                    _notify_instance_active(diagnostics)
                 return 0
         write_stderr(
             "HTDTのデータディレクトリは別プロセスが使用中です: "

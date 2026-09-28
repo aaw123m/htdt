@@ -91,6 +91,14 @@ def route_launch_intent(
     """Dispatch one intent through its semantic route; never raises."""
 
     try:
+        if intent.kind == 'activate':
+            # The shell raised and focused the window before dispatching;
+            # the semantic outcome just records that this happened.
+            return _result(
+                intent,
+                'activated',
+                '実行中のHTDTウィンドウを前面に表示しました',
+            )
         if intent.kind == 'open_project':
             return route_open_project_intent(intent, repository=repository)
         if intent.kind == 'preview_capture':

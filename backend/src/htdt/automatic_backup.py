@@ -44,6 +44,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Literal
 from uuid import uuid4
 
@@ -513,6 +514,42 @@ class AutomaticBackupScheduler:
         self._save_state(state)
 
 
+_GENERATION_STAMP_RE = re.compile(r'(\d{8}T\d{6}Z)')
+
+
+def _encoded_stamp(path: Path) -> datetime:
+    """Creation stamp embedded in a generation/snapshot filename."""
+
+    for token in _GENERATION_STAMP_RE.findall(path.name):
+        try:
+            return datetime.strptime(token, '%Y%m%dT%H%M%SZ').replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            continue
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def list_restorable_backups(data_dir: Path) -> tuple[Path, ...]:
+    """Every restorable archive for the data dir, newest first (round9 #11).
+
+    Combines the generations sibling directory (automatic, manual and
+    safety classes alike — ``list_generations`` already covers them) with
+    the pre-upgrade recovery copies kept under ``upgrade-recovery/``.
+    Ordering follows the creation stamp encoded in each filename — never
+    file mtime — matching the generation ordering contract.
+    """
+
+    from .native_upgrade import list_upgrade_snapshots
+
+    candidates = list(
+        AutomaticBackupScheduler(data_dir).list_generations()
+    )
+    candidates.extend(list_upgrade_snapshots(data_dir))
+    candidates.sort(key=lambda path: (_encoded_stamp(path), path.name), reverse=True)
+    return tuple(candidates)
+
+
 __all__ = [
     'AUTOMATIC_CLASSIFICATIONS',
     'AutomaticBackupError',
@@ -520,6 +557,7 @@ __all__ = [
     'AutomaticBackupScheduler',
     'BackupGenerationRecord',
     'backups_dir',
+    'list_restorable_backups',
     'managed_data_fingerprint',
     'policy_path',
     'state_path',

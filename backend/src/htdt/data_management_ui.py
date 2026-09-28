@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from PySide6.QtWidgets import (
+    QComboBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -32,6 +33,7 @@ from .data_management import (
     RestorePreview,
     RestoreResult,
 )
+from .automatic_backup import list_restorable_backups
 from .data_relocation import ManagedDataRelocationPlan
 from .legacy_data import inspect_legacy_store
 from .storage_maintenance import (
@@ -462,6 +464,36 @@ class DataManagementWidget(QWidget):
         actions.addWidget(self.select_restore_button)
         actions.addStretch(1)
         operations_layout.addLayout(actions)
+
+        # Round9 audit: saved generations were invisible — restore required
+        # remembering where a backup file lived. List every restorable
+        # archive the app knows about (automatic generations + pre-upgrade
+        # recovery copies) so the user can pick one directly.
+        self.generations_row = QWidget(operations_card)
+        generations_layout = QHBoxLayout(self.generations_row)
+        generations_layout.setContentsMargins(0, 0, 0, 0)
+        generations_layout.setSpacing(10)
+        generations_label = QLabel(
+            "保存済みバックアップ:", self.generations_row
+        )
+        generations_layout.addWidget(generations_label)
+        self.generations_combo = QComboBox(self.generations_row)
+        self.generations_combo.setObjectName("dataManagementGenerationsCombo")
+        generations_layout.addWidget(self.generations_combo, 1)
+        self.generation_restore_button = QPushButton(
+            "このバックアップを検証して復元…", self.generations_row
+        )
+        self.generation_restore_button.setObjectName(
+            "dataManagementGenerationRestoreButton"
+        )
+        set_control_size(
+            self.generation_restore_button, ControlSize.STANDARD
+        )
+        self.generation_restore_button.clicked.connect(
+            self._preview_selected_generation
+        )
+        generations_layout.addWidget(self.generation_restore_button)
+        operations_layout.addWidget(self.generations_row)
         layout.addWidget(operations_card)
 
         storage_card = QFrame(content)
@@ -549,11 +581,13 @@ class DataManagementWidget(QWidget):
         controller.storage_gc_completed.connect(self._on_storage_gc_completed)
         controller.operation_failed.connect(self._on_operation_failed)
 
-        self._refresh_actions()
+        self._refresh_generations()
         if self._restart_required:
             self._show_restart_required(
                 "データを安全に読み直せませんでした。HTDTを再起動してください。"
             )
+        else:
+            self._refresh_actions()
 
     @property
     def restart_required(self) -> bool:
@@ -648,6 +682,38 @@ class DataManagementWidget(QWidget):
         self.result_metadata.hide()
         self.pre_restore_label.hide()
         self.controller.preview_restore(backup_path)
+
+    def _refresh_generations(self) -> None:
+        """Re-list restorable archives — cheap filename listing only."""
+
+        try:
+            generations = list_restorable_backups(
+                self.controller.backend.data_dir
+            )
+        except Exception:  # noqa: BLE001 - listing must never break the page
+            generations = ()
+        self.generations_combo.clear()
+        for path in generations:
+            self.generations_combo.addItem(path.name, str(path))
+        self.generations_row.setVisible(bool(generations))
+        self._refresh_actions()
+
+    def _preview_selected_generation(self) -> None:
+        if self._busy or self._restart_required:
+            return
+        selected = self.generations_combo.currentData()
+        if not selected:
+            return
+        self._clear_restore_preview()
+        self._hide_status()
+        self.result_metadata.hide()
+        self.pre_restore_label.hide()
+        self.controller.preview_restore(Path(selected))
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        # Generations created while the dialog was hidden appear on show.
+        self._refresh_generations()
+        super().showEvent(event)
 
     def _confirm_and_restore(self) -> None:
         preview = self._restore_preview
@@ -914,6 +980,8 @@ class DataManagementWidget(QWidget):
         self.migration_import_button.setEnabled(available)
         self.relocate_button.setEnabled(available)
         self.storage_button.setEnabled(available)
+        self.generations_combo.setEnabled(available)
+        self.generation_restore_button.setEnabled(available)
         self.restore_button.setEnabled(
             available and self._restore_preview is not None
         )

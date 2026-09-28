@@ -151,7 +151,7 @@ def _auto_click(label: str):
     return _exec
 
 
-def _stub_recovery(monkeypatch, label: str):
+def _stub_recovery(monkeypatch, label: str, **overrides):
     """Force the recovery offer and auto-click ``label`` in the dialog."""
     from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -162,7 +162,9 @@ def _stub_recovery(monkeypatch, label: str):
     _real_app = QApplication.instance() or QApplication([])
 
     monkeypatch.setattr(
-        startup_recovery, 'decide_launch', lambda **_: _recovery_decision()
+        startup_recovery,
+        'decide_launch',
+        lambda **_: _recovery_decision(**overrides),
     )
     monkeypatch.setattr(QMessageBox, 'exec', _auto_click(label))
     monkeypatch.setattr(
@@ -330,3 +332,152 @@ def test_launch_record_is_annotated_with_project_ref(
 
     record = load_recovery_metadata(tmp_path).records[-1]
     assert record.last_project_ref == 'proj-xyz'
+
+
+# ---------------------------------------------------------------------------
+# Round 9 #10: second-instance launch forwards an activation intent and
+# exits cleanly instead of dead-ending on an error dialog.
+
+
+def test_second_gui_launch_forwards_activation_and_exits_clean(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from htdt.launch_intents import drain_launch_intents
+    from htdt.runtime_instance import SingleInstanceGuard
+
+    notices: list = []
+    monkeypatch.setattr(
+        native_cad, '_notify_instance_active', lambda _d: notices.append(1)
+    )
+
+    guard = SingleInstanceGuard(tmp_path)
+    assert guard.acquire()
+    try:
+        assert native_cad.main(['--data-dir', str(tmp_path)]) == 0
+    finally:
+        guard.release()
+
+    assert notices == [1]
+    (queued,) = drain_launch_intents(tmp_path)
+    assert queued.intent.kind == 'activate'
+
+
+def test_second_launch_forwards_open_paths_then_activation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from htdt.launch_intents import drain_launch_intents
+    from htdt.runtime_instance import SingleInstanceGuard
+
+    monkeypatch.setattr(
+        native_cad,
+        '_notify_instance_active',
+        lambda _d: (_ for _ in ()).throw(
+            AssertionError('file-open forwarding stays silent')
+        ),
+    )
+
+    doc = tmp_path / 'room.htdtproject'
+    doc.write_text('{"kind": "htdt-project-ref", "schema_version": 1}')
+
+    guard = SingleInstanceGuard(tmp_path)
+    assert guard.acquire()
+    try:
+        assert native_cad.main(
+            ['--data-dir', str(tmp_path), str(doc)]
+        ) == 0
+    finally:
+        guard.release()
+
+    kinds = [q.intent.kind for q in drain_launch_intents(tmp_path)]
+    # The file intent lands first so the document is open when the window
+    # comes forward.
+    assert kinds == ['open_project', 'activate']
+
+
+def test_second_launch_falls_back_to_error_when_forward_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    import htdt.launch_intents as launch_intents
+    from htdt.runtime_instance import SingleInstanceGuard
+
+    def _raise(*_a, **_k):
+        raise OSError('queue write failed')
+
+    monkeypatch.setattr(
+        launch_intents, 'forward_launch_intent', _raise
+    )
+    failures: list = []
+    monkeypatch.setattr(
+        native_cad,
+        'report_launch_failure',
+        lambda **kwargs: failures.append(kwargs),
+    )
+
+    guard = SingleInstanceGuard(tmp_path)
+    assert guard.acquire()
+    try:
+        assert native_cad.main(['--data-dir', str(tmp_path)]) == 2
+    finally:
+        guard.release()
+
+    assert '使用中' in capsys.readouterr().err
+    assert len(failures) == 1
+
+
+# ---------------------------------------------------------------------------
+# Round 9 #11: 'restore from backup' on the recovery dialog opens the
+# settings surface and previews the newest existing generation.
+
+
+def _seed_generation(data_dir: Path, name: str) -> Path:
+    generations = data_dir.parent / f'{data_dir.name}-backups'
+    generations.mkdir(parents=True, exist_ok=True)
+    archive = generations / name
+    archive.write_bytes(b'generation-bytes')
+    return archive
+
+
+def test_restore_backup_choice_previews_newest_generation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    generation = _seed_generation(
+        tmp_path,
+        'htdt-backup-manual-20260901T000000Z-abcd1234.htdt-backup',
+    )
+    older = _seed_generation(
+        tmp_path,
+        'htdt-backup-automatic_periodic-20260801T000000Z-ef567890.htdt-backup',
+    )
+    del older
+
+    opened: list = []
+    previews: list = []
+    window_cls = _fake_window_with_app(
+        settings_dialog=SimpleNamespace(
+            open_settings=lambda: opened.append('settings')
+        ),
+        data_management_controller=SimpleNamespace(
+            preview_restore=lambda path: previews.append(Path(path))
+        ),
+        start_automatic_backup=lambda: None,
+    )
+    _stub_gui(monkeypatch, workflow_cls=window_cls)
+
+    _stub_recovery(
+        monkeypatch,
+        'バックアップから復元',
+        choices=(
+            'open_normal',
+            'open_safe_mode',
+            'open_diagnostics',
+            'restore_backup',
+            'verify_data',
+            'choose_another_project',
+        ),
+        backup_restore_available=True,
+    )
+
+    assert native_cad.main(['--data-dir', str(tmp_path)]) == 0
+    # Settings surface opens first, then the newest generation previews.
+    assert opened == ['settings']
+    assert previews == [generation]
