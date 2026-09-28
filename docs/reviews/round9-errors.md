@@ -258,4 +258,13 @@ import/export writes, mapped backup summary),
   `test_application_pages`, `test_room_workspace`,
   `test_optimization_workspace`, `test_support_diagnostics`.
 - Full suite: `cd backend && TMPDIR=/c/t PYTHONIOENCODING=utf-8
-  QT_QPA_PLATFORM=offscreen C:/devin/python/python.exe -m pytest -q -n 4`.
+  QT_QPA_PLATFORM=offscreen C:/devin/python/python.exe -m pytest -q -n 4`
+  — one failure, `test_cad_measured_modal_analysis::
+  test_reconstruct_mode_shape_normalizes_by_peak`, which fails
+  identically on a detached `origin/main` worktree (preexisting, from the
+  round-9 accuracy merge — `reconstruct_mode_shape` now requires explicit
+  `evaluation_position_ids` and the test was not updated). A second
+  `-n 4` failure, `test_evidence_lifecycle_rejects_illegal_promotions`,
+  passes standalone and in-file on this branch — a parallel-isolation
+  flake, not caused by this diff (none of the touched files are in its
+  import path).
