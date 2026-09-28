@@ -204,7 +204,7 @@ class FieldExplorerPanel(QWidget):
         self.plane_combo = QComboBox()
         for plane in ('xy', 'xz', 'yz'):
             self.plane_combo.addItem(_PLANE_LABELS[plane], plane)
-        self.plane_combo.currentIndexChanged.connect(self._refresh_view)
+        self.plane_combo.currentIndexChanged.connect(self._plane_changed)
         view_form.addRow('断面', self.plane_combo)
 
         self.coordinate_combo = QComboBox()
@@ -427,6 +427,12 @@ class FieldExplorerPanel(QWidget):
             if index >= 0:
                 self.quantity_combo.setCurrentIndex(index)
         self.quantity_combo.blockSignals(False)
+
+    def _plane_changed(self) -> None:
+        # 断面位置 options are bound to the plane's fixed axis — repopulate
+        # them before rendering so a stale coordinate never drives the slice.
+        self._refresh_coordinates()
+        self._refresh_view()
 
     def _refresh_coordinates(self) -> None:
         if self._session is None:

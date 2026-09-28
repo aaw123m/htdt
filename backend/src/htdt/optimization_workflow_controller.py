@@ -806,6 +806,9 @@ class OptimizationWorkflowController(
         self.search_candidate_filter_field.textChanged.connect(
             self._apply_search_candidate_filter
         )
+        self.search_candidate_filter_note = QLabel()
+        self.search_candidate_filter_note.setWordWrap(True)
+        self.search_candidate_filter_note.hide()
         self.search_prev_button = QPushButton("前の候補")
         self.search_prev_button.clicked.connect(self.previous_search_page)
         self.search_next_button = QPushButton("次の候補")
@@ -967,6 +970,9 @@ class OptimizationWorkflowController(
         self.extended_candidate_filter_field.textChanged.connect(
             self._apply_extended_candidate_filter
         )
+        self.extended_candidate_filter_note = QLabel()
+        self.extended_candidate_filter_note.setWordWrap(True)
+        self.extended_candidate_filter_note.hide()
         self.extended_prev_button = QPushButton("前の拡張候補")
         self.extended_prev_button.clicked.connect(self.previous_extended_page)
         self.extended_next_button = QPushButton("次の拡張候補")

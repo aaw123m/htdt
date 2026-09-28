@@ -81,6 +81,7 @@ from .native_worker import WORKER_CANCELLED
 from .optimization_search_controller import (
     CandidateTreeItem,
     _candidate_matches_filter,
+    _update_candidate_filter_note,
 )
 from .user_facing_error import operation_error_message
 
@@ -886,10 +887,20 @@ class ExtendedSearchControllerMixin:
         needle = (
             field.text().strip().casefold() if field is not None else ''
         )
+        visible = 0
         with QSignalBlocker(tree):
             for index in range(tree.topLevelItemCount()):
                 item = tree.topLevelItem(index)
-                item.setHidden(not _candidate_matches_filter(item, needle))
+                match = _candidate_matches_filter(item, needle)
+                item.setHidden(not match)
+                if match:
+                    visible += 1
+        _update_candidate_filter_note(
+            getattr(self, 'extended_candidate_filter_note', None),
+            needle,
+            visible,
+            self.extended_candidate_page,
+        )
         self._refresh_extended_binding_state()
 
     def _extended_candidate_selected(self) -> None:
