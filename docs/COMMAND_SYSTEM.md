@@ -50,16 +50,17 @@ Scene保存、Undo/Redo、測定、予測、Pareto計算などのdomain authorit
 | `room.add_speaker` | スピーカー追加 | — | room | `room/placement` |
 | `measurements.import_rew` | REW読み込み | — | measurement | `measurement/import` |
 | `prediction.run` | 予測実行 | — | room | `room/acoustics` |
-| `optimization.compare_candidates` | 候補比較 | — | optimization | `optimization/candidates` |
+| `optimization.compare_candidates` | 候補比較 | — | optimization | `optimization/comparison` |
 
 ## Shell integration
 
 canonical shell ID/contextは `workflow_navigation.py` を唯一の正本とする。
 
 - workspace: `overview / room / measurement / optimization`
-- Room context: `geometry / objects / placement / acoustics`
-- Measurement context: `import / assignment / quality / comparison`
-- Optimization context: `setup / candidates / objectives / measurement-plan / validation`
+- Room context: `geometry / objects / placement / acoustics / history`
+- Measurement context: `import / assignment / campaign / quality / comparison / calibration`
+- Optimization context: `setup / candidates / comparison / interventions / robustness / validation`
+  （`objectives`→`comparison`、`measurement-plan`→`validation` は後方互換alias）
 
 `native_cad.py` のcomposition rootでpaletteをshellのchildとして1回だけ生成し、
 `WorkflowShellWindow.handle_deep_link()` をregistryへ接続する。

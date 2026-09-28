@@ -29,9 +29,9 @@ UX160のowned-Windows visual acceptanceを代替しない。
 
 `WorkflowRail`:
 - expanded: 184 logical px
-- compact: 112 logical px
+- compact: 72 logical px（UX150では112 — IA v2でcompact 72 + glyph化へ変更）
 - shell width < 1120 logical pxでcompact
-- compact時はbrandを退避し、workspace labelsは維持
+- compact時はbrandを退避し、workspace labelsは先頭1文字のglyphへ縮退（tooltipに全名）
 
 `TopContextBar`:
 - compact時は重複情報であるworkspace titleを退避

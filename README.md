@@ -74,7 +74,21 @@ repository helper:
 .\scripts\run-native.ps1
 ```
 
+`run-native.ps1` は既定で `--document-id fixture-f1` を付けて起動します（開発用fixture projectが開く）。自分の最後に開いたprojectを開くには `python -m htdt.native_cad` を直接使います。
+
 installed buildではinstallerが配置した `HTDT\HTDT.exe` を起動します。
+
+初回起動は既定のworkflow shellの「概要」workspaceを開きます。プロジェクトが未作成の場合は自動で初期project（「My Home Theater」）が作成され、「概要」画面下端のprimary buttonが次の推奨操作（「部屋を作成」「スピーカーを追加」等）を示すので、そのままguided path（部屋→スピーカー→測定→予測→最適化）を辿れます。
+
+画面内ヘルプ: `Ctrl+K` のコマンドpaletteで `help` または `ショートカット` を検索すると、ショートカット一覧・用語・workflow説明のhelp topicを開けます。常設のヘルプmenu/buttonはありません。
+
+起動option（`HTDT.exe` / `python -m htdt.native_cad` 共通）:
+
+- `FILE`（positional）: `.htdtproject` / `.htdtcapture` / `.htdt-backup` を開く。installerはこの3拡張子をHTDT.exeへ関連付けます（`.htdt-backup` はpreview表示のみ。復元は別途 `--restore` の明示操作です）
+- `--data-dir <dir>`: user data rootを既定 `%LOCALAPPDATA%\HomeTheaterDigitalTwin` から変更する
+- `--document-id <id>`: 指定document idのprojectを開く（未登録ならprojectとして登録）。通常は最後に開いたprojectが自動で開かれます
+- `--legacy-ui`: workflow shellではなく旧 `OptimizationWorkspaceWindow` 構成で起動（rollback用）
+- `--safe-mode`: 連携・保存済みlayout・自動オープンintentなしのguarded launchで起動
 
 ## Backup / restore
 
@@ -104,6 +118,12 @@ repository起動でも同じoptionを使用できます。
 python -m htdt.native_cad --backup "D:\Backups\home-theater.htdt-backup"
 python -m htdt.native_cad --restore "D:\Backups\home-theater.htdt-backup"
 ```
+
+関連するmaintenance option（`--backup` / `--restore` / `--automatic-backup` / `--seed-synthetic-demo` / `--migrate-legacy-data` は相互排他です）:
+
+- `--automatic-backup`: 期限の来た自動バックアップを1回実行して終了（スケジュールタスク用）
+- `--migrate-legacy-data`: 廃止されたbrowser store（`htdt.sqlite3`）をnative projectへ移行して終了。移行対象がなければ `{"state":"nothing_to_migrate"}` を返します
+- `--seed-synthetic-demo`: 合成 O10-O80 開発demoをseedして終了（後述）
 
 backupはlive SQLite fileの単純copyではなくSQLite backup APIでconsistent snapshotを作り、N60 measurement raw assetsもSHA-256で検証してarchiveへ含めます。restoreはarchive traversal、manifest/hash、SQLite integrity/foreign key、asset hashを全検証してからstagingし、現在dataをpre-restore backupへ退避して置換します。
 

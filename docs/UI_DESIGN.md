@@ -68,24 +68,29 @@ HTDTのuser-facing navigationはdomain/service境界ではなくtaskで構成す
 │   ├─ 形状
 │   ├─ 物体
 │   ├─ スピーカー・座席
-│   ├─ 材料 / 音響への反映
-│   └─ 音響 / 空間表示
+│   ├─ 音響
+│   └─ 履歴
 │
 ├─ 測定
-│   ├─ 読み込み / 測定
+│   ├─ 読み込み
 │   ├─ 割り当て
-│   ├─ 品質 / タイミング
-│   └─ 予測との比較
+│   ├─ キャンペーン
+│   ├─ 品質
+│   ├─ 比較
+│   └─ 機器の準備
 │
 ├─ 最適化
 │   ├─ 探索設定
 │   ├─ 候補
-│   ├─ 目的 / パレート
-│   ├─ 測定計画
-│   └─ 検証 / 適応
+│   ├─ 比較
+│   ├─ 介入計画
+│   ├─ ばらつき耐性
+│   └─ 測定・検証
 │
-└─ ヘルプ / 設定
+└─ 取り込み / アクティビティ / ライブラリ / サポート / 設定
 ~~~
+
+ヘルプはrailの常設destinationではなく、`Ctrl+K` のcommand paletteから `help` で検索して開く（ショートカット一覧・用語・workflow説明・障害対応の19 topic）。
 
 Predictionを単独global destinationとして固定しない。
 
@@ -107,7 +112,8 @@ Predictionを単独global destinationとして固定しない。
 - 部屋
 - 測定
 - 最適化
-- 下端にヘルプ / 設定
+- workspace以外のapplication destination: プロジェクト / 取り込み / アクティビティ / ライブラリ / サポート
+- 下端に 設定（ヘルプは常設buttonではなく `Ctrl+K` palette経由）
 
 global destinationは原則4〜5個以内。icon-onlyを既定にせず、short labelを併記する。必要ならrail自体をcollapseできる。
 
@@ -115,11 +121,11 @@ global destinationは原則4〜5個以内。icon-onlyを既定にせず、short 
 
 現在workspace内のsub-contextとprimary modeだけを表示する。
 
-例:
+例（出荷済みのcontext名）:
 
-- 部屋: 形状 / 物体 / スピーカー / 音響
-- 測定: 読み込み / 割り当て / 比較
-- 最適化: 設定 / 候補 / パレート / 検証
+- 部屋: 形状 / 物体 / スピーカー・座席 / 音響 / 履歴
+- 測定: 読み込み / 割り当て / キャンペーン / 品質 / 比較 / 機器の準備
+- 最適化: 探索設定 / 候補 / 比較 / 介入計画 / ばらつき耐性 / 測定・検証
 
 Editor / Room / Wall / Object / Audio等の複数toolbarを常時併置しない。
 
@@ -231,32 +237,36 @@ Acoustics:
 | **中button drag** | **pan / 画面移動** |
 | **Shift＋中button drag** | **orbit / 視点回転** |
 | **wheel** | **cursor近傍を基準にzoom** |
-| Shift＋中button開始位置 | orbit pivotの候補。selectionがある場合はselection中心を優先 |
+| Shift＋中buttonの開始位置 | （未実装）orbit pivotの候補 — 現行のorbit pivotはcamera焦点（F/Homeのfit先に追従） |
 | 右click | context menu。camera操作には使わない |
 | Esc | active操作をcancel。Idleでは安全なSelect状態へ |
 | Enter | sketch / numeric edit等、現在操作を確定できる場合にcommit |
 | Ctrl+Z | 元に戻す |
 | Ctrl+Y / Ctrl+Shift+Z | やり直す |
 | Ctrl+S | 保存 |
-| Ctrl+O / Ctrl+N | 開く / 新規project |
-| Delete | 選択対象を削除 |
+| Ctrl+O / Ctrl+N | （未実装）開く / 新規project — 現行は「プロジェクト」destination画面で作成・切替 |
+| Delete / Backspace | 選択対象を削除 |
 | Ctrl+D | 複製 |
+| Ctrl+A | すべて選択 |
+| Ctrl+I | 選択を反転 |
 | F | 選択対象へfit |
 | Home | scene全体へfit |
 | M | 移動tool |
 | R | 回転tool |
-| D | Room sketchで寸法入力/寸法tool |
-| I | 距離・寸法の計測tool |
+| D | （未実装）Room sketchの寸法tool — 寸法は作図中のnumeric input / Inspectorで入力 |
+| T | 距離・寸法の計測tool |
+| H | 表示/非表示を切替 |
+| L | ロックを切替 |
 | X / Y / Z | transform中のaxis constraint |
-| Shift | transform中のprecision modifier |
-| Alt | snap一時反転。Windows menu競合が残る場合は別modifierへ変更 |
-| Ctrl+K | コマンド検索 |
+| Shift | transform中のsnap一時無効 |
+| Alt | （`--legacy-ui` のみ）snap一時反転 — workflow shellではShiftがsnap一時無効 |
+| Ctrl+K | コマンド検索（help / 設定 / 各commandへも到達） |
 
 既存実装の `W=Move` や `right-drag=orbit` は新UIの既定契約にはしない。必要なら移行期間のaliasにできるが、tooltip/help上のprimary shortcutは上表へ統一する。
 
 Autodesk Fusion等と同様に、将来Settingsへnavigation presetを追加できる構造は許容する。ただし初期releaseではshortcut customization自体を目的にせず、まず一つの一貫したdefaultを完成させる。
 
-keyboard shortcutはmouse cursor/focusのあるworkspaceで作用する。textbox・numeric field・検索fieldにfocusがある間は文字入力を優先し、`M/R/D/I/X/Y/Z/Delete` 等をscene commandへ流さない。shortcut実行時はstatus/tool hintで現在commandを短く表示する。
+keyboard shortcutはmouse cursor/focusのあるworkspaceで作用する。textbox・numeric field・検索fieldにfocusがある間は文字入力を優先し、`M/R/T/X/Y/Z/Delete` 等をscene commandへ流さない。shortcut実行時はstatus/tool hintで現在commandを短く表示する。
 
 ### Feedback
 
