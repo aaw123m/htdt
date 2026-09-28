@@ -817,6 +817,15 @@ class CaptureInboxRepository:
         with closing(self._connect()) as connection:
             return self._promotions_for(connection, lineage_digest)
 
+    def supersessions_for(
+        self, lineage_digest: str
+    ) -> tuple[CaptureInboxSupersession, ...]:
+        """Supersession records replacing this item's authorities."""
+        with closing(self._connect()) as connection:
+            return self._supersessions(
+                connection, 'superseded_lineage_digest', lineage_digest
+            )
+
     def _promotions_for(
         self, connection: sqlite3.Connection, lineage_digest: str
     ) -> tuple[CaptureInboxPromotionRecord, ...]:
@@ -1106,7 +1115,9 @@ class CaptureInboxRepository:
             {
                 'disposition': 'pending',
                 'disposition_reason': '',
-                'disposition_at_utc': _utc_now(),
+                # A pending item was never disposed; stamping the resume
+                # time here would claim a disposal that did not happen.
+                'disposition_at_utc': None,
             },
         )
 
@@ -1252,10 +1263,19 @@ class CaptureInboxRepository:
                 disposition = self._derive_disposition(
                     item, promotions, plan
                 )
+                # disposition_at_utc records when the CURRENT disposition
+                # began — stamping an outcome that left the disposition
+                # unchanged (e.g. blocked records on a pending item) would
+                # read as a disposal that never happened.
+                new_disposition_at = (
+                    _utc_now()
+                    if disposition != item.disposition
+                    else item.disposition_at_utc
+                )
                 connection.execute(
                     'UPDATE capture_inbox_items SET disposition=?, '
                     'disposition_at_utc=? WHERE lineage_digest=?',
-                    (disposition, _utc_now(), lineage_digest),
+                    (disposition, new_disposition_at, lineage_digest),
                 )
                 record = connection.execute(
                     'SELECT * FROM capture_inbox_promotions '

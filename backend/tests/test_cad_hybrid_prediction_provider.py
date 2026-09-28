@@ -129,6 +129,26 @@ def _ref(label: str, version: str = '1') -> ExactExternalAuthorityRef:
     )
 
 
+def _authority_ref(
+    label: str, payloads: dict
+) -> ExactExternalAuthorityRef:
+    """Exact ref whose payload an external resolver can actually serve.
+
+    ``_ref`` fabricates a hash that no payload can match — fine for pins
+    that never resolve, but evidence refs must resolve through
+    ``external_payload_resolver`` now, so promotion tests register a real
+    payload for each ref they mint.
+    """
+    payload = {'authority_payload': label}
+    ref = ExactExternalAuthorityRef(
+        authority_id=f'test-authority:{label}',
+        authority_version='1',
+        semantic_hash_sha256=_digest(payload),
+    )
+    payloads[ref.authority_id] = payload
+    return ref
+
+
 def _domain(frequencies: tuple[float, ...]) -> FrequencyDomain:
     return FrequencyDomain(
         minimum_hz=float(frequencies[0]),
@@ -441,6 +461,7 @@ def _build_bundle(
     )
     r160_repository.save(artifact)
 
+    external_payloads: dict[str, object] = {}
     hybrid_repository = CadHybridPredictionProviderRepository(
         fixture['scene_repository'],
         base_provider_repository=base_repository,
@@ -448,6 +469,9 @@ def _build_bundle(
         composition_spec_resolver=lambda spec_id: specs.get(spec_id),
         wave_excitation_resolver=lambda excitation_id: excitations.get(
             excitation_id
+        ),
+        external_payload_resolver=lambda ref: external_payloads.get(
+            ref.authority_id
         ),
     )
     provider = hybrid_repository.build_current(
@@ -468,6 +492,7 @@ def _build_bundle(
         'provider': provider,
         'r160_repository': r160_repository,
         'hybrid_repository': hybrid_repository,
+        'external_payloads': external_payloads,
         'specs': specs,
         'excitations': excitations,
         'responses': responses,
@@ -1111,7 +1136,12 @@ def test_evidence_lifecycle_promotion_is_new_immutable_projection(
         candidate,
         evidence_state='validated',
         evidence_scope='synthetic_fixture',
-        validation_authority_ref=_ref('hybrid-validation'),
+        validation_authority_ref=_authority_ref(
+            'hybrid-validation', bundle['external_payloads']
+        ),
+        external_payload_resolver=lambda ref: bundle[
+            'external_payloads'
+        ].get(ref.authority_id),
         validated_observables=(
             HybridValidatedObservable(
                 observable='frequency_response_magnitude',
@@ -1168,6 +1198,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='validated',
             evidence_scope='synthetic_fixture',
             validation_authority_ref=_ref('v'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(),
         )
     with pytest.raises(ValueError, match='READY'):
@@ -1176,6 +1207,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='validated',
             evidence_scope='synthetic_fixture',
             validation_authority_ref=_ref('v'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(
                 HybridValidatedObservable(
                     observable='rt60',
@@ -1189,6 +1221,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='production',
             evidence_scope='owned_room',
             validation_authority_ref=_ref('v'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(claim,),
         )
     with pytest.raises(ValueError, match='exceeds provider evidence scope'):
@@ -1197,6 +1230,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='validated',
             evidence_scope='synthetic_fixture',
             validation_authority_ref=_ref('v'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(claim,),
         )
     with pytest.raises(ValueError, match='inside output grid'):
@@ -1205,6 +1239,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='validated',
             evidence_scope='synthetic_fixture',
             validation_authority_ref=_ref('v'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(
                 HybridValidatedObservable(
                     observable='frequency_response_magnitude',
@@ -1217,12 +1252,18 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             ),
         )
 
+    production_payloads: dict = {}
     production = promote_hybrid_provider_evidence(
         candidate,
         evidence_state='production',
         evidence_scope='owned_room',
-        validation_authority_ref=_ref('v'),
-        production_adoption_authority_ref=_ref('adoption-adr'),
+        validation_authority_ref=_authority_ref('v', production_payloads),
+        production_adoption_authority_ref=_authority_ref(
+            'adoption-adr', production_payloads
+        ),
+        external_payload_resolver=lambda ref: production_payloads.get(
+            ref.authority_id
+        ),
         validated_observables=(claim,),
     )
     assert production.evidence_state == 'production'
@@ -1233,6 +1274,7 @@ def test_evidence_lifecycle_rejects_illegal_promotions(
             evidence_state='validated',
             evidence_scope='synthetic_fixture',
             validation_authority_ref=_ref('v2'),
+            external_payload_resolver=lambda ref: None,
             validated_observables=(
                 HybridValidatedObservable(
                     observable='frequency_response_magnitude',

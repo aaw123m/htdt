@@ -21,6 +21,7 @@ from .cad_hybrid_numerical_composition import (
 )
 from .cad_prediction_provider import (
     CadPredictionProviderRepository,
+    ExternalPayloadResolver,
     LowBandPredictionProvider,
     PredictionProviderCapability,
     PredictionProviderEnvironmentIdentity,
@@ -30,6 +31,7 @@ from .cad_prediction_provider import (
     ProviderCurrentAuthority,
     ProviderEvidenceScope,
     ProviderEvidenceState,
+    _external_payload,
 )
 from .cad_repository import SceneRepository
 from .cad_schema import (
@@ -753,6 +755,7 @@ def promote_hybrid_provider_evidence(
     validation_authority_ref: ExactExternalAuthorityRef,
     validated_observables: Sequence[HybridValidatedObservable],
     production_adoption_authority_ref: ExactExternalAuthorityRef | None = None,
+    external_payload_resolver: ExternalPayloadResolver,
 ) -> HybridPredictionProvider:
     """Issue a NEW immutable R170B provider carrying validated evidence.
 
@@ -763,6 +766,11 @@ def promote_hybrid_provider_evidence(
     adoption additionally requires a separate adoption authority. A
     validated R170A base alone never promotes the hybrid result: every
     claim must be declared explicitly.
+
+    ``external_payload_resolver`` must serve the exact external payloads
+    the authority refs pin (same contract as the R170A builder): an
+    evidence claim backed only by a ref-shaped field — no resolvable,
+    hash-matching payload behind it — is refused rather than recorded.
     """
 
     candidate = HybridPredictionProvider.model_validate(
@@ -797,13 +805,28 @@ def promote_hybrid_provider_evidence(
         item.model_dump(mode='json') for item in validated_observables
     ]
     digest = _semantic_hash(semantic)
-    return HybridPredictionProvider.model_validate(
+    promoted = HybridPredictionProvider.model_validate(
         {
             'provider_id': f'r170b-hybrid-provider:{digest}',
             'semantic_sha256': digest,
             **payload,
         }
     )
+    # A 'validated'/'production' row must be backed by a real authority
+    # payload: resolve the refs so fabricated or stale claims fail before
+    # they can be persisted (structural model checks above run first).
+    _external_payload(
+        external_payload_resolver,
+        promoted.validation_authority_ref,
+        label='R170B provider validation',
+    )
+    if promoted.production_adoption_authority_ref is not None:
+        _external_payload(
+            external_payload_resolver,
+            promoted.production_adoption_authority_ref,
+            label='R170B production adoption',
+        )
+    return promoted
 
 
 def require_hybrid_provider_evidence(
@@ -987,12 +1010,14 @@ class CadHybridPredictionProviderRepository:
         r160_repository: object,
         composition_spec_resolver: HybridCompositionSpecResolver,
         wave_excitation_resolver: WaveExcitationResolver,
+        external_payload_resolver: ExternalPayloadResolver,
     ) -> None:
         self.scene_repository = scene_repository
         self.base_provider_repository = base_provider_repository
         self.r160_repository = r160_repository
         self.composition_spec_resolver = composition_spec_resolver
         self.wave_excitation_resolver = wave_excitation_resolver
+        self.external_payload_resolver = external_payload_resolver
         self.path = Path(scene_repository.path)
         for label, repository in (
             ('R170A provider', base_provider_repository),
@@ -1110,6 +1135,7 @@ class CadHybridPredictionProviderRepository:
                 evidence_scope=provider.evidence_scope,
                 validation_authority_ref=provider.validation_authority_ref,
                 validated_observables=provider.validated_observables,
+                external_payload_resolver=self.external_payload_resolver,
                 production_adoption_authority_ref=(
                     provider.production_adoption_authority_ref
                 ),

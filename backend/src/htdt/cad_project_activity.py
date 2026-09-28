@@ -28,6 +28,7 @@ Contract properties:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Iterable, Literal, Protocol
 from uuid import uuid4
 
@@ -56,6 +57,8 @@ ACTIVITY_EVENT_KINDS: frozenset[str] = frozenset(
         'system_variant_measured',
         'capture_staged',
         'capture_promoted',
+        'capture_superseded',
+        'capture_deferred',
         'capture_rejected',
         'measurement_imported',
         'calibration_plan_created',
@@ -85,6 +88,8 @@ ActivityEventKind = Literal[
     'system_variant_measured',
     'capture_staged',
     'capture_promoted',
+    'capture_superseded',
+    'capture_deferred',
     'capture_rejected',
     'measurement_imported',
     'calibration_plan_created',
@@ -267,6 +272,25 @@ class _ListRevisions(Protocol):
     def revision_labels(self, document_id: str) -> dict[str, Any]: ...
 
 
+def _event_sort_key(occurred_at_utc: str) -> tuple[int, str]:
+    """Chronological key for the timeline's stable sort.
+
+    Writers emit ISO-8601 in different shapes ('Z' vs '+00:00', with or
+    without microseconds); lexical order across those forms is NOT
+    chronological — '...09:00:00Z' sorts after '...09:00:00.500+00:00'
+    even though it is the earlier instant. Parse to a normalized instant
+    so the shown order is the true order; an unparseable value keeps
+    deterministic placement at the end rather than crashing the read.
+    """
+    try:
+        instant = datetime.fromisoformat(occurred_at_utc)
+    except ValueError:
+        return (1, occurred_at_utc)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return (0, instant.astimezone(timezone.utc).isoformat())
+
+
 class CadProjectActivityService:
     """Rebuildable projection of cross-workspace project history.
 
@@ -322,7 +346,7 @@ class CadProjectActivityService:
         # Stable sort on the timestamp alone: same-tick events keep their
         # causal emission order (generators yield dependents after the rows
         # they describe). event_id would re-shuffle ties by hash value.
-        events.sort(key=lambda item: item.occurred_at_utc)
+        events.sort(key=lambda item: _event_sort_key(item.occurred_at_utc))
         return tuple(events)
 
     def recent(
@@ -522,6 +546,58 @@ class CadProjectActivityService:
                     item.inbox_item_id,
                 ),
             )
+            # Promotion and supersession are projected from the durable
+            # RECORDS, not the item's current disposition: the records say
+            # which authority kind was promoted/superseded and when, and
+            # they keep telling that truth after the item's disposition
+            # moves on (a promoted-then-superseded item still shows both).
+            for record in self.capture_inbox.promotions_for(
+                item.lineage_digest
+            ):
+                if record.outcome != 'promoted':
+                    continue
+                yield _event(
+                    document_id=document_id,
+                    kind='capture_promoted',
+                    source_kind='capture_inbox_promotion',
+                    source_id=record.promotion_record_id,
+                    occurred_at_utc=record.promoted_at_utc,
+                    title=(
+                        f'キャプチャ {item.capture_revision_id} を昇格'
+                        f'（{record.authority_kind}）'
+                    ),
+                    detail=record.created_authority_id
+                    or record.detail
+                    or None,
+                    deep_link=_link(
+                        NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                        ApplicationDestinationId.INBOX,
+                        None,
+                        item.inbox_item_id,
+                    ),
+                )
+            for supersession in self.capture_inbox.supersessions_for(
+                item.lineage_digest
+            ):
+                yield _event(
+                    document_id=document_id,
+                    kind='capture_superseded',
+                    source_kind='capture_inbox_supersession',
+                    source_id=supersession.supersession_id,
+                    occurred_at_utc=supersession.created_at_utc,
+                    title=(
+                        f'キャプチャ {item.capture_revision_id} '
+                        f'が新しい納品に置き換えられました'
+                        f'（{supersession.authority_kind}）'
+                    ),
+                    detail=supersession.reason,
+                    deep_link=_link(
+                        NavigationTargetKind.CAPTURE_INBOX_ITEM,
+                        ApplicationDestinationId.INBOX,
+                        None,
+                        item.inbox_item_id,
+                    ),
+                )
             if item.disposition == 'rejected' and item.disposition_at_utc is not None:
                 yield _event(
                     document_id=document_id,
@@ -538,16 +614,16 @@ class CadProjectActivityService:
                         item.inbox_item_id,
                     ),
                 )
-            elif item.disposition in {'promoted', 'partially_promoted'} and (
+            elif item.disposition == 'deferred' and (
                 item.disposition_at_utc is not None
             ):
                 yield _event(
                     document_id=document_id,
-                    kind='capture_promoted',
+                    kind='capture_deferred',
                     source_kind='capture_inbox_item',
-                    source_id=f'{item.inbox_item_id}:{item.disposition}',
+                    source_id=f'{item.inbox_item_id}:deferred',
                     occurred_at_utc=item.disposition_at_utc,
-                    title=f'キャプチャ {item.capture_revision_id} を昇格',
+                    title=f'キャプチャ {item.capture_revision_id} を保留',
                     detail=item.disposition_reason or None,
                     deep_link=_link(
                         NavigationTargetKind.CAPTURE_INBOX_ITEM,

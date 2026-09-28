@@ -34,6 +34,7 @@ Deliberate boundaries:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import uuid
@@ -46,6 +47,9 @@ from typing import Any, Callable, Iterable, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .workflow_navigation import WorkspaceDeepLink
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 ACTIVITY_SCHEMA_VERSION = 1
@@ -753,10 +757,7 @@ class ActivityCenter:
         payload = json.loads(path.read_text(encoding='utf-8'))
         if payload.get('schema_version') != ACTIVITY_SCHEMA_VERSION:
             return ()
-        return tuple(
-            ApplicationOperation.model_validate(item)
-            for item in payload.get('operations', ())
-        )
+        return cls._load_operations(payload.get('operations', ()), path)
 
     @classmethod
     def load_active_operations(
@@ -775,10 +776,28 @@ class ActivityCenter:
         payload = json.loads(path.read_text(encoding='utf-8'))
         if payload.get('schema_version') != ACTIVITY_SCHEMA_VERSION:
             return ()
-        return tuple(
-            ApplicationOperation.model_validate(item)
-            for item in payload.get('active_operations', ())
+        return cls._load_operations(
+            payload.get('active_operations', ()), path
         )
+
+    @staticmethod
+    def _load_operations(
+        items: object, path: Path
+    ) -> tuple[ApplicationOperation, ...]:
+        """Validate rows individually: one corrupt or hand-edited row must
+        not take down every other row of a diagnostics read.
+        """
+        operations: list[ApplicationOperation] = []
+        for item in items:
+            try:
+                operations.append(
+                    ApplicationOperation.model_validate(item)
+                )
+            except Exception:
+                _LOGGER.warning(
+                    'dropping invalid activity record from %s', path
+                )
+        return tuple(operations)
 
 
 __all__ = [
