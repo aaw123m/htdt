@@ -54,6 +54,10 @@ lines (see #11).
 | 17 | Esc/Enter defaults on dialogs | — | VERIFIED: destructive confirms set `setDefaultButton(Cancel/No)`; `QDialogButtonBox` gives Esc-reject; palette bindings use `QKeySequence.StandardKey` |
 | 18 | Tab order on key dialogs | — | VERIFIED: forms use `QFormLayout`/`addRow` construction order (Qt default tab order); no custom widgets reorder focus; no `setTabOrder` misuse found |
 | 19 | Focus after dialogs close | — | VERIFIED: all dialogs are modal `exec()` over a `QMainWindow` parent — Qt returns focus to the parent automatically |
+| 20 | Qt **stock** widgets (QMessageBox/QInputDialog OK・Cancel, native file-dialog buttons) render English — authored literals are JP but no `QTranslator` was ever installed | MED i18n | FIXED — `ui_theme.install_japanese_translations` loads `qtbase_ja`/`qt_ja` inside `apply_dark_theme`; Cancel→キャンセル, Yes→はい(&Y) (verified offscreen) |
+| 21 | `--legacy-ui` entry crashes at launch (`AttributeError: search_generate_reason_label` — init-order bug in the optimization controllers) | MED correctness | PRE-EXISTING — both files untouched by this round (`git diff main` empty there); legacy surface is outside the shipped shell, same treatment as round-8 legacy notes |
+| 22 | Measurement dock `入力役割` line edit defaults to `unknown` | — | BY DESIGN — that is the stored channel-role token (data vocabulary), not a label; the placeholder documents valid tokens |
+| 23 | VTK/pyvista chrome ('X Axis/Y Axis' axes, 'Distance' scalar bar) is English | LOW i18n | BY DESIGN — renderer-internal labels, not Qt widgets; no supported localization path |
 
 ## Deferred — needs a product decision
 
@@ -76,7 +80,8 @@ Product call: whether an English UI is ever intended.
 
 - New `tests/test_review_round9_i18n.py`: pins recovery-choice labels,
   `decide_launch` reasons, and `_CONTEXT_DOCK_TITLES` as Japanese-only
-  (ASCII-word regex) — guards the dock-title drift class of bug in #3/#4.
+  (ASCII-word regex) — guards the dock-title drift class of bug in #3/#4 —
+  plus a QMessageBox stock-button check covering the #20 translator.
 - `test_measurement_workspace_layout.py` updated to the Japanese dock
   titles it was actually exercising.
 - Existing tests asserting English UI text updated: `test_native_launch`
@@ -85,3 +90,5 @@ Product call: whether an English UI is ever intended.
   assertion stays English on purpose), `test_native_maintenance_cli`,
   `test_startup_recovery`.
 - `pytest -q -n 4` full suite run locally (see PR description for counts).
+- UI-tested end-to-end on this machine (workflow shell, wall editor, measurement workspace): recovery dialog buttons, rail/context tabs, ~30 toolbar actions, room sketch→create→cancel status messages, and the repaired right-dock tab stack all render Japanese; no mojibake or clipping. See PR comment for recording/screenshots.
+- One full-suite flake: `test_cad_hybrid_prediction_provider.py::test_evidence_lifecycle_rejects_illegal_promotions` (`FileNotFoundError` on an authority `.tmp` write under `-n 4` load) — previously logged as flaky in rounds 6–8 docs; code path untouched by this diff; passes standalone and on main.

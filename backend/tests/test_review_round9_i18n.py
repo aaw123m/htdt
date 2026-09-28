@@ -8,7 +8,10 @@ editors' Japanese titles.
 
 from __future__ import annotations
 
+import os
 import re
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from htdt.native_cad import _RECOVERY_CHOICE_PRESENTATION
 from htdt.startup_recovery import RecoveryMetadata, decide_launch
@@ -62,3 +65,22 @@ def test_legacy_bridge_dock_titles_match_editor_japanese() -> None:
     assert 'Inspector' not in room_titles
     for title in room_titles:
         assert _english_free(title), f'dock title is not Japanese: {title!r}'
+
+
+def test_stock_dialog_buttons_translate_to_japanese() -> None:
+    # Qt's own chrome (OK/Cancel on QMessageBox/QInputDialog, file-dialog
+    # buttons) comes from Qt's bundled catalogs, not authored literals —
+    # apply_dark_theme must install the Japanese translator so stock
+    # buttons don't render English inside a Japanese product.
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    from htdt.ui_theme import apply_dark_theme
+
+    app = QApplication.instance() or QApplication([])
+    apply_dark_theme(app)
+
+    box = QMessageBox()
+    box.addButton(QMessageBox.StandardButton.Cancel)
+    assert box.button(QMessageBox.StandardButton.Cancel).text() == (
+        'キャンセル'
+    )

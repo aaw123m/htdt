@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from PySide6.QtCore import QLibraryInfo, QLocale, QTranslator
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -647,8 +648,27 @@ def _platform_ui_font(app: QApplication) -> QFont:
     return current
 
 
+def install_japanese_translations(app: QApplication) -> None:
+    """Localize Qt's own chrome (stock dialog buttons, native file dialogs).
+
+    The product's authored strings are Japanese literals, but stock widgets
+    (QMessageBox/QInputDialog OK・Cancel, file dialog buttons) come from Qt's
+    own translation catalogs — without a translator they render English.
+    """
+    translations_dir = QLibraryInfo.path(
+        QLibraryInfo.LibraryPath.TranslationsPath
+    )
+    for catalog in ('qtbase', 'qt'):
+        translator = QTranslator(app)
+        if translator.load(
+            QLocale(QLocale.Language.Japanese), catalog, '_', translations_dir
+        ):
+            app.installTranslator(translator)
+
+
 def apply_dark_theme(app: QApplication, tokens: DarkThemeTokens = DARK_THEME) -> None:
     """Install the authoritative dark Qt palette/QSS at the application boundary."""
+    install_japanese_translations(app)
     app.setFont(_platform_ui_font(app))
     app.setPalette(build_dark_palette(tokens))
     app.setStyleSheet(build_dark_stylesheet(tokens))
