@@ -225,7 +225,7 @@ def test_safe_mode_choice_skips_capture_and_marks_safe_mode(
 
     _stub_gui(monkeypatch)
     monkeypatch.setattr(native_cad, 'build_workflow_shell', _build)
-    _stub_recovery(monkeypatch, 'Open in Safe Mode')
+    _stub_recovery(monkeypatch, 'セーフモードで開く')
     receiver = _spy_capture(monkeypatch)
 
     assert native_cad.main(['--data-dir', str(tmp_path)]) == 0
@@ -287,7 +287,7 @@ def test_verify_data_choice_opens_data_management(
         start_automatic_backup=lambda: backups.append(1),
     )
     _stub_gui(monkeypatch, workflow_cls=window_cls)
-    _stub_recovery(monkeypatch, 'Verify data now')
+    _stub_recovery(monkeypatch, '今すぐデータを検証')
 
     assert native_cad.main(['--data-dir', str(tmp_path)]) == 0
     assert opened == ['settings']
@@ -301,7 +301,7 @@ def test_choose_another_project_lands_on_projects_destination(
         start_automatic_backup=lambda: None
     )
     _app, created = _stub_gui(monkeypatch, workflow_cls=window_cls)
-    _stub_recovery(monkeypatch, 'Choose another project')
+    _stub_recovery(monkeypatch, '別のプロジェクトを選択')
     _spy_capture(monkeypatch)
 
     assert native_cad.main(['--data-dir', str(tmp_path)]) == 0

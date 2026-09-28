@@ -270,7 +270,7 @@ def _remeasure_label(code: str) -> str:
 def _quality_label(value: str) -> str:
     return {
         "unknown": "未確認",
-        "synthetic_fixture": "Synthetic fixture",
+        "synthetic_fixture": "合成フィクスチャ",
     }.get(value, value)
 
 
@@ -544,7 +544,7 @@ class MeasurementPageWorkspace(QWidget):
             self,
             "REWテキストを選択",
             'measurement.rew_text',
-            "REW text (*.txt *.frd);;All files (*)",
+            "REWテキスト (*.txt *.frd);;すべてのファイル (*)",
         )
         if not path:
             return
@@ -553,7 +553,7 @@ class MeasurementPageWorkspace(QWidget):
             raw = read_file_bounded(
                 file_path,
                 MAX_NATIVE_REW_TEXT_FILE_BYTES,
-                label="REW text file",
+                label="REWテキストファイル",
             )
             self.controller.stage_rew_text(raw, file_path.name)
         except Exception as exc:
@@ -571,7 +571,7 @@ class MeasurementPageWorkspace(QWidget):
             self,
             "REWテキストを追加（複数選択可）",
             'measurement.rew_text',
-            "REW text (*.txt *.frd);;All files (*)",
+            "REWテキスト (*.txt *.frd);;すべてのファイル (*)",
         )
         if not paths:
             return
@@ -584,7 +584,7 @@ class MeasurementPageWorkspace(QWidget):
                         read_file_bounded(
                             file_path,
                             MAX_NATIVE_REW_TEXT_FILE_BYTES,
-                            label="REW text file",
+                            label="REWテキストファイル",
                         ),
                         file_path.name,
                     )
@@ -620,7 +620,7 @@ class MeasurementPageWorkspace(QWidget):
             self,
             "添付ファイルを選択",
             'measurement.attach',
-            "All files (*)",
+            "すべてのファイル (*)",
         )
         if not path:
             return
@@ -630,7 +630,7 @@ class MeasurementPageWorkspace(QWidget):
             raw = read_file_bounded(
                 file_path,
                 MAX_NATIVE_REW_TEXT_FILE_BYTES,
-                label="source attachment",
+                label="ソース添付",
             )
             self.controller.attach_to_batch_item(
                 item_id,
@@ -984,7 +984,7 @@ class MeasurementPageWorkspace(QWidget):
         for label, value in (
             ("未確認", "unknown"),
             ("単一音源", "single"),
-            ("Bass management", "bass_managed"),
+            ("バスマネジメント", "bass_managed"),
             ("混在", "mixed"),
         ):
             self.radiation_combo.addItem(label, value)
@@ -1664,7 +1664,7 @@ class MeasurementPageWorkspace(QWidget):
                 self.controller.record_retake(
                     measurement_id=record.measurement_id,
                     supersedes_measurement_id=retake_source_id,
-                    reason="user-initiated retake from the measurement quality page",
+                    reason="測定品質ページからのユーザー指定再測定",
                 )
             except Exception as exc:
                 # Partial commit: the measurement persisted; the retake
@@ -3206,7 +3206,7 @@ class MeasurementPageWorkspace(QWidget):
         if row is None:
             return
         path, _ = file_dialog_memory.get_open_file_name(
-            self, "添付ファイルを選択", 'measurement.attach', "All files (*)"
+            self, "添付ファイルを選択", 'measurement.attach', "すべてのファイル (*)"
         )
         if not path:
             return
@@ -3216,7 +3216,7 @@ class MeasurementPageWorkspace(QWidget):
             raw = read_file_bounded(
                 file_path,
                 MAX_NATIVE_REW_TEXT_FILE_BYTES,
-                label="source attachment",
+                label="ソース添付",
             )
             self.controller.save_source_attachment(
                 row.measurement_id,

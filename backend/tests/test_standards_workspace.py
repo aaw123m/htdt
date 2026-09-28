@@ -221,7 +221,7 @@ def test_s130_room_panel_renders_exact_statuses_japanese_and_provenance(tmp_path
     assert profile.profile_id in advanced
     assert profile.version in advanced
     assert fail_authority.authority_id in advanced
-    assert "Evaluation SHA-256" in advanced
+    assert "評価 SHA-256" in advanced
 
     panel.close()
     panel.deleteLater()

@@ -588,7 +588,7 @@ class InterventionPlannerPanel(QFrame):
     ) -> None:
         preview = self.service.apply_preview(variant_id)
         if preview.stale:
-            self._on_status(preview.stale_reason or "stale proposal")
+            self._on_status(preview.stale_reason or "古い提案")
             return
         message = (
             f"{alternative.semantic_diff.summary}\n\n"

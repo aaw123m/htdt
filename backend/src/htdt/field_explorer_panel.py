@@ -51,9 +51,9 @@ _QUANTITY_LABELS = {
 }
 _PLANE_LABELS = {'xy': '水平 XY', 'xz': '垂直 XZ', 'yz': '垂直 YZ'}
 _SAMPLE_STATE_LABELS = {
-    'exact': 'exact grid sample',
-    'nearest_sample': '最近傍sample (補間なし)',
-    'interpolated': 'trilinear補間値',
+    'exact': '厳密グリッドサンプル',
+    'nearest_sample': '最近傍サンプル (補間なし)',
+    'interpolated': '3次元線形補間値',
 }
 
 
@@ -119,8 +119,8 @@ class FieldExplorerPanel(QWidget):
         layout = QVBoxLayout(self)
 
         identity = QLabel(
-            '音場Explorer — 解析的な矩形room-mode音場を表示します。\n'
-            'solver検証済み・実測音場ではありません。'
+            '音場エクスプローラ — 解析的な矩形ルームモード音場を表示します。\n'
+            'ソルバー検証済み・実測音場ではありません。'
         )
         identity.setWordWrap(True)
         layout.addWidget(identity)
@@ -140,7 +140,7 @@ class FieldExplorerPanel(QWidget):
         form = QFormLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumContentsLength(18)
-        form.addRow('mode', self.mode_combo)
+        form.addRow('モード', self.mode_combo)
 
         self.stride_field = QDoubleSpinBox()
         self.stride_field.setRange(0.02, 2.0)
@@ -148,9 +148,9 @@ class FieldExplorerPanel(QWidget):
         self.stride_field.setDecimals(3)
         self.stride_field.setValue(0.1)
         self.stride_field.setSuffix(' m')
-        form.addRow('grid間隔', self.stride_field)
+        form.addRow('グリッド間隔', self.stride_field)
 
-        self.build_button = QPushButton('選択modeの音場を生成')
+        self.build_button = QPushButton('選択モードの音場を生成')
         self.build_button.clicked.connect(self._build_session)
         form.addRow(self.build_button)
         layout.addLayout(form)
@@ -190,14 +190,14 @@ class FieldExplorerPanel(QWidget):
             axis_spin.setDecimals(3)
             axis_spin.setSingleStep(0.05)
             probe_row.addWidget(axis_spin)
-        probe_form.addRow('probe位置 (x,y,z)', probe_row)
+        probe_form.addRow('プローブ位置 (x,y,z)', probe_row)
 
         self.interpolate_combo = QComboBox()
-        self.interpolate_combo.addItem('最近傍sample (補間なし)', 'exact_samples')
-        self.interpolate_combo.addItem('trilinear補間', 'trilinear')
-        probe_form.addRow('probe補間', self.interpolate_combo)
+        self.interpolate_combo.addItem('最近傍サンプル (補間なし)', 'exact_samples')
+        self.interpolate_combo.addItem('3次元線形補間', 'trilinear')
+        probe_form.addRow('プローブ補間', self.interpolate_combo)
 
-        self.probe_button = QPushButton('probe')
+        self.probe_button = QPushButton('プローブ')
         self.probe_button.clicked.connect(self._run_probe)
         probe_form.addRow(self.probe_button)
         layout.addLayout(probe_form)
@@ -215,7 +215,7 @@ class FieldExplorerPanel(QWidget):
         )
         self.session_combo.blockSignals(True)
         self.session_combo.clear()
-        self.session_combo.addItem('(sessionを選択)', None)
+        self.session_combo.addItem('(セッションを選択)', None)
         # Sessions commonly share one scene revision; resolve each unique
         # revision once per refresh instead of re-validating it per row.
         revisions: dict[str, object] = {}
@@ -226,16 +226,24 @@ class FieldExplorerPanel(QWidget):
                 )
             revision = revisions[session.scene_revision_id]
             currency = (
-                'stale'
+                '古い'
                 if revision is None
-                else field_explorer_session_currency(
-                    session, revision
-                ).state.lower()
+                else {
+                    'CURRENT': '最新',
+                    'STALE': '古い',
+                }.get(
+                    field_explorer_session_currency(
+                        session, revision
+                    ).state,
+                    field_explorer_session_currency(
+                        session, revision
+                    ).state.lower(),
+                )
             )
             label = (
-                f'mode ({session.mode_n_x},{session.mode_n_y},'
+                f'モード ({session.mode_n_x},{session.mode_n_y},'
                 f'{session.mode_n_z}) · {session.result.frequency_hz:.1f} Hz '
-                f'· run {session.prediction_run_id[:8]} · {currency}'
+                f'· 実行 {session.prediction_run_id[:8]} · {currency}'
             )
             self.session_combo.addItem(label, session.session_id)
         if current is not None:
@@ -262,7 +270,7 @@ class FieldExplorerPanel(QWidget):
             self._modes_result = None
             self.mode_combo.clear()
             self.field_status_label.setText(
-                'このrunはexact矩形model結果を持たないため音場を生成できません'
+                'この実行は厳密矩形モデル結果を持たないため音場を生成できません'
             )
             return False
         self._modes_result = modes
@@ -274,17 +282,17 @@ class FieldExplorerPanel(QWidget):
                 (mode.n_x, mode.n_y, mode.n_z),
             )
         self.field_status_label.setText(
-            f'run {run_id[:8]} · {len(modes.modes)} mode候補'
+            f'実行 {run_id[:8]} · {len(modes.modes)} モード候補'
         )
         return True
 
     def _build_session(self) -> None:
         if self._modes_result is None:
-            self.field_status_label.setText('予測runを選択してください')
+            self.field_status_label.setText('予測実行を選択してください')
             return
         mode = self.mode_combo.currentData()
         if mode is None:
-            self.field_status_label.setText('modeを選択してください')
+            self.field_status_label.setText('モードを選択してください')
             return
         revision = self.scene_repository.get(
             self._modes_result.scene_revision_id
@@ -327,12 +335,12 @@ class FieldExplorerPanel(QWidget):
             else field_explorer_session_currency(session, revision)
         )
         state = (
-            'stale — 現在のsceneとは一致しません'
+            '古い — 現在のシーンとは一致しません'
             if currency is None or currency.state != 'CURRENT'
-            else 'current'
+            else '最新'
         )
         self.field_status_label.setText(
-            f'{session.producer} · mode ({session.mode_n_x},'
+            f'{session.producer} · モード ({session.mode_n_x},'
             f'{session.mode_n_y},{session.mode_n_z}) · '
             f'{session.result.frequency_hz:.1f} Hz · {state}'
         )
@@ -401,13 +409,13 @@ class FieldExplorerPanel(QWidget):
         self.field_status_label.setText(
             f'{_QUANTITY_LABELS.get(quantity, quantity)} · {axes} · '
             f'{len(view.column_coordinates_m)}x{len(view.row_coordinates_m)} '
-            f'samples · {view.sample_state}'
+            f'サンプル · {view.sample_state}'
         )
 
     def _run_probe(self) -> None:
         session = self._session
         if session is None:
-            self.probe_result_label.setText('音場sessionがありません')
+            self.probe_result_label.setText('音場セッションがありません')
             return
         quantity = self.quantity_combo.currentData()
         if quantity is None:
@@ -426,7 +434,7 @@ class FieldExplorerPanel(QWidget):
                 interpolation=self.interpolate_combo.currentData(),
             )
         except ValueError as exc:
-            self.probe_result_label.setText(f'probeできません · {operation_error_message(exc)}')
+            self.probe_result_label.setText(f'プローブできません · {operation_error_message(exc)}')
             return
         self.probe_result_label.setText(
             f'{probed.value:.4g} {probed.unit} · '
@@ -435,7 +443,7 @@ class FieldExplorerPanel(QWidget):
                 ''
                 if probed.sample_state == 'exact'
                 else (
-                    f' · sampled at ({probed.sampled_position.x_m:.3f}, '
+                    f' · サンプリング位置 ({probed.sampled_position.x_m:.3f}, '
                     f'{probed.sampled_position.y_m:.3f}, '
                     f'{probed.sampled_position.z_m:.3f}) '
                     f'Δ={probed.distance_m:.3f} m'

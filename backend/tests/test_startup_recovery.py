@@ -59,7 +59,7 @@ def test_repeated_failures_trigger_recovery_offer(tmp_path: Path) -> None:
         build_id='b1',
     )
     assert decision.mode == 'recovery_offered'
-    assert any('consecutive failed launches' in r for r in decision.reasons)
+    assert any('起動失敗' in r for r in decision.reasons)
 
 
 def test_clean_exit_resets_failure_streak(tmp_path: Path) -> None:

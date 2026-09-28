@@ -570,7 +570,7 @@ class EquipmentLibraryService:
         raw = read_file_bounded(
             Path(file_path),
             MAX_ATTACHMENT_BYTES,
-            label='directivity source file',
+            label='指向性ソースファイル',
         )
         directivity = _capability_from_source(
             raw,
@@ -604,7 +604,7 @@ class EquipmentLibraryService:
         )
         diagnostic = result.diagnostic
         if diagnostic.import_state != "IMPORTED" or result.dataset is None:
-            reason = diagnostic.rejection_reason or "import failed"
+            reason = diagnostic.rejection_reason or "インポート失敗"
             return f"{diagnostic.import_state}: {reason}"
         self._save_with_evidence(definition, actor=actor)
         self.directivity_repository.save_dataset(
@@ -640,7 +640,7 @@ class EquipmentLibraryDialog(QDialog):
         layout.addLayout(body, 1)
 
         self.definition_list = QListWidget()
-        self.definition_list.setAccessibleName("EquipmentDefinitions")
+        self.definition_list.setAccessibleName("機器定義一覧")
         self.definition_list.currentRowChanged.connect(self._selection_changed)
         body.addWidget(self.definition_list, 1)
 
@@ -649,7 +649,7 @@ class EquipmentLibraryDialog(QDialog):
         body.addWidget(form_host, 2)
 
         self.label_edit = QLineEdit()
-        self.label_edit.setAccessibleName("EquipmentUserLabel")
+        self.label_edit.setAccessibleName("機器ユーザーラベル")
         form.addRow("ラベル（必須）", self.label_edit)
         self.manufacturer_edit = QLineEdit()
         form.addRow("メーカー", self.manufacturer_edit)
@@ -765,7 +765,7 @@ class EquipmentLibraryDialog(QDialog):
         self._source_bytes = read_file_bounded(
             path,
             MAX_ATTACHMENT_BYTES,
-            label='source file',
+            label='ソースファイル',
         )
         self.source_file_label.setText(
             f"{path.name} (sha256 {sha256(self._source_bytes).hexdigest()[:12]}…)"

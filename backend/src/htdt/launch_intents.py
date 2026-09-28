@@ -207,7 +207,7 @@ def build_launch_intent(
                 document_id = ref.document_id
                 detail = ref.display_name
             except ValueError:
-                detail = 'unrecognized .htdtproject descriptor'
+                detail = '認識できない .htdtproject 記述子'
         elif (
             kind == 'preview_capture'
             and payload.get('kind') == 'htdt-capture-ref'
@@ -215,7 +215,7 @@ def build_launch_intent(
             try:
                 HTDTCaptureFile.model_validate(payload)
             except ValueError:
-                detail = 'unrecognized .htdtcapture descriptor'
+                detail = '認識できない .htdtcapture 記述子'
 
     return HTDTLaunchIntent(
         intent_id=uuid4().hex,
@@ -334,12 +334,12 @@ def describe_launch_intent(intent: HTDTLaunchIntent) -> str:
 
     name = Path(intent.path).name
     if intent.kind == 'open_project':
-        return f'project "{intent.detail or name}"'
+        return f'プロジェクト "{intent.detail or name}"'
     if intent.kind == 'preview_capture':
-        return f'capture package "{name}"'
+        return f'キャプチャパッケージ "{name}"'
     if intent.kind == 'preview_backup':
-        return f'backup archive "{name}"'
-    return f'file "{name}"'
+        return f'バックアップアーカイブ "{name}"'
+    return f'ファイル "{name}"'
 
 
 __all__ = [

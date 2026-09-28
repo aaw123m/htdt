@@ -399,7 +399,7 @@ class CommissioningWizard(QDialog):
         levels = {'required': '必須', 'recommended': '推奨', 'optional': '任意'}
         for requirement in service.requirements(plan):
             row = QHBoxLayout()
-            state = {'satisfied': 'OK', 'pending': '未完了', 'skipped': 'スキップ'}
+            state = {'satisfied': '完了', 'pending': '未完了', 'skipped': 'スキップ'}
             label = QLabel(
                 f"[{levels[requirement.level]}] {state[requirement.status]}  "
                 f"{requirement.title} — {requirement.reason}"

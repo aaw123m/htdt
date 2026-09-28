@@ -429,7 +429,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.measurement_plan_label)
 
         self.measurement_plan_tree = QTreeWidget()
-        self.measurement_plan_tree.setHeaderLabels(['実測候補', '状態', 'Scene', '測定'])
+        self.measurement_plan_tree.setHeaderLabels(['実測候補', '状態', 'シーン', '測定'])
         self.measurement_plan_tree.setMinimumHeight(120)
         self.measurement_plan_tree.itemSelectionChanged.connect(self._measurement_plan_selected)
         layout.addWidget(self.measurement_plan_tree)
@@ -464,7 +464,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.pareto_summary_label)
 
         self.pareto_tree = QTreeWidget()
-        self.pareto_tree.setHeaderLabels(['候補', 'Pareto', 'evidence', 'objective'])
+        self.pareto_tree.setHeaderLabels(['候補', 'Pareto', '根拠', '指標'])
         self.pareto_tree.setMinimumHeight(180)
         self.pareto_tree.itemSelectionChanged.connect(self._pareto_candidate_selected)
         layout.addWidget(self.pareto_tree)
@@ -499,7 +499,7 @@ class OptimizationWorkspaceWindow(
         campaign_form = QFormLayout()
         self.campaign_model_version_field = QLineEdit()
         self.campaign_model_version_field.setPlaceholderText('例: 5.40 Beta 135 API 0.9.8')
-        campaign_form.addRow('model version', self.campaign_model_version_field)
+        campaign_form.addRow('モデルバージョン', self.campaign_model_version_field)
 
         self.campaign_low_field = QDoubleSpinBox()
         self.campaign_low_field.setRange(1.0, 20000.0)
@@ -644,12 +644,12 @@ class OptimizationWorkspaceWindow(
         # #901: production owned-room first and only by default; the
         # synthetic development lane is developer-mode-only.
         self.adaptive_scope_combo.addItem(
-            'Owned-room production',
+            '実部屋 production',
             'production_owned_room',
         )
         if developer_mode_enabled():
             self.adaptive_scope_combo.addItem(
-                'Synthetic development',
+                '合成 development',
                 'development_synthetic',
             )
         adaptive_form.addRow('実行scope', self.adaptive_scope_combo)
@@ -660,7 +660,7 @@ class OptimizationWorkspaceWindow(
         self.adaptive_length_scale_field.setSingleStep(0.05)
         self.adaptive_length_scale_field.setValue(0.5)
         self.adaptive_length_scale_field.setSuffix(' m')
-        adaptive_form.addRow('GP length scale', self.adaptive_length_scale_field)
+        adaptive_form.addRow('GP長さスケール', self.adaptive_length_scale_field)
 
         self.adaptive_proposal_limit_field = QSpinBox()
         self.adaptive_proposal_limit_field.setRange(1, 100)
@@ -678,7 +678,7 @@ class OptimizationWorkspaceWindow(
 
         self.adaptive_tree = QTreeWidget()
         self.adaptive_tree.setHeaderLabels([
-            'plan / candidate', 'scope', 'acquisition', '補正objective'
+            'プラン / 候補', 'スコープ', '獲得', '補正objective'
         ])
         self.adaptive_tree.setMinimumHeight(180)
         self.adaptive_tree.itemSelectionChanged.connect(self._adaptive_selected)
@@ -721,15 +721,15 @@ class OptimizationWorkspaceWindow(
         extended_form = QFormLayout()
         self.extended_parameter_combo = QComboBox()
         self.extended_parameter_combo.addItem(
-            'Acoustic aim yaw',
+            '音響照準 yaw',
             'aim_yaw_deg',
         )
         self.extended_parameter_combo.addItem(
-            'Acoustic aim pitch',
+            '音響照準 pitch',
             'aim_pitch_deg',
         )
         self.extended_parameter_combo.addItem(
-            'Physical cabinet toe-in (body yaw)',
+            '物理キャビネット toe-in (ボディyaw)',
             'body_yaw_deg',
         )
         self.extended_parameter_combo.currentIndexChanged.connect(
@@ -829,7 +829,7 @@ class OptimizationWorkspaceWindow(
 
         self.extended_candidate_tree = QTreeWidget()
         self.extended_candidate_tree.setHeaderLabels([
-            '候補', 'base', '位置', 'aim yaw', 'body yaw'
+            '候補', 'ベース', '位置', '音響yaw', 'ボディyaw'
         ])
         self.extended_candidate_tree.setMinimumHeight(170)
         self.extended_candidate_tree.itemSelectionChanged.connect(
@@ -872,7 +872,7 @@ class OptimizationWorkspaceWindow(
         self.adaptive_extended_length_scale_field.setSingleStep(0.05)
         self.adaptive_extended_length_scale_field.setValue(0.5)
         adaptive_extended_form.addRow(
-            'normalized GP length scale',
+            '正規化GP長さスケール',
             self.adaptive_extended_length_scale_field,
         )
         self.adaptive_extended_proposal_limit_field = QSpinBox()
@@ -898,7 +898,7 @@ class OptimizationWorkspaceWindow(
 
         self.adaptive_extended_tree = QTreeWidget()
         self.adaptive_extended_tree.setHeaderLabels([
-            'plan / candidate', 'scope', 'acquisition', 'feature / objective'
+            'プラン / 候補', 'スコープ', '獲得', '特徴 / 指標'
         ])
         self.adaptive_extended_tree.setMinimumHeight(180)
         self.adaptive_extended_tree.itemSelectionChanged.connect(
@@ -1020,7 +1020,7 @@ class OptimizationWorkspaceWindow(
             reused = ' · 既存snapshot' if existing is not None else ''
             self.pareto_summary_label.setText(
                 f'{len(evaluations)}候補 · 非劣 {len(non_dominated)} · '
-                f'objective {len(selected)} · {pareto_set.pareto_set_id[:8]}{reused}'
+                f'指標 {len(selected)} · {pareto_set.pareto_set_id[:8]}{reused}'
             )
 
     def _pareto_candidate_selected(self) -> None:

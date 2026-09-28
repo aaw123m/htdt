@@ -43,7 +43,7 @@ def test_right_context_docks_are_rebuilt_as_one_tab_stack() -> None:
     window = QMainWindow()
     window.resize(900, 600)
 
-    titles = ('Inspector', 'Room', '壁・開口', 'オブジェクト詳細', '制約', '実測', '予測')
+    titles = ('インスペクター', '部屋', '壁・開口', 'オブジェクト詳細', '制約', '実測', '予測')
     docks: dict[str, QDockWidget] = {}
     for title in titles:
         dock = QDockWidget(title, window)
@@ -53,8 +53,8 @@ def test_right_context_docks_are_rebuilt_as_one_tab_stack() -> None:
 
     # Reproduce the layered editor topology: inherited panels occupy split rows while
     # newer measurement/prediction surfaces arrive later.
-    window.splitDockWidget(docks['Inspector'], docks['Room'], Qt.Orientation.Vertical)
-    window.splitDockWidget(docks['Room'], docks['壁・開口'], Qt.Orientation.Vertical)
+    window.splitDockWidget(docks['インスペクター'], docks['部屋'], Qt.Orientation.Vertical)
+    window.splitDockWidget(docks['部屋'], docks['壁・開口'], Qt.Orientation.Vertical)
     window.splitDockWidget(docks['壁・開口'], docks['オブジェクト詳細'], Qt.Orientation.Vertical)
     window.tabifyDockWidget(docks['オブジェクト詳細'], docks['制約'])
     window.tabifyDockWidget(docks['制約'], docks['実測'])
@@ -65,9 +65,9 @@ def test_right_context_docks_are_rebuilt_as_one_tab_stack() -> None:
     MeasurementWorkspaceWindow._unify_right_context_docks(window, docks['予測'])
     app.processEvents()
 
-    tabbed = window.tabifiedDockWidgets(docks['Inspector'])
+    tabbed = window.tabifiedDockWidgets(docks['インスペクター'])
     assert len(tabbed) == len(titles) - 1
-    assert all(dock in tabbed for title, dock in docks.items() if title != 'Inspector')
+    assert all(dock in tabbed for title, dock in docks.items() if title != 'インスペクター')
     assert all(
         window.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea
         for dock in docks.values()

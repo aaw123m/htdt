@@ -105,4 +105,4 @@ def test_describe_intent_is_human_readable(tmp_path: Path) -> None:
     intent = build_launch_intent(Path('archives/x.htdt-backup'))
     text = describe_launch_intent(intent)
     assert 'x.htdt-backup' in text
-    assert 'backup' in text
+    assert 'バックアップ' in text

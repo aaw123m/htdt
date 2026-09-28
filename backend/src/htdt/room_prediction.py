@@ -1372,7 +1372,7 @@ class RoomPredictionPanel(QWidget):
         body_layout.addWidget(self.runs)
 
         self.advanced_toggle = QToolButton()
-        self.advanced_toggle.setText("Advanced · provenance")
+        self.advanced_toggle.setText("詳細 · 出典情報")
         self.advanced_toggle.setCheckable(True)
         self.advanced_toggle.setChecked(False)
         self.advanced_toggle.toggled.connect(self._toggle_advanced)
@@ -1788,7 +1788,7 @@ class EnvironmentProfileDialog(QDialog):
         kwargs: dict[str, object] = {
             'label': self.label.text().strip(),
             'sound_speed_source_kind': kind,
-            'provenance': 'user-authored profile',
+            'provenance': 'ユーザー作成プロファイル',
             'notes': self.notes.text().strip(),
         }
         if kind == 'unknown':

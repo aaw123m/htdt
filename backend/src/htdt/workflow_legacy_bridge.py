@@ -65,9 +65,9 @@ def refresh_legacy_editor_revision(window: Any) -> bool:
 
 _CONTEXT_DOCK_TITLES: dict[WorkspaceId, dict[str, tuple[str, ...]]] = {
     WorkspaceId.ROOM: {
-        "geometry": ("Room", "壁・開口"),
-        "objects": ("オブジェクト詳細", "Inspector"),
-        "placement": ("オブジェクト詳細", "制約", "Inspector"),
+        "geometry": ("部屋", "壁・開口"),
+        "objects": ("オブジェクト詳細", "インスペクター"),
+        "placement": ("オブジェクト詳細", "制約", "インスペクター"),
         "acoustics": ("予測", "制約"),
     },
     WorkspaceId.MEASUREMENT: {

@@ -238,7 +238,7 @@ class GeometryImportDialog(QDialog):
             read_file_bounded(
                 self._path,
                 MAX_ATTACHMENT_BYTES,
-                label='geometry source file',
+                label='幾何ソースファイル',
             ),
             source_name=self._path.name,
         )
@@ -480,7 +480,7 @@ class GeometryImportDialog(QDialog):
                 self.diagnostics,
                 operations=operations,
                 requested_by='explicit_user_selected',
-                request_reason='guided import dialog repair preview (#762)',
+                request_reason='ガイド付きインポートダイアログ修復プレビュー (#762)',
             )
             repaired = apply_raw_mesh_repair(self.mesh, self.diagnostics, plan)
             diagnostic = diagnose_repaired_raw_mesh(self.mesh, repaired)
@@ -594,7 +594,7 @@ class GeometryImportDialog(QDialog):
                 self.mesh,
                 source_scene_revision_id=None,
                 source_to_scene_transform=explicit_identity_source_to_scene_transform(
-                    reason='guided import preview (controller supplies scene transform)'
+                    reason='ガイド付きインポートプレビュー (コントローラーがシーン変換を供給)'
                 ),
                 surface_assignments=self._surface_assignments(),
                 repaired_mesh=repaired,

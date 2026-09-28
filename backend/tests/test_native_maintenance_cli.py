@@ -136,5 +136,5 @@ def test_native_cli_rejects_data_dir_already_in_use(
         guard.release()
 
     captured = capsys.readouterr()
-    assert 'already in use by another process' in captured.err
+    assert '使用中' in captured.err
     assert not (data_dir / 'cad-scenes.sqlite3').exists()

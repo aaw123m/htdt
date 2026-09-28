@@ -97,22 +97,22 @@ class RoomEditorWindow(NativeEditorWindow):
         self.treatment_surface_combo: QComboBox | None = None
         self.treatment_list_label: QLabel | None = None
         super().__init__(repository, document_id)
-        self.setWindowTitle('Home Theater Digital Twin — N30a Room Editor')
+        self.setWindowTitle('Home Theater Digital Twin — N30a 部屋エディター')
 
-        room_toolbar = QToolBar('Room', self)
+        room_toolbar = QToolBar('部屋', self)
         self.addToolBar(room_toolbar)
-        self.draw_room_action = QAction('Draw Room', self)
+        self.draw_room_action = QAction('部屋を作図', self)
         self.draw_room_action.triggered.connect(self.start_room_sketch)
-        self.edit_room_action = QAction('Edit Room', self)
+        self.edit_room_action = QAction('部屋を編集', self)
         self.edit_room_action.triggered.connect(self.start_room_edit)
-        self.close_room_action = QAction('Close Room', self)
+        self.close_room_action = QAction('部屋を閉じる', self)
         self.close_room_action.triggered.connect(self.close_room_sketch)
-        self.done_room_action = QAction('Done Room', self)
+        self.done_room_action = QAction('部屋編集を終了', self)
         self.done_room_action.triggered.connect(self.finish_room_edit)
-        self.insert_vertex_action = QAction('Insert Vertex', self)
+        self.insert_vertex_action = QAction('頂点を挿入', self)
         self.insert_vertex_action.setCheckable(True)
         self.insert_vertex_action.toggled.connect(self._insert_vertex_toggled)
-        self.delete_vertex_action = QAction('Delete Vertex', self)
+        self.delete_vertex_action = QAction('頂点を削除', self)
         self.delete_vertex_action.triggered.connect(self.delete_room_vertex)
         room_toolbar.addActions(
             (
@@ -127,10 +127,10 @@ class RoomEditorWindow(NativeEditorWindow):
 
         room_inspector = QWidget()
         room_form = QFormLayout(room_inspector)
-        self.room_tool_label = QLabel('Objects')
+        self.room_tool_label = QLabel('オブジェクト')
         self.room_bounds_label = QLabel('—')
-        room_form.addRow('Room tool', self.room_tool_label)
-        room_form.addRow('Bounds', self.room_bounds_label)
+        room_form.addRow('部屋ツール', self.room_tool_label)
+        room_form.addRow('範囲', self.room_bounds_label)
 
         self.room_vertex_x = QDoubleSpinBox()
         self.room_vertex_x.setRange(-1000.0, 1000.0)
@@ -139,7 +139,7 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_vertex_x.setSuffix(' m')
         self.room_vertex_x.setKeyboardTracking(False)
         self.room_vertex_x.editingFinished.connect(self._numeric_room_vertex_edited)
-        room_form.addRow('Vertex X', self.room_vertex_x)
+        room_form.addRow('頂点 X', self.room_vertex_x)
 
         self.room_vertex_y = QDoubleSpinBox()
         self.room_vertex_y.setRange(-1000.0, 1000.0)
@@ -148,7 +148,7 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_vertex_y.setSuffix(' m')
         self.room_vertex_y.setKeyboardTracking(False)
         self.room_vertex_y.editingFinished.connect(self._numeric_room_vertex_edited)
-        room_form.addRow('Vertex Y', self.room_vertex_y)
+        room_form.addRow('頂点 Y', self.room_vertex_y)
 
         self.room_edge_length = QDoubleSpinBox()
         self.room_edge_length.setRange(0.001, 1000.0)
@@ -157,7 +157,7 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_edge_length.setSuffix(' m')
         self.room_edge_length.setKeyboardTracking(False)
         self.room_edge_length.editingFinished.connect(self._numeric_room_edge_edited)
-        room_form.addRow('Edge length', self.room_edge_length)
+        room_form.addRow('辺の長さ', self.room_edge_length)
 
         self.room_height = QDoubleSpinBox()
         self.room_height.setRange(0.1, 20.0)
@@ -166,54 +166,54 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_height.setSuffix(' m')
         self.room_height.setKeyboardTracking(False)
         self.room_height.editingFinished.connect(self._numeric_room_height_edited)
-        room_form.addRow('Ceiling height', self.room_height)
+        room_form.addRow('天井高', self.room_height)
 
         room_form.addRow(QLabel('— AcousticTreatment —'))
         self.treatment_name_field = QLineEdit()
-        self.treatment_name_field.setPlaceholderText('60x120 absorber')
-        room_form.addRow('Treatment name', self.treatment_name_field)
+        self.treatment_name_field.setPlaceholderText('例: 60x120 吸音材')
+        room_form.addRow('treatment名', self.treatment_name_field)
         self.treatment_type_combo = QComboBox()
         self.treatment_type_combo.addItems(TREATMENT_TYPES)
-        room_form.addRow('Type', self.treatment_type_combo)
+        room_form.addRow('種類', self.treatment_type_combo)
         self.treatment_width = QDoubleSpinBox()
         self.treatment_width.setRange(0.05, 10.0)
         self.treatment_width.setValue(0.60)
         self.treatment_width.setSuffix(' m')
-        room_form.addRow('Width', self.treatment_width)
+        room_form.addRow('幅', self.treatment_width)
         self.treatment_height = QDoubleSpinBox()
         self.treatment_height.setRange(0.05, 10.0)
         self.treatment_height.setValue(1.20)
         self.treatment_height.setSuffix(' m')
-        room_form.addRow('Height', self.treatment_height)
+        room_form.addRow('高さ', self.treatment_height)
         self.treatment_thickness = QDoubleSpinBox()
         self.treatment_thickness.setRange(0.005, 1.0)
         self.treatment_thickness.setValue(0.10)
         self.treatment_thickness.setDecimals(3)
         self.treatment_thickness.setSuffix(' m')
-        room_form.addRow('Thickness', self.treatment_thickness)
+        room_form.addRow('厚さ', self.treatment_thickness)
         self.treatment_air_gap = QDoubleSpinBox()
         self.treatment_air_gap.setRange(0.0, 1.0)
         self.treatment_air_gap.setValue(0.0)
         self.treatment_air_gap.setDecimals(3)
         self.treatment_air_gap.setSuffix(' m')
-        room_form.addRow('Air gap', self.treatment_air_gap)
+        room_form.addRow('エアギャップ', self.treatment_air_gap)
         self.treatment_surface_combo = QComboBox()
-        room_form.addRow('Host surface', self.treatment_surface_combo)
+        room_form.addRow('設置面', self.treatment_surface_combo)
         self.treatment_pos_x = QDoubleSpinBox()
         self.treatment_pos_x.setRange(-1000.0, 1000.0)
         self.treatment_pos_x.setValue(0.0)
         self.treatment_pos_x.setSuffix(' m')
-        room_form.addRow('Position X', self.treatment_pos_x)
+        room_form.addRow('位置 X', self.treatment_pos_x)
         self.treatment_pos_y = QDoubleSpinBox()
         self.treatment_pos_y.setRange(-1000.0, 1000.0)
         self.treatment_pos_y.setValue(0.0)
         self.treatment_pos_y.setSuffix(' m')
-        room_form.addRow('Position Y', self.treatment_pos_y)
+        room_form.addRow('位置 Y', self.treatment_pos_y)
         self.treatment_pos_z = QDoubleSpinBox()
         self.treatment_pos_z.setRange(-100.0, 100.0)
         self.treatment_pos_z.setValue(1.2)
         self.treatment_pos_z.setSuffix(' m')
-        room_form.addRow('Position Z', self.treatment_pos_z)
+        room_form.addRow('位置 Z', self.treatment_pos_z)
         treatment_button = QPushButton('定義して配置')
         treatment_button.clicked.connect(self._create_and_place_treatment)
         room_form.addRow(treatment_button)
@@ -221,13 +221,13 @@ class RoomEditorWindow(NativeEditorWindow):
         self.treatment_list_label.setWordWrap(True)
         room_form.addRow(self.treatment_list_label)
         self.treatment_compare_name = QLineEdit()
-        self.treatment_compare_name.setPlaceholderText('baseline vs A')
-        room_form.addRow('Comparison', self.treatment_compare_name)
+        self.treatment_compare_name.setPlaceholderText('例: baseline vs A')
+        room_form.addRow('比較', self.treatment_compare_name)
         compare_button = QPushButton('A/B比較を作成')
         compare_button.clicked.connect(self._create_treatment_comparison)
         room_form.addRow(compare_button)
 
-        room_dock = QDockWidget('Room', self)
+        room_dock = QDockWidget('部屋', self)
         room_dock.setWidget(room_inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, room_dock)
         self._refresh_room_inspector()
@@ -300,7 +300,7 @@ class RoomEditorWindow(NativeEditorWindow):
             spec = self.treatment_service.create_comparison(
                 name=(
                     self.treatment_compare_name.text().strip()
-                    or 'baseline vs treatment'
+                    or 'ベースライン vs treatment'
                 ),
                 candidate_designs=(
                     (
@@ -316,7 +316,7 @@ class RoomEditorWindow(NativeEditorWindow):
             return
         self.statusBar().showMessage(
             f'比較を作成しました · {spec.name} '
-            f'({len(spec.candidates)} candidates)'
+            f'({len(spec.candidates)} 候補)'
         )
 
     def _load_or_seed(self) -> None:
@@ -348,11 +348,11 @@ class RoomEditorWindow(NativeEditorWindow):
         self._rebuild(reset_camera=True)
         if self.recovery_candidate is not None:
             self.statusBar().showMessage(
-                f'revision {revision.revision_id[:8]} · recovery available · choose Recover Draft or Discard Recovery'
+                f'リビジョン {revision.revision_id[:8]} · 復旧データあり · 下書きを復旧または復旧データを破棄を選択'
             )
         else:
-            room_state = 'room ready' if revision.document.room is not None else 'empty scene · Draw Room to begin'
-            self.statusBar().showMessage(f'revision {revision.revision_id[:8]} · {room_state} · clean')
+            room_state = '部屋あり' if revision.document.room is not None else '空のシーン · 部屋を作図で開始'
+            self.statusBar().showMessage(f'リビジョン {revision.revision_id[:8]} · {room_state} · 保存済み')
 
     def recover_draft(self) -> None:
         if self.recovery_candidate is None:
@@ -360,7 +360,7 @@ class RoomEditorWindow(NativeEditorWindow):
         source_id = self.recovery_candidate.source_revision_id
         source = self.repository.get(source_id) if source_id is not None else None
         if source is None:
-            self.statusBar().showMessage('Recovery cannot be opened because its source revision is missing')
+            self.statusBar().showMessage('復旧元のリビジョンが見つからないため復旧データを開けません')
             return
         self.working = RoomWorkingDocument(
             self.recovery_candidate.document,
@@ -371,7 +371,7 @@ class RoomEditorWindow(NativeEditorWindow):
         self.selected_id = self.view_state.selected_id
         self.recovery_candidate = None
         self._rebuild(reset_camera=True)
-        self.statusBar().showMessage(f'Recovered draft from revision {source.revision_id[:8]} · dirty')
+        self.statusBar().showMessage(f'リビジョン {source.revision_id[:8]} から下書きを復旧 · 未保存')
 
     def _rebuild(self, *, reset_camera: bool = False) -> None:
         if self.working is None:
@@ -394,11 +394,11 @@ class RoomEditorWindow(NativeEditorWindow):
         document = self.working.committed_document
 
         if document.room is None:
-            room_item = QTreeWidgetItem(['Room · not created'])
+            room_item = QTreeWidgetItem(['部屋 · 未作成'])
         else:
             vertices = room_vertices(document.room)
             room_item = QTreeWidgetItem([
-                f'Room · {len(vertices)} vertices · {document.room.height_m:.3g} m high'
+                f'部屋 · {len(vertices)} 頂点 · 高さ {document.room.height_m:.3g} m'
             ])
             room_actor = self.viewport.add_mesh(
                 _room_wireframe(document.room),
@@ -411,9 +411,9 @@ class RoomEditorWindow(NativeEditorWindow):
 
         groups: dict[str, QTreeWidgetItem] = {}
         for key, label in (
-            ('speaker', 'Speakers'),
-            ('measurement_point', 'Listening / Measurement'),
-            ('furniture', 'Furniture'),
+            ('speaker', 'スピーカー'),
+            ('measurement_point', 'リスニング・測定点'),
+            ('furniture', '家具'),
         ):
             groups[key] = QTreeWidgetItem([label])
             self.tree.addTopLevelItem(groups[key])
@@ -611,20 +611,20 @@ class RoomEditorWindow(NativeEditorWindow):
         self.selected_room_edge_index = None
         self._top()
         self._rebuild()
-        self.statusBar().showMessage('Draw Room · click vertices · click the first vertex or press Enter to close · Esc cancels')
+        self.statusBar().showMessage('部屋を作図 · 頂点をクリック · 最初の頂点をクリックかEnterで閉合 · Escでキャンセル')
 
     def close_room_sketch(self) -> None:
         if self.room_mode != 'sketch':
             return
         if len(self.room_sketch_vertices) < 3:
-            self.statusBar().showMessage('Room needs at least three vertices before it can be closed')
+            self.statusBar().showMessage('閉合には頂点が3つ以上必要です')
             return
         existing = self._current_room()
         height_m = existing.height_m if existing is not None else 2.4
         try:
             room = make_polygon_room(tuple(self.room_sketch_vertices), height_m=height_m)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Room cannot be closed · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'部屋を閉合できません · {operation_error_message(exc)}')
             return
         changed = self._replace_room(room)
         self.room_mode = 'edit'
@@ -633,12 +633,12 @@ class RoomEditorWindow(NativeEditorWindow):
         self.selected_room_vertex_id = room_vertices(room)[0].vertex_id
         self.selected_room_edge_index = None
         self._rebuild()
-        verb = 'created' if changed else 'unchanged'
-        self.statusBar().showMessage(f'Room {verb} · edit vertices or dimensions · Done Room returns to objects')
+        verb = 'を作成しました' if changed else 'は変更なし'
+        self.statusBar().showMessage(f'部屋{verb} · 頂点や寸法を編集できます · 部屋編集を終了でオブジェクトへ戻る')
 
     def start_room_edit(self) -> None:
         if self.recovery_candidate is not None or self._current_room() is None:
-            self.statusBar().showMessage('Create a room before entering Room Edit')
+            self.statusBar().showMessage('部屋編集に入る前に部屋を作成してください')
             return
         if self.working is not None and self.working.has_preview:
             super().cancel_preview()
@@ -653,7 +653,7 @@ class RoomEditorWindow(NativeEditorWindow):
         self.selected_room_edge_index = None
         self._top()
         self._rebuild()
-        self.statusBar().showMessage('Room Edit · drag vertices · select a midpoint for edge length · Insert Vertex + midpoint adds a vertex')
+        self.statusBar().showMessage('部屋編集 · 頂点をドラッグ · 辺の中点を選択で辺の長さを編集 · 頂点を挿入+中点で頂点追加')
 
     def finish_room_edit(self) -> None:
         if self.room_mode == 'sketch':
@@ -669,7 +669,7 @@ class RoomEditorWindow(NativeEditorWindow):
             with QSignalBlocker(self.insert_vertex_action):
                 self.insert_vertex_action.setChecked(False)
         self._rebuild()
-        self.statusBar().showMessage('Room Edit finished · object tools active')
+        self.statusBar().showMessage('部屋編集を終了しました · オブジェクトツールが有効です')
 
     def _insert_vertex_toggled(self, checked: bool) -> None:
         if checked and self.room_mode != 'edit':
@@ -692,13 +692,13 @@ class RoomEditorWindow(NativeEditorWindow):
         try:
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Vertex insertion rejected · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'頂点の挿入を拒否しました · {operation_error_message(exc)}')
             return
         if self._replace_room(replacement):
             self.selected_room_vertex_id = inserted.vertex_id
             self.selected_room_edge_index = None
             self._rebuild()
-            self.statusBar().showMessage('Vertex inserted · one Undo restores the previous room')
+            self.statusBar().showMessage('頂点を挿入しました · 元に戻す1回で元の部屋に戻ります')
 
     def delete_room_vertex(self) -> None:
         room = self._current_room()
@@ -706,19 +706,19 @@ class RoomEditorWindow(NativeEditorWindow):
             return
         vertices = list(room_vertices(room))
         if len(vertices) <= 3:
-            self.statusBar().showMessage('A room must keep at least three vertices')
+            self.statusBar().showMessage('部屋には頂点が3つ以上必要です')
             return
         vertices = [vertex for vertex in vertices if vertex.vertex_id != self.selected_room_vertex_id]
         try:
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
-            self.statusBar().showMessage(f'Vertex deletion rejected · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'頂点の削除を拒否しました · {operation_error_message(exc)}')
             return
         if self._replace_room(replacement):
             self.selected_room_vertex_id = None
             self.selected_room_edge_index = None
             self._rebuild()
-            self.statusBar().showMessage('Vertex deleted · one Undo restores it')
+            self.statusBar().showMessage('頂点を削除しました · 元に戻す1回で復元できます')
 
     def _replace_room(self, room: RoomPrism) -> bool:
         if not isinstance(self.working, RoomWorkingDocument):
@@ -755,12 +755,12 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(preview, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._rebuild()
-            self.statusBar().showMessage(f'Vertex move rejected · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'頂点の移動を拒否しました · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         self.selected_room_vertex_id = vertex_id
         self._rebuild()
-        self.statusBar().showMessage('Vertex move committed · one Undo' if changed else 'Vertex move unchanged')
+        self.statusBar().showMessage('頂点の移動を確定しました · 元に戻す1回' if changed else '頂点の移動は変更なし')
 
     def _numeric_room_vertex_edited(self) -> None:
         room = self._current_room()
@@ -779,12 +779,12 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._refresh_room_inspector()
-            self.statusBar().showMessage(f'Vertex coordinate rejected · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'頂点座標を拒否しました · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         if changed:
             self._rebuild()
-            self.statusBar().showMessage('Vertex coordinate committed · bounds updated automatically')
+            self.statusBar().showMessage('頂点座標を確定しました · 範囲は自動更新')
         else:
             self._refresh_room_inspector()
 
@@ -813,12 +813,12 @@ class RoomEditorWindow(NativeEditorWindow):
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
             self._refresh_room_inspector()
-            self.statusBar().showMessage(f'Edge dimension rejected · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'辺の寸法を拒否しました · {operation_error_message(exc)}')
             return
         changed = self._replace_room(replacement)
         if changed:
             self._rebuild()
-            self.statusBar().showMessage('Edge dimension committed · endpoint and bounds updated')
+            self.statusBar().showMessage('辺の寸法を確定しました · 端点と範囲を更新')
         else:
             self._refresh_room_inspector()
 
@@ -831,7 +831,7 @@ class RoomEditorWindow(NativeEditorWindow):
         changed = self._replace_room(replacement)
         if changed:
             self._rebuild()
-            self.statusBar().showMessage('Ceiling height committed · one Undo')
+            self.statusBar().showMessage('天井高を確定しました · 元に戻す1回')
         else:
             self._refresh_room_inspector()
 
@@ -839,7 +839,11 @@ class RoomEditorWindow(NativeEditorWindow):
         if not hasattr(self, 'room_bounds_label'):
             return
         room = self._current_room()
-        self.room_tool_label.setText(self.room_mode.title())
+        self.room_tool_label.setText(
+            {'idle': '待機', 'sketch': '作図', 'edit': '編集'}.get(
+                self.room_mode, self.room_mode
+            )
+        )
         editable = self.room_mode == 'edit' and self.recovery_candidate is None and room is not None
         for field in (self.room_vertex_x, self.room_vertex_y, self.room_edge_length, self.room_height):
             field.setEnabled(False)
@@ -892,25 +896,25 @@ class RoomEditorWindow(NativeEditorWindow):
 
     def save(self) -> None:
         if self.room_mode == 'sketch' or self.room_drag_vertex_id is not None:
-            self.statusBar().showMessage('Finish or cancel the active room operation before Save')
+            self.statusBar().showMessage('保存前に実行中の部屋操作を完了またはキャンセルしてください')
             return
         super().save()
 
     def cancel_preview(self) -> None:
         if self.room_drag_vertex_id is not None:
             self._cancel_room_drag()
-            self.statusBar().showMessage('Vertex move cancelled · history unchanged')
+            self.statusBar().showMessage('頂点の移動をキャンセル · 履歴は変更なし')
             return
         if self.room_mode == 'sketch':
             self.room_mode = 'idle'
             self.room_sketch_vertices = []
             self.room_cursor_xy = None
             self._rebuild()
-            self.statusBar().showMessage('Room sketch cancelled · history unchanged')
+            self.statusBar().showMessage('部屋の作図をキャンセル · 履歴は変更なし')
             return
         if hasattr(self, 'insert_vertex_action') and self.insert_vertex_action.isChecked():
             self.insert_vertex_action.setChecked(False)
-            self.statusBar().showMessage('Insert Vertex cancelled')
+            self.statusBar().showMessage('頂点の挿入をキャンセル')
             return
         super().cancel_preview()
 
@@ -953,7 +957,7 @@ class RoomEditorWindow(NativeEditorWindow):
                     self.room_cursor_xy = floor
                     self._render_room_sketch_overlay()
                     self.statusBar().showMessage(
-                        f'Draw Room · {len(self.room_sketch_vertices)} vertices · click start/Enter to close · Esc cancels'
+                        f'部屋を作図 · {len(self.room_sketch_vertices)} 頂点 · 始点クリック/Enterで閉合 · Escでキャンセル'
                     )
                     return True
                 if event_type in (QEvent.Type.MouseButtonRelease, QEvent.Type.MouseButtonDblClick):
@@ -978,7 +982,7 @@ class RoomEditorWindow(NativeEditorWindow):
                         else:
                             self._refresh_room_inspector()
                             self._update_actions()
-                            self.statusBar().showMessage('Edge selected · type an exact length or enable Insert Vertex')
+                            self.statusBar().showMessage('辺を選択しました · 正確な長さを入力するか頂点を挿入を有効化')
                         return True
                     vertex = vertices[index]
                     self.selected_room_vertex_id = vertex.vertex_id
@@ -1021,7 +1025,7 @@ class RoomEditorWindow(NativeEditorWindow):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Run the HTDT native CAD editor N30a room shell')
+    parser = argparse.ArgumentParser(description='HTDT ネイティブCADエディター N30a 部屋シェルを起動')
     parser.add_argument('--data-dir', type=Path, default=default_data_dir())
     parser.add_argument('--document-id', default=F1_DOCUMENT_ID)
     args = parser.parse_args(argv)

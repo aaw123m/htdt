@@ -134,10 +134,10 @@ class ProjectorSpecDialog(QDialog):
         return {
             'specification_id': self.spec_id.text().strip(),
             'version': self.version.text().strip() or '1',
-            'publisher': self.publisher.text().strip() or 'HTDT user',
-            'document_title': self.doc_title.text().strip() or 'Manual entry',
-            'reference': self.reference.text().strip() or 'manual entry',
-            'source_citation': self.citation.text().strip() or 'user entry',
+            'publisher': self.publisher.text().strip() or 'HTDTユーザー',
+            'document_title': self.doc_title.text().strip() or '手動入力',
+            'reference': self.reference.text().strip() or '手動入力',
+            'source_citation': self.citation.text().strip() or 'ユーザー入力',
             'actor': self.actor.text().strip() or 'user',
             'throw_ratio_min': float(self.throw_min.value()),
             'throw_ratio_max': float(self.throw_max.value()),
@@ -166,7 +166,7 @@ class ScreenTransferDialog(QDialog):
         self.tier = QComboBox()
         for value, label_text in TIER_LABELS.items():
             self.tier.addItem(f"{value} — {label_text}", value)
-        form.addRow("capability tier", self.tier)
+        form.addRow("性能ティア", self.tier)
         self.freq_min = QDoubleSpinBox()
         self.freq_min.setRange(1.0, 20000.0)
         self.freq_min.setValue(20.0)
@@ -315,8 +315,8 @@ class DisplaySpecDialog(QDialog):
             'chassis_height_m': float(self.chassis_height.value()),
             'active_image_width_m': float(self.active_width.value()),
             'active_image_height_m': float(self.active_height.value()),
-            'source_name': self.source_name.text().strip() or 'manual entry',
-            'source_reference': self.source_reference.text().strip() or 'user entry',
+            'source_name': self.source_name.text().strip() or '手動入力',
+            'source_reference': self.source_reference.text().strip() or 'ユーザー入力',
         }
 
 
@@ -994,9 +994,9 @@ class RoomVideoPanel(QWidget):
         """Render category statuses of one VideoGeometryEvaluation."""
 
         status_labels = {
-            'PASS': 'PASS',
-            'FAIL': 'FAIL',
-            'UNKNOWN': 'UNKNOWN',
+            'PASS': '合格',
+            'FAIL': '不合格',
+            'UNKNOWN': '判定不能',
             'NOT_APPLICABLE': '—',
         }
         self.results_tree.clear()
@@ -1067,12 +1067,12 @@ class RoomVideoPanel(QWidget):
         rows.append(
             (
                 '衝突',
-                'PASS' if collisions_fail == 0 else f'FAIL · {collisions_fail} 件',
+                '合格' if collisions_fail == 0 else f'不合格 · {collisions_fail} 件',
             )
         )
         for name, status in rows:
             item = QTreeWidgetItem([name, status])
-            if status.startswith('FAIL'):
+            if status.startswith('不合格'):
                 item.setForeground(1, Qt.GlobalColor.red)
             self.results_tree.addTopLevelItem(item)
 

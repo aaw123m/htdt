@@ -99,8 +99,8 @@ class MeasurementWorkspaceWindow(MeasurementEditorWindow):
     def _unify_right_context_docks(self, active_dock: QDockWidget) -> None:
         """Rebuild every right-side context surface into one CAD-style tab stack."""
         preferred_titles = (
-            'Inspector',
-            'Room',
+            'インスペクター',
+            '部屋',
             '壁・開口',
             'オブジェクト詳細',
             '制約',
@@ -132,7 +132,7 @@ class MeasurementWorkspaceWindow(MeasurementEditorWindow):
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, candidate)
             candidate.show()
 
-        anchor = by_title.get('Inspector', ordered[0])
+        anchor = by_title.get('インスペクター', ordered[0])
         for candidate in ordered:
             if candidate is not anchor:
                 self.tabifyDockWidget(anchor, candidate)
