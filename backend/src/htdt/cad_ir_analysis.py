@@ -661,23 +661,35 @@ def build_ir_analysis_spec(
     tf_overlap: float = 0.5,
     alignment: IRAlignmentMode = 'none',
 ) -> IRAnalysisSpec:
+    # Float-typed fields are normalized to float() here so the identity
+    # hash computed on the provisional model matches the hash the
+    # validated model recomputes: canonical JSON serializes an int and a
+    # float differently ('48000' vs '48000.0'), and a pre-validation value
+    # seals only the representation it was given.
+    t0 = time_zero_sample
+    if isinstance(t0, float) and t0.is_integer():
+        t0 = int(t0)
     payload: dict[str, Any] = {
         'spec_id': str(uuid4()),
         'measurement_id': measurement_id,
         'dataset_id': dataset_id,
         'dataset_sha256': dataset_sha256,
-        'sample_rate_hz': sample_rate_hz,
-        'time_zero_sample': time_zero_sample,
-        'window_start_s': window_start_s,
-        'window_end_s': window_end_s,
-        'band_center_hz': band_center_hz,
+        'sample_rate_hz': float(sample_rate_hz),
+        'time_zero_sample': t0,
+        'window_start_s': float(window_start_s),
+        'window_end_s': None if window_end_s is None else float(window_end_s),
+        'band_center_hz': None if band_center_hz is None else float(band_center_hz),
         'band_fraction': band_fraction,
-        'smoothing_fraction_octave': smoothing_fraction_octave,
+        'smoothing_fraction_octave': None
+        if smoothing_fraction_octave is None
+        else float(smoothing_fraction_octave),
         'noise_floor_method': noise_floor_method,
-        'declared_noise_floor_db': declared_noise_floor_db,
-        'clarity_split_times_ms': tuple(clarity_split_times_ms),
-        'tf_window_s': tf_window_s,
-        'tf_overlap': tf_overlap,
+        'declared_noise_floor_db': None
+        if declared_noise_floor_db is None
+        else float(declared_noise_floor_db),
+        'clarity_split_times_ms': tuple(float(t) for t in clarity_split_times_ms),
+        'tf_window_s': float(tf_window_s),
+        'tf_overlap': float(tf_overlap),
         'alignment': alignment,
     }
     provisional = IRAnalysisSpec.model_construct(**payload, spec_sha256='0' * 64)
