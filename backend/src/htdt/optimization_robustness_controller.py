@@ -595,14 +595,14 @@ class RobustnessControllerMixin:
         self.robustness_advanced_label.setText(
             '\n'.join(
                 (
-                    f'RobustnessSpec: {candidate.spec_id}',
-                    f'SceneRevision: {candidate.scene_revision_id}',
-                    f'SearchSpec: {candidate.search_spec_id}',
-                    f'Model: {candidate.model_id} / {candidate.model_version}',
-                    f'Provider: {candidate.prediction_provider_id}',
-                    f'Fidelity: {candidate.fidelity}',
+                    f'堅牢性仕様: {candidate.spec_id}',
+                    f'シーンリビジョン: {candidate.scene_revision_id}',
+                    f'探索仕様: {candidate.search_spec_id}',
+                    f'モデル: {candidate.model_id} / {candidate.model_version}',
+                    f'プロバイダー: {candidate.prediction_provider_id}',
+                    f'忠実度: {candidate.fidelity}',
                     (
-                        'Objective authority: '
+                        '指標権威: '
                         f'{candidate.objective_evaluation_spec_sha256}'
                     ),
                 )

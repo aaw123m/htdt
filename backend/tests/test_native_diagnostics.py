@@ -261,7 +261,7 @@ def test_gui_startup_failure_is_logged_and_reported(
 
     assert len(reported) == 1
     failure = reported[0]
-    assert failure["title"] == "HTDT did not start"
+    assert failure["title"] == "HTDTが起動しませんでした"
     assert "schema v99" in failure["reason"]
     assert "\n" not in failure["reason"]
     assert failure["log_path"] == data_dir / "diagnostics" / LOG_FILENAME
@@ -315,12 +315,12 @@ def test_lock_contention_is_visible_for_gui_launch(
         guard.release()
 
     assert len(reported) == 1
-    assert reported[0]["title"] == "HTDT is already running"
-    assert "already" in reported[0]["reason"]
+    assert reported[0]["title"] == "HTDTはすでに起動しています"
+    assert "使用中" in reported[0]["reason"]
     assert reported[0]["log_path"] == data_dir / "diagnostics" / LOG_FILENAME
 
     captured = capsys.readouterr()
-    assert "already in use by another process" in captured.err
+    assert "使用中" in captured.err
 
     text = _log_text(reported[0]["log_path"])
     assert "already in use by another process" in text
@@ -345,7 +345,7 @@ def test_lock_contention_stays_quiet_for_maintenance_cli(
         guard.release()
 
     captured = capsys.readouterr()
-    assert "already in use by another process" in captured.err
+    assert "使用中" in captured.err
 
 
 def test_maintenance_failure_exits_nonzero_without_dialog(

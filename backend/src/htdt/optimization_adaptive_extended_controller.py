@@ -175,16 +175,16 @@ class AdaptiveExtendedControllerMixin:
             for feature in plan.features
         )
         lines = [
-            f'scope {plan.execution_scope} · source {plan.source_evidence_scope}',
-            f'base model {plan.base_model_id}/{plan.base_model_version}',
-            f'extended model {plan.extended_model_id}/{plan.extended_model_version}',
-            f'features {feature_text}',
-            f'normalized GP length scale {plan.length_scale_normalized:g}',
-            f'training {len(plan.training_candidate_ids)} · measured除外 '
+            f'スコープ {plan.execution_scope} · ソース {plan.source_evidence_scope}',
+            f'ベースモデル {plan.base_model_id}/{plan.base_model_version}',
+            f'拡張モデル {plan.extended_model_id}/{plan.extended_model_version}',
+            f'特徴 {feature_text}',
+            f'正規化GP長さスケール {plan.length_scale_normalized:g}',
+            f'学習 {len(plan.training_candidate_ids)} · 実測除外 '
             f'{len(plan.excluded_measured_candidate_ids)}',
-            f'candidate pool {plan.candidate_pool_count} · '
-            f'proposals {len(plan.proposals)}',
-            f'next extended candidate {plan.selected_candidate_id[:12]}',
+            f'候補プール {plan.candidate_pool_count} · '
+            f'提案 {len(plan.proposals)}',
+            f'次の拡張候補 {plan.selected_candidate_id[:12]}',
         ]
         if plan.execution_scope == 'development_synthetic':
             lines.append(
@@ -202,15 +202,15 @@ class AdaptiveExtendedControllerMixin:
             )
             if proposal is not None:
                 lines.append(
-                    f'candidate {candidate_id[:12]} · acquisition '
+                    f'候補 {candidate_id[:12]} · 獲得 '
                     f'{proposal.acquisition_score:.4f}'
                 )
                 for estimate in proposal.objectives:
                     lines.append(
-                        f'{estimate.objective_id}: predicted '
-                        f'{estimate.predicted_value:.4g} → corrected '
+                        f'{estimate.objective_id}: 予測 '
+                        f'{estimate.predicted_value:.4g} → 補正 '
                         f'{estimate.corrected_mean:.4g} {estimate.unit} · '
-                        f'uncertainty {estimate.residual_uncertainty:.3g} '
+                        f'不確かさ {estimate.residual_uncertainty:.3g} '
                         f'{estimate.unit}'
                     )
                 self.extended_selected_candidate_id = candidate_id

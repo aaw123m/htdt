@@ -340,12 +340,12 @@ class StandardsCriterionPanel(QFrame):
         layout.addWidget(note)
 
         self.profile_combo = QComboBox()
-        self.profile_combo.setAccessibleName("StandardsProfile")
+        self.profile_combo.setAccessibleName("規格プロファイル")
         self.profile_combo.currentIndexChanged.connect(self._profile_changed)
         layout.addWidget(self.profile_combo)
 
         self.target_combo = QComboBox()
-        self.target_combo.setAccessibleName("Standards target")
+        self.target_combo.setAccessibleName("規格ターゲット")
         self.target_combo.currentIndexChanged.connect(self.refresh)
         layout.addWidget(self.target_combo)
 
@@ -590,8 +590,8 @@ class StandardsCriterionPanel(QFrame):
         if profile is None:
             return "基準プロファイルがありません"
         lines = [
-            f"Profile: {profile.profile_id} / {profile.version}",
-            f"Profile SHA-256: {profile.profile_semantic_hash}",
+            f"プロファイル: {profile.profile_id} / {profile.version}",
+            f"プロファイル SHA-256: {profile.profile_semantic_hash}",
         ]
         if self._evaluation is None:
             lines.append("Evaluation: 未評価")
@@ -599,15 +599,15 @@ class StandardsCriterionPanel(QFrame):
             evaluation = self._evaluation
             lines.extend(
                 [
-                    f"SceneRevision: {evaluation.target.scene_revision_id}",
-                    f"Scene content SHA-256: {evaluation.target.scene_content_hash}",
-                    f"SystemVariant: {evaluation.target.system_variant_id or 'なし'}",
-                    f"SystemVariant SHA-256: {evaluation.target.system_variant_sha256 or 'なし'}",
-                    f"Evaluation: {evaluation.evaluation_id}",
-                    f"Evaluation SHA-256: {evaluation.evaluation_sha256}",
-                    f"Evaluator: {evaluation.evaluator_version}",
-                    f"Evaluated at: {evaluation.created_at_utc}",
-                    f"Re-evaluation of: {evaluation.reevaluation_of_id or 'なし'}",
+                    f"シーンリビジョン: {evaluation.target.scene_revision_id}",
+                    f"シーン内容 SHA-256: {evaluation.target.scene_content_hash}",
+                    f"システムバリアント: {evaluation.target.system_variant_id or 'なし'}",
+                    f"システムバリアント SHA-256: {evaluation.target.system_variant_sha256 or 'なし'}",
+                    f"評価: {evaluation.evaluation_id}",
+                    f"評価 SHA-256: {evaluation.evaluation_sha256}",
+                    f"評価器: {evaluation.evaluator_version}",
+                    f"評価日時: {evaluation.created_at_utc}",
+                    f"再評価対象: {evaluation.reevaluation_of_id or 'なし'}",
                 ]
             )
             result_by_id = {item.criterion_id: item for item in evaluation.results}
@@ -618,19 +618,19 @@ class StandardsCriterionPanel(QFrame):
                     [
                         "",
                         f"[{criterion.criterion_id}] {criterion.name}",
-                        f"source: {criterion.source.publisher} / {criterion.source.document_title}",
-                        f"source version: {criterion.source.document_version}",
+                        f"出典: {criterion.source.publisher} / {criterion.source.document_title}",
+                        f"出典バージョン: {criterion.source.document_version}",
                         f"reference: {criterion.source.reference}",
-                        f"content kind: {criterion.source.content_kind or 'なし'}",
-                        "source authority: "
+                        f"コンテンツ種別: {criterion.source.content_kind or 'なし'}",
+                        "出典権威: "
                         + (
                             authority.authority_id
                             if authority is not None
                             else "なし"
                         ),
-                        f"extraction: {criterion.source.extraction_id or 'なし'}",
-                        f"criterion SHA-256: {result.criterion_sha256}",
-                        "evidence: "
+                        f"抽出: {criterion.source.extraction_id or 'なし'}",
+                        f"基準 SHA-256: {result.criterion_sha256}",
+                        "証拠: "
                         + (
                             ", ".join(
                                 f"{ref.evidence_id}"

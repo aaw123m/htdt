@@ -66,7 +66,7 @@ def measurement_is_synthetic(record: CadMeasurementRecord) -> bool:
 
 def measurement_evidence_label(record: CadMeasurementRecord) -> str:
     if measurement_is_synthetic(record):
-        return 'Synthetic'
+        return '合成'
     return {
         'measured': '実測',
         'derived': '派生',
@@ -393,7 +393,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             self,
             'REWテキストを選択',
             'measurement.rew_text',
-            'Text (*.txt *.frd);;All files (*)',
+            'テキスト (*.txt *.frd);;すべてのファイル (*)',
         )
         if not path:
             return
@@ -402,7 +402,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             raw = read_file_bounded(
                 file_path,
                 MAX_NATIVE_REW_TEXT_FILE_BYTES,
-                label='REW text file',
+                label='REWテキストファイル',
             )
             self.import_rew_text_bytes(raw, file_path.name)
         except Exception as exc:
@@ -488,19 +488,19 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         historical = current_hash != record.scene_content_hash
         state = '測定時配置 · 現在配置と異なる' if historical else '測定時配置 · 現在配置と一致'
         self.measurement_scene_label.setText(
-            f'{state}\nrevision {record.scene_revision_id[:8]} · point {record.measurement_entity_id}'
+            f'{state}\nリビジョン {record.scene_revision_id[:8]} · 測定点 {record.measurement_entity_id}'
         )
         captured = record.captured_at or '不明'
         synthetic = measurement_is_synthetic(record)
         scope = (
-            'Synthetic fixture · 非物理測定'
+            '合成フィクスチャ · 非物理測定'
             if synthetic
             else measurement_evidence_label(record)
         )
         self.measurement_detail_label.setText(
             f'証拠: {scope} ({record.evidence_type}) · '
-            f'入力: {record.channel_role} · source: {record.source_kind}\n'
-            f'取得時刻: {captured} · quality: {record.quality_status}\n'
+            f'入力: {record.channel_role} · ソース: {record.source_kind}\n'
+            f'取得時刻: {captured} · 品質: {record.quality_status}\n'
             f'位置: X {record.measurement_position.x_m:.3f} / '
             f'Y {record.measurement_position.y_m:.3f} / '
             f'Z {record.measurement_position.z_m:.3f} m'
@@ -705,7 +705,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         scope_message = (
             ''
             if validation_campaign_id is None
-            else f' · campaign {validation_campaign_id[:8]}'
+            else f' · キャンペーン {validation_campaign_id[:8]}'
         )
         self.statusBar().showMessage(
             f'REW読込中 · revision {token.scene_revision_id[:8]}{scope_message}'

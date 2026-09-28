@@ -421,7 +421,7 @@ def decide_launch(
     if explicit_safe_mode:
         return LaunchDecision(
             mode='safe_mode',
-            reasons=('user explicitly requested Safe Mode',),
+            reasons=('ユーザーがセーフモードを明示指定しました',),
             choices=(
                 'open_diagnostics',
                 'choose_another_project',
@@ -436,13 +436,13 @@ def decide_launch(
 
     reasons: list[str] = []
     if unclean_previous_session:
-        reasons.append('previous session ended unexpectedly')
+        reasons.append('前回のセッションが予期せず終了しました')
     if repeated >= REPEATED_FAILURE_THRESHOLD:
         reasons.append(
-            f'{repeated} consecutive failed launches for this build'
+            f'このビルドで連続 {repeated} 回の起動失敗'
         )
     if renderer_failure_detected:
-        reasons.append('renderer initialization failure is on record')
+        reasons.append('レンダラー初期化失敗の記録があります')
 
     if not reasons:
         return LaunchDecision(

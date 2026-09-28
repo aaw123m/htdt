@@ -999,7 +999,7 @@ class WorkflowApplicationComposition:
             self.shell,
             "プロジェクトのエクスポート先",
             'project.export_bundle',
-            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+            f"HTDTプロジェクトバンドル (*{BUNDLE_EXTENSION})",
             suggested_name=(
                 f"{self.project_entry.display_name}{revision_tag}"
                 f"{BUNDLE_EXTENSION}"
@@ -1041,7 +1041,7 @@ class WorkflowApplicationComposition:
             self.shell,
             "インポートするプロジェクトバンドル",
             'project.import_bundle',
-            f"HTDT project bundle (*{BUNDLE_EXTENSION})",
+            f"HTDTプロジェクトバンドル (*{BUNDLE_EXTENSION})",
             default_dir=str(Path.home()),
         )
         if not selected:
@@ -2804,7 +2804,7 @@ class WorkflowApplicationComposition:
             self.shell,
             "Capture用機材カタログの保存先",
             'equipment.export_capture_catalog',
-            "HTDT equipment catalog (*.json)",
+            "HTDT機材カタログ (*.json)",
             suggested_name="htdt-equipment-catalog.json",
             default_dir=self._default_export_dir(),
         )
@@ -3070,7 +3070,7 @@ class WorkflowApplicationComposition:
             "次のファイルを書き出しました:\n"
             + "\n".join(str(path) for path in written)
         )
-        details = [f"spec SHA-256: {export.spec_sha256}"]
+        details = [f"仕様 SHA-256: {export.spec_sha256}"]
         if omitted_measurements:
             details.append(
                 f"{omitted_measurements} 件の測定データは検証に失敗したため"

@@ -363,7 +363,7 @@ class _VariantSelector(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         self.combo = QComboBox()
-        self.combo.setAccessibleName("SystemVariant")
+        self.combo.setAccessibleName("システムバリアント提案")
         self.refresh_button = QPushButton("更新")
         set_control_size(self.refresh_button, ControlSize.COMPACT)
         row.addWidget(QLabel("提案"))
@@ -963,7 +963,7 @@ class SystemExpansionRoomPanel(QFrame):
                     f"baseline_content_hash: {p.baseline_content_hash}",
                     f"schema_version: {p.schema_version}",
                     f"authority_version: {p.authority_version}",
-                    "repository/provenance keys: " + (", ".join(p.repository_keys) or "なし"),
+                    "リポジトリ/出典キー: " + (", ".join(p.repository_keys) or "なし"),
                 )
             )
         )
@@ -1021,7 +1021,7 @@ class SystemExpansionOptimizePanel(QFrame):
                 "状態",
                 "coverage",
                 "SPL/headroom",
-                "Standards",
+                "規格",
                 "比較",
                 "Pareto",
                 "理由",
@@ -1123,7 +1123,7 @@ class SystemExpansionOptimizePanel(QFrame):
                     f"baseline_content_hash: {p.baseline_content_hash}",
                     f"schema_version: {p.schema_version}",
                     f"authority_version: {p.authority_version}",
-                    "repository/provenance keys: "
+                    "リポジトリ/出典キー: "
                     + (", ".join(p.repository_keys) or "なし"),
                 )
             )
@@ -1173,7 +1173,7 @@ class SystemExpansionOptimizePanel(QFrame):
             return
         preview = self.service.apply_preview(variant_id)
         if preview.stale:
-            self.summary.setText(preview.stale_reason or "stale proposal")
+            self.summary.setText(preview.stale_reason or "古い提案")
             return
         change_text = "\n".join(preview.change_lines) or "差分なし"
         message = (
@@ -1290,9 +1290,9 @@ class SystemExpansionRobustnessPanel(QFrame):
         )
         self.summary.setText(
             f"{view.variant_name} / {view.sampling_label} / {state} / "
-            f"sample {view.sample_count} "
-            f"(feasible {view.feasible_count}, infeasible {view.infeasible_count}, "
-            f"failed {view.failed_count}, unscored {view.unscored_count})"
+            f"サンプル {view.sample_count} "
+            f"(実現可能 {view.feasible_count}, 非実現可能 {view.infeasible_count}, "
+            f"失敗 {view.failed_count}, 未評価 {view.unscored_count})"
         )
         for objective in view.objectives:
             self.tree.addTopLevelItem(

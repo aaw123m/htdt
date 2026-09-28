@@ -233,14 +233,14 @@ class AdaptiveControllerMixin:
             return
 
         lines = [
-            f'scope {plan.execution_scope} · source {plan.source_evidence_scope}',
-            f'validation {plan.validation_id[:8]} · {plan.model_id}/{plan.model_version}',
-            f'algorithm {plan.algorithm_version} · acquisition {plan.acquisition_function}',
-            f'length scale {plan.length_scale_m:g} m · training '
-            f'{len(plan.training_candidate_ids)} · measured除外 '
+            f'スコープ {plan.execution_scope} · ソース {plan.source_evidence_scope}',
+            f'検証 {plan.validation_id[:8]} · {plan.model_id}/{plan.model_version}',
+            f'アルゴリズム {plan.algorithm_version} · 獲得 {plan.acquisition_function}',
+            f'長さスケール {plan.length_scale_m:g} m · 学習 '
+            f'{len(plan.training_candidate_ids)} · 実測除外 '
             f'{len(plan.excluded_measured_candidate_ids)}',
-            f'candidate pool {plan.candidate_pool_count} · proposals {len(plan.proposals)}',
-            f'next candidate {plan.selected_candidate_id[:12]}',
+            f'候補プール {plan.candidate_pool_count} · 提案 {len(plan.proposals)}',
+            f'次候補 {plan.selected_candidate_id[:12]}',
         ]
         if plan.execution_scope == 'development_synthetic':
             lines.append(
@@ -258,14 +258,14 @@ class AdaptiveControllerMixin:
             )
             if proposal is not None:
                 lines.append(
-                    f'candidate {candidate_id[:12]} · acquisition '
+                    f'候補 {candidate_id[:12]} · 獲得 '
                     f'{proposal.acquisition_score:.4f}'
                 )
                 for estimate in proposal.objectives:
                     lines.append(
-                        f'{estimate.objective_id}: predicted {estimate.predicted_value:.4g} '
-                        f'→ corrected {estimate.corrected_mean:.4g} {estimate.unit} · '
-                        f'uncertainty {estimate.residual_uncertainty:.3g} {estimate.unit}'
+                        f'{estimate.objective_id}: 予測 {estimate.predicted_value:.4g} '
+                        f'→ 補正 {estimate.corrected_mean:.4g} {estimate.unit} · '
+                        f'不確かさ {estimate.residual_uncertainty:.3g} {estimate.unit}'
                     )
                 self.search_selected_candidate_id = candidate_id
                 if self.search_candidate_tree is not None:

@@ -103,7 +103,7 @@ class ExtendedSearchControllerMixin:
                     heading = (
                         f'yaw {yaw:.1f}°'
                         if yaw is not None
-                        else 'yaw undefined (vertical aim)'
+                        else 'yaw未定義 (垂直照準)'
                     )
                     combo.addItem(
                         f'{entity.name} · {heading} · pitch {pitch:.1f}°',
@@ -202,7 +202,7 @@ class ExtendedSearchControllerMixin:
                             + parameter
                         ).encode('utf-8')
                     ).hexdigest(),
-                    detail='declared synthetic fixture evidence; not owned-room validation',
+                    detail='宣言済み合成フィクスチャ証拠; 実部屋検証ではない',
                     created_at_utc=datetime.now(timezone.utc).isoformat(),
                 )
                 for parameter in ('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg')
@@ -224,7 +224,7 @@ class ExtendedSearchControllerMixin:
                 evidence_scope='synthetic_fixture',
                 supported_parameters=('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg'),
                 parameter_evidence=evidence,
-                detail='software acceptance for acoustic aim (yaw/pitch) and physical body yaw; not owned-room evidence',
+                detail='音響照準 (yaw/pitch) と物理ボディyawのソフトウェア受理; 実部屋証拠ではない',
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             existing = next(
@@ -313,7 +313,7 @@ class ExtendedSearchControllerMixin:
                 evidence_scope='owned_room',
                 supported_parameters=parameters,
                 parameter_evidence=tuple(evidence),
-                detail='owned-room validated directional aim (yaw/pitch)/body-yaw capability',
+                detail='実部屋検証済み方向照準 (yaw/pitch)/ボディyaw能力',
                 validation=record,
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
@@ -539,7 +539,7 @@ class ExtendedSearchControllerMixin:
                     spec.capability_id
                 )
                 model_text = (
-                    'missing capability'
+                    'capability未登録'
                     if capability is None
                     else (
                         f'{capability.evidence_scope} · '
@@ -700,7 +700,7 @@ class ExtendedSearchControllerMixin:
         self._refresh_extended_binding_state()
         self.statusBar().showMessage(
             f'Extended候補生成中… {spec.extended_search_id[:8]} · '
-            f'offset {page_offset}'
+            f'オフセット {page_offset}'
         )
         self._start_extended_task(
             key,
@@ -822,7 +822,7 @@ class ExtendedSearchControllerMixin:
         if self.extended_summary_label is not None:
             self.extended_summary_label.setText(
                 f'raw {result.raw_candidate_count} · '
-                f'feasible {result.feasible_candidate_count} · '
+                f'実現可能 {result.feasible_candidate_count} · '
                 f'表示 {result.offset + 1 if result.candidates else 0}–'
                 f'{result.offset + len(result.candidates)} · '
                 f'set {result.candidate_set_sha256[:8]}'

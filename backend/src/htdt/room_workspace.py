@@ -1929,7 +1929,7 @@ class RoomWorkspaceController:
                 [(v.x, v.y, v.z) for v in raw_mesh.vertices],
             ),
             provenance='explicit_import_metadata',
-            reason=f'guided geometry import from {path.name}',
+            reason=f'ガイド付き幾何インポート元 {path.name}',
         )
         request = make_semantic_geometry_conversion_request(
             raw_mesh,
@@ -3102,7 +3102,7 @@ class SelectionInspector(QFrame):
                 )
                 yaw, pitch, roll = quaternion_to_euler_deg(entity.orientation)
                 self.orientation_detail.setText(
-                    f"内部 Euler · Yaw {yaw:.4f}° · Pitch {pitch:.4f}° · Roll {roll:.4f}°"
+                    f"内部 Euler · ヨー {yaw:.4f}° · ピッチ {pitch:.4f}° · ロール {roll:.4f}°"
                 )
             self.speaker_section.setVisible(entity.kind == "speaker")
             if entity.kind == "speaker":
@@ -5671,7 +5671,7 @@ class RoomWorkspace(QWidget):
                 x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value())
             ),
             head_radius_m=float(widgets['head_r'].spin.value()),
-            provenance='authored in Room video panel (UX120)',
+            provenance='Room映像パネルで作成 (UX120)',
         )
         self.listener_pose_repository.save_pose(pose)
         self.listener_pose_repository.select_pose(

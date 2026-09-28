@@ -100,7 +100,7 @@ class NativeEditorWindow(QMainWindow):
         self.preview_inspect_timer.setInterval(33)
         self.preview_inspect_timer.timeout.connect(self._refresh_preview_inspector)
         self.resize(1440, 900)
-        self.setWindowTitle('Home Theater Digital Twin — N20b')
+        self.setWindowTitle('Home Theater Digital Twin — N20b エディター')
 
         self.viewport = QtInteractor(self)
         self.setCentralWidget(self.viewport.interactor)
@@ -115,7 +115,7 @@ class NativeEditorWindow(QMainWindow):
         self.tree.setHeaderHidden(True)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._tree_selected)
-        left = QDockWidget('Scene', self)
+        left = QDockWidget('シーン', self)
         left.setWidget(self.tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, left)
 
@@ -125,9 +125,9 @@ class NativeEditorWindow(QMainWindow):
         self.id_label = QLabel('—')
         self.state_label = QLabel('—')
         self.aim_label = QLabel('—')
-        form.addRow('Type', self.kind_label)
+        form.addRow('種類', self.kind_label)
         form.addRow('ID', self.id_label)
-        form.addRow('State', self.state_label)
+        form.addRow('状態', self.state_label)
 
         self.position_fields: dict[str, QDoubleSpinBox] = {}
         for axis in ('X', 'Y', 'Z'):
@@ -141,6 +141,7 @@ class NativeEditorWindow(QMainWindow):
             self.position_fields[axis] = field
             form.addRow(axis, field)
 
+        axis_labels = {'Yaw': 'ヨー', 'Pitch': 'ピッチ', 'Roll': 'ロール'}
         self.orientation_fields: dict[str, QDoubleSpinBox] = {}
         for axis in ('Yaw', 'Pitch', 'Roll'):
             field = QDoubleSpinBox()
@@ -151,29 +152,29 @@ class NativeEditorWindow(QMainWindow):
             field.setKeyboardTracking(False)
             field.editingFinished.connect(self._numeric_orientation_edited)
             self.orientation_fields[axis] = field
-            form.addRow(axis, field)
-        form.addRow('Aim', self.aim_label)
+            form.addRow(axis_labels[axis], field)
+        form.addRow('向き', self.aim_label)
 
-        right = QDockWidget('Inspector', self)
+        right = QDockWidget('インスペクター', self)
         right.setWidget(inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
 
-        toolbar = QToolBar('Editor', self)
+        toolbar = QToolBar('編集', self)
         self.addToolBar(toolbar)
-        self.save_action = self._action('Save', QKeySequence.StandardKey.Save, self.save)
-        self.undo_action = self._action('Undo', QKeySequence.StandardKey.Undo, self.undo)
-        self.redo_action = self._action('Redo', QKeySequence.StandardKey.Redo, self.redo)
-        self.delete_action = self._action('Delete', None, self.delete_selected)
+        self.save_action = self._action('保存', QKeySequence.StandardKey.Save, self.save)
+        self.undo_action = self._action('元に戻す', QKeySequence.StandardKey.Undo, self.undo)
+        self.redo_action = self._action('やり直す', QKeySequence.StandardKey.Redo, self.redo)
+        self.delete_action = self._action('削除', None, self.delete_selected)
         self.delete_action.setShortcut(QKeySequence('Delete'))
         toolbar.addActions((self.save_action, self.undo_action, self.redo_action, self.delete_action))
         toolbar.addSeparator()
 
         self.transform_group = QActionGroup(self)
         self.transform_group.setExclusive(True)
-        self.move_action = self._action('Move', None, self._activate_move_mode)
+        self.move_action = self._action('移動', None, self._activate_move_mode)
         self.move_action.setCheckable(True)
         self.move_action.setShortcut(QKeySequence('W'))
-        self.rotate_action = self._action('Rotate', None, self._activate_rotate_mode)
+        self.rotate_action = self._action('回転', None, self._activate_rotate_mode)
         self.rotate_action.setCheckable(True)
         self.rotate_action.setShortcut(QKeySequence('R'))
         self.transform_group.addAction(self.move_action)
@@ -181,12 +182,12 @@ class NativeEditorWindow(QMainWindow):
         self.move_action.setChecked(True)
         toolbar.addActions((self.move_action, self.rotate_action))
 
-        self.object_snap_action = self._action('Object Snap', None, self._object_snap_toggled)
+        self.object_snap_action = self._action('オブジェクトスナップ', None, self._object_snap_toggled)
         self.object_snap_action.setCheckable(True)
         self.object_snap_action.setChecked(True)
-        self.grid_snap_action = self._action('Grid Snap', None, self._grid_snap_toggled)
+        self.grid_snap_action = self._action('グリッドスナップ', None, self._grid_snap_toggled)
         self.grid_snap_action.setCheckable(True)
-        self.angle_snap_action = self._action('Angle Snap', None, self._angle_snap_toggled)
+        self.angle_snap_action = self._action('角度スナップ', None, self._angle_snap_toggled)
         self.angle_snap_action.setCheckable(True)
         toolbar.addActions((self.object_snap_action, self.grid_snap_action, self.angle_snap_action))
 
@@ -195,7 +196,7 @@ class NativeEditorWindow(QMainWindow):
         self.grid_step_field.setDecimals(3)
         self.grid_step_field.setSingleStep(0.01)
         self.grid_step_field.setValue(self.view_state.grid_step_m)
-        self.grid_step_field.setSuffix(' m grid')
+        self.grid_step_field.setSuffix(' m グリッド')
         self.grid_step_field.valueChanged.connect(self._grid_step_changed)
         toolbar.addWidget(self.grid_step_field)
 
@@ -204,30 +205,30 @@ class NativeEditorWindow(QMainWindow):
         self.angle_step_field.setDecimals(1)
         self.angle_step_field.setSingleStep(5.0)
         self.angle_step_field.setValue(self.view_state.angle_step_deg)
-        self.angle_step_field.setSuffix('° angle')
+        self.angle_step_field.setSuffix('° 角度')
         self.angle_step_field.valueChanged.connect(self._angle_step_changed)
         toolbar.addWidget(self.angle_step_field)
         toolbar.addSeparator()
 
-        self.hide_action = self._action('Hidden', None, self._toggle_hidden)
+        self.hide_action = self._action('非表示', None, self._toggle_hidden)
         self.hide_action.setCheckable(True)
-        self.lock_action = self._action('Locked', None, self._toggle_locked)
+        self.lock_action = self._action('ロック', None, self._toggle_locked)
         self.lock_action.setCheckable(True)
-        self.show_all_action = self._action('Show All', None, self.show_all)
+        self.show_all_action = self._action('すべて表示', None, self.show_all)
         toolbar.addActions((self.hide_action, self.lock_action, self.show_all_action))
         toolbar.addSeparator()
 
-        self.recover_action = self._action('Recover Draft', None, self.recover_draft)
-        self.discard_recovery_action = self._action('Discard Recovery', None, self.discard_recovery)
+        self.recover_action = self._action('下書きを復旧', None, self.recover_draft)
+        self.discard_recovery_action = self._action('復旧データを破棄', None, self.discard_recovery)
         toolbar.addActions((self.recover_action, self.discard_recovery_action))
         toolbar.addSeparator()
 
         for label, callback in (
-            ('Top', self._top),
-            ('Front', self._front),
-            ('Right', self._right),
-            ('Perspective', self._perspective),
-            ('Fit', self._fit),
+            ('上面', self._top),
+            ('正面', self._front),
+            ('右側面', self._right),
+            ('透視', self._perspective),
+            ('全体表示', self._fit),
         ):
             toolbar.addAction(self._action(label, None, callback))
 
@@ -244,6 +245,26 @@ class NativeEditorWindow(QMainWindow):
 
     def _on_app_focus_changed(self, _old: QWidget | None, _new: QWidget | None) -> None:
         self._update_actions()
+
+    _KIND_LABELS = {
+        'speaker': 'スピーカー',
+        'seat': '座席',
+        'screen': 'スクリーン',
+        'display': 'ディスプレイ',
+        'projector': 'プロジェクター',
+        'riser': 'ライザー',
+        'furniture': '家具',
+        'av_equipment': 'AV機器',
+        'measurement_point': '測定点',
+    }
+
+    @classmethod
+    def _kind_label(cls, kind: str) -> str:
+        return cls._KIND_LABELS.get(kind, kind)
+
+    @staticmethod
+    def _operation_label(kind: str) -> str:
+        return {'move': '移動', 'rotate': '回転'}.get(kind, '変換')
 
     def _action(self, label: str, shortcut: QKeySequence.StandardKey | None, callback) -> QAction:
         action = QAction(label, self)
@@ -298,10 +319,10 @@ class NativeEditorWindow(QMainWindow):
         self._rebuild(reset_camera=True)
         if self.recovery_candidate is not None:
             self.statusBar().showMessage(
-                f'F1 · revision {revision.revision_id[:8]} · recovery available · choose Recover Draft or Discard Recovery'
+                f'F1 · リビジョン {revision.revision_id[:8]} · 復旧データあり · 下書きを復旧または復旧データを破棄を選択'
             )
         else:
-            self.statusBar().showMessage(f'F1 · revision {revision.revision_id[:8]} · clean')
+            self.statusBar().showMessage(f'F1 · リビジョン {revision.revision_id[:8]} · 保存済み')
 
     def _invalidate_scene_pick_cache(self) -> None:
         self.scene_pick_cache = ()
@@ -379,9 +400,9 @@ class NativeEditorWindow(QMainWindow):
         document = self.working.committed_document
 
         if document.room is None:
-            self.tree.addTopLevelItem(QTreeWidgetItem(['Room · not created']))
+            self.tree.addTopLevelItem(QTreeWidgetItem(['部屋 · 未作成']))
         else:
-            room_item = QTreeWidgetItem(['Room · F1 6×4×2.4 m'])
+            room_item = QTreeWidgetItem(['部屋 · F1 6×4×2.4 m'])
             self.tree.addTopLevelItem(room_item)
             room_actor = self.viewport.add_mesh(
                 pv.Box(bounds=(0.0, document.room.width_m, -document.room.depth_m, 0.0, 0.0, document.room.height_m)),
@@ -393,9 +414,9 @@ class NativeEditorWindow(QMainWindow):
 
         groups: dict[str, QTreeWidgetItem] = {}
         for key, label in (
-            ('speaker', 'Speakers'),
-            ('measurement_point', 'Listening / Measurement'),
-            ('furniture', 'Furniture'),
+            ('speaker', 'スピーカー'),
+            ('measurement_point', 'リスニング・測定点'),
+            ('furniture', '家具'),
         ):
             groups[key] = QTreeWidgetItem([label])
             self.tree.addTopLevelItem(groups[key])
@@ -411,9 +432,9 @@ class NativeEditorWindow(QMainWindow):
     def _add_entity(self, parent: QTreeWidgetItem, entity: SceneEntity) -> None:
         flags: list[str] = []
         if self.view_state.is_hidden(entity.entity_id):
-            flags.append('hidden')
+            flags.append('非表示')
         if self.view_state.is_locked(entity.entity_id):
-            flags.append('locked')
+            flags.append('ロック')
         suffix = f" · {', '.join(flags)}" if flags else ''
         item = QTreeWidgetItem([f'{entity.name}{suffix}'])
         item.setData(0, ROLE, entity.entity_id)
@@ -649,7 +670,7 @@ class NativeEditorWindow(QMainWindow):
         if not selection or entity_id not in selection or entity_id not in self.actors:
             return
         if any(self.view_state.is_locked(selected_id) for selected_id in selection):
-            self.statusBar().showMessage('Selection contains a locked object · transform disabled')
+            self.statusBar().showMessage('選択にロックされたオブジェクトが含まれます · 変換を無効化')
             return
         entities = tuple(self.working.committed_document.entity(selected_id) for selected_id in selection)
         pivot = self._selection_pivot()
@@ -686,20 +707,20 @@ class NativeEditorWindow(QMainWindow):
             return
         document = self.working.document if use_preview else self.working.committed_document
         entity = document.entity(entity_id)
-        self.kind_label.setText(entity.kind.replace('_', ' ').title())
+        self.kind_label.setText(self._kind_label(entity.kind))
         self.id_label.setText(entity.entity_id)
-        states = ['Hidden' if self.view_state.is_hidden(entity_id) else 'Visible']
+        states = ['非表示' if self.view_state.is_hidden(entity_id) else '表示']
         if self.view_state.is_locked(entity_id):
-            states.append('Locked')
+            states.append('ロック')
         if len(self.view_state.selection) > 1:
-            states.append(f'{len(self.view_state.selection)} selected')
+            states.append(f'{len(self.view_state.selection)} 件選択')
         if self.recovery_candidate is not None:
-            states.append('Recovery pending')
+            states.append('復旧保留')
         self.state_label.setText(' · '.join(states))
         self.aim_label.setText(
-            'unknown'
+            '未設定'
             if entity.kind == 'speaker' and entity.aim_xyz is None
-            else ('known' if entity.kind == 'speaker' else '—')
+            else ('設定済み' if entity.kind == 'speaker' else '—')
         )
         selection = self.view_state.selection or (entity_id,)
         editable = self.recovery_candidate is None and not any(self.view_state.is_locked(selected_id) for selected_id in selection)
@@ -798,7 +819,7 @@ class NativeEditorWindow(QMainWindow):
             if not snapped and self.view_state.grid_snap_enabled:
                 candidate = snap_position_axis(candidate, axis, self.view_state.grid_step_m)
                 value = {'x': candidate.x_m, 'y': candidate.y_m, 'z': candidate.z_m}[axis]
-                self._show_snap_feedback(f'grid · {axis.upper()}={value:.3f} m')
+                self._show_snap_feedback(f'グリッド · {axis.upper()}={value:.3f} m')
                 snapped = True
         if bypass_snap or axis_index is None or not snapped:
             if bypass_snap:
@@ -896,7 +917,7 @@ class NativeEditorWindow(QMainWindow):
             self.gizmo.cancel()
         if had_preview:
             self._rebuild()
-            self.statusBar().showMessage(f'{kind.title()} cancelled · history unchanged')
+            self.statusBar().showMessage(f'{self._operation_label(kind)}をキャンセル · 履歴は変更なし')
         else:
             self._update_actions()
 
@@ -919,7 +940,7 @@ class NativeEditorWindow(QMainWindow):
         self.gizmo_rebuild_timer.stop()
         self._remove_gizmo()
         self._create_gizmo(self.selected_id)
-        self.statusBar().showMessage(f'{mode.title()} tool · world axes')
+        self.statusBar().showMessage(f'{self._operation_label(mode)}ツール · ワールド軸')
         self._update_actions()
         self.viewport.render()
 
@@ -929,14 +950,14 @@ class NativeEditorWindow(QMainWindow):
         self.view_state.object_snap_enabled = bool(checked)
         self._reset_drag_snap_state()
         self._clear_snap_feedback()
-        self.statusBar().showMessage(f"Object snap {'on' if checked else 'off'} · 8/12 DIP")
+        self.statusBar().showMessage(f"オブジェクトスナップ {'オン' if checked else 'オフ'} · 8/12 DIP")
 
     def _grid_snap_toggled(self, checked: bool) -> None:
         if self.working and self.working.has_preview:
             self.cancel_preview()
         self.view_state.grid_snap_enabled = bool(checked)
         self.statusBar().showMessage(
-            f"Grid snap {'on' if checked else 'off'} · {self.view_state.grid_step_m:g} m"
+            f"グリッドスナップ {'オン' if checked else 'オフ'} · {self.view_state.grid_step_m:g} m"
         )
 
     def _angle_snap_toggled(self, checked: bool) -> None:
@@ -944,7 +965,7 @@ class NativeEditorWindow(QMainWindow):
             self.cancel_preview()
         self.view_state.angle_snap_enabled = bool(checked)
         self.statusBar().showMessage(
-            f"Angle snap {'on' if checked else 'off'} · {self.view_state.angle_step_deg:g}°"
+            f"角度スナップ {'オン' if checked else 'オフ'} · {self.view_state.angle_step_deg:g}°"
         )
 
     def _grid_step_changed(self, value: float) -> None:
@@ -980,7 +1001,7 @@ class NativeEditorWindow(QMainWindow):
         if self.selected_id is None or self.working is None or self.recovery_candidate is not None:
             return
         if self.view_state.is_locked(self.selected_id):
-            self.statusBar().showMessage('Locked object cannot be deleted')
+            self.statusBar().showMessage('ロックされたオブジェクトは削除できません')
             return
         entity_id = self.selected_id
         if self.working.delete_entity(entity_id):
@@ -1040,7 +1061,7 @@ class NativeEditorWindow(QMainWindow):
         if self.working is None or self.recovery_candidate is not None:
             return
         if self.working.has_preview:
-            self.statusBar().showMessage('Finish or cancel the active transform before Save')
+            self.statusBar().showMessage('保存前に実行中の変換を完了またはキャンセルしてください')
             return
         self.commit_pending_editor()
         try:
@@ -1050,11 +1071,11 @@ class NativeEditorWindow(QMainWindow):
             )
             self.working.mark_saved(result.revision.revision_id, result.revision.content_hash)
         except Exception as exc:
-            self.statusBar().showMessage(f'Save failed · draft kept · {exc}')
-            QMessageBox.critical(self, 'Save failed', f'{exc}\n\nThe draft and recovery snapshot were kept.')
+            self.statusBar().showMessage(f'保存に失敗しました · 下書きは保持 · {exc}')
+            QMessageBox.critical(self, '保存に失敗しました', f'{exc}\n\n下書きと復旧スナップショットは保持されました。')
             return
-        verb = 'saved' if result.created else 'unchanged'
-        self.statusBar().showMessage(f'Revision {result.revision.revision_id[:8]} · {verb} · clean')
+        verb = '保存しました' if result.created else '変更なし'
+        self.statusBar().showMessage(f'リビジョン {result.revision.revision_id[:8]} · {verb} · 保存済み')
         self._update_actions()
 
     def recover_draft(self) -> None:
@@ -1063,7 +1084,7 @@ class NativeEditorWindow(QMainWindow):
         source_id = self.recovery_candidate.source_revision_id
         source = self.repository.get(source_id) if source_id is not None else None
         if source is None:
-            self.statusBar().showMessage('Recovery cannot be opened because its source revision is missing')
+            self.statusBar().showMessage('復旧元のリビジョンが見つからないため復旧データを開けません')
             return
         self.working = WorkingDocument(
             self.recovery_candidate.document,
@@ -1074,7 +1095,7 @@ class NativeEditorWindow(QMainWindow):
         self.selected_id = self.view_state.selected_id
         self.recovery_candidate = None
         self._rebuild(reset_camera=True)
-        self.statusBar().showMessage(f'Recovered draft from revision {source.revision_id[:8]} · dirty')
+        self.statusBar().showMessage(f'リビジョン {source.revision_id[:8]} から下書きを復旧 · 未保存')
 
     def discard_recovery(self) -> None:
         if self.recovery_candidate is None:
@@ -1082,7 +1103,7 @@ class NativeEditorWindow(QMainWindow):
         self.repository.clear_recovery(self.document_id)
         self.recovery_candidate = None
         self._rebuild()
-        self.statusBar().showMessage('Recovery draft discarded · formal revision unchanged')
+        self.statusBar().showMessage('復旧データを破棄しました · 正式リビジョンは変更なし')
 
     def _sync_recovery(self) -> None:
         if self.working is None or self.working.has_preview or self.recovery_candidate is not None:
@@ -1096,7 +1117,7 @@ class NativeEditorWindow(QMainWindow):
             else:
                 self.repository.clear_recovery(self.document_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'Recovery snapshot failed · {exc}')
+            self.statusBar().showMessage(f'復旧スナップショットに失敗しました · {exc}')
 
     def _persist_view_state(self) -> None:
         self.view_state_save_timer.stop()
@@ -1109,12 +1130,12 @@ class NativeEditorWindow(QMainWindow):
                 locked_ids=self.view_state.locked_ids,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'View state save failed · {exc}')
+            self.statusBar().showMessage(f'表示状態の保存に失敗しました · {exc}')
 
     def _set_dirty_status(self) -> None:
         if self.working is None:
             return
-        self.statusBar().showMessage('dirty' if self.working.is_dirty else 'clean')
+        self.statusBar().showMessage('未保存' if self.working.is_dirty else '保存済み')
         self._update_actions()
 
     def _update_actions(self) -> None:
@@ -1192,7 +1213,7 @@ class NativeEditorWindow(QMainWindow):
             if self.viewport.interactor.rect().contains(local):
                 kind = self.working.preview_kind
                 if self._commit_active_preview(kind):
-                    self.statusBar().showMessage(f'{kind.title()} committed after recovered mouse release')
+                    self.statusBar().showMessage(f'{self._operation_label(kind)}を確定しました（マウス解放を復旧）')
             else:
                 self.cancel_preview()
             return
@@ -1260,7 +1281,7 @@ class NativeEditorWindow(QMainWindow):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='Run the HTDT native CAD editor N20b shell')
+    parser = argparse.ArgumentParser(description='HTDT ネイティブCADエディター N20b シェルを起動')
     parser.add_argument('--data-dir', type=Path, default=default_data_dir())
     parser.add_argument('--document-id', default=F1_DOCUMENT_ID)
     args = parser.parse_args(argv)

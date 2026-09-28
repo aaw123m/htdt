@@ -224,7 +224,7 @@ class BackupMetadataView(QFrame):
             ("created_at", "作成日時"),
             ("application_version", "HTDTバージョン"),
             ("schema_version", "バックアップschema"),
-            ("native_schema", "DB schema"),
+            ("native_schema", "DBスキーマ"),
             ("archive_size", "アーカイブ"),
             ("database_size", "データベース"),
             ("measurement_assets", "測定アセット"),
@@ -343,7 +343,7 @@ class DataManagementWidget(QWidget):
         )
         data_dir = QLabel(
             f"現在のデータ保存場所: {controller.backend.data_dir}"
-            f" / DB schema: {current_schema}",
+            f" / DBスキーマ: {current_schema}",
             content,
         )
         data_dir.setWordWrap(True)

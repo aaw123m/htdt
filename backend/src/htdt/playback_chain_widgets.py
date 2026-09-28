@@ -91,7 +91,7 @@ def _capability_label(capability: AmplifierOutputCapability) -> str:
 def _load_label(load: SpeakerElectricalLoadAuthority) -> str:
     return (
         f"{load.equipment_definition_id} — "
-        f"{load.resistance_ohm} ohm ({load.semantics}, v{load.version})"
+        f"{load.resistance_ohm} Ω ({load.semantics}, v{load.version})"
     )
 
 
@@ -474,7 +474,7 @@ class PlaybackChainDialog(QDialog):
         tab = QWidget()
         form = QFormLayout(tab)
         self.amp_existing = QComboBox()
-        self.amp_existing.setAccessibleName("AmplifierCapabilities")
+        self.amp_existing.setAccessibleName("保存済みアンプ能力")
         form.addRow("保存済みアンプ能力", self.amp_existing)
         self.amp_label = QLineEdit()
         form.addRow("ラベル（必須）", self.amp_label)
@@ -590,7 +590,7 @@ class PlaybackChainDialog(QDialog):
         tab = QWidget()
         form = QFormLayout(tab)
         self.load_existing = QComboBox()
-        self.load_existing.setAccessibleName("SpeakerLoads")
+        self.load_existing.setAccessibleName("保存済みスピーカー負荷")
         form.addRow("保存済みスピーカー負荷", self.load_existing)
         self.load_equipment = QComboBox()
         form.addRow("対象機器定義", self.load_equipment)

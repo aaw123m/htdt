@@ -170,11 +170,11 @@ def build_workflow_shell(
 # decision model emits but the dialog never renders is a dead end the user
 # can read but never click (round8).
 _RECOVERY_CHOICE_PRESENTATION = {
-    'open_normal': ('Open normally', 'accept'),
-    'open_safe_mode': ('Open in Safe Mode', 'destructive'),
-    'open_diagnostics': ('Open diagnostics', 'action'),
-    'verify_data': ('Verify data now', 'action'),
-    'choose_another_project': ('Choose another project', 'action'),
+    'open_normal': ('通常どおり開く', 'accept'),
+    'open_safe_mode': ('セーフモードで開く', 'destructive'),
+    'open_diagnostics': ('診断を開く', 'action'),
+    'verify_data': ('今すぐデータを検証', 'action'),
+    'choose_another_project': ('別のプロジェクトを選択', 'action'),
 }
 
 
@@ -194,18 +194,17 @@ def _choose_recovery_action(
 
     box = QMessageBox(
         QMessageBox.Icon.Warning,
-        "HTDT recovered from an unexpected session",
-        "HTDT recovered from an unexpected previous session.\n\n"
+        "HTDTは前回予期せず終了しました",
+        "HTDTは前回のセッションを異常終了から復旧しました。\n\n"
         + "\n".join(
             f"- {reason}" for reason in launch_decision.reasons
         )
         + (
-            "\n\nThe previous failure looks data-related — "
-            "consider Verify data or restoring a backup."
+            "\n\n前回の失敗はデータ関連の可能性があります — "
+            "データの検証またはバックアップからの復元を検討してください。"
             if launch_decision.restore_recommended
-            else "\n\nThis does not look like project-data "
-            "corruption; restoring a backup is not the first "
-            "recovery step."
+            else "\n\nプロジェクトデータの破損とは見えません。"
+            "バックアップの復元は最初の復旧手順ではありません。"
         ),
     )
     role_map = {
@@ -222,7 +221,7 @@ def _choose_recovery_action(
         buttons[choice] = box.addButton(label, role_map[role])
     if 'open_normal' not in buttons:
         buttons['open_normal'] = box.addButton(
-            "Open normally", QMessageBox.ButtonRole.AcceptRole
+            "通常どおり開く", QMessageBox.ButtonRole.AcceptRole
         )
     box.exec()
     clicked = box.clickedButton()
@@ -238,10 +237,10 @@ def _choose_recovery_action(
     if choice == 'open_diagnostics':
         QMessageBox.information(
             None,
-            "HTDT diagnostics",
-            f"Diagnostics are stored at:\n{diagnostics.log_path}\n\n"
-            "Use Support > Package Diagnostics for a support "
-            "bundle.",
+            "HTDT 診断",
+            f"診断は次に保存されています:\n{diagnostics.log_path}\n\n"
+            "サポート用バンドルは サポート > 診断パッケージ を"
+            "使ってください。",
         )
         # Diagnostics consulted first, then a guarded launch — unchanged
         # semantics from the original three-button surface.
@@ -308,8 +307,8 @@ def _route_launch_intent(
                 update={
                     'outcome': outcome,
                     'detail': (
-                        f'{result.detail} — open it from the project '
-                        'library'
+                        f'{result.detail} — プロジェクトライブラリから'
+                        '開いてください'
                     ),
                 }
             )
@@ -324,7 +323,7 @@ def _route_launch_intent(
                 result = result.model_copy(
                     update={
                         'outcome': outcome,
-                        'detail': f'project switch failed: {exc}',
+                        'detail': f'プロジェクトの切り替えに失敗: {exc}',
                     }
                 )
             else:
@@ -334,8 +333,8 @@ def _route_launch_intent(
                         update={
                             'outcome': outcome,
                             'detail': (
-                                'current work must be saved or discarded '
-                                'before switching projects'
+                                'プロジェクトを切り替える前に現在の作業を'
+                                '保存または破棄する必要があります'
                             ),
                         }
                     )
@@ -370,8 +369,8 @@ def _route_launch_intent(
                 update={
                     'outcome': outcome,
                     'detail': (
-                        f'{result.detail} — open Settings > Data '
-                        'Management to restore it'
+                        f'{result.detail} — 設定 > データ管理から'
+                        '復元してください'
                     ),
                 }
             )
@@ -390,8 +389,8 @@ def _route_launch_intent(
                     update={
                         'outcome': outcome,
                         'detail': (
-                            f'backup is valid but the preview surface is '
-                            f'busy or unavailable: {exc}'
+                            f'バックアップは有効ですがプレビュー画面が'
+                            f'ビジーまたは利用不可です: {exc}'
                         ),
                     }
                 )
@@ -408,44 +407,44 @@ def _route_launch_intent(
     if outcome in ('routed_and_opened',):
         QMessageBox.information(
             window,
-            "HTDT project",
-            f"Opened {describe_launch_intent(intent)}.",
+            "HTDT プロジェクト",
+            f"{describe_launch_intent(intent)}を開きました。",
         )
     elif outcome in ('staged_for_review', 'already_staged'):
         QMessageBox.information(
             window,
-            "HTDT capture",
-            f"{'Staged' if outcome == 'staged_for_review' else 'Already staged'} "
-            f"{describe_launch_intent(intent)} for review in the Capture "
-            "Inbox — nothing was promoted to evidence.",
+            "HTDT キャプチャ",
+            f"{describe_launch_intent(intent)}を"
+            f"{'レビュー用にキャプチャ受信箱へステージしました' if outcome == 'staged_for_review' else 'すでにステージ済みです'}"
+            " — 証拠には昇格していません。",
         )
     elif outcome == 'preview_opened':
         QMessageBox.information(
             window,
-            "HTDT backup",
-            f"Backup preview: {Path(intent.path).name}\n"
+            "HTDT バックアップ",
+            f"バックアッププレビュー: {Path(intent.path).name}\n"
             f"- {result.detail}\n\n"
-            "Restore is always a separate, explicit action.",
+            "復元は常に別の明示的な操作です。",
         )
     elif outcome == 'blocked_dirty_state':
         QMessageBox.information(
             window,
             "HTDT",
-            f"Could not open {describe_launch_intent(intent)}: "
+            f"{describe_launch_intent(intent)}を開けませんでした: "
             f"{result.detail}",
         )
     elif outcome == 'user_action_required':
         QMessageBox.information(
             window,
             "HTDT",
-            f"{describe_launch_intent(intent)} needs your action: "
+            f"{describe_launch_intent(intent)}には操作が必要です: "
             f"{result.detail}",
         )
     else:
         QMessageBox.warning(
             window,
             "HTDT",
-            f"Could not open {describe_launch_intent(intent)}: "
+            f"{describe_launch_intent(intent)}を開けませんでした: "
             f"{result.detail or outcome}",
         )
     return result
@@ -568,7 +567,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
             QMessageBox.information(
                 None,
-                "HTDT data update",
+                "HTDT データ更新",
                 upgrade_plan.upgrade_copy_ja,
             )
         upgrade_event = execute_native_upgrade(args.data_dir)
@@ -583,10 +582,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
             QMessageBox.information(
                 None,
-                "HTDT data update",
-                "HTDT updated your project data from format "
-                f"{upgrade_event.from_schema} to {upgrade_event.to_schema}. "
-                "A recovery copy was created first.",
+                "HTDT データ更新",
+                "HTDTがプロジェクトデータを形式 "
+                f"{upgrade_event.from_schema} から {upgrade_event.to_schema} "
+                "へ更新しました。先に復旧用コピーを作成しています。",
             )
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
         # #627: surface what the legacy default document actually holds
@@ -806,7 +805,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
-            title="HTDT data is newer than this build",
+            title="HTDTデータがこのビルドより新しいです",
             reason=str(exc),
             recovery=str(exc),
             log_path=diagnostics.log_path,
@@ -822,7 +821,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
-            title="HTDT could not update your data",
+            title="HTDTがデータを更新できませんでした",
             reason=concise_reason(exc),
             recovery=str(exc),
             log_path=diagnostics.log_path,
@@ -841,12 +840,12 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 pass
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
-            title="HTDT did not start",
+            title="HTDTが起動しませんでした",
             reason=concise_reason(exc),
             recovery=(
-                "Your data was not modified by this failure. Start HTDT again; "
-                "if the problem repeats, restore your most recent backup and "
-                "share the diagnostic log with support."
+                "この失敗でデータは変更されていません。HTDTをもう一度起動"
+                "してください。再発する場合は最新のバックアップを復元し、"
+                "診断ログをサポートへ共有してください。"
             ),
             log_path=diagnostics.log_path,
         )
@@ -854,7 +853,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="HTDT native CAD editor")
+    parser = argparse.ArgumentParser(description="HTDT ネイティブCADエディター")
     # #621: --data-dir > bootstrap config > platform default. A bootstrap
     # root that is unavailable fails closed rather than silently reopening
     # the default location.
@@ -869,20 +868,20 @@ def main(argv: list[str] | None = None) -> int:
         nargs="*",
         type=Path,
         metavar="FILE",
-        help="project (.htdtproject), capture (.htdtcapture) or backup "
-        "(.htdt-backup) files to open",
+        help="開くプロジェクト (.htdtproject)、キャプチャ (.htdtcapture) "
+        "またはバックアップ (.htdt-backup) ファイル",
     )
     parser.add_argument(
         "--legacy-ui",
         action="store_true",
-        help="launch the legacy OptimizationWorkspaceWindow composition instead of the default workflow shell (rollback)",
+        help="既定のワークフローシェルの代わりに旧 OptimizationWorkspaceWindow 構成で起動（ロールバック用）",
     )
     # #739: an explicit Safe Mode entry point — the only way to reach the
     # guarded launch when a crash loop is too fast to use the dialog.
     parser.add_argument(
         "--safe-mode",
         action="store_true",
-        help="launch in Safe Mode (no integrations, saved layout or auto-open intents) without prompting",
+        help="確認なしでセーフモードで起動（連携・保存済みレイアウト・自動オープンintentなし）",
     )
     # Accepted for compatibility: the workflow shell is the default launch
     # path since UX160, so the old opt-in flag no longer has an effect.
@@ -892,30 +891,30 @@ def main(argv: list[str] | None = None) -> int:
         "--backup",
         type=Path,
         metavar="ARCHIVE",
-        help="create a validated .htdt-backup archive and exit",
+        help="検証済みの .htdt-backup アーカイブを作成して終了",
     )
     maintenance.add_argument(
         "--restore",
         type=Path,
         metavar="ARCHIVE",
-        help="restore a validated .htdt-backup archive and exit",
+        help="検証済みの .htdt-backup アーカイブを復元して終了",
     )
     maintenance.add_argument(
         "--automatic-backup",
         action="store_true",
-        help="run one due automatic backup generation and exit (scheduled tasks)",
+        help="期限の来た自動バックアップを1回実行して終了（スケジュールタスク用）",
     )
     maintenance.add_argument(
         "--seed-synthetic-demo",
         action="store_true",
-        help="seed an explicitly synthetic O10-O80 development demo and exit",
+        help="明示的に合成された O10-O80 開発デモをシードして終了",
     )
     maintenance.add_argument(
         "--migrate-legacy-data",
         action="store_true",
         help=(
-            "migrate the retired browser store (htdt.sqlite3) into native "
-            "projects, archive it, and exit"
+            "廃止されたブラウザストア (htdt.sqlite3) をネイティブ"
+            "プロジェクトへ移行し、アーカイブして終了"
         ),
     )
     # Reports the display version ("<version>+g<sha>[.dirty]") so a packaged
@@ -924,7 +923,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {version_string()}")
     args = parser.parse_args(argv)
     if args.workflow_shell and args.legacy_ui:
-        parser.error("--workflow-shell and --legacy-ui cannot be combined")
+        parser.error("--workflow-shell と --legacy-ui は併用できません")
 
     # #621: resolve the managed root through the documented precedence and
     # fail closed when a configured location is unavailable.
@@ -940,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         assert_managed_root_available(args.data_dir, data_dir_source)
     except ManagedDataUnavailableError as exc:
-        print(f"HTDT data directory unavailable: {exc}", file=sys.stderr)
+        print(f"HTDTのデータディレクトリが利用不可です: {exc}", file=sys.stderr)
         return 1
 
     if args.backup is not None:
@@ -982,21 +981,22 @@ def main(argv: list[str] | None = None) -> int:
                     forwarded = False
             if forwarded:
                 write_stderr(
-                    "forwarded document-open request(s) to the running HTDT "
-                    "instance"
+                    "実行中のHTDTインスタンスへドキュメントオープン要求を"
+                    "転送しました"
                 )
                 return 0
         write_stderr(
-            "HTDT data directory is already in use by another process: "
+            "HTDTのデータディレクトリは別プロセスが使用中です: "
             f"{args.data_dir}"
         )
         if not maintenance_request:
             report_launch_failure(
-                title="HTDT is already running",
-                reason="Another HTDT instance is already using this data directory.",
+                title="HTDTはすでに起動しています",
+                reason="別のHTDTインスタンスがこのデータディレクトリを使用中です。",
                 recovery=(
-                    "Close the other HTDT window, then start HTDT again. "
-                    "If no other instance is running, wait a moment and retry."
+                    "もう一方のHTDTウィンドウを閉じてから、HTDTを起動し直して"
+                    "ください。他のインスタンスが動いていない場合は、少し待って"
+                    "から再試行してください。"
                 ),
                 log_path=diagnostics.log_path,
             )
@@ -1008,7 +1008,7 @@ def main(argv: list[str] | None = None) -> int:
 
             manifest = create_backup(args.data_dir, args.backup)
             print(
-                f"backup created: {args.backup} "
+                f"バックアップを作成しました: {args.backup} "
                 f"(schema={manifest.schema_version}, files={len(manifest.files)})"
             )
             return 0
@@ -1016,9 +1016,9 @@ def main(argv: list[str] | None = None) -> int:
             from .native_backup import restore_backup
 
             manifest, pre_restore = restore_backup(args.data_dir, args.restore)
-            suffix = "" if pre_restore is None else f" · pre-restore backup: {pre_restore}"
+            suffix = "" if pre_restore is None else f" · 復元前バックアップ: {pre_restore}"
             print(
-                f"backup restored: {args.restore} "
+                f"バックアップを復元しました: {args.restore} "
                 f"(schema={manifest.schema_version}, files={len(manifest.files)}){suffix}"
             )
             return 0
@@ -1027,9 +1027,9 @@ def main(argv: list[str] | None = None) -> int:
 
             result = AutomaticBackupScheduler(args.data_dir).run_due('periodic')
             if result is None:
-                print("automatic backup: not due")
+                print("自動バックアップ: 期限未到来")
             else:
-                print(f"automatic backup created: {result[0]}")
+                print(f"自動バックアップを作成しました: {result[0]}")
             return 0
         if args.seed_synthetic_demo:
             from .cad_repository import SceneRepository
@@ -1038,7 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
             repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
             result = seed_synthetic_optimization_demo(repository)
             print(
-                "synthetic demo seeded: "
+                "合成デモをシードしました: "
                 f"document={result.document_id} "
                 f"search={result.search_spec_id} "
                 f"validation={result.validation_id} "
@@ -1046,7 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"extended={result.extended_search_id} "
                 f"adaptive-extended={result.adaptive_extended_plan_id}"
             )
-            print("synthetic demo is development-only and does not unlock owned-room recommendation")
+            print("合成デモは開発専用で、実部屋の推奨機能は解放しません")
             return 0
         if args.migrate_legacy_data:
             from .cad_repository import SceneRepository
@@ -1069,7 +1069,7 @@ def main(argv: list[str] | None = None) -> int:
         # failure through diagnostics and exit nonzero — a modal failure dialog
         # would hang the caller on a machine with nobody to dismiss it.
         diagnostics.log_startup_failure(exc)
-        write_stderr(f"HTDT --{launch_mode} failed: {concise_reason(exc)}")
+        write_stderr(f"HTDT --{launch_mode} が失敗しました: {concise_reason(exc)}")
         return 1
     finally:
         guard.release()

@@ -107,7 +107,7 @@ def test_synthetic_demo_persists_o10_through_o80_without_owned_room_promotion(tm
         assert provenance['validation_scope'] == 'synthetic_fixture'
         assert provenance['physical_measurement'] is False
         assert measurement_is_synthetic(measurement)
-        assert measurement_evidence_label(measurement) == 'Synthetic'
+        assert measurement_evidence_label(measurement) == '合成'
 
     evaluations = objectives.list_evaluations(result.search_spec_id)
     predicted_candidates = {

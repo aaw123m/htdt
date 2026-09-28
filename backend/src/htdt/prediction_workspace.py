@@ -211,11 +211,11 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             parts = [presentation.spec_name]
             if presentation.run_state is not None:
                 parts.append(
-                    f"run {presentation.run_attempt}: "
+                    f"実行 {presentation.run_attempt}: "
                     f"{presentation.run_state}"
                 )
             if presentation.currency_state is not None:
-                parts.append(f'currency {presentation.currency_state}')
+                parts.append(f'鮮度 {presentation.currency_state}')
             self.matrix_status_label.setText(' · '.join(parts))
 
     def _constraint_workspace_hash(self) -> str:
@@ -473,7 +473,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                 (item for item in run_results if item.result_kind == 'geometry_reflections'), None
             )
             if modes is not None:
-                mode_group = QTreeWidgetItem([f'room mode候補 · {len(modes.modes)}件', 'predicted geometry'])
+                mode_group = QTreeWidgetItem([f'room mode候補 · {len(modes.modes)}件', '予測幾何'])
                 mode_group.setData(0, ROLE, run_id)
                 top.addChild(mode_group)
                 for mode in modes.modes[:20]:
@@ -488,7 +488,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                     mode_group.addChild(child)
             if reflections is not None:
                 reflection_group = QTreeWidgetItem(
-                    [f'一次反射幾何候補 · {len(reflections.reflections)}件', 'predicted geometry']
+                    [f'一次反射幾何候補 · {len(reflections.reflections)}件', '予測幾何']
                 )
                 reflection_group.setData(0, ROLE, run_id)
                 top.addChild(reflection_group)
@@ -583,15 +583,15 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             'unsupported': 'unsupported',
         }.get(first.geometry_compatibility, first.geometry_compatibility)
         self.prediction_summary_label.setText(
-            f'{state}\nrevision {first.scene_revision_id[:8]} · input {first.input_hash[:8]} · {compatibility}'
+            f'{state}\nリビジョン {first.scene_revision_id[:8]} · 入力 {first.input_hash[:8]} · {compatibility}'
         )
         assumptions = ', '.join(first.assumptions[:5]) or '—'
         warnings = ', '.join(first.warnings[:5]) or 'なし'
         self.prediction_detail_label.setText(
             f'model: {first.model_id} / {first.model_version}\n'
-            f'classification: predicted geometry · compatibility: {compatibility}\n'
-            f'assumptions: {assumptions}\n'
-            f'warnings: {warnings}'
+            f'分類: 予測幾何 · 互換性: {compatibility}\n'
+            f'前提: {assumptions}\n'
+            f'警告: {warnings}'
         )
 
     def _remove_prediction_overlays(self) -> None:

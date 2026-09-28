@@ -336,11 +336,11 @@ def test_field_explorer_panel_builds_slice_and_probe(tmp_path: Path) -> None:
         'authority)'
     )
     assert index < 0 or panel.quantity_combo.itemData(index) is None
-    # Probe on a grid node reports 'exact'.
+    # Probe on a grid node reports the exact-sample state (Japanese label).
     axis = panel._session.result.axes[0]
     panel.probe_x.setValue(axis.coordinate(0))
     panel.probe_y.setValue(panel._session.result.axes[1].coordinate(0))
     panel.probe_z.setValue(panel._session.result.axes[2].coordinate(0))
     panel._run_probe()
-    assert 'exact' in panel.probe_result_label.text()
+    assert '厳密' in panel.probe_result_label.text()
     del app

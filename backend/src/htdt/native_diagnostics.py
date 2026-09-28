@@ -377,7 +377,7 @@ def report_launch_failure(
     if recovery:
         sections.append(recovery)
     if log_path is not None:
-        sections.append(f'Diagnostic log: {log_path}')
+        sections.append(f'診断ログ: {log_path}')
     message = '\n\n'.join(sections)
     try:
         from PySide6.QtWidgets import QApplication, QMessageBox

@@ -59,11 +59,11 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
         self._rebuild(reset_camera=True)
         if self.recovery_candidate is not None:
             self.statusBar().showMessage(
-                f'revision {revision.revision_id[:8]} · recovery available · choose Recover Draft or Discard Recovery'
+                f'リビジョン {revision.revision_id[:8]} · 復旧候補あり · 下書きを復旧または復旧データを破棄を選択'
             )
         else:
             room_state = '部屋あり' if revision.document.room is not None else '空シーン · 部屋を描画して開始'
-            self.statusBar().showMessage(f'revision {revision.revision_id[:8]} · {room_state} · clean')
+            self.statusBar().showMessage(f'リビジョン {revision.revision_id[:8]} · {room_state} · 保存済み')
 
     def recover_draft(self) -> None:
         if self.recovery_candidate is None:

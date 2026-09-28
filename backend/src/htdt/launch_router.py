@@ -99,11 +99,11 @@ def route_launch_intent(
             return route_backup_intent(intent)
     except Exception as exc:  # pragma: no cover - last-resort guard
         _LOGGER.exception('launch intent routing raised: %s', intent.path)
-        return _result(intent, 'failed', f'unexpected routing error: {exc}')
+        return _result(intent, 'failed', f'予期しないルーティングエラー: {exc}')
     return _result(
         intent,
         'invalid_or_unsupported',
-        f'unsupported file type: {Path(intent.path).name}',
+        f'未対応のファイルタイプ: {Path(intent.path).name}',
     )
 
 
@@ -117,7 +117,7 @@ def route_open_project_intent(
     path = Path(intent.path)
     if not path.is_file():
         return _result(
-            intent, 'invalid_or_unsupported', 'file not found'
+            intent, 'invalid_or_unsupported', 'ファイルが見つかりません'
         )
 
     if zipfile.is_zipfile(path):
@@ -125,7 +125,7 @@ def route_open_project_intent(
             imported = import_project_bundle(repository, path)
         except Exception as exc:
             return _result(
-                intent, 'failed', f'project bundle import failed: {exc}'
+                intent, 'failed', f'プロジェクトバンドルのインポートに失敗: {exc}'
             )
         _LOGGER.info(
             'project bundle imported: %s -> document %s (mode=%s)',
@@ -136,7 +136,7 @@ def route_open_project_intent(
         return _result(
             intent,
             'routed_and_opened',
-            'project bundle imported',
+            'プロジェクトバンドルをインポートしました',
             document_id=imported.document_id,
         )
 
@@ -145,8 +145,8 @@ def route_open_project_intent(
         return _result(
             intent,
             'invalid_or_unsupported',
-            '.htdtproject must be a project bundle archive or a JSON '
-            'project descriptor',
+            '.htdtproject はプロジェクトバンドルアーカイブまたは'
+            'JSONプロジェクト記述子である必要があります',
         )
     try:
         descriptor = HTDTProjectFile.model_validate(payload)
@@ -154,14 +154,14 @@ def route_open_project_intent(
         return _result(
             intent,
             'invalid_or_unsupported',
-            'unrecognized .htdtproject descriptor',
+            '認識できない .htdtproject 記述子です',
         )
     document_id = descriptor.document_id or intent.document_id
     if not document_id:
         return _result(
             intent,
             'invalid_or_unsupported',
-            'project descriptor carries no document identity',
+            'プロジェクト記述子にドキュメント識別子がありません',
         )
     entry = ProjectLibraryRepository(repository).get_by_document_id(
         document_id
@@ -170,14 +170,14 @@ def route_open_project_intent(
         return _result(
             intent,
             'user_action_required',
-            'project is not registered in this data root — import its '
-            'project bundle first',
+            'このプロジェクトはこのデータルートに登録されていません — '
+            '先にプロジェクトバンドルをインポートしてください',
             document_id=document_id,
         )
     return _result(
         intent,
         'routed_and_opened',
-        f'project "{entry.display_name}"',
+        f'プロジェクト "{entry.display_name}"',
         document_id=document_id,
     )
 
@@ -192,7 +192,7 @@ def route_capture_intent(
     path = Path(intent.path)
     if not path.exists():
         return _result(
-            intent, 'invalid_or_unsupported', 'file not found'
+            intent, 'invalid_or_unsupported', 'ファイルが見つかりません'
         )
 
     bundle_path = path
@@ -208,8 +208,8 @@ def route_capture_intent(
                 return _result(
                     intent,
                     'user_action_required',
-                    'capture descriptor names no bundle — place the bundle '
-                    'beside it or stage it from the Inbox',
+                    'キャプチャ記述子がバンドルを指定していません — '
+                    'バンドルを同じ場所に置くか受信箱からステージしてください',
                 )
             bundle_path = Path(descriptor.bundle_path)
             if not bundle_path.is_absolute():
@@ -218,7 +218,7 @@ def route_capture_intent(
                 return _result(
                     intent,
                     'invalid_or_unsupported',
-                    'capture bundle not found: '
+                    'キャプチャバンドルが見つかりません: '
                     f'{descriptor.bundle_path}',
                 )
 
@@ -229,11 +229,11 @@ def route_capture_intent(
         return _result(
             intent,
             'failed',
-            f'capture import rejected at {exc.stage}: {exc}',
+            f'キャプチャインポートが {exc.stage} で拒否されました: {exc}',
         )
     except (ValueError, OSError) as exc:
         return _result(
-            intent, 'failed', f'capture import failed: {exc}'
+            intent, 'failed', f'キャプチャインポートに失敗: {exc}'
         )
 
     try:
@@ -244,7 +244,7 @@ def route_capture_intent(
         return _result(
             intent,
             'failed',
-            f'capture ingestion plan could not be rebuilt: {exc}',
+            f'キャプチャ取り込み計画を再構築できませんでした: {exc}',
         )
     if (
         descriptor is not None
@@ -255,7 +255,7 @@ def route_capture_intent(
         return _result(
             intent,
             'invalid_or_unsupported',
-            'capture descriptor revision does not match the bundle',
+            'キャプチャ記述子のリビジョンがバンドルと一致しません',
         )
 
     try:
@@ -267,7 +267,7 @@ def route_capture_intent(
         )
     except Exception as exc:
         return _result(
-            intent, 'failed', f'capture inbox staging failed: {exc}'
+            intent, 'failed', f'キャプチャ受信箱へのステージに失敗: {exc}'
         )
 
     outcome: LaunchIntentOutcome = (
@@ -276,8 +276,8 @@ def route_capture_intent(
     return _result(
         intent,
         outcome,
-        f'capture revision {plan.bundle.capture_revision_id} staged '
-        'for Inbox review — nothing was promoted to evidence',
+        f'キャプチャリビジョン {plan.bundle.capture_revision_id} を'
+        '受信箱レビュー用にステージしました — 証拠には昇格していません',
         inbox_item_id=staged.item.inbox_item_id,
     )
 
@@ -290,7 +290,7 @@ def route_backup_intent(
     path = Path(intent.path)
     if not path.is_file():
         return _result(
-            intent, 'invalid_or_unsupported', 'file not found'
+            intent, 'invalid_or_unsupported', 'ファイルが見つかりません'
         )
     try:
         manifest, staged_schema = inspect_backup(path)
@@ -298,13 +298,13 @@ def route_backup_intent(
         return _result(
             intent,
             'invalid_or_unsupported',
-            f'not a valid .htdt-backup archive: {exc}',
+            f'有効な .htdt-backup アーカイブではありません: {exc}',
         )
     return _result(
         intent,
         'preview_opened',
-        f'backup created {manifest.created_at_utc} '
-        f'(schema {staged_schema}, {len(manifest.files)} files)',
+        f'バックアップ作成日時 {manifest.created_at_utc} '
+        f'(schema {staged_schema}, {len(manifest.files)} ファイル)',
     )
 
 

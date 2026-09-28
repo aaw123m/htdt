@@ -113,7 +113,7 @@ class MaterialDialog(QDialog):
         self.wave_model.setCurrentIndex(
             list(WAVE_MODEL_LABELS).index('unsupported')
         )
-        form.addRow('wave capability', self.wave_model)
+        form.addRow('波動対応', self.wave_model)
         self.impedance = QPlainTextEdit()
         self.impedance.setPlaceholderText(
             '比インピーダンス点 — 1行1点: freq_hz,resistance,reactance '
@@ -127,7 +127,7 @@ class MaterialDialog(QDialog):
         self.geometric_model.setCurrentIndex(
             list(GEOMETRIC_MODEL_LABELS).index('unsupported')
         )
-        form.addRow('geometric capability', self.geometric_model)
+        form.addRow('幾何対応', self.geometric_model)
         self.bands = QPlainTextEdit()
         self.bands.setPlaceholderText(
             'バンド — 1行1点: center_hz,absorption,scattering (bandedのみ)'
