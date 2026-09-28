@@ -657,9 +657,11 @@ class RoomViewport3D(QFrame):
         self._actor_underlay_ids.clear()
         self._search_domain_handles.clear()
         self._marquee_actors.clear()
-        self._cycle_position = None
-        self._cycle_ids = ()
-        self._cycle_index = 0
+        # NOTE: _cycle_* state is intentionally NOT reset here — selection
+        # changes re-render the scene on every click, and wiping the cycle
+        # history would make click-through cycling unreachable. Stale state
+        # self-corrects: the next click's candidate tuple differs whenever
+        # the rebuilt scene's hit stack changed, resetting the index then.
         self.plotter.clear()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
 

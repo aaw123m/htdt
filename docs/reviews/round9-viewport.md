@@ -30,6 +30,10 @@ Legacy standalone windows (`room_editor.py`, `WallEditorWindow`,
 | 11 | No hover highlight on entities | LOW ux | DEFERRED — product/design call, sketched below |
 | 12 | Labels not collision-managed; dense scenes can overlap | LOW ux | DEFERRED — needs screen-space label layout |
 | 13 | Empty scene / degenerate geometry / focus loss | — | VERIFIED OK — bounds probe falls back to unit cube, camera stays finite; no error spam |
+| 14 | Pick callback re-picked inside `EndPickEvent` dispatch → `vtkPicker.Pick` re-fired the callback → ~160 `entityPicked` emissions per click and near-`RecursionError` stack depth; found by real-widget probe (fake picker can't see it) | HIGH correctness | FIXED — dispatch reads the completed pick's `GetProp3Ds()`; `_in_pick_dispatch` guard drops nested picks |
+| 15 | Marquee raced the trackball camera: `vtkInteractorStyleTrackballCamera` *does* see left-drag on the real widget (observer removal only stops re-render), so box-selects orbited and the region was evaluated on the rotated view | MED ux | FIXED — camera pose snapshotted at press, restored at band activation, mid-marquee moves consumed in the eventFilter |
+| 16 | `add_legend` ignores the `render` kwarg and renders internally → second draw per rebuild on multi-category scenes | LOW perf | FIXED — wrapped in `plotter.suppress_rendering` |
+| 17 | `_cycle_*` state was reset in `render_document`, which runs on every selection change → click-through could never engage end-to-end | MED ux | FIXED — state survives rebuilds; stale tuples self-correct via the candidate-equality check |
 
 ## 1 — Per-actor render storm (perf, fixed)
 
@@ -175,6 +179,34 @@ video + proposal now cost one render total via `deferred_render`.
 
 ## Deferred with sketches
 
+## 14–17 — Real-widget verification pass
+
+The round's fixes were verified on the real `QtInteractor`/`vtkCellPicker`/
+`QRubberBand` under `QT_QPA_PLATFORM=offscreen` (real VTK objects, QTest
+event delivery, `render_window.SetSize()` to revive projection math — GL
+pixel output still unavailable on this box). Four defects invisible to
+fake-plotter tests surfaced and were fixed in a follow-up commit:
+
+- **Pick reentry (14):** `_picked_actor` → `_cycle_pick_candidate` →
+  `pick_actor_candidates` → `picker.Pick` fired `EndPickEvent` → re-entered
+  `_picked_actor`. One click emitted ~160 `entityPicked` signals and the
+  cycle index advanced mid-storm, landing selections on the wrong entity.
+  Fix: the dispatch now reads the picker's already-populated
+  `GetProp3Ds()` (no re-pick), plus an `_in_pick_dispatch` guard.
+- **Camera/marquee race (15):** the audit's "left-drag is dead" premise was
+  wrong on the real widget — the trackball style still receives moves
+  (pyvistaqt's observer removal only stops re-render). Fix: snapshot the
+  camera at press, restore it when the band activates past the 6 px
+  threshold, and consume mid-marquee moves in the eventFilter. Sub-threshold
+  drags keep orbiting normally.
+- **Legend render (16):** `add_legend` takes no `render` kwarg and renders
+  internally; wrapped in `plotter.suppress_rendering` so multi-category
+  rebuilds stay one draw.
+- **Cycle-state reset (17):** `render_document` wiped `_cycle_*` on every
+  selection-triggered rebuild, so the candidate tuple never matched twice.
+  Removed the reset — the tuple-equality check already resets the index
+  whenever the hit stack actually changes.
+
 **11. Hover highlight.** No hover affordance on entities. Doing it right is
 a picker-per-mousemove problem: `vtkCellPicker` on every move is too heavy
 for dense scenes; pyvistaqt has no hover pipeline and VTK move observers
@@ -195,11 +227,19 @@ density vs. clutter.
 
 `pytest` (Python 3.12.10, `QT_QPA_PLATFORM=offscreen`, TMPDIR=/c/t):
 
-- `backend/tests/test_room_viewport_r9.py` — 11 new tests, all pass.
-- Affected suite: `test_room_viewport_semantics`, `test_room_viewport_r9`,
-  `test_room_workspace`, `test_cad_spatial_field`, `test_cad_field_explorer`
-  + 20 files importing the touched modules — **70 + 26 … all pass**; the
-  only failure seen is
+- `backend/tests/test_room_viewport_r9.py` — 14 tests, all pass (11
+  original + reentry-safety, marquee/camera isolation, cycle-survival).
+- Affected suite post-rebase: `test_room_viewport_semantics`,
+  `test_room_viewport_r9`, `test_room_workspace`, `test_cad_spatial_field`,
+  `test_cad_field_explorer`, `test_room_cadux`, `test_room_orientation_aim`,
+  `test_cad_room_tools`, `test_room_inspector` — **148 passed**.
+- The only failure seen in wider ordering is
   `test_room_inspector.py::test_metric_spinbox_wheel_requires_focus`, which
   fails identically on clean `main` under the same file ordering —
   pre-existing order-dependent flake, unrelated to this change.
+- Real-widget offscreen probes (real `QtInteractor`/`vtkCellPicker`/`QTest`,
+  no fake plotter): marquee band + emitted ids + additive + persistence,
+  pick coordinate flip end-to-end, hidden-entity filtering, stale-video
+  guard, field-slice orientation/scale, `auto_update=False`, single-draw
+  scene rebuild — all verified; marquee end-to-end through the real
+  workspace `view_state` confirmed.

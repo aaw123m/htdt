@@ -500,6 +500,41 @@ def test_click_through_cycles_front_to_back_candidates(_app) -> None:
     assert picker.pick_args == []
 
 
+def test_cycle_state_survives_scene_rebuilds(_app) -> None:
+    # Every click -> selection -> workspace re-render -> render_document.
+    # If the rebuild wiped the cycle state, repeat clicks would always land
+    # on the front entity and click-through could never engage.
+    viewport = _viewport(_app)
+    viewport.interactor.resize(800, 600)
+    plotter = _RecordingPlotter()
+    viewport.plotter = plotter
+    front, back = _FakeActor("entity-e1"), _FakeActor("entity-e2")
+    viewport._actor_entity_ids[id(front)] = "e1"
+    viewport._actor_entity_ids[id(back)] = "e2"
+    picker = _FakePicker(actor=front, props=(front, back))
+    plotter.iren = _FakeIren(picker)
+    viewport.interactor.GetEventPosition = lambda: (40.0, 559.0)
+
+    picked: list[str] = []
+    viewport.entityPicked.connect(lambda eid, _pos: picked.append(eid))
+    viewport._picked_actor(front)
+    assert picked[-1] == "e1"
+    # The selection upstream triggers a scene rebuild — simulate it.
+    viewport.render_document(
+        _document(_entity("e1"), _entity("e2")),
+        selected_id="e1",
+        overlays=RoomOverlayState(grid=False),
+        reset_camera=False,
+    )
+    # Re-register: the rebuild replaced actors with fresh objects.
+    front2, back2 = _FakeActor("entity-e1"), _FakeActor("entity-e2")
+    viewport._actor_entity_ids[id(front2)] = "e1"
+    viewport._actor_entity_ids[id(back2)] = "e2"
+    picker._props = (front2, back2)
+    viewport._picked_actor(front2)
+    assert picked == ["e1", "e2"]
+
+
 class _EventedPicker(_FakePicker):
     """Picker double whose Pick() fires the pick callback — as vtkPicker
     fires EndPickEvent on every Pick, including nested ones."""
