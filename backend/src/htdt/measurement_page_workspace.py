@@ -442,6 +442,11 @@ class MeasurementPageWorkspace(QWidget):
             str,
             tuple[Callable[[object], None], str, Callable[[], None] | None],
         ] = {}
+        # Latest-wins guard for jobs that can overlap (REW list/read share the
+        # pool): only the most recent submission of a purpose applies its
+        # completion — an earlier late result would stage stale data.
+        self._job_purpose: dict[str, str] = {}
+        self._latest_job_key: dict[str, str] = {}
         self._disposed = False
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
@@ -874,6 +879,7 @@ class MeasurementPageWorkspace(QWidget):
             self._apply_rew_list,
             "REW一覧の読み込みに失敗しました",
             on_retry=self._refresh_rew_async,
+            purpose="rew_list",
         )
 
     def _apply_rew_list(self, value: object) -> None:
@@ -911,6 +917,7 @@ class MeasurementPageWorkspace(QWidget):
             self._stage_rew_snapshot,
             "REW測定の読み込みに失敗しました",
             on_retry=self._read_rew_async,
+            purpose="rew_read",
         )
 
     def _stage_rew_snapshot(self, value: object) -> None:
@@ -4441,11 +4448,15 @@ class MeasurementPageWorkspace(QWidget):
         error_prefix: str,
         *,
         on_retry: Callable[[], None] | None = None,
+        purpose: str | None = None,
     ) -> None:
         if self._disposed:
             return
         key = uuid4().hex
         self._job_handlers[key] = (on_success, error_prefix, on_retry)
+        if purpose is not None:
+            self._job_purpose[key] = purpose
+            self._latest_job_key[purpose] = key
         self._job_pool.start(
             key,
             lambda _cancel_event: call(),
@@ -4454,8 +4465,14 @@ class MeasurementPageWorkspace(QWidget):
 
     @Slot(object, object, object)
     def _job_completed(self, key: object, result: object, error: object) -> None:
-        handler = self._job_handlers.pop(str(key), None)
+        key_str = str(key)
+        handler = self._job_handlers.pop(key_str, None)
+        purpose = self._job_purpose.pop(key_str, None)
         if handler is None or self._disposed:
+            return
+        if purpose is not None and key_str != self._latest_job_key.get(purpose):
+            # Superseded by a newer request on the same purpose — the late
+            # result must never overwrite what the newer job will stage.
             return
         on_success, error_prefix, on_retry = handler
         if str(key) == self._commit_job_key:
@@ -4597,6 +4614,7 @@ class MeasurementPageWorkspace(QWidget):
         self._disposed = True
         report = self._job_pool.shutdown()
         self._job_handlers.clear()
+        self._job_purpose.clear()
         if not report.all_stopped:
             self._set_notice(
                 "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません",

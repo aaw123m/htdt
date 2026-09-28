@@ -573,6 +573,7 @@ class WorkflowApplicationComposition:
         self._restore_window_state()
         self.shell.register_close_hook(self._save_window_state)
         self.shell.register_close_hook(self._shutdown_automatic_backup)
+        self.shell.register_close_hook(self._account_for_exit_operations)
         self.shell.register_close_hook(self._release_uncaught_sink)
         self.registry.bind(
             "equipment.export_capture_catalog",
@@ -769,7 +770,17 @@ class WorkflowApplicationComposition:
                 '自動バックアップを作成できませんでした'
             )
             return
-        if result is None or operation_id is None:
+        if result is None:
+            # The runner re-evaluated as not-due after ``backup_started`` (e.g.
+            # a manual backup satisfied the interval) — the submitted op still
+            # needs its terminal state or it stays RUNNING forever.
+            if operation_id is not None:
+                self.activity_center.complete(
+                    operation_id,
+                    result_summary='バックアップは不要と再評価されました',
+                )
+            return
+        if operation_id is None:
             return
         path = result[0]
         self.activity_center.complete(
@@ -783,6 +794,32 @@ class WorkflowApplicationComposition:
     def _shutdown_automatic_backup(self) -> None:
         if self._automatic_backup_runner is not None:
             self._automatic_backup_runner.shutdown()
+
+    def _account_for_exit_operations(self) -> None:
+        """Record operations still active at close for next-launch recovery.
+
+        Every close-guarded op (workspaces, data management) is already drained
+        or blocked by the guard chain — anything still active here outlived its
+        executor's own shutdown budget (e.g. an automatic-backup run that the
+        pool cancelled and whose completion is never delivered). ``prepare_shutdown``
+        accounts for them honestly: cancellable actives get a cancel request,
+        the rest land in the detached/lingering report — the op is never
+        fabricated terminal. Persisting then writes ``active_operations`` so
+        the next session's recovery surface can say what was running.
+        """
+        try:
+            report = self.activity_center.prepare_shutdown()
+        except Exception:
+            _LOGGER.exception('exit-time operation accounting failed')
+            return
+        if not report.active_at_exit:
+            return
+        try:
+            self.activity_center.persist_history(
+                self.data_dir / ACTIVITY_HISTORY_FILENAME
+            )
+        except OSError:
+            pass
 
     def _build_project_menu(self) -> None:
         menu = self.shell.menuBar().addMenu("プロジェクト")
