@@ -96,4 +96,5 @@ This is correct — exports are evidence, not the rendered string.
 ## Tests
 
 New file `backend/tests/test_round9_output_surfaces.py` — 15 tests.
-Full backend suite (`pytest -q -n 4 tests`): see PR body.
+Full backend suite (`pytest -q -n 4 tests`, Windows, `QT_QPA_PLATFORM=offscreen`):
+~5,829 tests, **all pass** (exit 0, no failures/errors/skips triage needed).
