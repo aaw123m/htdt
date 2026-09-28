@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -139,7 +139,7 @@ def build_personal_listening_route(
     claims_room_acoustic_prediction: bool = False,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> PersonalListeningRoute:
-    probe = PersonalListeningRoute.model_construct(
+    probe = PersonalListeningRoute.model_construct(**canonicalize_payload(PersonalListeningRoute, dict(
         route_id=route_id,
         version=version,
         source_condition_id=source_condition_id,
@@ -158,7 +158,7 @@ def build_personal_listening_route(
         claims_room_acoustic_prediction=claims_room_acoustic_prediction,
         provenance=tuple(provenance),
         route_sha256='',
-    )
+    )))
     return PersonalListeningRoute(
         **probe.model_dump(mode='python', exclude={'route_sha256'}),
         route_sha256=_hash(probe.semantic_payload()),

@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .cad_calibration import CadTargetCurve
 from .cad_playback_level import ReferenceProfileRef
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 LC_SCHEMA_VERSION = 1
@@ -204,11 +204,11 @@ class PlaybackLevelCompensationProfile(BaseModel):
 def build_level_compensation_profile(
     **kwargs: Any,
 ) -> PlaybackLevelCompensationProfile:
-    candidate = PlaybackLevelCompensationProfile.model_construct(
+    candidate = PlaybackLevelCompensationProfile.model_construct(**canonicalize_payload(PlaybackLevelCompensationProfile, dict(
         **kwargs,
         profile_id='level-compensation:' + '0' * 64,
         semantic_sha256='0' * 64,
-    )
+    )))
     digest = _digest(candidate.semantic_payload())
     return PlaybackLevelCompensationProfile(
         **kwargs,

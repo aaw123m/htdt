@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -125,7 +125,7 @@ def build_audio_format_transform(
     latency_ms: float | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> AudioFormatTransform:
-    probe = AudioFormatTransform.model_construct(
+    probe = AudioFormatTransform.model_construct(**canonicalize_payload(AudioFormatTransform, dict(
         transform_id=transform_id,
         device_node_id=device_node_id,
         input_format=input_format,
@@ -137,7 +137,7 @@ def build_audio_format_transform(
         latency_ms=latency_ms,
         provenance=tuple(provenance),
         transform_sha256='',
-    )
+    )))
     return AudioFormatTransform(
         **probe.model_dump(mode='python', exclude={'transform_sha256'}),
         transform_sha256=_hash(probe.semantic_payload()),
@@ -259,12 +259,12 @@ def evaluate_transform_lineage(
         )
     )
 
-    probe = TransformLineageEvaluation.model_construct(
+    probe = TransformLineageEvaluation.model_construct(**canonicalize_payload(TransformLineageEvaluation, dict(
         evaluation_id='',
         transform_ids=tuple(t.transform_id for t in ordered),
         checks=tuple(checks),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return TransformLineageEvaluation(
         **probe.model_dump(

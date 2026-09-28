@@ -32,7 +32,7 @@ from .cad_media_source_capability import (
     SourceCapabilityObservation,
     SourceCapabilityState,
 )
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 WAVE_QUALIFICATION_AUTHORITY_VERSION = 'wave-qualification-1'
@@ -114,7 +114,7 @@ def build_wave_report(
     os_platform_version: str | None = None,
     executed_at_utc: str | None = None,
 ) -> WaveSuiteReport:
-    probe = WaveSuiteReport.model_construct(
+    probe = WaveSuiteReport.model_construct(**canonicalize_payload(WaveSuiteReport, dict(
         report_id=report_id,
         suite=suite,
         suite_version=suite_version,
@@ -128,7 +128,7 @@ def build_wave_report(
         report_sha256=report_sha256,
         source_uri=source_uri,
         semantic_sha256='',
-    )
+    )))
     return WaveSuiteReport(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

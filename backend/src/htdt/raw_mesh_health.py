@@ -29,7 +29,7 @@ from .raw_mesh import (
     RawMeshDiagnosticResult,
     RawVisualMesh,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 IssueCategory = Literal['topology', 'surface_quality', 'acoustic_model']
@@ -317,9 +317,9 @@ def build_mesh_health_summary(
         'component_count': component_count,
         'created_at_utc': created_at_utc,
     }
-    provisional = MeshHealthSummary.model_construct(
+    provisional = MeshHealthSummary.model_construct(**canonicalize_payload(MeshHealthSummary, dict(
         **payload, summary_sha256='0' * 64
-    )
+    )))
     return MeshHealthSummary.model_validate(
         {
             **payload,

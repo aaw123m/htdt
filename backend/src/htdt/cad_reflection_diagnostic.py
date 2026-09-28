@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .cad_geometric_acoustics_adapter import DeterministicAcousticPath
 from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 REFLECTION_DIAGNOSTIC_SCHEMA_VERSION = 1
@@ -84,11 +84,11 @@ class ReflectionDiagnosticRequest(BaseModel):
 
 
 def build_reflection_diagnostic_request(**kwargs: Any) -> ReflectionDiagnosticRequest:
-    probe = ReflectionDiagnosticRequest.model_construct(
+    probe = ReflectionDiagnosticRequest.model_construct(**canonicalize_payload(ReflectionDiagnosticRequest, dict(
         request_id='reflection-diagnostic-request:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return ReflectionDiagnosticRequest(
         request_id=f'reflection-diagnostic-request:{digest}',

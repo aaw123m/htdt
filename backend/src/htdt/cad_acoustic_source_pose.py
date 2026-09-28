@@ -40,7 +40,7 @@ from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tab
 from .cad_measurement_pose import SpatialUncertainty
 from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -325,9 +325,9 @@ def localize_acoustic_source(
             'limitations': limitations,
             'observed_at_utc': observed_at_utc or _utc_now(),
         }
-        provisional = AcousticSourcePoseObservation.model_construct(
+        provisional = AcousticSourcePoseObservation.model_construct(**canonicalize_payload(AcousticSourcePoseObservation, dict(
             **payload, semantic_sha256='0' * 64
-        )
+        )))
         return AcousticSourcePoseObservation.model_validate(
             {
                 **payload,

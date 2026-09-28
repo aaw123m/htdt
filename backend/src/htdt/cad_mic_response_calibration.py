@@ -29,7 +29,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -200,7 +200,7 @@ def build_response_calibration_profile(
 ) -> MicrophoneResponseCalibrationProfile:
     """Assemble and seal a :class:`MicrophoneResponseCalibrationProfile`."""
     payload = {'profile_sha256': '0' * 64, **kwargs}
-    provisional = MicrophoneResponseCalibrationProfile.model_construct(**payload)
+    provisional = MicrophoneResponseCalibrationProfile.model_construct(**canonicalize_payload(MicrophoneResponseCalibrationProfile, dict(**payload)))
     payload['profile_sha256'] = _hash(provisional.identity_payload())
     return MicrophoneResponseCalibrationProfile(**payload)
 

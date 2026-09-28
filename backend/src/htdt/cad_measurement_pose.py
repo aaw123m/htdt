@@ -35,7 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .cad_scene import Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -488,9 +488,9 @@ def _make_delta(
         'classification': classification,
         'detail': detail,
     }
-    provisional = PlannedObservedPoseDelta.model_construct(
+    provisional = PlannedObservedPoseDelta.model_construct(**canonicalize_payload(PlannedObservedPoseDelta, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return PlannedObservedPoseDelta.model_validate(
         {
             **payload,

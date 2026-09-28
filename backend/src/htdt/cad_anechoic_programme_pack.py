@@ -36,7 +36,7 @@ from .cad_external_admission import (
     build_external_asset_admission,
     external_asset_file,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 ANECHOIC_PROGRAMME_AUTHORITY_VERSION = 'anechoic-programme-1'
@@ -327,7 +327,7 @@ def build_programme_asset(
     duration_s: float | None = None,
     notes: str = '',
 ) -> AnechoicProgrammeAsset:
-    probe = AnechoicProgrammeAsset.model_construct(
+    probe = AnechoicProgrammeAsset.model_construct(**canonicalize_payload(AnechoicProgrammeAsset, dict(
         asset_id=asset_id,
         admission_id=admission_id,
         title=title,
@@ -339,7 +339,7 @@ def build_programme_asset(
         permitted_uses=tuple(permitted_uses),
         notes=notes,
         semantic_sha256='',
-    )
+    )))
     return AnechoicProgrammeAsset(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

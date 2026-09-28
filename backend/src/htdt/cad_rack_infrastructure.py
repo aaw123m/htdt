@@ -49,7 +49,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 RACK_SCHEMA_VERSION = 1
@@ -142,9 +142,9 @@ class RackDefinition(BaseModel):
 
 
 def build_rack_definition(**kwargs: Any) -> RackDefinition:
-    provisional = RackDefinition.model_construct(
+    provisional = RackDefinition.model_construct(**canonicalize_payload(RackDefinition, dict(
         **kwargs, semantic_sha256='0' * 64
-    )
+    )))
     return RackDefinition(
         **kwargs,
         semantic_sha256=_digest(provisional.semantic_payload()),

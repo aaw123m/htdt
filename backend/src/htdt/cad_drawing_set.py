@@ -46,7 +46,7 @@ from typing import Any, Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .report import InstallationEntityOutput, InstallationOutput
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 DRAWING_SPEC_SCHEMA_VERSION = 1
@@ -198,9 +198,9 @@ class DrawingSetSpec(BaseModel):
 
 
 def build_drawing_set_spec(**kwargs: Any) -> DrawingSetSpec:
-    provisional = DrawingSetSpec.model_construct(
+    provisional = DrawingSetSpec.model_construct(**canonicalize_payload(DrawingSetSpec, dict(
         **kwargs, spec_semantic_hash='0' * 64
-    )
+    )))
     return DrawingSetSpec(
         **kwargs, spec_semantic_hash=_digest(provisional.semantic_payload())
     )

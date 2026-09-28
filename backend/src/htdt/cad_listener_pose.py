@@ -39,7 +39,7 @@ from .cad_scene import (
 )
 from .cad_video_geometry import SeatGeometryBinding
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 if TYPE_CHECKING:
@@ -198,10 +198,10 @@ def build_listener_pose(
         'notes': notes,
         'created_at_utc': created_at_utc or _utc_now(),
     }
-    provisional = ListenerPoseAuthority.model_construct(
+    provisional = ListenerPoseAuthority.model_construct(**canonicalize_payload(ListenerPoseAuthority, dict(
         **payload,
         semantic_sha256='0' * 64,
-    )
+    )))
     return ListenerPoseAuthority.model_validate(
         {
             **payload,

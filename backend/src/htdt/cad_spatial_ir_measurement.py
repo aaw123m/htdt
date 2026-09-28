@@ -31,7 +31,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -261,7 +261,7 @@ class DirectionalReflectionEvent(BaseModel):
 def build_array_profile(**kwargs: Any) -> SpatialMeasurementArrayProfile:
     """Assemble and seal a :class:`SpatialMeasurementArrayProfile`."""
     payload = {'profile_sha256': '0' * 64, **kwargs}
-    provisional = SpatialMeasurementArrayProfile.model_construct(**payload)
+    provisional = SpatialMeasurementArrayProfile.model_construct(**canonicalize_payload(SpatialMeasurementArrayProfile, dict(**payload)))
     payload['profile_sha256'] = _hash(provisional.identity_payload())
     return SpatialMeasurementArrayProfile(**payload)
 
@@ -269,7 +269,7 @@ def build_array_profile(**kwargs: Any) -> SpatialMeasurementArrayProfile:
 def build_spatial_ir_dataset(**kwargs: Any) -> SpatialRoomImpulseResponseDataset:
     """Assemble and seal a :class:`SpatialRoomImpulseResponseDataset`."""
     payload = {'dataset_sha256': '0' * 64, **kwargs}
-    provisional = SpatialRoomImpulseResponseDataset.model_construct(**payload)
+    provisional = SpatialRoomImpulseResponseDataset.model_construct(**canonicalize_payload(SpatialRoomImpulseResponseDataset, dict(**payload)))
     payload['dataset_sha256'] = _hash(provisional.identity_payload())
     return SpatialRoomImpulseResponseDataset(**payload)
 

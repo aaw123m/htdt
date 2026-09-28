@@ -32,7 +32,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -270,9 +270,9 @@ def derive_projected_pixel_pitch_mm(
 
 
 def build_screen_microstructure(**kwargs) -> ScreenMicrostructureAuthority:
-    probe = ScreenMicrostructureAuthority.model_construct(
+    probe = ScreenMicrostructureAuthority.model_construct(**canonicalize_payload(ScreenMicrostructureAuthority, dict(
         microstructure_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ScreenMicrostructureAuthority(
         **probe.model_dump(
@@ -283,9 +283,9 @@ def build_screen_microstructure(**kwargs) -> ScreenMicrostructureAuthority:
 
 
 def build_moire_condition(**kwargs) -> MoireCompatibilityCondition:
-    probe = MoireCompatibilityCondition.model_construct(
+    probe = MoireCompatibilityCondition.model_construct(**canonicalize_payload(MoireCompatibilityCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return MoireCompatibilityCondition(
         **probe.model_dump(
@@ -298,13 +298,13 @@ def build_moire_condition(**kwargs) -> MoireCompatibilityCondition:
 def build_moire_observation(
     *, condition: MoireCompatibilityCondition, **kwargs
 ) -> MoireObservation:
-    probe = MoireObservation.model_construct(
+    probe = MoireObservation.model_construct(**canonicalize_payload(MoireObservation, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
         observation_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return MoireObservation(
         **probe.model_dump(

@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -205,7 +205,7 @@ def build_renderer_output_topology(
     evidence_tier: TopologyEvidence = 'unknown',
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> RendererOutputTopology:
-    probe = RendererOutputTopology.model_construct(
+    probe = RendererOutputTopology.model_construct(**canonicalize_payload(RendererOutputTopology, dict(
         topology_id=topology_id,
         version=version,
         processor_equipment_id=processor_equipment_id,
@@ -220,7 +220,7 @@ def build_renderer_output_topology(
         evidence_tier=evidence_tier,
         provenance=tuple(provenance),
         topology_sha256='',
-    )
+    )))
     return RendererOutputTopology(
         **probe.model_dump(mode='python', exclude={'topology_sha256'}),
         topology_sha256=_hash(probe.semantic_payload()),
@@ -367,12 +367,12 @@ def evaluate_renderer_topology(
         )
     )
 
-    probe = RendererTopologyEvaluation.model_construct(
+    probe = RendererTopologyEvaluation.model_construct(**canonicalize_payload(RendererTopologyEvaluation, dict(
         evaluation_id='',
         topology=topology,
         checks=tuple(checks),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return RendererTopologyEvaluation(
         **probe.model_dump(

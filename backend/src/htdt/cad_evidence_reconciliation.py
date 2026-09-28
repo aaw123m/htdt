@@ -42,7 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_authority_resolver import AuthorityRef
 from .cad_units import UnitKind, convert_unit
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 RECONCILIATION_SCHEMA_VERSION = 1
@@ -670,9 +670,9 @@ def reconcile_subject(
         'decided_by': decided_by,
         'decided_at_utc': decided_at_utc,
     }
-    provisional = ReconciliationDecision.model_construct(
+    provisional = ReconciliationDecision.model_construct(**canonicalize_payload(ReconciliationDecision, dict(
         **payload, decision_sha256='0' * 64
-    )
+    )))
     return ReconciliationDecision(
         **payload,
         decision_sha256=_hash(provisional.semantic_payload()),

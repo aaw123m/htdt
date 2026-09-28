@@ -18,7 +18,7 @@ import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 STI_SCHEMA_VERSION = 1
@@ -122,11 +122,11 @@ class SpeechIntelligibilityAnalysisSpec(BaseModel):
 def build_speech_intelligibility_spec(
     **kwargs: Any,
 ) -> SpeechIntelligibilityAnalysisSpec:
-    probe = SpeechIntelligibilityAnalysisSpec.model_construct(
+    probe = SpeechIntelligibilityAnalysisSpec.model_construct(**canonicalize_payload(SpeechIntelligibilityAnalysisSpec, dict(
         spec_id='speech-intelligibility-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return SpeechIntelligibilityAnalysisSpec(
         spec_id=f'speech-intelligibility-spec:{digest}',

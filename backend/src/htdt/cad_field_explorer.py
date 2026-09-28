@@ -56,7 +56,7 @@ from .cad_spatial_field import (
     extract_field_slice,
     probe_field,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 FIELD_EXPLORER_SCHEMA_VERSION = 1
 FIELD_EXPLORER_SESSION_AUTHORITY_VERSION = 'field-explorer-session-1'
@@ -264,7 +264,7 @@ def build_mode_field_explorer_session(
         absolute_pressure_reference=False,
         valid_frequency_domain=domain,
     )
-    probe = FieldExplorerSession.model_construct(
+    probe = FieldExplorerSession.model_construct(**canonicalize_payload(FieldExplorerSession, dict(
         document_id=revision.document_id,
         scene_revision_id=revision.revision_id,
         scene_content_hash=revision.content_hash,
@@ -277,7 +277,7 @@ def build_mode_field_explorer_session(
         mode_n_z=n_z,
         request=request,
         result=result,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return FieldExplorerSession(
         session_id=f'field-explorer-session:{digest}',

@@ -28,7 +28,7 @@ from math import isfinite, sqrt
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -251,7 +251,7 @@ class UncertaintyBudgetResult(BaseModel):
 def build_uncertainty_budget_spec(**kwargs: Any) -> UncertaintyBudgetSpec:
     """Assemble and seal an :class:`UncertaintyBudgetSpec`."""
     payload = {'spec_sha256': '0' * 64, **kwargs}
-    provisional = UncertaintyBudgetSpec.model_construct(**payload)
+    provisional = UncertaintyBudgetSpec.model_construct(**canonicalize_payload(UncertaintyBudgetSpec, dict(**payload)))
     payload['spec_sha256'] = _hash(provisional.identity_payload())
     return UncertaintyBudgetSpec(**payload)
 
@@ -412,6 +412,6 @@ def propagate_uncertainty_budget(
         'created_at_utc': created_at_utc,
         'result_sha256': '0' * 64,
     }
-    provisional = UncertaintyBudgetResult.model_construct(**payload)
+    provisional = UncertaintyBudgetResult.model_construct(**canonicalize_payload(UncertaintyBudgetResult, dict(**payload)))
     payload['result_sha256'] = _hash(provisional.identity_payload())
     return UncertaintyBudgetResult(**payload)

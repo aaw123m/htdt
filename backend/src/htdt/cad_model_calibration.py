@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_equipment import FrequencyDomain
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 if TYPE_CHECKING:
     from .cad_acoustic_snapshot import AcousticSceneSnapshot
@@ -231,11 +231,11 @@ class AcousticModelCalibrationSpec(BaseModel):
 
 
 def build_model_calibration_spec(**kwargs: Any) -> AcousticModelCalibrationSpec:
-    probe = AcousticModelCalibrationSpec.model_construct(
+    probe = AcousticModelCalibrationSpec.model_construct(**canonicalize_payload(AcousticModelCalibrationSpec, dict(
         spec_id='model-calibration-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return AcousticModelCalibrationSpec(
         spec_id=f'model-calibration-spec:{digest}',
@@ -1216,11 +1216,11 @@ def run_model_calibration(
         'identifiability_verdict': verdict,
     }
     digest = _digest(
-        AcousticModelCalibrationResult.model_construct(
+        AcousticModelCalibrationResult.model_construct(**canonicalize_payload(AcousticModelCalibrationResult, dict(
             **result_kwargs,
             result_id='model-calibration-result:' + '0' * 64,
             semantic_sha256='0' * 64,
-        ).semantic_payload()
+        ))).semantic_payload()
     )
     return AcousticModelCalibrationResult(
         **result_kwargs,

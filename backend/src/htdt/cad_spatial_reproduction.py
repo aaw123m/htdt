@@ -35,7 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 SpatialDatasetLicense = Literal[
@@ -320,9 +320,9 @@ def load_sofa_dataset_profile(
         'global_listener_short_name': listener,
         'opaque_attributes': tuple(opaque),
     }
-    provisional = SpatialReproductionProfile.model_construct(
+    provisional = SpatialReproductionProfile.model_construct(**canonicalize_payload(SpatialReproductionProfile, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return SpatialReproductionProfile.model_validate(
         {
             **payload,

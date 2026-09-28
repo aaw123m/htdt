@@ -35,7 +35,7 @@ from .cad_material_library import (
 )
 from .cad_measurements import canonical_json
 from .cad_scene import Position3
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -325,9 +325,9 @@ def build_installed_surface_measurement(
         'provenance': provenance,
         'created_at_utc': created_at_utc,
     }
-    provisional = InstalledSurfaceAcousticMeasurement.model_construct(
+    provisional = InstalledSurfaceAcousticMeasurement.model_construct(**canonicalize_payload(InstalledSurfaceAcousticMeasurement, dict(
         **payload, measurement_sha256='0' * 64
-    )
+    )))
     return InstalledSurfaceAcousticMeasurement(
         **payload, measurement_sha256=_hash(provisional.identity_payload())
     )

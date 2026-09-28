@@ -20,7 +20,7 @@ from math import isfinite
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -372,6 +372,6 @@ def build_system_nonlinearity_measurement(
         'provenance_json': provenance_json,
         'semantic_sha256': '0' * 64,
     }
-    provisional = SystemNonlinearityMeasurement.model_construct(**payload)
+    provisional = SystemNonlinearityMeasurement.model_construct(**canonicalize_payload(SystemNonlinearityMeasurement, dict(**payload)))
     payload['semantic_sha256'] = _hash(provisional.identity_payload())
     return SystemNonlinearityMeasurement(**payload)

@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -120,7 +120,7 @@ def build_backup_artifact(
     privacy_class: PrivacyClass = 'local_private',
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> DeviceConfigurationBackupArtifact:
-    probe = DeviceConfigurationBackupArtifact.model_construct(
+    probe = DeviceConfigurationBackupArtifact.model_construct(**canonicalize_payload(DeviceConfigurationBackupArtifact, dict(
         artifact_id=artifact_id,
         device_equipment_id=device_equipment_id,
         manufacturer=manufacturer,
@@ -139,7 +139,7 @@ def build_backup_artifact(
         privacy_class=privacy_class,
         provenance=tuple(provenance),
         artifact_sha256='',
-    )
+    )))
     return DeviceConfigurationBackupArtifact(
         **probe.model_dump(mode='python', exclude={'artifact_sha256'}),
         artifact_sha256=_hash(probe.semantic_payload()),

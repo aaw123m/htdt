@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 EXTERNAL_ADMISSION_AUTHORITY_VERSION = 'external-admission-1'
@@ -165,7 +165,7 @@ def external_asset_file(
     ),
     role: str | None = None,
 ) -> ExternalAssetFile:
-    probe = ExternalAssetFile.model_construct(
+    probe = ExternalAssetFile.model_construct(**canonicalize_payload(ExternalAssetFile, dict(
         file_name=file_name,
         uri=uri,
         size_bytes=size_bytes,
@@ -174,7 +174,7 @@ def external_asset_file(
         checksum_source=checksum_source,
         role=role,
         semantic_sha256='',
-    )
+    )))
     return ExternalAssetFile(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),
@@ -200,7 +200,7 @@ def build_external_asset_admission(
     files: tuple[ExternalAssetFile, ...] = (),
     dataset_notes: str = '',
 ) -> ExternalAssetAdmission:
-    probe = ExternalAssetAdmission.model_construct(
+    probe = ExternalAssetAdmission.model_construct(**canonicalize_payload(ExternalAssetAdmission, dict(
         schema_version=1,
         authority_version=EXTERNAL_ADMISSION_AUTHORITY_VERSION,
         admission_id=admission_id,
@@ -220,7 +220,7 @@ def build_external_asset_admission(
         files=tuple(files),
         dataset_notes=dataset_notes,
         semantic_sha256='',
-    )
+    )))
     return ExternalAssetAdmission(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

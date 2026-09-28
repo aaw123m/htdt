@@ -37,7 +37,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -215,9 +215,9 @@ class LaserProjectionSpeckleMeasurement(BaseModel):
 
 
 def build_laser_speckle_condition(**kwargs) -> LaserProjectionSpeckleCondition:
-    probe = LaserProjectionSpeckleCondition.model_construct(
+    probe = LaserProjectionSpeckleCondition.model_construct(**canonicalize_payload(LaserProjectionSpeckleCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return LaserProjectionSpeckleCondition(
         **probe.model_dump(
@@ -230,13 +230,13 @@ def build_laser_speckle_condition(**kwargs) -> LaserProjectionSpeckleCondition:
 def build_laser_speckle_measurement(
     *, condition: LaserProjectionSpeckleCondition, **kwargs
 ) -> LaserProjectionSpeckleMeasurement:
-    probe = LaserProjectionSpeckleMeasurement.model_construct(
+    probe = LaserProjectionSpeckleMeasurement.model_construct(**canonicalize_payload(LaserProjectionSpeckleMeasurement, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
         measurement_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return LaserProjectionSpeckleMeasurement(
         **probe.model_dump(

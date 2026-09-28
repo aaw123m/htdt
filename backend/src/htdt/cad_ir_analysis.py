@@ -23,7 +23,7 @@ from uuid import uuid4
 import numpy as np
 from .cad_schema import connect_sqlite, require_native_tables
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 IRAlignmentMode = Literal[
@@ -627,10 +627,10 @@ def run_ir_analysis(
         'algorithm_sha256': IR_ANALYSIS_ALGORITHM_SHA256,
         'created_at': created_at,
     }
-    provisional = IRAnalysisResult.model_construct(
+    provisional = IRAnalysisResult.model_construct(**canonicalize_payload(IRAnalysisResult, dict(
         **payload,
         analysis_sha256='0' * 64,
-    )
+    )))
     return IRAnalysisResult(
         **payload,
         analysis_sha256=_hash(provisional.identity_payload()),
@@ -692,7 +692,7 @@ def build_ir_analysis_spec(
         'tf_overlap': float(tf_overlap),
         'alignment': alignment,
     }
-    provisional = IRAnalysisSpec.model_construct(**payload, spec_sha256='0' * 64)
+    provisional = IRAnalysisSpec.model_construct(**canonicalize_payload(IRAnalysisSpec, dict(**payload, spec_sha256='0' * 64)))
     return IRAnalysisSpec(**payload, spec_sha256=_hash(provisional.identity_payload()))
 
 

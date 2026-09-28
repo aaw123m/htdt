@@ -23,7 +23,7 @@ import json
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -263,7 +263,7 @@ def build_projector_reference_pack(
     assertions: tuple[ProjectorFieldAssertion, ...],
     unknown_fields: tuple[ProjectorFieldName, ...] = (),
 ) -> ProjectorReferencePack:
-    probe = ProjectorReferencePack.model_construct(
+    probe = ProjectorReferencePack.model_construct(**canonicalize_payload(ProjectorReferencePack, dict(
         schema_version=1,
         authority_version='projector-reference-pack-1',
         pack_id=pack_id,
@@ -275,7 +275,7 @@ def build_projector_reference_pack(
         assertions=tuple(assertions),
         unknown_fields=tuple(unknown_fields),
         semantic_sha256='',
-    )
+    )))
     return ProjectorReferencePack(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

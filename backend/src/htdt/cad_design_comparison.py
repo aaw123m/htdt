@@ -36,7 +36,7 @@ from .cad_authority_refs import ResolvedAuthority
 from .cad_repository import SceneRevision
 from .cad_scene import SceneDocument
 from .cad_scene_history import SceneDiff, diff_scene_documents
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 COMPARISON_SET_SCHEMA_VERSION = 1
@@ -336,9 +336,9 @@ def build_comparison_set(
         'alternatives': tuple(alternatives),
         'created_at_utc': created_at_utc,
     }
-    provisional = DesignComparisonSet.model_construct(
+    provisional = DesignComparisonSet.model_construct(**canonicalize_payload(DesignComparisonSet, dict(
         **payload, set_sha256='0' * 64
-    )
+    )))
     return DesignComparisonSet(
         **payload,
         set_sha256=_hash(provisional.semantic_payload()),

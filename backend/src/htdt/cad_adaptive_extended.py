@@ -20,7 +20,7 @@ from .cad_extended_search import (
 )
 from .cad_model_validation import CadModelValidationRecord
 from .cad_search_models import CadSearchSpec
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 ADAPTIVE_EXTENDED_SCHEMA_VERSION = 1
@@ -645,7 +645,7 @@ def build_adaptive_extended_plan(
     proposals.sort(key=lambda item: (-item.acquisition_score, item.candidate_id))
     candidate_pool_count = len(proposals)
     proposals = proposals[: min(int(proposal_limit), candidate_pool_count)]
-    provisional = CadAdaptiveExtendedPlan.model_construct(
+    provisional = CadAdaptiveExtendedPlan.model_construct(**canonicalize_payload(CadAdaptiveExtendedPlan, dict(
         plan_id=str(uuid4()),
         document_id=base_spec.document_id,
         base_search_spec_id=base_spec.search_spec_id,
@@ -683,7 +683,7 @@ def build_adaptive_extended_plan(
         proposals=tuple(proposals),
         adaptive_extended_sha256='0' * 64,
         created_at_utc=adaptive_extended_timestamp_utc(),
-    )
+    )))
     return CadAdaptiveExtendedPlan(
         **provisional.model_dump(exclude={'adaptive_extended_sha256'}),
         adaptive_extended_sha256=_digest(provisional.identity_payload()),

@@ -30,7 +30,7 @@ from typing import Any, Literal, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 CABLE_RUN_AUTHORITY_VERSION = 'cable-run-1'
@@ -202,7 +202,7 @@ def build_cable_run(
         'install_notes': install_notes,
         'created_at_utc': created_at_utc,
     }
-    provisional = CableRun.model_construct(**payload, semantic_sha256='0' * 64)
+    provisional = CableRun.model_construct(**canonicalize_payload(CableRun, dict(**payload, semantic_sha256='0' * 64)))
     return CableRun(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

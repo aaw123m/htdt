@@ -24,7 +24,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -260,7 +260,7 @@ class SpatialAverageMeasurement(BaseModel):
 def build_moving_mic_spec(**kwargs: Any) -> MovingMicrophoneMeasurementSpec:
     """Assemble and seal a :class:`MovingMicrophoneMeasurementSpec`."""
     payload = {'spec_sha256': '0' * 64, **kwargs}
-    provisional = MovingMicrophoneMeasurementSpec.model_construct(**payload)
+    provisional = MovingMicrophoneMeasurementSpec.model_construct(**canonicalize_payload(MovingMicrophoneMeasurementSpec, dict(**payload)))
     payload['spec_sha256'] = _hash(provisional.identity_payload())
     return MovingMicrophoneMeasurementSpec(**payload)
 
@@ -268,7 +268,7 @@ def build_moving_mic_spec(**kwargs: Any) -> MovingMicrophoneMeasurementSpec:
 def build_spatial_average_measurement(**kwargs: Any) -> SpatialAverageMeasurement:
     """Assemble and seal a :class:`SpatialAverageMeasurement`."""
     payload = {'result_sha256': '0' * 64, **kwargs}
-    provisional = SpatialAverageMeasurement.model_construct(**payload)
+    provisional = SpatialAverageMeasurement.model_construct(**canonicalize_payload(SpatialAverageMeasurement, dict(**payload)))
     payload['result_sha256'] = _hash(provisional.identity_payload())
     return SpatialAverageMeasurement(**payload)
 

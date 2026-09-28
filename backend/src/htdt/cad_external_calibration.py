@@ -27,7 +27,7 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_calibration import CadCalibrationExportSnapshot
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 _EQUALIZER_APO_IMPORTER_ID = 'htdt-import-equalizer-apo'
@@ -752,9 +752,9 @@ def build_equalizer_apo_artifact(
         'file_dependencies': tuple(file_deps),
         'diagnostics': tuple(diagnostics),
     }
-    provisional = ImportedCalibrationArtifact.model_construct(
+    provisional = ImportedCalibrationArtifact.model_construct(**canonicalize_payload(ImportedCalibrationArtifact, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return ImportedCalibrationArtifact.model_validate(
         {
             **payload,

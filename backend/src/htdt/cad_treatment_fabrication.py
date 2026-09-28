@@ -27,7 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_acoustic_treatment import AcousticTreatmentDefinition
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 _PACKAGE_PREFIX = 'treatment-fabrication:'
@@ -280,9 +280,9 @@ def _cut_list(parts: tuple[FabricationPart, ...]) -> tuple[CutListEntry, ...]:
 def _seal_package(
     payload: dict[str, Any],
 ) -> TreatmentFabricationPackage:
-    provisional = TreatmentFabricationPackage.model_construct(
+    provisional = TreatmentFabricationPackage.model_construct(**canonicalize_payload(TreatmentFabricationPackage, dict(
         **payload, package_sha256='0' * 64
-    )
+    )))
     return TreatmentFabricationPackage.model_validate(
         {
             **payload,

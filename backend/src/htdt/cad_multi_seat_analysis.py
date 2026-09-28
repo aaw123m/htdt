@@ -18,7 +18,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .comparison import FrequencyResponse, _grid, _interpolate_many
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 CentralTendency = Literal['none', 'arithmetic_mean_in_db']
@@ -315,10 +315,10 @@ def run_multi_seat_analysis(
         'algorithm_sha256': MULTI_SEAT_ALGORITHM_SHA256,
         'created_at': created_at,
     }
-    provisional = MultiSeatAnalysisResult.model_construct(
+    provisional = MultiSeatAnalysisResult.model_construct(**canonicalize_payload(MultiSeatAnalysisResult, dict(
         **payload,
         analysis_sha256='0' * 64,
-    )
+    )))
     return MultiSeatAnalysisResult(
         **payload,
         analysis_sha256=_hash(provisional.identity_payload()),

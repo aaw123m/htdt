@@ -45,7 +45,7 @@ from .cad_speaker_impedance import (
     ImpedanceSample,
     SpeakerElectricalImpedanceAuthority,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 SPEAKER_LEVEL_TRANSFER_AUTHORITY_VERSION = 'speaker-level-transfer-1'
@@ -416,9 +416,9 @@ def build_amplifier_output_impedance(
         'valid_frequency_domain': valid_frequency_domain,
         'provenance': provenance,
     }
-    provisional = AmplifierOutputImpedanceAuthority.model_construct(
+    provisional = AmplifierOutputImpedanceAuthority.model_construct(**canonicalize_payload(AmplifierOutputImpedanceAuthority, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return AmplifierOutputImpedanceAuthority(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),
@@ -451,9 +451,9 @@ def build_speaker_cable_electrical_profile(
         'valid_frequency_domain': valid_frequency_domain,
         'provenance': provenance,
     }
-    provisional = SpeakerCableElectricalProfile.model_construct(
+    provisional = SpeakerCableElectricalProfile.model_construct(**canonicalize_payload(SpeakerCableElectricalProfile, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return SpeakerCableElectricalProfile(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),
@@ -484,9 +484,9 @@ def build_speaker_electrical_path(
         'load_impedance_ids': load_impedance_ids,
         'provenance': provenance,
     }
-    provisional = SpeakerElectricalPath.model_construct(
+    provisional = SpeakerElectricalPath.model_construct(**canonicalize_payload(SpeakerElectricalPath, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return SpeakerElectricalPath(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

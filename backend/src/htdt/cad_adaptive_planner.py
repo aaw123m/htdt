@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_model_validation import CadModelValidationRecord
 from .cad_objective_models import CadObjectiveEvaluation
 from .cad_search_models import CadCandidate, CadSearchSpec
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 ADAPTIVE_SCHEMA_VERSION = 1
@@ -487,7 +487,7 @@ def build_adaptive_plan(
     proposals.sort(key=lambda item: (-item.acquisition_score, item.candidate_id))
     candidate_pool_count = len(proposals)
     proposals = proposals[: min(int(proposal_limit), candidate_pool_count)]
-    provisional = CadAdaptivePlan.model_construct(
+    provisional = CadAdaptivePlan.model_construct(**canonicalize_payload(CadAdaptivePlan, dict(
         plan_id=str(uuid4()),
         document_id=spec.document_id,
         search_spec_id=spec.search_spec_id,
@@ -518,7 +518,7 @@ def build_adaptive_plan(
         proposals=tuple(proposals),
         adaptive_sha256='0' * 64,
         created_at_utc=adaptive_timestamp_utc(),
-    )
+    )))
     return CadAdaptivePlan(
         **provisional.model_dump(exclude={'adaptive_sha256'}),
         adaptive_sha256=_digest(provisional.identity_payload()),

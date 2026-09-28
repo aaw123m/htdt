@@ -38,7 +38,7 @@ from .cad_external_admission import (
     external_asset_file,
 )
 from .cad_validation_corpus import CorpusSplitRole
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 FLAIR_AUTHORITY_VERSION = 'flair-bridge-1'
@@ -181,7 +181,7 @@ def build_flair_geometry_artifact(
     material_bindings: dict[str, str] | None = None,
     note: str = '',
 ) -> FlairGeometryArtifact:
-    probe = FlairGeometryArtifact.model_construct(
+    probe = FlairGeometryArtifact.model_construct(**canonicalize_payload(FlairGeometryArtifact, dict(
         schema_version=1,
         authority_version=FLAIR_AUTHORITY_VERSION,
         artifact_id=artifact_id,
@@ -194,7 +194,7 @@ def build_flair_geometry_artifact(
         provenance=provenance,
         note=note,
         semantic_sha256='',
-    )
+    )))
     return FlairGeometryArtifact(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),
@@ -309,7 +309,7 @@ class FlairBridgeCase(BaseModel):
 
 
 def build_flair_bridge_case() -> FlairBridgeCase:
-    probe = FlairBridgeCase.model_construct(
+    probe = FlairBridgeCase.model_construct(**canonicalize_payload(FlairBridgeCase, dict(
         schema_version=1,
         authority_version=FLAIR_AUTHORITY_VERSION,
         case_id='flair/end-to-end-room',
@@ -325,7 +325,7 @@ def build_flair_bridge_case() -> FlairBridgeCase:
         ),
         provenance=_provenance(FLAIR_ADMISSION.record_uri),
         semantic_sha256='',
-    )
+    )))
     return FlairBridgeCase(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

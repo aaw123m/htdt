@@ -26,7 +26,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_authority_resolver import AuthorityRef
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -507,10 +507,10 @@ def build_timing_reference(
         'provenance_json': provenance_json,
         'created_at_utc': created_at_utc or _utc_now(),
     }
-    provisional = CadMeasurementTimingReference.model_construct(
+    provisional = CadMeasurementTimingReference.model_construct(**canonicalize_payload(CadMeasurementTimingReference, dict(
         **payload,
         timing_reference_sha256='0' * 64,
-    )
+    )))
     reference = CadMeasurementTimingReference(
         **payload,
         timing_reference_sha256=_hash(provisional.identity_payload()),
@@ -871,10 +871,10 @@ def build_acoustic_level_calibration(
         'input_path_identity': input_path_identity,
         'provenance_json': provenance_json,
     }
-    provisional = CadAcousticLevelCalibration.model_construct(
+    provisional = CadAcousticLevelCalibration.model_construct(**canonicalize_payload(CadAcousticLevelCalibration, dict(
         **payload,
         calibration_sha256='0' * 64,
-    )
+    )))
     calibration = CadAcousticLevelCalibration(
         **payload,
         calibration_sha256=_hash(provisional.identity_payload()),

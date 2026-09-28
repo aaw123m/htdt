@@ -29,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -109,7 +109,7 @@ def build_program_dynamics_profile(
     mechanisms: tuple[DynamicsMechanismProfile, ...] = (),
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> ProgramDynamicsProcessingProfile:
-    probe = ProgramDynamicsProcessingProfile.model_construct(
+    probe = ProgramDynamicsProcessingProfile.model_construct(**canonicalize_payload(ProgramDynamicsProcessingProfile, dict(
         profile_id=profile_id,
         version=version,
         processor_equipment_id=processor_equipment_id,
@@ -117,7 +117,7 @@ def build_program_dynamics_profile(
         mechanisms=tuple(mechanisms),
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return ProgramDynamicsProcessingProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -187,7 +187,7 @@ def build_effective_dynamics_state(
     observed_at_utc: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> EffectiveDynamicsProcessingState:
-    probe = EffectiveDynamicsProcessingState.model_construct(
+    probe = EffectiveDynamicsProcessingState.model_construct(**canonicalize_payload(EffectiveDynamicsProcessingState, dict(
         state_id=state_id,
         device_equipment_id=device_equipment_id,
         firmware_version=firmware_version,
@@ -199,7 +199,7 @@ def build_effective_dynamics_state(
         observed_at_utc=observed_at_utc,
         provenance=tuple(provenance),
         state_sha256='',
-    )
+    )))
     return EffectiveDynamicsProcessingState(
         **probe.model_dump(mode='python', exclude={'state_sha256'}),
         state_sha256=_hash(probe.semantic_payload()),
@@ -352,13 +352,13 @@ def evaluate_dynamics_state(
             )
         )
 
-    probe = DynamicsEvaluation.model_construct(
+    probe = DynamicsEvaluation.model_construct(**canonicalize_payload(DynamicsEvaluation, dict(
         evaluation_id='',
         profile_sha256=profile.profile_sha256,
         state_sha256=state.state_sha256,
         checks=tuple(checks),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return DynamicsEvaluation(
         **probe.model_dump(

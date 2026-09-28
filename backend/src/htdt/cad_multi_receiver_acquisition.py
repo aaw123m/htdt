@@ -26,7 +26,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -225,7 +225,7 @@ class DerivedReceiverAverage(BaseModel):
 def build_multi_receiver_acquisition(**kwargs: Any) -> MultiReceiverAcquisition:
     """Assemble and seal a :class:`MultiReceiverAcquisition`."""
     payload = {'acquisition_sha256': '0' * 64, **kwargs}
-    provisional = MultiReceiverAcquisition.model_construct(**payload)
+    provisional = MultiReceiverAcquisition.model_construct(**canonicalize_payload(MultiReceiverAcquisition, dict(**payload)))
     payload['acquisition_sha256'] = _hash(provisional.identity_payload())
     return MultiReceiverAcquisition(**payload)
 
@@ -252,7 +252,7 @@ def build_derived_receiver_average(
         'document_id': acquisition.document_id,
         **kwargs,
     }
-    provisional = DerivedReceiverAverage.model_construct(**payload)
+    provisional = DerivedReceiverAverage.model_construct(**canonicalize_payload(DerivedReceiverAverage, dict(**payload)))
     payload['average_sha256'] = _hash(provisional.identity_payload())
     return DerivedReceiverAverage(**payload)
 

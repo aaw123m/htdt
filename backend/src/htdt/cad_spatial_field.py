@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_equipment import FrequencyDomain
 from .cad_scene import Position3
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 SPATIAL_FIELD_SCHEMA_VERSION = 1
@@ -145,11 +145,11 @@ class SpatialFieldRequestSpec(BaseModel):
 
 
 def build_spatial_field_request(**kwargs: Any) -> SpatialFieldRequestSpec:
-    probe = SpatialFieldRequestSpec.model_construct(
+    probe = SpatialFieldRequestSpec.model_construct(**canonicalize_payload(SpatialFieldRequestSpec, dict(
         request_id='spatial-field-request:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return SpatialFieldRequestSpec(
         request_id=f'spatial-field-request:{digest}',

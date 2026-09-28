@@ -42,7 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -194,7 +194,7 @@ def build_presentation_mode_confirmation(
     note: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> PresentationModeConfirmation:
-    probe = PresentationModeConfirmation.model_construct(
+    probe = PresentationModeConfirmation.model_construct(**canonicalize_payload(PresentationModeConfirmation, dict(
         confirmation_id=confirmation_id,
         profile_id=profile.profile_id,
         profile_version=profile.version,
@@ -208,7 +208,7 @@ def build_presentation_mode_confirmation(
         note=note,
         provenance=provenance,
         confirmation_sha256='',
-    )
+    )))
     return PresentationModeConfirmation(
         **probe.model_dump(mode='python', exclude={'confirmation_sha256'}),
         confirmation_sha256=_hash(probe.semantic_payload()),
@@ -276,7 +276,7 @@ def build_video_presentation_profile(
     optical_preset: ProjectorOpticalPresetBinding | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> VideoPresentationProfile:
-    probe = VideoPresentationProfile.model_construct(
+    probe = VideoPresentationProfile.model_construct(**canonicalize_payload(VideoPresentationProfile, dict(
         profile_id=profile_id,
         version=version,
         label=label,
@@ -290,7 +290,7 @@ def build_video_presentation_profile(
         optical_preset=optical_preset,
         provenance=provenance,
         profile_sha256='',
-    )
+    )))
     return VideoPresentationProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -523,7 +523,7 @@ def evaluate_presentation_profile(
             confirmation_status,
         )
     )
-    probe = PresentationProfileEvaluation.model_construct(
+    probe = PresentationProfileEvaluation.model_construct(**canonicalize_payload(PresentationProfileEvaluation, dict(
         evaluation_id='',
         screen_entity_id=screen_entity_id,
         profile=profile,
@@ -537,7 +537,7 @@ def evaluate_presentation_profile(
         confirmation_status=confirmation_status,
         profile_status=profile_status,
         evaluation_sha256='',
-    )
+    )))
     evaluation_sha256 = _hash(probe.semantic_payload())
     return PresentationProfileEvaluation(
         **probe.model_dump(

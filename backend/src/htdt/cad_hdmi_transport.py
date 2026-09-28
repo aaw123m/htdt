@@ -27,7 +27,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -205,9 +205,9 @@ class HDMILatencyIndicationEvidence(BaseModel):
 
 
 def build_hdmi_transport_capability(**kwargs) -> HDMITransportCapability:
-    probe = HDMITransportCapability.model_construct(
+    probe = HDMITransportCapability.model_construct(**canonicalize_payload(HDMITransportCapability, dict(
         capability_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return HDMITransportCapability(
         **probe.model_dump(
@@ -218,9 +218,9 @@ def build_hdmi_transport_capability(**kwargs) -> HDMITransportCapability:
 
 
 def build_hdmi_lip_evidence(**kwargs) -> HDMILatencyIndicationEvidence:
-    probe = HDMILatencyIndicationEvidence.model_construct(
+    probe = HDMILatencyIndicationEvidence.model_construct(**canonicalize_payload(HDMILatencyIndicationEvidence, dict(
         evidence_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return HDMILatencyIndicationEvidence(
         **probe.model_dump(

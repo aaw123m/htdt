@@ -32,7 +32,7 @@ from .cad_external_admission import (
     ExternalAssetAdmission,
     build_external_asset_admission,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 EBU_LOUDNESS_AUTHORITY_VERSION = 'ebu-loudness-1'
@@ -127,14 +127,14 @@ def _case(
     signal_description: str,
     expectations: tuple[LoudnessExpectation, ...],
 ) -> LoudnessTestCase:
-    probe = LoudnessTestCase.model_construct(
+    probe = LoudnessTestCase.model_construct(**canonicalize_payload(LoudnessTestCase, dict(
         case_id=case_id,
         tech_doc=tech_doc,
         case_number=case_number,
         signal_description=signal_description,
         expectations=expectations,
         semantic_sha256='',
-    )
+    )))
     return LoudnessTestCase(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

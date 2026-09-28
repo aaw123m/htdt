@@ -28,7 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 SCREEN_EVIDENCE_SCHEMA_VERSION = 1
@@ -237,7 +237,7 @@ def _record(
     note: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> ScreenEvidenceRecord:
-    probe = ScreenEvidenceRecord.model_construct(
+    probe = ScreenEvidenceRecord.model_construct(**canonicalize_payload(ScreenEvidenceRecord, dict(
         schema_version=SCREEN_EVIDENCE_SCHEMA_VERSION,
         authority_version=SCREEN_EVIDENCE_AUTHORITY_VERSION,
         record_id=record_id,
@@ -253,7 +253,7 @@ def _record(
         note=note,
         provenance=tuple(provenance),
         semantic_sha256='',
-    )
+    )))
     return ScreenEvidenceRecord(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),
@@ -266,14 +266,14 @@ def build_screen_evidence_registry(
     records: tuple[ScreenEvidenceRecord, ...],
     sources: tuple[ScreenEvidenceSource, ...],
 ) -> ScreenEvidenceRegistry:
-    probe = ScreenEvidenceRegistry.model_construct(
+    probe = ScreenEvidenceRegistry.model_construct(**canonicalize_payload(ScreenEvidenceRegistry, dict(
         schema_version=SCREEN_EVIDENCE_SCHEMA_VERSION,
         authority_version=SCREEN_EVIDENCE_AUTHORITY_VERSION,
         registry_id=registry_id,
         records=tuple(records),
         sources=tuple(sources),
         semantic_sha256='',
-    )
+    )))
     return ScreenEvidenceRegistry(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -170,7 +170,7 @@ def build_video_color_target_profile(
     tolerances: ColorTolerances | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> VideoColorTargetProfile:
-    probe = VideoColorTargetProfile.model_construct(
+    probe = VideoColorTargetProfile.model_construct(**canonicalize_payload(VideoColorTargetProfile, dict(
         target_id=target_id,
         version=version,
         label=label,
@@ -185,7 +185,7 @@ def build_video_color_target_profile(
         tolerances=tolerances if tolerances is not None else ColorTolerances(),
         provenance=tuple(provenance),
         target_sha256='',
-    )
+    )))
     return VideoColorTargetProfile(
         **probe.model_dump(mode='python', exclude={'target_sha256'}),
         target_sha256=_hash(probe.semantic_payload()),
@@ -311,7 +311,7 @@ def build_video_color_measurement_set(
     import_parser_id: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> VideoColorMeasurementSet:
-    probe = VideoColorMeasurementSet.model_construct(
+    probe = VideoColorMeasurementSet.model_construct(**canonicalize_payload(VideoColorMeasurementSet, dict(
         measurement_set_id=measurement_set_id,
         measured_at_utc=measured_at_utc,
         surface_entity_id=surface_entity_id,
@@ -325,7 +325,7 @@ def build_video_color_measurement_set(
         import_parser_id=import_parser_id,
         provenance=tuple(provenance),
         measurement_set_sha256='',
-    )
+    )))
     return VideoColorMeasurementSet(
         **probe.model_dump(mode='python', exclude={'measurement_set_sha256'}),
         measurement_set_sha256=_hash(probe.semantic_payload()),
@@ -1085,7 +1085,7 @@ def evaluate_video_color(
         _peak_luminance_group(target, measurement_set.samples, tol)
     )
 
-    probe = VideoColorEvaluation.model_construct(
+    probe = VideoColorEvaluation.model_construct(**canonicalize_payload(VideoColorEvaluation, dict(
         evaluation_id='',
         target_id=target.target_id,
         target_version=target.version,
@@ -1096,7 +1096,7 @@ def evaluate_video_color(
         metric_version=resolved_version,
         groups=tuple(groups),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return VideoColorEvaluation(
         **probe.model_dump(

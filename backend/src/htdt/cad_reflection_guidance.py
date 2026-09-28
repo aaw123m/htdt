@@ -41,7 +41,7 @@ from .cad_reflection_diagnostic import (
     ReflectionDiagnosticRequest,
 )
 from .cad_scene import Position3
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 REFLECTION_GUIDANCE_SCHEMA_VERSION = 1
@@ -108,9 +108,9 @@ class ReflectionGuidanceItem(BaseModel):
 
 
 def _guidance_item(payload: dict[str, Any]) -> ReflectionGuidanceItem:
-    probe = ReflectionGuidanceItem.model_construct(
+    probe = ReflectionGuidanceItem.model_construct(**canonicalize_payload(ReflectionGuidanceItem, dict(
         item_id='reflection-guidance:' + '0' * 64, **payload
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return ReflectionGuidanceItem(
         item_id=f'reflection-guidance:{digest}', **payload

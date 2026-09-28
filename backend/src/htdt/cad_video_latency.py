@@ -39,7 +39,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -225,9 +225,9 @@ class VideoLatencyMeasurement(BaseModel):
 
 
 def build_video_latency_condition(**kwargs) -> VideoLatencyCondition:
-    probe = VideoLatencyCondition.model_construct(
+    probe = VideoLatencyCondition.model_construct(**canonicalize_payload(VideoLatencyCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return VideoLatencyCondition(
         **probe.model_dump(
@@ -257,7 +257,7 @@ def build_video_latency_measurement(
     frames = None
     if mean is not None and refresh_rate_hz_effective is not None:
         frames = mean * refresh_rate_hz_effective
-    probe = VideoLatencyMeasurement.model_construct(
+    probe = VideoLatencyMeasurement.model_construct(**canonicalize_payload(VideoLatencyMeasurement, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
@@ -270,7 +270,7 @@ def build_video_latency_measurement(
         latency_frames=frames,
         measurement_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return VideoLatencyMeasurement(
         **probe.model_dump(

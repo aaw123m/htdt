@@ -36,7 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_equipment import EquipmentDataProvenance
 from .cad_scene import Direction3, Position3
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -395,7 +395,7 @@ def evaluate_viewing_resolution(
         )
         for seat in seats
     )
-    probe = ViewingResolutionEvaluation.model_construct(
+    probe = ViewingResolutionEvaluation.model_construct(**canonicalize_payload(ViewingResolutionEvaluation, dict(
         evaluation_id='',
         surface_entity_id=surface_entity_id,
         aperture_center=aperture_center,
@@ -413,7 +413,7 @@ def evaluate_viewing_resolution(
         policy_sha256=policy.policy_sha256 if policy else None,
         seat_results=results,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ViewingResolutionEvaluation(
         **probe.model_dump(
@@ -425,9 +425,9 @@ def evaluate_viewing_resolution(
 
 
 def build_viewing_resolution_policy(**kwargs) -> ViewingResolutionPolicy:
-    probe = ViewingResolutionPolicy.model_construct(
+    probe = ViewingResolutionPolicy.model_construct(**canonicalize_payload(ViewingResolutionPolicy, dict(
         policy_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ViewingResolutionPolicy(
         **probe.model_dump(

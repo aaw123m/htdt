@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 STRUCTURAL_BOUNDARY_AUTHORITY_VERSION = 'structural-boundary-1'
@@ -284,9 +284,9 @@ def build_structural_boundary_model(
         'construction_assembly_ref': construction_assembly_ref,
         'provenance': provenance,
     }
-    provisional = StructuralBoundaryModel.model_construct(
+    provisional = StructuralBoundaryModel.model_construct(**canonicalize_payload(StructuralBoundaryModel, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return StructuralBoundaryModel(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

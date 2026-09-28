@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_bass_management import CrossoverSpec, FrequencyBand
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -123,7 +123,7 @@ def build_tactile_actuator_definition(
     operating_band: FrequencyBand | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> TactileActuatorDefinition:
-    probe = TactileActuatorDefinition.model_construct(
+    probe = TactileActuatorDefinition.model_construct(**canonicalize_payload(TactileActuatorDefinition, dict(
         definition_id=definition_id,
         version=version,
         manufacturer=manufacturer,
@@ -136,7 +136,7 @@ def build_tactile_actuator_definition(
         operating_band=operating_band,
         provenance=tuple(provenance),
         definition_sha256='',
-    )
+    )))
     return TactileActuatorDefinition(
         **probe.model_dump(mode='python', exclude={'definition_sha256'}),
         definition_sha256=_hash(probe.semantic_payload()),
@@ -183,7 +183,7 @@ def build_tactile_attachment_binding(
     install_state: InstallState = 'unknown',
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> TactileAttachmentBinding:
-    probe = TactileAttachmentBinding.model_construct(
+    probe = TactileAttachmentBinding.model_construct(**canonicalize_payload(TactileAttachmentBinding, dict(
         binding_id=binding_id,
         actuator_instance_id=actuator_instance_id,
         actuator_definition_sha256=actuator_definition_sha256,
@@ -194,7 +194,7 @@ def build_tactile_attachment_binding(
         install_state=install_state,
         provenance=tuple(provenance),
         binding_sha256='',
-    )
+    )))
     return TactileAttachmentBinding(
         **probe.model_dump(mode='python', exclude={'binding_sha256'}),
         binding_sha256=_hash(probe.semantic_payload()),
@@ -248,7 +248,7 @@ def build_tactile_processing_profile(
     limiter_policy: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> TactileProcessingProfile:
-    probe = TactileProcessingProfile.model_construct(
+    probe = TactileProcessingProfile.model_construct(**canonicalize_payload(TactileProcessingProfile, dict(
         profile_id=profile_id,
         version=version,
         source_bus=source_bus,
@@ -261,7 +261,7 @@ def build_tactile_processing_profile(
         limiter_policy=limiter_policy,
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return TactileProcessingProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -600,11 +600,11 @@ def evaluate_tactile_system(
         )
     )
 
-    probe = TactileSystemEvaluation.model_construct(
+    probe = TactileSystemEvaluation.model_construct(**canonicalize_payload(TactileSystemEvaluation, dict(
         evaluation_id='',
         checks=tuple(checks),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return TactileSystemEvaluation(
         **probe.model_dump(

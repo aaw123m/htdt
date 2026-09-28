@@ -43,7 +43,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 REGISTRY_SCHEMA_VERSION = 1
@@ -446,9 +446,9 @@ def build_registry_entry(
         'notes': notes,
         'created_at_utc': created_at_utc,
     }
-    provisional = DataSourceRegistryEntry.model_construct(
+    provisional = DataSourceRegistryEntry.model_construct(**canonicalize_payload(DataSourceRegistryEntry, dict(
         **payload, source_sha256='0' * 64
-    )
+    )))
     return DataSourceRegistryEntry(
         **payload, source_sha256=_hash(provisional.semantic_payload())
     )
@@ -479,9 +479,9 @@ def build_raw_source_record(
         'license_snapshot_reference': license_snapshot_reference,
         'created_at_utc': created_at_utc,
     }
-    provisional = RawSourceRecord.model_construct(
+    provisional = RawSourceRecord.model_construct(**canonicalize_payload(RawSourceRecord, dict(
         **payload, record_sha256='0' * 64
-    )
+    )))
     return RawSourceRecord(
         **payload, record_sha256=_hash(provisional.semantic_payload())
     )
@@ -516,9 +516,9 @@ def build_importer_declaration(
         'deterministic_normalization': deterministic_normalization,
         'created_at_utc': created_at_utc,
     }
-    provisional = ImporterDeclaration.model_construct(
+    provisional = ImporterDeclaration.model_construct(**canonicalize_payload(ImporterDeclaration, dict(
         **payload, importer_sha256='0' * 64
-    )
+    )))
     return ImporterDeclaration(
         **payload, importer_sha256=_hash(provisional.semantic_payload())
     )

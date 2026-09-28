@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .acoustic_benchmark import SpecificImpedancePoint
 from .cad_acoustic_material import AcousticMaterialAuthority
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 _CONSTRUCTION_PREFIX = 'acoustic-construction:'
@@ -373,9 +373,9 @@ def build_acoustic_construction(
         'sound_speed_m_s': sound_speed_m_s,
         'created_at_utc': created_at_utc,
     }
-    provisional = AcousticConstructionDefinition.model_construct(
+    provisional = AcousticConstructionDefinition.model_construct(**canonicalize_payload(AcousticConstructionDefinition, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return AcousticConstructionDefinition.model_validate(
         {
             **payload,
@@ -501,9 +501,9 @@ def derive_material_evidence(
         'diagnostics': tuple(diagnostics),
         'created_at_utc': created_at_utc,
     }
-    provisional = DerivedMaterialAcousticEvidence.model_construct(
+    provisional = DerivedMaterialAcousticEvidence.model_construct(**canonicalize_payload(DerivedMaterialAcousticEvidence, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return DerivedMaterialAcousticEvidence.model_validate(
         {
             **payload,

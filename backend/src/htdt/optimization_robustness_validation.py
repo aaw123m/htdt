@@ -22,7 +22,7 @@ from .optimization_robustness import (
     UncertaintyAxis,
     apply_local_perturbation,
 )
-from .canonical_json import canonical_json as canonical_o90e_json, canonical_sha256 as canonical_o90e_sha256
+from .canonical_json import canonical_json as canonical_o90e_json, canonical_sha256 as canonical_o90e_sha256, canonicalize_payload
 
 
 O90E_SCHEMA_VERSION = 1
@@ -611,11 +611,11 @@ def build_o90e_validation_case(
         'preregistration_status': status,
         'preregistered_at_utc': preregistered_at_utc,
     }
-    provisional = O90EValidationCase.model_construct(
+    provisional = O90EValidationCase.model_construct(**canonicalize_payload(O90EValidationCase, dict(
         **payload,
         case_id='o90e-case:' + ('0' * 64),
         case_sha256='0' * 64,
-    )
+    )))
     digest = canonical_o90e_sha256(provisional.identity_payload())
     return O90EValidationCase(
         **payload,
@@ -673,11 +673,11 @@ def build_o90e_decision(
         'reasons': ordered_reasons,
         'decided_at_utc': decided_at_utc,
     }
-    provisional = O90EValidationDecision.model_construct(
+    provisional = O90EValidationDecision.model_construct(**canonicalize_payload(O90EValidationDecision, dict(
         **payload,
         decision_id='o90e-decision:' + ('0' * 64),
         decision_sha256='0' * 64,
-    )
+    )))
     digest = canonical_o90e_sha256(provisional.identity_payload())
     return O90EValidationDecision(
         **payload,

@@ -21,7 +21,7 @@ from typing import Any, Literal, Sequence
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from .cad_auralization import _resample_band_limited
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 FIR_SCHEMA_VERSION = 1
@@ -244,11 +244,11 @@ def build_fir_filter_artifact(**kwargs: Any) -> FIRFilterArtifact:
             'sample_rate_hz': float(kwargs['sample_rate_hz']),
         }
     )
-    candidate = FIRFilterArtifact.model_construct(
+    candidate = FIRFilterArtifact.model_construct(**canonicalize_payload(FIRFilterArtifact, dict(
         **kwargs,
         artifact_id='fir-filter:' + '0' * 64,
         semantic_sha256='0' * 64,
-    )
+    )))
     digest = _digest(candidate.semantic_payload())
     return FIRFilterArtifact(
         **kwargs,
@@ -363,7 +363,7 @@ def import_fir_filter_artifact(
         ),
         raw_source_sha256=source_sha256,
     )
-    candidate = FIRImportRecord.model_construct(
+    candidate = FIRImportRecord.model_construct(**canonicalize_payload(FIRImportRecord, dict(
         artifact_id=artifact.artifact_id,
         artifact_sha256=artifact.semantic_sha256,
         source_format=source_format,
@@ -375,7 +375,7 @@ def import_fir_filter_artifact(
         parser_version=parser_version,
         import_id='fir-import:' + '0' * 64,
         semantic_sha256='0' * 64,
-    )
+    )))
     digest = _digest(candidate.semantic_payload())
     record = FIRImportRecord(
         artifact_id=artifact.artifact_id,
