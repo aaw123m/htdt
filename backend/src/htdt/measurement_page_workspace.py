@@ -4522,7 +4522,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self._job_pool.active_count:
-            return False, "REWの読み込み処理が完了してから画面を切り替えてください"
+            return False, "バックグラウンド処理が完了してから画面を切り替えてください"
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
             return False, "取り込み途中の測定データを確定または破棄してから画面を切り替えてください"

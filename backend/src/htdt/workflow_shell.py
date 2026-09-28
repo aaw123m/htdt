@@ -182,6 +182,7 @@ class WorkspaceRouter(QStackedWidget):
             )
         self._mounts: dict[DestinationId, WorkspaceMount] = {}
         self._current_workspace_id: DestinationId | None = None
+        self._navigating = False
         self.last_block_reason: str | None = None
 
     @property
@@ -217,29 +218,39 @@ class WorkspaceRouter(QStackedWidget):
         self.last_block_reason = None
         if destination == self._current_workspace_id:
             return self._ensure_mount(destination)
+        if self._navigating:
+            # A reentrant call — a queued signal or forwarded intent running
+            # inside this transition's dirty-state resolution modal — is
+            # refused: the in-flight navigation owns the router until it
+            # settles, so mounts can never be switched mid-resolution.
+            self.last_block_reason = "画面を切り替え中です"
+            return None
+        self._navigating = True
+        try:
+            current = self._mounts.get(self._current_workspace_id) if self._current_workspace_id is not None else None
+            if current is not None and current.before_deactivate is not None:
+                allowed, reason = current.before_deactivate()
+                if not allowed:
+                    # #610/#678: offer the operator an explicit Save/Discard/
+                    # Recover-Draft decision before hard-blocking the switch.
+                    allowed, reason = self._resolve_or_keep(
+                        current, "navigate", reason
+                    )
+                if not allowed:
+                    self.last_block_reason = reason or "現在の作業を完了してから画面を切り替えてください"
+                    return None
 
-        current = self._mounts.get(self._current_workspace_id) if self._current_workspace_id is not None else None
-        if current is not None and current.before_deactivate is not None:
-            allowed, reason = current.before_deactivate()
-            if not allowed:
-                # #610/#678: offer the operator an explicit Save/Discard/
-                # Recover-Draft decision before hard-blocking the switch.
-                allowed, reason = self._resolve_or_keep(
-                    current, "navigate", reason
-                )
-            if not allowed:
-                self.last_block_reason = reason or "現在の作業を完了してから画面を切り替えてください"
-                return None
+            if current is not None and current.on_deactivate is not None:
+                current.on_deactivate()
 
-        if current is not None and current.on_deactivate is not None:
-            current.on_deactivate()
-
-        mount = self._ensure_mount(destination)
-        self.setCurrentWidget(mount.widget)
-        self._current_workspace_id = destination
-        if mount.on_activate is not None:
-            mount.on_activate()
-        return mount
+            mount = self._ensure_mount(destination)
+            self.setCurrentWidget(mount.widget)
+            self._current_workspace_id = destination
+            if mount.on_activate is not None:
+                mount.on_activate()
+            return mount
+        finally:
+            self._navigating = False
 
     def select_context(self, workspace_id: DestinationId | str, context_id: str) -> str:
         destination = normalize_destination_id(workspace_id)

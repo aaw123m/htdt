@@ -590,6 +590,34 @@ def _route_launch_intent(
     return result
 
 
+def _drain_queued_launch_intents(data_dir, dispatch) -> int:
+    """Drain queued forwarded intents and dispatch each through the router.
+
+    #736: a queued file is retired only after its semantic dispatch produced
+    an outcome — a crash before completion leaves it queued for the next
+    drain tick. While a modal dialog owns the event loop the whole drain
+    defers instead: routing an intent mid-dialog could switch the project,
+    dispose mounted workspaces underneath the open dialog, or stack a
+    second modal over the one the user is answering.
+    """
+
+    _self = sys.modules[__name__]
+    QApplication = _self.QApplication
+    drain_launch_intents = _self.drain_launch_intents
+    complete_queued_intent = _self.complete_queued_intent
+
+    if QApplication.activeModalWidget() is not None:
+        return 0
+    dispatched = 0
+    for queued in drain_launch_intents(data_dir):
+        result = dispatch(queued.intent)
+        complete_queued_intent(
+            queued, succeeded=result.outcome != 'failed'
+        )
+        dispatched += 1
+    return dispatched
+
+
 def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     """GUI startup boundary: failures leave a durable record and a visible reason."""
 
@@ -608,8 +636,6 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         _self.log_default_document_classification
     )
     build_launch_intent = _self.build_launch_intent
-    complete_queued_intent = _self.complete_queued_intent
-    drain_launch_intents = _self.drain_launch_intents
     inspect_legacy_store = _self.inspect_legacy_store
     IncompatibleNewerSchemaError = _self.IncompatibleNewerSchemaError
     NativeUpgradeError = _self.NativeUpgradeError
@@ -966,14 +992,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.setInterval(800)
 
         def _drain() -> None:
-            # #736: retire each queue file only after its semantic
-            # dispatch produced an outcome — a crash before completion
-            # leaves the file queued for the next drain.
-            for queued in drain_launch_intents(args.data_dir):
-                result = _dispatch(queued.intent)
-                complete_queued_intent(
-                    queued, succeeded=result.outcome != 'failed'
-                )
+            _drain_queued_launch_intents(args.data_dir, _dispatch)
 
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
