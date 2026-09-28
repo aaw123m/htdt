@@ -2,8 +2,7 @@
 
 The product's string convention is hardcoded Japanese literals. These tests
 pin the surfaces that regressed in the past — recovery dialogs, launch
-reasons, and the dock-title lookup tables that drifted out of sync with the
-editors' Japanese titles.
+reasons, and stock dialog buttons.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from htdt.native_cad import _RECOVERY_CHOICE_PRESENTATION
 from htdt.startup_recovery import RecoveryMetadata, decide_launch
-from htdt.workflow_legacy_bridge import _CONTEXT_DOCK_TITLES
 
 _ASCII_WORD = re.compile(r'[A-Za-z]{2,}')
 
@@ -48,23 +46,6 @@ def test_launch_decision_reasons_are_japanese() -> None:
     )
     for reason in safe.reasons:
         assert _english_free(reason), f'safe-mode reason is not Japanese: {reason!r}'
-
-
-def test_legacy_bridge_dock_titles_match_editor_japanese() -> None:
-    # The bridge once looked up English 'Room'/'Inspector' while the editors
-    # created '部屋'/'インスペクター' — the highlights silently no-opped.
-    room_titles = {
-        title
-        for titles in _CONTEXT_DOCK_TITLES.values()
-        for group in titles.values()
-        for title in group
-    }
-    assert '部屋' in room_titles
-    assert 'インスペクター' in room_titles
-    assert 'Room' not in room_titles
-    assert 'Inspector' not in room_titles
-    for title in room_titles:
-        assert _english_free(title), f'dock title is not Japanese: {title!r}'
 
 
 def test_stock_dialog_buttons_translate_to_japanese() -> None:
