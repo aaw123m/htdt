@@ -48,7 +48,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -326,7 +326,7 @@ def build_av_signal_path(
     label: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> AVSignalPath:
-    probe = AVSignalPath.model_construct(
+    probe = AVSignalPath.model_construct(**canonicalize_payload(AVSignalPath, dict(
         path_id=path_id,
         version=version,
         label=label,
@@ -334,7 +334,7 @@ def build_av_signal_path(
         edges=tuple(edges),
         provenance=tuple(provenance),
         path_sha256='',
-    )
+    )))
     return AVSignalPath(
         **probe.model_dump(mode='python', exclude={'path_sha256'}),
         path_sha256=_hash(probe.semantic_payload()),
@@ -731,7 +731,7 @@ def evaluate_signal_path(
                 # the requested condition — partially verified at best.
                 status = 'UNKNOWN'
 
-    probe = SignalPathEvaluation.model_construct(
+    probe = SignalPathEvaluation.model_construct(**canonicalize_payload(SignalPathEvaluation, dict(
         evaluation_id='',
         path=path,
         condition=condition,
@@ -740,7 +740,7 @@ def evaluate_signal_path(
         limiting_component=limiting,
         negotiation=negotiation,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return SignalPathEvaluation(
         **probe.model_dump(

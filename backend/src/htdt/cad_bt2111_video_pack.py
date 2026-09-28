@@ -31,7 +31,7 @@ from .cad_external_admission import (
     build_external_asset_admission,
     external_asset_file,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 BT2111_PACK_AUTHORITY_VERSION = 'bt2111-video-pack-1'
@@ -283,7 +283,7 @@ def _descriptor(
     signal_range: SignalRange,
     areas: tuple[PatternArea, ...],
 ) -> PatternDescriptor:
-    probe = PatternDescriptor.model_construct(
+    probe = PatternDescriptor.model_construct(**canonicalize_payload(PatternDescriptor, dict(
         variant=variant,
         transfer_function=transfer,
         signal_range=signal_range,
@@ -291,7 +291,7 @@ def _descriptor(
         reference=BT2111_REFERENCE,
         areas=areas,
         semantic_sha256='',
-    )
+    )))
     return PatternDescriptor(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

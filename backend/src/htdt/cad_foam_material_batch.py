@@ -43,7 +43,7 @@ from .cad_external_admission import (
     build_external_asset_admission,
     external_asset_file,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 FOAM_BATCH_AUTHORITY_VERSION = 'foam-batch-1'
@@ -268,7 +268,7 @@ def build_jcal_parameter_set(
     derived_frequency_domain_hz: tuple[float, float] | None = None,
     notes: str = '',
 ) -> JcalParameterSet:
-    probe = JcalParameterSet.model_construct(
+    probe = JcalParameterSet.model_construct(**canonicalize_payload(JcalParameterSet, dict(
         material_id=material_id,
         admission_id=admission_id,
         basis=basis,
@@ -285,7 +285,7 @@ def build_jcal_parameter_set(
         source_file=source_file,
         notes=notes,
         semantic_sha256='',
-    )
+    )))
     return JcalParameterSet(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

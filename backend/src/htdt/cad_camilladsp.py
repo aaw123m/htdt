@@ -52,7 +52,7 @@ from .cad_external_calibration import (
     IncludeDependency,
     OpaqueArtifactSection,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 CAMILLADSP_ADAPTER_ID = 'htdt-camilladsp'
@@ -715,9 +715,9 @@ class CamillaDSPAdapter:
             'detail': detail,
             'operator_confirmed': operator_confirmed,
         }
-        provisional = DeviceActionAck.model_construct(
+        provisional = DeviceActionAck.model_construct(**canonicalize_payload(DeviceActionAck, dict(
             **payload, ack_sha256='0' * 64
-        )
+        )))
         return DeviceActionAck(
             **payload, ack_sha256=_hash(provisional.semantic_payload())
         )

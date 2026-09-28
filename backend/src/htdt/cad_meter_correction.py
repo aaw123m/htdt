@@ -35,7 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_colorimetry import ColorimeterCorrectionProfile
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 METER_CORRECTION_PARSER_ID = 'htdt-cgats-ccxx-1'
@@ -370,7 +370,7 @@ def import_meter_correction(
         )
 
     artifact_id = f'meter-correction/{source_sha256[:16]}'
-    probe = MeterCorrectionArtifact.model_construct(
+    probe = MeterCorrectionArtifact.model_construct(**canonicalize_payload(MeterCorrectionArtifact, dict(
         schema_version=1,
         authority_version='meter-correction-1',
         artifact_id=artifact_id,
@@ -398,7 +398,7 @@ def import_meter_correction(
         data_format_fields=doc.data_format,
         provenance=tuple(provenance),
         semantic_sha256='',
-    )
+    )))
     return MeterCorrectionArtifact(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

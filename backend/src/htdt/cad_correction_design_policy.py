@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .cad_calibration import CadTargetCurve
 from .cad_equipment import FrequencyDomain
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 EQP_SCHEMA_VERSION = 1
@@ -254,11 +254,11 @@ class CorrectionDesignPolicy(BaseModel):
 
 
 def build_correction_design_policy(**kwargs: Any) -> CorrectionDesignPolicy:
-    candidate = CorrectionDesignPolicy.model_construct(
+    candidate = CorrectionDesignPolicy.model_construct(**canonicalize_payload(CorrectionDesignPolicy, dict(
         **kwargs,
         policy_id='correction-design-policy:' + '0' * 64,
         semantic_sha256='0' * 64,
-    )
+    )))
     digest = _digest(candidate.semantic_payload())
     return CorrectionDesignPolicy(
         **kwargs,

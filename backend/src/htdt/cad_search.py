@@ -37,6 +37,7 @@ from .search_space import (
     generate_search_space,
     validate_search_spec,
 )
+from .canonical_json import canonicalize_payload
 
 
 def _linked_placement_constraint_payloads(
@@ -149,7 +150,7 @@ def build_cad_search_spec(
         constraint_set_spec_sha256=engine_sha,
     )
     ordered_axes = tuple(CadSearchAxis.model_validate(item) for item in o10_spec['axes'])
-    provisional = CadSearchSpec.model_construct(
+    provisional = CadSearchSpec.model_construct(**canonicalize_payload(CadSearchSpec, dict(
         schema_version=CAD_SEARCH_SCHEMA_VERSION,
         search_spec_id=new_search_spec_id(),
         document_id=revision.document_id,
@@ -168,7 +169,7 @@ def build_cad_search_spec(
         search_spec_sha256='0' * 64,
         name=name.strip() if name and name.strip() else None,
         created_at_utc=search_timestamp_utc(),
-    )
+    )))
     spec = CadSearchSpec(
         **provisional.model_dump(exclude={'search_spec_sha256'}),
         search_spec_sha256=canonical_search_sha256(provisional.identity_payload()),

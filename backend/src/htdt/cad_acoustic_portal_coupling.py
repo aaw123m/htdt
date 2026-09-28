@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 PORTAL_COUPLING_AUTHORITY_VERSION = 'portal-coupling-1'
@@ -235,9 +235,9 @@ def build_acoustic_portal_coupling(
         'effective_aperture_m2': effective_aperture_m2,
         'provenance': provenance,
     }
-    provisional = AcousticPortalCoupling.model_construct(
+    provisional = AcousticPortalCoupling.model_construct(**canonicalize_payload(AcousticPortalCoupling, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return AcousticPortalCoupling(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

@@ -29,7 +29,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_measurements import canonical_json
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 # The seven quantity kinds the issue enumerates — never one field named
@@ -424,9 +424,9 @@ def build_surface_scattering_evidence(
         'valid_frequency_range_hz': valid_frequency_range_hz,
         'mounting': mounting,
     }
-    provisional = SurfaceScatteringEvidence.model_construct(
+    provisional = SurfaceScatteringEvidence.model_construct(**canonicalize_payload(SurfaceScatteringEvidence, dict(
         **payload, evidence_sha256='0' * 64
-    )
+    )))
     return SurfaceScatteringEvidence(
         **payload, evidence_sha256=_hash(provisional.identity_payload())
     )
@@ -461,9 +461,9 @@ def build_directional_scattering_kernel(
         'source': source,
         'valid_angular_domain': valid_angular_domain,
     }
-    provisional = DirectionalScatteringKernel.model_construct(
+    provisional = DirectionalScatteringKernel.model_construct(**canonicalize_payload(DirectionalScatteringKernel, dict(
         **payload, kernel_sha256='0' * 64
-    )
+    )))
     return DirectionalScatteringKernel(
         **payload, kernel_sha256=_hash(provisional.identity_payload())
     )

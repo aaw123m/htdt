@@ -34,7 +34,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -167,9 +167,9 @@ class VideoProcessingCondition(BaseModel):
 
 
 def build_video_processing_condition(**kwargs) -> VideoProcessingCondition:
-    probe = VideoProcessingCondition.model_construct(
+    probe = VideoProcessingCondition.model_construct(**canonicalize_payload(VideoProcessingCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return VideoProcessingCondition(
         **probe.model_dump(

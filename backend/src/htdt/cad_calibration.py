@@ -29,7 +29,7 @@ from .cad_repository import SceneRevision
 from .cad_scene import Position3
 from .cad_system_variant import SystemVariant
 from .csv_export import csv_safe_row
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 CALIBRATION_PLAN_SCHEMA_VERSION = 1
@@ -729,10 +729,10 @@ def build_calibration_plan(
         'support_state': support_state,
         'unsupported_reasons': unsupported_reasons,
     }
-    provisional = CadCalibrationPlan.model_construct(
+    provisional = CadCalibrationPlan.model_construct(**canonicalize_payload(CadCalibrationPlan, dict(
         **payload,
         plan_semantic_sha256='0' * 64,
-    )
+    )))
     return CadCalibrationPlan(
         **payload,
         plan_semantic_sha256=_hash(provisional.semantic_payload()),
@@ -1093,10 +1093,10 @@ def build_verification_measurement_plan(
         'before_measurement_ids': tuple(before_measurement_ids),
         'after_measurement_ids': tuple(after_measurement_ids),
     }
-    provisional = CadVerificationMeasurementPlan.model_construct(
+    provisional = CadVerificationMeasurementPlan.model_construct(**canonicalize_payload(CadVerificationMeasurementPlan, dict(
         **payload,
         verification_semantic_sha256='0' * 64,
-    )
+    )))
     return CadVerificationMeasurementPlan(
         **payload,
         verification_semantic_sha256=_hash(provisional.semantic_payload()),
@@ -1468,11 +1468,11 @@ def build_verification_measurement_completion(
         'comparison_sha256': comparison_sha256,
         'completed_at_utc': completed_at_utc,
     }
-    provisional = CadVerificationMeasurementCompletion.model_construct(
+    provisional = CadVerificationMeasurementCompletion.model_construct(**canonicalize_payload(CadVerificationMeasurementCompletion, dict(
         **payload,
         completion_id='pending',
         completion_sha256='0' * 64,
-    )
+    )))
     digest = _hash(provisional.semantic_payload())
     return CadVerificationMeasurementCompletion(
         **payload,

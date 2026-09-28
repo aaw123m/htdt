@@ -31,7 +31,7 @@ from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 CEC_ADAPTER_ID = 'htdt-cec'
@@ -311,9 +311,9 @@ class CECObservationAdapter:
                 'event_label': label,
                 'normalized': normalized,
             }
-            provisional = CECEventRecord.model_construct(
+            provisional = CECEventRecord.model_construct(**canonicalize_payload(CECEventRecord, dict(
                 **payload_dict, record_sha256='0' * 64
-            )
+            )))
             records.append(
                 CECEventRecord(
                     **payload_dict,

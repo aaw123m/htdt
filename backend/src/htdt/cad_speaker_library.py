@@ -35,7 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_directivity import NormalizedDirectivityJsonV1
 from .cad_material_library import MaterialProvenanceClass
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 SPEAKER_LIBRARY_SCHEMA_VERSION = 1
@@ -325,9 +325,9 @@ def build_speaker_dataset(
         'limitations': tuple(limitations),
         'created_at_utc': created_at_utc,
     }
-    provisional = SpeakerDataset.model_construct(
+    provisional = SpeakerDataset.model_construct(**canonicalize_payload(SpeakerDataset, dict(
         **payload, dataset_sha256='0' * 64
-    )
+    )))
     return SpeakerDataset(
         **payload, dataset_sha256=_hash(provisional.semantic_payload())
     )

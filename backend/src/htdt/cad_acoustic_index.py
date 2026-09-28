@@ -42,7 +42,7 @@ from collections import OrderedDict
 from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 ACOUSTIC_INDEX_AUTHORITY_VERSION = 'acoustic-index-1'
@@ -280,7 +280,7 @@ def snapshot_from_compare_response(
             formula_version=derived_raw.get('formulaVersion'),
             source_standard=derived_raw.get('sourceStandard'),
         ) if derived_raw else None
-        probe = AcousticIndexVariant.model_construct(
+        probe = AcousticIndexVariant.model_construct(**canonicalize_payload(AcousticIndexVariant, dict(
             variant_id=str(entry.get('id', '')),
             measuring_option=entry.get('measuringOption'),
             source_kind=entry.get('sourceKind'),
@@ -293,7 +293,7 @@ def snapshot_from_compare_response(
             derived=derived,
             variant_meta=dict(entry.get('variantMeta') or {}),
             semantic_sha256='',
-        )
+        )))
         variants.append(
             AcousticIndexVariant(
                 **probe.model_dump(
@@ -303,7 +303,7 @@ def snapshot_from_compare_response(
             )
         )
     meta = dict(product.get('structured_meta') or {})
-    probe = AcousticIndexSnapshot.model_construct(
+    probe = AcousticIndexSnapshot.model_construct(**canonicalize_payload(AcousticIndexSnapshot, dict(
         schema_version=1,
         authority_version=ACOUSTIC_INDEX_AUTHORITY_VERSION,
         snapshot_id=(
@@ -325,7 +325,7 @@ def snapshot_from_compare_response(
         response_sha256=response_sha256,
         supersedes_snapshot_id=supersedes_snapshot_id,
         semantic_sha256='',
-    )
+    )))
     return AcousticIndexSnapshot(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

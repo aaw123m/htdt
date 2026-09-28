@@ -38,7 +38,7 @@ from .cad_external_admission import (
     build_external_asset_admission,
     external_asset_file,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 SPATIAL_STARTER_AUTHORITY_VERSION = 'spatial-starter-pack-1'
@@ -119,7 +119,7 @@ def build_spatial_fixture(
     forbidden_uses: tuple[str, ...] = (),
     fixture_note: str = '',
 ) -> SpatialStarterFixture:
-    probe = SpatialStarterFixture.model_construct(
+    probe = SpatialStarterFixture.model_construct(**canonicalize_payload(SpatialStarterFixture, dict(
         schema_version=1,
         authority_version=SPATIAL_STARTER_AUTHORITY_VERSION,
         fixture_id=fixture_id,
@@ -134,7 +134,7 @@ def build_spatial_fixture(
         forbidden_uses=tuple(forbidden_uses),
         fixture_note=fixture_note,
         semantic_sha256='',
-    )
+    )))
     return SpatialStarterFixture(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),
@@ -172,13 +172,13 @@ class SpatialStarterPack(BaseModel):
 def build_spatial_starter_pack(
     *, pack_id: str, fixtures: tuple[SpatialStarterFixture, ...]
 ) -> SpatialStarterPack:
-    probe = SpatialStarterPack.model_construct(
+    probe = SpatialStarterPack.model_construct(**canonicalize_payload(SpatialStarterPack, dict(
         schema_version=1,
         authority_version=SPATIAL_STARTER_AUTHORITY_VERSION,
         pack_id=pack_id,
         fixtures=tuple(fixtures),
         semantic_sha256='',
-    )
+    )))
     return SpatialStarterPack(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

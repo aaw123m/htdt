@@ -42,7 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 PROGRAM_STRESS_AUTHORITY_VERSION = 'program-stress-1'
@@ -343,10 +343,10 @@ def build_program_stress_profile(
         'thermal_evidence_ref': thermal_evidence_ref,
         'provenance': provenance,
     }
-    provisional = ProgramStressProfile.model_construct(
+    provisional = ProgramStressProfile.model_construct(**canonicalize_payload(ProgramStressProfile, dict(
         **payload,
         semantic_sha256='0' * 64,
-    )
+    )))
     return ProgramStressProfile(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

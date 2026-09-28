@@ -54,7 +54,7 @@ from .cad_equipment_device import (
     ObservedDeviceState,
     ProposedDeviceAction,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 PJLINK_ADAPTER_ID = 'htdt-pjlink'
@@ -727,9 +727,9 @@ class PJLinkDeviceAdapter:
             'detail': detail,
             'operator_confirmed': operator_confirmed,
         }
-        provisional = DeviceActionAck.model_construct(
+        provisional = DeviceActionAck.model_construct(**canonicalize_payload(DeviceActionAck, dict(
             **payload, ack_sha256='0' * 64
-        )
+        )))
         return DeviceActionAck(
             **payload, ack_sha256=_hash(provisional.semantic_payload())
         )

@@ -646,9 +646,21 @@ def canonical_json_importer(
         ],
         'materials': data.get('materials'),
         'environment': data.get('environment'),
-        'sample_rate_hz': data.get('sample_rate_hz'),
-        'frequency_grid_hz': data.get('frequency_grid_hz'),
-        'time_origin_s': data.get('time_origin_s'),
+        'sample_rate_hz': (
+            None
+            if data.get('sample_rate_hz') is None
+            else float(data['sample_rate_hz'])
+        ),
+        'frequency_grid_hz': (
+            None
+            if data.get('frequency_grid_hz') is None
+            else [float(v) for v in data['frequency_grid_hz']]
+        ),
+        'time_origin_s': (
+            None
+            if data.get('time_origin_s') is None
+            else float(data['time_origin_s'])
+        ),
         'preprocessing': data.get('preprocessing'),
         'limitations': data.get('limitations'),
         'observables': [

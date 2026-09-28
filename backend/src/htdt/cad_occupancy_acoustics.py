@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -132,7 +132,7 @@ def build_room_occupancy_state(
     provenance: tuple[EquipmentDataProvenance, ...] = (),
     limitations: str | None = None,
 ) -> RoomOccupancyAcousticState:
-    probe = RoomOccupancyAcousticState.model_construct(
+    probe = RoomOccupancyAcousticState.model_construct(**canonicalize_payload(RoomOccupancyAcousticState, dict(
         state_id=state_id,
         version=version,
         scene_revision_id=scene_revision_id,
@@ -142,7 +142,7 @@ def build_room_occupancy_state(
         provenance=tuple(provenance),
         limitations=limitations,
         state_sha256='',
-    )
+    )))
     return RoomOccupancyAcousticState(
         **probe.model_dump(mode='python', exclude={'state_sha256'}),
         state_sha256=_hash(probe.semantic_payload()),

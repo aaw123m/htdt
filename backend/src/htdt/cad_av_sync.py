@@ -24,7 +24,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 AVSyncMeasurementMethod = Literal['manual_external_sync_test', 'auto', 'unknown']
@@ -322,10 +322,10 @@ def build_av_sync_condition(
         'created_at': created_at,
         'provenance_json': provenance_json,
     }
-    provisional = AVSyncCondition.model_construct(
+    provisional = AVSyncCondition.model_construct(**canonicalize_payload(AVSyncCondition, dict(
         **payload,
         condition_sha256='0' * 64,
-    )
+    )))
     return AVSyncCondition(
         **payload,
         condition_sha256=_hash(provisional.identity_payload()),
@@ -373,10 +373,10 @@ def build_av_latency_measurement(
         'notes': list(notes),
         'provenance_json': provenance_json,
     }
-    provisional = AVLatencyMeasurement.model_construct(
+    provisional = AVLatencyMeasurement.model_construct(**canonicalize_payload(AVLatencyMeasurement, dict(
         **payload,
         measurement_sha256='0' * 64,
-    )
+    )))
     return AVLatencyMeasurement(
         **payload,
         measurement_sha256=_hash(provisional.identity_payload()),
@@ -428,10 +428,10 @@ def advance_av_latency_measurement(
         payload['residual_offset_ms'] = residual_offset_ms
     payload['captured_at'] = captured_at
     payload['notes'] = list(measurement.notes) + list(notes)
-    provisional = AVLatencyMeasurement.model_construct(
+    provisional = AVLatencyMeasurement.model_construct(**canonicalize_payload(AVLatencyMeasurement, dict(
         **payload,
         measurement_sha256='0' * 64,
-    )
+    )))
     return AVLatencyMeasurement(
         **payload,
         measurement_sha256=_hash(provisional.identity_payload()),

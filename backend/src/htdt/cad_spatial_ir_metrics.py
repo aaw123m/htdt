@@ -30,7 +30,7 @@ from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 SPATIAL_IR_SCHEMA_VERSION = 2
@@ -297,11 +297,11 @@ def build_spatial_ir_metric_spec(**kwargs: Any) -> SpatialIRMetricSpec:
         'analysis_method',
         _METRIC_METHOD.get(kwargs.get('metric'), IACC_METHOD),
     )
-    probe = SpatialIRMetricSpec.model_construct(
+    probe = SpatialIRMetricSpec.model_construct(**canonicalize_payload(SpatialIRMetricSpec, dict(
         spec_id='spatial-ir-metric-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return SpatialIRMetricSpec(
         spec_id=f'spatial-ir-metric-spec:{digest}',

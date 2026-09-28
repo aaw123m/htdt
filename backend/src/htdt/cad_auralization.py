@@ -25,7 +25,7 @@ import wave
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 AURALIZATION_SCHEMA_VERSION = 1
@@ -207,11 +207,11 @@ class AuralizationRenderSpec(BaseModel):
 
 def build_auralization_render_spec(**kwargs: Any) -> AuralizationRenderSpec:
     """Build a spec letting the model validator pin identity from semantics."""
-    probe = AuralizationRenderSpec.model_construct(
+    probe = AuralizationRenderSpec.model_construct(**canonicalize_payload(AuralizationRenderSpec, dict(
         spec_id='auralization-render-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return AuralizationRenderSpec(
         spec_id=f'auralization-render-spec:{digest}',

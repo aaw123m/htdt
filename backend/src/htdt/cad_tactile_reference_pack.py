@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 TACTILE_PACK_AUTHORITY_VERSION = 'tactile-reference-1'
@@ -95,9 +95,9 @@ class TactileActuatorReference(BaseModel):
 
 
 def build_tactile_reference(**kwargs: Any) -> TactileActuatorReference:
-    probe = TactileActuatorReference.model_construct(
+    probe = TactileActuatorReference.model_construct(**canonicalize_payload(TactileActuatorReference, dict(
         semantic_sha256='', **kwargs
-    )
+    )))
     return TactileActuatorReference(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

@@ -34,7 +34,7 @@ from typing import Any, Literal, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 PRESET_SCHEMA_VERSION = 1
@@ -358,9 +358,9 @@ def build_operating_preset(
         'provenance': tuple(provenance),
         'created_at_utc': created_at_utc,
     }
-    provisional = TheaterOperatingPreset.model_construct(
+    provisional = TheaterOperatingPreset.model_construct(**canonicalize_payload(TheaterOperatingPreset, dict(
         **payload, preset_sha256='0' * 64
-    )
+    )))
     return TheaterOperatingPreset(
         **payload,
         preset_sha256=_hash(provisional.semantic_payload()),
@@ -416,9 +416,9 @@ def bind_preset_measurements(
         'bound_at_utc': bound_at_utc,
         'historical_attestation': historical_attestation,
     }
-    provisional = PresetMeasurementBinding.model_construct(
+    provisional = PresetMeasurementBinding.model_construct(**canonicalize_payload(PresetMeasurementBinding, dict(
         **payload, binding_sha256='0' * 64
-    )
+    )))
     return PresetMeasurementBinding(
         **payload,
         binding_sha256=_hash(provisional.semantic_payload()),

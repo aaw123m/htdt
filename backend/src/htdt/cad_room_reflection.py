@@ -36,7 +36,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -273,9 +273,9 @@ def estimate_diffuse_room_return(
 
 
 def build_room_optical_surface_profile(**kwargs) -> RoomOpticalSurfaceProfile:
-    probe = RoomOpticalSurfaceProfile.model_construct(
+    probe = RoomOpticalSurfaceProfile.model_construct(**canonicalize_payload(RoomOpticalSurfaceProfile, dict(
         profile_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return RoomOpticalSurfaceProfile(
         **probe.model_dump(
@@ -288,9 +288,9 @@ def build_room_optical_surface_profile(**kwargs) -> RoomOpticalSurfaceProfile:
 def build_in_situ_contrast_measurement(
     **kwargs,
 ) -> InSituContrastMeasurement:
-    probe = InSituContrastMeasurement.model_construct(
+    probe = InSituContrastMeasurement.model_construct(**canonicalize_payload(InSituContrastMeasurement, dict(
         measurement_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return InSituContrastMeasurement(
         **probe.model_dump(
@@ -301,9 +301,9 @@ def build_in_situ_contrast_measurement(
 
 
 def build_contrast_decomposition(**kwargs) -> ProjectedContrastDecomposition:
-    probe = ProjectedContrastDecomposition.model_construct(
+    probe = ProjectedContrastDecomposition.model_construct(**canonicalize_payload(ProjectedContrastDecomposition, dict(
         decomposition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ProjectedContrastDecomposition(
         **probe.model_dump(

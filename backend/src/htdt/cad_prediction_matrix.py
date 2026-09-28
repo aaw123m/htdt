@@ -35,7 +35,7 @@ from .cad_prediction_provider import (
     PredictionProviderRef,
 )
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_sha256 as _digest
+from .canonical_json import canonical_sha256 as _digest, canonicalize_payload
 
 
 PREDICTION_MATRIX_SCHEMA_VERSION = 1
@@ -170,11 +170,11 @@ class PredictionMatrixSpec(BaseModel):
 
 
 def build_prediction_matrix_spec(**kwargs: Any) -> PredictionMatrixSpec:
-    probe = PredictionMatrixSpec.model_construct(
+    probe = PredictionMatrixSpec.model_construct(**canonicalize_payload(PredictionMatrixSpec, dict(
         spec_id='prediction-matrix-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return PredictionMatrixSpec(
         spec_id=f'prediction-matrix-spec:{digest}',

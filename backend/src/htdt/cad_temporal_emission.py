@@ -40,7 +40,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -339,9 +339,9 @@ def derive_dominant_frequency_hz(
 
 
 def build_display_temporal_condition(**kwargs) -> DisplayTemporalCondition:
-    probe = DisplayTemporalCondition.model_construct(
+    probe = DisplayTemporalCondition.model_construct(**canonicalize_payload(DisplayTemporalCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return DisplayTemporalCondition(
         **probe.model_dump(
@@ -354,13 +354,13 @@ def build_display_temporal_condition(**kwargs) -> DisplayTemporalCondition:
 def build_temporal_light_waveform(
     *, condition: DisplayTemporalCondition, **kwargs
 ) -> TemporalLightWaveform:
-    probe = TemporalLightWaveform.model_construct(
+    probe = TemporalLightWaveform.model_construct(**canonicalize_payload(TemporalLightWaveform, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
         waveform_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return TemporalLightWaveform(
         **probe.model_dump(
@@ -373,13 +373,13 @@ def build_temporal_light_waveform(
 def build_temporal_emission_measurement(
     *, condition: DisplayTemporalCondition, **kwargs
 ) -> TemporalEmissionMeasurement:
-    probe = TemporalEmissionMeasurement.model_construct(
+    probe = TemporalEmissionMeasurement.model_construct(**canonicalize_payload(TemporalEmissionMeasurement, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
         measurement_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return TemporalEmissionMeasurement(
         **probe.model_dump(

@@ -19,7 +19,7 @@ from .cad_measurement_authorities import (
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_scene import Direction3, Position3
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 QUALITY_ALGORITHM_VERSION = 'measurement-quality-2'
@@ -286,10 +286,10 @@ def build_measurement_quality_profile(
             None if maximum_repeatability_rms_db is None else float(maximum_repeatability_rms_db)
         ),
     }
-    provisional = CadMeasurementQualityProfile.model_construct(
+    provisional = CadMeasurementQualityProfile.model_construct(**canonicalize_payload(CadMeasurementQualityProfile, dict(
         **payload,
         profile_sha256='0' * 64,
-    )
+    )))
     return CadMeasurementQualityProfile(
         **payload,
         profile_sha256=_hash(provisional.identity_payload()),
@@ -688,10 +688,10 @@ def build_acquisition_context(
         'notes': tuple(notes),
         'provenance_json': provenance_json,
     }
-    provisional = CadAcquisitionContext.model_construct(
+    provisional = CadAcquisitionContext.model_construct(**canonicalize_payload(CadAcquisitionContext, dict(
         **payload,
         acquisition_context_sha256='0' * 64,
-    )
+    )))
     return CadAcquisitionContext(
         **payload,
         acquisition_context_sha256=_hash(provisional.identity_payload()),

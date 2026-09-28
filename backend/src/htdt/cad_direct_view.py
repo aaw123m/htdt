@@ -66,6 +66,7 @@ from .cad_video_geometry import (
     _sightline_results,
     _viewing_result,
 )
+from .canonical_json import canonicalize_payload
 
 
 DIRECT_VIEW_SPEC_SCHEMA_VERSION = 1
@@ -298,7 +299,7 @@ def build_direct_view_display_specification(
         if photometric_capability is None
         else photometric_capability
     )
-    probe = DirectViewDisplaySpecification.model_construct(
+    probe = DirectViewDisplaySpecification.model_construct(**canonicalize_payload(DirectViewDisplaySpecification, dict(
         specification_id=specification_id,
         version=version,
         manufacturer=manufacturer,
@@ -314,7 +315,7 @@ def build_direct_view_display_specification(
         photometric_capability=photometric,
         provenance=tuple(provenance),
         specification_sha256='0' * 64,
-    )
+    )))
     return DirectViewDisplaySpecification(
         specification_id=specification_id,
         version=version,

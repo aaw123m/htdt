@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 EQUIPMENT_NOISE_AUTHORITY_VERSION = 'equipment-noise-1'
@@ -208,9 +208,9 @@ def build_equipment_noise_profile(
         'radiation_model': radiation_model,
         'provenance': provenance,
     }
-    provisional = EquipmentAcousticNoiseProfile.model_construct(
+    provisional = EquipmentAcousticNoiseProfile.model_construct(**canonicalize_payload(EquipmentAcousticNoiseProfile, dict(
         **payload, semantic_sha256='0' * 64
-    )
+    )))
     return EquipmentAcousticNoiseProfile(
         **payload,
         semantic_sha256=_hash(provisional.semantic_payload()),

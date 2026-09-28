@@ -44,7 +44,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -341,10 +341,10 @@ def build_excitation_asset(
         'created_at_utc': created_at_utc or _utc_now(),
         'provenance_json': provenance_json,
     }
-    provisional = CadMeasurementExcitationAsset.model_construct(
+    provisional = CadMeasurementExcitationAsset.model_construct(**canonicalize_payload(CadMeasurementExcitationAsset, dict(
         **payload,
         excitation_sha256='0' * 64,
-    )
+    )))
     return CadMeasurementExcitationAsset(
         **payload,
         excitation_sha256=_hash(provisional.identity_payload()),
@@ -395,10 +395,10 @@ def build_stimulus_profile(
         'created_at_utc': created_at_utc or _utc_now(),
         'provenance_json': provenance_json,
     }
-    provisional = CadMeasurementStimulusProfile.model_construct(
+    provisional = CadMeasurementStimulusProfile.model_construct(**canonicalize_payload(CadMeasurementStimulusProfile, dict(
         **payload,
         stimulus_profile_sha256='0' * 64,
-    )
+    )))
     return CadMeasurementStimulusProfile(
         **payload,
         stimulus_profile_sha256=_hash(provisional.identity_payload()),

@@ -28,7 +28,7 @@ from math import isfinite
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -225,7 +225,7 @@ class EvidenceGateResult(BaseModel):
 def build_input_chain_profile(**kwargs: Any) -> MeasurementInputChainProfile:
     """Assemble and seal a :class:`MeasurementInputChainProfile`."""
     payload = {'profile_sha256': '0' * 64, **kwargs}
-    provisional = MeasurementInputChainProfile.model_construct(**payload)
+    provisional = MeasurementInputChainProfile.model_construct(**canonicalize_payload(MeasurementInputChainProfile, dict(**payload)))
     payload['profile_sha256'] = _hash(provisional.identity_payload())
     return MeasurementInputChainProfile(**payload)
 

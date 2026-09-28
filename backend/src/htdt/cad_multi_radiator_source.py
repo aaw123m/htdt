@@ -45,7 +45,7 @@ from .cad_bass_management import FrequencyBand
 from .cad_equipment import EquipmentDataProvenance
 from .cad_scene import Offset3
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 MULTI_RADIATOR_SOURCE_AUTHORITY_VERSION = 'multi-radiator-source-1'
@@ -481,14 +481,14 @@ def evaluate_multi_radiator_coherence(
             if check.check != 'whole_system_directivity_valid'
         )
     )
-    probe = RadiatorCoherenceEvaluation.model_construct(
+    probe = RadiatorCoherenceEvaluation.model_construct(**canonicalize_payload(RadiatorCoherenceEvaluation, dict(
         evaluation_id='',
         model_id=model.model_id,
         model_sha256=model.semantic_sha256,
         checks=tuple(checks),
         coherent_summation_supported=supported,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.identity_payload())
     return RadiatorCoherenceEvaluation(
         **probe.model_dump(

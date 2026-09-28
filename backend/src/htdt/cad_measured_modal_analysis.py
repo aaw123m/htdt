@@ -28,7 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -255,7 +255,7 @@ class MeasuredModalModel(BaseModel):
 def build_modal_analysis_spec(**kwargs: Any) -> MeasuredModalAnalysisSpec:
     """Assemble and seal a :class:`MeasuredModalAnalysisSpec`."""
     payload = {'spec_sha256': '0' * 64, **kwargs}
-    provisional = MeasuredModalAnalysisSpec.model_construct(**payload)
+    provisional = MeasuredModalAnalysisSpec.model_construct(**canonicalize_payload(MeasuredModalAnalysisSpec, dict(**payload)))
     payload['spec_sha256'] = _hash(provisional.identity_payload())
     return MeasuredModalAnalysisSpec(**payload)
 
@@ -280,7 +280,7 @@ def build_measured_modal_model(
         'created_at_utc': created_at_utc,
         'model_sha256': '0' * 64,
     }
-    provisional = MeasuredModalModel.model_construct(**payload)
+    provisional = MeasuredModalModel.model_construct(**canonicalize_payload(MeasuredModalModel, dict(**payload)))
     payload['model_sha256'] = _hash(provisional.identity_payload())
     return MeasuredModalModel(**payload)
 

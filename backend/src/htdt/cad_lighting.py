@@ -42,7 +42,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -194,7 +194,7 @@ def build_lighting_scene(
     purpose: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> LightingScene:
-    probe = LightingScene.model_construct(
+    probe = LightingScene.model_construct(**canonicalize_payload(LightingScene, dict(
         scene_id=scene_id,
         version=version,
         label=label,
@@ -202,7 +202,7 @@ def build_lighting_scene(
         states=tuple(states),
         provenance=tuple(provenance),
         scene_sha256='',
-    )
+    )))
     return LightingScene(
         **probe.model_dump(mode='python', exclude={'scene_sha256'}),
         scene_sha256=_hash(probe.semantic_payload()),
@@ -609,13 +609,13 @@ def evaluate_lighting_scene(
         if any(c.dimension == dimension for c in checks)
     )
 
-    probe = LightingSceneEvaluation.model_construct(
+    probe = LightingSceneEvaluation.model_construct(**canonicalize_payload(LightingSceneEvaluation, dict(
         evaluation_id='',
         scene=scene,
         checks=tuple(checks),
         dimensions=dimensions,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return LightingSceneEvaluation(
         **probe.model_dump(

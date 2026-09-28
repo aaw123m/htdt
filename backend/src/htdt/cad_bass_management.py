@@ -46,7 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -249,7 +249,7 @@ def build_bass_management_profile(
     vendor_mappings: tuple[VendorBassMapping, ...] = (),
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> BassManagementProfile:
-    probe = BassManagementProfile.model_construct(
+    probe = BassManagementProfile.model_construct(**canonicalize_payload(BassManagementProfile, dict(
         profile_id=profile_id,
         version=version,
         processor_ref=processor_ref,
@@ -262,7 +262,7 @@ def build_bass_management_profile(
         vendor_mappings=tuple(vendor_mappings),
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return BassManagementProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -508,12 +508,12 @@ def evaluate_bass_management(
             )
         )
 
-    probe = BassManagementEvaluation.model_construct(
+    probe = BassManagementEvaluation.model_construct(**canonicalize_payload(BassManagementEvaluation, dict(
         evaluation_id='',
         profile=profile,
         checks=tuple(checks),
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return BassManagementEvaluation(
         **probe.model_dump(

@@ -34,7 +34,7 @@ from .cad_external_admission import (
     build_external_asset_admission,
     external_asset_file,
 )
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 DIRECTIVITY_ADMISSION_AUTHORITY_VERSION = 'directivity-admission-1'
@@ -165,7 +165,7 @@ def build_directivity_admission(
     full_sphere_capable: bool = False,
     capability_note: str = '',
 ) -> DirectivityAdmissionRecord:
-    probe = DirectivityAdmissionRecord.model_construct(
+    probe = DirectivityAdmissionRecord.model_construct(**canonicalize_payload(DirectivityAdmissionRecord, dict(
         schema_version=1,
         authority_version=DIRECTIVITY_ADMISSION_AUTHORITY_VERSION,
         admission=admission,
@@ -176,7 +176,7 @@ def build_directivity_admission(
         measurement_class=measurement_class,
         capability_note=capability_note,
         semantic_sha256='',
-    )
+    )))
     return DirectivityAdmissionRecord(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

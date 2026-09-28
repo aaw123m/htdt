@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 
 
 ISOLATION_PACK_AUTHORITY_VERSION = 'isolation-assembly-1'
@@ -136,7 +136,7 @@ def build_isolation_assembly(
     specimen_area_m2: float | None = None,
     notes: str = '',
 ) -> IsolationAssembly:
-    probe = IsolationAssembly.model_construct(
+    probe = IsolationAssembly.model_construct(**canonicalize_payload(IsolationAssembly, dict(
         assembly_id=assembly_id,
         title=title,
         provenance_class=provenance_class,
@@ -153,7 +153,7 @@ def build_isolation_assembly(
         specimen_area_m2=specimen_area_m2,
         notes=notes,
         semantic_sha256='',
-    )
+    )))
     return IsolationAssembly(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

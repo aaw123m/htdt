@@ -25,7 +25,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -139,7 +139,7 @@ def build_av_playback_session(
     events: tuple[AVSessionEvent, ...] = (),
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> AVPlaybackSession:
-    probe = AVPlaybackSession.model_construct(
+    probe = AVPlaybackSession.model_construct(**canonicalize_payload(AVPlaybackSession, dict(
         session_id=session_id,
         version=version,
         signal_path_id=signal_path_id,
@@ -157,7 +157,7 @@ def build_av_playback_session(
         events=tuple(events),
         provenance=tuple(provenance),
         session_sha256='',
-    )
+    )))
     return AVPlaybackSession(
         **probe.model_dump(mode='python', exclude={'session_sha256'}),
         session_sha256=_hash(probe.semantic_payload()),

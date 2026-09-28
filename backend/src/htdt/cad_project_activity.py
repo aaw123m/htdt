@@ -41,7 +41,7 @@ from .workflow_navigation import (
     DestinationId,
     WorkspaceId,
 )
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 ACTIVITY_EVENT_KINDS: frozenset[str] = frozenset(
@@ -253,9 +253,9 @@ def _event(
         'deep_link': deep_link,
         'inherited': inherited,
     }
-    provisional = ProjectActivityEvent.model_construct(
+    provisional = ProjectActivityEvent.model_construct(**canonicalize_payload(ProjectActivityEvent, dict(
         **payload, event_sha256='0' * 64
-    )
+    )))
     return ProjectActivityEvent(
         **payload,
         event_sha256=_hash(provisional.semantic_payload()),

@@ -53,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -235,7 +235,7 @@ def build_projector_image_performance_profile(
     tone_mapping: ToneMappingState | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> ProjectorImagePerformanceProfile:
-    probe = ProjectorImagePerformanceProfile.model_construct(
+    probe = ProjectorImagePerformanceProfile.model_construct(**canonicalize_payload(ProjectorImagePerformanceProfile, dict(
         profile_id=profile_id,
         version=version,
         label=label,
@@ -253,7 +253,7 @@ def build_projector_image_performance_profile(
         tone_mapping=tone_mapping,
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return ProjectorImagePerformanceProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -318,7 +318,7 @@ def build_screen_optical_profile(
     acoustically_transparent: bool | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> ScreenOpticalProfile:
-    probe = ScreenOpticalProfile.model_construct(
+    probe = ScreenOpticalProfile.model_construct(**canonicalize_payload(ScreenOpticalProfile, dict(
         profile_id=profile_id,
         version=version,
         screen_material=screen_material,
@@ -327,7 +327,7 @@ def build_screen_optical_profile(
         acoustically_transparent=acoustically_transparent,
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return ScreenOpticalProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -462,7 +462,7 @@ def build_ambient_reflectance_profile(
     evidence_kind: AmbientReflectanceEvidenceKind | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> AmbientReflectanceProfile:
-    probe = AmbientReflectanceProfile.model_construct(
+    probe = AmbientReflectanceProfile.model_construct(**canonicalize_payload(AmbientReflectanceProfile, dict(
         profile_id=profile_id,
         version=version,
         surface_kind=surface_kind,
@@ -478,7 +478,7 @@ def build_ambient_reflectance_profile(
         evidence_kind=evidence_kind,
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return AmbientReflectanceProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -906,7 +906,7 @@ def estimate_projection_luminance(
     ):
         effective_contrast = effective_white / effective_black
 
-    probe = ExpectedLuminanceEstimate.model_construct(
+    probe = ExpectedLuminanceEstimate.model_construct(**canonicalize_payload(ExpectedLuminanceEstimate, dict(
         estimate_id='',
         surface_kind='projection',
         surface_entity_id=surface_entity_id,
@@ -962,7 +962,7 @@ def estimate_projection_luminance(
         ambient_model=ambient_model,
         input_notes=tuple(notes),
         estimate_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ExpectedLuminanceEstimate(
         **probe.model_dump(
@@ -1041,7 +1041,7 @@ def estimate_direct_view_luminance(
     ):
         effective_contrast = effective_white / effective_black
 
-    probe = ExpectedLuminanceEstimate.model_construct(
+    probe = ExpectedLuminanceEstimate.model_construct(**canonicalize_payload(ExpectedLuminanceEstimate, dict(
         estimate_id='',
         surface_kind='direct_view',
         surface_entity_id=surface_entity_id,
@@ -1083,7 +1083,7 @@ def estimate_direct_view_luminance(
         ambient_model=ambient_model,
         input_notes=tuple(notes),
         estimate_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ExpectedLuminanceEstimate(
         **probe.model_dump(
@@ -1368,14 +1368,14 @@ def evaluate_photometric_state(
             compatibility,
         ),
     )
-    probe = PhotometricEvaluation.model_construct(
+    probe = PhotometricEvaluation.model_construct(**canonicalize_payload(PhotometricEvaluation, dict(
         evaluation_id='',
         estimate=estimate,
         measurement=measurement,
         compatibility=compatibility,
         criteria=criteria,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return PhotometricEvaluation(
         **probe.model_dump(

@@ -21,7 +21,7 @@ from math import isfinite
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -218,7 +218,7 @@ class ActiveLowFrequencyControlPlan(BaseModel):
 def build_control_plan(**kwargs: Any) -> ActiveLowFrequencyControlPlan:
     """Assemble and seal an :class:`ActiveLowFrequencyControlPlan`."""
     payload = {'plan_sha256': '0' * 64, **kwargs}
-    provisional = ActiveLowFrequencyControlPlan.model_construct(**payload)
+    provisional = ActiveLowFrequencyControlPlan.model_construct(**canonicalize_payload(ActiveLowFrequencyControlPlan, dict(**payload)))
     payload['plan_sha256'] = _hash(provisional.identity_payload())
     return ActiveLowFrequencyControlPlan(**payload)
 

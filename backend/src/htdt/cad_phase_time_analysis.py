@@ -33,7 +33,7 @@ from math import cos, isfinite, pi, sin
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -426,7 +426,7 @@ class CrossoverAlignmentDiagnostic(BaseModel):
 def build_phase_time_spec(**kwargs: Any) -> PhaseTimeAnalysisSpec:
     """Assemble and seal a :class:`PhaseTimeAnalysisSpec`."""
     payload = {'spec_sha256': '0' * 64, **kwargs}
-    provisional = PhaseTimeAnalysisSpec.model_construct(**payload)
+    provisional = PhaseTimeAnalysisSpec.model_construct(**canonicalize_payload(PhaseTimeAnalysisSpec, dict(**payload)))
     payload['spec_sha256'] = _hash(provisional.identity_payload())
     return PhaseTimeAnalysisSpec(**payload)
 
@@ -434,7 +434,7 @@ def build_phase_time_spec(**kwargs: Any) -> PhaseTimeAnalysisSpec:
 def build_phase_time_result(**kwargs: Any) -> PhaseTimeAnalysisResult:
     """Assemble and seal a :class:`PhaseTimeAnalysisResult`."""
     payload = {'result_sha256': '0' * 64, **kwargs}
-    provisional = PhaseTimeAnalysisResult.model_construct(**payload)
+    provisional = PhaseTimeAnalysisResult.model_construct(**canonicalize_payload(PhaseTimeAnalysisResult, dict(**payload)))
     payload['result_sha256'] = _hash(provisional.identity_payload())
     return PhaseTimeAnalysisResult(**payload)
 

@@ -36,7 +36,7 @@ from .cad_scene import (
 )
 
 from .cad_schema import connect_sqlite, require_native_tables
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 PatternAnchorKind = Literal['seat', 'measurement_point', 'explicit_point']
@@ -290,10 +290,10 @@ def build_target_pattern(
         'supersedes_pattern_sha256': supersedes_pattern_sha256,
         'created_at': created_at,
     }
-    provisional = MeasurementTargetPattern.model_construct(
+    provisional = MeasurementTargetPattern.model_construct(**canonicalize_payload(MeasurementTargetPattern, dict(
         **payload,
         pattern_sha256='0' * 64,
-    )
+    )))
     return MeasurementTargetPattern(
         **payload,
         pattern_sha256=_hash(provisional.identity_payload()),

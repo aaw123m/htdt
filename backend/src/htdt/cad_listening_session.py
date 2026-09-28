@@ -22,7 +22,7 @@ import threading
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 LISTENING_SCHEMA_VERSION = 1
@@ -206,11 +206,11 @@ class ListeningSessionSpec(BaseModel):
 
 
 def build_listening_session_spec(**kwargs: Any) -> ListeningSessionSpec:
-    probe = ListeningSessionSpec.model_construct(
+    probe = ListeningSessionSpec.model_construct(**canonicalize_payload(ListeningSessionSpec, dict(
         spec_id='listening-session-spec:' + '0' * 64,
         semantic_sha256='0' * 64,
         **kwargs,
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return ListeningSessionSpec(
         spec_id=f'listening-session-spec:{digest}',

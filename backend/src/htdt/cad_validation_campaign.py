@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_objective_models import canonical_objective_json, canonical_objective_sha256
 from .clock import utc_now_iso as _utc_now
+from .canonical_json import canonicalize_payload
 
 
 CAMPAIGN_SCHEMA_VERSION = 1
@@ -369,12 +370,12 @@ def build_validation_campaign(
         'separation': tuple(separation),
         'required_applicability_codes': tuple(required_applicability_codes),
     }
-    provisional = CadValidationCampaign.model_construct(
+    provisional = CadValidationCampaign.model_construct(**canonicalize_payload(CadValidationCampaign, dict(
         campaign_id=str(uuid4()),
         created_at_utc=_utc_now(),
         campaign_sha256='0' * 64,
         **payload,
-    )
+    )))
     return CadValidationCampaign(
         **provisional.model_dump(exclude={'campaign_sha256'}),
         campaign_sha256=canonical_objective_sha256(provisional.identity_payload()),

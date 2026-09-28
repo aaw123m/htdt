@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus, _combine_status
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -148,7 +148,7 @@ def build_media_source_condition(
     limitations: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> MediaPlaybackSourceCondition:
-    probe = MediaPlaybackSourceCondition.model_construct(
+    probe = MediaPlaybackSourceCondition.model_construct(**canonicalize_payload(MediaPlaybackSourceCondition, dict(
         condition_id=condition_id,
         version=version,
         device_equipment_id=device_equipment_id,
@@ -163,7 +163,7 @@ def build_media_source_condition(
         limitations=limitations,
         provenance=tuple(provenance),
         condition_sha256='',
-    )
+    )))
     return MediaPlaybackSourceCondition(
         **probe.model_dump(mode='python', exclude={'condition_sha256'}),
         condition_sha256=_hash(probe.semantic_payload()),

@@ -29,7 +29,7 @@ from typing import Any, Literal, Protocol, Sequence
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 DEVICE_FRAMEWORK_SCHEMA_VERSION = 1
@@ -585,9 +585,9 @@ class FixtureDeviceAdapter:
             'detail': None if accepted else 'operator did not confirm',
             'operator_confirmed': operator_confirmed,
         }
-        provisional = DeviceActionAck.model_construct(
+        provisional = DeviceActionAck.model_construct(**canonicalize_payload(DeviceActionAck, dict(
             **payload, ack_sha256='0' * 64
-        )
+        )))
         return DeviceActionAck(
             **payload, ack_sha256=_hash(provisional.semantic_payload())
         )

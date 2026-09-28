@@ -35,7 +35,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -247,9 +247,9 @@ class SpatialImageQualityMeasurement(BaseModel):
 
 
 def build_projection_optical_condition(**kwargs) -> ProjectionOpticalCondition:
-    probe = ProjectionOpticalCondition.model_construct(
+    probe = ProjectionOpticalCondition.model_construct(**canonicalize_payload(ProjectionOpticalCondition, dict(
         condition_sha256='x' * 64, **kwargs
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return ProjectionOpticalCondition(
         **probe.model_dump(
@@ -262,13 +262,13 @@ def build_projection_optical_condition(**kwargs) -> ProjectionOpticalCondition:
 def build_spatial_image_quality_measurement(
     *, condition: ProjectionOpticalCondition, **kwargs
 ) -> SpatialImageQualityMeasurement:
-    probe = SpatialImageQualityMeasurement.model_construct(
+    probe = SpatialImageQualityMeasurement.model_construct(**canonicalize_payload(SpatialImageQualityMeasurement, dict(
         condition_id=condition.condition_id,
         condition_version=condition.version,
         condition_sha256=condition.condition_sha256,
         measurement_sha256='x' * 64,
         **kwargs,
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return SpatialImageQualityMeasurement(
         **probe.model_dump(

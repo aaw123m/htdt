@@ -46,7 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -271,7 +271,7 @@ def build_source_usable_output_profile(
     parser_id: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> SourceUsableOutputProfile:
-    probe = SourceUsableOutputProfile.model_construct(
+    probe = SourceUsableOutputProfile.model_construct(**canonicalize_payload(SourceUsableOutputProfile, dict(
         profile_id=profile_id,
         version=version,
         equipment_definition_id=equipment_definition_id,
@@ -294,7 +294,7 @@ def build_source_usable_output_profile(
         parser_id=parser_id,
         provenance=tuple(provenance),
         profile_sha256='',
-    )
+    )))
     return SourceUsableOutputProfile(
         **probe.model_dump(mode='python', exclude={'profile_sha256'}),
         profile_sha256=_hash(probe.semantic_payload()),
@@ -762,7 +762,7 @@ def evaluate_headroom(
     else:
         reason = 'no usable-output basis available'
 
-    probe = HeadroomEvaluation.model_construct(
+    probe = HeadroomEvaluation.model_construct(**canonicalize_payload(HeadroomEvaluation, dict(
         evaluation_id='',
         profile_id=profile.profile_id if profile else None,
         profile_sha256=profile.profile_sha256 if profile else None,
@@ -788,7 +788,7 @@ def evaluate_headroom(
         status=status,
         status_reason=reason,
         evaluation_sha256='',
-    )
+    )))
     digest = _hash(probe.semantic_payload())
     return HeadroomEvaluation(
         **probe.model_dump(

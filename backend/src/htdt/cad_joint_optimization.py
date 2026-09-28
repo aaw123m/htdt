@@ -31,7 +31,7 @@ from .optimization_objectives import (
     ObjectiveVector,
 )
 from .pareto import ParetoEmptyError, ParetoResult, pareto_front
-from .canonical_json import canonical_json as canonical_joint_json, canonical_sha256 as canonical_joint_sha256
+from .canonical_json import canonical_json as canonical_joint_json, canonical_sha256 as canonical_joint_sha256, canonicalize_payload
 
 
 JOINT_OPTIMIZATION_SCHEMA_VERSION = 1
@@ -636,10 +636,10 @@ def build_joint_optimization_spec(
         'candidate_budget': candidate_budget,
         'sampling_rule': JointCandidateSamplingRule(),
     }
-    provisional = JointOptimizationSpec.model_construct(
+    provisional = JointOptimizationSpec.model_construct(**canonicalize_payload(JointOptimizationSpec, dict(
         **payload,
         semantic_sha256='0' * 64,
-    )
+    )))
     return JointOptimizationSpec(
         **payload,
         semantic_sha256=canonical_joint_sha256(provisional.semantic_payload()),

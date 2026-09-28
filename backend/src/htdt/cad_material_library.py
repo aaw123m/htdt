@@ -31,7 +31,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 MATERIAL_LIBRARY_SCHEMA_VERSION = 1
@@ -290,9 +290,9 @@ def build_material_definition(
         'document_id': document_id,
         'created_at_utc': created_at_utc,
     }
-    provisional = MaterialDefinition.model_construct(
+    provisional = MaterialDefinition.model_construct(**canonicalize_payload(MaterialDefinition, dict(
         **payload, material_sha256='0' * 64
-    )
+    )))
     return MaterialDefinition(
         **payload, material_sha256=_hash(provisional.semantic_payload())
     )
@@ -341,9 +341,9 @@ def build_material_evidence(
         'limitations': tuple(limitations),
         'created_at_utc': created_at_utc,
     }
-    provisional = MaterialAcousticEvidence.model_construct(
+    provisional = MaterialAcousticEvidence.model_construct(**canonicalize_payload(MaterialAcousticEvidence, dict(
         **payload, evidence_sha256='0' * 64
-    )
+    )))
     return MaterialAcousticEvidence(
         **payload, evidence_sha256=_hash(provisional.semantic_payload())
     )

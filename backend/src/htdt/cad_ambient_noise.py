@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_schema import connect_sqlite, require_native_tables
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -479,10 +479,10 @@ def build_ambient_noise_profile(
         'imported_at': imported_at or captured_at,
         'provenance_json': provenance_json,
     }
-    provisional = AmbientNoiseProfile.model_construct(
+    provisional = AmbientNoiseProfile.model_construct(**canonicalize_payload(AmbientNoiseProfile, dict(
         **payload,
         profile_sha256='0' * 64,
-    )
+    )))
     return AmbientNoiseProfile(
         **payload,
         profile_sha256=_hash(provisional.identity_payload()),
@@ -507,10 +507,10 @@ def build_ambient_noise_criterion(
         'limit_level_db': tuple(limit_level_db),
         'requires_absolute_spl': requires_absolute_spl,
     }
-    provisional = AmbientNoiseCriterion.model_construct(
+    provisional = AmbientNoiseCriterion.model_construct(**canonicalize_payload(AmbientNoiseCriterion, dict(
         **payload,
         criterion_sha256='0' * 64,
-    )
+    )))
     return AmbientNoiseCriterion(
         **payload,
         criterion_sha256=_hash(provisional.identity_payload()),
@@ -878,11 +878,11 @@ def compare_ambient_profiles(
         'condition_b': condition_b,
         'created_at': created_at,
     }
-    provisional = AmbientNoiseComparison.model_construct(
+    provisional = AmbientNoiseComparison.model_construct(**canonicalize_payload(AmbientNoiseComparison, dict(
         **payload,
         comparison_id='',
         comparison_sha256='0' * 64,
-    )
+    )))
     digest = _hash(provisional.identity_payload())
     return AmbientNoiseComparison(
         **payload,

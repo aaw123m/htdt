@@ -27,7 +27,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 ACTION_ITEM_SCHEMA_VERSION = 1
@@ -328,9 +328,9 @@ def update_action_item(
         ),
         'archived': archived if archived is not None else item.archived,
     }
-    provisional = ProjectActionItem.model_construct(
+    provisional = ProjectActionItem.model_construct(**canonicalize_payload(ProjectActionItem, dict(
         **payload, action_sha256='0' * 64
-    )
+    )))
     return ProjectActionItem(
         **payload,
         action_sha256=_hash(provisional.semantic_payload()),

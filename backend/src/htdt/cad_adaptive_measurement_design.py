@@ -22,7 +22,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Position3
-from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -278,7 +278,7 @@ ADAPTIVE_MAXMIN_ALGORITHM_VERSION = 'htdt_adaptive_maxmin_v1'
 def build_adaptive_design_spec(**kwargs: Any) -> AdaptiveMeasurementDesignSpec:
     """Assemble and seal an :class:`AdaptiveMeasurementDesignSpec`."""
     payload = {'spec_sha256': '0' * 64, **kwargs}
-    provisional = AdaptiveMeasurementDesignSpec.model_construct(**payload)
+    provisional = AdaptiveMeasurementDesignSpec.model_construct(**canonicalize_payload(AdaptiveMeasurementDesignSpec, dict(**payload)))
     payload['spec_sha256'] = _hash(provisional.identity_payload())
     return AdaptiveMeasurementDesignSpec(**payload)
 
@@ -360,7 +360,9 @@ def propose_maxmin_positions(
 def _seal_proposal(
     model: type[AdaptiveMeasurementProposal], **payload: Any
 ) -> AdaptiveMeasurementProposal:
-    provisional = model.model_construct(proposal_sha256='0' * 64, **payload)
+    provisional = model.model_construct(
+        **canonicalize_payload(model, dict(proposal_sha256='0' * 64, **payload))
+    )
     return model(
         proposal_sha256=_hash(provisional.identity_payload()), **payload
     )

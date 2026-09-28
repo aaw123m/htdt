@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .xml_guard import contains_xml_doctype
+from .canonical_json import canonicalize_payload
 
 
 SPECTRAL_LIGHTING_AUTHORITY_VERSION = 'spectral-lighting-1'
@@ -136,7 +137,7 @@ def build_spectral_evidence(
     illuminance_lux: float | None = None,
     derived_from_spd: bool = False,
 ) -> SpectralEvidence:
-    probe = SpectralEvidence.model_construct(
+    probe = SpectralEvidence.model_construct(**canonicalize_payload(SpectralEvidence, dict(
         evidence_id=evidence_id,
         source_name=source_name,
         evidence_kind=evidence_kind,
@@ -147,7 +148,7 @@ def build_spectral_evidence(
         derived_from_spd=derived_from_spd,
         source_sha256=source_sha256,
         semantic_sha256='',
-    )
+    )))
     return SpectralEvidence(
         **probe.model_dump(mode='python', exclude={'semantic_sha256'}),
         semantic_sha256=_hash(probe.semantic_payload()),

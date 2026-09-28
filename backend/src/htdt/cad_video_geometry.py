@@ -23,7 +23,7 @@ from .cad_scene import (
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
 
 
 VIDEO_GEOMETRY_SCHEMA_VERSION = 1
@@ -490,11 +490,11 @@ def _build_evidence(**kwargs: Any) -> ProjectorSpecificationEvidence:
             key=lambda item: item.field,
         )
     )
-    probe = ProjectorSpecificationEvidence.model_construct(
+    probe = ProjectorSpecificationEvidence.model_construct(**canonicalize_payload(ProjectorSpecificationEvidence, dict(
         field_assertions=assertions,
         evidence_sha256='0' * 64,
         **{key: value for key, value in kwargs.items() if key != 'field_assertions'},
-    )
+    )))
     digest = _digest(probe.semantic_payload())
     return ProjectorSpecificationEvidence(
         field_assertions=assertions,

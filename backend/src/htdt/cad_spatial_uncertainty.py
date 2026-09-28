@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_equipment import EquipmentDataProvenance
 from .cad_video_geometry import EvaluationStatus
-from .canonical_json import canonical_sha256 as _hash
+from .canonical_json import canonical_sha256 as _hash, canonicalize_payload
 
 
 
@@ -161,7 +161,7 @@ def build_spatial_observation_uncertainty(
     applicability: str | None = None,
     provenance: tuple[EquipmentDataProvenance, ...] = (),
 ) -> SpatialObservationUncertainty:
-    probe = SpatialObservationUncertainty.model_construct(
+    probe = SpatialObservationUncertainty.model_construct(**canonicalize_payload(SpatialObservationUncertainty, dict(
         uncertainty_id=uncertainty_id,
         version=version,
         observation_ref_kind=observation_ref_kind,
@@ -174,7 +174,7 @@ def build_spatial_observation_uncertainty(
         applicability=applicability,
         provenance=tuple(provenance),
         uncertainty_sha256='',
-    )
+    )))
     return SpatialObservationUncertainty(
         **probe.model_dump(mode='python', exclude={'uncertainty_sha256'}),
         uncertainty_sha256=_hash(probe.semantic_payload()),
