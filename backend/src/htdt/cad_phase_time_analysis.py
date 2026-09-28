@@ -29,7 +29,7 @@ authority — ``absolute_timing_state`` drops to ``removed``.
 
 from __future__ import annotations
 
-from math import atan2, cos, isfinite, pi, sin
+from math import cos, isfinite, pi, sin
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -155,10 +155,18 @@ def compute_minimum_phase_deg(
     """Minimum-phase response for a magnitude response (``htdt_min_phase_v1``).
 
     Reference implementation: real cepstrum of the linear magnitude,
-    minimum-phase liftering (ceps[n>0] * 2), DFT back, then the phase of
-    the resulting transfer function — unwrapped for comparability. The
-    honest limitations (frequency grid not uniformly spaced is rejected,
-    finite-span tails) are enforced by the spec validators, not hidden.
+    minimum-phase liftering (ceps[n>0] * 2), DFT back. The liftered
+    spectrum is the complex log-spectrum ``log H_min = log|H| + j·phi``,
+    so the minimum phase is its **imaginary part** — never
+    ``atan2(imag, real)``, which is ``arg(log H_min)`` and conflates the
+    log-magnitude real part into the phase. The result is continuous
+    phase in radians; the final unwrap is retained for safety. The
+    mirrored even extension implements a flat tail policy: a response
+    still rolling off at the grid edge carries a truncation bias that
+    grows toward that edge — an inherent method limitation, not noise.
+    The honest limitations (frequency grid not uniformly spaced is
+    rejected, finite-span tails) are enforced by the spec validators,
+    not hidden.
     """
     count = len(level_db)
     if len(frequency_hz) != count:
@@ -206,7 +214,7 @@ def compute_minimum_phase_deg(
     liftered.append(cepstrum[size // 2])
     liftered += [0.0] * (size - len(liftered))
     spectrum = _dft(tuple(liftered))
-    min_phase = [atan2(spectrum[i].imag, spectrum[i].real) for i in range(count)]
+    min_phase = [spectrum[i].imag for i in range(count)]
     return unwrap_phase_deg(tuple(p * 180.0 / pi for p in min_phase))
 
 
@@ -486,6 +494,17 @@ def analyze_minimum_excess_phase(
         raise ValueError(
             'native min-phase analysis requires htdt provider semantics; '
             'producer-derived results keep the producer algorithm identity'
+        )
+    # The cepstral mirror is a flat tail extension. A spec declaring a
+    # different HF tail policy ('linear_slope', a producer-computed tail)
+    # would get flat-extension semantics silently — fail closed instead.
+    # LF extension is moot: the estimator already requires a DC-reaching
+    # grid, and 'none'/'flat'/'unknown' are all consistent with the
+    # mirrored extension on a full-band axis.
+    if spec.hf_extension in ('linear_slope', 'producer'):
+        raise ValueError(
+            f'htdt_min_phase_v1 implements a flat tail extension; '
+            f'hf_extension={spec.hf_extension!r} requires a producer result'
         )
     min_phase = compute_minimum_phase_deg(frequency_hz, level_db)
     unwrapped_measured = unwrap_phase_deg(measured_phase_deg)

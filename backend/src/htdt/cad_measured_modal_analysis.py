@@ -328,13 +328,19 @@ def reconstruct_mode_shape(
     mode: MeasuredMode,
     *,
     evaluation_positions: tuple[Position3, ...] | None = None,
+    evaluation_position_ids: tuple[str, ...] | None = None,
 ) -> ReconstructedModeShape:
     """Normalized spatial mode shape from per-position residues.
 
     The shape is reconstructed evidence: per-position residue amplitudes
-    normalized by their maximum, evaluated at the measured positions (or
-    an explicit evaluation set). It is never labelled as measured at
-    unmeasured locations.
+    normalized by their maximum, evaluated at declared positions. It is
+    never labelled as measured at unmeasured locations.
+
+    Residues are keyed by ``position_id`` while ``Position3`` carries no
+    identity, so ``evaluation_position_ids`` must be supplied in the same
+    order as ``evaluation_positions`` and must cover exactly the residue
+    position set — otherwise an ordering slip would silently attribute a
+    residue measured at one position to another.
     """
     if not mode.residues:
         raise ValueError('mode shape requires per-position residues')
@@ -342,12 +348,27 @@ def reconstruct_mode_shape(
     peak = max(amplitudes)
     if peak <= 0:
         raise ValueError('cannot normalize a zero-amplitude mode shape')
-    normalized = tuple(amplitude / peak for amplitude in amplitudes)
-    if evaluation_positions is None:
+    if evaluation_positions is None or evaluation_position_ids is None:
         raise ValueError(
-            'evaluation positions must be explicit — a reconstructed shape '
-            'may only be quoted at declared positions'
+            'evaluation positions and ids must be explicit — a '
+            'reconstructed shape may only be quoted at declared positions'
         )
+    if len(evaluation_positions) != len(evaluation_position_ids):
+        raise ValueError(
+            'evaluation position ids must align 1:1 with positions'
+        )
+    if len(set(evaluation_position_ids)) != len(evaluation_position_ids):
+        raise ValueError('evaluation position ids must be unique')
+    normalized_by_id = {
+        residue.position_id: residue.amplitude / peak
+        for residue in mode.residues
+    }
+    if set(evaluation_position_ids) != set(normalized_by_id):
+        raise ValueError(
+            'evaluation positions must be exactly the residue positions — '
+            'a residue may only be quoted at its own measured position'
+        )
+    normalized = tuple(normalized_by_id[pid] for pid in evaluation_position_ids)
     return ReconstructedModeShape(
         mode_id=mode.mode_id,
         kind='reconstructed',

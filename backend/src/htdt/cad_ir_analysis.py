@@ -362,6 +362,8 @@ def run_ir_analysis(
     samples = np.asarray(ir_samples, dtype=np.float64)
     if samples.size < 4:
         raise ValueError('IR evidence requires at least four samples')
+    if not np.all(np.isfinite(samples)):
+        raise ValueError('IR samples must be finite')
     fs = float(spec.sample_rate_hz)
     t0 = spec.time_zero_sample
     if t0 >= samples.size:
@@ -371,6 +373,11 @@ def run_ir_analysis(
         samples.size, int(round(spec.window_end_s * fs))
     )
     windowed = samples[start:stop]
+    if windowed.size == 0:
+        raise ValueError(
+            'analysis window selects no IR evidence — window_start_s/'
+            'window_end_s rounded to an empty sample range'
+        )
     if spec.band_center_hz is not None:
         windowed = _fft_bandpass(windowed, fs, spec.band_center_hz, spec.band_fraction or 'octave')
 
@@ -388,8 +395,16 @@ def run_ir_analysis(
         )
 
     times = np.arange(windowed.size) / fs
-    etc_db = _hilbert_envelope_db(windowed)
-    etc_db = np.maximum(etc_db, -120.0)
+    # Zero-energy evidence: the ETC/Schroeder normalizations divide by a
+    # zero peak/total and produce NaN, which then crashes canonical
+    # sealing (allow_nan=False). Fail closed instead: traces sit at the
+    # clamp floors and every metric degrades to unknown.
+    silent = not bool(np.any(windowed))
+    if silent:
+        etc_db = np.full(windowed.size, -120.0)
+        warnings.append('IR evidence is silent (zero energy) — metrics are unknown')
+    else:
+        etc_db = np.maximum(_hilbert_envelope_db(windowed), -120.0)
 
     # Deterministic early-peak markers: local maxima of the ETC above a
     # fixed -20 dB prominence floor after the direct-arrival sample.
@@ -413,15 +428,17 @@ def run_ir_analysis(
             if len(markers) >= 8:
                 break
 
-    decay_db = _schroeder_db(windowed)
-    decay_db = np.maximum(decay_db, -140.0)
+    if silent:
+        decay_db = np.full(windowed.size, -140.0)
+    else:
+        decay_db = np.maximum(_schroeder_db(windowed), -140.0)
     truncated = bool(spec.window_end_s is not None and decay_db[-1] > -40.0)
     if truncated:
         warnings.append('IR window truncates before -40 dB of decay')
 
     if spec.noise_floor_method == 'declared':
         noise_floor = spec.declared_noise_floor_db
-    elif spec.noise_floor_method == 'tail_median':
+    elif spec.noise_floor_method == 'tail_median' and not silent:
         tail = decay_db[max(1, int(decay_db.size * 0.9)) :]
         noise_floor = float(np.median(tail))
     else:

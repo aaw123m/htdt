@@ -66,17 +66,46 @@ def test_group_delay_requires_samples():
 
 
 def test_min_phase_matches_min_phase_system():
-    # One-pole LP over a DC-to-Nyquist grid: its true phase is minimum
-    # phase, so the homomorphic derivation must track the analytic phase.
-    freqs = tuple(float(f) for f in range(0, 10001, 10))
-    fc = 100.0
-    mag_db = tuple(-10.0 * __import__('math').log10(1 + (f / fc) ** 2) for f in freqs)
-    true_phase = tuple(-__import__('math').degrees(__import__('math').atan2(f, fc)) for f in freqs)
-    derived = compute_minimum_phase_deg(freqs, mag_db)
-    n = len(freqs)
-    offset = derived[0] - true_phase[0]
-    assert abs((derived[n // 2] - offset) - true_phase[n // 2]) < 15.0
-    assert abs((derived[8 * n // 10] - offset) - true_phase[8 * n // 10]) < 5.0
+    # Discrete-time minimum-phase reference: H(z) = (1 + a z^-1)(1 - b z^-1)
+    # has both zeros inside the unit circle, so its analytic phase is the
+    # exact minimum phase for the sampled magnitude. The mirrored even
+    # extension used by the cepstral lifter is then exact (cepstral tail
+    # truncation scales like a^(2N) << machine precision for |a| < 1 and
+    # N ~ 257), unlike a continuous-time fixture where a still-rolling-off
+    # band edge carries inherent flat-extension truncation bias.
+    import math
+
+    a, b = 0.8, 0.55
+    fnyq = 24000.0
+    n = 257
+    freqs = tuple(i * fnyq / (n - 1) for i in range(n))
+
+    def mag_db(f: float) -> float:
+        w = math.pi * f / fnyq
+        m1 = 1.0 + 2.0 * a * math.cos(w) + a * a
+        m2 = 1.0 - 2.0 * b * math.cos(w) + b * b
+        return 10.0 * math.log10(m1) + 10.0 * math.log10(m2)
+
+    def analytic_phase_deg(f: float) -> float:
+        w = math.pi * f / fnyq
+        return math.degrees(
+            -math.atan2(a * math.sin(w), 1.0 + a * math.cos(w))
+            + math.atan2(b * math.sin(w), 1.0 - b * math.cos(w))
+        )
+
+    derived = compute_minimum_phase_deg(freqs, tuple(mag_db(f) for f in freqs))
+    worst = max(
+        abs(derived[i] - analytic_phase_deg(freqs[i])) for i in range(n)
+    )
+    assert worst < 0.05
+
+
+def test_min_phase_flat_response_is_zero():
+    # A flat magnitude must return ~0 deg everywhere — the round-9 atan2
+    # bug reported +/-180 deg for this input.
+    freqs = tuple(float(f) for f in range(0, 1001, 10))
+    derived = compute_minimum_phase_deg(freqs, (-3.0,) * len(freqs))
+    assert max(abs(v) for v in derived) < 0.05
 
 
 def test_min_phase_rejects_nonuniform_grid():
@@ -154,6 +183,26 @@ def test_min_excess_rejects_subband_axis():
             measured_phase_deg=(0.0,) * 5,
             created_at_utc='2026-09-25T00:02:30+00:00',
         )
+
+
+def test_min_excess_rejects_nonflat_hf_extension():
+    # htdt_min_phase_v1 implements a flat tail extension; a spec that
+    # declares linear_slope or producer tails must fail closed rather
+    # than silently ship flat-extension semantics.
+    freqs = tuple(float(f) for f in range(0, 1001, 10))
+    for hf_extension in ('linear_slope', 'producer'):
+        spec = _spec(hf_extension=hf_extension)
+        with pytest.raises(ValueError, match='flat tail extension'):
+            analyze_minimum_excess_phase(
+                spec,
+                result_id=f'pta-hf-{hf_extension}',
+                dataset_id='ds-1',
+                dataset_sha256=_H,
+                frequency_hz=freqs,
+                level_db=(-3.0,) * len(freqs),
+                measured_phase_deg=(0.0,) * len(freqs),
+                created_at_utc='2026-09-25T00:02:40+00:00',
+            )
 
 
 def test_producer_identity_not_relabeled():
