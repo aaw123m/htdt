@@ -838,6 +838,12 @@ class OptimizationWorkflowWorkspace(QWidget):
                 "search_candidate_filter_field",
             )
         )
+        base.addWidget(
+            _required(
+                self.search_candidate_filter_note,
+                "search_candidate_filter_note",
+            )
+        )
         base.addWidget(_required(self.search_candidate_tree, "search_candidate_tree"), 1)
 
         paging = QHBoxLayout()
@@ -875,6 +881,12 @@ class OptimizationWorkflowWorkspace(QWidget):
             _required(
                 self.extended_candidate_filter_field,
                 "extended_candidate_filter_field",
+            )
+        )
+        extended.addWidget(
+            _required(
+                self.extended_candidate_filter_note,
+                "extended_candidate_filter_note",
             )
         )
         extended.addWidget(

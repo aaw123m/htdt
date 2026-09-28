@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from threading import Event
@@ -82,18 +83,32 @@ from .native_worker import WORKER_CANCELLED
 from .user_facing_error import operation_error_message
 
 
+_TRAILING_NUMBER = re.compile(r'(\d+)\s*$')
+
+
+def _trailing_number(text: str) -> int | None:
+    match = _TRAILING_NUMBER.search(text)
+    return None if match is None else int(match.group(1))
+
+
 class CandidateTreeItem(QTreeWidgetItem):
-    """Candidate row that sorts the 番号 column numerically (#1088)."""
+    """Candidate row that sorts the 候補/番号 columns numerically (#1088).
+
+    Every column compares on its own text — calling ``super().__lt__`` here
+    re-enters this override under PySide6 and recurses forever.
+    """
 
     def __lt__(self, other: QTreeWidgetItem) -> bool:
         tree = self.treeWidget()
         column = tree.sortColumn() if tree is not None else 0
-        if column == 1:
-            try:
-                return int(self.text(1)) < int(other.text(1))
-            except ValueError:
-                return self.text(1) < other.text(1)
-        return super().__lt__(other)
+        mine = self.text(column)
+        theirs = other.text(column)
+        if column in (0, 1):
+            my_number = _trailing_number(mine)
+            their_number = _trailing_number(theirs)
+            if my_number is not None and their_number is not None:
+                return my_number < their_number
+        return mine < theirs
 
 
 def _candidate_matches_filter(item: QTreeWidgetItem, needle: str) -> bool:
@@ -103,6 +118,39 @@ def _candidate_matches_filter(item: QTreeWidgetItem, needle: str) -> bool:
         item.text(column) for column in range(item.columnCount())
     ).casefold()
     return needle in haystack
+
+
+def _update_candidate_filter_note(
+    note: QLabel | None,
+    needle: str,
+    visible: int,
+    page: CadCandidateSetPage | CadExtendedCandidateSetPage | None,
+) -> None:
+    """Disclose that filtering applies to the loaded page only.
+
+    Candidate trees are paged (``search_page_limit``); a filter can only
+    inspect the page currently in memory, so the count/zero state must say
+    'このページ' rather than implying the whole set was searched.
+    """
+    if note is None:
+        return
+    if not needle:
+        note.hide()
+        return
+    multi_page = (
+        page is not None
+        and page.feasible_candidate_count > len(page.candidates)
+    )
+    if visible:
+        text = f'このページ内で {visible} 件一致'
+        if multi_page:
+            text += ' · 他のページの候補は対象外です'
+    else:
+        text = 'このページに一致する候補はありません'
+        if multi_page:
+            text += ' · 他のページにある可能性があります'
+    note.setText(text)
+    note.show()
 
 
 def candidate_cloud_points(
@@ -899,10 +947,20 @@ class SearchControllerMixin:
         needle = (
             field.text().strip().casefold() if field is not None else ''
         )
+        visible = 0
         with QSignalBlocker(tree):
             for index in range(tree.topLevelItemCount()):
                 item = tree.topLevelItem(index)
-                item.setHidden(not _candidate_matches_filter(item, needle))
+                match = _candidate_matches_filter(item, needle)
+                item.setHidden(not match)
+                if match:
+                    visible += 1
+        _update_candidate_filter_note(
+            getattr(self, 'search_candidate_filter_note', None),
+            needle,
+            visible,
+            self.search_candidate_page,
+        )
         self._refresh_search_binding_state()
 
     def _search_candidate_selected(self) -> None:
