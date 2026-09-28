@@ -289,8 +289,13 @@ def test_dataset_listing_failure_reports_mapped_message(tmp_path: Path) -> None:
         def __getattr__(self, name: str):
             return getattr(self._inner, name)
 
-        def dataset_for_measurement(self, *_args: object) -> object:
-            raise RewParseError('corrupt dataset blob')
+        def datasets_for_document(
+            self, *args: object, **_kwargs: object
+        ) -> object:
+            return {}, {
+                m.measurement_id: RewParseError('corrupt dataset blob')
+                for m in self._inner.list_measurements(args[0])
+            }
 
     controller.measurement_repository = _BrokenRepo(real_repo)  # type: ignore[assignment]
     views = controller.measurement_views()

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -75,6 +75,7 @@ from .measurement_instrument_onboarding import (
 from .measurement_workflow import (
     AcquisitionCapture,
     AssignmentCorrection,
+    BatchImportItem,
     MeasurementAssignment,
     MeasurementView,
     MeasurementWorkflowController,
@@ -420,6 +421,9 @@ def _page(title: str, subtitle: str) -> tuple[QScrollArea, QWidget, QVBoxLayout]
 
 
 class MeasurementPageWorkspace(QWidget):
+    # Emitted from the batch-commit worker thread; Qt queues it to the UI
+    # thread, so the notice can show live progress without polling.
+    batch_commit_progress = Signal(int, int)
     """UX130 document-like measurement workspace mounted directly by the shell."""
 
     def __init__(
@@ -431,6 +435,7 @@ class MeasurementPageWorkspace(QWidget):
         self.controller = controller
         self.current_context_id = "import"
         self._job_pool = NativeWorkerPool(self)
+        self.batch_commit_progress.connect(self._on_batch_commit_progress)
         self._job_handlers: dict[
             str,
             tuple[Callable[[object], None], str, Callable[[], None] | None],
@@ -438,6 +443,7 @@ class MeasurementPageWorkspace(QWidget):
         self._disposed = False
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
+        self._commit_job_key: str | None = None
         self._last_comparison: CadMeasurementComparison | None = None
         self._saved_comparisons: tuple[CadMeasurementComparison, ...] = ()
         self._retake_source_id: str | None = None
@@ -534,12 +540,18 @@ class MeasurementPageWorkspace(QWidget):
         return False
 
     def refresh(self) -> None:
+        # One authoritative listing per refresh: ``measurement_views``
+        # re-verifies every bound dataset (asset hash + importer replay), so
+        # the batch labels, campaign combo, quality table and comparison
+        # pickers must share the result rather than each paying the pass.
+        views = self.controller.measurement_views()
+        batch_items = self.controller.batch_items()
         self._refresh_pending()
-        self._refresh_batch()
-        self._refresh_assignment_options()
-        self._refresh_campaign()
-        self._refresh_quality()
-        self._refresh_comparison_choices()
+        self._refresh_batch(batch_items, views)
+        self._refresh_assignment_options(batch_items)
+        self._refresh_campaign(views)
+        self._refresh_quality(views)
+        self._refresh_comparison_choices(views)
         self._refresh_onboarding()
 
     def import_rew_text_dialog(self) -> None:
@@ -674,9 +686,12 @@ class MeasurementPageWorkspace(QWidget):
                 return row
         return -1
 
-    def _refresh_batch(self) -> None:
-        items = self.controller.batch_items()
-        measurement_labels = self._measurement_display_labels()
+    def _refresh_batch(
+        self,
+        items: tuple[BatchImportItem, ...],
+        views: tuple[MeasurementView, ...],
+    ) -> None:
+        measurement_labels = self._measurement_display_labels(views)
         self.batch_table.setRowCount(len(items))
         for row_index, item in enumerate(items):
             band = _format_band(item.frequency_band_hz)
@@ -811,6 +826,10 @@ class MeasurementPageWorkspace(QWidget):
         self.batch_clear_button = QPushButton("保存済みをクリア", batch_card)
         self.batch_clear_button.clicked.connect(self._clear_committed_batch)
         batch_buttons.addWidget(self.batch_clear_button)
+        self.batch_cancel_button = QPushButton("保存をキャンセル", batch_card)
+        self.batch_cancel_button.clicked.connect(self._cancel_batch_commit)
+        self.batch_cancel_button.setVisible(False)
+        batch_buttons.addWidget(self.batch_cancel_button)
         batch_buttons.addStretch(1)
         batch_layout.addLayout(batch_buttons)
 
@@ -1119,11 +1138,14 @@ class MeasurementPageWorkspace(QWidget):
                 return index
         return -1
 
-    def _refresh_assignment_options(self) -> None:
+    def _refresh_assignment_options(
+        self,
+        items: tuple[BatchImportItem, ...],
+    ) -> None:
         pending = self.controller.pending_import
         batch_items = [
             item
-            for item in self.controller.batch_items()
+            for item in items
             if item.status in ("staged", "failed") and item.error is None
         ]
         batch_open = [item for item in batch_items if item.status == "staged"]
@@ -1700,7 +1722,16 @@ class MeasurementPageWorkspace(QWidget):
         ref: object,
         assignment: MeasurementAssignment,
     ) -> None:
-        """Apply this assignment to batch items and save them explicitly (#446)."""
+        """Apply this assignment to batch items and save them explicitly (#446).
+
+        The commit runs on the worker pool: hundreds of staged files each pay
+        a write-time evidence verification, which would freeze the UI thread
+        for tens of seconds. Progress arrives via ``batch_commit_progress``;
+        cancellation is cooperative (each finished item's commit stays).
+        """
+        if self._commit_job_key is not None:
+            self._set_notice("保存処理が進行中です。", SemanticState.WARNING)
+            return
         try:
             if kind == "batch_all":
                 applied = self.controller.apply_batch_assignment(assignment)
@@ -1710,13 +1741,55 @@ class MeasurementPageWorkspace(QWidget):
                         SemanticState.WARNING,
                     )
                     return
-                outcomes = self.controller.commit_batch()
+                item_ids: list[str] | None = None
             else:
                 self.controller.set_batch_item_assignment(str(ref), assignment)
-                outcomes = self.controller.commit_batch([str(ref)])
+                item_ids = [str(ref)]
         except Exception as exc:
             self._operation_error_notice("バッチを保存できませんでした", exc)
             return
+        self._set_batch_committing(True)
+        self._set_notice("バッチを保存しています…", None)
+        key = uuid4().hex
+        self._commit_job_key = key
+        self._job_handlers[key] = (
+            self._batch_commit_finished,
+            "バッチを保存できませんでした",
+            None,
+        )
+        self._job_pool.start(
+            key,
+            lambda cancel_event: self.controller.commit_batch(
+                item_ids,
+                cancel_event=cancel_event,
+                progress=self.batch_commit_progress.emit,
+            ),
+            self._job_completed,
+        )
+
+    def _set_batch_committing(self, running: bool) -> None:
+        self.batch_add_button.setEnabled(not running)
+        self.batch_attach_button.setEnabled(not running)
+        self.batch_clear_button.setEnabled(not running)
+        self.batch_cancel_button.setVisible(running)
+        self.batch_cancel_button.setEnabled(running)
+        if running:
+            # The assignment save path launches the commit — block a second
+            # one while this job is live (refresh restores the right state).
+            self.assignment_save_button.setEnabled(False)
+
+    def _cancel_batch_commit(self) -> None:
+        key = self._commit_job_key
+        if key is not None:
+            self._set_notice("保存をキャンセルしています…", None)
+            self._job_pool.cancel(key)
+
+    @Slot(int, int)
+    def _on_batch_commit_progress(self, done: int, total: int) -> None:
+        self._set_notice(f"バッチを保存しています… {done}/{total}", None)
+
+    def _batch_commit_finished(self, value: object) -> None:
+        outcomes = value if isinstance(value, tuple) else ()
         committed = sum(1 for o in outcomes if o.outcome == "committed")
         reused = sum(1 for o in outcomes if o.outcome == "reused")
         failed = sum(1 for o in outcomes if o.outcome == "failed")
@@ -1732,7 +1805,6 @@ class MeasurementPageWorkspace(QWidget):
             "、".join(parts) + "。失敗・未保存の項目は一覧に残っています。",
             SemanticState.SUCCESS if not failed else SemanticState.WARNING,
         )
-        self.refresh()
 
     def _commit_correction(
         self,
@@ -2016,21 +2088,26 @@ class MeasurementPageWorkspace(QWidget):
         except Exception:
             return {}
 
-    def _measurement_display_labels(self) -> dict[str, str]:
+    def _measurement_display_labels(
+        self,
+        views: tuple[MeasurementView, ...],
+    ) -> dict[str, str]:
         """measurement_id -> human label for the campaign table (#578)."""
 
         labels: dict[str, str] = {}
-        try:
-            for row in self.controller.measurement_views():
-                labels[row.measurement_id] = (
-                    f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
-                    f"{_evidence_label(row.evidence_type)}"
-                )
-        except Exception:
-            return {}
+        for row in views:
+            labels[row.measurement_id] = (
+                f"{_channel_role_label(row.channel_role)} · {row.target_name} · "
+                f"{_evidence_label(row.evidence_type)}"
+            )
         return labels
 
-    def _refresh_campaign(self) -> None:
+    def _refresh_campaign(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        if views is None:
+            views = self.controller.measurement_views()
         plans = self.controller.runner_plans()
         plan_created = self.controller.runner_plan_created_at_utc()
         previous = self.campaign_plan_combo.currentData()
@@ -2054,9 +2131,9 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_campaign_builder()
 
         names = self._campaign_target_names()
-        measurement_labels = self._measurement_display_labels()
+        measurement_labels = self._measurement_display_labels(views)
         self.campaign_measurement_combo.clear()
-        for row in self.controller.measurement_views():
+        for row in views:
             if row.dataset_id is None:
                 continue
             self.campaign_measurement_combo.addItem(
@@ -2691,13 +2768,18 @@ class MeasurementPageWorkspace(QWidget):
         layout.addStretch(1)
         self.pages.addWidget(page)
 
-    def _refresh_quality(self) -> None:
+    def _refresh_quality(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        if views is None:
+            views = self.controller.measurement_views()
+        self._quality_views = views
         selected_id = None
         selected_items = self.quality_table.selectedItems()
         if selected_items:
             selected_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
 
-        views = self.controller.measurement_views()
         self._quality_views = views
         self.quality_table.setRowCount(len(views))
         for row_index, row in enumerate(views):
@@ -3672,7 +3754,10 @@ class MeasurementPageWorkspace(QWidget):
 
     def _comparison_candidate_groups(
         self,
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> tuple[tuple[MeasurementView, ...], tuple[MeasurementView, ...]]:
+        if views is None:
+            views = self.controller.measurement_views()
         """A/B candidate lists for the selected preset (#483).
 
         ``any`` exposes every normally-eligible dataset on both sides;
@@ -3681,14 +3766,20 @@ class MeasurementPageWorkspace(QWidget):
         datasets on each side (seat-to-seat / before-after / retake).
         """
         preset = str(self.preset_combo.currentData())
-        all_candidates = self.controller.comparison_candidates()
+        all_candidates = self.controller.comparison_candidates(views=views)
         if preset == "measured_vs_predicted":
             return (
-                self.controller.comparison_candidates("measured"),
-                self.controller.comparison_candidates("predicted"),
+                self.controller.comparison_candidates(
+                    "measured", views=views
+                ),
+                self.controller.comparison_candidates(
+                    "predicted", views=views
+                ),
             )
         if preset == "measured_pair":
-            measured = self.controller.comparison_candidates("measured")
+            measured = self.controller.comparison_candidates(
+                "measured", views=views
+            )
             return measured, measured
         if preset == "retake_lineage":
             lineage = tuple(
@@ -3700,8 +3791,13 @@ class MeasurementPageWorkspace(QWidget):
             return lineage, lineage
         return all_candidates, all_candidates
 
-    def _refresh_comparison_choices(self) -> None:
-        candidates_a, candidates_b = self._comparison_candidate_groups()
+    def _refresh_comparison_choices(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        if views is None:
+            views = self.controller.measurement_views()
+        candidates_a, candidates_b = self._comparison_candidate_groups(views)
         self._fill_dataset_combo(self.measured_combo, candidates_a, "A")
         self._fill_dataset_combo(
             self.predicted_combo,
@@ -3735,7 +3831,7 @@ class MeasurementPageWorkspace(QWidget):
             )
             set_semantic_state(self.comparison_availability, SemanticState.UNSUPPORTED)
 
-        self._preview_comparison_pair()
+        self._preview_comparison_pair(views)
         try:
             comparisons = self.controller.saved_comparisons()
         except Exception as exc:
@@ -3953,7 +4049,12 @@ class MeasurementPageWorkspace(QWidget):
             )
         self._update_comparison_cursor_readout()
 
-    def _preview_comparison_pair(self) -> None:
+    def _preview_comparison_pair(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> None:
+        if views is None:
+            views = self.controller.measurement_views()
         self.comparison_plot.clear()
         # clear() drops non-curve items — re-seat the shared probe (#579).
         self.comparison_plot.addItem(
@@ -3970,7 +4071,7 @@ class MeasurementPageWorkspace(QWidget):
         # and must still draw dashed (#579 §1).
         semantics_by_dataset = {
             row.dataset_id: _trace_semantic(row)
-            for row in self.controller.comparison_candidates()
+            for row in self.controller.comparison_candidates(views=views)
             if row.dataset_id
         }
         semantic_of = lambda dataset_id: semantics_by_dataset.get(
@@ -4018,7 +4119,9 @@ class MeasurementPageWorkspace(QWidget):
 
         # Semantic-mismatch advisory before interpreting the result (#483).
         if isinstance(a_id, str) and isinstance(b_id, str) and a_id and b_id:
-            codes = self.controller.comparison_mismatches(a_id, b_id)
+            codes = self.controller.comparison_mismatches(
+                a_id, b_id, views=views
+            )
             self.mismatch_label.setText(
                 "注意: " + "、".join(_mismatch_label(code) for code in codes)
                 if codes
@@ -4326,6 +4429,18 @@ class MeasurementPageWorkspace(QWidget):
         if handler is None or self._disposed:
             return
         on_success, error_prefix, on_retry = handler
+        if str(key) == self._commit_job_key:
+            self._commit_job_key = None
+            self._set_batch_committing(False)
+            # Already-persisted items stay committed — refresh surfaces them
+            # whatever the completion state was.
+            self.refresh()
+            if error == WORKER_CANCELLED:
+                self._set_notice(
+                    "保存をキャンセルしました。保存済みの項目はそのまま残っています。",
+                    SemanticState.WARNING,
+                )
+                return
         if error is not None:
             if error != WORKER_CANCELLED:
                 self._set_notice(

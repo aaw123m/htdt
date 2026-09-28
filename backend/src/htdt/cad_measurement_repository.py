@@ -33,6 +33,7 @@ from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetError,
     ManagedAssetStore,
+    read_managed_asset_verified,
     verify_managed_asset,
 
 )
@@ -272,7 +273,17 @@ class CadMeasurementRepository:
             )
             connection.commit()
 
-    def get_measurement(self, measurement_id: str) -> CadMeasurementRecord | None:
+    def get_measurement(
+        self,
+        measurement_id: str,
+        *,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+    ) -> CadMeasurementRecord | None:
+        # ``measurements`` is a per-call memo: list-level callers that already
+        # loaded the document's records pass them so validators stop paying a
+        # connection per lookup. Rows never persist in the memo across calls.
+        if measurements is not None and measurement_id in measurements:
+            return measurements[measurement_id]
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_measurements WHERE measurement_id=?',
@@ -286,21 +297,95 @@ class CadMeasurementRepository:
            LEFT JOIN cad_measurements m ON m.measurement_id=d.measurement_id'''
     )
 
-    def get_dataset(self, dataset_id: str) -> CadFrequencyResponseDataset | None:
+    def get_dataset(
+        self,
+        dataset_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> CadFrequencyResponseDataset | None:
+        # ``datasets`` is a per-call memo of already-verified datasets (see
+        # ``_row_to_dataset``): a hit returns without re-querying or
+        # re-verifying — integrity is still proven once per outer operation.
+        if datasets is not None and dataset_id in datasets:
+            return datasets[dataset_id]
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 f'{self._DATASET_SELECT} WHERE d.dataset_id=?',
                 (dataset_id,),
             ).fetchone()
-        return None if row is None else self._row_to_dataset(row)
+        return None if row is None else self._row_to_dataset(row, datasets=datasets)
 
-    def dataset_for_measurement(self, measurement_id: str) -> CadFrequencyResponseDataset | None:
+    def dataset_for_measurement(
+        self,
+        measurement_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> CadFrequencyResponseDataset | None:
+        # ``bound`` is a per-operation memo of already-resolved
+        # measurement -> verified dataset rows (e.g. built by
+        # ``datasets_for_document``): a hit returns the dataset verified
+        # earlier in this operation and skips the row query entirely.
+        if bound is not None and measurement_id in bound:
+            return bound[measurement_id]
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 f'{self._DATASET_SELECT} WHERE d.measurement_id=?',
                 (measurement_id,),
             ).fetchone()
-        return None if row is None else self._row_to_dataset(row)
+        return None if row is None else self._row_to_dataset(row, datasets=datasets)
+
+    def datasets_for_document(
+        self,
+        document_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> tuple[
+        dict[str, CadFrequencyResponseDataset],
+        dict[str, BaseException],
+    ]:
+        """Authoritative dataset reads for every measurement in one document.
+
+        One indexed query plus a single full verification pass per dataset
+        (persisted seals, managed raw-asset contract, pinned importer replay)
+        — verified results are also recorded in the caller-owned ``datasets``
+        memo so downstream validators reuse them inside the same operation
+        instead of re-verifying each row.
+
+        A row whose evidence fails verification does not abort the listing:
+        it lands in the errors map keyed by measurement_id so callers keep
+        per-row failure isolation (the measurement stays visible with no
+        consumable dataset, the same contract ``dataset_for_measurement`` +
+        try/except gives a per-row loop).
+        """
+        verified: dict[str, CadFrequencyResponseDataset] = {}
+        errors: dict[str, BaseException] = {}
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                f'{self._DATASET_SELECT} WHERE m.document_id=?',
+                (document_id,),
+            ).fetchall()
+            # The managed-asset registry row each dataset's verification
+            # needs resolves in the same connection — otherwise every row
+            # pays a separate connection just to look its digest up.
+            asset_rows = {
+                str(asset['sha256']): asset
+                for asset in connection.execute(
+                    'SELECT sha256, filename, relative_path, size_bytes '
+                    'FROM cad_measurement_assets'
+                ).fetchall()
+            }
+        for row in rows:
+            measurement_id = str(row['measurement_id'])
+            if measurement_id in verified or measurement_id in errors:
+                continue
+            try:
+                verified[measurement_id] = self._row_to_dataset(
+                    row, datasets=datasets, asset_rows=asset_rows
+                )
+            except Exception as exc:
+                errors[measurement_id] = exc
+        return verified, errors
 
     def list_measurements(self, document_id: str) -> tuple[CadMeasurementRecord, ...]:
         with closing(self._connect()) as connection, connection:
@@ -339,6 +424,54 @@ class CadMeasurementRepository:
                 (document_id, external_source_id),
             ).fetchone()
         return None if row is None else str(row['measurement_id'])
+
+    def measurement_ids_by_source_sha256(
+        self,
+        document_id: str,
+    ) -> dict[str, str]:
+        """source_sha256 -> first bound measurement, one document-scoped query.
+
+        Batch classifiers (REW staging duplicate detection) call this once
+        instead of paying an O(document) scan per staged file. Keep-first
+        ordering matches ``measurement_id_by_source_sha256`` exactly.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''SELECT d.source_sha256, d.measurement_id
+                   FROM cad_frequency_responses d
+                   JOIN cad_measurements m ON m.measurement_id=d.measurement_id
+                   WHERE m.document_id=?
+                   ORDER BY m.imported_at ASC, d.measurement_id''',
+                (document_id,),
+            ).fetchall()
+        result: dict[str, str] = {}
+        for row in rows:
+            result.setdefault(
+                str(row['source_sha256']), str(row['measurement_id'])
+            )
+        return result
+
+    def measurement_ids_by_external_source(
+        self,
+        document_id: str,
+    ) -> dict[str, str]:
+        """external_source_id -> first measurement, one document-scoped query.
+
+        Keep-first ordering matches ``measurement_id_by_external_source``.
+        """
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''SELECT external_source_id, measurement_id FROM cad_measurements
+                   WHERE document_id=? AND external_source_id IS NOT NULL
+                   ORDER BY imported_at ASC, measurement_id''',
+                (document_id,),
+            ).fetchall()
+        result: dict[str, str] = {}
+        for row in rows:
+            result.setdefault(
+                str(row['external_source_id']), str(row['measurement_id'])
+            )
+        return result
 
     def save_attachment(
         self,
@@ -556,6 +689,8 @@ class CadMeasurementRepository:
     def _validate_current_comparison(
         self,
         comparison: CadMeasurementComparison,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
     ) -> CadMeasurementComparison:
         """Re-verify a persisted comparison against current bound evidence.
 
@@ -575,7 +710,7 @@ class CadMeasurementRepository:
                     )
                 evidence.append(
                     (
-                        self._row_to_dataset(row),
+                        self._row_to_dataset(row, datasets=datasets),
                         str(row['document_id']),
                         str(row['scene_revision_id']),
                     )
@@ -621,8 +756,11 @@ class CadMeasurementRepository:
                 (document_id,),
             ).fetchall()
         comparisons = tuple(self._row_to_comparison(row) for row in rows)
+        # Listing N comparisons re-verifies each bound dataset at most once —
+        # shared pairs pay one asset read + importer replay, not two per row.
+        datasets: dict[str, CadFrequencyResponseDataset] = {}
         for comparison in comparisons:
-            self._validate_current_comparison(comparison)
+            self._validate_current_comparison(comparison, datasets=datasets)
         return comparisons
 
     @staticmethod
@@ -665,19 +803,17 @@ class CadMeasurementRepository:
             )
         return row
 
-    def validate_raw_asset(self, digest: str) -> VerifiedMeasurementAsset:
-        """Resolve and verify the managed raw asset registered under *digest*.
-
-        This is the authoritative runtime counterpart of the native backup
-        ``_validate_asset_contract``: the ``cad_measurement_assets`` row keyed
-        by the content-addressed SHA-256 must exist, declare a safe relative
-        path contained under this repository's managed assets directory with
-        the digest as its leaf name, and resolve to an existing regular file
-        (never a symlink) whose stored size and streamed SHA-256 match the
-        row. Any gap raises ``ManagedAssetError`` — a typed fail-closed
-        error, never a silent pass.
-        """
-        row = self._asset_row_for_digest(digest)
+    def _asset_from_row(
+        self,
+        row: sqlite3.Row | None,
+        digest: str,
+    ) -> VerifiedMeasurementAsset:
+        """Verify a fetched ``cad_measurement_assets`` row + its file."""
+        if row is None:
+            raise ManagedAssetError(
+                'measurement raw asset has no cad_measurement_assets row: '
+                f'{digest}'
+            )
         sha256_text = str(row['sha256'])
         relative_path = str(row['relative_path'])
         size_bytes = int(row['size_bytes'])
@@ -704,6 +840,82 @@ class CadMeasurementRepository:
             path=asset_path,
         )
 
+    def _asset_and_bytes_for_row(
+        self,
+        row: sqlite3.Row | None,
+        digest: str,
+    ) -> tuple[VerifiedMeasurementAsset, bytes]:
+        """Validate a fetched asset row AND return its bytes — one read.
+
+        Same contract as ``_asset_from_row`` + ``_read_verified_asset`` but
+        the hashed bytes are the returned bytes, so the TOCTOU window the
+        two-step path closed by re-hashing is removed at half the I/O.
+        """
+        if row is None:
+            raise ManagedAssetError(
+                'measurement raw asset has no cad_measurement_assets row: '
+                f'{digest}'
+            )
+        sha256_text = str(row['sha256'])
+        relative_path = str(row['relative_path'])
+        size_bytes = int(row['size_bytes'])
+        asset_path, raw = read_managed_asset_verified(
+            data_dir=self.path.parent,
+            digest=sha256_text,
+            relative_path=relative_path,
+            size_bytes=size_bytes,
+            required_root=self.assets_dir,
+            read=self._asset_store.read_file,
+        )
+        if asset_path.name != sha256_text:
+            raise ManagedAssetError(
+                'measurement asset path does not match its content address: '
+                f'{relative_path}'
+            )
+        return (
+            VerifiedMeasurementAsset(
+                sha256=sha256_text,
+                filename=str(row['filename']),
+                relative_path=relative_path.replace('\\', '/'),
+                size_bytes=size_bytes,
+                path=asset_path,
+            ),
+            raw,
+        )
+
+    def _asset_and_bytes_for_digest(
+        self, digest: str
+    ) -> tuple[VerifiedMeasurementAsset, bytes]:
+        return self._asset_and_bytes_for_row(
+            self._asset_row_for_digest(digest), digest
+        )
+
+    def validate_raw_asset(
+        self,
+        digest: str,
+        *,
+        asset_rows: dict[str, sqlite3.Row] | None = None,
+    ) -> VerifiedMeasurementAsset:
+        """Resolve and verify the managed raw asset registered under *digest*.
+
+        This is the authoritative runtime counterpart of the native backup
+        ``_validate_asset_contract``: the ``cad_measurement_assets`` row keyed
+        by the content-addressed SHA-256 must exist, declare a safe relative
+        path contained under this repository's managed assets directory with
+        the digest as its leaf name, and resolve to an existing regular file
+        (never a symlink) whose stored size and streamed SHA-256 match the
+        row. Any gap raises ``ManagedAssetError`` — a typed fail-closed
+        error, never a silent pass.
+        """
+        return self._asset_from_row(
+            (
+                asset_rows.get(digest)
+                if asset_rows is not None
+                else self._asset_row_for_digest(digest)
+            ),
+            digest,
+        )
+
     def validate_raw_asset_for_dataset(self, dataset_id: str) -> VerifiedMeasurementAsset:
         """Resolve the exact verified raw asset backing one persisted dataset.
 
@@ -728,7 +940,9 @@ class CadMeasurementRepository:
         The contract in ``validate_raw_asset`` already streamed the file's
         SHA-256; re-hashing the bytes actually handed to the importer replay
         closes the window where the file changed between verification and
-        read.
+        read. ``_asset_and_bytes_for_*`` is the one-read equivalent the hot
+        listing path uses — this stays for callers holding an already-
+        verified asset.
         """
         try:
             raw = self._asset_store.read_file(asset.path)
@@ -768,8 +982,7 @@ class CadMeasurementRepository:
                 'measurement has no bound frequency-response dataset: '
                 f'{measurement_id}'
             )
-        asset = self.validate_raw_asset(dataset.source_sha256)
-        raw = self._read_verified_asset(asset)
+        asset, raw = self._asset_and_bytes_for_digest(dataset.source_sha256)
         if len(raw) != asset.size_bytes:
             raise ManagedAssetError(
                 'measurement raw asset size does not match its registry entry'
@@ -809,6 +1022,8 @@ class CadMeasurementRepository:
     def _dataset_and_asset(
         self,
         row: sqlite3.Row,
+        *,
+        asset_rows: dict[str, sqlite3.Row] | None = None,
     ) -> tuple[CadFrequencyResponseDataset, VerifiedMeasurementAsset]:
         """Authoritative read: re-verify the persisted import-transformation binding.
 
@@ -870,16 +1085,39 @@ class CadMeasurementRepository:
             if 'record_source_kind' in row.keys()
             else None
         )
-        asset = self.validate_raw_asset(dataset.source_sha256)
-        verify_imported_dataset(
-            dataset,
-            self._read_verified_asset(asset),
-            source_kind=record_source_kind,
+        asset, raw = (
+            self._asset_and_bytes_for_row(
+                asset_rows.get(dataset.source_sha256), dataset.source_sha256
+            )
+            if asset_rows is not None
+            else self._asset_and_bytes_for_digest(dataset.source_sha256)
         )
+        verify_imported_dataset(dataset, raw, source_kind=record_source_kind)
         return dataset, asset
 
-    def _row_to_dataset(self, row: sqlite3.Row) -> CadFrequencyResponseDataset:
-        return self._dataset_and_asset(row)[0]
+    def _row_to_dataset(
+        self,
+        row: sqlite3.Row,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        asset_rows: dict[str, sqlite3.Row] | None = None,
+    ) -> CadFrequencyResponseDataset:
+        """Row -> dataset via the authoritative verification read.
+
+        ``datasets`` is a caller-owned per-operation memo keyed by
+        ``dataset_id``: a hit returns the dataset verified earlier in the
+        same operation (seals + managed asset + importer replay all proven),
+        a miss verifies and records it. This is not cached integrity state —
+        every outer operation re-verifies; only repeats *within* one
+        authoritative read share the proven result.
+        """
+        dataset_id = str(row['dataset_id'])
+        if datasets is not None and dataset_id in datasets:
+            return datasets[dataset_id]
+        dataset = self._dataset_and_asset(row, asset_rows=asset_rows)[0]
+        if datasets is not None:
+            datasets[dataset_id] = dataset
+        return dataset
 
     def save_ir_dataset(
         self,
@@ -1010,8 +1248,8 @@ class CadMeasurementRepository:
             dataset_sha256=stored_dataset_sha256,
         ):
             raise ValueError('persisted IR dataset transformation hash mismatch')
-        asset = self.validate_raw_asset(dataset.source_sha256)
-        verify_imported_ir_dataset(dataset, self._read_verified_asset(asset))
+        asset, raw = self._asset_and_bytes_for_digest(dataset.source_sha256)
+        verify_imported_ir_dataset(dataset, raw)
         return dataset, asset
 
     def get_ir_dataset(self, dataset_id: str) -> CadImpulseResponseDataset | None:

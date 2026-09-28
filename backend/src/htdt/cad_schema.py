@@ -573,6 +573,17 @@ def native_schema_compatibility(version: int) -> NativeSchemaCompatibility:
     return 'current'
 
 
+# Memoized ``check_native_schema_compatibility`` results keyed by database
+# path and the file signature observed when the check ran — the same
+# invalidation contract as ``_ENSURED_SCHEMA_SIGNATURES``: every committed
+# write mutates mtime/size, so a stale entry can never outlive a write.
+# Each repository method pays this read-only gate; at listing volume the
+# per-call ro-connection mattered more than the version query itself.
+_COMPATIBLE_SCHEMA_SIGNATURES: dict[
+    str, tuple[tuple[int, int, int, int, int], int]
+] = {}
+
+
 def check_native_schema_compatibility(path: Path) -> int:
     """Reject data created by a newer native schema while accepting legacy v0.
 
@@ -583,6 +594,11 @@ def check_native_schema_compatibility(path: Path) -> int:
     """
 
     path = Path(path)
+    signature = _db_file_signature(path)
+    if signature is not None:
+        cached = _COMPATIBLE_SCHEMA_SIGNATURES.get(str(path))
+        if cached is not None and cached[0] == signature:
+            return cached[1]
     if not path.is_file() or path.stat().st_size == 0:
         return 0
     try:
@@ -597,6 +613,11 @@ def check_native_schema_compatibility(path: Path) -> int:
                 )
             if version == 0:
                 _validate_legacy_tables(connection)
+            if signature is not None:
+                _COMPATIBLE_SCHEMA_SIGNATURES[str(path)] = (
+                    signature,
+                    version,
+                )
             return version
     except sqlite3.DatabaseError as exc:
         raise NativeSchemaError(

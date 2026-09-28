@@ -17,7 +17,11 @@ from uuid import uuid4
 from .cad_listener_pose import CadListenerPoseRepository
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from threading import Event
+
     from .cad_listener_pose import ListenerPoseAuthority
+    from .cad_measurement_quality import CadMeasurementQualityReport
     from .cad_measurement_target_pattern import (
         CadTargetPatternRepository,
         MeasurementTargetPattern,
@@ -1092,14 +1096,116 @@ class MeasurementWorkflowController:
             event.supersedes_measurement_id: event for event in lineage
         }
         lineage_parents = {event.measurement_id: event for event in lineage}
-        rows: list[MeasurementView] = []
-        for record in self.measurement_repository.list_measurements(self.document_id):
-            dataset_error: str | None = None
+        records = self.measurement_repository.list_measurements(self.document_id)
+        measurements_by_id = {
+            record.measurement_id: record for record in records
+        }
+        # Per-operation verification memos: each dataset still gets the full
+        # authoritative read (seals + managed asset + importer replay), but
+        # only ONCE per listing — correction/disposition/report validators
+        # share the proven rows instead of re-verifying every measurement 3-5
+        # times per page view. ``revisions`` memoizes the immutable
+        # SceneRevision materialization the same way.
+        datasets: dict[str, CadFrequencyResponseDataset] = {}
+        revisions: dict[str, SceneRevision | None] = {}
+
+        datasets_for_document = getattr(
+            self.measurement_repository, 'datasets_for_document', None
+        )
+        dataset_by_measurement: dict[str, CadFrequencyResponseDataset] = {}
+        dataset_errors: dict[str, BaseException] = {}
+        batch_listing_failed = datasets_for_document is None
+        if datasets_for_document is not None:
             try:
-                dataset = self.measurement_repository.dataset_for_measurement(
-                    record.measurement_id
+                dataset_by_measurement, dataset_errors = datasets_for_document(
+                    self.document_id, datasets=datasets
                 )
-            except Exception as exc:
+            except Exception:
+                # A batch-level failure (connection, schema gate) must not
+                # kill the listing — fall back to the per-row path so each
+                # measurement's error stays isolated on its own view.
+                _LOGGER.exception(
+                    'document dataset listing failed; falling back to '
+                    'per-measurement reads'
+                )
+                batch_listing_failed = True
+        if batch_listing_failed:
+            # Stand-in repositories (tests, minimal stores) may implement only
+            # the per-measurement read — keep the loop shape for them.
+            for record in records:
+                try:
+                    dataset = self.measurement_repository.dataset_for_measurement(
+                        record.measurement_id, datasets=datasets
+                    )
+                except Exception as exc:
+                    dataset_errors[record.measurement_id] = exc
+                else:
+                    if dataset is not None:
+                        dataset_by_measurement[record.measurement_id] = dataset
+
+        # Batched document-scoped overlays replace the per-row
+        # latest_correction/latest_disposition/latest_report scans (each of
+        # which used to open its own connection AND revalidate a full
+        # dataset). Stand-ins without the batched methods fall back to the
+        # per-measurement lookups unchanged.
+        latest_corrections_fn = getattr(
+            self.quality_repository, 'latest_corrections', None
+        )
+        corrections: dict[str, CadMeasurementCorrection] | None = None
+        if latest_corrections_fn is not None:
+            corrections = latest_corrections_fn(
+                self.document_id,
+                datasets=datasets,
+                measurements=measurements_by_id,
+                revisions=revisions,
+                bound=dataset_by_measurement,
+            )
+        latest_dispositions_fn = getattr(
+            self.quality_repository, 'latest_dispositions', None
+        )
+        dispositions: dict[str, CadMeasurementDisposition] | None = None
+        if latest_dispositions_fn is not None:
+            dispositions = latest_dispositions_fn(
+                self.document_id,
+                datasets=datasets,
+                measurements=measurements_by_id,
+                bound=dataset_by_measurement,
+            )
+        latest_reports_fn = getattr(
+            self.quality_repository, 'latest_reports', None
+        )
+        reports: dict[str, CadMeasurementQualityReport] | None = None
+        report_errors: dict[str, BaseException] = {}
+        if latest_reports_fn is not None:
+            reports, report_errors = latest_reports_fn(
+                self.document_id,
+                datasets=datasets,
+                measurements=measurements_by_id,
+                bound=dataset_by_measurement,
+            )
+        attachments_for_document = getattr(
+            self.measurement_repository, 'attachments_for_document', None
+        )
+        attachment_counts: dict[str, int] | None = None
+        if attachments_for_document is not None:
+            attachment_counts = {}
+            for attachment in attachments_for_document(self.document_id):
+                attachment_counts[attachment.measurement_id] = (
+                    attachment_counts.get(attachment.measurement_id, 0) + 1
+                )
+
+        latest_correction_row = getattr(
+            self.quality_repository, 'latest_correction', None
+        )
+        latest_disposition_row = getattr(
+            self.quality_repository, 'latest_disposition', None
+        )
+        rows: list[MeasurementView] = []
+        for record in records:
+            dataset_error: str | None = None
+            dataset = dataset_by_measurement.get(record.measurement_id)
+            dataset_failure = dataset_errors.get(record.measurement_id)
+            if dataset_failure is not None:
                 # One row that fails its authoritative re-verification must
                 # not take the whole listing down with it: the measurement
                 # stays visible with dataset_id=None (so nothing downstream
@@ -1107,31 +1213,39 @@ class MeasurementWorkflowController:
                 _LOGGER.warning(
                     'dataset re-verification failed for %s: %r',
                     record.measurement_id,
-                    exc,
+                    dataset_failure,
                 )
                 dataset = None
-                dataset_error = operation_error_message(exc)
-            source_revision = self.scene_repository.get(record.scene_revision_id)
+                dataset_error = operation_error_message(dataset_failure)
+            if record.scene_revision_id in revisions:
+                source_revision = revisions[record.scene_revision_id]
+            else:
+                source_revision = self.scene_repository.get(
+                    record.scene_revision_id
+                )
+                revisions[record.scene_revision_id] = source_revision
             # Effective binding = persisted record overlaid by the latest
             # append-only correction (#509). The immutable record fields stay
             # on the view unchanged for audit display. Stand-in quality
             # repositories (tests, minimal stores) may not implement the
             # correction/disposition tables — treat those as "no overlay".
-            latest_correction = getattr(
-                self.quality_repository, 'latest_correction', None
-            )
-            latest_disposition = getattr(
-                self.quality_repository, 'latest_disposition', None
-            )
             correction = (
-                latest_correction(record.measurement_id)
-                if latest_correction is not None
-                else None
+                corrections.get(record.measurement_id)
+                if corrections is not None
+                else (
+                    latest_correction_row(record.measurement_id)
+                    if latest_correction_row is not None
+                    else None
+                )
             )
             disposition_event = (
-                latest_disposition(record.measurement_id)
-                if latest_disposition is not None
-                else None
+                dispositions.get(record.measurement_id)
+                if dispositions is not None
+                else (
+                    latest_disposition_row(record.measurement_id)
+                    if latest_disposition_row is not None
+                    else None
+                )
             )
             effective_entity_id = (
                 record.measurement_entity_id
@@ -1221,7 +1335,9 @@ class MeasurementWorkflowController:
                 # alone authorize only phase-response inspection; they never
                 # imply a common timing reference, so without a report common
                 # timing fails closed at UNKNOWN.
-                report = self.quality_repository.latest_report(record.measurement_id)
+                report = self._latest_report_for(
+                    record.measurement_id, reports, report_errors
+                )
                 if report is not None and report.dataset_id == dataset.dataset_id:
                     phase_capability = gate_measurement_claim(report, "phase_response")
                     timing_capability = gate_measurement_claim(report, "common_timing")
@@ -1260,7 +1376,9 @@ class MeasurementWorkflowController:
                 # dataset itself fails verification — report it as stale
                 # rather than silently 'missing'.
                 if (
-                    self.quality_repository.latest_report(record.measurement_id)
+                    self._latest_report_for(
+                        record.measurement_id, reports, report_errors
+                    )
                     is not None
                 ):
                     report_state = 'stale'
@@ -1332,13 +1450,19 @@ class MeasurementWorkflowController:
                     effective_routing_evidence=effective_routing,
                     smoothing=None if dataset is None else dataset.smoothing,
                     attachment_count=(
-                        len(
-                            self.measurement_repository.list_attachments(
-                                record.measurement_id
+                        attachment_counts.get(record.measurement_id, 0)
+                        if attachment_counts is not None
+                        else (
+                            len(
+                                self.measurement_repository.list_attachments(
+                                    record.measurement_id
+                                )
                             )
+                            if hasattr(
+                                self.measurement_repository, 'list_attachments'
+                            )
+                            else 0
                         )
-                        if hasattr(self.measurement_repository, 'list_attachments')
-                        else 0
                     ),
                     original_import_position=record.measurement_position,
                     observed_actual_position=observed_actual_position,
@@ -1347,6 +1471,25 @@ class MeasurementWorkflowController:
                 )
             )
         return tuple(rows)
+
+    def _latest_report_for(
+        self,
+        measurement_id: str,
+        reports: dict[str, CadMeasurementQualityReport] | None,
+        report_errors: dict[str, BaseException],
+    ) -> CadMeasurementQualityReport | None:
+        """Report for one measurement from the batched map (or per-row fallback).
+
+        Batched validation failures surface exactly where the per-row
+        ``latest_report`` call would have raised — reached rows re-raise, so
+        a corrupt report on an unreachable row stays dormant.
+        """
+        if reports is None:
+            return self.quality_repository.latest_report(measurement_id)
+        error = report_errors.get(measurement_id)
+        if error is not None:
+            raise error
+        return reports.get(measurement_id)
 
     def record_retake(
         self,
@@ -1389,6 +1532,8 @@ class MeasurementWorkflowController:
     def comparison_candidates(
         self,
         evidence_type: MeasurementEvidenceType | None = None,
+        *,
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> tuple[MeasurementView, ...]:
         """Dataset-bearing measurements eligible for comparison selection (#483).
 
@@ -1396,19 +1541,30 @@ class MeasurementWorkflowController:
         drive measured/predicted, before/after, retake and seat-to-seat
         pairs from one selector (#509: excluded/misassigned/test/duplicate
         evidence never appears as normally eligible).
+
+        Callers that already hold a fresh listing pass ``views`` — each
+        ``measurement_views()`` call is a full evidence re-verification pass,
+        so a page refresh must not multiply it per candidate filter.
         """
         return tuple(
             row
-            for row in self.measurement_views()
+            for row in (
+                self.measurement_views() if views is None else views
+            )
             if row.dataset_id is not None
             and row.is_normally_eligible
             and (evidence_type is None or row.evidence_type == evidence_type)
         )
 
-    def _view_by_dataset(self) -> dict[str, MeasurementView]:
+    def _view_by_dataset(
+        self,
+        views: tuple[MeasurementView, ...] | None = None,
+    ) -> dict[str, MeasurementView]:
         return {
             row.dataset_id: row
-            for row in self.measurement_views()
+            for row in (
+                self.measurement_views() if views is None else views
+            )
             if row.dataset_id is not None
         }
 
@@ -1416,6 +1572,8 @@ class MeasurementWorkflowController:
         self,
         dataset_a_id: str,
         dataset_b_id: str,
+        *,
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> tuple[MeasurementView, MeasurementView, Any, Any] | None:
         """Resolve both picks to views + semantic side contexts (#852).
 
@@ -1423,7 +1581,7 @@ class MeasurementWorkflowController:
         side resolution goes through the effective-measurement resolver so
         corrections/dispositions are always reflected.
         """
-        views = self._view_by_dataset()
+        views = self._view_by_dataset(views)
         a = views.get(dataset_a_id)
         b = views.get(dataset_b_id)
         if a is None or b is None:
@@ -1448,6 +1606,7 @@ class MeasurementWorkflowController:
         dataset_b_id: str,
         *,
         reference_band_hz: tuple[float, float] | None = None,
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> ComparisonSemantics | None:
         """Typed compatibility + advisory context for a pick pair (#852).
 
@@ -1456,7 +1615,9 @@ class MeasurementWorkflowController:
         reference and quality state, then decides absolute-level,
         normalized-shape and common-time eligibility.
         """
-        resolved = self._resolve_comparison_sides(dataset_a_id, dataset_b_id)
+        resolved = self._resolve_comparison_sides(
+            dataset_a_id, dataset_b_id, views=views
+        )
         if resolved is None:
             return None
         _, _, side_a, side_b = resolved
@@ -1468,6 +1629,8 @@ class MeasurementWorkflowController:
         self,
         dataset_a_id: str,
         dataset_b_id: str,
+        *,
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> tuple[str, ...]:
         """Semantic mismatch codes between two comparison picks (#483/#852).
 
@@ -1476,7 +1639,9 @@ class MeasurementWorkflowController:
         'acquisition_context', 'routing_profile', 'level_reference',
         'timing_reference', 'radiation_scope'.
         """
-        semantics = self.comparison_semantics(dataset_a_id, dataset_b_id)
+        semantics = self.comparison_semantics(
+            dataset_a_id, dataset_b_id, views=views
+        )
         if semantics is None:
             return ()
         return semantics.mismatches
@@ -1490,10 +1655,13 @@ class MeasurementWorkflowController:
         high_hz: float,
         reference_band_hz: tuple[float, float] | None = None,
         excluded_bands: tuple[tuple[float, float], ...] = (),
+        views: tuple[MeasurementView, ...] | None = None,
     ) -> CadMeasurementComparison:
         allowed_dataset_ids = {
             row.dataset_id
-            for row in self.measurement_views()
+            for row in (
+                self.measurement_views() if views is None else views
+            )
             if row.dataset_id is not None and row.is_normally_eligible
         }
         if dataset_a_id not in allowed_dataset_ids or dataset_b_id not in allowed_dataset_ids:
@@ -1511,7 +1679,10 @@ class MeasurementWorkflowController:
             excluded_bands=excluded_bands,
         )
         semantics = self.comparison_semantics(
-            dataset_a_id, dataset_b_id, reference_band_hz=reference_band_hz
+            dataset_a_id,
+            dataset_b_id,
+            reference_band_hz=reference_band_hz,
+            views=views,
         )
         return self.measurement_repository.save_comparison(
             dataset_a_id,
@@ -1947,10 +2118,36 @@ class MeasurementWorkflowController:
     # Batch campaign import (#446)
     # ------------------------------------------------------------------
 
+    def _duplicate_source_maps(
+        self,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        """(source_sha256 -> measurement_id, external_source_id -> measurement_id)
+
+        Built once per batch operation so classification is O(1) per staged
+        file instead of an O(document) indexed scan per file. Stand-in
+        repositories without the bulk methods leave empty maps — per-file
+        lookups then fall back to the single-item queries unchanged.
+        """
+        by_sha_fn = getattr(
+            self.measurement_repository,
+            'measurement_ids_by_source_sha256',
+            None,
+        )
+        by_ext_fn = getattr(
+            self.measurement_repository,
+            'measurement_ids_by_external_source',
+            None,
+        )
+        return (
+            by_sha_fn(self.document_id) if by_sha_fn is not None else {},
+            by_ext_fn(self.document_id) if by_ext_fn is not None else {},
+        )
+
     def _classify_duplicate(
         self,
         pending: PendingMeasurementImport | None,
         raw_bytes: bytes | None,
+        source_maps: tuple[dict[str, str], dict[str, str]] | None = None,
     ) -> tuple[BatchDuplicateKind, str | None]:
         """Classify one staged item against persisted evidence.
 
@@ -1959,20 +2156,31 @@ class MeasurementWorkflowController:
         already-imported ``external_source_id`` are the same acquisition
         re-exported. Neither auto-registers anything — classification only
         drives the explicit resolution shown to the user.
+
+        ``source_maps`` is the per-batch-operations lookup built by
+        :meth:`_duplicate_source_maps`; absent it falls back to the
+        per-item repository queries (correct, just O(document) per file).
         """
         if pending is None:
             return ('new', None)
         if pending.source_kind == 'rew_text' and raw_bytes is not None:
-            measurement_id = self.measurement_repository.measurement_id_by_source_sha256(
-                self.document_id,
-                sha256(raw_bytes).hexdigest(),
+            digest = sha256(raw_bytes).hexdigest()
+            measurement_id = (
+                source_maps[0].get(digest)
+                if source_maps is not None
+                else self.measurement_repository.measurement_id_by_source_sha256(
+                    self.document_id,
+                    digest,
+                )
             )
             if measurement_id is not None:
                 return ('exact_duplicate', measurement_id)
         elif pending.source_kind == 'rew_api' and pending.rew_snapshot is not None:
             external_id = pending.rew_snapshot.decoded.measurement_id
             measurement_id = (
-                self.measurement_repository.measurement_id_by_external_source(
+                source_maps[1].get(external_id)
+                if source_maps is not None
+                else self.measurement_repository.measurement_id_by_external_source(
                     self.document_id,
                     external_id,
                 )
@@ -1981,15 +2189,65 @@ class MeasurementWorkflowController:
                 return ('same_acquisition', measurement_id)
         return ('new', None)
 
-    def _duplicate_of_name(self, measurement_id: str | None) -> str | None:
-        if measurement_id is None:
-            return None
-        for view in self.measurement_views():
-            if view.measurement_id == measurement_id:
-                return view.effective_target_name
-        return measurement_id
+    def _duplicate_names(self) -> dict[str, str]:
+        """measurement_id -> effective target name for duplicate display.
 
-    def _batch_item_view(self, entry: _BatchEntry) -> BatchImportItem:
+        Resolves names from the measurement records + memoized source
+        revisions + the batched corrections overlay — the batch table only
+        needs the *label*, not the per-row evidence verification
+        ``measurement_views()`` performs. Calling that full listing per batch
+        item made staging/listing/commit O(batch × measurements × verify).
+        """
+        records = self.measurement_repository.list_measurements(
+            self.document_id
+        )
+        latest_corrections_fn = getattr(
+            self.quality_repository, 'latest_corrections', None
+        )
+        corrections = (
+            latest_corrections_fn(self.document_id)
+            if latest_corrections_fn is not None
+            else {}
+        )
+        revisions: dict[str, SceneRevision | None] = {}
+        names: dict[str, str] = {}
+        for record in records:
+            revision_id = record.scene_revision_id
+            if revision_id not in revisions:
+                revisions[revision_id] = self.scene_repository.get(revision_id)
+            revision = revisions[revision_id]
+            effective_entity_id = record.measurement_entity_id
+            correction = corrections.get(record.measurement_id)
+            if (
+                correction is not None
+                and correction.measurement_entity_id is not None
+            ):
+                effective_entity_id = correction.measurement_entity_id
+            name = effective_entity_id
+            if revision is not None:
+                try:
+                    name = revision.document.entity(effective_entity_id).name
+                except KeyError:
+                    pass
+            names[record.measurement_id] = name
+        return names
+
+    def _duplicate_names_for(
+        self,
+        entries: Iterable[_BatchEntry],
+    ) -> dict[str, str]:
+        """Build the duplicate-name map once — only when any entry needs it."""
+        if not any(
+            entry.duplicate_of_measurement_id for entry in entries
+        ):
+            return {}
+        return self._duplicate_names()
+
+    def _batch_item_view(
+        self,
+        entry: _BatchEntry,
+        duplicate_names: dict[str, str] | None = None,
+    ) -> BatchImportItem:
         if entry.committed:
             status: BatchItemStatus = (
                 'reused'
@@ -2009,8 +2267,13 @@ class MeasurementWorkflowController:
             error=entry.error,
             duplicate_kind=entry.duplicate_kind,
             duplicate_of_measurement_id=entry.duplicate_of_measurement_id,
-            duplicate_of_name=self._duplicate_of_name(
-                entry.duplicate_of_measurement_id
+            duplicate_of_name=(
+                None
+                if entry.duplicate_of_measurement_id is None
+                else (duplicate_names or {}).get(
+                    entry.duplicate_of_measurement_id,
+                    entry.duplicate_of_measurement_id,
+                )
             ),
             resolution=entry.resolution,
             assignment=entry.assignment,
@@ -2024,8 +2287,11 @@ class MeasurementWorkflowController:
         )
 
     def batch_items(self) -> tuple[BatchImportItem, ...]:
+        entries = list(self._batch.values())
+        duplicate_names = self._duplicate_names_for(entries)
         return tuple(
-            self._batch_item_view(entry) for entry in self._batch.values()
+            self._batch_item_view(entry, duplicate_names)
+            for entry in entries
         )
 
     def stage_rew_text_files(
@@ -2038,7 +2304,10 @@ class MeasurementWorkflowController:
         status; nothing is persisted until :meth:`commit_batch`.
         """
         revision = self.latest_revision()
-        staged: list[BatchImportItem] = []
+        # One document-scoped lookup for the whole batch — classifying each
+        # file against persisted evidence stays O(1) per file.
+        source_maps = self._duplicate_source_maps()
+        staged_entries: list[_BatchEntry] = []
         for raw, filename in files:
             pending: PendingMeasurementImport | None = None
             error: str | None = None
@@ -2058,7 +2327,9 @@ class MeasurementWorkflowController:
                     raw_text=raw,
                     raw_filename=filename,
                 )
-            kind, duplicate_of = self._classify_duplicate(pending, raw)
+            kind, duplicate_of = self._classify_duplicate(
+                pending, raw, source_maps
+            )
             entry = _BatchEntry(
                 item_id=uuid4().hex,
                 source_kind='rew_text',
@@ -2078,8 +2349,13 @@ class MeasurementWorkflowController:
                 attachments=[],
             )
             self._batch[entry.item_id] = entry
-            staged.append(self._batch_item_view(entry))
-        return tuple(staged)
+            staged_entries.append(entry)
+        # The duplicate-name label map is built once for all staged items —
+        # never inside the per-item view path.
+        names = self._duplicate_names_for(staged_entries)
+        return tuple(
+            self._batch_item_view(entry, names) for entry in staged_entries
+        )
 
     def stage_rew_snapshots(
         self,
@@ -2087,7 +2363,8 @@ class MeasurementWorkflowController:
     ) -> tuple[BatchImportItem, ...]:
         """Stage already-fetched REW API measurements into the batch queue."""
         revision = self.latest_revision()
-        staged: list[BatchImportItem] = []
+        source_maps = self._duplicate_source_maps()
+        staged_entries: list[_BatchEntry] = []
         for snapshot in snapshots:
             pending: PendingMeasurementImport | None = None
             error: str | None = None
@@ -2111,7 +2388,9 @@ class MeasurementWorkflowController:
                 )
             except Exception as exc:
                 error = operation_error_message(exc)
-            kind, duplicate_of = self._classify_duplicate(pending, None)
+            kind, duplicate_of = self._classify_duplicate(
+                pending, None, source_maps
+            )
             entry = _BatchEntry(
                 item_id=uuid4().hex,
                 source_kind='rew_api',
@@ -2133,8 +2412,11 @@ class MeasurementWorkflowController:
                 attachments=[],
             )
             self._batch[entry.item_id] = entry
-            staged.append(self._batch_item_view(entry))
-        return tuple(staged)
+            staged_entries.append(entry)
+        names = self._duplicate_names_for(staged_entries)
+        return tuple(
+            self._batch_item_view(entry, names) for entry in staged_entries
+        )
 
     def set_batch_resolution(self, item_id: str, resolution: BatchResolution) -> None:
         entry = self._batch.get(item_id)
@@ -2234,6 +2516,9 @@ class MeasurementWorkflowController:
     def commit_batch(
         self,
         item_ids: Iterable[str] | None = None,
+        *,
+        cancel_event: Event | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> tuple[BatchCommitOutcome, ...]:
         """Explicitly persist every committable staged item (#446).
 
@@ -2241,6 +2526,12 @@ class MeasurementWorkflowController:
         measurement) and pass validation are saved — already-committed items
         are never re-registered on retry, so rerunning after a partial
         failure is idempotent.
+
+        ``cancel_event`` is a cooperative stop checked before each item — a
+        cancelled run keeps its already-persisted commits (each is a complete
+        evidence record) and returns the outcomes produced so far.
+        ``progress`` is invoked after each processed item with
+        ``(done, total)`` for UI progress display.
         """
         current = self.latest_revision()
         outcomes: list[BatchCommitOutcome] = []
@@ -2249,11 +2540,19 @@ class MeasurementWorkflowController:
             if item_ids is None
             else [self._batch[i] for i in item_ids if i in self._batch]
         )
-        for entry in entries:
+        # One duplicate-name map + revision memo for the whole commit —
+        # outcome views must not re-walk the full measurement listing.
+        duplicate_names = self._duplicate_names_for(entries)
+        revisions: dict[str, SceneRevision | None] = {}
+        for item_index, entry in enumerate(entries):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if progress is not None:
+                progress(item_index, len(entries))
             if entry.committed:
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='already_committed',
                         measurement_id=entry.committed_measurement_id,
                         error=None,
@@ -2266,7 +2565,7 @@ class MeasurementWorkflowController:
                 # than a silent skip — the item never committed anything.
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='failed',
                         measurement_id=None,
                         error=entry.error or '解析に失敗しています',
@@ -2285,7 +2584,7 @@ class MeasurementWorkflowController:
                 )
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='failed',
                         measurement_id=None,
                         error=entry.error,
@@ -2305,7 +2604,7 @@ class MeasurementWorkflowController:
                     entry.error = operation_error_message(exc)
                     outcomes.append(
                         BatchCommitOutcome(
-                            item=self._batch_item_view(entry),
+                            item=self._batch_item_view(entry, duplicate_names),
                             outcome='failed',
                             measurement_id=None,
                             error=entry.error,
@@ -2315,7 +2614,7 @@ class MeasurementWorkflowController:
                 entry.committed = True
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='reused',
                         measurement_id=entry.committed_measurement_id,
                         error=None,
@@ -2325,7 +2624,7 @@ class MeasurementWorkflowController:
             if entry.assignment is None:
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='skipped',
                         measurement_id=None,
                         error='割り当てが未設定です',
@@ -2333,7 +2632,12 @@ class MeasurementWorkflowController:
                 )
                 continue
             try:
-                revision = self.scene_repository.get(pending.scene_revision_id)
+                revision = revisions.get(pending.scene_revision_id)
+                if pending.scene_revision_id not in revisions:
+                    revision = self.scene_repository.get(
+                        pending.scene_revision_id
+                    )
+                    revisions[pending.scene_revision_id] = revision
                 if revision is None or revision.content_hash != pending.scene_content_hash:
                     raise MeasurementWorkflowError(
                         "読み込み時の部屋データを確認できません。再読み込みしてください"
@@ -2354,7 +2658,7 @@ class MeasurementWorkflowController:
                 entry.error = operation_error_message(exc)
                 outcomes.append(
                     BatchCommitOutcome(
-                        item=self._batch_item_view(entry),
+                        item=self._batch_item_view(entry, duplicate_names),
                         outcome='failed',
                         measurement_id=None,
                         error=entry.error,
@@ -2364,12 +2668,14 @@ class MeasurementWorkflowController:
             entry.committed = True
             outcomes.append(
                 BatchCommitOutcome(
-                    item=self._batch_item_view(entry),
+                    item=self._batch_item_view(entry, duplicate_names),
                     outcome='committed',
                     measurement_id=record.measurement_id,
                     error=None,
                 )
             )
+            if progress is not None:
+                progress(item_index + 1, len(entries))
         return tuple(outcomes)
 
     def _save_measurement_for_commit(
