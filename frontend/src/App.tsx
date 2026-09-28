@@ -4,7 +4,8 @@ import { CopyCode } from './copy'
 import { FeatureCandidatePanel } from './FeatureCandidates'
 import { PlacementConstraintPanel } from './PlacementConstraints'
 import { SearchSpacePanel } from './SearchSpace'
-import { FrequencyPlot, RoomPlot, type ComparisonResult, type ContextPayload, type Speaker } from './plots'
+import { DifferencePlot, FrequencyPlot, RoomPlot, type ComparisonResult, type ContextPayload, type Speaker } from './plots'
+import { attachmentKindLabel, channelRoleLabel, comparisonRoleLabel, evidenceTypeLabel, phaseStatusLabel, qualityStatusLabel, routingEvidenceLabel } from './labels'
 
 type Health = {
   status: string
@@ -128,14 +129,19 @@ type MeasurementReadiness = {
 }
 
 const workflowNav = [
-  { href: '#project', icon: 'project', label: 'Project' },
-  { href: '#room', icon: 'room', label: 'Room' },
-  { href: '#constraints', icon: 'constraints', label: 'Constraints' },
-  { href: '#search', icon: 'search', label: 'Search' },
-  { href: '#measure', icon: 'measure', label: 'Measure' },
-  { href: '#compare', icon: 'compare', label: 'Compare' },
-  { href: '#model', icon: 'model', label: 'Model' },
-  { href: '#features', icon: 'features', label: 'Features' },
+  { href: '#project', icon: 'project', label: 'プロジェクト' },
+  { href: '#room', icon: 'room', label: '部屋' },
+  { href: '#constraints', icon: 'constraints', label: '配置制約' },
+  { href: '#search', icon: 'search', label: '探索' },
+  { href: '#measure', icon: 'measure', label: '測定' },
+  { href: '#assets', icon: 'assets', label: '原本' },
+  { href: '#compare', icon: 'compare', label: '比較' },
+  { href: '#reports', icon: 'reports', label: 'レポート' },
+  { href: '#sessions', icon: 'sessions', label: 'セッション' },
+  { href: '#history', icon: 'history', label: '配置履歴' },
+  { href: '#rew', icon: 'rew', label: 'REW' },
+  { href: '#model', icon: 'model', label: 'モデル' },
+  { href: '#features', icon: 'features', label: '特徴' },
 ] as const
 
 type WorkflowIconName = typeof workflowNav[number]['icon']
@@ -159,6 +165,11 @@ function WorkflowIcon({ name }: { name: WorkflowIconName }) {
     {name === 'compare' && <><path {...common} d="M5 8h11M13 5l3 3-3 3M19 16H8M11 13l-3 3 3 3"/></>}
     {name === 'model' && <><path {...common} d="m12 4 7 4-7 4-7-4zM5 12l7 4 7-4M5 16l7 4 7-4"/></>}
     {name === 'features' && <><path {...common} d="M4 15h3l2-7 3 10 2-6 2 3h4"/></>}
+    {name === 'assets' && <><path {...common} d="m7 13 6.5-6.5a2.4 2.4 0 0 1 3.4 3.4L10 16.8a1.6 1.6 0 0 1-2.3-2.3l6-6"/></>}
+    {name === 'reports' && <><path {...common} d="M7 4h7l4 4v12H7z"/><path {...common} d="M14 4v4h4M10 13h5M10 17h5"/></>}
+    {name === 'sessions' && <><rect {...common} x="4" y="5" width="16" height="5" rx="2"/><rect {...common} x="4" y="14" width="16" height="5" rx="2"/></>}
+    {name === 'history' && <><circle {...common} cx="12" cy="12" r="8"/><path {...common} d="M12 7v5l3 2"/></>}
+    {name === 'rew' && <><path {...common} d="M4 12c2-4 4-4 6 0s4 4 6 0 3-3 4-2"/></>}
   </svg>
 }
 
@@ -634,6 +645,7 @@ export default function App() {
           <p className="eyebrow">v0.2 foundation · measured evidence first</p>
           <h1>Home Theater Digital Twin</h1>
           <p className="lead">測定品質・配置履歴・原本を固定し、再現可能なA/B比較でセッティングを改善します。幾何モデルは候補生成に限定します。</p>
+          <p className="hint">これは開発用レガシーWeb UIです。保存データは htdt.sqlite3（旧ストア）で、製品版ネイティブアプリの cad-scenes.sqlite3 とは別物です。新規CAD機能はネイティブ側のみで開発されています。</p>
         </div>
         <div className="runtime">
           <strong>{health?.status ?? '確認中'}</strong>
@@ -642,7 +654,7 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="workflow-nav" aria-label="Workflow">
+      <nav className="workflow-nav" aria-label="ワークフロー">
         <div className="workflow-links">{workflowNav.map((item) => <a key={item.href} href={item.href}><WorkflowIcon name={item.icon} />{item.label}</a>)}</div>
         <button type="button" className={helpVisible ? "help-toggle active" : "help-toggle"} aria-pressed={helpVisible} aria-label="ヘルプを表示切替" onClick={() => setHelpVisible(!helpVisible)}>?</button>
       </nav>
@@ -651,7 +663,7 @@ export default function App() {
       {(message || error) && <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}>{error || message}</div>}
 
       <section className="panel" id="project">
-        <div className="section-title"><h2>Project</h2><span>ローカル保存</span></div>
+        <div className="section-title"><h2>プロジェクト</h2><span>ローカル保存</span></div>
         <form className="row" onSubmit={createProject}>
           <input value={projectName} onChange={(event) => setProjectName(event.target.value)} aria-label="Project name" />
           <button type="submit" disabled={busy}>新規作成</button>
@@ -663,7 +675,7 @@ export default function App() {
       </section>
 
       <section className="panel" id="room">
-        <div className="section-title"><h2>Room & Layout</h2><span>{contexts.length ? `${contexts.length} revisions` : '未登録'}</span></div>
+        <div className="section-title"><h2>部屋・配置</h2><span>{contexts.length ? `${contexts.length} revisions` : '未登録'}</span></div>
         <form onSubmit={saveContext}>
           <div className="grid3">
             <label>幅 X (m)<input value={room.width} onChange={(event) => setRoom({ ...room, width: event.target.value })} /></label>
@@ -681,11 +693,11 @@ export default function App() {
             <label>Y<input value={mlp.y} onChange={(event) => setMlp({ ...mlp, y: event.target.value })} /></label>
             <label>Z<input value={mlp.z} onChange={(event) => setMlp({ ...mlp, z: event.target.value })} /></label>
           </div>
-          <h3>Measurement microphone — miniDSP UMIK-1</h3>
+          <h3>測定マイク — miniDSP UMIK-1</h3>
           <div className="grid3">
-            <label>向き<select value={micOrientation} onChange={(event) => setMicOrientation(event.target.value as MicOrientation)}><option value="ceiling">天井向き (90°)</option><option value="toward_speakers">スピーカー向き (0°)</option><option value="unknown">unknown</option></select></label>
+            <label>向き<select value={micOrientation} onChange={(event) => setMicOrientation(event.target.value as MicOrientation)}><option value="ceiling">天井向き (90°)</option><option value="toward_speakers">スピーカー向き (0°)</option><option value="unknown">未確認</option></select></label>
             <label>Sample rate (Hz)<input value={micSampleRate} onChange={(event) => setMicSampleRate(event.target.value)} /></label>
-            <label>Calibration<select value={micCalibrationProfile} onChange={(event) => setMicCalibrationProfile(event.target.value as '0deg' | '90deg' | 'unknown')}><option value="90deg">90deg</option><option value="0deg">0deg</option><option value="unknown">unknown</option></select></label>
+            <label>Calibration<select value={micCalibrationProfile} onChange={(event) => setMicCalibrationProfile(event.target.value as '0deg' | '90deg' | 'unknown')}><option value="90deg">90deg</option><option value="0deg">0deg</option><option value="unknown">未確認</option></select></label>
             <label>Serial（ローカル保存）<input value={micSerial} onChange={(event) => setMicSerial(event.target.value)} placeholder="実機到着後に入力" /></label>
             <label>Calibration filename<input value={micCalibrationFilename} onChange={(event) => setMicCalibrationFilename(event.target.value)} placeholder="例: 7001234_90deg.txt" /></label>
           </div>
@@ -734,27 +746,27 @@ export default function App() {
       <SearchSpacePanel projectId={projectId} context={activeContext} />
 
       <section className="panel" id="measure">
-        <div className="section-title"><h2>Measurements</h2><span>原本 + quality snapshot</span></div>
+        <div className="section-title"><h2>測定</h2><span>原本 + quality snapshot</span></div>
         <div className="grid2">
           <label>測定ファイル<input ref={measurementInputRef} type="file" accept=".txt,.csv,.dat,.frd" onChange={(event) => void chooseMeasurementFile(event.target.files?.[0] ?? null)} /></label>
           <label>Context<select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}><option value="">選択</option>{contexts.map((context) => <option key={context.id} value={context.id}>R{context.revision_number}</option>)}</select></label>
           <label>入力role<input value={channelRole} onChange={(event) => setChannelRole(event.target.value)} /></label>
           <label>実際の音源ID（カンマ区切り）<input value={sourceSpeakerIds} onChange={(event) => setSourceSpeakerIds(event.target.value)} /></label>
-          <label>品質<select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value as QualityStatus)}><option value="unknown">unknown</option><option value="usable">usable</option><option value="warning">warning</option><option value="invalid">invalid</option></select></label>
-          <label>ルーティング根拠<select value={routingEvidence} onChange={(event) => setRoutingEvidence(event.target.value)}><option value="unknown">unknown</option><option value="manual">manual</option><option value="verified">verified</option><option value="inferred">inferred</option></select></label>
+          <label>品質<select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value as QualityStatus)}><option value="unknown">未確認</option><option value="usable">使用可能</option><option value="warning">警告あり</option><option value="invalid">無効</option></select></label>
+          <label>ルーティング根拠<select value={routingEvidence} onChange={(event) => setRoutingEvidence(event.target.value)}><option value="unknown">未確認</option><option value="manual">手動指定</option><option value="verified">検証済み</option><option value="inferred">推定</option></select></label>
           <label>同条件再測定グループ<input value={repeatGroup} onChange={(event) => setRepeatGroup(event.target.value)} placeholder="例: FL-R1-baseline" /></label>
           <label>品質理由<input value={qualityReasons} onChange={(event) => setQualityReasons(event.target.value)} placeholder="例: level checked, no clip warning" /></label>
         </div>
-        {preview && <div className="preview"><strong>{preview.filename}</strong><span>{preview.points} points</span><span>{preview.frequency_min_hz}–{preview.frequency_max_hz} Hz</span><span>phase: {preview.phase_status}</span><span>SHA {preview.sha256.slice(0, 12)}…</span>{preview.warnings.map((warning, index) => <em key={index}>{warning}</em>)}</div>}
+        {preview && <div className="preview"><strong>{preview.filename}</strong><span>{preview.points} 点</span><span>{preview.frequency_min_hz}–{preview.frequency_max_hz} Hz</span><span>位相: {phaseStatusLabel(preview.phase_status)}</span><span>SHA {preview.sha256.slice(0, 12)}…</span>{preview.warnings.map((warning, index) => <em key={index}>{warning}</em>)}</div>}
         <button disabled={busy || !preview} title={!preview ? '測定ファイルを選択してプレビューを確認してください' : undefined} onClick={() => void importMeasurement()}>{busy ? '保存中…' : 'この測定を保存'}</button>
         <p className="hint">品質は有限なFR値から自動推定しません。実測条件を確認できない間は unknown のまま保存してください。</p>
         <div className="cards">
           {measurements.length === 0 && <article><strong>測定はまだありません</strong><span>測定ファイルを選択してプレビュー後に保存するとここへ表示されます。</span></article>}
           {measurements.map((measurement) => <article key={measurement.id}>
-            <strong>{measurement.channel_role}</strong>
+            <strong>{channelRoleLabel(measurement.channel_role)}</strong>
             <span>{measurement.points} pts · {measurement.frequency_min_hz}–{measurement.frequency_max_hz} Hz</span>
-            <span>quality: {measurement.quality_status} · evidence: {measurement.evidence_type} · phase: {measurement.metadata.phase_status}</span>
-            <span>repeat: {measurement.repeat_group ?? '—'} · routing: {measurement.routing_evidence}</span>
+            <span>品質: {qualityStatusLabel(measurement.quality_status)} · 根拠: {evidenceTypeLabel(measurement.evidence_type)} · 位相: {phaseStatusLabel(measurement.metadata.phase_status)}</span>
+            <span>繰り返し: {measurement.repeat_group ?? '—'} · ルーティング: {routingEvidenceLabel(measurement.routing_evidence)}</span>
             {measurement.quality_reasons.length > 0 && <small>{measurement.quality_reasons.join(' / ')}</small>}
             {measurement.metadata.warnings.length > 0 && <small>warnings: {measurement.metadata.warnings.join(' / ')}</small>}
             <CopyCode value={measurement.dataset_id} display={measurement.dataset_id.slice(0, 8)} />
@@ -763,26 +775,26 @@ export default function App() {
       </section>
 
       <section className="panel" id="assets">
-        <div className="section-title"><h2>Source Files</h2><span>.mdat / calibration / AVR settings</span></div>
+        <div className="section-title"><h2>原本ファイル</h2><span>.mdat / calibration / AVR settings</span></div>
         <p className="hint">周波数応答テキストとは別に、再解析や復元に必要な原本をRawAssetとして保存します。自動解析はしません。</p>
         <div className="grid2">
           <label>添付ファイル<input ref={attachmentInputRef} type="file" onChange={(event) => setAttachmentFile(event.target.files?.[0] ?? null)} /></label>
-          <label>種別<select value={attachmentKind} onChange={(event) => setAttachmentKind(event.target.value)}><option value="mdat">mdat</option><option value="microphone_calibration">microphone_calibration</option><option value="avr_settings">avr_settings</option><option value="measurement_note">measurement_note</option><option value="image">image</option><option value="other">other</option></select></label>
+          <label>種別<select value={attachmentKind} onChange={(event) => setAttachmentKind(event.target.value)}>{['mdat', 'microphone_calibration', 'avr_settings', 'measurement_note', 'image', 'other'].map((kind) => <option key={kind} value={kind}>{attachmentKindLabel(kind)}</option>)}</select></label>
           <label>ラベル<input value={attachmentLabel} onChange={(event) => setAttachmentLabel(event.target.value)} placeholder="任意" /></label>
-          <label>関連測定<select value={attachmentMeasurementId} onChange={(event) => setAttachmentMeasurementId(event.target.value)}><option value="">Project/Contextのみ</option>{measurements.map((measurement) => <option key={measurement.id} value={measurement.id}>{measurement.channel_role} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
+          <label>関連測定<select value={attachmentMeasurementId} onChange={(event) => setAttachmentMeasurementId(event.target.value)}><option value="">Project/Contextのみ</option>{measurements.map((measurement) => <option key={measurement.id} value={measurement.id}>{channelRoleLabel(measurement.channel_role)} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
         </div>
         <button disabled={busy || !attachmentFile || !projectId} title={!projectId ? 'プロジェクトを選択してください' : !attachmentFile ? '添付ファイルを選択してください' : undefined} onClick={() => void uploadAttachment()}>添付原本を保存</button>
         <div className="cards">
           {attachments.length === 0 && <article><strong>添付原本はまだありません</strong><span>.mdat・校正ファイル・AVR設定などの原本を保存するとここへ表示されます。</span></article>}
-          {attachments.map((attachment) => <article key={attachment.id}><strong>{attachment.kind}</strong><span>{attachment.filename}</span><span>{attachment.label ?? '—'} · {attachment.size_bytes} bytes</span><CopyCode value={attachment.asset_sha256} display={attachment.asset_sha256.slice(0, 12)} /></article>)}
+          {attachments.map((attachment) => <article key={attachment.id}><strong>{attachmentKindLabel(attachment.kind)}</strong><span>{attachment.filename}</span><span>{attachment.label ?? '—'} · {attachment.size_bytes} bytes</span><CopyCode value={attachment.asset_sha256} display={attachment.asset_sha256.slice(0, 12)} /></article>)}
         </div>
       </section>
 
       <section className="panel" id="compare">
-        <div className="section-title"><h2>Compare</h2><span>96 PPO / log₂ interpolation / A−B</span></div>
+        <div className="section-title"><h2>比較</h2><span>96 PPO / log₂ interpolation / A−B</span></div>
         <div className="grid2">
-          <label>A<select value={datasetA} onChange={(event) => setDatasetA(event.target.value)}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{measurement.channel_role} · {measurement.quality_status} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
-          <label>B<select value={datasetB} onChange={(event) => setDatasetB(event.target.value)}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{measurement.channel_role} · {measurement.quality_status} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
+          <label>A<select value={datasetA} onChange={(event) => setDatasetA(event.target.value)}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{channelRoleLabel(measurement.channel_role)} · {qualityStatusLabel(measurement.quality_status)} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
+          <label>B<select value={datasetB} onChange={(event) => setDatasetB(event.target.value)}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{channelRoleLabel(measurement.channel_role)} · {qualityStatusLabel(measurement.quality_status)} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
         </div>
         <div className="grid4">
           <label>評価Low Hz<input value={band.low} onChange={(event) => setBand({ ...band, low: event.target.value })} /></label>
@@ -795,27 +807,28 @@ export default function App() {
         <div className="row action-row"><button disabled={busy} onClick={() => void compare()}>{busy ? '処理中…' : '比較して保存'}</button></div>
         {activeComparison && <>
           <div className="metrics">
-            <div><span>Mean A−B</span><strong>{activeComparison.result.mean_difference_db?.toFixed(2) ?? '—'} dB</strong></div>
-            <div><span>RMS diff</span><strong>{activeComparison.result.rms_difference_db?.toFixed(2) ?? '—'} dB</strong></div>
-            <div><span>Level offset</span><strong>{activeComparison.result.level_offset_db?.toFixed(2) ?? '—'} dB</strong></div>
-            <div><span>Shape RMS</span><strong>{activeComparison.result.shape_rms_db?.toFixed(2) ?? '—'} dB</strong></div>
+            <div><span>平均差 A−B</span><strong>{activeComparison.result.mean_difference_db?.toFixed(3) ?? '—'} dB</strong></div>
+            <div><span>RMS差</span><strong>{activeComparison.result.rms_difference_db?.toFixed(3) ?? '—'} dB</strong></div>
+            <div><span>レベル差</span><strong>{activeComparison.result.level_offset_db?.toFixed(3) ?? '—'} dB</strong></div>
+            <div><span>形状RMS</span><strong>{activeComparison.result.shape_rms_db?.toFixed(3) ?? '—'} dB</strong></div>
           </div>
-          <p className="hint">comparison role: {activeComparison.result.comparison_role ?? 'legacy'}</p>
+          <p className="hint">比較の役割: {comparisonRoleLabel(activeComparison.result.comparison_role)}</p>
           {(activeComparison.result.interpretation_warnings?.length ?? 0) > 0 && <div className="preview">
-            <strong>Interpretation warnings</strong>
+            <strong>解釈上の注意</strong>
             {activeComparison.result.interpretation_warnings?.map((warning, index) => <em key={index}>{warning}</em>)}
           </div>}
           <div className="grid2">
-            <div><h3>Intended changes</h3>{activeComparison.result.intended_changes?.length ? activeComparison.result.intended_changes.map((item) => <p className="hint" key={item.path}>{item.path}: {displayValue(item.a)} → {displayValue(item.b)}</p>) : <p className="hint">なし / 未分類</p>}</div>
-            <div><h3>Confounders</h3>{activeComparison.result.confounders?.length ? activeComparison.result.confounders.map((item) => <p className="hint" key={item.path}>{item.path}: {displayValue(item.a)} → {displayValue(item.b)}</p>) : <p className="hint">検出なし</p>}</div>
+            <div><h3>意図した変更</h3>{activeComparison.result.intended_changes?.length ? activeComparison.result.intended_changes.map((item) => <p className="hint" key={item.path}>{item.path}: {displayValue(item.a)} → {displayValue(item.b)}</p>) : <p className="hint">なし / 未分類</p>}</div>
+            <div><h3>交絡要因</h3>{activeComparison.result.confounders?.length ? activeComparison.result.confounders.map((item) => <p className="hint" key={item.path}>{item.path}: {displayValue(item.a)} → {displayValue(item.b)}</p>) : <p className="hint">検出なし</p>}</div>
           </div>
           <FrequencyPlot result={activeComparison.result} />
+          <DifferencePlot result={activeComparison.result} />
         </>}
         {!activeComparison && comparisons[0] && <button className="ghost" onClick={() => setActiveComparison(comparisons[0])}>最新の保存済み比較を表示</button>}
       </section>
 
       <section className="panel" id="model">
-        <div className="section-title"><h2>Geometry</h2><span>予測候補 · 実測診断ではない</span></div>
+        <div className="section-title"><h2>幾何モデル</h2><span>予測候補 · 実測診断ではない</span></div>
         <p className="hint">矩形室の固有周波数と、各スピーカー→MLPの一次鏡像反射を計算します。壁の吸音率、反射位相、スピーカーの指向性、開口や家具はまだモデル化しません。</p>
         <div className="grid3">
           <label>Room mode上限 (Hz)<input value={maxModeHz} onChange={(event) => setMaxModeHz(event.target.value)} /></label>

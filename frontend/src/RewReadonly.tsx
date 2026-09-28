@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import { evidenceTypeLabel, qualityStatusLabel, routingEvidenceLabel } from './labels'
 
 type RewStatus = {
   connected: boolean
@@ -344,9 +345,9 @@ export function RewReadonlyPanel() {
 
   return (
     <div className="shell supplemental-shell">
-      <section className="panel">
+      <section className="panel" id="rew">
         <div className="section-title">
-          <h2>REW read-only browser</h2>
+          <h2>REW 読み取りブラウザ</h2>
           <span>localhost GET only · snapshot writes HTDT only</span>
         </div>
         <p className="hint">
@@ -354,14 +355,14 @@ export function RewReadonlyPanel() {
         </p>
         <div className="row action-row">
           <button type="button" className="ghost" disabled={loading} onClick={() => void refreshStatus()}>{loading ? '確認中…' : 'REW接続を再確認'}</button>
-          {status && <span className="hint">{status.base_url} · read-only: {status.read_only ? 'yes' : 'no'}</span>}
+          {status && <span className="hint">{status.base_url} · 読み取り専用: {status.read_only ? 'はい' : 'いいえ'}</span>}
         </div>
 
         {error && <div className="notice error" role="alert">{error}</div>}
 
         {status && !status.connected && (
           <div className="analysis-banner">
-            <strong>offline</strong>
+            <strong>オフライン</strong>
             <span>REW未起動でもHTDTの保存済みデータは通常利用できます。</span>
             {status.error && <span>{status.error}</span>}
           </div>
@@ -370,7 +371,7 @@ export function RewReadonlyPanel() {
         {status?.connected && (
           <>
             <div className="analysis-banner">
-              <strong>connected · read-only</strong>
+              <strong>接続中 · 読み取り専用</strong>
               <span>{status.measurement_count ?? measurements.length} measurement(s)</span>
               <span>REWへのHTTP GETのみ</span>
             </div>
@@ -438,9 +439,9 @@ export function RewReadonlyPanel() {
                 <label>Channel role<input value={channelRole} onChange={(event) => setChannelRole(event.target.value)} /></label>
                 <label>Source speaker IDs<input value={sourceSpeakerIds} onChange={(event) => setSourceSpeakerIds(event.target.value)} placeholder="FL, FR" /></label>
                 <label>Repeat group<input value={repeatGroup} onChange={(event) => setRepeatGroup(event.target.value)} placeholder="任意" /></label>
-                <label>Evidence<select value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}><option value="unknown">unknown</option><option value="measured">measured</option><option value="derived">derived</option><option value="predicted">predicted</option></select></label>
-                <label>Quality<select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value as QualityStatus)}><option value="unknown">unknown</option><option value="usable">usable</option><option value="warning">warning</option><option value="invalid">invalid</option></select></label>
-                <label>Routing evidence<select value={routingEvidence} onChange={(event) => setRoutingEvidence(event.target.value as RoutingEvidence)}><option value="unknown">unknown</option><option value="manual">manual</option><option value="verified">verified</option><option value="inferred">inferred</option></select></label>
+                <label>Evidence<select value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}><option value="unknown">未確認</option><option value="measured">実測</option><option value="derived">派生</option><option value="predicted">予測</option></select></label>
+                <label>Quality<select value={qualityStatus} onChange={(event) => setQualityStatus(event.target.value as QualityStatus)}><option value="unknown">未確認</option><option value="usable">使用可能</option><option value="warning">警告あり</option><option value="invalid">無効</option></select></label>
+                <label>Routing evidence<select value={routingEvidence} onChange={(event) => setRoutingEvidence(event.target.value as RoutingEvidence)}><option value="unknown">未確認</option><option value="manual">手動指定</option><option value="verified">検証済み</option><option value="inferred">推定</option></select></label>
               </div>
               <div className="row action-row">
                 <button type="button" disabled={saving || !projectId || !contextId || !selectedId} onClick={() => void saveSnapshot()}>{saving ? '保存中…' : 'HTDTへスナップショット保存'}</button>

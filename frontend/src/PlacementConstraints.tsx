@@ -170,7 +170,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
   if (!context) {
     return <section className="panel constraint-panel" id="constraints">
       <div className="section-title premium-title">
-        <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>Placement Constraints</h2></div>
+        <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>配置制約</h2></div>
       </div>
       <div className="empty-state">
         <div className="empty-icon">⌁</div><strong>Contextがまだありません</strong>
@@ -180,7 +180,7 @@ export function PlacementConstraintPanel({ projectId, context }: { projectId: st
   }
   return <section className="panel constraint-panel" id="constraints">
     <div className="section-title premium-title">
-      <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>Placement Constraints</h2></div>
+      <div><span className="section-kicker">Step 3 · G10 · Physical feasibility</span><h2>配置制約</h2></div>
       <span className="status-pill neutral">Context R{context.revision_number}</span>
     </div>
     <div className="constraint-intro">
