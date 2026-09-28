@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { CopyCode } from './copy'
-import { channelRoleLabel, comparisonRoleLabel, qualityStatusLabel } from './labels'
+import { channelRoleLabel, comparisonRoleLabel, levelCompatibilityLabel, qualityStatusLabel } from './labels'
 
 type Project = { id: string; name: string }
 type Comparison = {
@@ -10,6 +10,8 @@ type Comparison = {
   spec: { label?: string | null }
   result: {
     comparison_role?: string
+    level_compatibility?: string
+    forced?: boolean
     measurement_a?: { channel_role?: string; quality_status?: string }
     measurement_b?: { channel_role?: string; quality_status?: string }
     interpretation_warnings?: string[]
@@ -67,9 +69,11 @@ export function ComparisonReportPanel() {
               <strong>{comparison.spec.label || '保存済みA/B比較'}</strong>
               <span>{comparisonRoleLabel(comparison.result.comparison_role)} · {new Date(comparison.created_at).toLocaleString()}</span>
               <span>A: {channelRoleLabel(a?.channel_role)} / {qualityStatusLabel(a?.quality_status)} · B: {channelRoleLabel(b?.channel_role)} / {qualityStatusLabel(b?.quality_status)}</span>
+              {comparison.result.level_compatibility && <span>判定: {levelCompatibilityLabel(comparison.result.level_compatibility)}{comparison.result.forced ? ' · 強制' : ''}</span>}
               {(comparison.result.interpretation_warnings?.length ?? 0) > 0 && <small>{comparison.result.interpretation_warnings?.join(' / ')}</small>}
               <div className="row">
-                <a className="button-link" href={`${base}/report.html`}>HTMLレポート</a>
+                <a className="button-link" href={`${base}/report.html?lang=ja`}>HTMLレポート</a>
+                <a className="button-link" href={`${base}/report.html`}>HTML (EN)</a>
                 <a className="button-link" href={`${base}/report.json`}>JSONスナップショット</a>
               </div>
               <CopyCode value={comparison.id} display={comparison.id.slice(0, 13)} />

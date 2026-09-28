@@ -6,6 +6,8 @@ import math
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
+from typing import Literal
+
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -17,7 +19,7 @@ from . import __version__
 from .acoustics import analyze_rectangular_context
 from .comparison import ComparisonError, compare_frequency_responses
 from .conditions import classify_differences, context_differences
-from .database import SCHEMA_VERSION, Store
+from .database import SCHEMA_VERSION, DatasetIntegrityError, Store
 from .features import FeatureDetectionError, detect_frequency_features, match_geometry_candidates
 from .geometry import room_geometry_payload
 from .models import AttachmentCreate, AttachmentKind, ComparisonCreate, ContextCreate, ImportPreviewRequest, MeasurementImportRequest, ProjectCreate, RewApiSnapshotImportRequest, SessionCreate
@@ -78,6 +80,45 @@ def _small_file_sha256(path_value: str | None, *, max_bytes: int = 1024 * 1024) 
         return digest.hexdigest()
     except OSError:
         return None
+
+
+def _comparison_eligibility(descriptor: dict) -> str | None:
+    """Why a dataset is ineligible for an A/B comparison, or None.
+
+    Same contract as feature-candidate matching: only measured evidence
+    that is not flagged invalid may be compared.
+    """
+    if not descriptor['integrity_valid']:
+        return 'dataset failed integrity verification'
+    if descriptor['quality_status'] == 'invalid':
+        return 'quality_status is invalid'
+    if descriptor['evidence_type'] != 'measured':
+        return f"evidence_type is {descriptor['evidence_type']}, not measured"
+    return None
+
+
+def _comparison_level_compatibility(
+    descriptor_a: dict,
+    descriptor_b: dict,
+    reference_band: tuple[float, float] | None,
+    forced: bool,
+) -> str:
+    """Verdict persisted verbatim into the comparison result.
+
+    Values mirror ``cad_comparison_semantics.LevelCompatibility`` so reports
+    read the same taxonomy on both surfaces. The web store holds no
+    absolute-level reference authority (dataset metadata only carries the
+    parser's ``level_reference`` token), so 'absolute_level_comparable' is
+    never emitted here — an eligible pair is at best normalized-shape
+    comparable. A forced pair stays diagnostic_only.
+    """
+    if forced:
+        return 'diagnostic_only'
+    reference_a = descriptor_a['dataset_metadata'].get('level_reference')
+    reference_b = descriptor_b['dataset_metadata'].get('level_reference')
+    if reference_a == reference_b or reference_band is not None:
+        return 'normalized_shape_comparable'
+    return 'diagnostic_only'
 
 
 def _comparison_warnings(a: dict, b: dict, confounder_count: int) -> list[str]:
@@ -586,6 +627,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             descriptor = store.get_dataset_descriptor(dataset_id)
             if descriptor['project_id'] != project_id:
                 raise KeyError('dataset_not_found')
+            if not descriptor['integrity_valid']:
+                raise HTTPException(status_code=409, detail='Dataset failed integrity verification')
             response = store.get_frequency_response(dataset_id)
             detection = detect_frequency_features(
                 response,
@@ -597,6 +640,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except DatasetIntegrityError as exc:
+            raise HTTPException(status_code=409, detail='Dataset failed integrity verification') from exc
         except FeatureDetectionError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -684,16 +729,24 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         return project, comparison
 
     @app.get('/api/projects/{project_id}/comparisons/{comparison_id}/report.json')
-    def comparison_report_json(project_id: str, comparison_id: str) -> JSONResponse:
+    def comparison_report_json(
+        project_id: str,
+        comparison_id: str,
+        lang: Literal['en', 'ja'] = Query(default='en'),
+    ) -> JSONResponse:
         project, comparison = report_snapshot(project_id, comparison_id)
-        payload = build_report_payload(project, comparison)
+        payload = build_report_payload(project, comparison, lang=lang)
         filename = f'htdt-comparison-{comparison_id[:8]}.json'
         return JSONResponse(payload, headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
     @app.get('/api/projects/{project_id}/comparisons/{comparison_id}/report.html')
-    def comparison_report_html(project_id: str, comparison_id: str) -> HTMLResponse:
+    def comparison_report_html(
+        project_id: str,
+        comparison_id: str,
+        lang: Literal['en', 'ja'] = Query(default='en'),
+    ) -> HTMLResponse:
         project, comparison = report_snapshot(project_id, comparison_id)
-        payload = build_report_payload(project, comparison)
+        payload = build_report_payload(project, comparison, lang=lang)
         filename = f'htdt-comparison-{comparison_id[:8]}.html'
         return HTMLResponse(render_report_html(payload), headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
@@ -704,6 +757,23 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             descriptor_b = store.get_dataset_descriptor(request.dataset_b_id)
             if descriptor_a['project_id'] != project_id or descriptor_b['project_id'] != project_id:
                 raise KeyError('dataset_not_found')
+            if not descriptor_a['integrity_valid'] or not descriptor_b['integrity_valid']:
+                raise HTTPException(status_code=409, detail='Dataset failed integrity verification')
+            eligibility = {
+                'a': _comparison_eligibility(descriptor_a) or 'eligible',
+                'b': _comparison_eligibility(descriptor_b) or 'eligible',
+            }
+            ineligible = [side for side, reason in eligibility.items() if reason != 'eligible']
+            if ineligible and not request.force:
+                detail = ', '.join(
+                    f'dataset {side.upper()} ({reason})' for side, reason in eligibility.items() if reason != 'eligible'
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail=f'Ineligible for comparison: {detail}. '
+                           'Resubmit with force=true for an explicitly diagnostic_only comparison.',
+                )
+            forced = bool(ineligible)
             a = store.get_frequency_response(request.dataset_a_id)
             b = store.get_frequency_response(request.dataset_b_id)
             reference_band = None
@@ -719,12 +789,21 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             result_payload = {**asdict(result), 'measurement_a': {key: descriptor_a[key] for key in keys},
                               'measurement_b': {key: descriptor_b[key] for key in keys},
                               'comparison_role': 'repeatability' if same_repeat_group else 'configuration_ab',
+                              'level_compatibility': _comparison_level_compatibility(
+                                  descriptor_a, descriptor_b, reference_band, forced
+                              ),
+                              'label_a': f"{descriptor_a['channel_role']} · {descriptor_a['evidence_type']} · R{descriptor_a['context_revision_number']}",
+                              'label_b': f"{descriptor_b['channel_role']} · {descriptor_b['evidence_type']} · R{descriptor_b['context_revision_number']}",
+                              'eligibility': eligibility,
+                              'forced': forced,
                               'context_differences': differences, 'intended_changes': classified['intended'],
                               'confounders': classified['confounders'],
                               'interpretation_warnings': _comparison_warnings(descriptor_a, descriptor_b, len(classified['confounders']))}
             return store.save_comparison(project_id, request.dataset_a_id, request.dataset_b_id, request.model_dump(mode='json'), result_payload)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except DatasetIntegrityError as exc:
+            raise HTTPException(status_code=409, detail='Dataset failed integrity verification') from exc
         except ComparisonError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 

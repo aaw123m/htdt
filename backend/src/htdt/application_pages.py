@@ -40,6 +40,13 @@ from .navigation_target import (
     navigation_target_from_uri,
 )
 from .project_library_repository import ProjectLibraryRepository
+from .project_lifecycle import (
+    ProjectDeletionBlockedError,
+    ProjectDeletionPlan,
+    ProjectDeletionStaleError,
+    ProjectLibrary as _LifecycleProjectLibrary,
+    ProjectTombstone,
+)
 from .native_diagnostics import diagnostics_dir
 from .ui_theme import TypographyRole, set_typography_role
 from .user_facing_error import operation_error_message, warn_user
@@ -61,6 +68,7 @@ class ProjectEntry:
     head_revision_id: str | None
     created_at_utc: str
     revision_count: int
+    archived: bool = False
 
 
 class ProjectLibraryService:
@@ -80,8 +88,16 @@ class ProjectLibraryService:
         self._project_library = project_library or ProjectLibraryRepository(
             repository
         )
+        self._lifecycle: _LifecycleProjectLibrary | None = None
+
+    def _lifecycle_library(self) -> _LifecycleProjectLibrary:
+        """The lifecycle authority over the same store (archive/delete)."""
+        if self._lifecycle is None:
+            self._lifecycle = _LifecycleProjectLibrary(self.path)
+        return self._lifecycle
 
     def list_projects(self) -> tuple[ProjectEntry, ...]:
+        """All registered projects, archived included (they stay restorable)."""
         heads = self._document_heads()
         return tuple(
             ProjectEntry(
@@ -99,8 +115,30 @@ class ProjectLibraryService:
                     if entry.document_id not in heads
                     else heads[entry.document_id][1]
                 ),
+                archived=entry.archived,
             )
-            for entry in self._project_library.list_projects()
+            for entry in self._project_library.list_projects(
+                include_archived=True
+            )
+        )
+
+    def set_archived(self, project_id: str, archived: bool) -> None:
+        """Archive/restore via the lifecycle authority (#753)."""
+        if archived:
+            self._lifecycle_library().archive_project(project_id)
+        else:
+            self._lifecycle_library().unarchive_project(project_id)
+
+    def plan_project_deletion(self, project_id: str) -> ProjectDeletionPlan:
+        """Read-only deletion preview; nothing is removed yet."""
+        return self._lifecycle_library().plan_project_deletion(project_id)
+
+    def delete_project(
+        self, project_id: str, *, expected_plan: ProjectDeletionPlan
+    ) -> ProjectTombstone:
+        """Atomic delete pinned to the plan the user approved."""
+        return self._lifecycle_library().delete_project(
+            project_id, expected_plan=expected_plan
         )
 
     def _document_heads(self) -> dict[str, tuple[str, int]]:
@@ -140,8 +178,72 @@ def _page_layout(page: QWidget, title: str, hint: str | None = None) -> QVBoxLay
     return layout
 
 
+#: JP labels for the authority tables a deletion plan can enumerate.
+#: Unknown names render verbatim — the plan never invents a friendlier
+#: name for a table it did not predict.
+_LIFECYCLE_TABLE_LABELS = {
+    "scene_revisions": "シーンリビジョン",
+    "scene_bookmarks": "ブックマーク",
+    "scene_review_marks": "レビュー",
+    "cad_measurements": "測定",
+    "cad_frequency_responses": "周波数応答",
+    "cad_impulse_responses": "インパルス応答",
+    "cad_calibration_plans": "校正プラン",
+    "cad_comparison_records": "比較履歴",
+}
+
+
+def _format_bytes(value: int) -> str:
+    size = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if size < 1024.0 or unit == "GiB":
+            return f"{size:,.1f} {unit}" if unit != "B" else f"{int(size):,} B"
+        size /= 1024.0
+    return f"{value:,} B"
+
+
+def _deletion_plan_lines(plan: ProjectDeletionPlan) -> list[str]:
+    """Render the planner's own numbers verbatim — consequence preview."""
+    lines = [
+        f"対象: {plan.display_name}",
+        f"削除対象: 合計 {plan.total_rows} 行"
+        f"（約 {_format_bytes(plan.estimated_bytes)}）",
+    ]
+    for count in plan.authorities:
+        lines.append(
+            f"・{_LIFECYCLE_TABLE_LABELS.get(count.table, count.table)}: "
+            f"{count.row_count} 件（約 {_format_bytes(count.estimated_bytes)}）"
+        )
+    lines.append(
+        f"共有アセット（保持）: {plan.assets.shared_asset_count} 件 / "
+        f"{_format_bytes(plan.assets.shared_asset_bytes)}"
+    )
+    lines.append(
+        f"プロジェクト専用アセット（削除後GC対象）: "
+        f"{plan.assets.local_asset_count} 件 / "
+        f"{_format_bytes(plan.assets.local_asset_bytes)}"
+    )
+    if plan.pending_mission_count:
+        lines.append(
+            f"未処理のCaptureミッション: {plan.pending_mission_count} 件"
+        )
+    if plan.pending_inbox_item_count:
+        lines.append(
+            f"未処理のInbox項目: {plan.pending_inbox_item_count} 件"
+        )
+    return lines
+
+
 class ProjectLibraryPage(QWidget):
-    """Project library: open/switch persisted documents, start a new one."""
+    """Project library: open/switch, archive/restore, delete documents.
+
+    Deletion follows the lifecycle authority's confirm contract: a
+    read-only ``plan_project_deletion`` preview listing every consequence
+    (per-authority counts, shared-vs-local assets, hard blockers), an
+    explicit confirm, then archive-if-needed + ``delete_project`` pinned
+    to the plan the user approved. The currently-open project refuses
+    lifecycle changes — the shell is standing on it.
+    """
 
     project_open_requested = Signal(str)
     commission_requested = Signal()
@@ -155,14 +257,16 @@ class ProjectLibraryPage(QWidget):
         super().__init__(parent)
         self.service = service
         self._current_document_id = current_document_id
+        self._entries: dict[str, ProjectEntry] = {}
         layout = _page_layout(
             self,
             "プロジェクト",
-            "保存済みのプロジェクトです。開くとそのプロジェクトに切り替わります。",
+            "保存済みのプロジェクトです。開くとそのプロジェクトに切り替わります。"
+            "アーカイブ済みのプロジェクトは開けず、削除は確認のうえ実行されます。",
         )
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            ("プロジェクト", "作成日時", "リビジョン数", "現在")
+            ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態")
         )
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
@@ -181,6 +285,7 @@ class ProjectLibraryPage(QWidget):
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label)
 
+        actions = QHBoxLayout()
         self.open_button = QPushButton("開く")
         # Tooltip stays live while disabled so the gating is discoverable.
         self.open_button.setToolTip("一覧からプロジェクトを選択すると開けます")
@@ -188,7 +293,40 @@ class ProjectLibraryPage(QWidget):
             Qt.WidgetAttribute.WA_AlwaysShowToolTips, True
         )
         self.open_button.clicked.connect(self._open_selected)
-        layout.addWidget(self.open_button)
+        actions.addWidget(self.open_button)
+        self.archive_button = QPushButton("アーカイブ")
+        self.archive_button.setToolTip(
+            "アクティブなプロジェクトをアーカイブします（データは保持されます）"
+        )
+        self.archive_button.setAttribute(
+            Qt.WidgetAttribute.WA_AlwaysShowToolTips, True
+        )
+        self.archive_button.clicked.connect(
+            lambda: self._set_archived_selected(True)
+        )
+        actions.addWidget(self.archive_button)
+        self.restore_button = QPushButton("アーカイブ解除")
+        self.restore_button.setToolTip(
+            "アーカイブ済みのプロジェクトをアクティブに戻します"
+        )
+        self.restore_button.setAttribute(
+            Qt.WidgetAttribute.WA_AlwaysShowToolTips, True
+        )
+        self.restore_button.clicked.connect(
+            lambda: self._set_archived_selected(False)
+        )
+        actions.addWidget(self.restore_button)
+        self.delete_button = QPushButton("削除…")
+        self.delete_button.setToolTip(
+            "削除内容の確認後、プロジェクトを完全に削除します"
+        )
+        self.delete_button.setAttribute(
+            Qt.WidgetAttribute.WA_AlwaysShowToolTips, True
+        )
+        self.delete_button.clicked.connect(self._delete_selected)
+        actions.addWidget(self.delete_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
         self.new_button = QPushButton("新規プロジェクト…")
         self.new_button.clicked.connect(lambda: self.commission_requested.emit())
         layout.addWidget(self.new_button)
@@ -196,6 +334,7 @@ class ProjectLibraryPage(QWidget):
 
     def refresh(self) -> None:
         entries = self.service.list_projects()
+        self._entries = {entry.project_id: entry for entry in entries}
         current = self._current_document_id()
         self.table.setRowCount(0)
         self.empty_label.setVisible(not entries)
@@ -207,6 +346,7 @@ class ProjectLibraryPage(QWidget):
                 entry.created_at_utc,
                 str(entry.revision_count),
                 "●" if entry.document_id == current else "",
+                "アーカイブ済み" if entry.archived else "",
             )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
@@ -215,8 +355,40 @@ class ProjectLibraryPage(QWidget):
                 self.table.setItem(row, column, item)
         self._sync_buttons()
 
+    def _selected_entry(self) -> ProjectEntry | None:
+        project_id = self._selected_project_id()
+        if project_id is None:
+            return None
+        return self._entries.get(project_id)
+
     def _sync_buttons(self) -> None:
-        self.open_button.setEnabled(bool(self.table.selectedItems()))
+        entry = self._selected_entry()
+        current = self._current_document_id()
+        is_current = entry is not None and entry.document_id == current
+        self.open_button.setEnabled(
+            entry is not None and not entry.archived
+        )
+        self.archive_button.setEnabled(
+            entry is not None and not entry.archived and not is_current
+        )
+        self.restore_button.setEnabled(
+            entry is not None and entry.archived
+        )
+        self.delete_button.setEnabled(entry is not None and not is_current)
+        if is_current:
+            tip = "現在開いているプロジェクトは変更できません"
+            self.archive_button.setToolTip(tip)
+            self.delete_button.setToolTip(tip)
+        else:
+            self.archive_button.setToolTip(
+                "このプロジェクトはすでにアーカイブ済みです"
+                if entry is not None and entry.archived
+                else "アクティブなプロジェクトをアーカイブします"
+                "（データは保持されます）"
+            )
+            self.delete_button.setToolTip(
+                "削除内容の確認後、プロジェクトを完全に削除します"
+            )
 
     def _selected_project_id(self) -> str | None:
         items = self.table.selectedItems()
@@ -231,6 +403,111 @@ class ProjectLibraryPage(QWidget):
         project_id = self._selected_project_id()
         if project_id:
             self.project_open_requested.emit(project_id)
+
+    def _set_archived_selected(self, archived: bool) -> None:
+        entry = self._selected_entry()
+        if entry is None:
+            return
+        try:
+            self.service.set_archived(entry.project_id, archived)
+        except Exception as exc:
+            warn_user(
+                self,
+                "アーカイブ" if archived else "アーカイブ解除",
+                exc,
+            )
+            return
+        self.refresh()
+
+    def _delete_selected(self) -> None:
+        entry = self._selected_entry()
+        if entry is None or entry.document_id == self._current_document_id():
+            return
+        try:
+            plan = self.service.plan_project_deletion(entry.project_id)
+        except Exception as exc:
+            warn_user(self, "削除内容を確認できませんでした", exc)
+            return
+        non_archive_blockers = [
+            blocker
+            for blocker in plan.hard_blockers
+            if blocker.kind != "project_not_archived"
+        ]
+        if non_archive_blockers:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle("プロジェクトを削除できません")
+            box.setText(f"{plan.display_name} は削除をブロックされています。")
+            box.setInformativeText(
+                "\n".join(f"・{blocker.detail}" for blocker in non_archive_blockers)
+            )
+            box.setStandardButtons(QMessageBox.StandardButton.Ok)
+            box.exec()
+            return
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("プロジェクトを削除")
+        box.setText(
+            f"「{plan.display_name}」を完全に削除します。"
+            "この操作は取り消せません（削除記録はトゥームストーンとして残ります）。"
+        )
+        detail_lines = _deletion_plan_lines(plan)
+        if not entry.archived:
+            detail_lines.append(
+                "このプロジェクトはまだアクティブです。削除の前に"
+                "自動でアーカイブします。"
+            )
+        detail_lines.append("アセットファイル自体は削除されません。")
+        box.setInformativeText("\n".join(detail_lines))
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            if not entry.archived:
+                self.service.set_archived(entry.project_id, True)
+            # Re-plan so the approved fingerprint matches the world the
+            # delete actually validates (archiving lifts the blocker).
+            plan = self.service.plan_project_deletion(entry.project_id)
+            if not plan.executable:
+                raise ProjectDeletionBlockedError(plan)
+            tombstone = self.service.delete_project(
+                entry.project_id, expected_plan=plan
+            )
+        except ProjectDeletionStaleError:
+            self.refresh()
+            QMessageBox.information(
+                self,
+                "削除できませんでした",
+                "プレビュー後にプロジェクトが変更されました。"
+                "もう一度削除内容を確認してください。",
+            )
+            return
+        except ProjectDeletionBlockedError as exc:
+            self.refresh()
+            QMessageBox.warning(
+                self,
+                "削除をブロックしました",
+                "\n".join(
+                    f"・{blocker.detail}"
+                    for blocker in exc.plan.hard_blockers
+                ),
+            )
+            return
+        except Exception as exc:  # noqa: BLE001 - surface any store fault verbatim
+            warn_user(self, "削除できませんでした", exc)
+            self.refresh()
+            return
+        self.refresh()
+        QMessageBox.information(
+            self,
+            "プロジェクトを削除しました",
+            f"{tombstone.display_name}: {tombstone.removed_rows} 行を削除しました。",
+        )
 
 
 _INBOX_LINEAGE_ROLE = int(Qt.ItemDataRole.UserRole) + 1

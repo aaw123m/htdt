@@ -60,6 +60,15 @@ export function comparisonRoleLabel(value: string | null | undefined): string {
   }, value)
 }
 
+export function levelCompatibilityLabel(value: string | null | undefined): string {
+  return fromMap({
+    absolute_level_comparable: '絶対レベル比較可',
+    normalized_shape_comparable: '正規化形状比較可',
+    diagnostic_only: '診断目的のみ',
+    incompatible: '非互換',
+  }, value)
+}
+
 export function attachmentKindLabel(value: string | null | undefined): string {
   return fromMap({
     mdat: '.mdat',

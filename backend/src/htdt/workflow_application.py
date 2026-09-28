@@ -55,6 +55,7 @@ from .activity_center import (
 from .capture_inbox import CaptureInboxRepository
 from .cad_av_sync_repository import CadAVSyncRepository
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_calibration_workflow import CadCalibrationWorkflowService
 from .cad_design_checkpoint_repository import CadDesignCheckpointRepository
 from .cad_operating_preset_repository import CadOperatingPresetRepository
 from .cad_project_activity import CadProjectActivityService
@@ -547,6 +548,10 @@ class WorkflowApplicationComposition:
         self.registry.bind(
             "project.deliverables",
             execute=self._open_deliverables,
+        )
+        self.registry.bind(
+            "calibration.export_settings",
+            execute=self._export_calibration_settings,
         )
         self._apply_project_title()
         self._build_project_menu()
@@ -2975,6 +2980,7 @@ class WorkflowApplicationComposition:
             'equipment.export_capture_catalog': (
                 self._export_capture_equipment_catalog
             ),
+            'calibration.export_settings': self._export_calibration_settings,
         }
         dialog = DeliverablesDialog(
             DeliverablesCatalogService(
@@ -2990,6 +2996,134 @@ class WorkflowApplicationComposition:
             parent=self.shell,
         )
         dialog.exec()
+
+    def _calibration_workflow_service(self) -> CadCalibrationWorkflowService:
+        """The lifecycle facade over the persisted calibration authority."""
+        measurements = CadMeasurementRepository(self.repository)
+        return CadCalibrationWorkflowService(
+            CadCalibrationRepository(
+                scene_repository=self.repository,
+                system_variant_repository=CadSystemVariantRepository(
+                    self.repository
+                ),
+                measurement_repository=measurements,
+                quality_repository=CadMeasurementQualityRepository(
+                    measurements
+                ),
+            )
+        )
+
+    def _export_calibration_settings(self) -> None:
+        """Operator action behind ``calibration.export_settings``.
+
+        Writes the deterministic generic-biquad settings (JSON + CSV) for a
+        SUPPORTED calibration plan through a normal save-directory pick.
+        Exporting is never applying — the workflow records the 'exported'
+        lifecycle fact and ``mark_user_applied`` stays a separate act.
+        """
+
+        service = self._calibration_workflow_service()
+        try:
+            plans = service.repository.list_plans(self.document_id)
+        except Exception as exc:
+            warn_user(
+                self.shell, "校正プランを読み込めませんでした", exc
+            )
+            return
+        if not plans:
+            QMessageBox.warning(
+                self.shell,
+                "校正設定の書き出し",
+                "書き出せる校正プランがありません。",
+            )
+            return
+        supported = [
+            plan for plan in plans if plan.support_state == 'SUPPORTED'
+        ]
+        if not supported:
+            reasons = sorted(
+                {
+                    reason
+                    for plan in plans
+                    for reason in plan.unsupported_reasons
+                }
+            )
+            QMessageBox.warning(
+                self.shell,
+                "校正設定の書き出し",
+                "校正プランはありますがUNSUPPORTEDのため書き出せません:\n"
+                + "\n".join(f"・{reason}" for reason in reasons),
+            )
+            return
+        plan_id = self._pick_one(
+            "校正設定の書き出し",
+            "書き出す校正プランを選択してください",
+            [
+                (
+                    f'{plan.plan_id} · {plan.sample_rate_hz} Hz · '
+                    f'{plan.created_at_utc}',
+                    plan.plan_id,
+                )
+                for plan in supported
+            ],
+            selected_row=len(supported) - 1,
+        )
+        if plan_id is None:
+            return
+        try:
+            result = service.export_settings(
+                plan_id,
+                created_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            warn_user(
+                self.shell, "校正設定を書き出せませんでした", exc
+            )
+            return
+        directory = file_dialog_memory.get_existing_directory(
+            self.shell,
+            "校正設定の保存先フォルダ",
+            'calibration.export_settings',
+            default_dir=self._default_export_dir(),
+        )
+        if not directory:
+            return
+        target = Path(directory)
+        try:
+            stem = claim_export_stem(
+                target,
+                'calibration',
+                ('_settings.json', '_settings.csv'),
+            )
+            written = tuple(
+                write_export_files(
+                    target,
+                    {
+                        f'{stem}_settings.json': result.json_text,
+                        f'{stem}_settings.csv': result.csv_text,
+                    },
+                ).values()
+            )
+        except Exception as exc:
+            warn_user(
+                self.shell, "校正設定を書き出せませんでした", exc
+            )
+            return
+        box = QMessageBox(self.shell)
+        box.setWindowTitle("校正設定を書き出しました")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(
+            "次のファイルを書き出しました:\n"
+            + "\n".join(str(path) for path in written)
+            + "\n\nこの書き出しは「適用」ではありません。"
+            "機器への適用結果は測定・検証ワークスペースで記録してください。"
+        )
+        box.setDetailedText(
+            f"エクスポートID: {result.export.export_id}\n"
+            f"設定SHA-256: "
+            f"{result.export.exported_settings_semantic_sha256}"
+        )
+        box.exec()
 
     def _export_analysis_bundle(self) -> None:
         """Operator action behind ``analysis.export_bundle`` (#512).

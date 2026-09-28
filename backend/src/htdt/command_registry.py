@@ -883,6 +883,20 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             ),
             mutates_managed_data=False,
         ),
+        CommandDefinition(
+            command_id='calibration.export_settings',
+            display_name='校正設定（汎用バイクアッド）を書き出す',
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=(
+                'calibration export',
+                'biquad',
+                'peq',
+                '校正設定',
+                'フィルタ書き出し',
+                'generic biquad',
+            ),
+            mutates_managed_data=False,
+        ),
     )
 
 

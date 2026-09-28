@@ -55,32 +55,54 @@ from .canonical_json import canonical_json as _canonical
 REPORT_SCHEMA_VERSION = 1
 REPORT_RENDERER_VERSION = 'comparison-report-1'
 
+#: Languages the comparison renderer ships. The persisted
+#: ``renderer_version`` key stays ``comparison-report-1`` either way —
+#: localization is a render-time choice recorded on the payload, not a new
+#: renderer contract.
+REPORT_LANGUAGES: tuple[Literal['en', 'ja'], ...] = ('en', 'ja')
 
-def build_report_payload(project: dict[str, Any], comparison: dict[str, Any]) -> dict[str, Any]:
+_INTERPRETATION_NOTICES = {
+    'en': (
+        'This report preserves a saved comparison snapshot. Geometry matches and measured differences are evidence/candidates, '
+        'not automatic proof of acoustic causation or optimality.'
+    ),
+    'ja': (
+        'このレポートは保存済みの比較スナップショットを保持します。ジオメトリ一致や測定差は根拠・候補であり、'
+        '音響的因果や最適性の自動証明ではありません。'
+    ),
+}
+
+
+def build_report_payload(
+    project: dict[str, Any],
+    comparison: dict[str, Any],
+    *,
+    lang: str = 'en',
+) -> dict[str, Any]:
+    if lang not in REPORT_LANGUAGES:
+        raise ValueError(f'unsupported report language: {lang!r}')
     return {
         'report_schema_version': REPORT_SCHEMA_VERSION,
         'renderer_version': REPORT_RENDERER_VERSION,
+        'lang': lang,
         'exported_at': datetime.now(timezone.utc).isoformat(),
         'project': {
             'id': project['id'],
             'name': project['name'],
         },
         'comparison': comparison,
-        'interpretation_notice': (
-            'This report preserves a saved comparison snapshot. Geometry matches and measured differences are evidence/candidates, '
-            'not automatic proof of acoustic causation or optimality.'
-        ),
+        'interpretation_notice': _INTERPRETATION_NOTICES[lang],
     }
 
 
-def _svg_chart(result: dict[str, Any]) -> str:
+def _svg_chart(result: dict[str, Any], t: dict[str, str]) -> str:
     raw_grid = result.get('grid_hz')
     raw_a = result.get('a_db')
     raw_b = result.get('b_db')
     if not all(
         isinstance(values, list) for values in (raw_grid, raw_a, raw_b)
     ):
-        return '<p class="muted">No aligned frequency-response points were saved with this comparison.</p>'
+        return f'<p class="muted">{escape(t["no_aligned_points"])}</p>'
     # Filter (frequency, A, B) triples jointly: dropping a bad cell from
     # one array while keeping its neighbours would silently re-pair every
     # later point's x with the wrong y, and a non-positive frequency would
@@ -100,12 +122,12 @@ def _svg_chart(result: dict[str, Any]) -> str:
             continue
         rows.append((frequency, a, b))
     if len(rows) < 2:
-        return '<p class="muted">No aligned frequency-response points were saved with this comparison.</p>'
+        return f'<p class="muted">{escape(t["no_aligned_points"])}</p>'
     frequencies = [row[0] for row in rows]
     a_values = [row[1] for row in rows]
     b_values = [row[2] for row in rows]
     if frequencies[-1] <= frequencies[0]:
-        return '<p class="muted">Saved frequency grid is not suitable for a logarithmic report chart.</p>'
+        return f'<p class="muted">{escape(t["unsuitable_grid"])}</p>'
 
     width, height = 920.0, 360.0
     left, right, top, bottom = 64.0, 24.0, 24.0, 46.0
@@ -142,7 +164,7 @@ def _svg_chart(result: dict[str, Any]) -> str:
         y_ticks.append(f'<line x1="{left:.2f}" y1="{y:.2f}" x2="{left + plot_w:.2f}" y2="{y:.2f}" class="grid"/><text x="{left - 10:.2f}" y="{y + 4:.2f}" text-anchor="end">{tick:g}</text>')
         tick += 5.0
 
-    return f'''<svg viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="Saved A and B frequency responses">
+    return f'''<svg viewBox="0 0 {width:.0f} {height:.0f}" role="img" aria-label="{escape(t['svg_aria'])}">
       <style>.grid{{stroke:#d9dde3;stroke-width:1}} .axis{{stroke:#49515b;stroke-width:1.2}} text{{font:12px system-ui;fill:#4a5159}} .a{{fill:none;stroke:#2457c5;stroke-width:2}} .b{{fill:none;stroke:#b53b31;stroke-width:2}}</style>
       {''.join(x_ticks)}{''.join(y_ticks)}
       <line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" class="axis"/>
@@ -150,7 +172,7 @@ def _svg_chart(result: dict[str, Any]) -> str:
       <polyline class="a" points="{polyline(a_values)}"/>
       <polyline class="b" points="{polyline(b_values)}"/>
       <text x="{left + 8}" y="{top + 16}">A</text><text x="{left + 34}" y="{top + 16}" fill="#b53b31">B</text>
-      <text x="{left + plot_w / 2}" y="{height - 2}" text-anchor="middle">Frequency (Hz, log scale)</text>
+      <text x="{left + plot_w / 2}" y="{height - 2}" text-anchor="middle">{escape(t['frequency_axis'])}</text>
     </svg>'''
 
 
@@ -160,9 +182,9 @@ def _metric(value: Any) -> str:
     return '—'
 
 
-def _difference_rows(items: Any) -> str:
+def _difference_rows(items: Any, none_label: str) -> str:
     if not isinstance(items, list) or not items:
-        return '<tr><td colspan="3">None</td></tr>'
+        return f'<tr><td colspan="3">{escape(none_label)}</td></tr>'
     rows = []
     for item in items:
         if not isinstance(item, dict):
@@ -172,49 +194,192 @@ def _difference_rows(items: Any) -> str:
             f'<td>{escape(json.dumps(item.get("a"), ensure_ascii=False))}</td>'
             f'<td>{escape(json.dumps(item.get("b"), ensure_ascii=False))}</td></tr>'
         )
-    return ''.join(rows) or '<tr><td colspan="3">None</td></tr>'
+    return ''.join(rows) or f'<tr><td colspan="3">{escape(none_label)}</td></tr>'
+
+
+#: UI strings for the comparison report template. ``en`` values are the
+#: byte-identical literals the renderer has always emitted; ``ja`` mirrors
+#: the SPA's Japanese surface (frontend/src/labels.ts).
+_REPORT_STRINGS: dict[str, dict[str, str]] = {
+    'en': {
+        'html_lang': 'en',
+        'title': 'Home Theater Digital Twin — Comparison Report',
+        'project_line': 'Project: {project} · comparison {comparison} · saved {saved}',
+        'interpretation_boundary': 'Interpretation boundary',
+        'no_warnings': 'None saved',
+        'saved_metrics': 'Saved metrics',
+        'mean_ab': 'Mean A−B',
+        'rms_difference': 'RMS difference',
+        'level_offset': 'Level offset',
+        'shape_rms': 'Shape RMS',
+        'algorithm_line': 'Algorithm: {algorithm} · role: {role} · valid points: {valid} / {total}',
+        'verdict': 'Comparison verdict',
+        'level_compatibility': 'Level compatibility',
+        'label_row': 'Label',
+        'eligibility': 'Eligibility',
+        'forced': 'Forced',
+        'saved_curves': 'Saved A/B curves',
+        'measurements': 'Measurements',
+        'dataset_id': 'Dataset ID',
+        'measurement_id': 'Measurement ID',
+        'context_id': 'Context ID',
+        'channel': 'Channel',
+        'evidence': 'Evidence',
+        'quality': 'Quality',
+        'repeat_group': 'Repeat group',
+        'comparison_spec': 'Comparison specification',
+        'intended_changes': 'Intended changes',
+        'confounders': 'Confounders',
+        'path': 'Path',
+        'none': 'None',
+        'machine_snapshot': 'Machine-readable snapshot',
+        'snapshot_note': 'The complete report payload is embedded below and in the page as application/json.',
+        'show_json': 'Show JSON',
+        'no_aligned_points': 'No aligned frequency-response points were saved with this comparison.',
+        'unsuitable_grid': 'Saved frequency grid is not suitable for a logarithmic report chart.',
+        'svg_aria': 'Saved A and B frequency responses',
+        'frequency_axis': 'Frequency (Hz, log scale)',
+    },
+    'ja': {
+        'html_lang': 'ja',
+        'title': 'Home Theater Digital Twin — 比較レポート',
+        'project_line': 'プロジェクト: {project} · 比較 {comparison} · 保存日時 {saved}',
+        'interpretation_boundary': '解釈の境界',
+        'no_warnings': '保存なし',
+        'saved_metrics': '保存済み指標',
+        'mean_ab': '平均差 A−B',
+        'rms_difference': 'RMS差',
+        'level_offset': 'レベルオフセット',
+        'shape_rms': '形状RMS',
+        'algorithm_line': 'アルゴリズム: {algorithm} · 種別: {role} · 有効ポイント: {valid} / {total}',
+        'verdict': '比較の判定',
+        'level_compatibility': 'レベル互換性',
+        'label_row': 'ラベル',
+        'eligibility': '比較適格性',
+        'forced': '強制比較',
+        'saved_curves': '保存済みA/Bカーブ',
+        'measurements': '測定',
+        'dataset_id': 'データセットID',
+        'measurement_id': '測定ID',
+        'context_id': 'コンテキストID',
+        'channel': 'チャンネル',
+        'evidence': '証拠種別',
+        'quality': '品質',
+        'repeat_group': '繰り返しグループ',
+        'comparison_spec': '比較条件',
+        'intended_changes': '意図した変更',
+        'confounders': '交絡要因',
+        'path': 'パス',
+        'none': 'なし',
+        'machine_snapshot': '機械可読スナップショット',
+        'snapshot_note': '完全なレポートペイロードを以下およびページ内に application/json として埋め込んでいます。',
+        'show_json': 'JSONを表示',
+        'no_aligned_points': 'この比較には整列済みの周波数応答ポイントが保存されていません。',
+        'unsuitable_grid': '保存済み周波数グリッドは対数レポートチャートに適しません。',
+        'svg_aria': '保存済みA/B周波数応答',
+        'frequency_axis': '周波数 (Hz, 対数軸)',
+    },
+}
+
+
+#: Japanese display labels for persisted enum tokens — mirrors
+#: ``frontend/src/labels.ts`` so the report and the SPA name the same
+#: stored value the same way. English renders the raw token.
+_JA_TOKEN_LABELS: dict[str, dict[str, str]] = {
+    'channel_role': {
+        'front_left': 'フロント左 (FL)', 'center': 'センター (C)',
+        'front_right': 'フロント右 (FR)', 'subwoofer': 'サブウーファー',
+        'unknown': '未指定',
+    },
+    'evidence_type': {
+        'measured': '実測', 'derived': '派生', 'predicted': '予測',
+        'unknown': '未確認',
+    },
+    'quality_status': {
+        'usable': '使用可能', 'warning': '警告あり', 'invalid': '無効',
+        'unknown': '未確認',
+    },
+    'comparison_role': {
+        'repeatability': '繰り返し精度', 'configuration_ab': '構成A/B比較',
+    },
+    'level_compatibility': {
+        'absolute_level_comparable': '絶対レベル比較可',
+        'normalized_shape_comparable': '正規化形状比較可',
+        'diagnostic_only': '診断目的のみ',
+        'incompatible': '非互換',
+    },
+}
+
+
+def _report_label(lang: str, family: str, value: Any) -> str:
+    text = '—' if value is None else str(value)
+    if lang != 'ja':
+        return text
+    return _JA_TOKEN_LABELS.get(family, {}).get(text, text)
 
 
 def render_report_html(payload: dict[str, Any]) -> str:
+    lang = str(payload.get('lang') or 'en')
+    t = _REPORT_STRINGS.get(lang, _REPORT_STRINGS['en'])
+    if lang not in _REPORT_STRINGS:
+        lang = 'en'
     comparison = payload['comparison']
     spec = comparison.get('spec') or {}
     result = comparison.get('result') or {}
     measurement_a = result.get('measurement_a') or {}
     measurement_b = result.get('measurement_b') or {}
     warnings = result.get('interpretation_warnings') or []
-    warning_html = ''.join(f'<li>{escape(str(item))}</li>' for item in warnings) or '<li>None saved</li>'
+    warning_html = ''.join(f'<li>{escape(str(item))}</li>' for item in warnings) or f'<li>{escape(t["no_warnings"])}</li>'
     embedded_json = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/')
 
+    # Verdict fields are persisted by post-round-10 comparisons only; older
+    # snapshots omit them and the section stays absent — no invented values.
+    verdict_html = ''
+    if 'level_compatibility' in result:
+        eligibility = result.get('eligibility') or {}
+        verdict_html = (
+            f'<section><h2>{escape(t["verdict"])}</h2><table><thead><tr><th></th><th>A</th><th>B</th></tr></thead><tbody>'
+            f'<tr><th>{escape(t["level_compatibility"])}</th><td colspan="2"><code>'
+            f'{escape(_report_label(lang, "level_compatibility", result.get("level_compatibility")))}</code></td></tr>'
+            f'<tr><th>{escape(t["label_row"])}</th><td>{escape(str(result.get("label_a", "—")))}</td>'
+            f'<td>{escape(str(result.get("label_b", "—")))}</td></tr>'
+            f'<tr><th>{escape(t["eligibility"])}</th><td>{escape(str(eligibility.get("a", "—")))}</td>'
+            f'<td>{escape(str(eligibility.get("b", "—")))}</td></tr>'
+            f'<tr><th>{escape(t["forced"])}</th><td colspan="2">{escape(str(bool(result.get("forced"))))}</td></tr>'
+            '</tbody></table></section>'
+        )
+
     return f'''<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="{t['html_lang']}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>HTDT comparison {escape(str(comparison['id']))}</title>
 <style>
 body{{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f5f6f8;color:#1e242b}}main{{max-width:1080px;margin:auto;padding:32px}}
 section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}h1,h2{{margin-top:0}}table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;vertical-align:top}}code{{font-size:.9em}}.muted{{color:#606a75}}.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}.metric{{border:1px solid #e1e4e8;border-radius:8px;padding:12px}}.metric strong{{display:block;font-size:1.25rem}}.warn{{border-left:4px solid #a46a00;padding-left:12px}}svg{{width:100%;height:auto}}@media(max-width:700px){{.metrics{{grid-template-columns:1fr 1fr}}}}
 </style></head><body><main>
-<h1>Home Theater Digital Twin — Comparison Report</h1>
-<p class="muted">Project: {escape(str(payload['project']['name']))} · comparison {escape(str(comparison['id']))} · saved {escape(str(comparison.get('created_at', '—')))}</p>
-<section><h2>Interpretation boundary</h2><p>{escape(payload['interpretation_notice'])}</p><ul class="warn">{warning_html}</ul></section>
-<section><h2>Saved metrics</h2><div class="metrics">
-<div class="metric"><span>Mean A−B</span><strong>{_metric(result.get('mean_difference_db'))} dB</strong></div>
-<div class="metric"><span>RMS difference</span><strong>{_metric(result.get('rms_difference_db'))} dB</strong></div>
-<div class="metric"><span>Level offset</span><strong>{_metric(result.get('level_offset_db'))} dB</strong></div>
-<div class="metric"><span>Shape RMS</span><strong>{_metric(result.get('shape_rms_db'))} dB</strong></div></div>
-<p>Algorithm: <code>{escape(str(result.get('algorithm_version', 'unknown')))}</code> · role: <code>{escape(str(result.get('comparison_role', 'unknown')))}</code> · valid points: {escape(str(result.get('valid_points', '—')))} / {escape(str(result.get('total_grid_points', '—')))}</p></section>
-<section><h2>Saved A/B curves</h2>{_svg_chart(result)}</section>
-<section><h2>Measurements</h2><table><thead><tr><th></th><th>A</th><th>B</th></tr></thead><tbody>
-<tr><th>Dataset ID</th><td><code>{escape(str(comparison.get('dataset_a_id', '')))}</code></td><td><code>{escape(str(comparison.get('dataset_b_id', '')))}</code></td></tr>
-<tr><th>Measurement ID</th><td><code>{escape(str(measurement_a.get('measurement_id', '—')))}</code></td><td><code>{escape(str(measurement_b.get('measurement_id', '—')))}</code></td></tr>
-<tr><th>Context ID</th><td><code>{escape(str(measurement_a.get('context_id', '—')))}</code></td><td><code>{escape(str(measurement_b.get('context_id', '—')))}</code></td></tr>
-<tr><th>Channel</th><td>{escape(str(measurement_a.get('channel_role', '—')))}</td><td>{escape(str(measurement_b.get('channel_role', '—')))}</td></tr>
-<tr><th>Evidence</th><td>{escape(str(measurement_a.get('evidence_type', '—')))}</td><td>{escape(str(measurement_b.get('evidence_type', '—')))}</td></tr>
-<tr><th>Quality</th><td>{escape(str(measurement_a.get('quality_status', '—')))}</td><td>{escape(str(measurement_b.get('quality_status', '—')))}</td></tr>
-<tr><th>Repeat group</th><td>{escape(str(measurement_a.get('repeat_group', '—')))}</td><td>{escape(str(measurement_b.get('repeat_group', '—')))}</td></tr>
+<h1>{escape(t['title'])}</h1>
+<p class="muted">{escape(t['project_line'].format(project=payload['project']['name'], comparison=comparison['id'], saved=comparison.get('created_at', '—')))}</p>
+<section><h2>{escape(t['interpretation_boundary'])}</h2><p>{escape(payload['interpretation_notice'])}</p><ul class="warn">{warning_html}</ul></section>
+<section><h2>{escape(t['saved_metrics'])}</h2><div class="metrics">
+<div class="metric"><span>{escape(t['mean_ab'])}</span><strong>{_metric(result.get('mean_difference_db'))} dB</strong></div>
+<div class="metric"><span>{escape(t['rms_difference'])}</span><strong>{_metric(result.get('rms_difference_db'))} dB</strong></div>
+<div class="metric"><span>{escape(t['level_offset'])}</span><strong>{_metric(result.get('level_offset_db'))} dB</strong></div>
+<div class="metric"><span>{escape(t['shape_rms'])}</span><strong>{_metric(result.get('shape_rms_db'))} dB</strong></div></div>
+<p>{t['algorithm_line'].format(algorithm='<code>' + escape(str(result.get('algorithm_version', 'unknown'))) + '</code>', role='<code>' + escape(_report_label(lang, 'comparison_role', result.get('comparison_role', 'unknown'))) + '</code>', valid=escape(str(result.get('valid_points', '—'))), total=escape(str(result.get('total_grid_points', '—'))))}</p></section>
+{verdict_html}
+<section><h2>{escape(t['saved_curves'])}</h2>{_svg_chart(result, t)}</section>
+<section><h2>{escape(t['measurements'])}</h2><table><thead><tr><th></th><th>A</th><th>B</th></tr></thead><tbody>
+<tr><th>{escape(t['dataset_id'])}</th><td><code>{escape(str(comparison.get('dataset_a_id', '')))}</code></td><td><code>{escape(str(comparison.get('dataset_b_id', '')))}</code></td></tr>
+<tr><th>{escape(t['measurement_id'])}</th><td><code>{escape(str(measurement_a.get('measurement_id', '—')))}</code></td><td><code>{escape(str(measurement_b.get('measurement_id', '—')))}</code></td></tr>
+<tr><th>{escape(t['context_id'])}</th><td><code>{escape(str(measurement_a.get('context_id', '—')))}</code></td><td><code>{escape(str(measurement_b.get('context_id', '—')))}</code></td></tr>
+<tr><th>{escape(t['channel'])}</th><td>{escape(_report_label(lang, 'channel_role', measurement_a.get('channel_role')))}</td><td>{escape(_report_label(lang, 'channel_role', measurement_b.get('channel_role')))}</td></tr>
+<tr><th>{escape(t['evidence'])}</th><td>{escape(_report_label(lang, 'evidence_type', measurement_a.get('evidence_type')))}</td><td>{escape(_report_label(lang, 'evidence_type', measurement_b.get('evidence_type')))}</td></tr>
+<tr><th>{escape(t['quality'])}</th><td>{escape(_report_label(lang, 'quality_status', measurement_a.get('quality_status')))}</td><td>{escape(_report_label(lang, 'quality_status', measurement_b.get('quality_status')))}</td></tr>
+<tr><th>{escape(t['repeat_group'])}</th><td>{escape(str(measurement_a.get('repeat_group', '—')))}</td><td>{escape(str(measurement_b.get('repeat_group', '—')))}</td></tr>
 </tbody></table></section>
-<section><h2>Comparison specification</h2><pre>{escape(json.dumps(spec, ensure_ascii=False, indent=2))}</pre></section>
-<section><h2>Intended changes</h2><table><thead><tr><th>Path</th><th>A</th><th>B</th></tr></thead><tbody>{_difference_rows(result.get('intended_changes'))}</tbody></table></section>
-<section><h2>Confounders</h2><table><thead><tr><th>Path</th><th>A</th><th>B</th></tr></thead><tbody>{_difference_rows(result.get('confounders'))}</tbody></table></section>
-<section><h2>Machine-readable snapshot</h2><p class="muted">The complete report payload is embedded below and in the page as application/json.</p><details><summary>Show JSON</summary><pre>{escape(json.dumps(payload, ensure_ascii=False, indent=2))}</pre></details></section>
+<section><h2>{escape(t['comparison_spec'])}</h2><pre>{escape(json.dumps(spec, ensure_ascii=False, indent=2))}</pre></section>
+<section><h2>{escape(t['intended_changes'])}</h2><table><thead><tr><th>{escape(t['path'])}</th><th>A</th><th>B</th></tr></thead><tbody>{_difference_rows(result.get('intended_changes'), t['none'])}</tbody></table></section>
+<section><h2>{escape(t['confounders'])}</h2><table><thead><tr><th>{escape(t['path'])}</th><th>A</th><th>B</th></tr></thead><tbody>{_difference_rows(result.get('confounders'), t['none'])}</tbody></table></section>
+<section><h2>{escape(t['machine_snapshot'])}</h2><p class="muted">{escape(t['snapshot_note'])}</p><details><summary>{escape(t['show_json'])}</summary><pre>{escape(json.dumps(payload, ensure_ascii=False, indent=2))}</pre></details></section>
 <script type="application/json" id="htdt-report-data">{embedded_json}</script>
 </main></body></html>'''
 

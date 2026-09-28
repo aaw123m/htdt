@@ -229,6 +229,9 @@ class ComparisonCreate(BaseModel):
     excluded_bands: list[ExcludedBand] = Field(default_factory=list)
     expected_change_paths: list[str] = Field(default_factory=list)
     label: str | None = None
+    #: Explicitly acknowledge comparing an ineligible dataset (invalid or
+    #: non-measured evidence). The result is then recorded diagnostic_only.
+    force: bool = False
 
     @model_validator(mode='after')
     def validate_bands(self) -> 'ComparisonCreate':
