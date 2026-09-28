@@ -769,6 +769,7 @@ def render_analysis_html(bundle: AnalysisExportBundle) -> str:
         'td,th{border:1px solid #ccc;padding:4px 10px;font-size:13px}'
         'h1{font-size:20px}h2{font-size:15px;margin-top:1.6em}'
         'script{display:none}'
+        '@media print{body{margin:0}svg{break-inside:avoid;max-height:16cm}details{display:none}}'
         '</style></head><body>'
         f'<h1>{html.escape(bundle.title)}</h1>'
         f'<p>Export <code>{html.escape(bundle.export_id)}</code> · '

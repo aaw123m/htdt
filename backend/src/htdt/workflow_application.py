@@ -128,7 +128,14 @@ from .installation_output_authority import InstallationReportService
 from .measurement_page_workspace import build_measurement_workspace_mount
 from .measurement_workflow import MeasurementWorkflowController
 from .help_registry import build_help_registry
-from .localization import detect_system_locale
+from .localization import (
+    LanguagePolicy,
+    LocalizationService,
+    build_workflow_catalog,
+    detect_system_locale,
+    resolve_locale,
+)
+from .native_diagnostics import concise_reason, push_uncaught_sink
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -423,6 +430,16 @@ class WorkflowApplicationComposition:
         self.preferences = preferences or ApplicationPreferenceStore.for_data_dir(
             self.data_dir
         )
+        # One presentation-locale service per composition (#624): the stored
+        # language policy resolves against the detected system locale. Widget
+        # text stays hardcoded Japanese today; the service already owns the
+        # surfaces that can render English content (help topics, the retry
+        # affordance label).
+        self.localization = LocalizationService(
+            build_workflow_catalog(),
+            policy=self._language_policy(),
+            system_locale=detect_system_locale(),
+        )
         self.project_library = project_library or ProjectLibraryRepository(
             repository
         )
@@ -437,9 +454,15 @@ class WorkflowApplicationComposition:
         # One failure surface for every command executor: an exception that
         # would otherwise escape the Qt slot into sys.excepthook is reported
         # as a mapped operator warning instead of only reaching the log.
+        # Retryable failure classes (rew.*, transient io.*, authority races)
+        # get a 再試行 button that re-executes the same command.
         self.registry.set_error_handler(
             lambda definition, exc: warn_user(
-                self.shell, f'「{definition.display_name}」', exc
+                self.shell,
+                f'「{definition.display_name}」',
+                exc,
+                on_retry=lambda: self.registry.execute(definition.command_id),
+                retry_label=self.localization.tr('action.retry'),
             )
         )
         # Canonical offline help/glossary registry (#623) — indexed by the
@@ -486,6 +509,14 @@ class WorkflowApplicationComposition:
         # data root so the next session can see what ran/failed last.
         self.activity_center = ActivityCenter()
         self.activity_center.subscribe(self._persist_activity_history)
+        # Round10: uncaught exceptions also land here as failed
+        # pseudo-operations — the status-bar line fades, this record does
+        # not. Bounded per session so a crash-looping slot cannot flood the
+        # history surface.
+        self._uncaught_op_count = 0
+        self._release_uncaught_sink = push_uncaught_sink(
+            self._record_uncaught_operation
+        )
         self.data_management_controller = DataManagementController(
             backend,
             lifecycle,
@@ -532,6 +563,7 @@ class WorkflowApplicationComposition:
         self._restore_window_state()
         self.shell.register_close_hook(self._save_window_state)
         self.shell.register_close_hook(self._shutdown_automatic_backup)
+        self.shell.register_close_hook(self._release_uncaught_sink)
         self.registry.bind(
             "equipment.export_capture_catalog",
             execute=self._export_capture_equipment_catalog,
@@ -551,7 +583,55 @@ class WorkflowApplicationComposition:
         self._apply_project_title()
         self._build_project_menu()
 
-    # ---- project library (#450) -----------------------------------------
+    def _language_policy(self) -> LanguagePolicy:
+        """Stored language choice, guarded: unknown/stale values fall back to
+        following the system locale rather than breaking presentation."""
+        try:
+            return LanguagePolicy(self.preferences.get('general.language'))
+        except Exception:
+            return LanguagePolicy.SYSTEM_DEFAULT
+
+    def _presentation_locale(self) -> object:
+        return resolve_locale(
+            self._language_policy(),
+            system_locale=detect_system_locale(),
+        )
+
+    def _record_uncaught_operation(
+        self,
+        diagnostics: object,
+        exc: BaseException,
+        window: object | None,
+    ) -> None:
+        """Activity-Center record for an uncaught exception (round10).
+
+        The transient status-bar notice still says "look here"; this pseudo-
+        operation keeps the event in the persistent operation history with
+        the log path and a safe one-line reason. Routed by window so a
+        spawned composition's crash lands on its own center; capped per
+        session so a crash-looping Qt slot cannot flood the history.
+        """
+        owner = getattr(window, 'workflow_application', None) or self
+        if owner is not self:
+            owner._record_uncaught_operation(diagnostics, exc, window)
+            return
+        if self._uncaught_op_count >= 20:
+            return
+        self._uncaught_op_count += 1
+        try:
+            log_path = getattr(diagnostics, 'log_path', None)
+            detail = concise_reason(exc)
+            if log_path is not None:
+                detail += f' — ログ: {log_path}'
+            operation_id = self.activity_center.submit(
+                operation_kind='uncaught_exception',
+                operation_class=OperationClass.COMPUTE,
+                title='予期しないエラー',
+                domain_payload={'detail': 'GUIスレッドで捕捉されなかった例外'},
+            )
+            self.activity_center.fail(operation_id, error_summary=detail)
+        except Exception:
+            _LOGGER.exception('failed to record uncaught exception')
 
     def _apply_project_title(self) -> None:
         # ``project_entry`` may be unbound while a restore finds no projects.
@@ -1356,7 +1436,7 @@ class WorkflowApplicationComposition:
                 HelpTopicPaletteProvider(
                     self.help_registry,
                     self._open_help_topic,
-                    locale=detect_system_locale,
+                    locale=self._presentation_locale,
                 ),
                 NavigationItemPaletteProvider(
                     'measurements', PaletteResultKind.DATA, measurement_items
@@ -1409,7 +1489,7 @@ class WorkflowApplicationComposition:
             return False
         HelpDialog.topic(
             topic,
-            locale=detect_system_locale(),
+            locale=self._presentation_locale(),
             parent=self.shell,
         ).exec()
         return True

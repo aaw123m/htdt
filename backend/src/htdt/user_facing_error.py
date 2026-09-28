@@ -26,6 +26,7 @@ from __future__ import annotations
 import errno as _errno
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -109,6 +110,23 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
     ('RewApiUnavailable', 'rew.unavailable', 'REWに接続できませんでした',
      'REWが起動していてAPIが有効か確認してください'),
     ('RewApiError', 'rew.api', 'REWデータを取得できませんでした', None),
+)
+
+#: Failure classes where asking again is a reasonable next step — transient
+#: transports (REW API), file locks/permissions the user may have just fixed,
+#: and optimistic-concurrency rejections whose recovery text already says
+#: "retry". Deterministic input problems (parse, validation, not-found) stay
+#: non-retryable: re-running them without changes would re-fail identically.
+RETRYABLE_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        'rew.unavailable',
+        'rew.api',
+        'io.error',
+        'io.permission',
+        'io.no_space',
+        'authority.conflict',
+        'authority.stale_head',
+    }
 )
 
 #: Leaf-suffix → (code, message, recovery): covers the repository exception
@@ -255,6 +273,8 @@ def warn_user(
     exc: BaseException,
     *,
     effect: str | None = None,
+    on_retry: Callable[[], None] | None = None,
+    retry_label: str | None = None,
 ) -> UserFacingError:
     """Present one operation failure as a warning dialog.
 
@@ -262,6 +282,11 @@ def warn_user(
     optional effect line — never raw exception text. The exception's class
     and message are preserved under the dialog's Details expander and in the
     diagnostics log.
+
+    ``on_retry`` adds a retry button only when the failure class is actually
+    retryable (``RETRYABLE_ERROR_CODES``) — the dialog never offers a second
+    attempt it knows cannot succeed differently. The callback runs after the
+    dialog closes; its own failure surfaces through the same error channel.
     """
     from PySide6.QtWidgets import QMessageBox
 
@@ -278,11 +303,21 @@ def warn_user(
     box.setText(text)
     if error.technical_detail:
         box.setDetailedText(error.technical_detail)
+    retry_button = None
+    if on_retry is not None and error.code in RETRYABLE_ERROR_CODES:
+        box.addButton(QMessageBox.StandardButton.Ok)
+        retry_button = box.addButton(
+            retry_label or '再試行', QMessageBox.ButtonRole.ApplyRole
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Ok)
     box.exec()
+    if retry_button is not None and box.clickedButton() is retry_button:
+        on_retry()
     return error
 
 
 __all__ = [
+    'RETRYABLE_ERROR_CODES',
     'UserFacingError',
     'log_operation_error',
     'operation_error_message',

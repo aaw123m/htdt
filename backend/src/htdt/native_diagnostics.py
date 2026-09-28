@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import logging
 from logging.handlers import RotatingFileHandler
@@ -43,6 +44,34 @@ _PREVIOUS_HOOK_ATTR = '_htdt_previous_hook'
 
 _qt_message_handler = None
 _qt_previous_handler = None
+
+#: Persistent-surface sinks for uncaught exceptions (round10). Each live
+#: application composition pushes one sink so the error lands on *its*
+#: Activity Center; the most recently registered sink receives the report
+#: and routes it to the window that surfaced the failure. A sink must be
+#: non-blocking and must never raise — it runs inside ``sys.excepthook``.
+UncaughtSink = Callable[
+    ['NativeDiagnostics', BaseException, object | None], None
+]
+_uncaught_sinks: list[UncaughtSink] = []
+
+
+def push_uncaught_sink(sink: UncaughtSink) -> Callable[[], None]:
+    """Register a persistent-surface sink; the return value removes it.
+
+    Sinks are invoked on the GUI thread only, after the transient status-bar
+    notice. The removal handle is idempotent so a closing window can clear
+    its own registration without disturbing other compositions.
+    """
+    _uncaught_sinks.append(sink)
+
+    def _pop() -> None:
+        try:
+            _uncaught_sinks.remove(sink)
+        except ValueError:
+            pass
+
+    return _pop
 
 
 def diagnostics_dir(data_dir: Path) -> Path:
@@ -317,6 +346,7 @@ def install_exception_hooks(diagnostics: NativeDiagnostics) -> None:
         except Exception:
             pass
         _surface_uncaught_on_statusbar(diagnostics)
+        _post_uncaught_to_sink(diagnostics, exc)
         if previous_sys is not None:
             try:
                 previous_sys(exc_type, exc, tb)
@@ -387,6 +417,43 @@ def _surface_uncaught_on_statusbar(diagnostics: NativeDiagnostics) -> None:
         window.statusBar().showMessage(
             f'予期しないエラーが発生しました（{where}）', 10000
         )
+    except Exception:
+        pass
+
+
+def _post_uncaught_to_sink(
+    diagnostics: NativeDiagnostics, exc: BaseException
+) -> None:
+    """Hand the uncaught exception to the registered persistent surface.
+
+    Same GUI-thread gate as the status-bar notice: the sink posts to an
+    Activity Center (not thread-safe), so worker-thread exceptions keep
+    their log-only contract — their owner surfaces them via the completed
+    channel. The window the notice surfaced on is passed through so the
+    sink can route the entry to that window's Activity Center.
+    """
+    if not _uncaught_sinks:
+        return
+    try:
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+    except Exception:
+        return
+    try:
+        app = QApplication.instance()
+        if app is None or QThread.currentThread() is not app.thread():
+            return
+        window = app.activeWindow()
+        if window is None:
+            window = next(
+                (
+                    widget
+                    for widget in app.topLevelWidgets()
+                    if widget.isVisible()
+                ),
+                None,
+            )
+        _uncaught_sinks[-1](diagnostics, exc, window)
     except Exception:
         pass
 

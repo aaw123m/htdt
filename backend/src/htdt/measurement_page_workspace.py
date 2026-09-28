@@ -93,9 +93,11 @@ from .scientific_plot_style import (
     trace_pen,
 )
 from .user_facing_error import (
+    RETRYABLE_ERROR_CODES,
     log_operation_error,
     operation_error_message,
     to_user_facing_error,
+    warn_user,
 )
 from .ui_theme import (
     DARK_THEME,
@@ -430,7 +432,8 @@ class MeasurementPageWorkspace(QWidget):
         self.current_context_id = "import"
         self._job_pool = NativeWorkerPool(self)
         self._job_handlers: dict[
-            str, tuple[Callable[[object], None], str]
+            str,
+            tuple[Callable[[object], None], str, Callable[[], None] | None],
         ] = {}
         self._disposed = False
         self._rew_rows: list[dict[str, Any]] = []
@@ -836,6 +839,7 @@ class MeasurementPageWorkspace(QWidget):
             self.controller.list_rew_measurements,
             self._apply_rew_list,
             "REW一覧の読み込みに失敗しました",
+            on_retry=self._refresh_rew_async,
         )
 
     def _apply_rew_list(self, value: object) -> None:
@@ -872,6 +876,7 @@ class MeasurementPageWorkspace(QWidget):
             lambda: self.controller.fetch_rew_snapshot(measurement_uuid),
             self._stage_rew_snapshot,
             "REW測定の読み込みに失敗しました",
+            on_retry=self._read_rew_async,
         )
 
     def _stage_rew_snapshot(self, value: object) -> None:
@@ -4302,11 +4307,13 @@ class MeasurementPageWorkspace(QWidget):
         call: Callable[[], object],
         on_success: Callable[[object], None],
         error_prefix: str,
+        *,
+        on_retry: Callable[[], None] | None = None,
     ) -> None:
         if self._disposed:
             return
         key = uuid4().hex
-        self._job_handlers[key] = (on_success, error_prefix)
+        self._job_handlers[key] = (on_success, error_prefix, on_retry)
         self._job_pool.start(
             key,
             lambda _cancel_event: call(),
@@ -4318,13 +4325,21 @@ class MeasurementPageWorkspace(QWidget):
         handler = self._job_handlers.pop(str(key), None)
         if handler is None or self._disposed:
             return
-        on_success, error_prefix = handler
+        on_success, error_prefix, on_retry = handler
         if error is not None:
             if error != WORKER_CANCELLED:
                 self._set_notice(
                     f"{error_prefix} · {operation_error_message(error)}",
                     SemanticState.ERROR,
                 )
+                # Retryable transport/concurrency failures also offer the
+                # modal retry affordance — the notice stays so the record
+                # survives a dismissed dialog.
+                if (
+                    on_retry is not None
+                    and to_user_facing_error(error).code in RETRYABLE_ERROR_CODES
+                ):
+                    warn_user(self, error_prefix, error, on_retry=on_retry)
             return
         on_success(result)
 
