@@ -87,6 +87,14 @@ _LAZY_EXPORTS = {
         'IncompatibleNewerSchemaError',
     ),
     'NativeUpgradeError': ('.native_upgrade', 'NativeUpgradeError'),
+    'newer_schema_dialog_copy_ja': (
+        '.native_upgrade',
+        'newer_schema_dialog_copy_ja',
+    ),
+    'upgrade_failure_recovery_ja': (
+        '.native_upgrade',
+        'upgrade_failure_recovery_ja',
+    ),
     'execute_native_upgrade': ('.native_upgrade', 'execute_native_upgrade'),
     'plan_native_upgrade': ('.native_upgrade', 'plan_native_upgrade'),
     'HTDTLaunchIntent': ('.launch_intents', 'HTDTLaunchIntent'),
@@ -1029,10 +1037,11 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 failure_class='schema_incompatibility',
             )
         diagnostics.log_startup_failure(exc)
+        newer_reason, newer_recovery = _self.newer_schema_dialog_copy_ja(exc)
         report_launch_failure(
             title="HTDTデータがこのビルドより新しいです",
-            reason=str(exc),
-            recovery=str(exc),
+            reason=newer_reason,
+            recovery=newer_recovery,
             log_path=diagnostics.log_path,
         )
         return 1
@@ -1049,7 +1058,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         report_launch_failure(
             title="HTDTがデータを更新できませんでした",
             reason=concise_reason(exc),
-            recovery=str(exc),
+            recovery=_self.upgrade_failure_recovery_ja(exc),
             log_path=diagnostics.log_path,
         )
         return 1

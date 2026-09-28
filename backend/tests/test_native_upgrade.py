@@ -427,3 +427,48 @@ def test_clean_current_schema_has_no_marker_and_stays_silent(
     assert event.outcome == 'no_upgrade'
     assert event.live_generation_state == 'unchanged'
     assert list_upgrade_events(tmp_path) == ()
+
+
+def test_upgrade_copy_ja_is_japanese(tmp_path: Path) -> None:
+    """The property literally named ``upgrade_copy_ja`` feeds the JP
+    「HTDT データ更新」 dialog — it must not return English."""
+    _create_current_database(tmp_path)
+    _stamp_schema_version(tmp_path, NATIVE_SCHEMA_VERSION - 1)
+    plan = plan_native_upgrade(tmp_path)
+    copy = plan.upgrade_copy_ja
+    assert any('ぁ' <= ch <= 'ヿ' or '一' <= ch <= '鿿' for ch in copy)
+    assert str(plan.current_schema_version) in copy
+    assert str(plan.target_schema_version) in copy
+
+
+def test_newer_schema_error_carries_versions_for_dialog(tmp_path: Path) -> None:
+    """The launch-failure dialog composes JP copy from the versions the
+    exception carries — never by parsing the English diagnostic text."""
+    _create_newer_database(tmp_path, NATIVE_SCHEMA_VERSION + 2)
+
+    with pytest.raises(IncompatibleNewerSchemaError) as caught:
+        execute_native_upgrade(tmp_path)
+
+    assert caught.value.stored_schema_version == NATIVE_SCHEMA_VERSION + 2
+    assert caught.value.supported_schema_version == NATIVE_SCHEMA_VERSION
+
+
+def test_upgrade_failure_recovery_hint_is_japanese(tmp_path: Path) -> None:
+    from htdt.native_upgrade import (
+        NativeUpgradeQuarantineError,
+        upgrade_failure_recovery_ja,
+    )
+
+    quarantine = upgrade_failure_recovery_ja(
+        NativeUpgradeQuarantineError('simulated')
+    )
+    generic = upgrade_failure_recovery_ja(NativeUpgradeError('simulated'))
+
+    for text in (quarantine, generic):
+        assert any('ぁ' <= ch <= 'ヿ' or '一' <= ch <= '鿿' for ch in text)
+    # The quarantined generation's honest path forward: restart re-verifies
+    # and the pre-upgrade recovery copy is restorable — surfaced, not just
+    # machine-readable on the exception.
+    assert '再起動' in quarantine
+    assert '復旧用コピー' in quarantine
+    assert '変更されていません' in generic

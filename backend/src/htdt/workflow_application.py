@@ -150,6 +150,7 @@ from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .optimization_workflow_workspace import build_optimization_workspace_mount
 from .project_bundle import (
     BUNDLE_EXTENSION,
+    BundleImportConflictError,
     ProjectBundleError,
     export_project_bundle,
     import_project_bundle,
@@ -1167,7 +1168,10 @@ class WorkflowApplicationComposition:
             return
         try:
             result = import_project_bundle(self.repository, Path(selected))
-        except ProjectBundleError as exc:
+        except BundleImportConflictError as exc:
+            # A record-identity collision is the only bundle failure a copy
+            # import can resolve — manifest/schema rejections re-fail
+            # identically and must not offer a dead-end retry path.
             retry = QMessageBox.question(
                 self.shell,
                 "そのままインポートできません",

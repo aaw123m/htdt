@@ -877,19 +877,45 @@ def import_project_bundle(
                 value_map[source_document_id] = document_id
                 import_mode = 'copy'
 
-        prepared_rows: list[tuple[str, dict]] = []
+        # A bundle carrying tables or columns this build's schema does
+        # not have — e.g. written by a build from a different schema era
+        # (``project_registry`` folded away at native v7, or columns added
+        # after the exporter's build) — is a version mismatch: reject it
+        # honestly instead of crashing on a missing table mid-import or
+        # silently dropping the column's data.
+        unknown: list[str] = []
         for table in sorted(exported):
             columns_info = {
                 name
                 for name, _declared, _pk in _table_columns(connection, table)
             }
+            if not columns_info:
+                unknown.append(f'table {table}')
+                continue
+            extras = sorted(
+                {
+                    column
+                    for row_json in exported[table]
+                    for column in row_json['columns']
+                }
+                - columns_info
+            )
+            unknown.extend(f'{table}.{column}' for column in extras)
+        if unknown:
+            raise BundleManifestInvalidError(
+                'bundle was written for a different schema generation '
+                f'(source HTDT {manifest.source_htdt_version}); '
+                f'unknown to this build: {", ".join(unknown[:8])}'
+            )
+
+        prepared_rows: list[tuple[str, dict]] = []
+        for table in sorted(exported):
             for row_json in exported[table]:
                 record = {
                     column: _cell_from_json(value)
                     for column, value in zip(
                         row_json['columns'], row_json['values']
                     )
-                    if column in columns_info
                 }
                 prepared_rows.append((table, record))
 
