@@ -215,7 +215,7 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   if (!context) {
     return <section className="panel search-panel" id="search">
       <div className="section-title premium-title">
-        <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>Search Space</h2></div>
+        <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>探索空間</h2></div>
       </div>
       <div className="empty-state">
         <div className="empty-icon">⌁</div><strong>Contextがまだありません</strong>
@@ -225,7 +225,7 @@ export function SearchSpacePanel({ projectId, context }: { projectId: string; co
   }
   return <section className="panel search-panel" id="search">
     <div className="section-title premium-title">
-      <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>Search Space</h2></div>
+      <div><span className="section-kicker">O10 · Deterministic Search Space</span><h2>探索空間</h2></div>
       <span className="status-pill neutral">Context R{context.revision_number}</span>
     </div>
     <div className="constraint-intro search-intro">

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
+import { channelRoleLabel, evidenceTypeLabel, qualityStatusLabel } from './labels'
 
 type MeasurementOption = {
   dataset_id: string
@@ -129,10 +130,10 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
 
   return (
     <section className="panel" id="features">
-      <div className="section-title"><h2>Features</h2><span>近接候補 ≠ 原因診断</span></div>
+      <div className="section-title"><h2>特徴候補</h2><span>近接候補 ≠ 原因診断</span></div>
       <p className="hint">保存済みFRを96 PPOへ再標本化し、baselineからのpeak/dipを検出します。room modeや一次反射との周波数近接は、次に確認する候補を絞るための情報であり原因確定ではありません。</p>
       <div className="grid4">
-        <label>Dataset<select value={datasetId} onChange={(event) => { setDatasetId(event.target.value); setResult(null) }}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{measurement.channel_role} · {measurement.quality_status} · {measurement.evidence_type} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
+        <label>Dataset<select value={datasetId} onChange={(event) => { setDatasetId(event.target.value); setResult(null) }}><option value="">選択</option>{measurements.map((measurement) => <option key={measurement.dataset_id} value={measurement.dataset_id}>{channelRoleLabel(measurement.channel_role)} · {qualityStatusLabel(measurement.quality_status)} · {evidenceTypeLabel(measurement.evidence_type)} · {measurement.dataset_id.slice(0, 8)}</option>)}</select></label>
         <label>Low Hz<input value={lowHz} onChange={(event) => setLowHz(event.target.value)} /></label>
         <label>High Hz<input value={highHz} onChange={(event) => setHighHz(event.target.value)} /></label>
         <label>Prominence dB<input value={prominenceDb} onChange={(event) => setProminenceDb(event.target.value)} /></label>
@@ -146,8 +147,8 @@ export function FeatureCandidatePanel({ projectId, measurements }: Props) {
           <span>{result.feature_detection.parameters.ppo} PPO</span>
           <span>match ±{result.match_parameters.tolerance_octaves.toFixed(4)} oct</span>
         </div>
-        {result.warnings.length > 0 && <div className="preview"><strong>Interpretation warnings</strong>{result.warnings.map((warning, index) => <em key={index}>{warning}</em>)}</div>}
-        <p className="hint">candidate matching: {result.eligible_for_candidate_matching ? 'enabled' : 'disabled'} · baseline {result.feature_detection.parameters.baseline_window_octaves.toFixed(3)} oct · min spacing {result.feature_detection.parameters.min_spacing_octaves.toFixed(3)} oct</p>
+        {result.warnings.length > 0 && <div className="preview"><strong>解釈上の注意</strong>{result.warnings.map((warning, index) => <em key={index}>{warning}</em>)}</div>}
+        <p className="hint">candidate matching: {result.eligible_for_candidate_matching ? '有効' : '無効'} · baseline {result.feature_detection.parameters.baseline_window_octaves.toFixed(3)} oct · min spacing {result.feature_detection.parameters.min_spacing_octaves.toFixed(3)} oct</p>
         <div className="analysis-grid wide">
           {result.feature_detection.features.length === 0 && <div><strong>特徴なし</strong><span>現在の帯域・prominence条件ではpeak/dipを検出しませんでした。</span></div>}
           {result.feature_detection.features.map((feature, index) => {

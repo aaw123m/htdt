@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import Plotly, { type Data, type Layout } from 'plotly.js-dist-min'
 
+import { channelRoleLabel } from './labels'
+
 export type Speaker = {
   speaker_id: string
   role: string
@@ -87,13 +89,30 @@ export function FrequencyPlot({ result }: { result: ComparisonResult }) {
     autosize: true,
     height: 420,
     margin: { l: 60, r: 20, t: 30, b: 55 },
-    xaxis: { type: 'log', title: { text: 'Frequency (Hz)' } },
-    yaxis: { title: { text: 'Level (dB)' } },
+    xaxis: { type: 'log', title: { text: '周波数 (Hz)' } },
+    yaxis: { title: { text: 'レベル (dB)' } },
     legend: { orientation: 'h' },
     ...themedLayout(),
   }), [])
   const ref = usePlot(data, layout)
-  return <div ref={ref} className="plot" role="img" aria-label="A/B frequency response plot" />
+  return <div ref={ref} className="plot" role="img" aria-label="A/B周波数特性プロット" />
+}
+
+export function DifferencePlot({ result }: { result: ComparisonResult }) {
+  const data = useMemo<Data[]>(() => [
+    { type: 'scatter', mode: 'lines', name: 'A − B', x: result.grid_hz, y: result.difference_db },
+  ], [result])
+  const layout = useMemo<Partial<Layout>>(() => ({
+    autosize: true,
+    height: 300,
+    margin: { l: 60, r: 20, t: 30, b: 55 },
+    xaxis: { type: 'log', title: { text: '周波数 (Hz)' } },
+    yaxis: { title: { text: 'レベル差 (dB)' }, zeroline: true, zerolinewidth: 2 },
+    showlegend: false,
+    ...themedLayout(),
+  }), [])
+  const ref = usePlot(data, layout)
+  return <div ref={ref} className="plot" role="img" aria-label="A−B差分プロット" />
 }
 
 export function RoomPlot({ context }: { context: ContextPayload }) {
@@ -107,7 +126,7 @@ export function RoomPlot({ context }: { context: ContextPayload }) {
           { vertex_id: 'rear_left', x_m: 0, y_m: context.room.depth_m },
         ]
     const closedBoundary = [...polygonVertices, polygonVertices[0]]
-    const boundaryName = context.room.geometry_kind === 'reference_box' ? 'Reference box' : 'Room boundary'
+    const boundaryName = context.room.geometry_kind === 'reference_box' ? '参照ボックス' : '部屋境界'
     const boundaryTraces: Data[] = [0, context.room.height_m].map((height, index) => ({
       type: 'scatter3d', mode: 'lines', name: boundaryName,
       x: closedBoundary.map((point) => point.x_m),
@@ -126,11 +145,11 @@ export function RoomPlot({ context }: { context: ContextPayload }) {
     const speakerTrace: Data = {
       type: 'scatter3d',
       mode: 'markers+text',
-      name: 'Speakers',
+      name: 'スピーカー',
       x: positioned.map((item) => item.position.x_m),
       y: positioned.map((item) => item.position.z_m),
       z: positioned.map((item) => item.position.y_m),
-      text: positioned.map((item) => item.speaker.role),
+      text: positioned.map((item) => channelRoleLabel(item.speaker.role)),
       textposition: 'top center',
       marker: { size: 6 },
     }
@@ -151,9 +170,9 @@ export function RoomPlot({ context }: { context: ContextPayload }) {
       height: 430,
       margin: { l: 0, r: 0, t: 20, b: 0 },
       scene: {
-        xaxis: { title: { text: 'X right (m)' }, range: [0, context.room.width_m] },
-        yaxis: { title: { text: 'Z up (m)' }, range: [0, context.room.height_m] },
-        zaxis: { title: { text: 'Y rear (m)' }, range: [0, context.room.depth_m] },
+        xaxis: { title: { text: 'X 右 (m)' }, range: [0, context.room.width_m] },
+        yaxis: { title: { text: 'Z 上 (m)' }, range: [0, context.room.height_m] },
+        zaxis: { title: { text: 'Y 後方 (m)' }, range: [0, context.room.depth_m] },
         aspectmode: 'data',
       },
       legend: { orientation: 'h' },
@@ -162,5 +181,5 @@ export function RoomPlot({ context }: { context: ContextPayload }) {
     return { traces: [...boundaryTraces, speakerTrace, listenerTrace], layout: layoutValue }
   }, [context])
   const ref = usePlot(traces, layout)
-  return <div ref={ref} className="plot" role="img" aria-label="Room spatial plot" />
+  return <div ref={ref} className="plot" role="img" aria-label="部屋の空間プロット" />
 }

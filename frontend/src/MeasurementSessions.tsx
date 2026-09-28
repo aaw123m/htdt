@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api, fileToBase64, parseList } from './api'
 import { CopyCode } from './copy'
+import { channelRoleLabel, qualityStatusLabel } from './labels'
 
 type Project = { id: string; name: string; created_at: string }
 type ContextRecord = { id: string; revision_number: number; created_at: string }
@@ -32,7 +33,7 @@ type ImportResult = {
 }
 
 function sessionLabel(session: MeasurementSession): string {
-  const purpose = session.purpose?.trim() || 'Untitled session'
+  const purpose = session.purpose?.trim() || '無題のセッション'
   const started = session.started_at?.trim() || session.created_at
   return `${purpose} · ${started}`
 }
@@ -180,9 +181,9 @@ export function MeasurementSessionsPanel() {
 
   return (
     <div className="shell supplemental-shell">
-      <section className="panel">
+      <section className="panel" id="sessions">
         <div className="section-title">
-          <h2>Measurement Sessions</h2>
+          <h2>測定セッション</h2>
           <span>schema v3 · explicit grouping</span>
         </div>
         <p className="hint">
@@ -218,9 +219,9 @@ export function MeasurementSessionsPanel() {
 
         {selectedSession && <>
           <div className="preview">
-            <strong>{selectedSession.purpose ?? 'Untitled session'}</strong>
+            <strong>{selectedSession.purpose ?? '無題のセッション'}</strong>
             <span>started: {selectedSession.started_at ?? 'unknown'}</span>
-            <span>{selectedSession.measurement_count} measurement(s)</span>
+            <span>{selectedSession.measurement_count} 件の測定</span>
             <CopyCode value={selectedSession.id} display={selectedSession.id.slice(0, 8)} />
           </div>
 
@@ -256,9 +257,9 @@ export function MeasurementSessionsPanel() {
 
           <div className="cards">
             {sessionMeasurements.map((measurement) => <article key={measurement.id}>
-              <strong>{measurement.channel_role}</strong>
-              <span>quality: {measurement.quality_status}</span>
-              <span>repeat: {measurement.repeat_group ?? '—'}</span>
+              <strong>{channelRoleLabel(measurement.channel_role)}</strong>
+              <span>品質: {qualityStatusLabel(measurement.quality_status)}</span>
+              <span>繰り返し: {measurement.repeat_group ?? '—'}</span>
               <CopyCode value={measurement.dataset_id} display={measurement.dataset_id.slice(0, 8)} />
             </article>)}
             {sessionMeasurements.length === 0 && <article><strong>測定なし</strong><span>このSessionにはまだ測定が保存されていません。上のフォームからREW textをインポートしてください。</span></article>}

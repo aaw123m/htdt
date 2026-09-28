@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { CopyCode } from './copy'
 import type { ContextPayload } from './plots'
+import { channelRoleLabel, qualityStatusLabel } from './labels'
 
 type Project = { id: string; name: string }
 type OverviewContextPayload = ContextPayload & {
@@ -167,16 +168,16 @@ export function PlacementOverviewPanel() {
 
   return (
     <div className="shell">
-      <section className="panel">
-        <div className="section-title"><h2>Layout History</h2><span>履歴一覧 · ランキングしない</span></div>
+      <section className="panel" id="history">
+        <div className="section-title"><h2>配置履歴</h2><span>履歴一覧 · ランキングしない</span></div>
         <p className="hint">同じchannel / measurement pointの実測を配置版ごとに並べます。移動量、品質、AVR/部屋/MLP差、保存済みA/B比較を確認できます。この一覧自体は「最良配置」を選びません。</p>
         <div className="grid4">
           <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">選択</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-          <label>Channel<select value={channelRole} onChange={(event) => { setChannelRole(event.target.value); setReferenceDatasetId('') }}><option value="">すべて</option>{channelRoles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
+          <label>Channel<select value={channelRole} onChange={(event) => { setChannelRole(event.target.value); setReferenceDatasetId('') }}><option value="">すべて</option>{channelRoles.map((role) => <option key={role} value={role}>{channelRoleLabel(role)}</option>)}</select></label>
           <label>Measurement point<select value={pointId} onChange={(event) => { setPointId(event.target.value); setReferenceDatasetId('') }}><option value="">すべて</option>{pointIds.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>
           <label>Reference<select value={referenceDatasetId} onChange={(event) => setReferenceDatasetId(event.target.value)}><option value="">選択</option>{rows.map((row) => {
             const context = contextsById.get(row.context_id)
-            return <option key={row.dataset_id} value={row.dataset_id}>R{context?.revision_number ?? '?'} · {row.quality_status} · {row.dataset_id.slice(0, 8)}</option>
+            return <option key={row.dataset_id} value={row.dataset_id}>R{context?.revision_number ?? '?'} · {qualityStatusLabel(row.quality_status)} · {row.dataset_id.slice(0, 8)}</option>
           })}</select></label>
         </div>
         {error && <div className="notice error" role="alert"><span>{error}</span><button type="button" className="ghost compact" onClick={retryLoad}>再読込</button></div>}
@@ -191,10 +192,10 @@ export function PlacementOverviewPanel() {
             const roomChanged = referenceContext ? !sameJson(referenceContext.payload.room, context.payload.room) : false
             const isReference = measurement.dataset_id === referenceDatasetId
             return <article key={measurement.dataset_id}>
-              <strong>{isReference ? 'REFERENCE · ' : ''}R{context.revision_number} · {measurement.channel_role}</strong>
-              <span>quality {measurement.quality_status} · repeat {measurement.repeat_group ?? '—'}</span>
-              <span>MLP movement {mlpMove === null ? '—' : `${(mlpMove * 100).toFixed(1)} cm`} · max known speaker movement {speakerMove === null ? '—' : `${(speakerMove * 100).toFixed(1)} cm`}</span>
-              <span>room {roomChanged ? 'CHANGED' : 'same'} · AVR {avrChanged ? 'CHANGED' : 'same'}</span>
+              <strong>{isReference ? '基準 · ' : ''}R{context.revision_number} · {channelRoleLabel(measurement.channel_role)}</strong>
+              <span>品質 {qualityStatusLabel(measurement.quality_status)} · 繰り返し {measurement.repeat_group ?? '—'}</span>
+              <span>MLP移動 {mlpMove === null ? '—' : `${(mlpMove * 100).toFixed(1)} cm`} · 既知スピーカー最大移動 {speakerMove === null ? '—' : `${(speakerMove * 100).toFixed(1)} cm`}</span>
+              <span>部屋 {roomChanged ? '変更あり' : '同一'} · AVR {avrChanged ? '変更あり' : '同一'}</span>
               {measurement.quality_reasons.length > 0 && <small>{measurement.quality_reasons.join(' / ')}</small>}
               {isReference
                 ? <small>比較基準</small>
