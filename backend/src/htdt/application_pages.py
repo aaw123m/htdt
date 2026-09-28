@@ -271,6 +271,10 @@ class ProjectLibraryPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
+        for column in range(1, self.table.columnCount()):
+            self.table.horizontalHeader().setSectionResizeMode(
+                column, QHeaderView.ResizeMode.ResizeToContents
+            )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.itemSelectionChanged.connect(self._sync_buttons)
@@ -880,6 +884,9 @@ class ActivityPage(QWidget):
             self.operations_table.horizontalHeader().setSectionResizeMode(
                 1, QHeaderView.ResizeMode.Stretch
             )
+            self.operations_table.horizontalHeader().setSectionResizeMode(
+                2, QHeaderView.ResizeMode.ResizeToContents
+            )
             self.operations_table.setEditTriggers(
                 QTableWidget.EditTrigger.NoEditTriggers
             )
@@ -898,6 +905,9 @@ class ActivityPage(QWidget):
             )
             self.events_table.horizontalHeader().setSectionResizeMode(
                 1, QHeaderView.ResizeMode.Stretch
+            )
+            self.events_table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.ResizeToContents
             )
             self.events_table.setEditTriggers(
                 QTableWidget.EditTrigger.NoEditTriggers

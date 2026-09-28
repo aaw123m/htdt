@@ -360,6 +360,7 @@ class RoomVideoPanel(QWidget):
         layout.setSpacing(6)
 
         heading = QLabel("映像ジオメトリ（プロジェクター/ディスプレイ/視線）")
+        heading.setWordWrap(True)
         set_typography_role(heading, TypographyRole.SECTION_TITLE)
         layout.addWidget(heading)
 

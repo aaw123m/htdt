@@ -618,7 +618,9 @@ def test_geometry_context_panel_mounts_and_adds_opening_through_wall_authority(t
     workspace.set_context("geometry")
     panel.refresh()
 
-    assert workspace.right_stack.currentWidget() is panel
+    # The geometry panel sits inside its dock scroll page since the
+    # round-11 design pass made narrow-dock overflow scrollable.
+    assert workspace.right_stack.currentWidget().widget() is panel
     assert not panel.ensure_walls_button.isHidden()
     panel.ensure_walls_button.click()
     app.processEvents()

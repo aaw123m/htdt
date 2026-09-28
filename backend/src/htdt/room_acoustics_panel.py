@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -202,12 +203,13 @@ class TreatmentDefinitionDialog(QDialog):
                 f'{value} — {_TREATMENT_TYPE_LABELS[value]}', value
             )
         form.addRow('種類', self.treatment_type)
-        self.width = QDoubleSpinBox()
-        self.width.setRange(0.01, 20.0)
-        self.width.setValue(0.6)
-        self.height = QDoubleSpinBox()
-        self.height.setRange(0.01, 20.0)
-        self.height.setValue(1.2)
+        # ``width``/``height`` would shadow QWidget.width()/height().
+        self.width_m = QDoubleSpinBox()
+        self.width_m.setRange(0.01, 20.0)
+        self.width_m.setValue(0.6)
+        self.height_m = QDoubleSpinBox()
+        self.height_m.setRange(0.01, 20.0)
+        self.height_m.setValue(1.2)
         self.thickness = QDoubleSpinBox()
         self.thickness.setRange(0.001, 2.0)
         self.thickness.setValue(0.05)
@@ -215,8 +217,8 @@ class TreatmentDefinitionDialog(QDialog):
         self.air_gap = QDoubleSpinBox()
         self.air_gap.setRange(0.0, 2.0)
         self.air_gap.setDecimals(3)
-        form.addRow('幅 (m)', self.width)
-        form.addRow('高さ (m)', self.height)
+        form.addRow('幅 (m)', self.width_m)
+        form.addRow('高さ (m)', self.height_m)
         form.addRow('厚さ (m)', self.thickness)
         form.addRow('空気層 (m)', self.air_gap)
         self.layer_material = QLineEdit()
@@ -248,8 +250,8 @@ class TreatmentDefinitionDialog(QDialog):
             'name': self.name.text().strip(),
             'version': self.version.text().strip() or '1',
             'treatment_type': self.treatment_type.currentData(),
-            'width_m': float(self.width.value()),
-            'height_m': float(self.height.value()),
+            'width_m': float(self.width_m.value()),
+            'height_m': float(self.height_m.value()),
             'thickness_m': float(self.thickness.value()),
             'air_gap_m': float(self.air_gap.value()),
             'layer_material': self.layer_material.text().strip(),
@@ -825,9 +827,25 @@ class RoomAcousticsTabs(QTabWidget):
     ) -> None:
         super().__init__(parent)
         self._panels = (prediction_panel, material_panel, treatment_panel)
-        self.addTab(prediction_panel, '予測')
-        self.addTab(material_panel, 'マテリアル')
-        self.addTab(treatment_panel, '音響処理')
+        for panel, label in (
+            (prediction_panel, '予測'),
+            (material_panel, 'マテリアル'),
+            (treatment_panel, '音響処理'),
+        ):
+            self.addTab(self._scroll_page(panel), label)
+
+    @staticmethod
+    def _scroll_page(panel: QWidget) -> QScrollArea:
+        """Each tab page scrolls inside the narrow dock; the tab bar stays pinned."""
+
+        page = QScrollArea()
+        page.setWidgetResizable(True)
+        page.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        page.setFrameShape(QScrollArea.Shape.NoFrame)
+        page.setWidget(panel)
+        return page
 
     def refresh(self) -> None:
         for panel in self._panels:

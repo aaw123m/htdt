@@ -22,7 +22,12 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_scene import SceneDocument
-from .ui_theme import set_typography_role, TypographyRole
+from .ui_theme import (
+    ControlSize,
+    set_control_size,
+    set_typography_role,
+    TypographyRole,
+)
 
 _ENTITY_ROLE = Qt.ItemDataRole.UserRole
 
@@ -67,6 +72,8 @@ class RoomObjectsPanel(QWidget):
             self.unlock_button,
             self.delete_button,
         ):
+            # Compact padding keeps the 5-button row inside the 260-320px dock.
+            set_control_size(button, ControlSize.COMPACT)
             button_row.addWidget(button)
         button_row.addStretch(1)
         layout.addLayout(button_row)

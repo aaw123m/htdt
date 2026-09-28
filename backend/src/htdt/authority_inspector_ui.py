@@ -33,6 +33,7 @@ from .authority_graph import (
     AuthorityInspector,
     AuthorityNode,
 )
+from .ui_theme import SemanticState, set_semantic_state
 
 
 _FRESHNESS_LABELS = {
@@ -125,7 +126,7 @@ class AuthorityInspectorDialog(QDialog):
         self.why_stale_label = QLabel('')
         self.why_stale_label.setObjectName('authorityWhyStale')
         self.why_stale_label.setWordWrap(True)
-        self.why_stale_label.setStyleSheet('color: #b45309;')
+        set_semantic_state(self.why_stale_label, SemanticState.WARNING)
         layout.addWidget(self.why_stale_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
