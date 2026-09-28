@@ -343,6 +343,7 @@ class JointOptimizationPanel(QWidget):
         baseline = self._baseline
         if baseline is None:
             self.preflight_label.setText('')
+            self.create_button.setEnabled(False)
             return
         mode = self._mode()
         dsp_variables = self._selected_dsp_variables()
@@ -355,20 +356,42 @@ class JointOptimizationPanel(QWidget):
             )
         except Exception as exc:  # defensive: preflight stays advisory
             self.preflight_label.setText(f'候補数を推定できません: {operation_error_message(exc)}')
+            self.create_button.setEnabled(False)
             return
         state = (
             '予算内'
             if estimate.within_budget
             else '予算超過 — 範囲を狭めるか予算を増やしてください'
         )
+        # create_spec fail-closes when the joint lane lacks its required
+        # authorities — surface the exact reason here instead of letting the
+        # button reach the error path (#4: the O90 dead-end was illegible).
+        missing: list[str] = []
+        if baseline.robustness_spec is None:
+            missing.append(
+                'O90ばらつき評価仕様（ばらつき耐性ページで作成・実行）'
+            )
+        if not baseline.objective_definitions:
+            missing.append('O30目標評価')
+        detail = ''
+        if missing:
+            detail = ' · 不足authority: ' + ' / '.join(missing)
         self.preflight_label.setText(
             '候補数の見積もり: 物理 '
             f'{estimate.physical_candidate_count} × DSP '
             f'{estimate.dsp_candidate_count} = '
             f'{estimate.combined_candidate_count} / 上限 '
             f'{estimate.candidate_budget}（{state}）'
+            + detail
         )
-        self.create_button.setEnabled(estimate.within_budget)
+        self.create_button.setEnabled(
+            estimate.within_budget and not missing
+        )
+        self.create_button.setToolTip(
+            '仕様を保存します。'
+            if not missing
+            else '作成に不足しているauthority: ' + ' / '.join(missing)
+        )
 
     def _create_spec(self) -> None:
         baseline = self._baseline

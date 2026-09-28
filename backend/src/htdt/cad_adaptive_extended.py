@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from math import isfinite
-from typing import Any, Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 from uuid import uuid4
 
 import numpy as np
@@ -472,6 +472,7 @@ def build_adaptive_extended_plan(
     execution_scope: AdaptiveExecutionScope,
     length_scale_normalized: float = 0.5,
     proposal_limit: int = 20,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> CadAdaptiveExtendedPlan:
     require_validation_scope(validation, execution_scope)
     if validation.document_id != base_spec.document_id:
@@ -586,6 +587,8 @@ def build_adaptive_extended_plan(
     measured_set = set(measured_ids)
     used_observation_hashes: set[str] = set()
     for candidate in candidates:
+        if is_cancelled is not None and is_cancelled():
+            raise RuntimeError('adaptive extended plan build cancelled')
         if candidate.candidate_id in measured_set:
             continue
         candidate_observations = [

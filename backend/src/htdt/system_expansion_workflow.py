@@ -8,7 +8,7 @@ import json
 from math import hypot
 from pathlib import Path
 import sqlite3
-from typing import Literal, Sequence
+from typing import Callable, Literal, Sequence
 
 from .cad_amplifier_headroom import PlaybackChainEvaluation
 from .cad_amplifier_headroom_repository import CadAmplifierHeadroomRepository
@@ -871,6 +871,7 @@ class SystemExpansionWorkflowService:
         equipment_overrides: Sequence[ProposalEquipmentChange] = (),
         layout_profile: LayoutProfile | None = None,
         max_returned_candidates: int = 200,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> ProposalAuthoringResult:
         """Create O100A/B/C authorities for a multi-speaker topology proposal.
 
@@ -1293,11 +1294,16 @@ class SystemExpansionWorkflowService:
             spec=search,
             offset=0,
             limit=min(max(max_returned_candidates, 1), 500),
+            cancelled=is_cancelled,
         )
         self.topology_repository.save_candidate_page(page)
 
         candidate_variant_ids: list[str] = []
         for index, candidate in enumerate(page.candidates):
+            if is_cancelled is not None and is_cancelled():
+                raise RuntimeError(
+                    'topology proposal creation cancelled'
+                )
             child = topology_candidate_to_system_variant(
                 baseline=baseline,
                 template_variant=template,
@@ -2267,6 +2273,7 @@ class SystemExpansionWorkflowService:
         cost_scenario: CostScenario | None = None,
         playback_chain: PlaybackChainLanePolicy | None = None,
         required_objective_ids: frozenset[str] = frozenset(),
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> TopologyComparisonExecution:
         """Evaluate selected proposed SystemVariants and persist a comparison.
 
@@ -2392,6 +2399,7 @@ class SystemExpansionWorkflowService:
             directivity_repository=dependencies['directivity'],
             cost_repository=dependencies['cost'],
             equipment_binding_repository=dependencies['bindings'],
+            is_cancelled=is_cancelled,
             created_at_utc=datetime.now(timezone.utc).isoformat(),
         )
 

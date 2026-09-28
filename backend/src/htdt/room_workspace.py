@@ -4040,6 +4040,13 @@ class RoomWorkspace(QWidget):
             return False, "部屋形状の編集中です。確定またはキャンセルしてから画面を切り替えてください"
         if self.transform_input is not None and self.transform_input.is_active:
             return False, "項目の移動または回転を確定・キャンセルしてから画面を切り替えてください"
+        if getattr(self, 'system_expansion_panel', None) is not None and (
+            self.system_expansion_panel.is_running()
+        ):
+            return False, (
+                "提案の作成が完了またはキャンセルされるまで"
+                "画面を切り替えられません"
+            )
         allowed, reason = self.controller.before_deactivate()
         if allowed:
             self._persist_view_extras()
@@ -6719,6 +6726,8 @@ class RoomWorkspace(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self._persist_view_extras()
+        if getattr(self, 'system_expansion_panel', None) is not None:
+            self.system_expansion_panel.dispose()
         if self.transform_input is not None:
             self.transform_input.dispose()
         if self.geometry_input is not None:

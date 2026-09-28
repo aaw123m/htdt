@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Callable
+
 from .cad_adaptive_planner import (
     AdaptiveExecutionScope,
     CadAdaptivePlan,
@@ -43,6 +45,7 @@ class CadAdaptivePlannerService:
         execution_scope: AdaptiveExecutionScope,
         length_scale_m: float = 0.5,
         proposal_limit: int = 20,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> CadAdaptivePlan:
         validation = self.validation_repository.get(validation_id)
         if validation is None:
@@ -74,6 +77,7 @@ class CadAdaptivePlannerService:
         for page in iter_cad_candidate_pages(
             self.search_repository.scene_repository,
             spec,
+            cancelled=is_cancelled,
         ):
             candidate_set_sha256 = page.candidate_set_sha256
             for candidate in page.candidates:
@@ -99,6 +103,7 @@ class CadAdaptivePlannerService:
             execution_scope=execution_scope,
             length_scale_m=length_scale_m,
             proposal_limit=proposal_limit,
+            is_cancelled=is_cancelled,
         )
         existing = self.adaptive_repository.find_by_sha(
             plan.search_spec_id,

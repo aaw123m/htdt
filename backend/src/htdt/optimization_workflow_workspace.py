@@ -32,6 +32,8 @@ from .joint_optimization_context import JointOptimizationContext
 from .joint_optimization_panel import JointOptimizationPanel
 from .optimization_search_domain import SearchDomainPreview
 from .optimization_workflow_controller import OptimizationWorkflowController
+from .robustness_authoring_context import RobustnessAuthoringContext
+from .robustness_authoring_panel import RobustnessAuthoringPanel
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .ui_theme import (
     ControlSize,
@@ -349,11 +351,33 @@ class OptimizationWorkflowWorkspace(QWidget):
                 "ジョイント最適化が完了またはキャンセルされるまで"
                 "画面を切り替えられません"
             )
+        if getattr(self, 'robustness_authoring_panel', None) is not None and (
+            self.robustness_authoring_panel.is_running()
+        ):
+            return False, (
+                "ばらつき評価が完了またはキャンセルされるまで"
+                "画面を切り替えられません"
+            )
+        if getattr(self, 'system_expansion_compare_panel', None) is not None and (
+            self.system_expansion_compare_panel.is_running()
+        ):
+            return False, (
+                "提案比較の評価が完了またはキャンセルされるまで"
+                "画面を切り替えられません"
+            )
         return self.controller.before_deactivate()
 
     def dirty_state(self) -> WorkspaceDirtyState:
         if getattr(self, 'joint_optimization_panel', None) is not None and (
             self.joint_optimization_panel.is_running()
+        ):
+            return 'busy'
+        if getattr(self, 'robustness_authoring_panel', None) is not None and (
+            self.robustness_authoring_panel.is_running()
+        ):
+            return 'busy'
+        if getattr(self, 'system_expansion_compare_panel', None) is not None and (
+            self.system_expansion_compare_panel.is_running()
         ):
             return 'busy'
         return self.controller.dirty_state()
@@ -370,6 +394,8 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.search_domain_preview.refresh()
         if page_id == "robustness":
             self.controller.refresh_robustness_view()
+            if getattr(self, 'robustness_authoring_panel', None) is not None:
+                self.robustness_authoring_panel.refresh()
         if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
             self.standards_comparison_panel.refresh()
@@ -509,6 +535,10 @@ class OptimizationWorkflowWorkspace(QWidget):
     def closeEvent(self, event) -> None:  # noqa: N802
         if getattr(self, 'joint_optimization_panel', None) is not None:
             self.joint_optimization_panel.dispose()
+        if getattr(self, 'robustness_authoring_panel', None) is not None:
+            self.robustness_authoring_panel.dispose()
+        if getattr(self, 'system_expansion_compare_panel', None) is not None:
+            self.system_expansion_compare_panel.dispose()
         self.controller.dispose()
         self.viewport_widget.close()
         self.robustness_viewport_widget.close()
@@ -626,9 +656,13 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         specs_card, specs = _card(
             "保存済み探索設定",
-            "部屋または制約が変更された探索設定は、再設定が必要な状態として候補生成には使われません。",
+            "部屋または制約が変更された探索設定は、再設定が必要な状態として候補生成には使われません。"
+            " 「同じ条件で再探索」で現在の部屋へ再作成できます。",
         )
         specs.addWidget(_required(self.search_spec_tree, "search_spec_tree"))
+        specs.addWidget(
+            _required(self.search_reauthor_button, "search_reauthor_button")
+        )
         layout.addWidget(search_card)
         layout.addWidget(specs_card)
 
@@ -928,6 +962,29 @@ class OptimizationWorkflowWorkspace(QWidget):
             )
         )
 
+        authoring_card, authoring = _card(
+            "ばらつき評価の作成",
+            "評価済み候補と揺らす軸を選んでO90仕様を作成・実行します。"
+            " 作成した仕様はジョイント最適化（配置+DSP）でも利用できます。",
+        )
+        self.robustness_authoring_panel = RobustnessAuthoringPanel(
+            RobustnessAuthoringContext(
+                scene_repository=self.controller.repository,
+                search_repository=self.controller.search_repository,
+                extended_search_repository=self.controller.extended_repository,
+                objective_repository=self.controller.objective_repository,
+                robustness_repository=self.controller.robustness_repository,
+                document_id=self.document_id,
+            ),
+            selected_spec_id=lambda: self.controller.search_selected_spec_id,
+            on_status=self._set_status,
+        )
+        self.robustness_authoring_panel.evaluationCompleted.connect(
+            lambda _spec: self.controller.refresh_robustness_view()
+        )
+        authoring.addWidget(self.robustness_authoring_panel)
+        layout.addWidget(authoring_card)
+
         self.system_expansion_robustness_panel = SystemExpansionRobustnessPanel(
             self.system_expansion
         )
@@ -1208,9 +1265,15 @@ class OptimizationWorkflowWorkspace(QWidget):
             _required(self.adaptive_proposal_limit_field, "adaptive_proposal_limit_field"),
         )
         adaptive.addLayout(adaptive_form)
+        adaptive_build_row = QHBoxLayout()
         adaptive_build = _required(self.adaptive_build_button, "adaptive_build_button")
         set_primary_action(adaptive_build)
-        adaptive.addWidget(adaptive_build)
+        adaptive_build_row.addWidget(adaptive_build)
+        adaptive_build_row.addWidget(
+            _required(self.adaptive_cancel_button, "adaptive_cancel_button")
+        )
+        adaptive_build_row.addStretch(1)
+        adaptive.addLayout(adaptive_build_row)
         adaptive.addWidget(_required(self.adaptive_tree, "adaptive_tree"))
         adaptive_detail = _required(self.adaptive_detail_label, "adaptive_detail_label")
         adaptive_detail.setWordWrap(True)
@@ -1232,11 +1295,20 @@ class OptimizationWorkflowWorkspace(QWidget):
             ),
         )
         adaptive.addLayout(adaptive_extended_form)
+        adaptive_extended_row = QHBoxLayout()
         adaptive_extended_build = _required(
             self.adaptive_extended_build_button,
             "adaptive_extended_build_button",
         )
-        adaptive.addWidget(adaptive_extended_build)
+        adaptive_extended_row.addWidget(adaptive_extended_build)
+        adaptive_extended_row.addWidget(
+            _required(
+                self.adaptive_extended_cancel_button,
+                "adaptive_extended_cancel_button",
+            )
+        )
+        adaptive_extended_row.addStretch(1)
+        adaptive.addLayout(adaptive_extended_row)
         adaptive.addWidget(
             _required(self.adaptive_extended_tree, "adaptive_extended_tree")
         )

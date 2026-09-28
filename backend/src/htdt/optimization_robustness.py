@@ -39,6 +39,12 @@ ROBUSTNESS_SCHEMA_VERSION = 1
 ROBUSTNESS_ALGORITHM_VERSION = 'o90a-local-stencil-1'
 ROBUSTNESS_MULTIDIMENSIONAL_ALGORITHM_VERSION = 'o90b-bounded-design-1'
 ROBUSTNESS_UNCERTAINTY_ALGORITHM_VERSION = 'o90b-uncertainty-design-1'
+
+
+class RobustnessEvaluationCancelled(RuntimeError):
+    """Cooperative cancellation observed mid-stencil inside an O90 evaluation."""
+
+
 RobustnessCandidate = CadCandidate | CadExtendedCandidate
 RobustnessCandidateKind = Literal['cad_candidate', 'extended_candidate']
 RobustnessAxisParameter = Literal[
@@ -1328,6 +1334,7 @@ def evaluate_local_robustness(
     constraint_set: CadConstraintSet,
     nominal_objective: CadObjectiveEvaluation,
     evaluator: Callable[[SceneDocument, str], PerturbationObjectiveResult],
+    is_cancelled: Callable[[], bool] | None = None,
     created_at_utc: str | None = None,
 ) -> tuple[tuple[PerturbationSample, ...], tuple[RobustnessEvaluation, ...]]:
     """Evaluate nominal/+/- local evidence using existing G10/O30/O80 authorities."""
@@ -1365,6 +1372,10 @@ def evaluate_local_robustness(
     samples: list[PerturbationSample] = []
 
     for plan in plans:
+        if is_cancelled is not None and is_cancelled():
+            raise RobustnessEvaluationCancelled(
+                'robustness evaluation cancelled mid-stencil'
+            )
         document = nominal_document
         changed_ids: tuple[str, ...]
         domain_rejections: tuple[str, ...]
