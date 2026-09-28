@@ -318,6 +318,40 @@ class DeliverablesCatalogService:
         )
 
         commissioning_plans = self._commissioning_plan_count()
+        supported_calibrations, unsupported_calibrations = (
+            self._calibration_plan_states()
+        )
+        biquad_settings = DeliverableEntry(
+            deliverable_id='calibration.biquad_settings',
+            category='commissioning_verification',
+            title='校正設定（汎用バイクアッド）',
+            availability=(
+                'available'
+                if supported_calibrations
+                else ('blocked' if unsupported_calibrations else 'not_applicable')
+            ),
+            reason=(
+                None
+                if supported_calibrations
+                else (
+                    '校正プランはありますがUNSUPPORTEDのため書き出せません。'
+                    if unsupported_calibrations
+                    else '校正プラン権威がまだありません。'
+                )
+            ),
+            source_authorities=(
+                source_pins + (f'calibration_plan:{supported_calibrations[0]}',)
+                if supported_calibrations
+                else source_pins
+            ),
+            expected_formats=('json', 'csv'),
+            command_id='calibration.export_settings',
+            action=(
+                WorkspaceDeepLink(WorkspaceId.OPTIMIZATION, 'validation')
+                if not supported_calibrations
+                else None
+            ),
+        )
         commissioning_report = DeliverableEntry(
             deliverable_id='commissioning.report',
             category='commissioning_verification',
@@ -357,6 +391,7 @@ class DeliverablesCatalogService:
             drawing_set,
             bom,
             field_labels,
+            biquad_settings,
             commissioning_report,
             capture_catalog,
         )
@@ -374,6 +409,36 @@ class DeliverablesCatalogService:
             )
         except Exception:
             return 0
+
+    def _calibration_plan_states(self) -> tuple[tuple[str, ...], int]:
+        """(SUPPORTED plan ids, UNSUPPORTED count) — export refuses UNSUPPORTED."""
+        try:
+            from .cad_calibration_repository import CadCalibrationRepository
+            from .cad_measurement_quality_repository import (
+                CadMeasurementQualityRepository,
+            )
+
+            measurements = CadMeasurementRepository(self._repository)
+            plans = CadCalibrationRepository(
+                scene_repository=self._repository,
+                system_variant_repository=CadSystemVariantRepository(
+                    self._repository
+                ),
+                measurement_repository=measurements,
+                quality_repository=CadMeasurementQualityRepository(
+                    measurements
+                ),
+            ).list_plans(self._document_id)
+        except Exception:
+            return (), 0
+        return (
+            tuple(
+                plan.plan_id
+                for plan in plans
+                if plan.support_state == 'SUPPORTED'
+            ),
+            sum(1 for plan in plans if plan.support_state == 'UNSUPPORTED'),
+        )
 
 
 __all__ = [

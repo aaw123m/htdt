@@ -33,7 +33,7 @@ type ImportResult = {
 }
 
 function sessionLabel(session: MeasurementSession): string {
-  const purpose = session.purpose?.trim() || '無題のセッション'
+  const purpose = session.purpose?.trim() || '無題の測定グループ'
   const started = session.started_at?.trim() || session.created_at
   return `${purpose} · ${started}`
 }
@@ -109,7 +109,7 @@ export function MeasurementSessionsPanel() {
   }, [])
 
   useEffect(() => {
-    void loadProject(projectId).catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : 'Session読込失敗'))
+    void loadProject(projectId).catch((reason: unknown) => setLoadError(reason instanceof Error ? reason.message : '測定グループ読込失敗'))
   }, [projectId])
 
   async function createSession() {
@@ -128,9 +128,9 @@ export function MeasurementSessionsPanel() {
       await loadProject(projectId)
       setSelectedSessionId(created.id)
       setNotes('')
-      setMessage('Measurement Sessionを作成しました')
+      setMessage('測定グループを作成しました')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Session作成失敗')
+      setError(reason instanceof Error ? reason.message : '測定グループ作成失敗')
     } finally {
       setBusy(false)
     }
@@ -139,7 +139,7 @@ export function MeasurementSessionsPanel() {
   async function importIntoSession() {
     try {
       if (!projectId || !selectedSessionId || !selectedContextId || !measurementFile) {
-        throw new Error('Project、Session、Context、測定ファイルを選択してください')
+        throw new Error('Project、測定グループ、Context、測定ファイルを選択してください')
       }
       setBusy(true)
       setError('')
@@ -166,10 +166,10 @@ export function MeasurementSessionsPanel() {
       setMeasurementFile(null)
       if (measurementInputRef.current) measurementInputRef.current.value = ''
       setMessage(result.duplicate_asset
-        ? `Sessionへ保存しました。同じRawAssetを使う既存Datasetが${result.existing_dataset_count}件あります`
-        : 'Sessionへ測定を原本付きで保存しました')
+        ? `測定グループへ保存しました。同じRawAssetを使う既存Datasetが${result.existing_dataset_count}件あります`
+        : '測定グループへ測定を原本付きで保存しました')
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Session測定保存失敗')
+      setError(reason instanceof Error ? reason.message : '測定グループ測定保存失敗')
     } finally {
       setBusy(false)
     }
@@ -183,11 +183,11 @@ export function MeasurementSessionsPanel() {
     <div className="shell supplemental-shell">
       <section className="panel" id="sessions">
         <div className="section-title">
-          <h2>測定セッション</h2>
+          <h2>測定グループ</h2>
           <span>schema v3 · explicit grouping</span>
         </div>
         <p className="hint">
-          Sessionは「同じ測定作業のまとまり」です。repeat_groupは同条件再測定の系列なので別に保持します。既存測定を推測でSessionへ移しません。
+          測定グループは「同じ測定作業のまとまり」です（API上のsession_id。native側の測定セッションauthorityとは別系列です）。repeat_groupは同条件再測定の系列なので別に保持します。既存測定を推測で測定グループへ移しません。
         </p>
         {loadError && <div className="notice error" role="alert"><span>{loadError}</span><button type="button" className="ghost compact" onClick={retryLoad}>再読込</button></div>}
         {(message || error) && <div className={error ? 'notice error' : 'notice'} role={error ? 'alert' : 'status'}>{error || message}</div>}
@@ -199,33 +199,33 @@ export function MeasurementSessionsPanel() {
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
           </label>
-          <label>Current Session
+          <label>現在の測定グループ
             <select value={selectedSessionId} onChange={(event) => setSelectedSessionId(event.target.value)} disabled={!projectId}>
-              <option value="">Sessionなし</option>
+              <option value="">測定グループなし</option>
               {sessions.map((session) => <option key={session.id} value={session.id}>{sessionLabel(session)}</option>)}
             </select>
           </label>
         </div>
 
-        <h3>新しいSession</h3>
+        <h3>新しい測定グループ</h3>
         <div className="grid3">
           <label>目的<input value={purpose} onChange={(event) => setPurpose(event.target.value)} /></label>
           <label>開始日時<input type="datetime-local" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} /></label>
           <label>メモ<input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="任意" /></label>
         </div>
         <div className="row action-row">
-          <button type="button" disabled={!projectId || busy} onClick={() => void createSession()}>Sessionを作成</button>
+          <button type="button" disabled={!projectId || busy} onClick={() => void createSession()}>測定グループを作成</button>
         </div>
 
         {selectedSession && <>
           <div className="preview">
-            <strong>{selectedSession.purpose ?? '無題のセッション'}</strong>
+            <strong>{selectedSession.purpose ?? '無題の測定グループ'}</strong>
             <span>started: {selectedSession.started_at ?? 'unknown'}</span>
             <span>{selectedSession.measurement_count} 件の測定</span>
             <CopyCode value={selectedSession.id} display={selectedSession.id.slice(0, 8)} />
           </div>
 
-          <h3>このSessionへ測定を保存</h3>
+          <h3>この測定グループへ測定を保存</h3>
           <div className="grid4">
             <label>Context
               <select value={selectedContextId} onChange={(event) => setSelectedContextId(event.target.value)}>
@@ -252,7 +252,7 @@ export function MeasurementSessionsPanel() {
             <label>Quality reasons<input value={qualityReasons} onChange={(event) => setQualityReasons(event.target.value)} placeholder="任意" /></label>
           </div>
           <div className="row action-row">
-            <button type="button" disabled={!measurementFile || !selectedContextId || busy} onClick={() => void importIntoSession()}>Session付きで保存</button>
+            <button type="button" disabled={!measurementFile || !selectedContextId || busy} onClick={() => void importIntoSession()}>測定グループ付きで保存</button>
           </div>
 
           <div className="cards">
@@ -262,7 +262,7 @@ export function MeasurementSessionsPanel() {
               <span>繰り返し: {measurement.repeat_group ?? '—'}</span>
               <CopyCode value={measurement.dataset_id} display={measurement.dataset_id.slice(0, 8)} />
             </article>)}
-            {sessionMeasurements.length === 0 && <article><strong>測定なし</strong><span>このSessionにはまだ測定が保存されていません。上のフォームからREW textをインポートしてください。</span></article>}
+            {sessionMeasurements.length === 0 && <article><strong>測定なし</strong><span>この測定グループにはまだ測定が保存されていません。上のフォームからREW textをインポートしてください。</span></article>}
           </div>
         </>}
       </section>

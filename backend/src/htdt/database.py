@@ -19,7 +19,7 @@ from .rew_api import RewFrequencyResponseSnapshot
 from .rew_parser import parse_rew_frequency_response
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 REW_API_SNAPSHOT_FORMAT = 'htdt-rew-api-frequency-response-snapshot-1'
 REW_API_ADAPTER_VERSION = 'rew-api-snapshot-1'
 
@@ -30,6 +30,14 @@ class AssetIntegrityError(RuntimeError):
     This is server-side store corruption, not a client input problem, so it
     deliberately does not subclass ``ValueError``: API handlers map
     ``ValueError`` to 422, which would misreport the fault as a bad request.
+    """
+
+
+class DatasetIntegrityError(AssetIntegrityError):
+    """A stored dataset row failed its content-hash verification on read.
+
+    Same rationale as ``AssetIntegrityError``: corruption is a server-side
+    fault, never a client validation error.
     """
 
 
@@ -60,6 +68,34 @@ def _unpack(blob: bytes | None) -> tuple[float, ...] | None:
     if os.sys.byteorder != 'little':
         payload.byteswap()
     return tuple(payload)
+
+
+def dataset_row_sha256(kind: str, frequency_blob: bytes, level_blob: bytes,
+                       phase_blob: bytes | None, metadata_json: str) -> str:
+    """Row-content digest over the stored dataset payload.
+
+    Binds kind + the packed blobs + the persisted metadata text — a
+    byte-level change to any of them fails verification. Hashing the stored
+    ``metadata_json`` text (not the parsed object) keeps the digest stable
+    under re-encoding and flags rewrites of the raw column.
+    """
+    return canonical_sha256({
+        'kind': kind,
+        'frequency_blob': bytes(frequency_blob).hex(),
+        'level_blob': bytes(level_blob).hex(),
+        'phase_blob': None if phase_blob is None else bytes(phase_blob).hex(),
+        'metadata_json': metadata_json,
+    })
+
+
+def _dataset_row_valid(row: sqlite3.Row) -> bool:
+    return (
+        row['dataset_sha256'] is not None
+        and dataset_row_sha256(
+            row['kind'], row['frequency_blob'], row['level_blob'],
+            row['phase_blob'], row['metadata_json'],
+        ) == row['dataset_sha256']
+    )
 
 
 def _column_names(db: sqlite3.Connection, table: str) -> set[str]:
@@ -124,7 +160,7 @@ class Store:
                 CREATE TABLE IF NOT EXISTS datasets (
                     id TEXT PRIMARY KEY, measurement_id TEXT NOT NULL REFERENCES measurements(id), asset_sha256 TEXT NOT NULL REFERENCES assets(sha256),
                     kind TEXT NOT NULL, frequency_blob BLOB NOT NULL, level_blob BLOB NOT NULL, phase_blob BLOB,
-                    metadata_json TEXT NOT NULL, created_at TEXT NOT NULL
+                    metadata_json TEXT NOT NULL, dataset_sha256 TEXT, created_at TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS comparisons (
                     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), dataset_a_id TEXT NOT NULL REFERENCES datasets(id),
@@ -157,6 +193,24 @@ class Store:
                     db.execute(
                         'UPDATE constraint_sets SET spec_sha256 = ? WHERE id = ?',
                         (canonical_json_sha256(spec), row['id']),
+                    )
+            dataset_columns = _column_names(db, 'datasets')
+            if 'dataset_sha256' not in dataset_columns:
+                db.execute('ALTER TABLE datasets ADD COLUMN dataset_sha256 TEXT')
+                for row in db.execute(
+                    'SELECT id, kind, frequency_blob, level_blob, phase_blob, '
+                    'metadata_json FROM datasets'
+                ).fetchall():
+                    db.execute(
+                        'UPDATE datasets SET dataset_sha256 = ? WHERE id = ?',
+                        (
+                            dataset_row_sha256(
+                                row['kind'], row['frequency_blob'],
+                                row['level_blob'], row['phase_blob'],
+                                row['metadata_json'],
+                            ),
+                            row['id'],
+                        ),
                     )
             db.execute('INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ('schema_version', str(SCHEMA_VERSION)))
             db.commit()
@@ -383,6 +437,11 @@ class Store:
         measurement_id, dataset_id, imported_at = str(uuid4()), str(uuid4()), utc_now()
         metadata = {'parser_version': parsed.parser_version, 'phase_status': parsed.phase_status, 'level_reference': parsed.level_reference,
                     'warnings': list(parsed.warnings), 'header_lines': list(parsed.header_lines), 'source_sha256': parsed.source_sha256}
+        frequency_blob = _pack(parsed.frequency_hz)
+        level_blob = _pack(parsed.level_db)
+        phase_blob = _pack(parsed.phase_deg)
+        metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        dataset_sha = dataset_row_sha256('frequency_response', frequency_blob, level_blob, phase_blob, metadata_json)
         existing_count = 0
         try:
             with self.connect() as db:
@@ -399,10 +458,10 @@ class Store:
                            (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids, allow_nan=False), radiation_scope,
                             routing_evidence, captured_at, imported_at, notes, quality_status, json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False),
                             quality_source, repeat_group.strip() if repeat_group else None))
-                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (dataset_id, measurement_id, asset_sha, 'frequency_response', _pack(parsed.frequency_hz), _pack(parsed.level_db),
-                            _pack(parsed.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False), imported_at))
+                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
+                           dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                           (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
+                            phase_blob, metadata_json, dataset_sha, imported_at))
                 db.commit()
         except Exception:
             if asset_created:
@@ -473,6 +532,11 @@ class Store:
             'warnings': warnings,
             'api_base_url': api_base_url,
         }
+        frequency_blob = _pack(decoded.frequency_hz)
+        level_blob = _pack(decoded.magnitude)
+        phase_blob = _pack(decoded.phase_deg)
+        metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False)
+        dataset_sha = dataset_row_sha256('frequency_response', frequency_blob, level_blob, phase_blob, metadata_json)
         existing_count = 0
         try:
             with self.connect() as db:
@@ -489,10 +553,10 @@ class Store:
                            (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids or [], allow_nan=False),
                             radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status,
                             json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False), quality_source, repeat_group.strip() if repeat_group else None))
-                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (dataset_id, measurement_id, asset_sha, 'frequency_response', _pack(decoded.frequency_hz), _pack(decoded.magnitude),
-                            _pack(decoded.phase_deg), json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False), imported_at))
+                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
+                           dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                           (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
+                            phase_blob, metadata_json, dataset_sha, imported_at))
                 db.commit()
         except Exception:
             if asset_created:
@@ -530,7 +594,8 @@ class Store:
             if session_id is not None:
                 where.append('m.session_id = ?')
                 params.append(session_id)
-            rows = db.execute('''SELECT m.*, d.id AS dataset_id, d.frequency_blob, d.metadata_json, d.asset_sha256 FROM measurements m
+            rows = db.execute('''SELECT m.*, d.id AS dataset_id, d.kind, d.frequency_blob, d.level_blob, d.phase_blob, d.metadata_json,
+                               d.dataset_sha256, d.asset_sha256 FROM measurements m
                                JOIN datasets d ON d.measurement_id = m.id WHERE ''' + ' AND '.join(where) + ' ORDER BY m.imported_at DESC', params).fetchall()
         result = []
         for row in rows:
@@ -541,22 +606,31 @@ class Store:
                            'routing_evidence': row['routing_evidence'], 'captured_at': row['captured_at'], 'imported_at': row['imported_at'],
                            'notes': row['notes'], 'quality_status': row['quality_status'], 'quality_reasons': json.loads(row['quality_reasons_json']),
                            'quality_source': row['quality_source'], 'repeat_group': row['repeat_group'], 'asset_sha256': row['asset_sha256'],
+                           'dataset_sha256': row['dataset_sha256'], 'integrity_valid': _dataset_row_valid(row),
                            'frequency_min_hz': frequency[0] if frequency else None, 'frequency_max_hz': frequency[-1] if frequency else None,
                            'points': len(frequency), 'metadata': json.loads(row['metadata_json'])})
         return result
 
     def get_frequency_response(self, dataset_id: str) -> FrequencyResponse:
         with self.connect() as db:
-            row = db.execute('SELECT frequency_blob, level_blob FROM datasets WHERE id = ? AND kind = ?', (dataset_id, 'frequency_response')).fetchone()
+            row = db.execute(
+                'SELECT kind, frequency_blob, level_blob, phase_blob, metadata_json, dataset_sha256 '
+                'FROM datasets WHERE id = ? AND kind = ?',
+                (dataset_id, 'frequency_response'),
+            ).fetchone()
             if row is None:
                 raise KeyError('dataset_not_found')
+        if not _dataset_row_valid(row):
+            raise DatasetIntegrityError(f'dataset {dataset_id} failed integrity verification')
         return FrequencyResponse(frequency_hz=_unpack(row['frequency_blob']) or (), level_db=_unpack(row['level_blob']) or ())
 
     def get_dataset_descriptor(self, dataset_id: str) -> dict[str, Any]:
         with self.connect() as db:
-            row = db.execute('''SELECT d.id AS dataset_id, d.metadata_json, d.asset_sha256, m.id AS measurement_id, m.project_id, m.context_id,
-                               m.session_id, m.channel_role, m.evidence_type, m.quality_status, m.quality_reasons_json, m.quality_source, m.repeat_group,
-                               c.payload_json AS context_payload_json FROM datasets d JOIN measurements m ON m.id = d.measurement_id
+            row = db.execute('''SELECT d.id AS dataset_id, d.kind, d.frequency_blob, d.level_blob, d.phase_blob, d.metadata_json,
+                               d.dataset_sha256, d.asset_sha256, m.id AS measurement_id, m.project_id, m.context_id,
+                               m.session_id, m.channel_role, m.evidence_type, m.quality_status, m.quality_reasons_json, m.quality_source,
+                               m.repeat_group, c.revision_number AS context_revision_number, c.payload_json AS context_payload_json
+                               FROM datasets d JOIN measurements m ON m.id = d.measurement_id
                                JOIN contexts c ON c.id = m.context_id WHERE d.id = ?''', (dataset_id,)).fetchone()
         if row is None:
             raise KeyError('dataset_not_found')
@@ -564,6 +638,8 @@ class Store:
                 'session_id': row['session_id'], 'channel_role': row['channel_role'], 'evidence_type': row['evidence_type'],
                 'quality_status': row['quality_status'], 'quality_reasons': json.loads(row['quality_reasons_json']),
                 'quality_source': row['quality_source'], 'repeat_group': row['repeat_group'], 'asset_sha256': row['asset_sha256'],
+                'dataset_sha256': row['dataset_sha256'], 'integrity_valid': _dataset_row_valid(row),
+                'context_revision_number': row['context_revision_number'],
                 'dataset_metadata': json.loads(row['metadata_json']), 'context_payload': json.loads(row['context_payload_json'])}
 
     def attach_asset(self, project_id: str, filename: str, raw: bytes, kind: str, label: str | None,
@@ -661,6 +737,18 @@ class Store:
                         continue
                     if canonical_json_sha256(spec) != row['spec_sha256']:
                         problems.append(f'search_spec_hash_mismatch:{row["id"]}')
+            if (
+                connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='datasets'").fetchone() is not None
+                and 'dataset_sha256' in _column_names(connection, 'datasets')
+            ):
+                for row in connection.execute(
+                    'SELECT id, kind, frequency_blob, level_blob, phase_blob, '
+                    'metadata_json, dataset_sha256 FROM datasets'
+                ):
+                    if row['dataset_sha256'] is None:
+                        problems.append(f'dataset_missing_hash:{row["id"]}')
+                    elif not _dataset_row_valid(row):
+                        problems.append(f'dataset_hash_mismatch:{row["id"]}')
         finally:
             connection.close()
         return problems

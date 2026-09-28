@@ -5,7 +5,7 @@ import { FeatureCandidatePanel } from './FeatureCandidates'
 import { PlacementConstraintPanel } from './PlacementConstraints'
 import { SearchSpacePanel } from './SearchSpace'
 import { DifferencePlot, FrequencyPlot, RoomPlot, type ComparisonResult, type ContextPayload, type Speaker } from './plots'
-import { attachmentKindLabel, channelRoleLabel, comparisonRoleLabel, evidenceTypeLabel, phaseStatusLabel, qualityStatusLabel, routingEvidenceLabel } from './labels'
+import { attachmentKindLabel, channelRoleLabel, comparisonRoleLabel, evidenceTypeLabel, levelCompatibilityLabel, phaseStatusLabel, qualityStatusLabel, routingEvidenceLabel } from './labels'
 
 type Health = {
   status: string
@@ -55,6 +55,8 @@ type MeasurementSnapshot = {
 }
 type ExtendedComparisonResult = ComparisonResult & {
   comparison_role?: string
+  level_compatibility?: string
+  forced?: boolean
   measurement_a?: MeasurementSnapshot
   measurement_b?: MeasurementSnapshot
   context_differences?: ContextDifference[]
@@ -137,7 +139,7 @@ const workflowNav = [
   { href: '#assets', icon: 'assets', label: '原本' },
   { href: '#compare', icon: 'compare', label: '比較' },
   { href: '#reports', icon: 'reports', label: 'レポート' },
-  { href: '#sessions', icon: 'sessions', label: 'セッション' },
+  { href: '#sessions', icon: 'sessions', label: '測定グループ' },
   { href: '#history', icon: 'history', label: '配置履歴' },
   { href: '#rew', icon: 'rew', label: 'REW' },
   { href: '#model', icon: 'model', label: 'モデル' },
@@ -287,6 +289,7 @@ export default function App() {
   const [band, setBand] = useState({ low: '60', high: '200', refLow: '60', refHigh: '200' })
   const [excludedBandsText, setExcludedBandsText] = useState('')
   const [expectedChangesText, setExpectedChangesText] = useState('speakers.FL.position')
+  const [forceCompare, setForceCompare] = useState(false)
   const [activeComparison, setActiveComparison] = useState<Comparison | null>(null)
 
   const [maxModeHz, setMaxModeHz] = useState('300')
@@ -583,6 +586,7 @@ export default function App() {
           excluded_bands: parseExcludedBands(excludedBandsText),
           expected_change_paths: parseList(expectedChangesText),
           label: 'Speaker setting A/B',
+          force: forceCompare,
         }),
       })
       setActiveComparison(comparison)
@@ -804,6 +808,7 @@ export default function App() {
         </div>
         <label>除外帯域（例: 70-90, 120-130）<input value={excludedBandsText} onChange={(event) => setExcludedBandsText(event.target.value)} placeholder="任意" /></label>
         <label>意図した変更パス（例: speakers.FL.position）<input value={expectedChangesText} onChange={(event) => setExpectedChangesText(event.target.value)} /></label>
+        <label className="checkbox"><input type="checkbox" checked={forceCompare} onChange={(event) => setForceCompare(event.target.checked)} />無効・非実測の測定も診断目的として比較する（結果はdiagnostic_onlyと記録）</label>
         <div className="row action-row"><button disabled={busy} onClick={() => void compare()}>{busy ? '処理中…' : '比較して保存'}</button></div>
         {activeComparison && <>
           <div className="metrics">
@@ -813,6 +818,7 @@ export default function App() {
             <div><span>形状RMS</span><strong>{activeComparison.result.shape_rms_db?.toFixed(3) ?? '—'} dB</strong></div>
           </div>
           <p className="hint">比較の役割: {comparisonRoleLabel(activeComparison.result.comparison_role)}</p>
+          {activeComparison.result.level_compatibility && <p className="hint">判定: {levelCompatibilityLabel(activeComparison.result.level_compatibility)}{activeComparison.result.forced ? ' · 強制' : ''}</p>}
           {(activeComparison.result.interpretation_warnings?.length ?? 0) > 0 && <div className="preview">
             <strong>解釈上の注意</strong>
             {activeComparison.result.interpretation_warnings?.map((warning, index) => <em key={index}>{warning}</em>)}
