@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .export_io import write_text_atomic
 from .user_facing_error import warn_user
 from .cad_standards import (
     CriterionDefinition,
@@ -521,8 +522,9 @@ class StandardsProfileEditorDialog(QDialog):
         if not selected:
             return
         try:
-            with open(selected, "w", encoding="utf-8") as handle:
-                handle.write(self.service.export_profile_json(profile))
+            write_text_atomic(
+                selected, self.service.export_profile_json(profile)
+            )
         except OSError as exc:
             warn_user(self, "エクスポートできませんでした", exc)
             return

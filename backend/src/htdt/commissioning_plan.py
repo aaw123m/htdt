@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Literal
 
 from .cad_scene import is_unassigned_speaker_role
+from .export_io import write_text_atomic
 from .overview_readiness import OverviewReadinessService
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 
@@ -130,8 +131,12 @@ class CommissioningPlanRepository:
 
     def _store(self, data: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False), encoding='utf-8'
+        # Atomic write: a partial store would load as an empty registry
+        # (``_load`` tolerates corrupt JSON) and the next save would
+        # silently discard every recorded plan.
+        write_text_atomic(
+            self._path,
+            json.dumps(data, ensure_ascii=False, indent=2, allow_nan=False),
         )
 
     def save(self, plan: CommissioningPlan) -> CommissioningPlan:

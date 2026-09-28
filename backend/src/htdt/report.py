@@ -56,16 +56,6 @@ REPORT_SCHEMA_VERSION = 1
 REPORT_RENDERER_VERSION = 'comparison-report-1'
 
 
-def _finite_numbers(values: Any) -> list[float]:
-    if not isinstance(values, list):
-        return []
-    result: list[float] = []
-    for value in values:
-        if isinstance(value, (int, float)) and math.isfinite(float(value)):
-            result.append(float(value))
-    return result
-
-
 def build_report_payload(project: dict[str, Any], comparison: dict[str, Any]) -> dict[str, Any]:
     return {
         'report_schema_version': REPORT_SCHEMA_VERSION,
@@ -84,14 +74,37 @@ def build_report_payload(project: dict[str, Any], comparison: dict[str, Any]) ->
 
 
 def _svg_chart(result: dict[str, Any]) -> str:
-    frequencies = _finite_numbers(result.get('grid_hz'))
-    a_values = _finite_numbers(result.get('a_db'))
-    b_values = _finite_numbers(result.get('b_db'))
-    count = min(len(frequencies), len(a_values), len(b_values))
-    if count < 2:
+    raw_grid = result.get('grid_hz')
+    raw_a = result.get('a_db')
+    raw_b = result.get('b_db')
+    if not all(
+        isinstance(values, list) for values in (raw_grid, raw_a, raw_b)
+    ):
         return '<p class="muted">No aligned frequency-response points were saved with this comparison.</p>'
-    frequencies, a_values, b_values = frequencies[:count], a_values[:count], b_values[:count]
-    if frequencies[0] <= 0 or frequencies[-1] <= frequencies[0]:
+    # Filter (frequency, A, B) triples jointly: dropping a bad cell from
+    # one array while keeping its neighbours would silently re-pair every
+    # later point's x with the wrong y, and a non-positive frequency would
+    # abort the whole chart with a log-domain error.
+    def _finite(value: Any) -> float | None:
+        if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            return None
+        return float(value)
+
+    rows: list[tuple[float, float, float]] = []
+    for frequency, a, b in zip(
+        (_finite(f) for f in raw_grid),
+        (_finite(v) for v in raw_a),
+        (_finite(v) for v in raw_b),
+    ):
+        if frequency is None or a is None or b is None or frequency <= 0:
+            continue
+        rows.append((frequency, a, b))
+    if len(rows) < 2:
+        return '<p class="muted">No aligned frequency-response points were saved with this comparison.</p>'
+    frequencies = [row[0] for row in rows]
+    a_values = [row[1] for row in rows]
+    b_values = [row[2] for row in rows]
+    if frequencies[-1] <= frequencies[0]:
         return '<p class="muted">Saved frequency grid is not suitable for a logarithmic report chart.</p>'
 
     width, height = 920.0, 360.0

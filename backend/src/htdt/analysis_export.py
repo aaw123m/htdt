@@ -36,6 +36,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import math
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -363,6 +364,57 @@ def series_from_comparison(
     )
 
 
+def comparison_side_series(
+    comparison: CadMeasurementComparison,
+    side: Literal['a', 'b'],
+    *,
+    current_scene_revision_id: str | None = None,
+) -> AnalysisSeries:
+    """One side's levels on the stored comparison grid.
+
+    The comparison record persists ``a_db``/``b_db`` — the curves the web
+    report and the workspace overlay actually render — resampled onto
+    ``grid_hz`` by the comparison algorithm, so the exported series is
+    ``derived`` and pins that operation's identity. ``historical`` follows
+    the same rule as :func:`series_from_comparison`.
+    """
+
+    if side == 'a':
+        levels = comparison.a_db
+        fallback = comparison.dataset_a_id
+        side_label = comparison.label_a or fallback
+    else:
+        levels = comparison.b_db
+        fallback = comparison.dataset_b_id
+        side_label = comparison.label_b or fallback
+    return AnalysisSeries(
+        series_id=f'comparison:{comparison.comparison_id}:{side}',
+        label=f'{side.upper()}: {side_label}',
+        value_class='derived',
+        x_label='Frequency',
+        y_label='Level',
+        unit='db',
+        points=tuple(
+            AnalysisSeriesPoint(x=x, y=y)
+            for x, y in zip(comparison.grid_hz, levels)
+        ),
+        source_kind='measurement_comparison',
+        source_id=comparison.comparison_id,
+        source_sha256=comparison.comparison_sha256,
+        operation='measurement_comparison',
+        operation_version=comparison.algorithm_version,
+        operation_sha256=comparison.algorithm_sha256,
+        historical=(
+            current_scene_revision_id is not None
+            and current_scene_revision_id
+            not in (
+                comparison.scene_revision_a_id,
+                comparison.scene_revision_b_id,
+            )
+        ),
+    )
+
+
 def _band_text(band: tuple[float, float] | None) -> str | None:
     if band is None:
         return None
@@ -545,10 +597,24 @@ def _plot_svg(
     series: tuple[AnalysisSeries, ...], unit_label: str
 ) -> str:
     width, height, pad = 720, 360, 48
-    xs = [p.x for s in series for p in s.points]
-    ys = [p.y for s in series for p in s.points]
-    if not xs or not ys:
+    # Drop non-finite points per point: one 'nan' coordinate in a
+    # polyline would make the whole trace silently fail to render.
+    plotted = tuple(
+        (
+            item,
+            tuple(
+                point
+                for point in item.points
+                if math.isfinite(point.x) and math.isfinite(point.y)
+            ),
+        )
+        for item in series
+    )
+    plotted = tuple(pair for pair in plotted if pair[1])
+    if not plotted:
         return ''
+    xs = [p.x for _, points in plotted for p in points]
+    ys = [p.y for _, points in plotted for p in points]
     x_min, x_max = min(xs), max(xs)
     y_min, y_max = min(ys), max(ys)
     if x_max == x_min:
@@ -556,13 +622,35 @@ def _plot_svg(
     if y_max == y_min:
         y_max = y_min + 1.0
 
-    def px(x: float) -> float:
-        return pad + (x - x_min) / (x_max - x_min) * (width - 2 * pad)
+    # Frequency series read on a log axis, matching the web comparison
+    # report's chart: on a linear Hz axis the lowest octave collapses
+    # into a few unreadable pixels.
+    log_x = (
+        x_min > 0
+        and x_max / x_min >= 2.0
+        and all(item.x_label == 'Frequency' for item, _ in plotted)
+    )
+    if log_x:
+        lo, hi = math.log2(x_min), math.log2(x_max)
+
+        def px(x: float) -> float:
+            return pad + (math.log2(x) - lo) / (hi - lo) * (
+                width - 2 * pad
+            )
+    else:
+
+        def px(x: float) -> float:
+            return pad + (x - x_min) / (x_max - x_min) * (width - 2 * pad)
 
     def py(y: float) -> float:
         return height - pad - (y - y_min) / (y_max - y_min) * (
             height - 2 * pad
         )
+
+    x_labels = {item.x_label for item, _ in plotted if item.x_label}
+    axis_label = ' / '.join(sorted(x_labels))
+    if log_x:
+        axis_label += ' (log)'
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} '
@@ -574,19 +662,44 @@ def _plot_svg(
         f'stroke="#333"/>',
         f'<text x="{width - pad}" y="{pad - 8}" font-size="11" '
         f'text-anchor="end">y unit: {html.escape(unit_label)}</text>',
-        f'<text x="{pad}" y="{height - pad + 16}" font-size="11">'
-        f'{html.escape(_format_number(x_min))}</text>',
-        f'<text x="{width - pad}" y="{height - pad + 16}" font-size="11" '
-        f'text-anchor="end">{html.escape(_format_number(x_max))}</text>',
         f'<text x="{pad - 6}" y="{height - pad}" font-size="11" '
         f'text-anchor="end">{html.escape(_format_number(y_min))}</text>',
         f'<text x="{pad - 6}" y="{pad}" font-size="11" text-anchor="end">'
         f'{html.escape(_format_number(y_max))}</text>',
     ]
-    for index, item in enumerate(series):
+    if log_x:
+        for tick_hz in (
+            20, 30, 40, 50, 80, 100, 200, 300, 500,
+            1000, 2000, 5000, 10000, 20000, 50000,
+        ):
+            if not x_min <= tick_hz <= x_max:
+                continue
+            tx = px(float(tick_hz))
+            parts.append(
+                f'<line x1="{tx:.2f}" y1="{pad}" x2="{tx:.2f}" '
+                f'y2="{height - pad}" stroke="#eee"/>'
+                f'<text x="{tx:.2f}" y="{height - pad + 16}" '
+                f'font-size="10" text-anchor="middle">{tick_hz:g}</text>'
+            )
+    else:
+        parts.extend(
+            [
+                f'<text x="{pad}" y="{height - pad + 16}" font-size="11">'
+                f'{html.escape(_format_number(x_min))}</text>',
+                f'<text x="{width - pad}" y="{height - pad + 16}" '
+                f'font-size="11" text-anchor="end">'
+                f'{html.escape(_format_number(x_max))}</text>',
+            ]
+        )
+    if axis_label:
+        parts.append(
+            f'<text x="{width / 2:.0f}" y="{height - 4}" font-size="11" '
+            f'text-anchor="middle">{html.escape(axis_label)}</text>'
+        )
+    for index, (item, points_tuple) in enumerate(plotted):
         color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
         points = ' '.join(
-            f'{px(p.x):.2f},{py(p.y):.2f}' for p in item.points
+            f'{px(p.x):.2f},{py(p.y):.2f}' for p in points_tuple
         )
         parts.append(
             f'<polyline points="{points}" fill="none" '
@@ -687,6 +800,7 @@ __all__ = [
     'AnalysisSeriesPoint',
     'AnalysisValueClass',
     'build_analysis_export',
+    'comparison_side_series',
     'render_analysis_csv',
     'render_analysis_html',
     'render_analysis_json',

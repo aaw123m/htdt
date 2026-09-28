@@ -90,6 +90,7 @@ from .cad_repository import SceneRepository
 from .cad_roomsim_repository import CadRoomSimRepository
 from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .export_io import claim_export_stem, write_export_files
 from .availability_reasons import availability_reason
 from .command_palette import CommandPaletteController
 from .capture_receiver_controller import CaptureReceiverController
@@ -3049,19 +3050,22 @@ class WorkflowApplicationComposition:
         if not directory:
             return
         target = Path(directory)
-        written = (
-            target / 'analysis_export.csv',
-            target / 'analysis_export.json',
-            target / 'analysis_report.html',
+        # One generation per stem: re-exporting into the same folder
+        # never overwrites or mixes with a previous export — a fresh
+        # ``analysis-N`` stem is claimed and the three members are
+        # published atomically or not at all.
+        stem = claim_export_stem(
+            target, 'analysis', ('_export.csv', '_export.json', '_report.html')
         )
-        written[0].write_text(
-            render_analysis_csv(export), encoding='utf-8'
-        )
-        written[1].write_text(
-            render_analysis_json(export), encoding='utf-8'
-        )
-        written[2].write_text(
-            render_analysis_html(export), encoding='utf-8'
+        written = tuple(
+            write_export_files(
+                target,
+                {
+                    f'{stem}_export.csv': render_analysis_csv(export),
+                    f'{stem}_export.json': render_analysis_json(export),
+                    f'{stem}_report.html': render_analysis_html(export),
+                },
+            ).values()
         )
         box = QMessageBox(self.shell)
         box.setWindowTitle("解析エクスポートを書き出しました")

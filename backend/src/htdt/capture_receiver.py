@@ -62,6 +62,7 @@ from .capture_inbox import (
     CaptureInboxRepository,
 )
 from .ingress import IngressTooLargeError, read_file_bounded
+from .export_io import write_bytes_atomic
 from .content_blobs import (
     ensure_content_blob_store,
     read_content_blob,
@@ -1167,7 +1168,8 @@ class CaptureReceiverService:
             raise CaptureReceiverError('unknown mission package')
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(payload)
+        # Atomic publish: a failed write never leaves a truncated package.
+        write_bytes_atomic(destination, payload)
         return destination
 
     # -- HTTP lifecycle ---------------------------------------------------
