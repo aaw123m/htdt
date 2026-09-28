@@ -281,7 +281,11 @@ def test_reconstruct_mode_shape_normalizes_by_peak() -> None:
         Position3(x_m=1, y_m=0, z_m=0),
         Position3(x_m=2, y_m=0, z_m=0),
     )
-    shape = reconstruct_mode_shape(mode, evaluation_positions=positions)
+    shape = reconstruct_mode_shape(
+        mode,
+        evaluation_positions=positions,
+        evaluation_position_ids=('p1', 'p2', 'p3'),
+    )
     assert shape.kind == 'reconstructed'
     assert shape.normalization == 'max_amplitude'
     assert shape.normalized_values == (1.0, 0.5, 0.25)
