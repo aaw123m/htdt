@@ -209,6 +209,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.controller = OptimizationWorkflowController(repository, document_id)
         self.controller.statusChanged.connect(self._set_status)
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
+        self.system_expansion.apply_guard = self._system_expansion_apply_block_reason
         self._on_navigate = on_navigate
         self._joint_context = JointOptimizationContext(
             repository,
@@ -432,6 +433,18 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.select_section("robustness")
         if hasattr(self, "system_expansion_robustness_panel"):
             self.system_expansion_robustness_panel.select_variant(variant_id)
+
+    def _system_expansion_apply_block_reason(self) -> str | None:
+        """Veto for variant apply: a new head must never orphan a draft."""
+
+        scene = self.controller.scene
+        if scene.recovery_candidate is not None:
+            return "復旧可能な下書きを処理してから提案を適用してください"
+        if scene.working.has_preview:
+            return "プレビュー中は提案を適用できません"
+        if scene.is_dirty:
+            return "未保存の変更を保存または破棄してから提案を適用してください"
+        return None
 
     def _system_variant_applied(self, _revision_id: str) -> None:
         self.controller.activate()

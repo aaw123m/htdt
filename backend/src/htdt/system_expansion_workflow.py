@@ -467,6 +467,13 @@ class SystemExpansionWorkflowService:
     def __init__(self, scene_repository: SceneRepository, document_id: str) -> None:
         self.scene_repository = scene_repository
         self.document_id = document_id
+        # Draft guard: ``apply`` writes a new document head, so a
+        # workspace holding an uncommitted draft (or a live transform preview,
+        # or an unresolved recovery candidate) must veto the write — the new
+        # head would orphan the draft and its save would hit a stale-parent
+        # conflict. The owning workspace installs a callable returning a
+        # Japanese veto reason (or ``None`` to allow) before it can apply.
+        self.apply_guard: Callable[[], str | None] | None = None
         self.path = Path(scene_repository.path)
         self.variant_repository = CadSystemVariantRepository(scene_repository)
         self.equipment_repository = CadEquipmentRepository(
@@ -1484,6 +1491,10 @@ class SystemExpansionWorkflowService:
 
     def apply(self, variant_id: str) -> SystemVariantApplication:
         # Exact existing application authority is the only write path.
+        if self.apply_guard is not None:
+            veto = self.apply_guard()
+            if veto is not None:
+                raise ValueError(veto)
         return self.variant_repository.apply_variant(
             variant_id,
             selected_by="native-o100-workflow",

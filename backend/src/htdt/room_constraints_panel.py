@@ -121,6 +121,14 @@ class RoomConstraintsPanel(QWidget):
             return None
         return item.data(0, _CONSTRAINT_ID_ROLE)
 
+    def selected_wall_id(self) -> str | None:
+        """Wall combo selection; ``None`` asks the solver for the nearest wall."""
+        return self.wall_combo.currentData()
+
+    def distance_m(self) -> float:
+        """Minimum distance field used by the wall-clearance/pair buttons."""
+        return float(self.distance_field.value())
+
     def _emit_result(self, current: QTreeWidgetItem | None, _previous) -> None:
         if current is None:
             self.resultSelected.emit(None)
