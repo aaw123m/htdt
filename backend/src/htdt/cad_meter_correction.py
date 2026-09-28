@@ -319,7 +319,12 @@ def import_meter_correction(
     parser. Non-numeric or malformed content raises ``CgatsParseError``.
     """
     source_sha256 = hashlib.sha256(data).hexdigest()
-    text = data.decode('utf-8')
+    try:
+        text = data.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise CgatsParseError(
+            f'file is not UTF-8 text: {exc.reason}'
+        ) from exc
     doc = parse_cgats_document(text)
     table = _keyword_table(doc)
     kind: MeterCorrectionKind

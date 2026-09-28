@@ -196,13 +196,21 @@ def decode_frequency_response(
     if ppo is None and step is None:
         raise RewApiError('REW frequency response has neither ppo nor freqStep')
 
-    if ppo is not None:
-        frequency = tuple(float(start_frequency) * math.exp(index * math.log(2.0) / ppo) for index in range(len(magnitude)))
-    else:
-        assert step is not None
-        frequency = tuple(float(start_frequency) + index * step for index in range(len(magnitude)))
+    try:
+        if ppo is not None:
+            frequency = tuple(float(start_frequency) * math.exp(index * math.log(2.0) / ppo) for index in range(len(magnitude)))
+        else:
+            assert step is not None
+            frequency = tuple(float(start_frequency) + index * step for index in range(len(magnitude)))
+    except OverflowError as exc:
+        raise RewApiError('REW frequency axis overflowed the reported spacing') from exc
     if any(not math.isfinite(value) or value <= 0 for value in frequency):
         raise RewApiError('REW frequency axis is invalid')
+    if any(
+        frequency[index + 1] <= frequency[index]
+        for index in range(len(frequency) - 1)
+    ):
+        raise RewApiError('REW frequency axis is not strictly increasing')
 
     phase_encoded = _field(payload, 'phase', 'phases')
     phase = decode_rew_float_array(phase_encoded) if isinstance(phase_encoded, str) and phase_encoded else None

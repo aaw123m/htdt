@@ -306,6 +306,8 @@ def parse_jcal_params_csv(text: str, *, admission_id: str) -> (
 
     reader = csv.reader(io.StringIO(text))
     rows = [r for r in reader if r and any(c.strip() for c in r)]
+    if not rows:
+        raise ValueError('JCAL params CSV contains no data rows')
     header = [c.strip().lower() for c in rows[0]]
     if len(header) < 2 or 'parameter' not in header[0]:
         raise ValueError(
@@ -333,6 +335,8 @@ def parse_jcal_params_csv(text: str, *, admission_id: str) -> (
     for row in rows[1:]:
         key = row[0].strip()
         low = key.lower()
+        if len(row) < 2 or not row[1].strip():
+            raise ValueError(f'JCAL parameter {key!r} has no value column')
         if low in ('material', 'material_id', 'sample'):
             material_id = row[1].strip()
             continue
@@ -341,7 +345,12 @@ def parse_jcal_params_csv(text: str, *, admission_id: str) -> (
             raise ValueError(
                 f'unrecognized JCAL parameter name: {key!r}'
             )
-        values[field] = float(row[1])
+        try:
+            values[field] = float(row[1])
+        except ValueError:
+            raise ValueError(
+                f'JCAL parameter {key!r} is not numeric: {row[1]!r}'
+            ) from None
     if material_id is None:
         raise ValueError('JCAL params CSV must name its material')
     return (
