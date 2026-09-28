@@ -1104,3 +1104,57 @@ def test_pareto_read_apis_fail_closed_when_evaluation_vector_loses_authority(tmp
 
     with pytest.raises(ValueError, match='input authority mismatch'):
         repository.get_pareto_set(pareto_set.pareto_set_id)
+
+
+def test_pareto_refresh_lane_replays_each_evaluation_authority_once(tmp_path, monkeypatch) -> None:
+    """The shared ``validated`` memo replays a sealed evaluation once per refresh.
+
+    The Optimize refresh runs three authority lanes over the same immutable
+    evaluations — the candidate listing, the persisted-set resolution and
+    the save-time replay. With the memo shared, each sealed (id, sha) pair
+    resolves its authority exactly once; the row/column checks still run on
+    every call so a tampered row fails closed.
+    """
+    scene_repository, revision, spec, candidates, repository, responses = _fixture(tmp_path)
+    evaluations = (
+        _evaluation(revision, spec, responses, candidates[0].candidate_id, 1.0, 3.0),
+        _evaluation(revision, spec, responses, candidates[1].candidate_id, 2.0, 2.0),
+        _evaluation(revision, spec, responses, candidates[2].candidate_id, 3.0, 3.0),
+    )
+    repository.save_evaluations(evaluations)
+
+    calls: list[str] = []
+    original = CadObjectiveRepository._require_evaluation_authority
+
+    def counting(self, evaluation, *, scans=None, batches=None):
+        calls.append(evaluation.evaluation_id)
+        return original(self, evaluation, scans=scans, batches=batches)
+
+    monkeypatch.setattr(
+        CadObjectiveRepository, '_require_evaluation_authority', counting
+    )
+
+    validated: dict = {}
+    listed = repository.latest_evaluations_by_candidate(
+        spec.search_spec_id, validated=validated
+    )
+    assert len(listed) == len(evaluations)
+    assert len(calls) == len(evaluations)
+    # One authority replay per sealed evaluation across the whole refresh —
+    # the persisted-set resolution and the save re-validation consult the memo.
+    built = build_pareto_set(
+        listed, ('response.rms_difference_db', 'response.shape_rms_db')
+    )
+    assert repository.find_pareto_set_by_sha(
+        spec.search_spec_id, built.pareto_sha256, validated=validated
+    ) is None
+    repository.save_pareto_set(built, validated=validated)
+    assert len(calls) == len(evaluations)
+
+    # Without the memo the save lane resolves each authority again.
+    second = build_pareto_set(
+        listed, ('response.rms_difference_db', 'response.shape_rms_db')
+    )
+    calls.clear()
+    repository.save_pareto_set(second)
+    assert len(calls) == len(evaluations)

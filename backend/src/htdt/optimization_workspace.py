@@ -942,7 +942,14 @@ class OptimizationWorkspaceWindow(
             self.statusBar().showMessage('Pareto比較を拒否しました · SearchSpec/Scene/constraint authorityがstaleです')
             return
 
-        evaluations = self.objective_repository.latest_evaluations_by_candidate(spec_id)
+        # One shared authority memo for this refresh: the candidate listing,
+        # the persisted-set resolution and the save-time replay each re-validate
+        # the same immutable evaluations, so a sealed (id, sha) pair replays
+        # its authority once instead of once per lane.
+        validated: dict = {}
+        evaluations = self.objective_repository.latest_evaluations_by_candidate(
+            spec_id, validated=validated
+        )
         if not evaluations:
             self.objective_list.clear()
             self.pareto_tree.clear()
@@ -984,11 +991,13 @@ class OptimizationWorkspaceWindow(
         try:
             built = build_pareto_set(evaluations, selected)
             existing = self.objective_repository.find_pareto_set_by_sha(
-                spec_id, built.pareto_sha256
+                spec_id, built.pareto_sha256, validated=validated
             )
             pareto_set = existing or built
             if existing is None:
-                self.objective_repository.save_pareto_set(pareto_set)
+                self.objective_repository.save_pareto_set(
+                    pareto_set, validated=validated
+                )
         except Exception as exc:
             self.pareto_tree.clear()
             if self.pareto_summary_label is not None:
