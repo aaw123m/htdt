@@ -515,7 +515,7 @@ class JointOptimizationPanel(QWidget):
             if self._on_status is not None:
                 self._on_status(
                     'ジョイント最適化を実行できません: '
-                    f'{operation_error_message(Exception(str(error)))}'
+                    f'{operation_error_message(error if isinstance(error, BaseException) else Exception(str(error)))}'
                 )
             self._refresh_saved_specs()
             self._refresh_execution_state()

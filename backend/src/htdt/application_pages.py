@@ -39,8 +39,10 @@ from .navigation_target import (
     NavigationTargetKind,
     navigation_target_from_uri,
 )
+from .automatic_backup import AutomaticBackupScheduler
 from .project_library_repository import ProjectLibraryRepository
 from .project_lifecycle import (
+    DeletionBlocker,
     ProjectDeletionBlockedError,
     ProjectDeletionPlan,
     ProjectDeletionStaleError,
@@ -200,6 +202,38 @@ def _format_bytes(value: int) -> str:
             return f"{size:,.1f} {unit}" if unit != "B" else f"{int(size):,} B"
         size /= 1024.0
     return f"{value:,} B"
+
+
+#: Operator-facing rendering of each lifecycle blocker kind — the
+#: blocker's ``detail`` is diagnostic English; the dialog shows the kind's
+#: localized form with ``count`` supplying the numbers.
+_DELETION_BLOCKER_LINES = {
+    'project_not_archived': (
+        'プロジェクトがまだアクティブです — 先にアーカイブしてください'
+    ),
+    'active_descendants': (
+        'このプロジェクトからクローンされたプロジェクトが {count} 件'
+        'あります — 先にそれらを削除またはアーカイブしてください'
+    ),
+    'pending_capture_missions': (
+        'このプロジェクトを対象とするキャプチャミッションが {count} 件'
+        '残っています — 先に中止または退役させてください'
+    ),
+    'pending_inbox_items': (
+        'このプロジェクトのキャプチャ受信箱に未処理の項目が {count} 件'
+        'あります'
+    ),
+    'unknown_project': 'プロジェクトが見つかりません',
+}
+
+
+def _deletion_blocker_line(blocker: DeletionBlocker) -> str:
+    template = _DELETION_BLOCKER_LINES.get(blocker.kind)
+    if template is None:
+        # A future kind must not render silently wrong copy — keep the
+        # authored detail rather than inventing a reason.
+        return blocker.detail
+    return template.format(count=blocker.count)
 
 
 def _deletion_plan_lines(plan: ProjectDeletionPlan) -> list[str]:
@@ -439,11 +473,20 @@ class ProjectLibraryPage(QWidget):
             box.setWindowTitle("プロジェクトを削除できません")
             box.setText(f"{plan.display_name} は削除をブロックされています。")
             box.setInformativeText(
-                "\n".join(f"・{blocker.detail}" for blocker in non_archive_blockers)
+                "\n".join(
+                    f"・{_deletion_blocker_line(blocker)}"
+                    for blocker in non_archive_blockers
+                )
             )
             box.setStandardButtons(QMessageBox.StandardButton.Ok)
             box.exec()
             return
+
+        # The persisted policy decides whether a pre-destructive safety
+        # generation is offered — `load_policy` already falls back to
+        # defaults on unreadable state, so this can never raise.
+        safety_scheduler = AutomaticBackupScheduler(self.service.path.parent)
+        safety_backup_offered = safety_scheduler.policy.enabled
 
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
@@ -458,6 +501,10 @@ class ProjectLibraryPage(QWidget):
                 "このプロジェクトはまだアクティブです。削除の前に"
                 "自動でアーカイブします。"
             )
+        if safety_backup_offered:
+            detail_lines.append(
+                "削除の前に現在のデータの安全バックアップを作成します。"
+            )
         detail_lines.append("アセットファイル自体は削除されません。")
         box.setInformativeText("\n".join(detail_lines))
         box.setStandardButtons(
@@ -467,6 +514,7 @@ class ProjectLibraryPage(QWidget):
         if box.exec() != QMessageBox.StandardButton.Yes:
             return
 
+        safety_backup_created = False
         try:
             if not entry.archived:
                 self.service.set_archived(entry.project_id, True)
@@ -475,6 +523,24 @@ class ProjectLibraryPage(QWidget):
             plan = self.service.plan_project_deletion(entry.project_id)
             if not plan.executable:
                 raise ProjectDeletionBlockedError(plan)
+            if safety_backup_offered:
+                # The delete is atomic, but a validated pre-destructive
+                # generation is the only way back to the project's
+                # content — the designed-for boundary of the 'pre_destructive'
+                # trigger. Best-effort: a failed safety net must not strand
+                # the deletion itself, so warn and continue.
+                try:
+                    safety_backup_created = (
+                        safety_scheduler.run_due('pre_destructive')
+                        is not None
+                    )
+                except Exception as backup_exc:  # noqa: BLE001
+                    warn_user(
+                        self,
+                        "削除前の安全バックアップを作成できませんでした",
+                        backup_exc,
+                        effect="削除はこのまま続行します。",
+                    )
             tombstone = self.service.delete_project(
                 entry.project_id, expected_plan=plan
             )
@@ -493,7 +559,7 @@ class ProjectLibraryPage(QWidget):
                 self,
                 "削除をブロックしました",
                 "\n".join(
-                    f"・{blocker.detail}"
+                    f"・{_deletion_blocker_line(blocker)}"
                     for blocker in exc.plan.hard_blockers
                 ),
             )
@@ -503,10 +569,15 @@ class ProjectLibraryPage(QWidget):
             self.refresh()
             return
         self.refresh()
+        success_detail = (
+            f"{tombstone.display_name}: {tombstone.removed_rows} 行を削除しました。"
+        )
+        if safety_backup_created:
+            success_detail += "削除前の安全バックアップを作成しました。"
         QMessageBox.information(
             self,
             "プロジェクトを削除しました",
-            f"{tombstone.display_name}: {tombstone.removed_rows} 行を削除しました。",
+            success_detail,
         )
 
 
@@ -828,7 +899,7 @@ _OPERATION_STATE_LABELS = {
     "preflighting": "準備中",
     "running": "実行中",
     "cancellation_requested": "キャンセル要求中",
-    "cancelled": "キャンセル",
+    "cancelled": "キャンセル済み",
     "completed": "完了",
     "failed": "失敗",
     "completed_for_historical_input": "完了（旧入力）",

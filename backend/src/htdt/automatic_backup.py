@@ -492,6 +492,22 @@ class AutomaticBackupScheduler:
         )
         return destination, manifest
 
+    def record_external_generation(self) -> None:
+        """Mark the current fingerprint as covered by an outside archive.
+
+        A manual ``create_backup`` (Data Management page) produces a
+        validated archive of the same bytes the periodic check compares —
+        recording its coverage stops the next scheduler tick from creating
+        an identical automatic generation. Like ``run_due`` for a manual
+        class, this updates the fingerprint only and never advances
+        ``last_automatic_at_utc`` (#752).
+        """
+
+        state = self._load_state()
+        state['schema_version'] = AUTOMATIC_BACKUP_POLICY_SCHEMA
+        state['fingerprint'] = managed_data_fingerprint(self.data_dir)
+        self._save_state(state)
+
     # -- clean-close hint --------------------------------------------------
 
     def record_clean_close(self) -> None:

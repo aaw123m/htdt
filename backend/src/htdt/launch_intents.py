@@ -58,6 +58,12 @@ LAUNCH_INTENT_SCHEMA_VERSION = 1
 # hostile or corrupt drop never expands into memory.
 MAX_INTENT_DESCRIPTOR_BYTES = 256 * 1024
 
+#: A forwarded intent is an instruction to the instance running *now* —
+#: "open this in the window that is already up". A drop older than this is
+#: stale context, not a pending request: it lands on a later launch the
+#: requester cannot have meant. Older drops expire into ``dead/``.
+LAUNCH_INTENT_STALE_SECONDS = 900.0
+
 HTDT_PROJECT_SUFFIX = '.htdtproject'
 HTDT_CAPTURE_SUFFIX = '.htdtcapture'
 HTDT_BACKUP_SUFFIX = '.htdt-backup'
@@ -285,13 +291,21 @@ def forward_launch_intent(data_dir: Path, intent: HTDTLaunchIntent) -> Path:
     return target
 
 
-def drain_launch_intents(data_dir: Path) -> tuple[QueuedLaunchIntent, ...]:
-    """Read every queued intent; malformed drops go to ``dead/``.
+def drain_launch_intents(
+    data_dir: Path,
+    *,
+    max_age_seconds: float | None = LAUNCH_INTENT_STALE_SECONDS,
+) -> tuple[QueuedLaunchIntent, ...]:
+    """Read every queued intent; malformed and stale drops go to ``dead/``.
 
     Valid queue files are NOT removed here (#736): each drained entry keeps
     its ``queue_path`` and the caller retires it via
     ``complete_queued_intent`` only after the semantic dispatch produced an
-    outcome, so a crash can never silently lose an intent.
+    outcome, so a crash can never silently lose an intent. A valid drop
+    older than ``max_age_seconds`` expires instead — forwarding means
+    "open this in the running instance now", and a drop that survived a
+    crash/restart must not land on a launch nobody asked for
+    (``None`` disables expiry, for tests).
     """
 
     incoming = _incoming_dir(Path(data_dir))
@@ -299,17 +313,34 @@ def drain_launch_intents(data_dir: Path) -> tuple[QueuedLaunchIntent, ...]:
         return ()
     queued: list[QueuedLaunchIntent] = []
     dead_dir = intents_dir(data_dir) / INTENT_DEAD_DIRNAME
+    now = time.time()
     for candidate in sorted(incoming.iterdir()):
         if not candidate.is_file() or candidate.suffix != '.json':
             continue
         try:
-            if candidate.stat().st_size > MAX_INTENT_DESCRIPTOR_BYTES:
+            stat = candidate.stat()
+            if stat.st_size > MAX_INTENT_DESCRIPTOR_BYTES:
                 raise ValueError('launch intent exceeds the descriptor bound')
             intent = HTDTLaunchIntent.model_validate_json(
                 candidate.read_text(encoding='utf-8')
             )
         except (OSError, ValueError) as exc:
             _LOGGER.warning('unreadable launch intent %s: %s', candidate, exc)
+            try:
+                dead_dir.mkdir(parents=True, exist_ok=True)
+                os.replace(candidate, dead_dir / candidate.name)
+            except OSError:
+                pass
+            continue
+        if max_age_seconds is not None and (
+            now - stat.st_mtime > max_age_seconds
+        ):
+            _LOGGER.warning(
+                'expired launch intent %s (age %.0fs > %.0fs)',
+                candidate,
+                now - stat.st_mtime,
+                max_age_seconds,
+            )
             try:
                 dead_dir.mkdir(parents=True, exist_ok=True)
                 os.replace(candidate, dead_dir / candidate.name)
@@ -369,6 +400,7 @@ __all__ = [
     'HTDTCaptureFile',
     'HTDTLaunchIntent',
     'HTDTProjectFile',
+    'LAUNCH_INTENT_STALE_SECONDS',
     'LaunchIntentOutcome',
     'LaunchIntentResult',
     'QueuedLaunchIntent',

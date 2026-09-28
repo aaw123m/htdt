@@ -443,7 +443,7 @@ def _route_launch_intent(
             )
         else:
             try:
-                application._open_project(result.document_id)
+                switch_reason = application._switch_project(result.document_id)
             except Exception as exc:
                 diagnostics.logger.exception(
                     'project switch failed for %s', intent.path
@@ -456,7 +456,18 @@ def _route_launch_intent(
                     }
                 )
             else:
-                if application.document_id != result.document_id:
+                if switch_reason is not None:
+                    # The guarded switch names the real refusal — a frozen
+                    # data gate, an archived entry, a running operation —
+                    # so the dialog repeats it instead of guessing a cause.
+                    outcome = 'blocked_dirty_state'
+                    result = result.model_copy(
+                        update={
+                            'outcome': outcome,
+                            'detail': switch_reason,
+                        }
+                    )
+                elif application.document_id != result.document_id:
                     outcome = 'blocked_dirty_state'
                     result = result.model_copy(
                         update={

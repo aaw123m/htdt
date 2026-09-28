@@ -190,6 +190,46 @@ def _format_created_at(value: str) -> str:
         return value
 
 
+#: Localized labels for the persisted-data registry names shown in the
+#: backup contract's excluded list — the registry ids are internal
+#: snake_case identifiers, not display text.
+_EXCLUDED_COMPONENT_LABELS = {
+    'application_preferences': 'アプリケーション設定',
+    'reference_library_meta': '参照ライブラリ情報',
+    'window_state_global': 'ウィンドウ状態（全体）',
+    'window_state_projects': 'ウィンドウ状態（プロジェクト別）',
+    'file_dialog_memory': 'ファイルダイアログの記憶',
+    'activity_history': 'アクティビティ履歴',
+    'automatic_backup_policy': '自動バックアップポリシー',
+    'automatic_backup_state': '自動バックアップ状態',
+    'upgrade_events': 'アップグレードイベント',
+    'upgrade_state_marker': 'アップグレード状態マーカー',
+    'upgrade_recovery': 'アップグレード復旧データ',
+    'legacy_migration_journal': 'レガシー移行ジャーナル',
+    'legacy_database': 'レガシーデータベース',
+    'legacy_database_archives': 'レガシーデータベースアーカイブ',
+    'legacy_assets': 'レガシーアセット',
+    'legacy_assets_archives': 'レガシーアセットアーカイブ',
+    'capture_receiver_state': 'キャプチャ受信状態',
+    'diagnostics': '診断データ',
+    'runtime_state': '実行時状態',
+    'instance_lock': 'インスタンスロック',
+    'htdt_instance_lock': 'インスタンスロック',
+    'launch_intents_queue': '起動インテントキュー',
+}
+
+#: Storage inventory category ids -> operator-facing labels.
+_STORAGE_CATEGORY_LABELS = {
+    'native-database': 'ネイティブデータベース',
+    'managed-assets': '管理対象アセット',
+    'diagnostics': '診断データ',
+}
+
+
+def _excluded_component_label(name: str) -> str:
+    return _EXCLUDED_COMPONENT_LABELS.get(name, name)
+
+
 def _format_native_schema(metadata: BackupMetadata) -> str:
     state = metadata.native_schema_compatibility
     version = metadata.native_schema_version
@@ -271,7 +311,8 @@ class BackupMetadataView(QFrame):
         )
         excluded = metadata.excluded_categories
         self._values["excluded"].setText(
-            ", ".join(excluded) if excluded else "なし"
+            ", ".join(_excluded_component_label(name) for name in excluded)
+            if excluded else "なし"
         )
         self._values["managed_size"].setText(_format_bytes(metadata.managed_size_bytes))
         self._values["file_count"].setText(f"{metadata.file_count:,} 件")
@@ -945,7 +986,8 @@ class DataManagementWidget(QWidget):
         lines: list[str] = []
         for category in report.categories:
             lines.append(
-                f"{category.category}: {category.file_count} 件 / "
+                f"{_STORAGE_CATEGORY_LABELS.get(category.category, category.category)}: "
+                f"{category.file_count} 件 / "
                 f"物理 {_format_bytes(category.physical_unique_bytes)}"
                 f"（論理参照 {_format_bytes(category.logical_referenced_bytes)}"
                 f"・未参照 {_format_bytes(category.unreferenced_bytes)}）"
