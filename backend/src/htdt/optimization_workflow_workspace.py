@@ -342,9 +342,20 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.controller.activate()
 
     def before_deactivate(self) -> tuple[bool, str | None]:
+        if getattr(self, 'joint_optimization_panel', None) is not None and (
+            self.joint_optimization_panel.is_running()
+        ):
+            return False, (
+                "ジョイント最適化が完了またはキャンセルされるまで"
+                "画面を切り替えられません"
+            )
         return self.controller.before_deactivate()
 
     def dirty_state(self) -> WorkspaceDirtyState:
+        if getattr(self, 'joint_optimization_panel', None) is not None and (
+            self.joint_optimization_panel.is_running()
+        ):
+            return 'busy'
         return self.controller.dirty_state()
 
     def resolve_dirty_state(
@@ -496,6 +507,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         )
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        if getattr(self, 'joint_optimization_panel', None) is not None:
+            self.joint_optimization_panel.dispose()
         self.controller.dispose()
         self.viewport_widget.close()
         self.robustness_viewport_widget.close()

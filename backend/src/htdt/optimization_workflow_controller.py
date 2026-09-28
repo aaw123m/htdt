@@ -315,6 +315,8 @@ class OptimizationWorkflowController(
         changed = self.scene.undo()
         if changed:
             self._selected_id = self.scene.view_state.selected_id
+            self._refresh_search_specs()
+            self._refresh_extended_specs()
             self._rebuild()
             self._set_dirty_status()
         return changed
@@ -323,6 +325,8 @@ class OptimizationWorkflowController(
         changed = self.scene.redo()
         if changed:
             self._selected_id = self.scene.view_state.selected_id
+            self._refresh_search_specs()
+            self._refresh_extended_specs()
             self._rebuild()
             self._set_dirty_status()
         return changed

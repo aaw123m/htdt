@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
+from threading import Lock
 from typing import Callable, Iterable, Iterator
 
 from .cad_constraint_models import CadConstraintSet
@@ -30,6 +32,7 @@ from .search_space import (
     MAX_SEARCH_PAGE_SIZE,
     GridAxis,
     LinkedDerivation,
+    SearchGenerationCancelled,
     SearchSpecCreate,
     generate_search_space,
     validate_search_spec,
@@ -262,14 +265,32 @@ def require_search_spec_authority(
     return engine_spec, o10_spec
 
 
-def generate_cad_candidates(
+# Paging a SearchSpec always needs the full feasible set (the candidate-set
+# sha256 covers every feasible candidate), so each page request previously
+# rescanned the entire raw Cartesian product. ``search_spec_sha256`` pins
+# every enumeration input — the spec axes/limit and both compiled payloads —
+# and SearchSpec rows are immutable, so a complete enumeration is safely
+# reusable across page calls. A small LRU bounds the retained sets.
+_ENUMERATION_CACHE_MAX = 4
+_enumeration_cache: OrderedDict[str, dict] = OrderedDict()
+_enumeration_cache_lock = Lock()
+
+
+def _cached_enumeration(
     scene_repository: SceneRepository,
     spec: CadSearchSpec,
     *,
-    offset: int = 0,
-    limit: int = 100,
-    cancelled: Callable[[], bool] | None = None,
-) -> CadCandidateSetPage:
+    cancelled: Callable[[], bool] | None,
+) -> dict:
+    with _enumeration_cache_lock:
+        cached = _enumeration_cache.get(spec.search_spec_sha256)
+        if cached is not None:
+            _enumeration_cache.move_to_end(spec.search_spec_sha256)
+    if cached is not None:
+        if cancelled is not None and cancelled():
+            raise SearchGenerationCancelled('search generation cancelled')
+        return cached
+
     source = scene_repository.get(spec.scene_revision_id)
     if source is None:
         raise ValueError('SearchSpec source revision no longer exists')
@@ -282,22 +303,64 @@ def generate_cad_candidates(
         search_spec_sha256=spec.search_spec_sha256,
         constraint_set_spec=engine_spec,
         constraint_set_spec_sha256=spec.constraint_engine_spec_sha256,
-        offset=offset,
-        limit=limit,
+        offset=0,
+        limit=1,
         cancelled=cancelled,
     )
-    candidates = tuple(CadCandidate.model_validate(item) for item in raw['candidates'])
+    entry = {
+        key: raw[key]
+        for key in (
+            'candidate_set_sha256',
+            'raw_candidate_count',
+            'feasible_candidate_count',
+            'rejected_candidate_count',
+            'duplicate_candidate_count',
+            'rejection_counts',
+            'candidate_limit',
+            'all_candidates',
+        )
+    }
+    with _enumeration_cache_lock:
+        _enumeration_cache[spec.search_spec_sha256] = entry
+        _enumeration_cache.move_to_end(spec.search_spec_sha256)
+        while len(_enumeration_cache) > _ENUMERATION_CACHE_MAX:
+            _enumeration_cache.popitem(last=False)
+    return entry
+
+
+def generate_cad_candidates(
+    scene_repository: SceneRepository,
+    spec: CadSearchSpec,
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    cancelled: Callable[[], bool] | None = None,
+) -> CadCandidateSetPage:
+    if offset < 0:
+        raise ValueError('offset must be >= 0')
+    if limit < 1 or limit > MAX_SEARCH_PAGE_SIZE:
+        raise ValueError('limit must be between 1 and 500')
+    source = scene_repository.get(spec.scene_revision_id)
+    if source is None:
+        raise ValueError('SearchSpec source revision no longer exists')
+    require_search_spec_authority(source, spec)
+
+    enumeration = _cached_enumeration(scene_repository, spec, cancelled=cancelled)
+    candidates = tuple(
+        CadCandidate.model_validate(item)
+        for item in enumeration['all_candidates'][offset : offset + limit]
+    )
     return CadCandidateSetPage(
         search_spec_id=spec.search_spec_id,
         search_spec_sha256=spec.search_spec_sha256,
-        candidate_set_sha256=raw['candidate_set_sha256'],
-        raw_candidate_count=raw['raw_candidate_count'],
-        feasible_candidate_count=raw['feasible_candidate_count'],
-        rejected_candidate_count=raw['rejected_candidate_count'],
-        duplicate_candidate_count=raw['duplicate_candidate_count'],
-        rejection_counts=raw['rejection_counts'],
-        offset=raw['offset'],
-        limit=raw['limit'],
+        candidate_set_sha256=enumeration['candidate_set_sha256'],
+        raw_candidate_count=enumeration['raw_candidate_count'],
+        feasible_candidate_count=enumeration['feasible_candidate_count'],
+        rejected_candidate_count=enumeration['rejected_candidate_count'],
+        duplicate_candidate_count=enumeration['duplicate_candidate_count'],
+        rejection_counts=enumeration['rejection_counts'],
+        offset=offset,
+        limit=limit,
         candidates=candidates,
     )
 

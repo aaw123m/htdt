@@ -326,6 +326,29 @@ class CadSystemVariantRepository:
     def get_variant(self, variant_id: str) -> SystemVariant | None:
         return self._get_variant(variant_id, frozenset())
 
+    def variant_for_sha256(
+        self,
+        document_id: str,
+        variant_sha256: str,
+    ) -> SystemVariant | None:
+        """Indexed single-row lookup by content identity.
+
+        ``variant_sha256`` is UNIQUE, so matching callers no longer have to
+        run ``list_variants`` — which replays full authority validation on
+        every row — just to resolve one known identity. The returned row
+        still goes through ``_validated_variant``.
+        """
+
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT * FROM cad_system_variants '
+                'WHERE document_id=? AND variant_sha256=?',
+                (document_id, variant_sha256),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validated_variant(row, frozenset())
+
     def list_variants(self, document_id: str) -> tuple[SystemVariant, ...]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
