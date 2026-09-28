@@ -319,6 +319,7 @@ def generate_search_space(
         raise ValueError(f'Raw candidate estimate {raw_count} exceeds SearchSpec candidate_limit {spec.candidate_limit}')
 
     page: list[dict[str, Any]] = []
+    all_candidates: list[dict[str, Any]] = []
     candidate_ids: list[str] = []
     rejection_counts: dict[str, int] = {}
     seen_candidate_ids: set[str] = set()
@@ -362,13 +363,18 @@ def generate_search_space(
         seen_candidate_ids.add(candidate_id)
         feasible_index = len(candidate_ids)
         candidate_ids.append(candidate_id)
+        # The full feasible list is returned alongside the requested page so
+        # authorities that page through the set can cache one enumeration
+        # instead of rescanning the raw Cartesian product per page.
+        candidate = {
+            'candidate_id': candidate_id,
+            'raw_index': raw_index,
+            'feasible_index': feasible_index,
+            'positions': overrides,
+        }
+        all_candidates.append(candidate)
         if offset <= feasible_index < offset + limit:
-            page.append({
-                'candidate_id': candidate_id,
-                'raw_index': raw_index,
-                'feasible_index': feasible_index,
-                'positions': overrides,
-            })
+            page.append(candidate)
 
     candidate_set_sha256 = _canonical_sha(candidate_ids)
     return {
@@ -386,4 +392,5 @@ def generate_search_space(
         'limit': limit,
         'returned_candidate_count': len(page),
         'candidates': page,
+        'all_candidates': all_candidates,
     }

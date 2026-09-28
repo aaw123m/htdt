@@ -872,7 +872,7 @@ class SearchControllerMixin:
         self.search_preview_candidate_id = candidate.candidate_id
         self._refresh_search_binding_state()
         self._render_search_overlay()
-        self.statusBar().showMessage('候補preview · Scene/Undo履歴は変更していません')
+        self.statusBar().showMessage('候補プレビュー · Scene/Undo履歴は変更していません')
 
     def clear_candidate_preview(self) -> None:
         if self.search_preview_candidate_id is None:
@@ -880,7 +880,7 @@ class SearchControllerMixin:
         self.search_preview_candidate_id = None
         self._refresh_search_binding_state()
         self._render_search_overlay()
-        self.statusBar().showMessage('候補previewを解除しました')
+        self.statusBar().showMessage('候補プレビューを解除しました')
 
     def apply_selected_candidate(self) -> None:
         spec = self._selected_search_spec()
@@ -912,7 +912,7 @@ class SearchControllerMixin:
         self._rebuild()
         self._set_dirty_status()
         self._refresh_search_specs()
-        self.statusBar().showMessage('候補を1 commandで適用しました · Undoで全位置を復元できます')
+        self.statusBar().showMessage('候補を1コマンドで適用しました · Undoで全位置を復元できます')
 
     def _remove_search_overlays(self) -> None:
         for name in tuple(self._search_actor_names):
@@ -1014,7 +1014,7 @@ class SearchControllerMixin:
             label_name = 'search-preview-label'
             self._search_actor_names.add(label_name)
             self.viewport.add_text(
-                '候補preview · Scene未変更',
+                '候補プレビュー · Scene未変更',
                 position='upper_right',
                 font_size=9,
                 name=label_name,

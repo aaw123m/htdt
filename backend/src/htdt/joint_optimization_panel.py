@@ -13,7 +13,7 @@ lifecycle (#452).
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -35,6 +35,7 @@ from .cad_display_labels import (
     saved_label,
     spec_display_label,
 )
+from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .cad_joint_optimization import JointDspVariable
 from .joint_optimization_context import (
     DEFAULT_MAGNITUDE_BAND_HZ,
@@ -57,6 +58,18 @@ _MODE_ITEMS: tuple[tuple[JointSearchMode, str], ...] = (
     ('joint', '配置 + DSP'),
 )
 
+_MODE_LABELS: dict[str, str] = {mode: label for mode, label in _MODE_ITEMS}
+
+_STALE_REASON_LABELS: dict[str, str] = {
+    'baseline_unresolved': 'ベースライン未解決',
+    'scene_revision_changed': '部屋リビジョン変更',
+    'scene_content_changed': '部屋内容変更',
+    'base_system_variant_changed': '基準バリアント変更',
+    'base_calibration_plan_missing': '基準CalibrationPlanなし',
+    'base_calibration_plan_changed': '基準CalibrationPlan変更',
+    'assessment_failed': '状態判定失敗',
+}
+
 _DSP_NUMERIC_DEFAULTS: dict[str, tuple[float, float, float, str]] = {
     # parameter -> (min, max, step, unit label)
     'gain_db': (-6.0, 6.0, 0.5, 'dB'),
@@ -72,6 +85,8 @@ _DSP_NUMERIC_DEFAULTS: dict[str, tuple[float, float, float, str]] = {
 class JointOptimizationPanel(QWidget):
     """Workflow-first authoring of #174 joint placement+DSP search specs."""
 
+    progressChanged = Signal(object)  # JointExecutionResult, worker thread
+
     def __init__(
         self,
         context: JointOptimizationContext,
@@ -84,6 +99,8 @@ class JointOptimizationPanel(QWidget):
         self._on_status = on_status
         self._baseline: JointBaseline | None = None
         self._dsp_rows: dict[str, dict] = {}
+        self._pool = NativeWorkerPool(self)
+        self.progressChanged.connect(self._on_execution_progress)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -133,6 +150,10 @@ class JointOptimizationPanel(QWidget):
         )
         self.execute_button.clicked.connect(self._execute_selected)
         actions.addWidget(self.execute_button)
+        self.cancel_button = QPushButton('実行を中止', self)
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.clicked.connect(self._cancel_execution)
+        actions.addWidget(self.cancel_button)
         actions.addStretch(1)
         layout.addLayout(actions)
 
@@ -386,7 +407,23 @@ class JointOptimizationPanel(QWidget):
     def _on_spec_selection(self) -> None:
         self._refresh_execution_state()
 
+    def is_running(self) -> bool:
+        return self._pool.active_count > 0
+
+    def dispose(self) -> None:
+        report = self._pool.shutdown()
+        if not report.all_stopped and self._on_status is not None:
+            self._on_status(
+                'ジョイント最適化の停止が遅延しています · 遅延結果は適用しません'
+            )
+
     def _refresh_execution_state(self) -> None:
+        if self.is_running():
+            self.execute_button.setEnabled(False)
+            self.execute_button.setToolTip('実行中です。')
+            self.cancel_button.setEnabled(True)
+            return
+        self.cancel_button.setEnabled(False)
         spec_id = self._selected_spec_id()
         if spec_id is None:
             self.execute_button.setEnabled(False)
@@ -399,7 +436,10 @@ class JointOptimizationPanel(QWidget):
             self.execute_button.setEnabled(False)
             self.execute_button.setToolTip(
                 'ベースラインが変わったため実行できません: '
-                + ', '.join(reasons)
+                + ', '.join(
+                    _STALE_REASON_LABELS.get(reason, reason)
+                    for reason in reasons
+                )
             )
             return
         self.execute_button.setEnabled(True)
@@ -409,18 +449,54 @@ class JointOptimizationPanel(QWidget):
 
     def _execute_selected(self) -> None:
         spec_id = self._selected_spec_id()
-        if spec_id is None:
+        if spec_id is None or self.is_running():
             return
-        self.execute_button.setEnabled(False)
-        try:
-            result = self.context.execute_spec(spec_id)
-        except Exception as exc:
+        key = f'joint-{spec_id}'
+
+        def operation(cancel_event) -> object:
+            return self.context.execute_spec(
+                spec_id,
+                is_cancelled=cancel_event.is_set,
+                on_progress=lambda result: self.progressChanged.emit(result),
+            )
+
+        self.execution_label.setText('実行中…')
+        self._pool.start(key, operation, self._on_execution_completed)
+        self._refresh_execution_state()
+
+    def _cancel_execution(self) -> None:
+        self._pool.cancel_all()
+        self.cancel_button.setEnabled(False)
+        self.execution_label.setText('中止を要求しました…')
+
+    def _on_execution_progress(self, result) -> None:
+        processed = result.candidates_generated + result.candidates_reused
+        self.execution_label.setText(
+            '実行中: 候補 '
+            f'{processed}/{result.decision_vectors_total} 処理 · '
+            f'生成 {result.candidates_generated} · '
+            f'再利用 {result.candidates_reused} · '
+            f'ブロック {result.candidates_blocked}'
+        )
+
+    def _on_execution_completed(self, _key, result, error) -> None:
+        if error == WORKER_CANCELLED:
+            self.execution_label.setText('実行を中止しました（部分結果は保持）')
             if self._on_status is not None:
-                self._on_status(f'ジョイント最適化を実行できません: {operation_error_message(exc)}')
+                self._on_status('ジョイント最適化を中止しました')
+            self._refresh_saved_specs()
             self._refresh_execution_state()
             return
-        finally:
+        if error is not None:
+            self.execution_label.setText('実行に失敗しました')
+            if self._on_status is not None:
+                self._on_status(
+                    'ジョイント最適化を実行できません: '
+                    f'{operation_error_message(Exception(str(error)))}'
+                )
             self._refresh_saved_specs()
+            self._refresh_execution_state()
+            return
         pareto = len(result.pareto_candidate_ids)
         summary = (
             '実行完了: 候補 '
@@ -437,6 +513,7 @@ class JointOptimizationPanel(QWidget):
         self.execution_label.setText(summary)
         if self._on_status is not None:
             self._on_status(f'ジョイント最適化を実行しました: {summary}')
+        self._refresh_saved_specs()
         self._refresh_execution_state()
 
     def _refresh_saved_specs(self) -> None:
@@ -448,13 +525,21 @@ class JointOptimizationPanel(QWidget):
             return
         for spec in specs:
             dsp_count = len(spec.dsp_variables)
-            mode = 'joint' if spec.dsp_variables else 'placement_only'
+            mode = (
+                _MODE_LABELS['joint']
+                if spec.dsp_variables
+                else _MODE_LABELS['placement_only']
+            )
             reasons = self._spec_staleness(spec.spec_id)
             candidates = self.context.joint_repository.count_candidates(
                 spec.spec_id
             )
             state = (
-                'stale: ' + ', '.join(reasons)
+                '変更あり: '
+                + ', '.join(
+                    _STALE_REASON_LABELS.get(reason, reason)
+                    for reason in reasons
+                )
                 if reasons
                 else f'{candidates} 候補'
             )

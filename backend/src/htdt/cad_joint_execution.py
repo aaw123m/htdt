@@ -695,16 +695,11 @@ def run_joint_execution(
             created_at_utc=created_at_utc,
         )
         if physical_variant.variant_id != base_variant.variant_id:
-            persisted_variant = next(
-                (
-                    item
-                    for item in system_variant_repository.list_variants(
-                        physical_variant.document_id
-                    )
-                    if item.variant_sha256
-                    == physical_variant.variant_sha256
-                ),
-                None,
+            persisted_variant = (
+                system_variant_repository.variant_for_sha256(
+                    physical_variant.document_id,
+                    physical_variant.variant_sha256,
+                )
             )
             if persisted_variant is None:
                 system_variant_repository.save_variant(physical_variant)

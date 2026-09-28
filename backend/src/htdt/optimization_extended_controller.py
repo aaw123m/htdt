@@ -240,7 +240,7 @@ class ExtendedSearchControllerMixin:
                 self.extended_repository.save_capability(capability)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Synthetic extended capabilityを保存できません · {exc}'
+                f'Synthetic extended capabilityを保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
@@ -278,7 +278,7 @@ class ExtendedSearchControllerMixin:
             parameters = tuple(parameters)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended parameter evidenceを読み込めません · {exc}'
+                f'extended parameter evidenceを読み込めません · {operation_error_message(exc)}'
             )
             return
         evidence = []
@@ -331,7 +331,7 @@ class ExtendedSearchControllerMixin:
                 capability = existing
         except Exception as exc:
             self.statusBar().showMessage(
-                f'owned-room extended capabilityを保存できません · {exc}'
+                f'owned-room extended capabilityを保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
@@ -492,7 +492,7 @@ class ExtendedSearchControllerMixin:
             self.extended_repository.save_spec(spec)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Extended SearchSpecを保存できません · {exc}'
+                f'Extended SearchSpecを保存できません · {operation_error_message(exc)}'
             )
             return
 
@@ -539,7 +539,7 @@ class ExtendedSearchControllerMixin:
                     spec.capability_id
                 )
                 model_text = (
-                    'capability未登録'
+                    '能力情報なし'
                     if capability is None
                     else (
                         f'{capability.evidence_scope} · '
@@ -554,7 +554,7 @@ class ExtendedSearchControllerMixin:
                     spec.extended_search_id[:8],
                     model_text,
                     axes_text,
-                    'current' if current else 'stale',
+                    '最新' if current else '変更あり',
                 ])
                 item.setData(0, ROLE, spec.extended_search_id)
                 tree.addTopLevelItem(item)
@@ -821,11 +821,11 @@ class ExtendedSearchControllerMixin:
         self._render_extended_overlay()
         if self.extended_summary_label is not None:
             self.extended_summary_label.setText(
-                f'raw {result.raw_candidate_count} · '
-                f'実現可能 {result.feasible_candidate_count} · '
+                f'総候補 {result.raw_candidate_count} · '
+                f'有効 {result.feasible_candidate_count} · '
                 f'表示 {result.offset + 1 if result.candidates else 0}–'
                 f'{result.offset + len(result.candidates)} · '
-                f'set {result.candidate_set_sha256[:8]}'
+                f'集合 {result.candidate_set_sha256[:8]}'
             )
         self.statusBar().showMessage(
             f'Extended候補を生成しました · '
@@ -928,7 +928,7 @@ class ExtendedSearchControllerMixin:
         self._refresh_extended_binding_state()
         self._render_extended_overlay()
         self.statusBar().showMessage(
-            'extended候補preview · Scene/Undo履歴は変更していません'
+            'extended候補プレビュー · Scene/Undo履歴は変更していません'
         )
 
     def clear_extended_preview(self) -> None:
@@ -937,7 +937,7 @@ class ExtendedSearchControllerMixin:
         self.extended_preview_candidate_id = None
         self._refresh_extended_binding_state()
         self._render_extended_overlay()
-        self.statusBar().showMessage('extended previewを解除しました')
+        self.statusBar().showMessage('extendedプレビューを解除しました')
 
     def apply_selected_extended_candidate(self) -> None:
         base = self._selected_search_spec()
@@ -961,7 +961,7 @@ class ExtendedSearchControllerMixin:
             )
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended候補を適用できません · {exc}'
+                f'extended候補を適用できません · {operation_error_message(exc)}'
             )
             self._refresh_extended_binding_state()
             return
