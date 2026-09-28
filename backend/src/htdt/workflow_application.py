@@ -400,17 +400,21 @@ class WorkflowApplicationComposition:
         self.repository = repository
         self.repository_path = Path(repository.path)
         self.data_dir = self.repository_path.parent
-        # App-local last-directory memory for every native file dialog
-        # (round-8): dialogs reopen where the operator last worked.
-        file_dialog_memory.configure(
-            FileDialogMemoryStore.for_data_dir(self.data_dir)
-        )
-        self.document_id = document_id
-        self.capture_receiver = capture_receiver
         # Safe Mode (#739): the launcher opted this session out of saved
         # layout restore and background jobs (automatic backups) — the
         # minimum that could repeat the risky initialization being escaped.
         self.safe_mode = safe_mode
+        # App-local last-directory memory for every native file dialog
+        # (round-8): dialogs reopen where the operator last worked. Safe
+        # Mode binds the ephemeral store so the session neither restores
+        # nor persists remembered directories.
+        file_dialog_memory.configure(
+            FileDialogMemoryStore.ephemeral()
+            if self.safe_mode
+            else FileDialogMemoryStore.for_data_dir(self.data_dir)
+        )
+        self.document_id = document_id
+        self.capture_receiver = capture_receiver
         self._automatic_backup_runner: AutomaticBackupRunner | None = None
         # ApplicationPreferences are app-local truth shared with every
         # integration that reads them — one store per data root (#740).
@@ -560,7 +564,9 @@ class WorkflowApplicationComposition:
     def _restore_window_state(self) -> None:
         if self.safe_mode:
             return
-        state = load_window_state(self.data_dir)
+        state = load_window_state(
+            self.data_dir, project_ref=self._window_state_project_ref()
+        )
         if state is None:
             return
         if state.geometry_b64:
@@ -584,7 +590,19 @@ class WorkflowApplicationComposition:
                     state.workspace,
                 )
 
+    def _window_state_project_ref(self) -> str | None:
+        return (
+            self.project_entry.project_id
+            if self.project_entry is not None
+            else None
+        )
+
     def _save_window_state(self) -> None:
+        # Safe Mode must not touch persisted session state in either
+        # direction — a reduced safe-mode session overwriting the saved
+        # layout would lose the user's real preferences on close.
+        if self.safe_mode:
+            return
         try:
             workspace = self.shell.current_workspace_id
         except RuntimeError:
@@ -597,6 +615,7 @@ class WorkflowApplicationComposition:
                 workspace=None if workspace is None else str(workspace),
                 contexts=self.shell.selected_contexts(),
             ),
+            project_ref=self._window_state_project_ref(),
         )
 
     # -- automatic backup tick (#755 round8) -------------------------------

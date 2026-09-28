@@ -32,6 +32,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 from typing import Literal
@@ -94,6 +95,21 @@ _ROOT_NAMES_LEFT_BEHIND: frozenset[str] = frozenset(
         RELOCATION_LOCK_FILENAME,
     }
 )
+
+#: ``<name>.<n>`` numbered archive generations next to a carried
+#: component (e.g. ``htdt.migrated.sqlite3.2``).
+_NUMBERED_SIBLING = re.compile(r'^(?P<base>.+)\.(?P<n>\d+)$')
+
+
+def _numbered_siblings(source_dir: Path, component_path: str) -> list[str]:
+    """Existing ``<component_path>.<n>`` siblings, sorted for determinism."""
+
+    names: list[str] = []
+    for entry in source_dir.iterdir():
+        match = _NUMBERED_SIBLING.fullmatch(entry.name)
+        if match is not None and match.group('base') == component_path:
+            names.append(entry.name)
+    return sorted(names, key=lambda n: int(_NUMBERED_SIBLING.fullmatch(n).group('n')))
 
 
 def _is_operational_residue(name: str) -> bool:
@@ -855,25 +871,34 @@ def execute_data_relocation(
             # location (#769). Transient components (runtime.json,
             # instance locks) are never copied.
             for component in relocation_carried_components():
-                source_path = source_dir / component.path
-                staged_path = staged / component.path
-                if component.is_directory:
+                # Canonical path plus numbered archive generations
+                # (``<path>.<n>`` — e.g. htdt.migrated.sqlite3.2): sibling
+                # generations are HTDT-owned and carry the base policy.
+                for carried_name in (
+                    [component.path]
+                    + _numbered_siblings(source_dir, component.path)
+                ):
+                    source_path = source_dir / carried_name
+                    staged_path = staged / carried_name
                     if source_path.is_dir():
                         shutil.copytree(source_path, staged_path)
-                elif source_path.is_file():
-                    staged_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_path, staged_path)
+                    elif source_path.is_file():
+                        staged_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_path, staged_path)
             # Root-local canonical state travels with the root; operational
             # residue (locks, runtime, logs, temp files) is left behind.
             for name in _ROOT_FILES_TO_MOVE:
                 candidate = source_dir / name
                 if candidate.is_file() and candidate.name != DATABASE_NAME:
                     shutil.copy2(candidate, staged / candidate.name)
+            # Warn on ANY unclassified leftover — directories included:
+            # the previous file-only check silently skipped whole trees
+            # (launch-intents/, capture-receiver/, user stray dirs).
             for candidate in source_dir.iterdir():
                 if (
-                    candidate.is_file()
-                    and not _is_operational_residue(candidate.name)
+                    not _is_operational_residue(candidate.name)
                     and candidate.name not in _ROOT_FILES_TO_MOVE
+                    and candidate.name not in _ROOT_DIRECTORIES_TO_MOVE
                     and component_for_path(candidate.name) is None
                 ):
                     _LOGGER.warning(

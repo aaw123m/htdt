@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import re
 from typing import Literal
 
 
@@ -146,6 +147,40 @@ PERSISTED_DATA_REGISTRY: tuple[PersistedDataComponent, ...] = (
         notes='Library archive/hide presentation state follows the install.',
     ),
     PersistedDataComponent(
+        name='window_state_global',
+        path='window-state.json',
+        lifecycle=PersistedDataLifecycle.PREFERENCES,
+        scope='application',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        notes=(
+            'Global shell geometry/workspace state; the fallback for '
+            'projects without their own record.'
+        ),
+    ),
+    PersistedDataComponent(
+        name='window_state_projects',
+        path='window-state',
+        lifecycle=PersistedDataLifecycle.PREFERENCES,
+        scope='application',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        is_directory=True,
+        notes='Per-project window state files keyed by project id (round-9).',
+    ),
+    PersistedDataComponent(
+        name='file_dialog_memory',
+        path='file_dialog_dirs.json',
+        lifecycle=PersistedDataLifecycle.PREFERENCES,
+        scope='application',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        notes='Last-used directories for native file dialogs; convenience only.',
+    ),
+    PersistedDataComponent(
         name='activity_history',
         path='activity_history.json',
         lifecycle=PersistedDataLifecycle.OPERATIONAL,
@@ -184,6 +219,20 @@ PERSISTED_DATA_REGISTRY: tuple[PersistedDataComponent, ...] = (
         notes='Upgrade journal/provenance.',
     ),
     PersistedDataComponent(
+        name='upgrade_state_marker',
+        path='.native-upgrade-state.json',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        notes=(
+            'Durable upgrade-quarantine marker (#750). Dropping it on a '
+            'root move would let the destination launch without honoring '
+            'an unresolved upgrade — must travel with the root.'
+        ),
+    ),
+    PersistedDataComponent(
         name='upgrade_recovery',
         path='upgrade-recovery',
         lifecycle=PersistedDataLifecycle.RECOVERY_GENERATION,
@@ -193,6 +242,88 @@ PERSISTED_DATA_REGISTRY: tuple[PersistedDataComponent, ...] = (
         portable=PortableProjectPolicy.NOT_PROJECT_DATA,
         is_directory=True,
         notes='Recovery generations must never be stranded by a root move.',
+    ),
+    PersistedDataComponent(
+        name='legacy_migration_journal',
+        path='htdt-legacy-migration.journal',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        notes=(
+            'Legacy archive crash journal; its presence means "interrupted '
+            'mid-rename" — stranded at the old root, that signal is lost.'
+        ),
+    ),
+    PersistedDataComponent(
+        name='legacy_database',
+        path='htdt.sqlite3',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        sensitive=True,
+        notes=(
+            'Retired browser-authority store awaiting --migrate-legacy-data; '
+            'a root move must carry it or the user loses that path.'
+        ),
+    ),
+    PersistedDataComponent(
+        name='legacy_database_archives',
+        path='htdt.migrated.sqlite3',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        sensitive=True,
+        notes=(
+            'Archived migrated stores; numbered siblings '
+            '(htdt.migrated.sqlite3.N) are carried by the relocation '
+            'sibling rule.'
+        ),
+    ),
+    PersistedDataComponent(
+        name='legacy_assets',
+        path='assets',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        is_directory=True,
+        sensitive=True,
+        notes='Retired legacy asset directory paired with htdt.sqlite3.',
+    ),
+    PersistedDataComponent(
+        name='legacy_assets_archives',
+        path='htdt.migrated.assets',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        is_directory=True,
+        sensitive=True,
+        notes='Archived legacy asset directories (numbered siblings carried).',
+    ),
+    PersistedDataComponent(
+        name='capture_receiver_state',
+        path='capture-receiver',
+        lifecycle=PersistedDataLifecycle.OPERATIONAL,
+        scope='root',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.CARRY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        is_directory=True,
+        sensitive=True,
+        notes=(
+            'Capture receiver TLS identity (cert/key) + runtime state; '
+            'carried so a root move keeps pairings, excluded from backups '
+            'so credentials never enter archives.'
+        ),
     ),
     PersistedDataComponent(
         name='diagnostics',
@@ -233,7 +364,38 @@ PERSISTED_DATA_REGISTRY: tuple[PersistedDataComponent, ...] = (
         relocation=RelocationPolicy.NEVER_COPY,
         portable=PortableProjectPolicy.NOT_PROJECT_DATA,
     ),
+    PersistedDataComponent(
+        name='launch_intents_queue',
+        path='launch-intents',
+        lifecycle=PersistedDataLifecycle.TRANSIENT,
+        scope='transient',
+        backup=BackupPolicy.EXCLUDE,
+        relocation=RelocationPolicy.NEVER_COPY,
+        portable=PortableProjectPolicy.NOT_PROJECT_DATA,
+        is_directory=True,
+        notes=(
+            'Single-instance intent drop queue; undelivered items are '
+            'abandoned by design, never moved as live state.'
+        ),
+    ),
 )
+
+
+#: Numbered-sibling rule: archive helpers keep extra generations beside a
+#: component as ``<path>.<n>`` (e.g. ``htdt.migrated.sqlite3.2``); such
+#: siblings are HTDT-owned and follow the base component's classification.
+_NUMBERED_SUFFIX = re.compile(r'^(?P<base>.+)\.\d+$')
+
+
+def _component_base_match(normalized: str) -> PersistedDataComponent | None:
+    match = _NUMBERED_SUFFIX.match(normalized.split('/')[0])
+    if match is None:
+        return None
+    base = match.group('base')
+    for component in PERSISTED_DATA_REGISTRY:
+        if base == component.path:
+            return component
+    return None
 
 
 def backup_included_components() -> tuple[PersistedDataComponent, ...]:
@@ -296,7 +458,13 @@ def backup_excluded_names() -> tuple[str, ...]:
 
 
 def component_for_path(path: str) -> PersistedDataComponent | None:
-    """Classify a data-root-relative path; None when HTDT does not own it."""
+    """Classify a data-root-relative path; None when HTDT does not own it.
+
+    Plain match: the component's own path or anything below it. Numbered
+    sibling: ``<component path>.<n>`` — archive helpers keep extra
+    generations beside the canonical name; they inherit the base
+    component's policy instead of warning as unclassified.
+    """
     normalized = path.replace('\\', '/')
     while normalized.startswith('./'):
         normalized = normalized[2:]
@@ -305,7 +473,7 @@ def component_for_path(path: str) -> PersistedDataComponent | None:
             return component
         if normalized.startswith(component.path + '/'):
             return component
-    return None
+    return _component_base_match(normalized)
 
 
 __all__ = [
