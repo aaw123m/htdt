@@ -173,6 +173,30 @@ it. The three items above are the exact build-out that would unblock it.
 - **Auralization WAV deliverable**: see above — three named prerequisites
   missing; not a UI wiring problem.
 
+## Followup fixes (post-implementation suite run)
+
+The first full-suite pass surfaced three regressions from this round's
+diffs, all corrected:
+
+- `report._svg_chart` gained the locale table `t`; round-9 callers pass
+  only `result`. `t` is now optional and defaults to the EN strings —
+  round-9 tests stay untouched (they exercise NaN-grid honesty, not
+  localization).
+- `calibration.export_settings` was registered as
+  `mutates_managed_data=False`, but `export_settings()` persists an
+  export snapshot plus an `exported` lifecycle event. The fail-closed
+  classification test caught it honestly — the flag is now `True`.
+- `test_migration_guard` schema-version literals bumped 5 → 6 (repo
+  convention: the pins pair with `SCHEMA_VERSION`) and a v5 fixture +
+  test cover the `dataset_sha256` backfill path — pre-migration backup
+  runs before the conditional ALTER, then the column is added and
+  backfilled.
+
+One pre-existing flake observed:
+`test_cad_hybrid_prediction_provider::test_evidence_lifecycle_rejects_illegal_promotions`
+failed once under `-n 4` but passes standalone and on rerun; unrelated
+to this round's changes (no shared fixture/code).
+
 ## Verified locally
 
 - `backend`: full suite — `pytest tests -q -n 4` (results in PR body);
