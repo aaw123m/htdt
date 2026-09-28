@@ -251,6 +251,9 @@ def test_optimization_mount_binds_undo_redo_shortcuts(monkeypatch, tmp_path: Pat
     composition = object.__new__(workflow_application.WorkflowApplicationComposition)
     composition.repository = object()
     composition.document_id = 'document-1'
+    composition.preferences = ApplicationPreferenceStore(
+        tmp_path / 'preferences.json'
+    )
     composition.registry = CommandRegistry()
     register_default_commands(composition.registry)
 

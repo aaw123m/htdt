@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -48,6 +48,9 @@ from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
+
+if TYPE_CHECKING:
+    from .measurement_workflow import RewReadSource
 from .standards_workspace import StandardsVariantComparisonPanel
 from .system_expansion_widgets import (
     SystemExpansionMeasurementPanel,
@@ -202,11 +205,14 @@ class OptimizationWorkflowWorkspace(QWidget):
         *,
         viewport_factory: Callable[[QWidget | None], QWidget] | None = None,
         on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
+        rew_client: RewReadSource | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("optimizationWorkflowWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
-        self.controller = OptimizationWorkflowController(repository, document_id)
+        self.controller = OptimizationWorkflowController(
+            repository, document_id, rew_client=rew_client
+        )
         self.controller.statusChanged.connect(self._set_status)
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
         self.system_expansion.apply_guard = self._system_expansion_apply_block_reason
@@ -1356,6 +1362,7 @@ def build_optimization_workspace_mount(
     document_id: str = F1_DOCUMENT_ID,
     *,
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
+    rew_client: RewReadSource | None = None,
 ) -> WorkspaceMount:
     """Build the UX140 workspace through the shell's existing mount contract."""
 
@@ -1363,6 +1370,7 @@ def build_optimization_workspace_mount(
         repository,
         document_id,
         on_navigate=on_navigate,
+        rew_client=rew_client,
     )
 
     return WorkspaceMount.from_widget(

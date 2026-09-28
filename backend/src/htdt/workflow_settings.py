@@ -23,6 +23,7 @@ from .application_preferences import (
     PENDING_PREFERENCE_KEYS,
     ApplicationPreferenceStore,
     PreferenceCategory,
+    PreferenceChange,
     PreferenceDefinition,
     PreferenceError,
     PreferenceValueType,
@@ -93,6 +94,12 @@ class PreferencesWidget(QWidget):
         self._form_host_layout.setSpacing(12)
         scroll.setWidget(host)
         layout.addWidget(scroll, 1)
+
+        # Other surfaces write the same keys (e.g. the キャプチャ tab
+        # applies integrations.capture_receiver_enabled through its
+        # controller) — keep the rendered controls in sync with every
+        # committed change, not just this widget's own writes.
+        store.subscribe(self._on_external_change)
 
         for category in PreferenceCategory:
             definitions = store.definitions(category)
@@ -185,6 +192,9 @@ class PreferencesWidget(QWidget):
             editor.setToolTip(definition.description)
         self._editors[key] = editor
         return editor
+
+    def _on_external_change(self, change: PreferenceChange) -> None:
+        self._sync_editor(change.key)
 
     def _commit(self, key: str, value: object) -> None:
         if self._loading:

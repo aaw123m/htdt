@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
@@ -57,6 +58,9 @@ from .optimization_search_controller import SearchControllerMixin
 from .optimization_validation_controller import ValidationControllerMixin
 from .rew_api import RewApiClient
 from .room_workspace import RoomWorkspaceController
+
+if TYPE_CHECKING:
+    from .measurement_workflow import RewReadSource
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .user_facing_error import operation_error_message
 
@@ -125,7 +129,13 @@ class OptimizationWorkflowController(
     sceneChanged = Signal(bool)
     rewBusyChanged = Signal(bool)
 
-    def __init__(self, repository: SceneRepository, document_id: str) -> None:
+    def __init__(
+        self,
+        repository: SceneRepository,
+        document_id: str,
+        *,
+        rew_client: RewReadSource | None = None,
+    ) -> None:
         QObject.__init__(self)
         self.repository = repository
         self.document_id = document_id
@@ -224,7 +234,7 @@ class OptimizationWorkflowController(
         self._render_scene: Callable[[bool], None] | None = None
         self._status_proxy = _StatusProxy(self.statusChanged.emit)
 
-        self.rew_client = RewApiClient()
+        self.rew_client = rew_client if rew_client is not None else RewApiClient()
         self.rew_job_guard = MeasurementJobGuard()
         self._rew_pool = NativeWorkerPool(self)
         self._rew_tokens: dict[str, MeasurementJobToken] = {}

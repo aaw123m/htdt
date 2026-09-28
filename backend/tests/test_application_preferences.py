@@ -334,7 +334,7 @@ def test_persist_failure_leaves_memory_and_disk_unchanged(tmp_path) -> None:
     # Single-key set() shares the same atomic path: no mutation before
     # durable replace succeeds.
     with pytest.raises(OSError):
-        store.set('integrations.rew_port', 1)
+        store.set('integrations.rew_port', 9000)
     assert store.get('integrations.rew_port') == 4735
     assert seen == []
 
