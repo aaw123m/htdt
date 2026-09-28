@@ -24,6 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .export_io import write_text_atomic
 from .workflow_navigation import normalize_destination_id
 
 
@@ -147,7 +148,7 @@ def save_window_state(
     path = window_state_path(data_dir, project_ref)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(state.model_dump_json(), encoding='utf-8')
+        write_text_atomic(path, state.model_dump_json())
     except OSError as exc:
         _LOGGER.warning('window state could not be saved: %s', exc)
 

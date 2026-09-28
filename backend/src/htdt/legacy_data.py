@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from uuid import uuid4
 
+from .export_io import write_text_atomic
 from .project_library import ProjectLibraryEntry
 from .project_library_repository import ProjectLibraryRepository
 from .clock import utc_now_iso as _utc_now
@@ -217,7 +218,8 @@ def _archive_legacy_store(data_dir: Path) -> tuple[Path, Path | None]:
     archived_assets = _next_available(data_dir / MIGRATED_ASSETS_DIRNAME)
 
     journal = data_dir / MIGRATION_JOURNAL_NAME
-    journal.write_text(
+    write_text_atomic(
+        journal,
         json.dumps(
             {
                 'renames': [
@@ -233,7 +235,6 @@ def _archive_legacy_store(data_dir: Path) -> tuple[Path, Path | None]:
             indent=2,
             allow_nan=False,
         ),
-        encoding='utf-8',
     )
     archived_assets_path: Path | None = None
     try:

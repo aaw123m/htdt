@@ -8,6 +8,7 @@ from typing import Any, Literal, Sequence
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .canonical_json import canonical_json, canonical_sha256 as semantic_hash
+from .export_io import write_text_atomic
 
 
 PLAN_SCHEMA = 'htdt.r130d.general3d-validation-plan-1'
@@ -1358,7 +1359,7 @@ def save_evidence(path: str | Path, payload: dict[str, Any]) -> str:
     }
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(canonical_json(envelope) + '\n', encoding='utf-8')
+    write_text_atomic(output, canonical_json(envelope) + '\n')
     return digest
 
 

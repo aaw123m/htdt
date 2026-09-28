@@ -39,6 +39,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .export_io import write_text_atomic
 from .native_diagnostics import diagnostics_dir
 
 
@@ -197,9 +198,7 @@ def load_recovery_metadata(data_dir) -> RecoveryMetadata:
 def _store_metadata(data_dir, metadata: RecoveryMetadata) -> None:
     path = _metadata_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        metadata.model_dump_json(), encoding='utf-8'
-    )
+    write_text_atomic(path, metadata.model_dump_json())
 
 
 def record_launch(

@@ -134,9 +134,17 @@ class FileCalibrationAdapter:
             materialization_sha256=_hash(provisional.semantic_payload()),
         )
         self._root.mkdir(parents=True, exist_ok=True)
-        (self._root / f'{materialization.materialization_id}.json').write_text(
-            payload_text, encoding='utf-8'
+        # The mat:<id>.json name is an NTFS ADS on Windows — rename-atomic
+        # publishing cannot target a stream, so the write is verified by
+        # reading it back instead of silently trusting a torn file.
+        materialization_path = (
+            self._root / f'{materialization.materialization_id}.json'
         )
+        materialization_path.write_text(payload_text, encoding='utf-8')
+        if materialization_path.read_text(encoding='utf-8') != payload_text:
+            raise AdapterCapabilityError(
+                'materialization write verification failed'
+            )
         return materialization
 
     def apply(

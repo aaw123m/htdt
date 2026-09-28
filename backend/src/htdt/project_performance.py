@@ -46,6 +46,7 @@ from .cad_scene import (
     SceneEntity,
     Size3,
 )
+from .export_io import write_text_atomic
 from .native_backup import DATABASE_NAME, create_backup
 from .managed_assets import MANAGED_ASSETS_DIRNAME
 from .clock import utc_now_iso as _utc_now
@@ -714,13 +715,13 @@ def write_benchmark_artifacts(
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_dir / f'{manifest.project_class}-manifest.json'
     report_path = output_dir / f'{manifest.project_class}-baseline.json'
-    manifest_path.write_text(
+    write_text_atomic(
+        manifest_path,
         json.dumps(manifest_to_dict(manifest), indent=2, allow_nan=False) + '\n',
-        encoding='utf-8',
     )
-    report_path.write_text(
+    write_text_atomic(
+        report_path,
         json.dumps(report_to_dict(report), indent=2, allow_nan=False) + '\n',
-        encoding='utf-8',
     )
     return manifest_path, report_path
 
