@@ -36,13 +36,15 @@ def distance_result():
 
 def test_si_default_is_unchanged(distance_result) -> None:
     text = format_measure_result(distance_result)
-    assert "2.500 m" in text  # distance
+    assert "2.512 m" in text  # distance
     assert "ΔX +1.500" in text
     assert "水平 2.500 m" in text
-    # Byte-identical with an explicit metres policy at default precision.
-    assert format_measure_result(
+    # An explicit metres policy keeps SI values; Δ components gain the
+    # unit suffix under a policy (upstream REV8-CADUX convention).
+    text_m = format_measure_result(
         distance_result, policy=display_length_policy("m")
-    ) == text
+    )
+    assert "ΔX +1.500 m" in text_m and "水平 2.500 m" in text_m
 
 
 def test_mm_policy_converts_lengths(distance_result) -> None:
@@ -72,7 +74,7 @@ def test_angle_result_ignores_policy() -> None:
     ) == format_measure_result(result)
 
 
-def test_panel_follows_live_policy_provider() -> None:
+def test_panel_reformats_on_policy_change() -> None:
     from htdt.room_measure_input import RoomMeasurePanel
 
     app = QApplication.instance() or QApplication([])
@@ -100,17 +102,14 @@ def test_panel_follows_live_policy_provider() -> None:
             return None
 
     controller = _Controller()
-    policy = {"current": display_length_policy("m")}
-    panel = RoomMeasurePanel(
-        controller,
-        display_policy_provider=lambda: policy["current"],
-    )
+    panel = RoomMeasurePanel(controller)
     try:
         result = build_distance_result(_point(0, 0, 0), _point(0.012, 0, 0))
         panel._on_result(result)
         assert "0.012 m" in panel.result_label.text()
-        # A later preference commit is picked up without re-construction.
-        policy["current"] = display_length_policy("mm")
+        # set_length_policy re-formats the current result immediately.
+        panel.set_length_policy(display_length_policy("mm"))
+        controller.result = result
         panel._on_result(result)
         assert "12.0 mm" in panel.result_label.text()
     finally:

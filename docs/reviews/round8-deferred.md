@@ -15,20 +15,21 @@ each landed item has a regression test under `backend/tests/test_review_round8_*
 | reference_libraries (`round6-features.md`) | **implemented** | New `reference_library_sources.py`: `_ListingProvider` adapters mapping equipment definitions + speakers (EQUIPMENT), materials (MATERIAL), standards profiles (STANDARD_PROFILE) onto `LibraryEntry`/`LibraryProvider`; `build_reference_library_index(repository, data_dir)` with scope mapping (manufacturer→BUILTIN, `document_id`→PROJECT_LOCAL, published→BUILTIN). `ReferenceLibraryPage` gained `library_index` param + per-family sections (名前/区分/スコープ/バージョン). |
 | Palette providers for measurement/variant/revision/inbox (`round7-workflow.md`) | **implemented** | `palette_search.py` gained `PaletteNavigationItem` + `NavigationItemPaletteProvider` (deep-link handoff through `on_deep_link`); `_build_palette_service` registers providers for measurements, scene revisions, system variants, and capture-inbox items. Measurement mount got `focus_kinds={MEASUREMENT}` + `focus_target` via new `select_measurement_id()`. |
 | Commissioning-wizard modal link focus (`round7-workflow.md`) | **implemented** | `CommissioningWizard` queues deep links while modal (`_queued_links` + `take_pending_navigations()`); the composition drains the queue after the dialog closes so navigation lands on the workspace instead of behind the modal. |
-| `format_measure_result` display-policy wiring (`round6-features.md` D3) | **implemented** | `format_measure_result(result, *, policy=None)` — `None`/`m` preserves byte-identical legacy SI output (so exports/reports are untouched); other units render via `si_to_display` + `_UNIT_SUFFIX`, angles always degrees. `RoomMeasurePanel` gained `display_policy_provider`/`set_display_policy_provider`; wired in `_make_room` to `length_display_policy_from_preferences` so the readout and clipboard follow `display_input.*` live. |
+| `format_measure_result` display-policy wiring (`round6-features.md` D3) | **implemented (merged)** | `format_measure_result(result, *, policy=None)` — `None` preserves legacy SI output for exports; a policy renders via the length display policy, angles always degrees. **Merge note:** REV8-CADUX landed an equivalent implementation on `main` concurrently (`format_length_m` helpers + `set_length_policy` + live `bind_measure_display_length_policy` subscription); the merge keeps upstream's version, so the panel re-formats on preference change. |
 | authority_graph wiring (`round6-features.md`, ~250+150 sketch) | **implemented** | Two new canonical-source adapters in `authority_graph.py`: `measurement_authority_source` (MEASURED_FOR edge to scene revision, stale when `scene_content_hash` ≠ head hash) and `system_variant_authority_source` (DERIVED_FROM baseline, SUPERSEDES parent variant, stale on baseline-hash drift). New `authority_inspector_ui.py` `AuthorityInspectorDialog` (node picker, summary/freshness/evidence, upstream/downstream, stale reasons, "ワークスペースで開く" deep-link button). Entry: Support page "権威グラフを開く" button → `_open_authority_inspector` builds the graph live from repositories. Read-only, never persisted. |
 
 ## Files changed
 
 `backend/src/htdt/`: `authority_graph.py`, `authority_inspector_ui.py` (new),
-`application_pages.py`, `application_preferences.py`, `cad_measure.py`,
+`application_pages.py`, `application_preferences.py`,
 `capture_retention.py`, `capture_retention_ui.py` (new),
 `commissioning_wizard.py`, `data_management_ui.py`, `equipment_library.py`,
 `file_dialog_memory.py` (new), `measurement_editor.py`,
 `measurement_page_workspace.py`, `palette_search.py`,
-`reference_library_sources.py` (new), `room_measure_input.py`,
-`room_workspace.py`, `standards_profile_editor.py`,
-`workflow_application.py`, `workflow_settings.py`.
+`reference_library_sources.py` (new), `room_workspace.py`,
+`standards_profile_editor.py`, `workflow_application.py`,
+`workflow_settings.py`. (`cad_measure.py`/`room_measure_input.py` resolved
+to upstream REV8-CADUX equivalents during the merge.)
 
 `backend/tests/`: `test_review_round8_authority_graph.py` (new),
 `test_review_round8_capture_retention_ui.py` (new),
