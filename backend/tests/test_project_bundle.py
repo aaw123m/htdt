@@ -32,6 +32,7 @@ from htdt.project_bundle import (
     BundleImportConflictError,
     BundleManifestInvalidError,
     ProjectBundleError,
+    ProjectBundleManifest,
     export_project_bundle,
     import_project_bundle,
 )
@@ -330,3 +331,99 @@ def test_import_rejects_non_zip_payload(tmp_path):
 
     with pytest.raises(ProjectBundleError, match='not a readable'):
         import_project_bundle(target, garbage)
+
+
+def _rewrite_bundle_member(
+    archive: Path,
+    replacements: dict[str, bytes],
+    *,
+    manifest_patch=None,
+) -> None:
+    """Rewrite a bundle archive in place, recomputing the manifest hash
+    after *manifest_patch* mutates the manifest dict — the way an older
+    or newer build's exporter would have legitimately produced it."""
+    with ZipFile(archive) as source:
+        members = {info.filename: source.read(info.filename) for info in source.infolist()}
+    members.update(replacements)
+    manifest = json.loads(members['manifest.json'])
+    if manifest_patch is not None:
+        manifest_patch(manifest)
+        manifest['manifest_sha256'] = None
+        manifest['manifest_sha256'] = (
+            ProjectBundleManifest.model_validate(manifest).identity_hash()
+        )
+        members['manifest.json'] = json.dumps(manifest).encode()
+    with ZipFile(archive, 'w') as target:
+        for name, body in members.items():
+            target.writestr(name, body)
+
+
+def test_import_rejects_bundle_table_unknown_to_this_schema(tmp_path):
+    """A bundle exported by an older schema era may carry tables this
+    build no longer has (``project_registry`` folded away at native v7).
+    Rejection must be an honest version-mismatch error — never a raw
+    sqlite crash mid-import."""
+    archive, _result = _export(tmp_path)
+    body = json.dumps({
+        'columns': [
+            'project_id', 'document_id', 'display_name', 'created_at_utc',
+            'updated_at_utc', 'status',
+        ],
+        'values': [
+            'p-legacy', 'doc-legacy', 'Old Room',
+            '2026-01-01T00:00:00+00:00', '2026-01-02T00:00:00+00:00',
+            'active',
+        ],
+    }).encode() + b'\n'
+
+    def _patch(manifest: dict) -> None:
+        manifest['tables'].append({
+            'table': 'project_registry',
+            'row_count': 1,
+            'rows_sha256': sha256(body).hexdigest(),
+        })
+
+    _rewrite_bundle_member(
+        archive, {'db/project_registry.jsonl': body}, manifest_patch=_patch
+    )
+
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+    with pytest.raises(BundleManifestInvalidError, match='project_registry'):
+        import_project_bundle(target, archive)
+
+    with sqlite3.connect(target.path) as connection:
+        assert connection.execute(
+            'SELECT count(*) FROM scene_revisions'
+        ).fetchone() == (0,)
+
+
+def test_import_rejects_bundle_column_unknown_to_this_schema(tmp_path):
+    """A bundle written by a newer build may carry columns this build
+    lacks — silently dropping them would corrupt hash-bearing rows.
+    Version drift is rejected instead."""
+    archive, _result = _export(tmp_path)
+    with ZipFile(archive) as source:
+        original = source.read('db/scene_revisions.jsonl')
+    rows = []
+    for line in original.splitlines():
+        row = json.loads(line)
+        row['columns'].append('future_lineage_sha256')
+        row['values'].append('x' * 64)
+        rows.append(json.dumps(row).encode())
+    body = b'\n'.join(rows) + b'\n'
+
+    def _patch(manifest: dict) -> None:
+        for summary in manifest['tables']:
+            if summary['table'] == 'scene_revisions':
+                summary['rows_sha256'] = sha256(body).hexdigest()
+
+    _rewrite_bundle_member(
+        archive, {'db/scene_revisions.jsonl': body}, manifest_patch=_patch
+    )
+
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+    with pytest.raises(
+        BundleManifestInvalidError,
+        match='scene_revisions.future_lineage_sha256',
+    ):
+        import_project_bundle(target, archive)

@@ -11,8 +11,10 @@ from htdt.cad_schema import (
     NATIVE_SCHEMA_VERSION,
     NativeSchemaError,
     check_native_schema_compatibility,
+    ensure_native_schema,
     read_native_schema_version,
 )
+from htdt.cad_schema_ddl import NATIVE_SCHEMA_TABLES
 from htdt.cad_scene import make_f1_scene
 
 
@@ -640,3 +642,322 @@ def test_legacy_frequency_response_table_gains_lazy_identity_columns(
             )
         }
     assert {'dataset_sha256', 'transformation_sha256'} <= columns
+
+
+# --- stamped intermediate-version fixtures --------------------------------
+# Rewinding a current database's stamp (as test_native_upgrade's helper
+# does) never exercises the migrations against era-accurate table shapes —
+# a stamped-v10 DB already has every table. These fixtures rebuild the
+# shapes real earlier releases left on disk.
+
+_SCHEMA_AUTHORITY_DDL = (
+    '''CREATE TABLE native_schema_metadata (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        schema_version INTEGER NOT NULL
+    )''',
+    '''CREATE TABLE native_schema_migrations (
+        schema_version INTEGER PRIMARY KEY,
+        applied_at_utc TEXT NOT NULL,
+        description TEXT NOT NULL
+    )''',
+)
+
+#: The lifecycle-registry tables a v5/v6-era build created before #764
+#: folded them into the canonical ``htdt_project_*`` authority at v7.
+_V6_PROJECT_REGISTRY_DDL = (
+    '''CREATE TABLE project_registry (
+        project_id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        created_at_utc TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL,
+        last_opened_at_utc TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        archived_at_utc TEXT,
+        cloned_from_project_id TEXT
+    )''',
+    '''CREATE TABLE project_tombstones (
+        tombstone_id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL UNIQUE,
+        document_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        deleted_at_utc TEXT NOT NULL,
+        removed_rows INTEGER NOT NULL,
+        estimated_bytes INTEGER NOT NULL,
+        authorities_json TEXT NOT NULL
+    )''',
+)
+
+
+def _stamp_native_version(path: Path, version: int) -> None:
+    """Rewind a database's stamp the way an earlier release left it."""
+    with sqlite3.connect(path) as connection, connection:
+        connection.execute(
+            'UPDATE native_schema_metadata SET schema_version = ?',
+            (version,),
+        )
+        connection.execute(
+            'DELETE FROM native_schema_migrations WHERE schema_version >= ?',
+            (version + 1,),
+        )
+
+
+def test_v1_stamped_database_migrates_through_every_step(tmp_path: Path) -> None:
+    """A v1-era database (signature table set + v1 stamp) replays the whole
+    migration chain: intermediate versions create their era tables and the
+    baseline replay converges every registered table."""
+    path = tmp_path / 'v1.sqlite3'
+    _create_database(path, *_LEGACY_DDL)
+    with sqlite3.connect(path) as connection, connection:
+        for statement in _SCHEMA_AUTHORITY_DDL:
+            connection.execute(statement)
+        connection.execute(
+            'INSERT INTO native_schema_metadata VALUES (1, 1)'
+        )
+        connection.execute(
+            'INSERT INTO native_schema_migrations VALUES (1, ?, ?)',
+            (
+                '2026-09-18T00:00:00+00:00',
+                'adopt pre-versioned native CAD schema as baseline v1',
+            ),
+        )
+        connection.execute(
+            'INSERT INTO scene_revisions('
+            'revision_id, document_id, parent_revision_id, created_at_utc, '
+            'content_hash, payload_json) VALUES (?, ?, ?, ?, ?, ?)',
+            ('r1', 'doc-a', None, '2026-01-01T00:00:00+00:00', 'h1', '{}'),
+        )
+
+    ensure_native_schema(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    with sqlite3.connect(path) as connection:
+        versions = [
+            row[0]
+            for row in connection.execute(
+                'SELECT schema_version FROM native_schema_migrations '
+                'ORDER BY schema_version'
+            )
+        ]
+        names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        lineage_columns = {
+            row[1]
+            for row in connection.execute(
+                'PRAGMA table_info(scene_revisions)'
+            )
+        }
+    assert versions == list(range(1, NATIVE_SCHEMA_VERSION + 1))
+    assert set(NATIVE_SCHEMA_TABLES) <= names
+    # The v5 lineage columns were converged even though the era table
+    # predates them, and the pre-existing revision became the head.
+    assert {'detached', 'detached_reason'} <= lineage_columns
+    heads = sqlite3.connect(path).execute(
+        'SELECT head_revision_id FROM scene_document_heads '
+        'WHERE document_id=?',
+        ('doc-a',),
+    ).fetchone()
+    assert heads == ('r1',)
+
+
+def test_v4_stamped_revisions_backfill_heads_and_mark_branch_detached(
+    tmp_path: Path,
+) -> None:
+    """The v4→v5 data derivation: scene_document_heads is backfilled from
+    existing lineage — the mainline chain becomes head and a pre-#626
+    branch row is marked detached rather than silently winning."""
+    path = tmp_path / 'v4.sqlite3'
+    _create_database(path, *_LEGACY_DDL)
+    with sqlite3.connect(path) as connection, connection:
+        for statement in _SCHEMA_AUTHORITY_DDL:
+            connection.execute(statement)
+        connection.execute(
+            'INSERT INTO native_schema_metadata VALUES (1, 4)'
+        )
+        for version in (1, 2, 3, 4):
+            connection.execute(
+                'INSERT INTO native_schema_migrations VALUES (?, ?, ?)',
+                (
+                    version,
+                    '2026-09-18T00:00:00+00:00',
+                    f'migrate native schema to v{version}',
+                ),
+            )
+        revisions = (
+            # r1 -> r2 is the mainline chain; r3 is a pre-#626 branch off r1.
+            ('r1', 'doc-a', None, '2026-01-01T00:00:00+00:00', 'h1'),
+            ('r2', 'doc-a', 'r1', '2026-01-02T00:00:00+00:00', 'h2'),
+            ('r3', 'doc-a', 'r1', '2026-01-03T00:00:00+00:00', 'h3'),
+        )
+        connection.executemany(
+            'INSERT INTO scene_revisions('
+            'revision_id, document_id, parent_revision_id, created_at_utc, '
+            'content_hash, payload_json) VALUES (?, ?, ?, ?, ?, ?)',
+            [(rid, did, pid, ts, ch, '{}') for rid, did, pid, ts, ch in revisions],
+        )
+
+    ensure_native_schema(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    with sqlite3.connect(path) as connection:
+        head = connection.execute(
+            'SELECT head_revision_id, generation FROM scene_document_heads '
+            'WHERE document_id=?',
+            ('doc-a',),
+        ).fetchone()
+        detached = dict(
+            connection.execute(
+                'SELECT revision_id, detached FROM scene_revisions'
+            ).fetchall()
+        )
+    assert head == ('r2', 2)
+    assert detached == {'r1': 0, 'r2': 0, 'r3': 1}
+
+
+def test_v6_project_registry_rows_fold_into_htdt_authority(
+    tmp_path: Path,
+) -> None:
+    """The only row-moving migration: v6→v7 folds the pre-merge lifecycle
+    registry into htdt_project_* and drops the era tables. Status maps to
+    the archived flag, clone lineage is preserved, and a project already
+    registered in the canonical store wins the collision."""
+    path = tmp_path / 'v6.sqlite3'
+    SceneRepository(path)
+    with sqlite3.connect(path) as connection, connection:
+        for statement in _V6_PROJECT_REGISTRY_DDL:
+            connection.execute(statement)
+        connection.executemany(
+            'INSERT INTO project_registry VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                (
+                    'p-active', 'd-active', 'Listening Room', 'desc',
+                    '2026-01-01T00:00:00+00:00', '2026-01-02T00:00:00+00:00',
+                    '2026-01-03T00:00:00+00:00', 'active', None, None,
+                ),
+                (
+                    'p-arch', 'd-arch', 'Old Room', None,
+                    '2026-02-01T00:00:00+00:00', '2026-02-02T00:00:00+00:00',
+                    None, 'archived', '2026-02-03T00:00:00+00:00', 'p-active',
+                ),
+                # Collides with the canonical row inserted below — the
+                # registry row must lose, never overwrite.
+                (
+                    'p-clone', 'd-clone', 'Registry Name', None,
+                    '2026-04-01T00:00:00+00:00', '2026-04-02T00:00:00+00:00',
+                    None, 'active', None, None,
+                ),
+            ],
+        )
+        connection.execute(
+            'INSERT INTO project_tombstones VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            (
+                't-1', 'p-gone', 'd-gone', 'Deleted Room',
+                '2026-03-01T00:00:00+00:00', 12, 3456, '{"a":1}',
+            ),
+        )
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc, '
+            'updated_at_utc) VALUES (?, ?, ?, ?, ?)',
+            (
+                'p-canonical', 'd-clone', 'Canonical Name',
+                '2026-04-03T00:00:00+00:00', '2026-04-03T00:00:00+00:00',
+            ),
+        )
+    _stamp_native_version(path, 6)
+
+    ensure_native_schema(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    with sqlite3.connect(path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        projects = {
+            row[0]: row[1:]
+            for row in connection.execute(
+                'SELECT project_id, document_id, display_name, archived, '
+                'archived_at_utc, cloned_from_project_id, updated_at_utc '
+                'FROM htdt_project_documents'
+            )
+        }
+        tombstones = connection.execute(
+            'SELECT * FROM htdt_project_tombstones'
+        ).fetchall()
+    assert 'project_registry' not in tables
+    assert 'project_tombstones' not in tables
+    assert projects['p-active'] == (
+        'd-active', 'Listening Room', 0, None, None,
+        '2026-01-02T00:00:00+00:00',
+    )
+    assert projects['p-arch'] == (
+        'd-arch', 'Old Room', 1, '2026-02-03T00:00:00+00:00', 'p-active',
+        '2026-02-02T00:00:00+00:00',
+    )
+    # The canonical registration survives; the colliding registry row is
+    # dropped with its source table rather than overwriting it.
+    assert projects['p-canonical'] == (
+        'd-clone', 'Canonical Name', 0, None, None,
+        '2026-04-03T00:00:00+00:00',
+    )
+    assert 'p-clone' not in projects
+    assert tombstones == [
+        (
+            't-1', 'p-gone', 'd-gone', 'Deleted Room',
+            '2026-03-01T00:00:00+00:00', 12, 3456, '{"a":1}',
+        )
+    ]
+
+
+def test_v9_stamped_table_missing_ensured_column_is_converged(
+    tmp_path: Path,
+) -> None:
+    """A stamped v9-era database whose lazily created table predates a
+    column-ensure keeps its rows; the baseline replay + ensure converges
+    the missing column instead of erroring."""
+    path = tmp_path / 'v9.sqlite3'
+    SceneRepository(path)
+    with sqlite3.connect(path) as connection, connection:
+        connection.execute('DROP TABLE editor_view_states')
+        connection.execute(
+            '''CREATE TABLE editor_view_states (
+                document_id TEXT PRIMARY KEY,
+                selected_id TEXT,
+                hidden_ids_json TEXT NOT NULL,
+                locked_ids_json TEXT NOT NULL,
+                selected_ids_json TEXT NOT NULL DEFAULT '[]',
+                updated_at_utc TEXT NOT NULL
+            )'''
+        )
+        connection.execute(
+            'INSERT INTO editor_view_states('
+            'document_id, selected_id, hidden_ids_json, locked_ids_json, '
+            "selected_ids_json, updated_at_utc) "
+            "VALUES ('doc-a', 'speaker-fl', '[]', '[]', '[]', '2026-01-01T00:00:00+00:00')",
+        )
+    _stamp_native_version(path, 9)
+
+    ensure_native_schema(path)
+
+    assert read_native_schema_version(path) == NATIVE_SCHEMA_VERSION
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                'PRAGMA table_info(editor_view_states)'
+            )
+        }
+        row = connection.execute(
+            'SELECT document_id, selected_id, snap_json '
+            'FROM editor_view_states'
+        ).fetchone()
+    assert 'snap_json' in columns
+    assert row == ('doc-a', 'speaker-fl', None)

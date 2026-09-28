@@ -122,7 +122,23 @@ class NativeUpgradeVerificationError(NativeUpgradeError):
 
 
 class IncompatibleNewerSchemaError(NativeUpgradeError):
-    """The live database was created/upgraded by a newer HTDT build."""
+    """The live database was created/upgraded by a newer HTDT build.
+
+    The offending schema versions travel alongside the technical message
+    so the launch-failure dialog can compose localized copy without
+    parsing the English diagnostic text.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stored_schema_version: int | None = None,
+        supported_schema_version: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.stored_schema_version = stored_schema_version
+        self.supported_schema_version = supported_schema_version
 
 
 class InsufficientUpgradeSpaceError(NativeUpgradeError):
@@ -167,14 +183,14 @@ class NativeUpgradePlan:
 
         if self.compatibility == 'legacy_unversioned':
             return (
-                'HTDT needs to update project data from format 0.x '
-                f'to {self.target_schema_version}. '
-                'A recovery copy will be created first.'
+                '従来形式（バージョン情報なし）のプロジェクトデータを、'
+                f'形式 {self.target_schema_version} へ更新します。'
+                '先に復旧用コピーを作成します。'
             )
         return (
-            'HTDT needs to update project data from format '
-            f'{self.current_schema_version} to {self.target_schema_version}. '
-            'A recovery copy will be created first.'
+            f'プロジェクトデータを形式 {self.current_schema_version} から '
+            f'{self.target_schema_version} へ更新します。'
+            '先に復旧用コピーを作成します。'
         )
 
 
@@ -383,6 +399,57 @@ def newer_schema_guidance(stored_version: int, supported_version: int) -> str:
         '- install the HTDT build that created or last upgraded this data, or\n'
         '- restore an older backup made with a compatible HTDT build.\n\n'
         'Downgrade is not supported: no data was changed.'
+    )
+
+
+def newer_schema_dialog_copy_ja(
+    exc: IncompatibleNewerSchemaError,
+) -> tuple[str, str]:
+    """(reason, recovery) localized copy for the launch-failure dialog.
+
+    The exception's own text stays English for the diagnostics log; the
+    versions it carries are what the dialog needs to explain the
+    fail-closed state in the operator's language.
+    """
+
+    reason = (
+        'このデータはより新しいHTDTデータ形式'
+        f'（schema v{exc.stored_schema_version}）で作成または更新されています。'
+        if exc.stored_schema_version is not None
+        else 'このデータはこのビルドより新しいHTDTデータ形式で作成または更新されています。'
+    )
+    recovery = (
+        (
+            f'このビルドが対応するのは v{exc.supported_schema_version} までです。'
+            if exc.supported_schema_version is not None
+            else ''
+        )
+        + 'データを作成・更新したHTDTビルドをインストールするか、'
+        '互換性のあるビルドで作成したバックアップを復元してください。'
+        'ダウングレードには対応していません — データは変更されていません。'
+    )
+    return reason, recovery
+
+
+def upgrade_failure_recovery_ja(exc: NativeUpgradeError) -> str:
+    """Localized recovery hint for an upgrade lifecycle failure.
+
+    A quarantined generation re-verifies on the next launch and can be
+    rolled back to its pre-upgrade recovery copy; a pre-commit failure
+    left the live database untouched and retries the whole upgrade.
+    """
+
+    if isinstance(exc, NativeUpgradeQuarantineError):
+        return (
+            'データは移行後の検証が完了していないため開けません。'
+            'HTDTを再起動すると検証を自動で再試行します。'
+            '解決しない場合は、アップグレード前に作成された復旧用コピーを'
+            '「データ管理」の復元から戻すか、診断ログをサポートへ共有してください。'
+        )
+    return (
+        'データは変更されていません。HTDTを再起動すると更新を再試行します。'
+        '解決しない場合は最新のバックアップを復元し、'
+        '診断ログをサポートへ共有してください。'
     )
 
 
@@ -604,7 +671,9 @@ def execute_native_upgrade(
             newer_schema_guidance(
                 plan.current_schema_version,
                 plan.target_schema_version,
-            )
+            ),
+            stored_schema_version=plan.current_schema_version,
+            supported_schema_version=plan.target_schema_version,
         )
 
     if plan.compatibility == 'current':
@@ -939,10 +1008,12 @@ __all__ = [
     'clear_upgrade_state',
     'execute_native_upgrade',
     'list_upgrade_events',
+    'newer_schema_dialog_copy_ja',
     'newer_schema_guidance',
     'plan_native_upgrade',
     'prune_upgrade_snapshots',
     'read_upgrade_state',
+    'upgrade_failure_recovery_ja',
     'upgrade_journal_path',
     'upgrade_snapshot_dir',
     'upgrade_state_path',
