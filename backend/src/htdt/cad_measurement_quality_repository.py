@@ -929,11 +929,20 @@ class CadMeasurementQualityRepository:
     def _validate_report_bindings(
         self,
         report: CadMeasurementQualityReport,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+        asset_rows: dict | None = None,
     ) -> _ReportBindings:
-        measurement = self.measurement_repository.get_measurement(report.measurement_id)
+        measurement = self.measurement_repository.get_measurement(
+            report.measurement_id, measurements=measurements
+        )
         if measurement is None:
             raise ValueError(f'quality report references unknown measurement: {report.measurement_id}')
-        dataset = self.measurement_repository.get_dataset(report.dataset_id)
+        dataset = self.measurement_repository.get_dataset(
+            report.dataset_id, datasets=datasets
+        )
         if dataset is None:
             raise ValueError(f'quality report references unknown dataset: {report.dataset_id}')
         if dataset.measurement_id != measurement.measurement_id:
@@ -950,7 +959,9 @@ class CadMeasurementQualityRepository:
         # rather than relying on the dataset read having checked it moments
         # earlier — a raw asset lost between the two checks still fails
         # closed.
-        self.measurement_repository.validate_raw_asset(report.raw_asset_sha256)
+        self.measurement_repository.validate_raw_asset(
+            report.raw_asset_sha256, asset_rows=asset_rows
+        )
         if (
             report.document_id != measurement.document_id
             or report.scene_revision_id != measurement.scene_revision_id
@@ -962,7 +973,9 @@ class CadMeasurementQualityRepository:
 
         repeat_datasets: list[CadFrequencyResponseDataset] = []
         for repeat_id in report.evidence.repeat_measurement_ids:
-            repeat = self.measurement_repository.get_measurement(repeat_id)
+            repeat = self.measurement_repository.get_measurement(
+                repeat_id, measurements=measurements
+            )
             if repeat is None:
                 raise ValueError(f'quality report references unknown repeat measurement: {repeat_id}')
             if (
@@ -981,7 +994,7 @@ class CadMeasurementQualityRepository:
             # dataset seal, managed raw asset and importer replay — so a
             # claimed RMS can never outrun the bound evidence.
             repeat_dataset = self.measurement_repository.dataset_for_measurement(
-                repeat_id
+                repeat_id, datasets=datasets, bound=bound
             )
             if repeat_dataset is None:
                 raise ValueError(
@@ -1007,8 +1020,22 @@ class CadMeasurementQualityRepository:
             level_calibration=level_calibration,
         )
 
-    def _validate_current_report(self, report: CadMeasurementQualityReport) -> None:
-        bindings = self._validate_report_bindings(report)
+    def _validate_current_report(
+        self,
+        report: CadMeasurementQualityReport,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+        asset_rows: dict | None = None,
+    ) -> None:
+        bindings = self._validate_report_bindings(
+            report,
+            datasets=datasets,
+            measurements=measurements,
+            bound=bound,
+            asset_rows=asset_rows,
+        )
         rebuilt = replay_measurement_quality_report(
             report,
             measurement=bindings.measurement,
@@ -1085,6 +1112,78 @@ class CadMeasurementQualityRepository:
     def latest_report(self, measurement_id: str) -> CadMeasurementQualityReport | None:
         reports = self.list_reports(measurement_id)
         return reports[-1] if reports else None
+
+    def latest_reports(
+        self,
+        document_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> tuple[
+        dict[str, CadMeasurementQualityReport],
+        dict[str, BaseException],
+    ]:
+        """Latest validated report per measurement, one document-scoped pass.
+
+        Reports carry no ``document_id`` column, so the document filter joins
+        through ``cad_measurements`` (indexed) instead of scanning the whole
+        table once per measurement — the per-row ``latest_report`` pattern
+        was O(measurements) connections plus a full evidence re-verification
+        per report.
+
+        Semantics match ``latest_report`` (which delegates to
+        ``list_reports``): *every* report of a measurement is revalidated, in
+        seq order, and the first failure is returned in the errors map rather
+        than raised — the caller decides whether that measurement's report
+        evidence was reachable at all (an unreachable report stays dormant).
+        The caller-owned ``datasets``/``measurements`` memos let each
+        validation share the operation's already-verified rows.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT r.measurement_id, r.payload_json
+                FROM cad_measurement_quality_reports r
+                JOIN cad_measurements m ON m.measurement_id = r.measurement_id
+                WHERE m.document_id=? ORDER BY r.seq ASC
+                ''',
+                (document_id,),
+            ).fetchall()
+            # ``validate_raw_asset`` runs per report — the registry rows it
+            # needs resolve in this same connection instead of one each.
+            asset_rows = {
+                str(asset['sha256']): asset
+                for asset in connection.execute(
+                    'SELECT sha256, filename, relative_path, size_bytes '
+                    'FROM cad_measurement_assets'
+                ).fetchall()
+            }
+        by_measurement: dict[str, list[CadMeasurementQualityReport]] = {}
+        for row in rows:
+            by_measurement.setdefault(str(row['measurement_id']), []).append(
+                CadMeasurementQualityReport.model_validate_json(
+                    row['payload_json']
+                )
+            )
+        latest: dict[str, CadMeasurementQualityReport] = {}
+        errors: dict[str, BaseException] = {}
+        for measurement_id, reports in by_measurement.items():
+            for report in reports:
+                try:
+                    self._validate_current_report(
+                        report,
+                        datasets=datasets,
+                        measurements=measurements,
+                        bound=bound,
+                        asset_rows=asset_rows,
+                    )
+                except Exception as exc:
+                    errors[measurement_id] = exc
+                    break
+            latest[measurement_id] = reports[-1]
+        return latest, errors
 
     def _validate_lineage_bindings(self, lineage: CadMeasurementLineageRecord) -> None:
         current = self.measurement_repository.get_measurement(lineage.measurement_id)
@@ -2765,9 +2864,16 @@ class CadMeasurementQualityRepository:
     # Disposition / assignment-correction authority (#509)
     # ------------------------------------------------------------------
 
-    def _validate_disposition(self, disposition: CadMeasurementDisposition) -> None:
+    def _validate_disposition(
+        self,
+        disposition: CadMeasurementDisposition,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> None:
         subject = self.measurement_repository.get_measurement(
-            disposition.measurement_id
+            disposition.measurement_id, measurements=measurements
         )
         if subject is None:
             raise ValueError(
@@ -2777,7 +2883,12 @@ class CadMeasurementQualityRepository:
         if subject.document_id != disposition.document_id:
             raise ValueError('disposition document does not match the measurement')
         if disposition.correction_id is not None:
-            correction = self.get_correction(disposition.correction_id)
+            correction = self.get_correction(
+                disposition.correction_id,
+                datasets=datasets,
+                measurements=measurements,
+                bound=bound,
+            )
             if correction is None or correction.measurement_id != disposition.measurement_id:
                 raise ValueError(
                     'corrected disposition must pin a correction record '
@@ -2855,6 +2966,47 @@ class CadMeasurementQualityRepository:
             self._validate_disposition(disposition)
         return dispositions
 
+    def latest_dispositions(
+        self,
+        document_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> dict[str, CadMeasurementDisposition]:
+        """Latest lifecycle event per measurement, one document-scoped pass.
+
+        Same contract as ``latest_disposition`` — only the effective (last)
+        event per measurement is revalidated — but the document query uses
+        ``idx_measurement_dispositions_document_seq`` once instead of a
+        compatibility check + connection + scan per row.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT measurement_id, payload_json
+                FROM cad_measurement_dispositions
+                WHERE document_id=? ORDER BY seq ASC
+                ''',
+                (document_id,),
+            ).fetchall()
+        latest: dict[str, CadMeasurementDisposition] = {}
+        for row in rows:
+            latest[str(row['measurement_id'])] = (
+                CadMeasurementDisposition.model_validate_json(
+                    row['payload_json']
+                )
+            )
+        for disposition in latest.values():
+            self._validate_disposition(
+                disposition,
+                datasets=datasets,
+                measurements=measurements,
+                bound=bound,
+            )
+        return latest
+
     def latest_disposition(
         self,
         measurement_id: str,
@@ -2877,9 +3029,19 @@ class CadMeasurementQualityRepository:
         self._validate_disposition(disposition)
         return disposition
 
-    def _validate_correction(self, correction: CadMeasurementCorrection) -> None:
+    def _validate_correction(
+        self,
+        correction: CadMeasurementCorrection,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        revisions: dict[str, object] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> None:
         """A correction must pin the subject's exact bound dataset and valid entities."""
-        subject = self.measurement_repository.get_measurement(correction.measurement_id)
+        subject = self.measurement_repository.get_measurement(
+            correction.measurement_id, measurements=measurements
+        )
         if subject is None:
             raise ValueError(
                 'measurement correction references unknown measurement: '
@@ -2888,15 +3050,21 @@ class CadMeasurementQualityRepository:
         if subject.document_id != correction.document_id:
             raise ValueError('correction document does not match the measurement')
         dataset = self.measurement_repository.dataset_for_measurement(
-            correction.measurement_id
+            correction.measurement_id, datasets=datasets, bound=bound
         )
         if dataset is None or dataset.dataset_id != correction.dataset_id:
             raise ValueError('correction must pin the measurement bound dataset')
         if dataset_sha256(dataset) != correction.dataset_sha256:
             raise ValueError('correction dataset hash does not match the bound dataset')
-        revision = self.measurement_repository.scene_repository.get(
-            subject.scene_revision_id
-        )
+        revision = None
+        if revisions is not None and subject.scene_revision_id in revisions:
+            revision = revisions[subject.scene_revision_id]
+        else:
+            revision = self.measurement_repository.scene_repository.get(
+                subject.scene_revision_id
+            )
+            if revisions is not None:
+                revisions[subject.scene_revision_id] = revision
         if revision is None:
             raise ValueError(
                 'measurement source revision is unavailable: '
@@ -3023,7 +3191,15 @@ class CadMeasurementQualityRepository:
                 ),
             )
 
-    def get_correction(self, correction_id: str) -> CadMeasurementCorrection | None:
+    def get_correction(
+        self,
+        correction_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        revisions: dict[str, object] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> CadMeasurementCorrection | None:
         check_native_schema_compatibility(self.path)
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -3038,7 +3214,13 @@ class CadMeasurementQualityRepository:
         # Authoritative reads revalidate the exact subject/dataset/entity/
         # pose-evidence bindings (#863) — a row that can no longer prove its
         # corrected binding fails closed instead of elevating as authority.
-        self._validate_correction(correction)
+        self._validate_correction(
+            correction,
+            datasets=datasets,
+            measurements=measurements,
+            revisions=revisions,
+            bound=bound,
+        )
         return correction
 
     def list_corrections(
@@ -3062,6 +3244,51 @@ class CadMeasurementQualityRepository:
         for correction in corrections:
             self._validate_correction(correction)
         return corrections
+
+    def latest_corrections(
+        self,
+        document_id: str,
+        *,
+        datasets: dict[str, CadFrequencyResponseDataset] | None = None,
+        measurements: dict[str, CadMeasurementRecord] | None = None,
+        revisions: dict[str, object] | None = None,
+        bound: dict[str, CadFrequencyResponseDataset] | None = None,
+    ) -> dict[str, CadMeasurementCorrection]:
+        """Latest effective correction per measurement, one document pass.
+
+        ``cad_measurement_corrections`` has a document_id column but no
+        document index, so the filter joins through the indexed
+        ``cad_measurements.document_id`` + ``measurement_id`` pair instead of
+        a full-table scan. Same contract as ``latest_correction``: only the
+        effective (last) row per measurement is revalidated.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                '''
+                SELECT c.measurement_id, c.payload_json
+                FROM cad_measurement_corrections c
+                JOIN cad_measurements m ON m.measurement_id = c.measurement_id
+                WHERE m.document_id=? ORDER BY c.seq ASC
+                ''',
+                (document_id,),
+            ).fetchall()
+        latest: dict[str, CadMeasurementCorrection] = {}
+        for row in rows:
+            latest[str(row['measurement_id'])] = (
+                CadMeasurementCorrection.model_validate_json(
+                    row['payload_json']
+                )
+            )
+        for correction in latest.values():
+            self._validate_correction(
+                correction,
+                datasets=datasets,
+                measurements=measurements,
+                revisions=revisions,
+                bound=bound,
+            )
+        return latest
 
     def latest_correction(
         self,

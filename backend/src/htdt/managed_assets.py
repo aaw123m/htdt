@@ -19,6 +19,7 @@ content-addressed digest. Any gap fails closed with ``ManagedAssetError``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from hashlib import sha256
 import os
 import tempfile
@@ -95,7 +96,7 @@ def managed_asset_path(data_dir: Path, relative_path: str) -> Path:
     return target
 
 
-def verify_managed_asset(
+def _resolve_managed_asset_path(
     *,
     data_dir: Path,
     digest: str,
@@ -103,18 +104,10 @@ def verify_managed_asset(
     size_bytes: int,
     required_root: Path | None = None,
 ) -> Path:
-    """Verify one managed content-addressed asset row against the filesystem.
+    """Digest shape + safe-path + containment + file-existence checks.
 
-    Enforces, in order: the digest is a well-formed SHA-256, the declared
-    relative path is safe and contained under *data_dir* (and under
-    *required_root* when given — the runtime measurement authority pins its
-    managed assets directory), the target is an existing regular file and
-    not a symlink, its size matches the stored ``size_bytes``, and its
-    streamed SHA-256 equals *digest*.
-
-    Returns the verified on-disk path. Every violation raises
-    ``ManagedAssetError`` so callers fail closed instead of treating a
-    broken asset as usable evidence.
+    Shared by ``verify_managed_asset`` (hash stream only) and
+    ``read_managed_asset_verified`` (one read that returns the bytes).
     """
     if len(digest) != 64 or any(
         char not in '0123456789abcdef' for char in digest
@@ -140,11 +133,79 @@ def verify_managed_asset(
         raise ManagedAssetError(
             f'measurement asset size mismatch: {relative_path}'
         )
+    return asset_path
+
+
+def verify_managed_asset(
+    *,
+    data_dir: Path,
+    digest: str,
+    relative_path: str,
+    size_bytes: int,
+    required_root: Path | None = None,
+) -> Path:
+    """Verify one managed content-addressed asset row against the filesystem.
+
+    Enforces, in order: the digest is a well-formed SHA-256, the declared
+    relative path is safe and contained under *data_dir* (and under
+    *required_root* when given — the runtime measurement authority pins its
+    managed assets directory), the target is an existing regular file and
+    not a symlink, its size matches the stored ``size_bytes``, and its
+    streamed SHA-256 equals *digest*.
+
+    Returns the verified on-disk path. Every violation raises
+    ``ManagedAssetError`` so callers fail closed instead of treating a
+    broken asset as usable evidence.
+    """
+    asset_path = _resolve_managed_asset_path(
+        data_dir=data_dir,
+        digest=digest,
+        relative_path=relative_path,
+        size_bytes=size_bytes,
+        required_root=required_root,
+    )
     if sha256_file(asset_path) != digest:
         raise ManagedAssetError(
             f'measurement asset SHA-256 mismatch: {relative_path}'
         )
     return asset_path
+
+
+def read_managed_asset_verified(
+    *,
+    data_dir: Path,
+    digest: str,
+    relative_path: str,
+    size_bytes: int,
+    required_root: Path | None = None,
+    read: Callable[[Path], bytes] | None = None,
+) -> tuple[Path, bytes]:
+    """``verify_managed_asset`` contract that also returns the bytes.
+
+    Identical checks, one disk pass: the returned bytes are exactly the
+    bytes that hashed to *digest* — strictly stronger than stream-hash-then-
+    reread (no window between the two reads) at half the I/O. ``read`` lets
+    the caller keep its resilient reader (e.g. the store's Windows
+    replace-race retry) without changing the verification contract.
+    """
+    asset_path = _resolve_managed_asset_path(
+        data_dir=data_dir,
+        digest=digest,
+        relative_path=relative_path,
+        size_bytes=size_bytes,
+        required_root=required_root,
+    )
+    reader = read or (
+        lambda target: read_file_bounded(
+            target, MAX_ATTACHMENT_BYTES, label='managed asset'
+        )
+    )
+    raw = reader(asset_path)
+    if len(raw) != size_bytes or sha256(raw).hexdigest() != digest:
+        raise ManagedAssetError(
+            f'measurement asset SHA-256 mismatch: {relative_path}'
+        )
+    return asset_path, raw
 
 
 # The shared managed asset directory next to the native CAD database. The

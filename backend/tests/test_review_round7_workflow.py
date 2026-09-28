@@ -286,7 +286,7 @@ def test_measurement_focus_entity_switches_to_quality_page(
     workspace = _measurement_workspace(tmp_path)
     # Quality data comes from several repositories; stub the rebuilders so
     # the test exercises only the focus/page-switch mechanics.
-    workspace._refresh_quality = lambda: None
+    workspace._refresh_quality = lambda *_a: None
     workspace._show_quality_row = lambda _index: None
     workspace._update_context_label = lambda: None
     workspace._quality_views = (
