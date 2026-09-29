@@ -82,6 +82,20 @@ _ASSET_REGISTRY_TABLES = (
     'cad_quality_calibration_files',
 )
 
+#: Machine-local device/receiver state that must never travel in a
+#: project bundle. Pairing tokens, LAN endpoints, delivery logs, queued
+#: missions and the storage-GC ledger are per-machine by definition —
+#: without the exclusion their rows would still be pulled in by identity
+#: edges (a pairing's project_ref, a delivery's lineage digest, a queued
+#: mission's pairing_id), contradicting the manifest's own omissions.
+_LOCAL_ONLY_TABLES = frozenset({
+    'capture_mission_packages',
+    'capture_receiver_config',
+    'capture_receiver_deliveries',
+    'capture_receiver_pairings',
+    'htdt_storage_gc_pending',
+})
+
 
 def _is_identity_value(value: object) -> bool:
     """Record identities are UUIDs or SHA-256 digests — short names like
@@ -403,7 +417,9 @@ def export_project_bundle(
         # through exported record identities until fixpoint.
         dependencies: list[BundleDependencyEdge] = []
         non_document_tables = [
-            table for table in tables if table not in document_tables
+            table for table in tables
+            if table not in document_tables
+            and table not in _LOCAL_ONLY_TABLES
         ]
         for _iteration in range(16):
             added = False
@@ -777,7 +793,28 @@ def import_project_bundle(
                 raise BundleManifestInvalidError(
                     f'table payload hash mismatch: {summary.table}'
                 )
-            rows = [json.loads(line) for line in body.splitlines() if line]
+            try:
+                rows = [
+                    json.loads(line)
+                    for line in body.splitlines()
+                    if line
+                ]
+            except ValueError as exc:
+                raise BundleManifestInvalidError(
+                    'table payload is not valid JSONL: '
+                    f'{summary.table}'
+                ) from exc
+            for row in rows:
+                if (
+                    not isinstance(row, dict)
+                    or not isinstance(row.get('columns'), list)
+                    or not isinstance(row.get('values'), list)
+                    or len(row['columns']) != len(row['values'])
+                ):
+                    raise BundleManifestInvalidError(
+                        'table payload row is malformed: '
+                        f'{summary.table}'
+                    )
             if len(rows) != summary.row_count:
                 raise BundleManifestInvalidError(
                     f'table payload row count mismatch: {summary.table}'
@@ -884,6 +921,7 @@ def import_project_bundle(
         # honestly instead of crashing on a missing table mid-import or
         # silently dropping the column's data.
         unknown: list[str] = []
+        missing: list[str] = []
         for table in sorted(exported):
             columns_info = {
                 name
@@ -901,11 +939,43 @@ def import_project_bundle(
                 - columns_info
             )
             unknown.extend(f'{table}.{column}' for column in extras)
-        if unknown:
+            # A bundle predating a NOT NULL column carries no value for
+            # it — without this check the insert would only fail deep in
+            # the retry loop under a misleading dependency-order error.
+            present = {
+                column
+                for row_json in exported[table]
+                for column in row_json['columns']
+            }
+            required = {
+                row['name']
+                for row in connection.execute(
+                    f'PRAGMA table_info({table})'
+                ).fetchall()
+                if row['notnull']
+                and row['dflt_value'] is None
+                and not row['pk']
+            }
+            missing.extend(
+                f'{table}.{column}'
+                for column in sorted(required - present)
+            )
+        if unknown or missing:
+            detail = '; '.join(
+                part
+                for part in (
+                    f'unknown to this build: {", ".join(unknown[:8])}'
+                    if unknown else '',
+                    'missing required columns: '
+                    f'{", ".join(missing[:8])}'
+                    if missing else '',
+                )
+                if part
+            )
             raise BundleManifestInvalidError(
                 'bundle was written for a different schema generation '
                 f'(source HTDT {manifest.source_htdt_version}); '
-                f'unknown to this build: {", ".join(unknown[:8])}'
+                f'{detail}'
             )
 
         prepared_rows: list[tuple[str, dict]] = []
@@ -1097,13 +1167,66 @@ def _apply_value_map(
                 value_map[old_hash] = new_hash
             continue
         if hash_columns:
-            raise BundleImportConflictError(
-                f'{table} copy import cannot remap identities inside '
-                f'{column}: the row carries semantic hash columns '
-                f'({", ".join(hash_columns)}) that only the owning '
-                'authority model can re-derive — copy of this authority '
-                'is not supported'
-            )
+            remapped = _remap_payload_json(value, value_map)
+            parsed = reparsed = None
+            try:
+                parsed = json.loads(value)
+                reparsed = json.loads(remapped)
+            except (ValueError, TypeError):
+                pass
+            recomputed: list[tuple[str, str, str]] = []
+            for hash_column in hash_columns:
+                old_hash = record.get(hash_column)
+                if not isinstance(old_hash, str) or old_hash in value_map:
+                    continue
+                new_hash: str | None = None
+                if (
+                    isinstance(parsed, dict)
+                    and isinstance(reparsed, dict)
+                    and parsed.get(hash_column) == old_hash
+                    and _canonical_sha256(
+                        {
+                            key: entry
+                            for key, entry in parsed.items()
+                            if key != hash_column
+                        }
+                    ) == old_hash
+                ):
+                    # Self-verifying semantic digest — the owning model
+                    # derives hash = sha256(payload minus the hash field),
+                    # so the copy can re-derive it honestly too.
+                    new_hash = _canonical_sha256(
+                        {
+                            key: entry
+                            for key, entry in reparsed.items()
+                            if key != hash_column
+                        }
+                    )
+                elif hashlib.sha256(
+                    value.encode('utf-8')
+                ).hexdigest() == old_hash:
+                    new_hash = hashlib.sha256(
+                        remapped.encode('utf-8')
+                    ).hexdigest()
+                if new_hash is not None:
+                    recomputed.append((hash_column, old_hash, new_hash))
+                    continue
+                if f'"{old_hash}"' in value:
+                    raise BundleImportConflictError(
+                        f'{table} copy import cannot remap identities '
+                        f'inside {column}: the row carries semantic hash '
+                        f'columns ({", ".join(hash_columns)}) that only '
+                        'the owning authority model can re-derive — copy '
+                        'of this authority is not supported'
+                    )
+            for hash_column, old_hash, new_hash in recomputed:
+                value_map[old_hash] = new_hash
+                out[hash_column] = new_hash
+                remapped = remapped.replace(
+                    f'"{old_hash}"', f'"{new_hash}"'
+                )
+            out[column] = remapped
+            continue
         out[column] = _remap_payload_json(value, value_map)
     return out
 
@@ -1205,6 +1328,11 @@ def _insert_row(
         if is_pk and declared == 'INTEGER' and name == 'seq':
             record.pop('seq', None)
 
+    usable_keys = any(
+        all(record.get(column) is not None for column in keys)
+        for keys in _natural_key_sets(connection, table)
+    )
+
     for _attempt in range(16):
         conflict_column: str | None = None
         for keys in _natural_key_sets(connection, table):
@@ -1240,6 +1368,16 @@ def _insert_row(
                 f'{record.get(keys[0])}'
             )
         if conflict_column is None:
+            if not usable_keys:
+                # Keyless join/selection tables (or every key column NULL
+                # here) get whole-row dedupe — an identical row is a safe
+                # reuse; anything else is a genuinely distinct record.
+                where = ' AND '.join(f'{column} IS ?' for column in record)
+                if connection.execute(
+                    f'SELECT rowid FROM {table} WHERE {where} LIMIT 1',
+                    tuple(record[column] for column in record),
+                ).fetchone() is not None:
+                    return 'reused', record
             columns = list(record)
             placeholders = ','.join('?' for _ in columns)
             connection.execute(
