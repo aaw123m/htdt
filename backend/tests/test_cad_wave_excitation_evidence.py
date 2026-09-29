@@ -262,7 +262,7 @@ def test_imported_excitation_persists_reopens_and_replays(tmp_path: Path) -> Non
         (
             digest,
             SOURCE_FILENAME,
-            str(Path('measurement-assets') / digest),
+            (Path('measurement-assets') / digest).as_posix(),
             len(source_bytes),
         )
     ]

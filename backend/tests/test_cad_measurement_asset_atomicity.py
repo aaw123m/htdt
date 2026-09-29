@@ -249,7 +249,7 @@ def test_concurrent_same_digest_distinct_measurements_share_single_asset(
 
     assert results.count('ok') == 2
     assert target.read_bytes() == source
-    expected_relative = str(Path('measurement-assets') / digest)
+    expected_relative = (Path('measurement-assets') / digest).as_posix()
     assert _asset_rows(repository) == [(digest, expected_relative, len(source))]
     assert repository.get_measurement(record_a.measurement_id) == record_a
     assert repository.get_measurement(record_b.measurement_id) == record_b

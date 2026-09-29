@@ -1037,7 +1037,7 @@ class ProjectLibrary:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 'SELECT * FROM htdt_project_tombstones WHERE project_id=? '
-                'ORDER BY deleted_at_utc DESC LIMIT 1',
+                'ORDER BY deleted_at_utc DESC, tombstone_id DESC LIMIT 1',
                 (project_id,),
             ).fetchone()
         return ProjectTombstone(

@@ -255,7 +255,7 @@ def test_persisted_dataset_reopens_exact_source_bytes(tmp_path: Path) -> None:
         (
             digest,
             NORMALIZED_FILENAME,
-            str(Path('measurement-assets') / digest),
+            (Path('measurement-assets') / digest).as_posix(),
             len(source_bytes),
         )
     ]
