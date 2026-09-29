@@ -1756,6 +1756,8 @@ class MeasurementPageWorkspace(QWidget):
         for tens of seconds. Progress arrives via ``batch_commit_progress``;
         cancellation is cooperative (each finished item's commit stays).
         """
+        if self._disposed:
+            return
         if self._commit_job_key is not None:
             self._set_notice("保存処理が進行中です。", SemanticState.WARNING)
             return

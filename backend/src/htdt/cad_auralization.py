@@ -390,7 +390,12 @@ def render_auralization(
         rms = float(sqrt(float(np.mean(rendered ** 2)))) if count else 0.0
         if rms <= 0.0:
             raise ValueError('level_matched_rms cannot normalize a silent render')
-        target_linear = 10.0 ** (float(spec.rms_target_dbfs) / 20.0)
+        try:
+            target_linear = 10.0 ** (float(spec.rms_target_dbfs) / 20.0)
+        except OverflowError as exc:
+            raise ValueError(
+                'rms target dBFS out of representable range'
+            ) from exc
         gain = target_linear / rms
         rendered = rendered * gain
         applied_gain_db = 20.0 * log10(gain)

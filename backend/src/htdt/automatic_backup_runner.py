@@ -52,7 +52,7 @@ class AutomaticBackupRunner(QObject):
     def start(self) -> bool:
         """Kick off the due check once per runner; False if already asked."""
 
-        if self._attempted:
+        if self._attempted or self._closed:
             return False
         self._attempted = True
 

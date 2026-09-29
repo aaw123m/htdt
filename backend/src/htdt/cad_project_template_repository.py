@@ -286,7 +286,7 @@ class CadProjectTemplateRepository:
             row = connection.execute(
                 """
                 SELECT payload_json FROM template_instantiations
-                WHERE document_id = ? ORDER BY created_at_utc DESC LIMIT 1
+                WHERE document_id = ? ORDER BY created_at_utc DESC, instantiation_id DESC LIMIT 1
                 """,
                 (document_id,),
             ).fetchone()

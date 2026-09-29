@@ -319,7 +319,9 @@ class PlotCursor:
         raw = float(self.line.value())
         log_mode = self.plot.getPlotItem().getViewBox().state.get("logMode")
         if log_mode and log_mode[0]:
-            return 10.0**raw
+            # A reference line placed outside the representable decade
+            # range must not crash the readout — saturate the display.
+            return 10.0 ** min(max(raw, -300.0), 300.0)
         return raw
 
 

@@ -228,7 +228,7 @@ def combine_noise_sources_energy(
 
     if not levels_db:
         return None
-    total = sum(10.0 ** (level / 10.0) for level in levels_db)
+    total = sum(10.0 ** min(max(level / 10.0, -300.0), 300.0) for level in levels_db)
     return 10.0 * log10(total)
 
 

@@ -74,14 +74,20 @@ def vrms_to_dbv(value_v_rms: float) -> float:
 
 
 def dbv_to_vrms(value_dbv: float) -> float:
-    return 10.0 ** (_finite(value_dbv, field_name='dBV level') / 20.0)
+    try:
+        return 10.0 ** (_finite(value_dbv, field_name='dBV level') / 20.0)
+    except OverflowError as exc:
+        raise ValueError('dBV level out of representable range') from exc
 
 
 def dbu_to_vrms(value_dbu: float) -> float:
     """dBu -> V RMS at the standard 0.775 V reference."""
-    return DBU_REFERENCE_V_RMS * (
-        10.0 ** (_finite(value_dbu, field_name='dBu level') / 20.0)
-    )
+    try:
+        return DBU_REFERENCE_V_RMS * (
+            10.0 ** (_finite(value_dbu, field_name='dBu level') / 20.0)
+        )
+    except OverflowError as exc:
+        raise ValueError('dBu level out of representable range') from exc
 
 
 def dbfs_to_dbv(value_dbfs: float, full_scale_v_rms: float) -> float:

@@ -421,7 +421,7 @@ def _fractional_octave_smooth(
         # folds the window exactly as the scalar loop did — totals stay
         # bit-identical (NumPy's accumulate is pairwise and could drift
         # an ulp).
-        powers = [10.0 ** (v / 10.0) for v in magnitudes_db]
+        powers = [10.0 ** min(max(v / 10.0, -300.0), 300.0) for v in magnitudes_db]
         lows = axis / center_fraction
         highs = axis * center_fraction
         lo_index = np.searchsorted(axis, lows, side='left')
@@ -439,7 +439,7 @@ def _fractional_octave_smooth(
                 for f, v in zip(frequencies, magnitudes_db)
                 if low <= f <= high
             ]
-            power = sum(10.0 ** (v / 10.0) for v in window) / len(window)
+            power = sum(10.0 ** min(max(v / 10.0, -300.0), 300.0) for v in window) / len(window)
             smoothed.append(10.0 * log10(power))
     return tuple(smoothed)
 
@@ -457,7 +457,8 @@ def _aggregate_band(
         return sum(values) / len(values)
     if method == 'linear_power_mean':
         return 10.0 * log10(
-            sum(10.0 ** (v / 10.0) for v in values) / len(values)
+            sum(10.0 ** min(max(v / 10.0, -300.0), 300.0) for v in values)
+            / len(values)
         )
     if method == 'worst_seat':
         return max(values, key=lambda v: abs(v))

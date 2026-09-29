@@ -166,7 +166,10 @@ def calculate_biquad_coefficients(
     alpha = sin(omega) / (2.0 * q)
 
     if filter_type == 'peaking':
-        a = 10.0 ** (gain_db / 40.0)
+        try:
+            a = 10.0 ** (gain_db / 40.0)
+        except OverflowError as exc:
+            raise ValueError('peaking gain_db out of representable range') from exc
         b0 = 1.0 + alpha * a
         b1 = -2.0 * c
         b2 = 1.0 - alpha * a
