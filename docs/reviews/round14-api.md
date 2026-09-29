@@ -94,4 +94,15 @@ entry for the same fault surfaced in the native UI.
   blank-name 422, upstream-not-found→404 ×3) plus contract assertions
   (201 shapes, 405-with-detail, form-post→422, traversal→404).
 - `pytest backend/tests/test_review_round14_api.py` — 10 passed.
-- Full suite `pytest backend/tests -q -n 4` — see PR body.
+- `pytest backend/tests/test_api.py test_review_round4_api.py
+  test_rew_api*.py test_rew_roomsim.py test_rew_snapshot_import.py
+  test_rew_source_context.py test_user_facing_error.py
+  test_round9_error_surfaces.py test_acoustics_api.py
+  test_quality_api.py test_report_api.py test_feature_api.py -q -n 4` —
+  green after updating two stale-contract assertions
+  (`test_rew_api.py` missing-vs-duplicate split,
+  `test_sessions.py` detail sentence).
+- Full `pytest backend/tests -q -n 4` — only failure was
+  `test_sessions.py::test_session_from_another_project_cannot_be_assigned`,
+  which asserted the pre-fix leaked code `'session_not_found'`; updated to
+  the corrected contract and green.
