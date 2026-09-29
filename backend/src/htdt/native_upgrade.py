@@ -346,6 +346,11 @@ class UpgradeEvent(BaseModel):
     ] = 'unknown'
     #: Which bounded verification stage failed, when one did.
     verification_failure_stage: str | None = None
+    #: Authority rows carried through the migration still flagged stale
+    #: (declared by the degraded recovery snapshot). ``0``/None for a
+    #: fully verified generation — the first-run summary audits them
+    #: again and offers the revalidation lane.
+    stale_authority_count: int | None = Field(default=None, ge=0)
 
     @property
     def upgraded(self) -> bool:
@@ -526,6 +531,17 @@ class UpgradeStateRecord(BaseModel):
     failure_summary: str | None = None
     started_at_utc: str = Field(min_length=1)
     updated_at_utc: str = Field(min_length=1)
+    # Authority rows already stale BEFORE the migration, declared by the
+    # degraded recovery snapshot (authority/record_ref/failure_class
+    # triples as plain dicts). Optional so markers written before this
+    # field existed keep validating; a quarantine-retry tolerates exactly
+    # this set, no more.
+    declared_stale_authorities: tuple[dict[str, str], ...] = ()
+
+
+def marker_stale_declaration(marker: UpgradeStateRecord) -> tuple:
+    """The stale-authority set a quarantined upgrade may still tolerate."""
+    return tuple(marker.declared_stale_authorities)
 
 
 #: States in which the live generation may be committed-but-unverified.
@@ -572,13 +588,24 @@ def clear_upgrade_state(data_dir: Path) -> None:
     upgrade_state_path(Path(data_dir)).unlink(missing_ok=True)
 
 
-def _verify_upgraded_database(database_path: Path, expected_version: int) -> None:
+def _verify_upgraded_database(
+    database_path: Path,
+    expected_version: int,
+    *,
+    tolerated_stale: tuple = (),
+) -> None:
     """Post-migration verification on the live database.
 
     Structural level: SQLite integrity + foreign keys + the recorded schema
     version + a real ``SceneRepository`` open. The bounded semantic level
     replays the #426 authority audit on a throwaway clone so a corrupt
     authority graph fails the upgrade rather than the first project open.
+
+    ``tolerated_stale`` carries the degraded-backup declaration from the
+    pre-upgrade recovery snapshot: authority rows already stale BEFORE the
+    migration (e.g. a re-keyed build awaiting revalidation) stay flagged
+    through it — the post-migration audit tolerates exactly that set and
+    refuses any new failure the migration introduced.
     """
 
     with closing(
@@ -636,15 +663,38 @@ def _verify_upgraded_database(database_path: Path, expected_version: int) -> Non
                     target.hardlink_to(candidate)
                 except OSError:
                     shutil.copyfile(candidate, target)
-        from .native_authority_audit import assert_native_authority_graph
+        from .native_authority_audit import audit_native_authority_graph
 
         try:
-            assert_native_authority_graph(probe_path)
+            audit_report = audit_native_authority_graph(probe_path)
         except Exception as exc:
             raise NativeUpgradeVerificationError(
                 'semantic_audit',
                 f'post-migration semantic audit failed: {exc}',
             ) from exc
+        if not audit_report.ok:
+            declared = {
+                (entry['authority'], entry['record_ref'], entry['failure_class'])
+                if isinstance(entry, dict)
+                else (entry.authority, entry.record_ref, entry.failure_class)
+                for entry in tolerated_stale
+            }
+            residual = tuple(
+                diagnostic
+                for diagnostic in audit_report.diagnostics
+                if (
+                    diagnostic.authority,
+                    diagnostic.record_ref,
+                    diagnostic.failure_class,
+                )
+                not in declared
+            )
+            if residual or audit_report.unclassified_tables:
+                raise NativeUpgradeVerificationError(
+                    'semantic_audit',
+                    'post-migration semantic audit failed: '
+                    + audit_report.summary(),
+                )
     finally:
         shutil.rmtree(probe_dir, ignore_errors=True)
 
@@ -745,6 +795,7 @@ def execute_native_upgrade(
             )
 
     snapshot_path: Path | None = None
+    upgrade_stale_declaration: tuple = ()
     if plan.recovery_snapshot_required:
         snapshot_dir = upgrade_snapshot_dir(data_dir)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
@@ -752,7 +803,16 @@ def execute_native_upgrade(
         try:
             # Canonical archive authority: the snapshot is a fully validated
             # .htdt-backup, restorable through the normal Restore workflow.
-            create_backup(data_dir, snapshot_path)
+            # allow_stale so a store awaiting post-update revalidation can
+            # still take its recovery copy — every stale row is declared in
+            # the manifest and tolerated through post-migration verification.
+            snapshot_manifest = create_backup(
+                data_dir, snapshot_path, allow_stale=True
+            )
+            upgrade_stale_declaration = tuple(
+                entry.model_dump(mode='json')
+                for entry in snapshot_manifest.stale_authorities
+            )
         except Exception as exc:
             event = UpgradeEvent(
                 **event_common,
@@ -793,6 +853,7 @@ def execute_native_upgrade(
         ),
         started_at_utc=started,
         updated_at_utc=_utc_now(),
+        declared_stale_authorities=upgrade_stale_declaration,
     )
     write_upgrade_state(data_dir, state_record)
 
@@ -837,7 +898,9 @@ def execute_native_upgrade(
 
     # The migration transaction committed. Persist the pending-verification
     # state BEFORE running verification so a crash mid-verify still leaves
-    # the quarantine marker on disk.
+    # the quarantine marker on disk. The recovery snapshot's stale
+    # declaration joins the marker so a quarantine-retry tolerates exactly
+    # the same pre-existing set.
     state_record = state_record.model_copy(update={
         'state': 'committed_pending_verification',
         'updated_at_utc': _utc_now(),
@@ -845,7 +908,11 @@ def execute_native_upgrade(
     write_upgrade_state(data_dir, state_record)
 
     try:
-        _verify_upgraded_database(plan.database_path, plan.target_schema_version)
+        _verify_upgraded_database(
+            plan.database_path,
+            plan.target_schema_version,
+            tolerated_stale=upgrade_stale_declaration,
+        )
     except Exception as exc:
         stage = getattr(exc, 'stage', None) or 'verification'
         state_record = state_record.model_copy(update={
@@ -894,6 +961,7 @@ def execute_native_upgrade(
         outcome='completed',
         migration_commit_state='committed',
         live_generation_state='migrated_verified',
+        stale_authority_count=len(upgrade_stale_declaration),
     )
     _append_upgrade_event(data_dir, event)
     # Only a fully verified migration may trim retained recovery
@@ -935,7 +1003,11 @@ def _resolve_quarantined_generation(
         'started_at_utc': _utc_now(),
     }
     try:
-        _verify_upgraded_database(plan.database_path, plan.target_schema_version)
+        _verify_upgraded_database(
+            plan.database_path,
+            plan.target_schema_version,
+            tolerated_stale=marker_stale_declaration(marker),
+        )
     except Exception as exc:
         stage = getattr(exc, 'stage', None) or 'verification'
         write_upgrade_state(

@@ -98,6 +98,24 @@ class BackupBuildInfo(BaseModel):
     source: str = Field(min_length=1)
 
 
+class BackupStaleAuthority(BaseModel):
+    """One authority row that failed semantic replay at backup time.
+
+    A degraded (``--backup-allow-stale``) archive records every failing
+    row here so the manifest honestly declares *which* records could not
+    be re-verified under the writing build. Staging tolerates exactly
+    this declared set — an undeclared or unexpected failure still refuses.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    authority: str = Field(min_length=1)
+    record_ref: str = Field(min_length=1)
+    failure_class: str = Field(min_length=1)
+    dependency: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+
+
 class BackupManifest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -113,6 +131,18 @@ class BackupManifest(BaseModel):
     # backup creation. Optional for pre-#325 archives; when present, staging
     # requires it to equal the actual version stored in the staged database.
     native_schema_version: int | None = Field(default=None, ge=0)
+    # Authority rows that failed semantic replay when this archive was
+    # written under ``allow_stale`` (round 14). Empty for a fully verified
+    # archive — the field folds into the identity hash only when non-empty
+    # so legacy manifests keep validating. A manifest carrying entries is
+    # a degraded archive: staging tolerates exactly the declared rows and
+    # refuses anything else.
+    stale_authorities: tuple[BackupStaleAuthority, ...] = ()
+
+    @property
+    def degraded(self) -> bool:
+        """True when the archive knowingly carries unverified evidence."""
+        return bool(self.stale_authorities)
 
     @model_validator(mode='after')
     def valid_manifest(self) -> 'BackupManifest':
@@ -139,6 +169,11 @@ class BackupManifest(BaseModel):
             payload['build'] = self.build.model_dump(mode='json', exclude_none=True)
         if self.native_schema_version is not None:
             payload['native_schema_version'] = self.native_schema_version
+        if self.stale_authorities:
+            payload['stale_authorities'] = [
+                entry.model_dump(mode='json')
+                for entry in self.stale_authorities
+            ]
         return payload
 
 
@@ -433,7 +468,12 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> None:
     _sqlite_health(destination_path)
 
 
-def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
+def _build_manifest(
+    snapshot_root: Path,
+    database_path: Path,
+    *,
+    stale_authorities: tuple[BackupStaleAuthority, ...] = (),
+) -> BackupManifest:
     entries: list[BackupFileEntry] = [
         BackupFileEntry(
             path=DATABASE_NAME,
@@ -494,6 +534,19 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
         'files': [entry.model_dump(mode='json') for entry in entries],
         'build': build.model_dump(mode='json', exclude_none=True),
         'native_schema_version': read_native_schema_version(database_path),
+        # identity_payload() only folds stale_authorities in when the set is
+        # non-empty — keep the hashed payload identical to what the model
+        # re-serializes, or the identity hash will not match.
+        **(
+            {
+                'stale_authorities': [
+                    entry.model_dump(mode='json')
+                    for entry in stale_authorities
+                ]
+            }
+            if stale_authorities
+            else {}
+        ),
     }
     return BackupManifest(
         **payload,
@@ -501,14 +554,36 @@ def _build_manifest(snapshot_root: Path, database_path: Path) -> BackupManifest:
     )
 
 
-def create_backup(data_dir: Path, destination: Path) -> BackupManifest:
-    """Create an atomic native-data backup without copying a live SQLite file directly."""
+def create_backup(
+    data_dir: Path,
+    destination: Path,
+    *,
+    allow_stale: bool = False,
+) -> BackupManifest:
+    """Create an atomic native-data backup without copying a live SQLite file directly.
+
+    ``allow_stale`` is the round-14 escape for the post-update trap: when
+    persisted authority fails the semantic replay only because a newer
+    build re-keyed its seals, a plain ``--backup`` still refuses — but the
+    user may explicitly opt into a degraded archive that records every
+    failing row in ``manifest.stale_authorities``. Nothing is hidden: the
+    declaration joins the manifest identity hash, and restore staging
+    tolerates exactly the declared set. Internal safety copies (the
+    upgrade recovery snapshot, the automatic scheduler, the pre-restore
+    snapshot) pass ``allow_stale=True`` — a flagged archive of the user's
+    own data is always better than no export at all.
+    """
 
     recover_interrupted_restore(Path(data_dir))
-    return _create_backup(data_dir, destination)
+    return _create_backup(data_dir, destination, allow_stale=allow_stale)
 
 
-def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
+def _create_backup(
+    data_dir: Path,
+    destination: Path,
+    *,
+    allow_stale: bool = False,
+) -> BackupManifest:
     data_dir = _canonical_data_path(Path(data_dir))
     destination = _canonical_data_path(Path(destination))
     _assert_safe_backup_destination(data_dir, destination)
@@ -552,20 +627,46 @@ def _create_backup(data_dir: Path, destination: Path) -> BackupManifest:
             data_dir=snapshot_root,
             database_path=snapshot_database,
         )
-        # A snapshot carrying stale, missing or non-canonical authority must
-        # never be packaged as a restorable archive. Repository construction
-        # may migrate the audited file, so the semantic replay runs on a
+        # A snapshot carrying stale, missing or non-canonical authority is
+        # only packaged as a restorable archive when the caller explicitly
+        # accepted a degraded manifest — and then every failing row is
+        # recorded in ``stale_authorities`` so staging can re-check the
+        # declaration against the staged bytes. Repository construction may
+        # migrate the audited file, so the semantic replay runs on a
         # throwaway clone sharing the snapshot's managed-asset directory;
         # the snapshot bytes stay bit-identical to the source generation.
-        from .native_authority_audit import assert_native_authority_graph
+        from .native_authority_audit import (
+            AuthorityAuditError,
+            audit_native_authority_graph,
+        )
 
         audit_probe = snapshot_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
         shutil.copyfile(snapshot_database, audit_probe)
         try:
-            assert_native_authority_graph(audit_probe)
+            audit_report = audit_native_authority_graph(audit_probe)
         finally:
             _remove_path_quiet(audit_probe)
-        manifest = _build_manifest(snapshot_root, snapshot_database)
+        stale_authorities: tuple[BackupStaleAuthority, ...] = ()
+        if not audit_report.ok:
+            # Coverage gaps are never degradable: an unclassified table
+            # means the audit cannot even claim it inspected the bytes.
+            if audit_report.unclassified_tables or not allow_stale:
+                raise AuthorityAuditError(audit_report)
+            stale_authorities = tuple(
+                BackupStaleAuthority(
+                    authority=diagnostic.authority,
+                    record_ref=diagnostic.record_ref,
+                    failure_class=diagnostic.failure_class,
+                    dependency=diagnostic.dependency,
+                    message=diagnostic.message,
+                )
+                for diagnostic in audit_report.diagnostics
+            )
+        manifest = _build_manifest(
+            snapshot_root,
+            snapshot_database,
+            stale_authorities=stale_authorities,
+        )
 
         archive_temp = temp_root / 'backup.tmp'
         with ZipFile(archive_temp, 'w', compression=ZIP_DEFLATED, compresslevel=6) as archive:
@@ -717,14 +818,38 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
     # Repository construction may migrate the audited database, so the
     # replay runs on a throwaway clone sharing the staged managed-asset
     # directory: the staged bytes stay bit-identical to the manifest hash.
-    from .native_authority_audit import assert_native_authority_graph
+    from .native_authority_audit import (
+        AuthorityAuditError,
+        audit_native_authority_graph,
+    )
 
     audit_probe = stage_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
     shutil.copyfile(database_path, audit_probe)
     try:
-        assert_native_authority_graph(audit_probe)
+        audit_report = audit_native_authority_graph(audit_probe)
     finally:
         _remove_path_quiet(audit_probe)
+    if not audit_report.ok:
+        # A degraded archive may stage only when every failure the audit
+        # now reports is one the manifest declared — undeclared or
+        # differently failing rows still refuse.
+        declared = {
+            (entry.authority, entry.record_ref, entry.failure_class)
+            for entry in manifest.stale_authorities
+        }
+        actual = {
+            (
+                diagnostic.authority,
+                diagnostic.record_ref,
+                diagnostic.failure_class,
+            )
+            for diagnostic in audit_report.diagnostics
+        }
+        # Subset, not equality: a row the writer declared but this build's
+        # audit re-verifies cleanly is benign; only undeclared failures
+        # refuse.
+        if audit_report.unclassified_tables or not actual <= declared:
+            raise AuthorityAuditError(audit_report)
     return manifest, staged_schema_version
 
 
@@ -1390,7 +1515,11 @@ def _restore_backup(
                 )
             )
             try:
-                _create_backup(data_dir, pre_backup)
+                # The live store may carry stale authority (e.g. a re-keyed
+                # build awaiting revalidation) — the safety copy still
+                # exports it, flagged in the manifest, rather than leaving
+                # the pre-restore generation un-exportable.
+                _create_backup(data_dir, pre_backup, allow_stale=True)
             except Exception as exc:
                 # The live store may itself be corrupt — that is the main
                 # reason this restore is running. A failed safety snapshot

@@ -466,8 +466,13 @@ class AutomaticBackupScheduler:
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination = destination_dir / self._generation_name(kind)
         # Canonical archive authority — the generation is fully validated
-        # before it replaces any previous generation.
-        manifest = create_backup(self.data_dir, destination)
+        # before it replaces any previous generation. allow_stale so a
+        # build awaiting post-update revalidation does not silently stop
+        # producing safety generations: any stale row is declared in the
+        # manifest and re-checked at staging.
+        manifest = create_backup(
+            self.data_dir, destination, allow_stale=True
+        )
         # A generation of ANY class proves the current fingerprint is
         # covered, but only routine automatic classes advance the periodic
         # interval clock — a manual/safety archive must not postpone the
