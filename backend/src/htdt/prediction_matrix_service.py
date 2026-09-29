@@ -444,6 +444,8 @@ class PredictionMatrixService:
         )
         source_bindings: dict[str, str] = {}
         receiver_bindings: dict[str, str] = {}
+        snapshot_shas: set[str] = set()
+        providers_unverifiable = False
         if providers:
             for source in spec.sources:
                 provider = providers.get(
@@ -459,11 +461,35 @@ class PredictionMatrixService:
                     receiver_bindings[
                         identity.receiver_binding.receiver_id
                     ] = identity.receiver_binding_sha256
+                authority = getattr(provider, 'current_authority', None)
+                snapshot_sha = getattr(
+                    authority, 'acoustic_scene_snapshot_sha256', None
+                )
+                if snapshot_sha is None:
+                    providers_unverifiable = True
+                else:
+                    snapshot_shas.add(snapshot_sha)
+        # The matrix pins a shared acoustic snapshot. Compare the pin
+        # against the providers' current authority — a rotated or
+        # divergent snapshot must fail closed, not echo the pin back.
+        current_snapshot_sha256: str | None
+        if not providers:
+            # No provider evidence at all: snapshot drift is unverifiable,
+            # same degradation as the skipped binding checks.
+            current_snapshot_sha256 = spec.acoustic_scene_snapshot_sha256
+        elif providers_unverifiable or len(snapshot_shas) != 1:
+            current_snapshot_sha256 = None
+        else:
+            current_snapshot_sha256 = next(iter(snapshot_shas))
         return assess_matrix_currency(
             spec,
             result_set,
             current_scene_content_hash=current_scene_hash,
-            current_snapshot_sha256=spec.acoustic_scene_snapshot_sha256,
-            current_source_bindings=source_bindings or None,
-            current_receiver_bindings=receiver_bindings or None,
+            current_snapshot_sha256=current_snapshot_sha256,
+            current_source_bindings=(
+                source_bindings if providers else None
+            ),
+            current_receiver_bindings=(
+                receiver_bindings if providers else None
+            ),
         )

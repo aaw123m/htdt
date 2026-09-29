@@ -1041,7 +1041,7 @@ def assess_matrix_currency(
     result_set: TransferMatrixResultSet,
     *,
     current_scene_content_hash: str,
-    current_snapshot_sha256: str,
+    current_snapshot_sha256: str | None,
     current_source_bindings: dict[str, str] | None = None,
     current_receiver_bindings: dict[str, str] | None = None,
 ) -> MatrixCurrency:
@@ -1051,6 +1051,13 @@ def assess_matrix_currency(
     whole matrix; a changed source binding stales only that source's column,
     a changed receiver binding only that receiver's row. Exact cells keep
     running until their own pinned dependency moves.
+
+    A ``None`` ``current_snapshot_sha256`` means the current snapshot
+    authority could not be established — the comparison fails closed.
+    Likewise a non-``None`` binding map that lacks a spec source or
+    receiver means that binding could not be re-verified and stales its
+    column/row; ``None`` maps (no provider evidence at all) skip the
+    per-cell checks.
     """
     if result_set.spec_semantic_sha256 != spec.semantic_sha256:
         raise ValueError('result set does not belong to the supplied spec')
@@ -1067,46 +1074,68 @@ def assess_matrix_currency(
     if shared_reasons:
         stale_cells = [item.cell_id for item in result_set.cells]
     else:
-        source_bindings = dict(current_source_bindings or {})
-        receiver_bindings = dict(current_receiver_bindings or {})
+        source_bindings = (
+            None
+            if current_source_bindings is None
+            else dict(current_source_bindings)
+        )
+        receiver_bindings = (
+            None
+            if current_receiver_bindings is None
+            else dict(current_receiver_bindings)
+        )
         stale_sources: set[str] = set()
         stale_receivers: set[str] = set()
-        if source_bindings:
+        unverifiable_sources: set[str] = set()
+        unverifiable_receivers: set[str] = set()
+        if source_bindings is not None:
             for source in spec.sources:
                 current = source_bindings.get(
                     source.source_entity_id,
                     source_bindings.get(source.matrix_source_id),
                 )
-                if (
-                    current is not None
-                    and current != source.source_binding_sha256
-                ):
+                if current is None:
+                    unverifiable_sources.add(source.matrix_source_id)
+                elif current != source.source_binding_sha256:
                     stale_sources.add(source.matrix_source_id)
             if stale_sources:
                 reasons.append(
                     'matrix source binding changed for: '
                     + ', '.join(sorted(stale_sources))
                 )
-        if receiver_bindings:
+            if unverifiable_sources:
+                reasons.append(
+                    'matrix source binding cannot be re-verified for: '
+                    + ', '.join(sorted(unverifiable_sources))
+                )
+        if receiver_bindings is not None:
             for receiver in spec.receivers:
                 current = receiver_bindings.get(
                     receiver.receiver_entity_id,
                     receiver_bindings.get(receiver.matrix_receiver_id),
                 )
-                if (
-                    current is not None
-                    and current != receiver.receiver_binding_sha256
-                ):
+                if current is None:
+                    unverifiable_receivers.add(
+                        receiver.matrix_receiver_id
+                    )
+                elif current != receiver.receiver_binding_sha256:
                     stale_receivers.add(receiver.matrix_receiver_id)
             if stale_receivers:
                 reasons.append(
                     'matrix receiver binding changed for: '
                     + ', '.join(sorted(stale_receivers))
                 )
+            if unverifiable_receivers:
+                reasons.append(
+                    'matrix receiver binding cannot be re-verified for: '
+                    + ', '.join(sorted(unverifiable_receivers))
+                )
+        stale_source_ids = stale_sources | unverifiable_sources
+        stale_receiver_ids = stale_receivers | unverifiable_receivers
         for cell in result_set.cells:
             if (
-                cell.matrix_source_id in stale_sources
-                or cell.matrix_receiver_id in stale_receivers
+                cell.matrix_source_id in stale_source_ids
+                or cell.matrix_receiver_id in stale_receiver_ids
             ):
                 stale_cells.append(cell.cell_id)
 

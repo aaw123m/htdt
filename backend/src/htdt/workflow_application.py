@@ -107,6 +107,7 @@ from .application_preferences import (
 from .cad_display_units import length_display_policy_from_preferences
 from .capture_retention import CaptureRetentionService
 from .capture_retention_ui import RetentionPolicyWidget
+from .automatic_backup import managed_data_fingerprint
 from .automatic_backup_runner import AutomaticBackupRunner
 from .data_management_ui import build_data_management_component
 from .reference_library_sources import build_reference_library_index
@@ -875,6 +876,9 @@ class WorkflowApplicationComposition:
             operation_kind='automatic_backup',
             operation_class=OperationClass.DATA_MANAGEMENT,
             title='自動バックアップ',
+            input_authority_refs=(
+                f'managed-data:{managed_data_fingerprint(self.data_dir)}',
+            ),
             navigation_policy=NavigationPolicy.BACKGROUNDABLE,
         )
         self._automatic_backup_operation_id = operation_id
