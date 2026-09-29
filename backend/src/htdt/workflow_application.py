@@ -312,6 +312,11 @@ def bind_inspector_display_length_policy(
             pass
 
     def on_change(change: PreferenceChange) -> None:
+        if inspector_ref() is None:
+            # The inspector is gone; prune instead of lingering on the
+            # app-scoped store forever.
+            preferences.unsubscribe(on_change)
+            return
         if change.key in _DISPLAY_LENGTH_PREFERENCE_KEYS:
             apply()
 
@@ -344,6 +349,9 @@ def bind_measure_display_length_policy(
             pass
 
     def on_change(change: PreferenceChange) -> None:
+        if panel_ref() is None:
+            preferences.unsubscribe(on_change)
+            return
         if change.key in _DISPLAY_LENGTH_PREFERENCE_KEYS:
             apply()
 
@@ -597,6 +605,7 @@ class WorkflowApplicationComposition:
         preferences_panel = PreferencesWidget(
             self.preferences, parent=self.shell
         )
+        self._preferences_panel = preferences_panel
         self.settings_dialog = DataManagementDialog(
             self.data_management_component,
             self.shell,
@@ -628,6 +637,7 @@ class WorkflowApplicationComposition:
         self.shell.register_close_hook(self._shutdown_automatic_backup)
         self.shell.register_close_hook(self._account_for_exit_operations)
         self.shell.register_close_hook(self._release_uncaught_sink)
+        self.shell.register_close_hook(self._release_preference_watch)
         self.registry.bind(
             "equipment.export_capture_catalog",
             execute=self._export_capture_equipment_catalog,
@@ -816,6 +826,19 @@ class WorkflowApplicationComposition:
             client = getattr(controller, 'rew_client', None)
             if isinstance(client, RewApiClient):
                 client.base_url = base_url
+
+    def _release_preference_watch(self) -> None:
+        """Detach this composition's observers from the app-scoped store.
+
+        The preference store outlives a composition across close+respawn
+        project switches — without the release, every dead composition
+        stays subscribed and keeps mutating its disposed workspace mounts
+        on each live commit, and a raising dead listener would surface as
+        ``PreferenceNotificationError`` on an unrelated write.
+        """
+
+        self.preferences.unsubscribe(self._on_preference_change)
+        self._preferences_panel.release()
 
     # -- automatic backup tick (#755 round8) -------------------------------
 
@@ -1100,6 +1123,12 @@ class WorkflowApplicationComposition:
         composition.shell.show()
         composition.shell.raise_()
         composition.shell.activateWindow()
+        # This composition is closed for good: free its shell/widget tree
+        # instead of retaining one hidden window per project switch. The
+        # launch-intent pump only reads the python-level
+        # ``workflow_application`` attribute off the dead wrapper, which
+        # stays readable after C++ deletion.
+        self.shell.deleteLater()
 
     def live_composition(self) -> 'WorkflowApplicationComposition':
         """The deepest spawned composition — the window the user sees.
