@@ -80,6 +80,12 @@ def _format_number(value: float) -> str:
     return format(value, '.12g')
 
 
+def _axis_number(value: float) -> str:
+    # Tick text lives in a fixed SVG gutter; .12g data precision
+    # overflows it and clips off the left edge when printed.
+    return format(value, '.4g')
+
+
 def _embed_json(payload: Any) -> str:
     """JSON for an HTML ``application/json`` block that round-trips exactly.
 
@@ -596,7 +602,7 @@ def render_analysis_json(bundle: AnalysisExportBundle) -> str:
 def _plot_svg(
     series: tuple[AnalysisSeries, ...], unit_label: str
 ) -> str:
-    width, height, pad = 720, 360, 48
+    width, height, pad = 720, 360, 64
     # Drop non-finite points per point: one 'nan' coordinate in a
     # polyline would make the whole trace silently fail to render.
     plotted = tuple(
@@ -663,9 +669,9 @@ def _plot_svg(
         f'<text x="{width - pad}" y="{pad - 8}" font-size="11" '
         f'text-anchor="end">y unit: {html.escape(unit_label)}</text>',
         f'<text x="{pad - 6}" y="{height - pad}" font-size="11" '
-        f'text-anchor="end">{html.escape(_format_number(y_min))}</text>',
+        f'text-anchor="end">{html.escape(_axis_number(y_min))}</text>',
         f'<text x="{pad - 6}" y="{pad}" font-size="11" text-anchor="end">'
-        f'{html.escape(_format_number(y_max))}</text>',
+        f'{html.escape(_axis_number(y_max))}</text>',
     ]
     if log_x:
         for tick_hz in (
@@ -685,10 +691,10 @@ def _plot_svg(
         parts.extend(
             [
                 f'<text x="{pad}" y="{height - pad + 16}" font-size="11">'
-                f'{html.escape(_format_number(x_min))}</text>',
+                f'{html.escape(_axis_number(x_min))}</text>',
                 f'<text x="{width - pad}" y="{height - pad + 16}" '
                 f'font-size="11" text-anchor="end">'
-                f'{html.escape(_format_number(x_max))}</text>',
+                f'{html.escape(_axis_number(x_max))}</text>',
             ]
         )
     if axis_label:
@@ -767,9 +773,12 @@ def render_analysis_html(bundle: AnalysisExportBundle) -> str:
         'body{font-family:system-ui,sans-serif;margin:2em;color:#222}'
         'table{border-collapse:collapse;margin:1em 0}'
         'td,th{border:1px solid #ccc;padding:4px 10px;font-size:13px}'
+        'td{overflow-wrap:anywhere}th{overflow-wrap:break-word}'
+        'code{overflow-wrap:anywhere}p,li{overflow-wrap:break-word}'
+        'pre{white-space:pre-wrap;overflow-wrap:anywhere}'
         'h1{font-size:20px}h2{font-size:15px;margin-top:1.6em}'
         'script{display:none}'
-        '@media print{body{margin:0}svg{break-inside:avoid;max-height:16cm}details{display:none}}'
+        '@media print{body{margin:0}h1,h2{break-after:avoid}tr{break-inside:avoid}svg{break-inside:avoid;max-height:16cm}details{display:none}}'
         '</style></head><body>'
         f'<h1>{html.escape(bundle.title)}</h1>'
         f'<p>Export <code>{html.escape(bundle.export_id)}</code> · '
