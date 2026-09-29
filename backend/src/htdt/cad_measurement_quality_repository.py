@@ -556,7 +556,7 @@ class CadMeasurementQualityRepository:
                 (
                     digest,
                     filename,
-                    str(target.relative_to(self.path.parent)),
+                    target.relative_to(self.path.parent).as_posix(),
                     len(raw_bytes),
                 ),
             )

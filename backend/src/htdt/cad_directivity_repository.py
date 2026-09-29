@@ -344,7 +344,7 @@ class CadDirectivityRepository:
                 (
                     digest,
                     source_filename or '',
-                    str(target.relative_to(self.path.parent)),
+                    target.relative_to(self.path.parent).as_posix(),
                     len(bound_source),
                 ),
             )

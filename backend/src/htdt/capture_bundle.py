@@ -625,12 +625,16 @@ class DirectorySource:
             current = Path(current_root)
             for name in list(dirnames):
                 candidate = current / name
-                if candidate.is_symlink():
-                    raise CaptureBundleError(f"symlink directory forbidden: {candidate}")
+                # Junctions/mount points are directory reparse points that
+                # is_symlink() does not detect, but os.walk still follows
+                # them — an out-of-root target would leak files the same way
+                # a symlinked directory does.
+                if candidate.is_symlink() or candidate.is_junction():
+                    raise CaptureBundleError(f"symlink or junction directory forbidden: {candidate}")
             for name in filenames:
                 candidate = current / name
-                if candidate.is_symlink():
-                    raise CaptureBundleError(f"symlink file forbidden: {candidate}")
+                if candidate.is_symlink() or candidate.is_junction():
+                    raise CaptureBundleError(f"symlink or junction file forbidden: {candidate}")
                 rel = candidate.relative_to(self.root).as_posix()
                 validate_relative_path(rel)
                 info = candidate.stat()
@@ -661,6 +665,14 @@ class DirectorySource:
     def read_bytes(self, path: str) -> bytes:
         path = validate_relative_path(path)
         target = self.root.joinpath(*PurePosixPath(path).parts)
+        # resolve() follows directory junctions/mount points, which are
+        # reparse points is_symlink() never reports: prove the real target
+        # still sits inside the resolved bundle root before any byte is
+        # served, so a path routed through a junction cannot read out of it.
+        try:
+            target.resolve().relative_to(self.root)
+        except ValueError as exc:
+            raise CaptureBundleError(f"payload escapes bundle root: {path}") from exc
         bound = (
             MAX_MANIFEST_BYTES if path == "manifest.json" else MAX_FILE_BYTES
         )

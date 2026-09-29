@@ -215,7 +215,7 @@ class CadMeasurementRepository:
                 '''INSERT OR IGNORE INTO cad_measurement_assets(
                     sha256, filename, relative_path, size_bytes
                 ) VALUES (?, ?, ?, ?)''',
-                (digest, raw_filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+                (digest, raw_filename, target.relative_to(self.path.parent).as_posix(), len(raw_bytes)),
             )
             connection.execute(
                 '''INSERT INTO cad_measurements(
@@ -513,7 +513,7 @@ class CadMeasurementRepository:
                 '''INSERT OR IGNORE INTO cad_measurement_assets(
                     sha256, filename, relative_path, size_bytes
                 ) VALUES (?, ?, ?, ?)''',
-                (digest, filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+                (digest, filename, target.relative_to(self.path.parent).as_posix(), len(raw_bytes)),
             )
             connection.execute(
                 '''INSERT INTO cad_measurement_attachments(
@@ -1168,7 +1168,7 @@ class CadMeasurementRepository:
                 '''INSERT OR IGNORE INTO cad_measurement_assets(
                     sha256, filename, relative_path, size_bytes
                 ) VALUES (?, ?, ?, ?)''',
-                (digest, raw_filename, str(target.relative_to(self.path.parent)), len(raw_bytes)),
+                (digest, raw_filename, target.relative_to(self.path.parent).as_posix(), len(raw_bytes)),
             )
             connection.execute(
                 '''INSERT INTO cad_impulse_responses(

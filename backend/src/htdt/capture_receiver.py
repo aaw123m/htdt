@@ -177,7 +177,14 @@ def generate_self_signed_cert(
         command += ['-addext', f'subjectAltName={san}']
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=30
+            command,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            # The packaged app runs windowed (no console): without
+            # CREATE_NO_WINDOW every openssl spawn flashes a console
+            # window at the operator. POSIX ignores the flag entirely.
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
         )
     except OSError as exc:
         # openssl is an external prerequisite (not bundled): on a machine

@@ -149,7 +149,17 @@ _MAX_ROLLBACK_MANIFEST_BYTES = 1024 * 1024
 
 def _validate_archive_member(member: zipfile.ZipInfo) -> None:
     member_path = Path(member.filename)
-    if member_path.is_absolute() or '..' in member_path.parts:
+    # On Windows ``is_absolute()`` is False for root-relative ('/x', '\\x'),
+    # UNC ('\\\\srv\\x') and drive-relative ('C:x') names — each of which
+    # ``staging / member.filename`` resolves outside the staging tree.
+    # ``root``/``drive`` and the backslash separator rule those out too.
+    if (
+        member_path.is_absolute()
+        or member_path.drive
+        or member_path.root
+        or '\\' in member.filename
+        or '..' in member_path.parts
+    ):
         raise MigrationOpenError('Unsafe path in pre-migration backup')
     mode = (member.external_attr >> 16) & 0o170000
     if mode == stat.S_IFLNK:

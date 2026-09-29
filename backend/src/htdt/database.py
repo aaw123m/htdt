@@ -472,7 +472,7 @@ class Store:
                     raise KeyError('session_not_found')
                 existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
                 db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, str(asset_path.relative_to(self.root)), filename, len(raw), imported_at))
+                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
                 db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
                            radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
                            quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -567,7 +567,7 @@ class Store:
                     raise KeyError('session_not_found')
                 existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
                 db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, str(asset_path.relative_to(self.root)), filename, len(raw), imported_at))
+                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
                 db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
                            radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
                            quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
@@ -684,7 +684,7 @@ class Store:
                 if context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
                     raise KeyError('context_not_found')
                 db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, str(asset_path.relative_to(self.root)), filename, len(raw), created_at))
+                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), created_at))
                 db.execute('INSERT INTO asset_links(id, project_id, asset_sha256, measurement_id, context_id, kind, label, filename, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                            (link_id, project_id, asset_sha, measurement_id, context_id, kind, label, filename, created_at))
                 db.commit()
