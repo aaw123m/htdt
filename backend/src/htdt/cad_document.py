@@ -4,14 +4,44 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
+from .cad_attachment_models import EntityAttachment
 from .cad_scene import (
     Position3, Quaternion4, SceneDocument, SceneEntity,
     rotate_orientation_world, rotate_position_world, scene_content_hash,
 )
+from .physical_attachment import apply_attachments, attached_world_position
 
 
 class EditStateError(RuntimeError):
     pass
+
+
+def _detach_attachment_orphans(
+    document: SceneDocument,
+    removed_ids: frozenset[str],
+) -> tuple[tuple[EntityAttachment, ...] | None, dict[str, Position3]]:
+    """Drop attachment edges touching removed entities; orphans land at their
+    derived world pose resolved on the pre-delete document (#661).
+
+    Returns (kept attachments — None when empty, per the document invariant —
+    and ``child_id -> derived world Position3`` landings).
+    """
+
+    edges = document.attachments or ()
+    kept = tuple(
+        edge for edge in edges
+        if edge.parent_entity_id not in removed_ids
+        and edge.child_entity_id not in removed_ids
+    )
+    if len(kept) == len(edges):
+        return document.attachments, {}
+    landings = {
+        edge.child_entity_id: attached_world_position(document, edge)
+        for edge in edges
+        if edge.parent_entity_id in removed_ids
+        and edge.child_entity_id not in removed_ids
+    }
+    return kept or None, landings
 
 
 def _replace_entity(document: SceneDocument, replacement: SceneEntity) -> SceneDocument:
@@ -341,13 +371,26 @@ class EntitySetEditCommand:
     # edit, so revert restores the exact entity order (entity order is part of
     # the content hash, like DeleteEntitiesCommand).
     removed_indices: tuple[int, ...] | None = None
+    # Attachment state before the edit; removed parents drop their edges and
+    # surviving children land at their derived world pose (#661).
+    before_attachments: tuple[EntityAttachment, ...] | None = None
+    orphaned_positions: tuple[tuple[str, Position3], ...] = ()
 
     @property
     def is_noop(self) -> bool:
         return not self.removed and not self.added and self.replaced_before == self.replaced_after
 
     def apply(self, document: SceneDocument) -> SceneDocument:
-        updated = _remove_entities(document, frozenset(entity.entity_id for entity in self.removed))
+        removed_ids = frozenset(entity.entity_id for entity in self.removed)
+        updated = _remove_entities(document, removed_ids)
+        kept_edges, landings = _detach_attachment_orphans(document, removed_ids)
+        if landings:
+            updated = updated.model_copy(update={'entities': tuple(
+                entity.model_copy(update={'position': landings[entity.entity_id]})
+                if entity.entity_id in landings else entity
+                for entity in updated.entities
+            )})
+        updated = updated.model_copy(update={'attachments': kept_edges})
         if self.replaced_after:
             updated = _replace_entities(updated, self.replaced_after)
         if self.added:
@@ -359,7 +402,7 @@ class EntitySetEditCommand:
         if self.replaced_before:
             updated = _replace_entities(updated, self.replaced_before)
         if not self.removed:
-            return updated
+            return updated.model_copy(update={'attachments': self.before_attachments})
         if (
             self.removed_indices is None
             or len(self.removed_indices) != len(self.removed)
@@ -374,7 +417,16 @@ class EntitySetEditCommand:
                 continue
             inserted.add(entity.entity_id)
             entities.insert(min(index, len(entities)), entity)
-        return updated.model_copy(update={'entities': tuple(entities)})
+        orphan_positions = dict(self.orphaned_positions)
+        entities = [
+            entity.model_copy(update={'position': orphan_positions[entity.entity_id]})
+            if entity.entity_id in orphan_positions else entity
+            for entity in entities
+        ]
+        return updated.model_copy(update={
+            'entities': tuple(entities),
+            'attachments': self.before_attachments,
+        })
 
 
 @dataclass(frozen=True)
@@ -383,6 +435,10 @@ class DeleteEntitiesCommand:
 
     removed: tuple[tuple[int, SceneEntity], ...]
     presentation: CommandPresentation | None = None
+    # Prior attachment edges and pre-delete orphan positions so revert
+    # restores the exact relationship state, not just the entity list.
+    before_attachments: tuple[EntityAttachment, ...] | None = None
+    orphaned_positions: tuple[tuple[str, Position3], ...] = ()
 
     @property
     def is_noop(self) -> bool:
@@ -390,16 +446,29 @@ class DeleteEntitiesCommand:
 
     def apply(self, document: SceneDocument) -> SceneDocument:
         removed_ids = {entity.entity_id for _, entity in self.removed}
-        remaining = tuple(entity for entity in document.entities if entity.entity_id not in removed_ids)
+        kept_edges, landings = _detach_attachment_orphans(document, frozenset(removed_ids))
+        remaining = tuple(
+            entity.model_copy(update={'position': landings[entity.entity_id]})
+            if entity.entity_id in landings else entity
+            for entity in document.entities if entity.entity_id not in removed_ids
+        )
         if len(remaining) + len(self.removed) != len(document.entities):
             raise EditStateError('document does not contain every entity scheduled for deletion')
-        return document.model_copy(update={'entities': remaining})
+        return document.model_copy(update={'entities': remaining, 'attachments': kept_edges})
 
     def revert(self, document: SceneDocument) -> SceneDocument:
-        entities = list(document.entities)
+        orphan_positions = dict(self.orphaned_positions)
+        entities = [
+            entity.model_copy(update={'position': orphan_positions[entity.entity_id]})
+            if entity.entity_id in orphan_positions else entity
+            for entity in document.entities
+        ]
         for index, entity in self.removed:
             entities.insert(index, entity)
-        return document.model_copy(update={'entities': tuple(entities)})
+        return document.model_copy(update={
+            'entities': tuple(entities),
+            'attachments': self.before_attachments,
+        })
 
 
 @dataclass(frozen=True)
@@ -587,12 +656,27 @@ class CommandHistory:
             for position in range(start, total)
         )
 
+    @staticmethod
+    def _resolved(document: SceneDocument) -> SceneDocument:
+        """Project attachment authority into stored child positions (#661).
+
+        A stored ``position`` on an attached entity is a derived cache, not
+        free state: every history transition re-derives it so moved parents
+        carry their children and no command can leave a stale projection.
+        ``CommandHistory`` is exercised with duck-typed stand-ins too, so
+        non-SceneDocument inputs pass through untouched.
+        """
+
+        if not isinstance(document, SceneDocument):
+            return document
+        return apply_attachments(document)
+
     def push(self, command: EditCommand, document: SceneDocument) -> SceneDocument:
         if command.is_noop:
             return document
         # Apply before mutating history: a command that fails its before-state
         # check must neither truncate the redo tail nor be recorded as applied.
-        new_document = command.apply(document)
+        new_document = self._resolved(command.apply(document))
         self._commands = self._commands[: self._index]
         self._commands.append(command)
         self._index += 1
@@ -603,14 +687,14 @@ class CommandHistory:
             return document
         # Revert before moving the index: a failed revert must not consume
         # the command — it stays applied and undoable.
-        new_document = self._commands[self._index - 1].revert(document)
+        new_document = self._resolved(self._commands[self._index - 1].revert(document))
         self._index -= 1
         return new_document
 
     def redo(self, document: SceneDocument) -> SceneDocument:
         if not self.can_redo:
             return document
-        new_document = self._commands[self._index].apply(document)
+        new_document = self._resolved(self._commands[self._index].apply(document))
         self._index += 1
         return new_document
 
@@ -724,7 +808,9 @@ class WorkingDocument:
         if not self.has_preview or self._preview_kind != 'move' or len(self._preview_before_entities) != 1:
             raise EditStateError('single-entity move preview has not started')
         replacement = self._preview_before_entities[0].model_copy(update={'position': position})
-        self._preview_document = _replace_entities(self._document, (replacement,))
+        # Attached children follow their parent in preview exactly as they
+        # will on commit — preview must not lie about attachment authority.
+        self._preview_document = apply_attachments(_replace_entities(self._document, (replacement,)))
 
     def preview_group_move(self, delta_xyz: tuple[float, float, float]) -> None:
         if not self.has_preview or self._preview_kind != 'move' or not self._preview_before_entities:
@@ -738,7 +824,7 @@ class WorkingDocument:
             )})
             for entity in self._preview_before_entities
         )
-        self._preview_document = _replace_entities(self._document, replacements)
+        self._preview_document = apply_attachments(_replace_entities(self._document, replacements))
 
     def begin_rotate(self, entity_id: str) -> None:
         self._begin_preview((entity_id,), 'rotate')
@@ -750,7 +836,7 @@ class WorkingDocument:
         if not self.has_preview or self._preview_kind != 'rotate' or len(self._preview_before_entities) != 1:
             raise EditStateError('single-entity rotate preview has not started')
         replacement = self._preview_before_entities[0].model_copy(update={'orientation': orientation})
-        self._preview_document = _replace_entities(self._document, (replacement,))
+        self._preview_document = apply_attachments(_replace_entities(self._document, (replacement,)))
 
     def preview_group_rotate(
         self,
@@ -767,7 +853,7 @@ class WorkingDocument:
             })
             for entity in self._preview_before_entities
         )
-        self._preview_document = _replace_entities(self._document, replacements)
+        self._preview_document = apply_attachments(_replace_entities(self._document, replacements))
 
     def commit_preview(self) -> bool:
         if not self.has_preview or self._preview_document is None or not self._preview_before_entities:
@@ -971,6 +1057,17 @@ class WorkingDocument:
         missing = set(unique_ids) - {entity.entity_id for _, entity in removed}
         if missing:
             raise EditStateError(f'entities not in the scene: {sorted(missing)}')
+        # Removing a parent detaches its children: they land at their current
+        # derived world pose instead of keeping a stale local projection, and
+        # the edges are dropped so no dangling parent refs survive (#661).
+        removed_id_set = frozenset(unique_ids)
+        before_attachments = self._document.attachments
+        orphaned_positions = tuple(
+            (edge.child_entity_id, self._document.entity(edge.child_entity_id).position)
+            for edge in (before_attachments or ())
+            if edge.parent_entity_id in removed_id_set
+            and edge.child_entity_id not in removed_id_set
+        )
         before_hash = self._content_hash()
         self._document = self._history.push(
             DeleteEntitiesCommand(
@@ -979,6 +1076,8 @@ class WorkingDocument:
                     action='delete',
                     subject_names=tuple(entity.name for _, entity in removed),
                 ),
+                before_attachments=before_attachments,
+                orphaned_positions=orphaned_positions,
             ),
             self._document,
         )
@@ -1032,6 +1131,10 @@ class WorkingDocument:
         validated = SceneDocument.model_validate(document.model_dump(mode='python'))
         if validated.document_id != self._document.document_id:
             raise EditStateError('document replacement must preserve document_id')
+        # Attached-child positions are derived state: store the resolved
+        # projection so the command's exact-state checks stay consistent
+        # with the normalized documents history produces.
+        validated = apply_attachments(validated)
         before_hash = self._content_hash()
         self._document = self._history.push(
             ReplaceDocumentCommand(
@@ -1080,6 +1183,15 @@ class WorkingDocument:
         index_of = {
             entity.entity_id: index for index, entity in enumerate(self._document.entities)
         }
+        removed_id_set = frozenset(entity.entity_id for entity in removed)
+        before_attachments = self._document.attachments
+        orphaned_positions = tuple(
+            (edge.child_entity_id, self._document.entity(edge.child_entity_id).position)
+            for edge in (before_attachments or ())
+            if edge.parent_entity_id in removed_id_set
+            and edge.child_entity_id not in removed_id_set
+            and edge.child_entity_id in index_of
+        )
         inner = EntitySetEditCommand(
             removed=removed,
             replaced_before=replaced_before,
@@ -1087,6 +1199,8 @@ class WorkingDocument:
             added=added,
             presentation=presentation,
             removed_indices=tuple(index_of.get(entity.entity_id, -1) for entity in removed),
+            before_attachments=before_attachments,
+            orphaned_positions=orphaned_positions,
         )
         command: EditCommand = inner
         if apply_side is not None or revert_side is not None:

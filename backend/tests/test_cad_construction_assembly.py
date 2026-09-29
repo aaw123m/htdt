@@ -116,9 +116,19 @@ def test_element_evidence_declared_vs_assumed() -> None:
     assert finish_absorption_coefficients(document, 'wall', _WALL_ID) == (0.3, 0.2, 0.15)
 
 
+def _with_assemblies(
+    document: SceneDocument, assemblies: tuple[ConstructionAssembly, ...]
+) -> SceneDocument:
+    """model_copy bypasses validators — malformed bindings are constructible
+    only through the bypass, mirroring how production state must never persist."""
+
+    return document.model_copy(update={'construction_assemblies': assemblies})
+
+
 def test_validate_fails_closed_on_dangling_bindings() -> None:
-    document = _document(
-        construction_assemblies=(
+    document = _with_assemblies(
+        _document(),
+        (
             ConstructionAssembly(
                 assembly_id='a', element='wall', element_ref='ghost-wall',
                 layers=(AssemblyLayer(layer_id='f', kind='finish',
@@ -128,17 +138,18 @@ def test_validate_fails_closed_on_dangling_bindings() -> None:
     )
     with pytest.raises(ConstructionAssemblyError, match='unknown wall'):
         validate_construction_assemblies(document)
-    duplicate = _document(
-        wall_topology=make_wall_topology(_ROOM),
-        construction_assemblies=(
+    duplicate = _with_assemblies(
+        _document(wall_topology=make_wall_topology(_ROOM)),
+        (
             _drywall_assembly(),
             _drywall_assembly().model_copy(update={'assembly_id': 'asm-dup'}),
         ),
     )
     with pytest.raises(ConstructionAssemblyError, match='duplicate'):
         validate_construction_assemblies(duplicate)
-    wrong_ref = _document(
-        construction_assemblies=(
+    wrong_ref = _with_assemblies(
+        _document(),
+        (
             ConstructionAssembly(
                 assembly_id='a', element='floor', element_ref='not-floor',
                 layers=(AssemblyLayer(layer_id='f', kind='finish',
@@ -148,6 +159,21 @@ def test_validate_fails_closed_on_dangling_bindings() -> None:
     )
     with pytest.raises(ConstructionAssemblyError, match='floor'):
         validate_construction_assemblies(wrong_ref)
+
+
+def test_document_rejects_dangling_assembly_bindings() -> None:
+    """Schema-level check: dangling element_refs fail closed at validation."""
+
+    with pytest.raises(ValidationError, match='unknown wall'):
+        _document(
+            construction_assemblies=(
+                ConstructionAssembly(
+                    assembly_id='a', element='wall', element_ref='ghost-wall',
+                    layers=(AssemblyLayer(layer_id='f', kind='finish',
+                                          thickness_m=0.01),),
+                ),
+            ),
+        )
 
 
 def test_schema_version_gate() -> None:

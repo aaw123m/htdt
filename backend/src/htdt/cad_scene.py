@@ -1059,11 +1059,19 @@ class SceneDocument(BaseModel):
                 raise ValueError('attachments must be omitted when empty')
             if self.schema_version < 5:
                 raise ValueError('entity attachments require scene schema_version >= 5')
+            # Issue #661 contract: malformed graphs fail closed at document
+            # validation, never at render time.
+            from .physical_attachment import attachment_graph
+
+            attachment_graph(self)
         if self.construction_assemblies is not None:
             if not self.construction_assemblies:
                 raise ValueError('construction_assemblies must be omitted when empty')
             if self.schema_version < 5:
                 raise ValueError('construction assemblies require scene schema_version >= 5')
+            from .cad_construction_assembly import validate_construction_assemblies
+
+            validate_construction_assemblies(self)
         return self
 
     def entity(self, entity_id: str) -> SceneEntity:

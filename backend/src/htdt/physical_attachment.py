@@ -14,8 +14,9 @@ Contract:
   entities, and the parent relation is acyclic. Violations fail closed at
   document validation, never at render time.
 - ``attached_world_position`` derives the child's authoritative world pose:
-  the parent's anchor point (top surface / face / interior slot) plus the
-  child-local offset, resolved transitively up the parent chain. A rack
+  the parent-local offset (anchor face plus ``child_anchor_offset_m``) rotated
+  by the parent's ``orientation`` and translated to the parent's resolved
+  world position, composed transitively up the parent chain. A rack
   attachment places the child at the front face at the rack-unit's height.
 - ``resolve_attached_positions`` returns every attached entity's derived
   world position so moved parents carry their children deterministically.
@@ -34,8 +35,10 @@ from .cad_attachment_models import EntityAttachment
 from .cad_scene import (
     PHYSICAL_ENTITY_KINDS,
     Position3,
+    Quaternion4,
     SceneDocument,
     SceneEntity,
+    quaternion_to_matrix3,
 )
 
 
@@ -87,41 +90,45 @@ def validate_attachment_graph(document: SceneDocument) -> None:
     attachment_graph(document)
 
 
-def _parent_anchor_point(
+def _rotate_local(
+    vector: tuple[float, float, float],
+    orientation: Quaternion4,
+) -> tuple[float, float, float]:
+    rotation = quaternion_to_matrix3(orientation)
+    return tuple(
+        sum(rotation[row][col] * vector[col] for col in range(3))
+        for row in range(3)
+    )
+
+
+def _parent_anchor_local(
     parent: SceneEntity,
-    parent_point: tuple[float, float, float],
     attachment: EntityAttachment,
 ) -> tuple[float, float, float]:
-    """World-space point on the parent that the child attaches to.
+    """Parent-local offset of the point on the parent the child attaches to."""
 
-    ``parent_point`` is the parent's *resolved* position (attachment
-    authority is transitive: a child-of-a-child must sit on its parent's
-    derived top surface, not the parent's stale stored position).
-    """
-
-    px, py, pz = parent_point
     size = parent.size_m
     hx = float(size.x_m) * 0.5 if size else 0.0
     hy = float(size.y_m) * 0.5 if size else 0.0
     hz = float(size.z_m) * 0.5 if size else 0.0
     anchor = attachment.parent_anchor
     if anchor == 'top_surface':
-        return (px, py, pz + hz)
+        return (0.0, 0.0, hz)
     if anchor == 'front_face':
-        return (px, py - hy, pz)
+        return (0.0, -hy, 0.0)
     if anchor == 'rear_face':
-        return (px, py + hy, pz)
+        return (0.0, hy, 0.0)
     if anchor == 'left_face':
-        return (px - hx, py, pz)
+        return (-hx, 0.0, 0.0)
     if anchor == 'right_face':
-        return (px + hx, py, pz)
+        return (hx, 0.0, 0.0)
     # interior — for racked_in, the child's face sits at the rack front at
     # its rack-unit height (1U = 0.04445 m) above the rack base.
     if attachment.kind == 'racked_in' and attachment.rack_unit is not None:
         unit_height = 0.04445
-        z = pz - hz + (attachment.rack_unit - 1) * unit_height + unit_height * 0.5
-        return (px, py - hy, z)
-    return (px, py, pz)
+        z = -hz + (attachment.rack_unit - 1) * unit_height + unit_height * 0.5
+        return (0.0, -hy, z)
+    return (0.0, 0.0, 0.0)
 
 
 def attached_world_position(
@@ -140,13 +147,22 @@ def attached_world_position(
             p = entity.position
             return (float(p.x_m), float(p.y_m), float(p.z_m))
         parent_point = resolve(edge.parent_entity_id)
-        parent_anchor = _parent_anchor_point(
-            entities[edge.parent_entity_id], parent_point, edge
+        parent = entities[edge.parent_entity_id]
+        # The child's world transform is parent ∘ local: the anchor face
+        # offset and child_anchor_offset_m are parent-local axes, rotated
+        # into world space by the parent's orientation.
+        local = tuple(
+            anchor + offset
+            for anchor, offset in zip(
+                _parent_anchor_local(parent, edge),
+                (float(value) for value in edge.child_anchor_offset_m),
+            )
         )
+        delta = _rotate_local(local, parent.orientation)
         return (
-            parent_anchor[0] + float(edge.child_anchor_offset_m[0]),
-            parent_anchor[1] + float(edge.child_anchor_offset_m[1]),
-            parent_anchor[2] + float(edge.child_anchor_offset_m[2]),
+            parent_point[0] + delta[0],
+            parent_point[1] + delta[1],
+            parent_point[2] + delta[2],
         )
 
     x, y, z = resolve(attachment.child_entity_id)

@@ -71,12 +71,21 @@ def test_attachment_kind_validators() -> None:
         )
 
 
+def _with_invalid_attachments(
+    document: SceneDocument, attachments: tuple[EntityAttachment, ...]
+) -> SceneDocument:
+    """model_copy bypasses validators — invalid graphs are constructible only
+    through the bypass, mirroring how production state must never persist."""
+
+    return document.model_copy(update={'attachments': attachments})
+
+
 def test_graph_validation_fail_closed() -> None:
     a = _entity('a', x=1, y=1, z=0.5)
     b = _entity('b', x=2, y=1, z=0.5)
-    doc = _document(
-        a, b,
-        attachments=(
+    doc = _with_invalid_attachments(
+        _document(a, b),
+        (
             EntityAttachment(
                 attachment_id='x', child_entity_id='a', parent_entity_id='ghost',
                 kind='stand_on', parent_anchor='top_surface',
@@ -85,9 +94,9 @@ def test_graph_validation_fail_closed() -> None:
     )
     with pytest.raises(AttachmentGraphError, match='unknown entity'):
         attachment_graph(doc)
-    cyclic = _document(
-        a, b,
-        attachments=(
+    cyclic = _with_invalid_attachments(
+        _document(a, b),
+        (
             EntityAttachment(
                 attachment_id='ab', child_entity_id='a', parent_entity_id='b',
                 kind='stand_on', parent_anchor='top_surface',
@@ -100,9 +109,9 @@ def test_graph_validation_fail_closed() -> None:
     )
     with pytest.raises(AttachmentGraphError, match='cycle'):
         validate_attachment_graph(cyclic)
-    two_parents = _document(
-        a, b, _entity('c', x=3, y=1, z=0.5),
-        attachments=(
+    two_parents = _with_invalid_attachments(
+        _document(a, b, _entity('c', x=3, y=1, z=0.5)),
+        (
             EntityAttachment(
                 attachment_id='ab', child_entity_id='a', parent_entity_id='b',
                 kind='stand_on', parent_anchor='top_surface',
@@ -115,6 +124,37 @@ def test_graph_validation_fail_closed() -> None:
     )
     with pytest.raises(AttachmentGraphError, match='more than one parent'):
         attachment_graph(two_parents)
+
+
+def test_document_rejects_invalid_attachment_graph() -> None:
+    """Schema-level check: malformed graphs fail closed at validation (#661)."""
+
+    a = _entity('a', x=1, y=1, z=0.5)
+    b = _entity('b', x=2, y=1, z=0.5)
+    with pytest.raises(ValidationError, match='unknown entity'):
+        _document(
+            a, b,
+            attachments=(
+                EntityAttachment(
+                    attachment_id='x', child_entity_id='a', parent_entity_id='ghost',
+                    kind='stand_on', parent_anchor='top_surface',
+                ),
+            ),
+        )
+    with pytest.raises(ValidationError, match='cycle'):
+        _document(
+            a, b,
+            attachments=(
+                EntityAttachment(
+                    attachment_id='ab', child_entity_id='a', parent_entity_id='b',
+                    kind='stand_on', parent_anchor='top_surface',
+                ),
+                EntityAttachment(
+                    attachment_id='ba', child_entity_id='b', parent_entity_id='a',
+                    kind='stand_on', parent_anchor='top_surface',
+                ),
+            ),
+        )
 
 
 def test_derived_positions_stand_and_rack() -> None:
