@@ -179,5 +179,6 @@ missing-help crash isn't mistaken for a code bug.
 - `pytest tests/test_native_maintenance_cli.py tests/test_acoustic_bakeoff.py
   tests/test_acoustic_bakeoff_readiness.py tests/test_native_launch.py`
   → all pass.
-- Full `pytest backend/tests -q -n 4` → see suite result in PR body.
+- Full `pytest backend/tests -q -n 4` → ~6,478 tests, 0 failures
+  (exit 0).
 - Manual: every surface in the inventory table invoked on this checkout.
