@@ -241,13 +241,13 @@ def test_convolution_recorded_as_file_dependency():
     assert any(
         'conditional' in d for d in artifact.diagnostics
     )
-    # Unconditional Filter 1 lands on L; the included Filter 9 has no
-    # channel scope of its own so it lands on the ALL bucket.
+    # Unconditional Filter 1 lands on L; the included Filter 9 inherits
+    # the enclosing `Channel: L` scope — Include is textual inclusion.
     by_label = {c.channel_label: c for c in artifact.channels}
-    assert len(by_label['L'].peq) == 1
+    assert len(by_label['L'].peq) == 2
     assert by_label['L'].preamp_db == -3.0
     assert by_label['L'].delay_s == pytest.approx(0.0032)
-    assert len(by_label['ALL'].peq) == 1
+    assert 'ALL' not in by_label
     # Include still resolves.
     assert artifact.include_dependencies[0].resolved
 
@@ -264,3 +264,163 @@ def test_convolution_missing_file_is_unresolved_not_dropped():
     assert any(
         'unresolved convolution' in d for d in artifact.diagnostics
     )
+
+
+# ----------------------------------------------------------------------
+# #round14: pipeline channel semantics + Gain scale correctness
+
+
+def test_channels_list_omitted_and_empty():
+    """``channels:`` list applies to each listed channel; an omitted or
+    null ``channels`` applies to every channel; ``[]`` applies to none."""
+    config = """\
+devices:
+  playback:
+    channels: 2
+filters:
+  g:
+    type: Gain
+    parameters: {gain: -1.0}
+pipeline:
+  - type: Filter
+    channels: [0, 1]
+    names: [g]
+  - type: Filter
+    names: [g]
+  - type: Filter
+    channels: []
+    names: [g]
+  - type: Filter
+    channels: [0]
+    names: [g]
+"""
+    artifact = build_camilladsp_artifact(
+        config.encode(),
+        source_filename='cdsp.yml',
+        imported_at_utc=NOW,
+        artifact_id='imported-calibration:cdsp-channels',
+    )
+    by_label = {c.channel_label: c for c in artifact.channels}
+    # ch0: list(-1) + all(-1) + [0](-1) = -3; ch1: list(-1) + all(-1) = -2.
+    assert by_label['playback:0'].preamp_db == pytest.approx(-3.0)
+    assert by_label['playback:1'].preamp_db == pytest.approx(-2.0)
+    # The empty channel list does not silently apply — it is opaque.
+    assert any(
+        'no channels' in s.reason for s in artifact.opaque_sections
+    )
+
+
+def test_bypassed_step_keeps_filters_opaque():
+    config = """\
+devices:
+  playback:
+    channels: 1
+filters:
+  g:
+    type: Gain
+    parameters: {gain: -4.0}
+pipeline:
+  - type: Filter
+    channels: [0]
+    bypassed: true
+    names: [g]
+"""
+    artifact = build_camilladsp_artifact(
+        config.encode(),
+        source_filename='cdsp.yml',
+        imported_at_utc=NOW,
+        artifact_id='imported-calibration:cdsp-bypassed',
+    )
+    by_label = {c.channel_label: c for c in artifact.channels}
+    assert by_label['playback:0'].preamp_db is None
+    assert any(
+        'bypassed' in s.reason for s in artifact.opaque_sections
+    )
+
+
+def test_gain_scale_linear_mute_inverted():
+    config = """\
+devices:
+  playback:
+    channels: 1
+filters:
+  lin:
+    type: Gain
+    parameters: {gain: 0.5, scale: linear}
+  neg_lin:
+    type: Gain
+    parameters: {gain: -0.25, scale: linear}
+  muted:
+    type: Gain
+    parameters: {gain: -2.0, mute: true}
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [lin, neg_lin, muted]
+"""
+    artifact = build_camilladsp_artifact(
+        config.encode(),
+        source_filename='cdsp.yml',
+        imported_at_utc=NOW,
+        artifact_id='imported-calibration:cdsp-gain',
+    )
+    by_label = {c.channel_label: c for c in artifact.channels}
+    # 20*log10(0.5) + 20*log10(0.25) = -6.0206 - 12.0412; muted stays opaque.
+    assert by_label['playback:0'].preamp_db == pytest.approx(-18.0618, abs=1e-3)
+    assert any(
+        'muted' in s.reason for s in artifact.opaque_sections
+    )
+    assert any('inverts' in d for d in artifact.diagnostics)
+
+
+def test_delay_unit_s_is_not_a_camilladsp_unit():
+    config = """\
+devices:
+  playback:
+    channels: 1
+filters:
+  d:
+    type: Delay
+    parameters: {delay: 1.5, unit: s}
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [d]
+"""
+    artifact = build_camilladsp_artifact(
+        config.encode(),
+        source_filename='cdsp.yml',
+        imported_at_utc=NOW,
+        artifact_id='imported-calibration:cdsp-delay',
+    )
+    by_label = {c.channel_label: c for c in artifact.channels}
+    assert by_label['playback:0'].delay_s is None
+    assert any(
+        s.kind == 'unsupported_command' for s in artifact.opaque_sections
+    )
+
+
+def test_biquad_enabled_parameter_is_not_a_camilladsp_flag():
+    config = """\
+devices:
+  playback:
+    channels: 1
+filters:
+  peq:
+    type: Biquad
+    parameters: {type: Peaking, freq: 100, gain: -2, q: 1.0, enabled: false}
+pipeline:
+  - type: Filter
+    channels: [0]
+    names: [peq]
+"""
+    artifact = build_camilladsp_artifact(
+        config.encode(),
+        source_filename='cdsp.yml',
+        imported_at_utc=NOW,
+        artifact_id='imported-calibration:cdsp-enabled',
+    )
+    band = artifact.channels[0].peq[0]
+    # CamillaDSP has no per-filter enabled flag — it applies unconditionally.
+    assert band.enabled is True
+    assert any('enabled' in d for d in artifact.diagnostics)
