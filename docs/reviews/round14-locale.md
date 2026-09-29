@@ -135,4 +135,5 @@ as cp932 → mojibake. Now:
   test_analysis_export.py test_csv_export.py test_round13_export_truth.py
   test_import_truth_matrix.py test_security_review_round1.py -q -n 4`
   — 194 passed, 1 skipped.
-- Full suite `pytest backend/tests -q -n 4` — see PR body.
+- Full suite `pytest backend/tests -q -n 4` — exit 0
+  (6126 passed, 195 skipped, 0 failed).
