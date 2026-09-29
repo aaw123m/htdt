@@ -1493,6 +1493,35 @@ class _MeasurementPlanDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def accept(self) -> None:
+        # Mirror the plan service's own requirements in-dialog so an
+        # unbuildable plan surfaces the same JP message with the form
+        # still open instead of failing after it closes.
+        if not self.selected_source_ids():
+            QMessageBox.warning(
+                self,
+                "測定計画",
+                "測定対象の音源を1つ以上選択してください。",
+            )
+            return
+        if not self.role_combo.currentText().strip():
+            QMessageBox.warning(
+                self, "測定計画", "測定のチャンネル役割を入力してください。"
+            )
+            self.role_combo.setFocus()
+            return
+        if (
+            self.repeatability_check.isChecked()
+            and self.count_spin.value() < 2
+        ):
+            QMessageBox.warning(
+                self,
+                "測定計画",
+                "repeatabilityを要求するtargetは2回以上の測定が必要です。",
+            )
+            return
+        super().accept()
+
     def selected_source_ids(self) -> list[str]:
         return [
             item.data(0x0100) for item in self.sources.selectedItems()
@@ -1667,7 +1696,12 @@ class SystemExpansionMeasurementPanel(QFrame):
         confirmed_by, ok = QInputDialog.getText(
             self, "実設置を記録", "記録者名"
         )
-        if not ok or not confirmed_by.strip():
+        if not ok:
+            return
+        if not confirmed_by.strip():
+            QMessageBox.warning(
+                self, "実設置を記録", "記録者名を入力してください。"
+            )
             return
         try:
             self.service.record_as_built(variant_id, confirmed_by=confirmed_by)

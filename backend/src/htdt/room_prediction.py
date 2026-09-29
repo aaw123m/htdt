@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QToolButton,
@@ -1758,7 +1759,6 @@ class EnvironmentProfileDialog(QDialog):
         self.temperature.setDecimals(1)
         self.temperature.setValue(20.0)
         self.temperature.setSuffix(" °C")
-        self.temperature.setSpecialValueText("不明")
         self.temperature.valueChanged.connect(self._temperature_changed)
         form.addRow("温度", self.temperature)
 
@@ -1802,6 +1802,9 @@ class EnvironmentProfileDialog(QDialog):
 
     def accept(self) -> None:
         if not self.label.text().strip():
+            QMessageBox.warning(
+                self, "環境プロファイル", "名称を入力してください"
+            )
             self.label.setFocus()
             return
         super().accept()

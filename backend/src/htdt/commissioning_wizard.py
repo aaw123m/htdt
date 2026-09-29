@@ -300,7 +300,17 @@ class CommissioningWizard(QDialog):
             )
             self._used_instantiation = instantiation
             return document_id
-        if create_document and self.repository.latest(name) is None:
+        if create_document:
+            if self.repository.latest(name) is not None:
+                QMessageBox.warning(
+                    self,
+                    'プロジェクト名',
+                    f'「{name}」というプロジェクトは既に存在します。'
+                    '別の名前を入力するか、'
+                    '「既存プロジェクトを設定」を選択してください。',
+                )
+                self._show_page(0)
+                return None
             self.repository.save(make_empty_scene(name), parent_revision_id=None)
         return name
 
