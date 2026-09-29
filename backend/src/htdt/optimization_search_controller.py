@@ -86,43 +86,69 @@ from .user_facing_error import operation_error_message
 
 _TRAILING_NUMBER = re.compile(r'(\d+)\s*$')
 
+# Per-column numeric sort key stored on a candidate item. Columns whose
+# meaningful order is not derivable from their display text (e.g. opaque
+# candidate ids) carry the canonical enumeration index here.
+_CANDIDATE_SORT_KEY_ROLE = int(Qt.ItemDataRole.UserRole) + 1
+
 
 def _trailing_number(text: str) -> int | None:
     match = _TRAILING_NUMBER.search(text)
     return None if match is None else int(match.group(1))
 
 
-class CandidateTreeItem(QTreeWidgetItem):
-    """Candidate row that sorts the 候補/番号 columns numerically (#1088).
+def _normalized_text(text: str) -> str:
+    """Same width/case-fold contract as palette search (NFKC + casefold)."""
+    return unicodedata.normalize('NFKC', text).casefold().strip()
 
-    Every column compares on its own text — calling ``super().__lt__`` here
+
+def _candidate_sort_key(item: QTreeWidgetItem, column: int) -> tuple:
+    """Deterministic total-order key for one candidate row cell.
+
+    Tier 0: an explicit numeric sort key under ``_CANDIDATE_SORT_KEY_ROLE``
+    (opaque ids order by the canonical enumeration index, not hash text).
+    Tier 1: a number embedded in the display text (候補 12 -> 12) —
+    numbers sort as numbers, not strings.
+    Tier 2: width/case-folded text, so '１２' vs '12' compares the same way
+    the candidate filter and palette search match them.
+    """
+    keyed = item.data(column, _CANDIDATE_SORT_KEY_ROLE)
+    text = item.text(column)
+    if keyed is not None:
+        return (0, float(keyed), _normalized_text(text))
+    number = _trailing_number(text)
+    if number is not None:
+        return (1, float(number), _normalized_text(text))
+    return (2, 0.0, _normalized_text(text))
+
+
+class CandidateTreeItem(QTreeWidgetItem):
+    """Candidate row with a deterministic, type-aware ordering (#1088).
+
+    Each cell maps to a single tuple key (explicit sort key, trailing
+    number, folded text), so the comparator is a total order even when a
+    column mixes number-bearing and plain strings — the previous pairwise
+    numeric/text switch could disagree across pairs and produce
+    insertion-order-dependent results.  Calling ``super().__lt__`` here
     re-enters this override under PySide6 and recurses forever.
     """
 
     def __lt__(self, other: QTreeWidgetItem) -> bool:
         tree = self.treeWidget()
         column = tree.sortColumn() if tree is not None else 0
-        mine = self.text(column)
-        theirs = other.text(column)
-        if column in (0, 1):
-            my_number = _trailing_number(mine)
-            their_number = _trailing_number(theirs)
-            if my_number is not None and their_number is not None:
-                return my_number < their_number
-        return mine < theirs
+        return _candidate_sort_key(self, column) < _candidate_sort_key(
+            other, column
+        )
 
 
 def _candidate_matches_filter(item: QTreeWidgetItem, needle: str) -> bool:
-    if not needle:
+    folded = _normalized_text(needle)
+    if not folded:
         return True
-    # NFKC first so a half-width query ('ｽﾋﾟｰｶｰ', '１２０') still matches
-    # stored full-width/katakana text — palette_search/command_registry
-    # use the same fold.
-    haystack = unicodedata.normalize(
-        'NFKC',
-        ' '.join(item.text(column) for column in range(item.columnCount())),
-    ).casefold()
-    return unicodedata.normalize('NFKC', needle).casefold() in haystack
+    haystack = _normalized_text(
+        ' '.join(item.text(column) for column in range(item.columnCount()))
+    )
+    return folded in haystack
 
 
 def _update_candidate_filter_note(
@@ -949,9 +975,7 @@ class SearchControllerMixin:
         if tree is None:
             return
         field = getattr(self, 'search_candidate_filter_field', None)
-        needle = (
-            field.text().strip().casefold() if field is not None else ''
-        )
+        needle = _normalized_text(field.text()) if field is not None else ''
         visible = 0
         with QSignalBlocker(tree):
             for index in range(tree.topLevelItemCount()):
