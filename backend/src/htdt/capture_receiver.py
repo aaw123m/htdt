@@ -308,7 +308,11 @@ class CaptureReceiverService:
         ingestion_repository: CaptureIngestionRepository | None = None,
         *,
         bundle_reader: (
-            Callable[[bytes], tuple[CaptureIngestionPlan, Mapping[str, bytes]]]
+            Callable[
+                [bytes],
+                tuple[CaptureIngestionPlan, Mapping[str, bytes]]
+                | tuple[CaptureIngestionPlan, Mapping[str, bytes], bytes],
+            ]
             | None
         ) = None,
         base_url: str | None = None,
@@ -738,11 +742,15 @@ class CaptureReceiverService:
                     'artifact_kind': artifact_kind,
                     'detail': 'delivery id replayed with different bytes',
                 }
-            # a re-delivery resolves to the same staging slot and reports
-            # the dedup outcome, never a fresh 'accepted'
+            # a re-delivery of an accepted delivery resolves to the same
+            # staging slot and reports the dedup outcome, never a fresh
+            # 'accepted'
             if prior.outcome == 'accepted':
                 prior = prior.model_copy(update={'outcome': 'already_staged'})
-            return 200, self._receipt_for(prior)
+            if prior.outcome != 'rejected':
+                return 200, self._receipt_for(prior)
+            # A rejected delivery of the same bytes retries the pipeline:
+            # a transient failure must not become a permanent dead letter.
 
         # hard fail-closed rule: same capture revision arriving under a
         # different bundle digest is a conflict, never a silent variant
@@ -753,11 +761,17 @@ class CaptureReceiverService:
             if conflict is not None:
                 return reject(
                     'same capture revision under a different bundle '
-                    'digest; conflict staged in the inbox'
+                    'digest; rejected and recorded on the delivery ledger'
                 )
 
         try:
-            plan, payloads = self.bundle_reader(body)
+            read = self.bundle_reader(body)
+            parts = tuple(read)
+            plan, payloads = parts[0], parts[1]
+            # Readers may hand back the canonical manifest bytes so the
+            # wire path retains the same bundle evidence the file-import
+            # lane does (#338); older two-part readers keep working.
+            manifest = parts[2] if len(parts) > 2 else None
             if not isinstance(plan, CaptureIngestionPlan):
                 plan = CaptureIngestionPlan.model_validate(plan)
         except Exception as exc:
@@ -774,7 +788,9 @@ class CaptureReceiverService:
             return reject('artifact digest header disagrees with the bundle')
 
         try:
-            self.ingestion_repository.ingest(plan, payloads)
+            self.ingestion_repository.ingest(
+                plan, payloads, manifest=manifest
+            )
         except Exception as exc:
             return reject(f'capture bundle failed ingestion: {exc}')
 
@@ -877,6 +893,34 @@ class CaptureReceiverService:
                     raise CaptureReceiverError(
                         'delivery id replayed with different bytes'
                     )
+                if stored.outcome == 'rejected':
+                    # A retry of the same bytes may now succeed: rewrite
+                    # the ledger row instead of replaying a stale verdict.
+                    connection.execute(
+                        '''
+                        UPDATE capture_receiver_deliveries
+                        SET artifact_digest=?, capture_revision_id=?,
+                            bundle_digest=?, outcome=?, staging_ref=?,
+                            lineage_digest=?, detail=?
+                        WHERE delivery_key=?
+                        ''',
+                        (
+                            artifact_digest,
+                            capture_revision_id,
+                            bundle_digest,
+                            outcome,
+                            staging_ref,
+                            lineage_digest,
+                            detail,
+                            key,
+                        ),
+                    )
+                    updated = connection.execute(
+                        'SELECT * FROM capture_receiver_deliveries '
+                        'WHERE delivery_key=?',
+                        (key,),
+                    ).fetchone()
+                    return self._delivery_from_row(updated)
                 return stored
             connection.execute(
                 '''
@@ -1286,7 +1330,7 @@ def _default_bundle_reader(
             entry['path']: frozen.read(entry['path'])
             for entry in manifest_document['files']
         }
-    return plan, payloads
+    return plan, payloads, manifest_bytes
 
 
 def _make_handler(service: CaptureReceiverService):

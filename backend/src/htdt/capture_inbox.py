@@ -1093,6 +1093,14 @@ class CaptureInboxRepository:
     def defer(self, lineage_digest: str, reason: str) -> CaptureInboxItem:
         if not reason:
             raise CaptureInboxError('defer requires a reason')
+        item = self.get(lineage_digest)
+        if item is None:
+            raise CaptureInboxError('unknown inbox item')
+        if item.disposition != 'pending':
+            raise CaptureInboxError(
+                f'only pending items can be deferred; item is '
+                f'{item.disposition}'
+            )
         return self._update_facets(
             lineage_digest,
             {
@@ -1124,6 +1132,14 @@ class CaptureInboxRepository:
     def reject(self, lineage_digest: str, reason: str) -> CaptureInboxItem:
         if not reason:
             raise CaptureInboxError('rejection requires a reason')
+        item = self.get(lineage_digest)
+        if item is None:
+            raise CaptureInboxError('unknown inbox item')
+        if item.disposition not in ('pending', 'deferred'):
+            raise CaptureInboxError(
+                f'only pending or deferred items can be rejected; item is '
+                f'{item.disposition}'
+            )
         return self._update_facets(
             lineage_digest,
             {
@@ -1138,7 +1154,7 @@ class CaptureInboxRepository:
     # ------------------------------------------------------------------
 
     def _check_promotable(self, item: CaptureInboxItem) -> None:
-        if item.disposition in ('rejected', 'superseded'):
+        if item.disposition in ('rejected', 'superseded', 'deferred'):
             raise CaptureInboxError(
                 f'item is {item.disposition}; resume it before promoting'
             )
@@ -1234,6 +1250,16 @@ class CaptureInboxRepository:
                     raise CaptureInboxError(
                         f'authority kind {authority_kind} is not present '
                         'in this delivery; record a blocked outcome instead'
+                    )
+                if outcome == 'promoted' and connection.execute(
+                    'SELECT 1 FROM capture_inbox_supersessions '
+                    'WHERE superseded_lineage_digest=? AND authority_kind=?',
+                    (lineage_digest, authority_kind),
+                ).fetchone() is not None:
+                    raise CaptureInboxError(
+                        f'authority kind {authority_kind} was superseded on '
+                        'this item; a superseded kind cannot record a new '
+                        'promotion'
                     )
                 existing = connection.execute(
                     'SELECT promotion_record_id FROM capture_inbox_promotions '
