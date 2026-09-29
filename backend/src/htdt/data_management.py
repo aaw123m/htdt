@@ -26,7 +26,10 @@ from .data_relocation import (
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
-from .automatic_backup import AutomaticBackupScheduler
+from .automatic_backup import (
+    AutomaticBackupScheduler,
+    managed_data_fingerprint,
+)
 from .cad_schema import (
     NATIVE_SCHEMA_VERSION,
     NativeSchemaCompatibility,
@@ -94,6 +97,16 @@ _OPERATION_TITLES: dict[DataOperationKind, str] = {
     DataOperationKind.SCAN_STORAGE: 'ストレージのスキャン',
     DataOperationKind.GC_STORAGE: '未参照アセットの削除',
 }
+
+#: Operations that rewrite the managed data tree; on completion they
+#: reclassify results pinned to the superseded managed-data fingerprint.
+_MUTATING_DATA_KINDS = frozenset(
+    {
+        DataOperationKind.RESTORE,
+        DataOperationKind.RELOCATE,
+        DataOperationKind.GC_STORAGE,
+    }
+)
 
 
 def _format_bytes(value: int) -> str:
@@ -549,6 +562,10 @@ class _ActiveOperation:
     lifecycle_mode: str
     result: object | None = None
     failure_payload: tuple[DataOperationPhase, Exception] | None = None
+    # Managed-data fingerprint pinned at submit; used to mark operations
+    # bound to the pre-mutation state as historical once a mutating op
+    # actually changed the managed tree.
+    input_fingerprint: str | None = None
 
 
 class _OperationWorker(QObject):
@@ -876,11 +893,16 @@ class DataManagementController(QObject):
         if center is None:
             return
         exclusive = lifecycle_mode in ('backup', 'restore', 'relocate')
+        fingerprint = managed_data_fingerprint(self.backend.data_dir)
+        active = self._active
+        if active is not None and active.operation_id == operation_id:
+            active.input_fingerprint = fingerprint
         center.submit(
             operation_id=operation_id,
             operation_kind=kind.value,
             operation_class=OperationClass.DATA_MANAGEMENT,
             title=_OPERATION_TITLES[kind],
+            input_authority_refs=(f'managed-data:{fingerprint}',),
             navigation_policy=(
                 NavigationPolicy.EXCLUSIVE
                 if exclusive
@@ -962,6 +984,7 @@ class DataManagementController(QObject):
         except Exception as exc:
             lifecycle_error = exc
 
+        self._note_superseded_inputs(active)
         result = active.result
         lifecycle_message = (
             (
@@ -1034,6 +1057,7 @@ class DataManagementController(QObject):
             lifecycle_detail = f' / {operation_error_message(lifecycle_exc)}'
             lifecycle_technical = f' / reload failed: {lifecycle_exc}'
 
+        self._note_superseded_inputs(active)
         self._finish_active()
         if self.activity_center is not None:
             try:
@@ -1056,6 +1080,40 @@ class DataManagementController(QObject):
                 data_restored=False,
             )
         )
+
+    def _note_superseded_inputs(
+        self, active: _ActiveOperation
+    ) -> None:
+        """Reclassify results pinned to a fingerprint this op replaced.
+
+        Restore, relocate and storage GC rewrite the managed tree. When the
+        post-operation fingerprint differs from the one pinned at submit,
+        every operation that referenced the old fingerprint is marked
+        ``COMPLETED_FOR_HISTORICAL_INPUT`` / not-current — the activity
+        history must not keep claiming those results reflect live data.
+        """
+
+        center = self.activity_center
+        if center is None or active.input_fingerprint is None:
+            return
+        if active.kind not in _MUTATING_DATA_KINDS:
+            return
+        try:
+            current = managed_data_fingerprint(self.backend.data_dir)
+        except Exception:
+            # Fingerprint unreadable: fail closed — the pinned state cannot
+            # be proven intact, so dependents are marked stale.
+            current = None
+        if current == active.input_fingerprint:
+            return
+        try:
+            center.note_authorities_changed(
+                {f'managed-data:{active.input_fingerprint}'}
+            )
+        except Exception:
+            # Registry bookkeeping must never break the operation's own
+            # lifecycle transition.
+            pass
 
     def _detach_active_thread(self) -> None:
         """Keep a running op thread alive if the controller is destroyed.
