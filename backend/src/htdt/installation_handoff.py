@@ -463,11 +463,13 @@ def write_handoff_package(
         'settings': HANDOFF_SETTINGS_FILENAME,
         'entities': HANDOFF_ENTITIES_FILENAME,
     }
+    # A leading U+FEFF declares the CSV members' UTF-8 encoding to
+    # spreadsheet applications; manifest digests hash these exact bytes.
     member_contents = {
         'report': render_handoff_report_html(handoff),
-        'dimensions': render_dimension_sheets_csv(handoff),
-        'settings': render_settings_csv(handoff),
-        'entities': render_installation_csv(handoff.output),
+        'dimensions': '\ufeff' + render_dimension_sheets_csv(handoff),
+        'settings': '\ufeff' + render_settings_csv(handoff),
+        'entities': '\ufeff' + render_installation_csv(handoff.output),
     }
     manifest_content = render_handoff_manifest_json(
         handoff,

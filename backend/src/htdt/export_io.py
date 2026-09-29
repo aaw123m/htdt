@@ -68,7 +68,10 @@ def claim_export_stem(
 
 
 def write_export_files(
-    directory: str | Path, files: dict[str, str]
+    directory: str | Path,
+    files: dict[str, str],
+    *,
+    bom_suffixes: tuple[str, ...] = (),
 ) -> dict[str, Path]:
     """Publish ``{name: text}`` into ``directory`` as one generation.
 
@@ -76,6 +79,11 @@ def write_export_files(
     not already exist — if any write fails, the members this call created
     are removed, so the directory keeps either the complete new
     generation or none of it.
+
+    Members whose name ends with a ``bom_suffixes`` entry are written
+    ``utf-8-sig``: spreadsheet applications open a BOM-less file under the
+    host ANSI codepage and mojibake non-ASCII cells, while a BOM declares
+    the encoding up front.
     """
 
     directory = Path(directory)
@@ -89,7 +97,8 @@ def write_export_files(
     written: dict[str, Path] = {}
     try:
         for name, content in files.items():
-            write_text_atomic(claimed[name], content)
+            encoding = 'utf-8-sig' if name.endswith(bom_suffixes) else 'utf-8'
+            write_text_atomic(claimed[name], content, encoding=encoding)
             written[name] = claimed[name]
     except BaseException:
         for path in written.values():

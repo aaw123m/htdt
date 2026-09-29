@@ -4328,7 +4328,9 @@ class MeasurementPageWorkspace(QWidget):
         if not selected.lower().endswith('.csv'):
             selected += '.csv'
         try:
-            write_text_atomic(Path(selected), render_analysis_csv(export))
+            write_text_atomic(
+                Path(selected), render_analysis_csv(export), encoding='utf-8-sig'
+            )
         except OSError as exc:
             self._operation_error_notice(
                 "比較をエクスポートできませんでした", exc
