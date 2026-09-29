@@ -371,7 +371,7 @@ def test_data_op_result_marks_superseded_after_mutation(tmp_path) -> None:
         controller._start(
             operation_id='op-scan',
             kind=DataOperationKind.SCAN_STORAGE,
-            job=lambda emit: object(),
+            job=lambda emit, _cancel_event, _on_commit_point: object(),
             lifecycle_mode='none',
         )
         assert _pump_until(
@@ -393,7 +393,7 @@ def test_data_op_result_marks_superseded_after_mutation(tmp_path) -> None:
             }
         )
 
-        def mutating_job(emit):
+        def mutating_job(emit, _cancel_event, _on_commit_point):
             repository.save(
                 document, parent_revision_id=revision.revision_id
             )
@@ -445,7 +445,7 @@ def test_data_op_result_stays_current_without_mutation(tmp_path) -> None:
         controller._start(
             operation_id='op-scan-1',
             kind=DataOperationKind.SCAN_STORAGE,
-            job=lambda emit: object(),
+            job=lambda emit, _cancel_event, _on_commit_point: object(),
             lifecycle_mode='none',
         )
         assert _pump_until(
@@ -456,7 +456,7 @@ def test_data_op_result_stays_current_without_mutation(tmp_path) -> None:
         controller._start(
             operation_id='op-scan-2',
             kind=DataOperationKind.SCAN_STORAGE,
-            job=lambda emit: object(),
+            job=lambda emit, _cancel_event, _on_commit_point: object(),
             lifecycle_mode='none',
         )
         assert _pump_until(

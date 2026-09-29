@@ -29,6 +29,7 @@ from .data_management import (
     BackupCreateResult,
     BackupMetadata,
     DataManagementController,
+    DataOperationCancellation,
     DataOperationFailure,
     DataOperationKind,
     DataOperationProgress,
@@ -431,7 +432,7 @@ class DataManagementWidget(QWidget):
         self.status_card, self.status_title, self.status_detail = self._build_status_card(content)
         layout.addWidget(self.status_card)
 
-        self.progress_card, self.progress_label, self.progress_bar = self._build_progress_card(content)
+        self.progress_card, self.progress_label, self.progress_bar, self.cancel_button = self._build_progress_card(content)
         layout.addWidget(self.progress_card)
 
         migration_card = QFrame(content)
@@ -793,6 +794,7 @@ class DataManagementWidget(QWidget):
         controller.storage_scan_completed.connect(self._on_storage_scan_completed)
         controller.storage_gc_completed.connect(self._on_storage_gc_completed)
         controller.operation_failed.connect(self._on_operation_failed)
+        controller.operation_cancelled.connect(self._on_operation_cancelled)
 
         self._refresh_generations()
         if self._restart_required:
@@ -856,7 +858,7 @@ class DataManagementWidget(QWidget):
         card.hide()
         return card, title, detail
 
-    def _build_progress_card(self, parent: QWidget) -> tuple[QFrame, QLabel, QProgressBar]:
+    def _build_progress_card(self, parent: QWidget) -> tuple[QFrame, QLabel, QProgressBar, QPushButton]:
         card = QFrame(parent)
         card.setObjectName("dataManagementProgressCard")
         set_surface_role(card, SurfaceRole.RAISED)
@@ -866,13 +868,19 @@ class DataManagementWidget(QWidget):
         label = QLabel("処理を開始しています", card)
         set_typography_role(label, TypographyRole.BODY)
         layout.addWidget(label)
+        progress_row = QHBoxLayout()
         progress = QProgressBar(card)
         progress.setObjectName("dataManagementProgress")
         progress.setRange(0, 0)
         progress.setTextVisible(False)
-        layout.addWidget(progress)
+        progress_row.addWidget(progress, 1)
+        cancel_button = QPushButton("中止", card)
+        cancel_button.setObjectName("dataManagementCancelButton")
+        cancel_button.clicked.connect(self._request_cancel)
+        progress_row.addWidget(cancel_button)
+        layout.addLayout(progress_row)
         card.hide()
-        return card, label, progress
+        return card, label, progress, cancel_button
 
     def _choose_backup_destination(self) -> None:
         if self._busy or self._restart_required:
@@ -1006,7 +1014,39 @@ class DataManagementWidget(QWidget):
             self.progress_label.setText("処理を開始しています")
             self.progress_bar.setRange(0, 0)
             self.progress_bar.setTextVisible(False)
+            self.cancel_button.setEnabled(True)
+            self.cancel_button.setText("中止")
         self._refresh_actions()
+
+    def _request_cancel(self) -> None:
+        """REV19/D2: cooperative cancel against the running operation.
+
+        A refused request (committed restore/relocate, or nothing to
+        cancel) is surfaced honestly instead of disabling the button
+        up-front — the activity snapshot decides.
+        """
+        if self.controller.request_cancel():
+            self.cancel_button.setEnabled(False)
+            self.cancel_button.setText("中止を要求しています…")
+            self.progress_label.setText("処理を中止しています…")
+        else:
+            self.progress_label.setText(
+                "この処理は安全に中止できる段階を過ぎています"
+            )
+
+    def _on_operation_cancelled(
+        self, cancellation: DataOperationCancellation
+    ) -> None:
+        self._show_status(
+            "処理を中止しました",
+            "途中までの結果は適用されていません",
+            SemanticState.WARNING,
+        )
+        if cancellation.restart_required:
+            self._show_restart_required(
+                "現在のデータ状態を安全に再読み込みできませんでした。"
+                " HTDTを終了して再起動してください。"
+            )
 
     def _on_progress_changed(self, progress: DataOperationProgress) -> None:
         self.progress_card.show()

@@ -29,7 +29,11 @@ from PySide6.QtWidgets import (
 
 from .cad_scene import is_unassigned_speaker_role
 from .cad_topology_search import PlacementAngleAxis
-from .native_worker import WORKER_CANCELLED, NativeWorkerPool
+from .native_worker import (
+    WORKER_CANCELLED,
+    NativeWorkerPool,
+    WorkerShutdownReport,
+)
 from .system_expansion_workflow import (
     MeasurementPlanOptions,
     ProposalEquipmentChange,
@@ -1242,6 +1246,17 @@ class SystemExpansionOptimizePanel(QFrame):
 
     def is_running(self) -> bool:
         return self._pool.active_count > 0
+
+    def stop(self) -> WorkerShutdownReport:
+        """Drain in-flight evaluation but keep the panel usable (#REV19/D1)."""
+        report = self._pool.stop_all()
+        self.summary.setText(
+            '提案比較の評価を中止しました'
+            if report.all_stopped
+            else '提案比較評価の停止が遅延しています · 遅延結果は適用しません'
+        )
+        self._refresh_run_state()
+        return report
 
     def dispose(self) -> None:
         self._disposed = True

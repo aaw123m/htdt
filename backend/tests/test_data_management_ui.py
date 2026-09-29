@@ -33,6 +33,7 @@ class _FakeController(QObject):
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
     operation_failed = Signal(object)
+    operation_cancelled = Signal(object)
 
     def __init__(self, data_dir: Path) -> None:
         super().__init__()
@@ -90,6 +91,9 @@ class _FakeController(QObject):
     def revalidate(self):
         self.revalidate_calls += 1
         return SimpleNamespace(summary_ja=lambda: "summary-ja-stub")
+
+    def request_cancel(self) -> bool:
+        return False
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy

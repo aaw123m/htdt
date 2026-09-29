@@ -392,6 +392,28 @@ class OptimizationWorkflowWorkspace(QWidget):
     def resolve_dirty_state(
         self, action: DirtyResolutionAction
     ) -> tuple[bool, str | None]:
+        if action == 'stop_busy':
+            # D1/#REV19: the operator abandoned in-flight work — drain each
+            # mounted panel's pool AND the controller's pools; detached
+            # workers' completions are disconnected inside stop_all so
+            # late results can never apply or be persisted.
+            lingering = False
+            for panel in (
+                getattr(self, 'joint_optimization_panel', None),
+                getattr(self, 'robustness_authoring_panel', None),
+                getattr(self, 'system_expansion_compare_panel', None),
+            ):
+                if panel is not None and panel.is_running():
+                    lingering = not panel.stop().all_stopped or lingering
+            resolved, message = self.controller.resolve_dirty_state(action)
+            if not resolved:
+                return resolved, message
+            if lingering:
+                return (
+                    True,
+                    '実行中の処理を中止しました · 停止が遅延している処理の結果は適用されません',
+                )
+            return True, '実行中の処理を中止しました'
         return self.controller.resolve_dirty_state(action)
 
     def select_section(self, section_id: str) -> None:

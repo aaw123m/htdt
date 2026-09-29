@@ -8,6 +8,7 @@ from math import isfinite
 import os
 from pathlib import Path
 import tempfile
+from threading import Event
 from typing import Any
 from uuid import uuid4
 
@@ -876,7 +877,9 @@ class MeasurementPageWorkspace(QWidget):
     def _refresh_rew_async(self) -> None:
         self._set_notice("REW測定一覧を読み込み中です。", None)
         self._start_job(
-            self.controller.list_rew_measurements,
+            lambda cancel_event: self.controller.list_rew_measurements(
+                cancel_event=cancel_event
+            ),
             self._apply_rew_list,
             "REW一覧の読み込みに失敗しました",
             on_retry=self._refresh_rew_async,
@@ -914,7 +917,9 @@ class MeasurementPageWorkspace(QWidget):
             return
         self._set_notice("選択したREW測定を読み込み中です。", None)
         self._start_job(
-            lambda: self.controller.fetch_rew_snapshot(measurement_uuid),
+            lambda cancel_event: self.controller.fetch_rew_snapshot(
+                measurement_uuid, cancel_event=cancel_event
+            ),
             self._stage_rew_snapshot,
             "REW測定の読み込みに失敗しました",
             on_retry=self._read_rew_async,
@@ -4457,7 +4462,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def _start_job(
         self,
-        call: Callable[[], object],
+        call: Callable[[Event], object],
         on_success: Callable[[object], None],
         error_prefix: str,
         *,
@@ -4473,7 +4478,7 @@ class MeasurementPageWorkspace(QWidget):
             self._latest_job_key[purpose] = key
         self._job_pool.start(
             key,
-            lambda _cancel_event: call(),
+            lambda cancel_event: call(cancel_event),
             self._job_completed,
         )
 
@@ -4622,6 +4627,22 @@ class MeasurementPageWorkspace(QWidget):
             self._pending_release = None
             self.refresh()
             return True, '取り込み途中のデータを破棄しました'
+        if action == 'stop_busy':
+            # D1/#REV19: the operator explicitly abandoned in-flight work —
+            # drain the pool exactly like closeEvent does, but the pool and
+            # the workspace stay usable for the next job. Detached workers'
+            # completions were disconnected inside stop_all, so late
+            # results can never apply.
+            report = self._job_pool.stop_all()
+            self._job_handlers.clear()
+            self._job_purpose.clear()
+            self._latest_job_key.clear()
+            self._commit_job_key = None
+            self._set_batch_committing(False)
+            self.refresh()
+            if report.all_stopped:
+                return True, '実行中の処理を中止しました'
+            return True, '実行中の処理を中止しました · 停止が遅延している処理の結果は適用されません'
         return False, 'この状態では実行できない操作です'
 
     def closeEvent(self, event) -> None:  # type: ignore[override]

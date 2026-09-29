@@ -9,7 +9,7 @@ import sys
 from typing import Literal
 import weakref
 
-from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer
+from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer, Slot
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -130,6 +130,7 @@ from .localization import (
     resolve_locale,
 )
 from .native_diagnostics import concise_reason, push_uncaught_sink
+from .native_worker import WORKER_CANCELLED, NativeWorkerPool
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -139,7 +140,6 @@ from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
 from .project_bundle import (
     BUNDLE_EXTENSION,
     BundleImportConflictError,
-    ProjectBundleError,
     export_project_bundle,
     import_project_bundle,
 )
@@ -165,7 +165,10 @@ from .user_facing_error import (
     to_user_facing_error,
     warn_user,
 )
-from .workspace_dirty_state import WorkspaceDirtyState
+from .workspace_dirty_state import (
+    DirtyResolutionAction,
+    WorkspaceDirtyState,
+)
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .support_diagnostics import (
     DiagnosticPackageBuilder,
@@ -600,6 +603,13 @@ class WorkflowApplicationComposition:
             parent=self.shell,
             activity_center=self.activity_center,
         )
+        # REV19: project-bundle export/import run on this pool — they used
+        # to freeze the UI thread for 30s+ on large projects. The busy flag
+        # additionally gates close/project-switch through
+        # ``_can_close_application``, and a close hook drains the pool.
+        self._bundle_busy = False
+        self._bundle_import_path: Path | None = None
+        self._bundle_pool = NativeWorkerPool(self.shell)
         self.data_management_component = build_data_management_component(
             self.data_management_controller
         )
@@ -644,6 +654,7 @@ class WorkflowApplicationComposition:
         # rebuild the shell keep the user's place too.
         self._restore_window_state()
         self.shell.register_close_hook(self._save_window_state)
+        self.shell.register_close_hook(self._shutdown_bundle_pool)
         self.shell.register_close_hook(self._shutdown_automatic_backup)
         self.shell.register_close_hook(self._account_for_exit_operations)
         self.shell.register_close_hook(self._release_uncaught_sink)
@@ -1339,7 +1350,8 @@ class WorkflowApplicationComposition:
         written so the serialized project is always one exact generation —
         and the default file name stamps that generation's head revision.
         """
-
+        if self._bundle_busy:
+            return
         decision = self._project_snapshot_decision('エクスポート')
         if decision is None:
             return
@@ -1360,44 +1372,28 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
-        # The export runs synchronously on this thread; on a large project
-        # it can take well past 30s. Label the freeze honestly — an
-        # unmarked hang invites a force-kill mid-write (#REV18).
-        self.shell.statusBar().showMessage(
+        # Runs on the bundle worker pool — a large project's snapshot
+        # + zip walk used to freeze the UI thread for tens of seconds
+        # (#REV19). Completion lands in ``_bundle_job_completed`` on the
+        # UI thread, which owns the wait cursor and the result dialog.
+        self._begin_bundle_job(
             "プロジェクトバンドルをエクスポートしています…"
         )
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            result = export_project_bundle(
+        self._bundle_pool.start(
+            "project.bundle.export",
+            lambda _cancel_event: export_project_bundle(
                 self.repository,
                 self.document_id,
                 Path(selected),
-            )
-        except ProjectBundleError as exc:
-            QMessageBox.warning(
-                self.shell,
-                "エクスポートできません",
-                to_user_facing_error(
-                    exc, title="エクスポートできませんでした"
-                ).notice_text(),
-            )
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
-        box = QMessageBox(self.shell)
-        box.setWindowTitle("プロジェクトをエクスポートしました")
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setText(
-            f"{result.row_count} 件のレコードと {result.asset_count} 件の"
-            "アセットを書き出しました。"
+            ),
+            self._bundle_job_completed,
         )
-        box.setDetailedText(f"マニフェストSHA-256: {result.manifest_sha256}")
-        box.exec()
 
     def _import_project_bundle(self) -> None:
         """#488: staged import; a document-id collision is offered the
         explicit import-as-copy path (new project identity)."""
-
+        if self._bundle_busy:
+            return
         selected, _filter = file_dialog_memory.get_open_file_name(
             self.shell,
             "インポートするプロジェクトバンドル",
@@ -1407,56 +1403,20 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
-        # Same synchronous-write labelling as export (#REV18).
-        self.shell.statusBar().showMessage(
+        # Offloaded like export (#REV19); the record-identity-conflict
+        # retry question is asked in ``_bundle_job_completed`` on the UI
+        # thread after the first attempt fails.
+        self._bundle_import_path = Path(selected)
+        self._begin_bundle_job(
             "プロジェクトバンドルをインポートしています…"
         )
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            result = import_project_bundle(self.repository, Path(selected))
-        except BundleImportConflictError as exc:
-            QApplication.restoreOverrideCursor()
-            # A record-identity collision is the only bundle failure a copy
-            # import can resolve — manifest/schema rejections re-fail
-            # identically and must not offer a dead-end retry path.
-            retry = QMessageBox.question(
-                self.shell,
-                "そのままインポートできません",
-                f"{to_user_facing_error(exc, title="インポートできませんでした").notice_text()}\n\nコピーとして新しいプロジェクトを作成しますか？",
-            )
-            if retry != QMessageBox.StandardButton.Yes:
-                return
-            self.shell.statusBar().showMessage(
-                "プロジェクトバンドルをコピーとしてインポートしています…"
-            )
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                result = import_project_bundle(
-                    self.repository, Path(selected), import_as_copy=True
-                )
-            except Exception as retry_exc:
-                warn_user(
-                    self.shell, "インポートできませんでした", retry_exc
-                )
-                return
-            finally:
-                QApplication.restoreOverrideCursor()
-        except Exception as exc:
-            warn_user(
-                self.shell, "インポートできませんでした", exc
-            )
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
-        QMessageBox.information(
-            self.shell,
-            "プロジェクトをインポートしました",
-            f"{result.imported_rows} 件のレコードと "
-            f"{result.imported_assets} 件のアセットを取り込みました。",
+        self._bundle_pool.start(
+            "project.bundle.import",
+            lambda _cancel_event: import_project_bundle(
+                self.repository, Path(selected)
+            ),
+            self._bundle_job_completed,
         )
-        entry = self.project_library.get_by_document_id(result.document_id)
-        if entry is not None:
-            self._switch_to_project(entry)
 
     def _archive_dialog(self, *, archived: bool) -> None:
         candidates = tuple(
@@ -2825,6 +2785,19 @@ class WorkflowApplicationComposition:
                 return 'busy'
             return workspace.controller.dirty_state()
 
+        def resolve_dirty_state(
+            action: DirtyResolutionAction,
+        ) -> tuple[bool, str | None]:
+            if action == 'stop_busy':
+                # D1/#REV19: abandon wedged prediction work and continue;
+                # detached workers' completions are disconnected inside
+                # stop_all so late results can never apply.
+                report = prediction.stop()
+                if report.all_stopped:
+                    return True, '実行中の予測を中止しました'
+                return True, '実行中の予測を中止しました · 停止が遅延している処理の結果は適用されません'
+            return workspace.controller.resolve_dirty_state(action)
+
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:
                 return TargetFocusResult(focused=True)
@@ -2872,7 +2845,7 @@ class WorkflowApplicationComposition:
             on_deactivate=deactivate,
             before_deactivate=before_deactivate,
             dirty_state=dirty_state,
-            resolve_dirty_state=workspace.controller.resolve_dirty_state,
+            resolve_dirty_state=resolve_dirty_state,
             on_context_changed=workspace.set_context,
             on_entity_requested=workspace.select_entity,
             on_close=close,
@@ -3699,9 +3672,95 @@ class WorkflowApplicationComposition:
         box.exec()
 
     def _can_close_application(self) -> tuple[bool, str | None]:
+        if self._bundle_busy:
+            return False, "プロジェクトバンドル処理が完了してから終了してください"
         if self.data_management_component.can_close_application:
             return True, None
         return False, "データ処理が完了してからHTDTを終了してください"
+
+    def _shutdown_bundle_pool(self) -> None:
+        self._bundle_pool.shutdown()
+
+    def _begin_bundle_job(self, message: str) -> None:
+        self._bundle_busy = True
+        self.shell.statusBar().showMessage(message)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+    @Slot(object, object, object)
+    def _bundle_job_completed(
+        self, key: object, result: object, error: object
+    ) -> None:
+        """Apply the finished bundle job's outcome on the UI thread.
+
+        Late completions can never reach here after close/project-switch —
+        the close-hook shutdown disconnects ``on_completed`` inside the
+        pool's release path.
+        """
+        task_key = str(key)
+        self._bundle_busy = False
+        QApplication.restoreOverrideCursor()
+        if error == WORKER_CANCELLED:
+            self.shell.statusBar().showMessage(
+                "プロジェクトバンドル処理を中止しました"
+            )
+            return
+        if task_key.startswith("project.bundle.export"):
+            if isinstance(error, Exception):
+                QMessageBox.warning(
+                    self.shell,
+                    "エクスポートできません",
+                    to_user_facing_error(
+                        error, title="エクスポートできませんでした"
+                    ).notice_text(),
+                )
+                return
+            box = QMessageBox(self.shell)
+            box.setWindowTitle("プロジェクトをエクスポートしました")
+            box.setIcon(QMessageBox.Icon.Information)
+            box.setText(
+                f"{result.row_count} 件のレコードと {result.asset_count} 件の"
+                "アセットを書き出しました。"
+            )
+            box.setDetailedText(f"マニフェストSHA-256: {result.manifest_sha256}")
+            box.exec()
+            return
+        if task_key.startswith("project.bundle.import"):
+            if (
+                isinstance(error, BundleImportConflictError)
+                and task_key == "project.bundle.import"
+                and self._bundle_import_path is not None
+            ):
+                retry = QMessageBox.question(
+                    self.shell,
+                    "そのままインポートできません",
+                    f"{to_user_facing_error(error, title='インポートできませんでした').notice_text()}\n\nコピーとして新しいプロジェクトを作成しますか？",
+                )
+                if retry == QMessageBox.StandardButton.Yes:
+                    self._begin_bundle_job(
+                        "プロジェクトバンドルをコピーとしてインポートしています…"
+                    )
+                    source = self._bundle_import_path
+                    self._bundle_pool.start(
+                        "project.bundle.import_copy",
+                        lambda _cancel_event: import_project_bundle(
+                            self.repository,
+                            source,
+                            import_as_copy=True,
+                        ),
+                        self._bundle_job_completed,
+                    )
+                return
+            if isinstance(error, Exception):
+                warn_user(self.shell, "インポートできませんでした", error)
+                return
+            QMessageBox.information(
+                self.shell,
+                "プロジェクトをインポートしました",
+                f"{result.imported_rows} 件のレコードと {result.imported_assets} 件のアセットを取り込みました。",
+            )
+            entry = self.project_library.get_by_document_id(result.document_id)
+            if entry is not None:
+                self._switch_to_project(entry)
 
 
 def build_workflow_application(

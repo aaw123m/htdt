@@ -83,7 +83,12 @@ from .cad_scene import (
     scene_content_hash,
 )
 from .cad_search_models import constraint_workspace_snapshot
-from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
+from .native_worker import (
+    WORKER_CANCELLED,
+    NativeWorker,
+    NativeWorkerPool,
+    WorkerShutdownReport,
+)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .user_facing_error import operation_error_message
 from .room_prediction_options import (
@@ -1208,6 +1213,31 @@ class RoomPredictionController(QObject):
         if self.is_busy:
             return False, "予測の完了またはキャンセル後に画面を切り替えてください"
         return True, None
+
+    def stop(self) -> WorkerShutdownReport:
+        """Drain in-flight prediction work without disposing the controller.
+
+        Same bounded physical stop as ``dispose``'s pool shutdown, but the
+        controller stays usable — used by the stop-busy deactivation
+        escalation so the operator can abandon wedged prediction work and
+        keep editing instead of being permanently vetoed (#REV19/D1).
+        """
+        for token in tuple(self._tokens.values()):
+            self.job_guard.cancel(token)
+        report = self._pool.stop_all()
+        self._tokens.clear()
+        self._specs.clear()
+        self._completion_states.clear()
+        self._current_job_id = None
+        self.stateChanged.emit(
+            RoomPredictionRunState(
+                False,
+                "予測を中止しました"
+                if report.all_stopped
+                else "予測処理の停止が遅延しています · 遅延結果は保存・適用しません",
+            )
+        )
+        return report
 
     def dispose(self) -> None:
         self._disposed = True

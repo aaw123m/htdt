@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from threading import Event
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -299,6 +300,26 @@ class OptimizationWorkflowController(
     def resolve_dirty_state(
         self, action: DirtyResolutionAction
     ) -> tuple[bool, str | None]:
+        if action == 'stop_busy':
+            # D1/#REV19: the operator explicitly abandoned in-flight work —
+            # drain every pool like dispose() does but keep the controller
+            # usable. Detached workers' completions are disconnected inside
+            # stop_all, so late results can never apply or be saved.
+            for token in tuple(self._rew_tokens.values()):
+                self.rew_job_guard.cancel(token)
+            reports = (
+                self._search_pool.stop_all(),
+                self._extended_pool.stop_all(),
+                self._rew_pool.stop_all(),
+                self._adaptive_pool.stop_all(),
+            )
+            self._rew_tokens.clear()
+            self._rew_semantics.clear()
+            self._current_rew_token_id = None
+            self.rewBusyChanged.emit(False)
+            if any(not report.all_stopped for report in reports):
+                return True, '実行中の処理を中止しました · 停止が遅延している処理の結果は適用されません'
+            return True, '実行中の処理を中止しました'
         return self.scene.resolve_dirty_state(action)
 
     def refresh_from_authorities(self) -> None:
@@ -546,7 +567,12 @@ class OptimizationWorkflowController(
         self._rew_list_sequence += 1
         key = f"list:{self._rew_list_sequence}"
         self._latest_rew_list_key = key
-        self._start_rew_task(key, self.rew_client.list_measurements)
+        self._start_rew_task(
+            key,
+            lambda cancel_event: self.rew_client.list_measurements(
+                is_cancelled=cancel_event.is_set
+            ),
+        )
         self.statusChanged.emit("REW測定一覧を読み込み中…")
 
     def _start_selected_rew_read(
@@ -591,18 +617,24 @@ class OptimizationWorkflowController(
         self._current_rew_token_id = token.job_id
         self._start_rew_task(
             token.job_id,
-            lambda: self.rew_client.get_frequency_response_snapshot(
-                external_id, ppo=None, unit="SPL", smoothing=None
+            lambda cancel_event: self.rew_client.get_frequency_response_snapshot(
+                external_id,
+                ppo=None,
+                unit="SPL",
+                smoothing=None,
+                is_cancelled=cancel_event.is_set,
             ),
         )
         self.statusChanged.emit("REWを読み込んでいます…")
 
-    def _start_rew_task(self, key: str, operation: Callable[[], object]) -> None:
+    def _start_rew_task(
+        self, key: str, operation: Callable[[Event], object]
+    ) -> None:
         if self._disposed:
             return
         self._rew_pool.start(
             key,
-            lambda _cancel_event: operation(),
+            lambda cancel_event: operation(cancel_event),
             self._rew_task_completed,
             on_finished=self._rew_task_finished,
         )

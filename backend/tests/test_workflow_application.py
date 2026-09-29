@@ -148,9 +148,18 @@ def test_in_progress_backup_holds_the_freeze_until_the_worker_completes(
     release_worker = threading.Event()
     real_create_backup = controller.backend.create_backup
 
-    def gated_create_backup(destination: Path, *, allow_stale: bool = False):
+    def gated_create_backup(
+        destination: Path,
+        *,
+        allow_stale: bool = False,
+        is_cancelled=None,
+    ):
         release_worker.wait(timeout=15)
-        return real_create_backup(destination, allow_stale=allow_stale)
+        return real_create_backup(
+            destination,
+            allow_stale=allow_stale,
+            is_cancelled=is_cancelled,
+        )
 
     monkeypatch.setattr(
         controller.backend,

@@ -82,8 +82,9 @@ def test_dirty_state_prompt_clean_and_busy() -> None:
     assert dirty_state_prompt("clean", "navigate") is None
     prompt = dirty_state_prompt("busy", "navigate")
     assert prompt is not None
-    assert not prompt.resolvable
-    assert prompt.choices == ()
+    assert prompt.resolvable
+    assert [choice.action for choice in prompt.choices] == ["stop_busy"]
+    assert prompt.choices[0].destructive
 
 
 # --- RoomWorkspaceController resolution --------------------------------------

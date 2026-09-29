@@ -25,6 +25,7 @@ the instance lock and no other HTDT process may.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -133,6 +134,24 @@ class DataRelocationError(RuntimeError):
 
 class DataRelocationBlockedError(DataRelocationError):
     pass
+
+
+class DataRelocationCancelledError(DataRelocationError):
+    """A relocation honored a cooperative cancel request before commit.
+
+    Raised only while the journal is still in its PREPARED phase — the
+    cleanup path removes the staged copy and the journal, leaving the
+    source untouched. After STAGED_VERIFIED the cutover always completes.
+    """
+
+
+def _raise_if_relocation_cancelled(
+    is_cancelled: Callable[[], bool] | None,
+) -> None:
+    if is_cancelled is not None and is_cancelled():
+        raise DataRelocationCancelledError(
+            'data relocation cancelled by the caller'
+        )
 
 
 class HTDTBootstrapConfig(BaseModel):
@@ -782,6 +801,8 @@ def execute_data_relocation(
     destination_dir: Path,
     *,
     bootstrap_path: Path | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+    on_commit_point: Callable[[], None] | None = None,
 ) -> tuple[ManagedDataRelocationPlan, Path]:
     """Copy → verify → cutover the managed root under a durable journal.
 
@@ -863,6 +884,7 @@ def execute_data_relocation(
                 staged_assets.mkdir(exist_ok=True)
                 for candidate in live_assets.iterdir():
                     if candidate.is_file():
+                        _raise_if_relocation_cancelled(is_cancelled)
                         shutil.copy2(candidate, staged_assets / candidate.name)
             # Registry-carried root components: preferences, library
             # metadata, operational history/state, upgrade journal +
@@ -871,6 +893,7 @@ def execute_data_relocation(
             # location (#769). Transient components (runtime.json,
             # instance locks) are never copied.
             for component in relocation_carried_components():
+                _raise_if_relocation_cancelled(is_cancelled)
                 # Canonical path plus numbered archive generations
                 # (``<path>.<n>`` — e.g. htdt.migrated.sqlite3.2): sibling
                 # generations are HTDT-owned and carry the base policy.
@@ -888,6 +911,7 @@ def execute_data_relocation(
             # Root-local canonical state travels with the root; operational
             # residue (locks, runtime, logs, temp files) is left behind.
             for name in _ROOT_FILES_TO_MOVE:
+                _raise_if_relocation_cancelled(is_cancelled)
                 candidate = source_dir / name
                 if candidate.is_file() and candidate.name != DATABASE_NAME:
                     shutil.copy2(candidate, staged / candidate.name)
@@ -915,12 +939,20 @@ def execute_data_relocation(
             from .native_authority_audit import assert_native_authority_graph
 
             assert_native_authority_graph(staged_database)
+            # Last cheap abort point: still PREPARED, so the exception path
+            # removes the staged copy and the journal (#REV19/D2).
+            _raise_if_relocation_cancelled(is_cancelled)
             journal = _journal_with_phase(
                 journal,
                 'STAGED_VERIFIED',
                 journal_path,
                 staged_database_sha256=sha256_file(staged_database),
             )
+            # Commit point: the verified stage is durable in the journal —
+            # the cutover runs to completion even if a cancel was meanwhile
+            # requested (CANCEL_UNTIL_COMMIT).
+            if on_commit_point is not None:
+                on_commit_point()
 
             # ---- cutover --------------------------------------------------
             # Windows cannot rename a directory while a handle inside it is

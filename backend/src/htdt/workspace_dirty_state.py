@@ -13,7 +13,8 @@ the state's choices and re-checks the deactivation guard afterwards:
   discarded.
 - ``pending_import`` — a staged (uncommitted) measurement import must be
   kept or discarded.
-- ``busy`` — background work blocks unconditionally; only cancel applies.
+- ``busy`` — background work blocks deactivation; the operator may wait
+  or explicitly stop the work and proceed (late results are discarded).
 
 A failed action (e.g. save failure) keeps the current context: the router
 stays on the blocked workspace and surfaces the resolver's message.
@@ -42,6 +43,7 @@ DirtyResolutionAction: TypeAlias = Literal[
     "recover_draft",
     "discard_recovery",
     "discard_pending",
+    "stop_busy",
 ]
 
 DeactivationContext: TypeAlias = Literal[
@@ -159,13 +161,23 @@ def dirty_state_prompt(
             message=message,
             choices=choices,
         )
+    # ``busy``: worker pools only run discardable jobs, so the operator
+    # may abandon them and continue instead of being permanently vetoed
+    # by a wedged worker (#REV19/D1). The choice is destructive — every
+    # in-flight result is thrown away.
     return DirtyStatePrompt(
         state="busy",
         context=context,
         title=title,
-        message=f"{prefix}、実行中の処理が完了するのを待ってください。",
-        choices=(),
-        resolvable=False,
+        message=(
+            f"{prefix}、実行中の処理が完了するのを待つか、"
+            "処理を中止してください。"
+        ),
+        choices=(
+            DirtyStateChoice(
+                "stop_busy", "処理を中止して続行", destructive=True
+            ),
+        ),
     )
 
 

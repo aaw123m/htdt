@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from threading import Event
 from typing import TYPE_CHECKING, Callable
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ if TYPE_CHECKING:
 
 from .activity_center import (
     ActivityCenter,
+    Cancellability,
     NavigationPolicy,
     OperationClass,
     OperationProgress,
@@ -19,6 +21,7 @@ from .activity_center import (
 )
 from .data_relocation import (
     DataRelocationBlockedError,
+    DataRelocationCancelledError,
     ManagedDataRelocationPlan,
     execute_data_relocation,
     plan_data_relocation,
@@ -38,6 +41,7 @@ from .cad_schema import (
 )
 from .native_backup import (
     DATABASE_NAME,
+    BackupCancelledError,
     BackupManifest,
     create_backup as native_create_backup,
     inspect_backup as native_inspect_backup,
@@ -48,6 +52,7 @@ from .native_upgrade import UpgradeEvent, execute_native_upgrade
 from .persisted_data import backup_excluded_names
 from .storage_maintenance import (
     StorageGcResult,
+    StorageMaintenanceCancelledError,
     StorageReport,
     plan_storage_gc,
     run_storage_gc,
@@ -258,6 +263,42 @@ class DataOperationFailure:
     data_restored: bool = False
 
 
+@dataclass(frozen=True)
+class DataOperationCancellation:
+    """Terminal outcome of an operation that honored a cancel request.
+
+    Distinct from ``DataOperationFailure``: an abandoned job is a clean
+    outcome, not an error — the card is neutral and never reported as a
+    failure (#REV19/D2).
+    """
+
+    operation_id: str
+    kind: DataOperationKind
+    restart_required: bool = False
+
+
+#: Cancel exceptions the worker routes to the ``cancelled`` signal instead
+#: of ``failed`` — every one means the job unwound before it could mutate
+#: (or, past its commit point, never raised it at all).
+_OPERATION_CANCEL_EXCEPTIONS = (
+    BackupCancelledError,
+    DataRelocationCancelledError,
+    StorageMaintenanceCancelledError,
+)
+
+#: Cancellability declared to the activity registry per kind: read-only and
+#: temp-dir jobs cancel anywhere; restore/relocate cancel only until the
+#: journaled commit point the backend marks via ``on_commit_point``.
+_OPERATION_CANCELLABILITY: dict[DataOperationKind, Cancellability] = {
+    DataOperationKind.CREATE_BACKUP: Cancellability.CANCELLABLE,
+    DataOperationKind.VALIDATE_RESTORE: Cancellability.CANCELLABLE,
+    DataOperationKind.RESTORE: Cancellability.CANCEL_UNTIL_COMMIT,
+    DataOperationKind.RELOCATE: Cancellability.CANCEL_UNTIL_COMMIT,
+    DataOperationKind.SCAN_STORAGE: Cancellability.CANCELLABLE,
+    DataOperationKind.GC_STORAGE: Cancellability.CANCELLABLE,
+}
+
+
 def _metadata_from_manifest(
     backup_path: Path,
     manifest: BackupManifest,
@@ -329,10 +370,14 @@ class DataManagementBackend:
         destination: Path,
         *,
         allow_stale: bool = False,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> BackupCreateResult:
         destination = Path(destination)
         manifest = native_create_backup(
-            self.data_dir, destination, allow_stale=allow_stale
+            self.data_dir,
+            destination,
+            allow_stale=allow_stale,
+            is_cancelled=is_cancelled,
         )
         # The manual generation already covers the current data, so the
         # automatic scheduler must not archive the same bytes again on its
@@ -353,9 +398,16 @@ class DataManagementBackend:
             ),
         )
 
-    def preview_restore(self, backup_path: Path) -> RestorePreview:
+    def preview_restore(
+        self,
+        backup_path: Path,
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> RestorePreview:
         backup_path = Path(backup_path)
-        manifest, staged_schema_version = native_inspect_backup(backup_path)
+        manifest, staged_schema_version = native_inspect_backup(
+            backup_path, is_cancelled=is_cancelled
+        )
         return RestorePreview(
             manifest=manifest,
             metadata=_metadata_from_manifest(
@@ -370,12 +422,16 @@ class DataManagementBackend:
         preview: RestorePreview,
         *,
         on_phase: Callable[[DataOperationPhase, str], None] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
+        on_commit_point: Callable[[], None] | None = None,
     ) -> RestoreResult:
         backup_path = preview.metadata.backup_path
 
         if on_phase is not None:
             on_phase(DataOperationPhase.VALIDATING, '復元前にバックアップを再検証しています')
-        current_manifest = native_validate_backup(backup_path)
+        current_manifest = native_validate_backup(
+            backup_path, is_cancelled=is_cancelled
+        )
         if current_manifest != preview.manifest:
             raise RestorePreviewStaleError(
                 'backup archive changed after the restore preview was created'
@@ -398,6 +454,8 @@ class DataManagementBackend:
         manifest, pre_restore_backup = native_restore_backup(
             self.data_dir,
             backup_path,
+            is_cancelled=is_cancelled,
+            on_commit_point=on_commit_point,
         )
 
         # #756: an older-schema archive lands on the live root as-is. Route
@@ -444,7 +502,13 @@ class DataManagementBackend:
 
         return plan_data_relocation(self.data_dir, Path(destination_dir))
 
-    def relocate(self, destination_dir: Path) -> RelocationResult:
+    def relocate(
+        self,
+        destination_dir: Path,
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+        on_commit_point: Callable[[], None] | None = None,
+    ) -> RelocationResult:
         """#621: copy → verify → cutover, then repoint the bootstrap config.
 
         The caller must have quiesced the data handle (no live repositories
@@ -452,7 +516,10 @@ class DataManagementBackend:
         """
 
         plan, parked = execute_data_relocation(
-            self.data_dir, Path(destination_dir)
+            self.data_dir,
+            Path(destination_dir),
+            is_cancelled=is_cancelled,
+            on_commit_point=on_commit_point,
         )
         return RelocationResult(
             plan=plan,
@@ -561,6 +628,10 @@ class _ActiveOperation:
     lifecycle_mode: str
     result: object | None = None
     failure_payload: tuple[DataOperationPhase, Exception] | None = None
+    #: Set when the worker reports the job unwound on a cancel request.
+    cancelled: bool = False
+    #: Set when the backend marked its CANCEL_UNTIL_COMMIT boundary.
+    commit_reached: bool = False
     # Managed-data fingerprint pinned at submit; used to mark operations
     # bound to the pre-mutation state as historical once a mutating op
     # actually changed the managed tree.
@@ -571,6 +642,8 @@ class _OperationWorker(QObject):
     progress = Signal(object)
     succeeded = Signal(object)
     failed = Signal(object)
+    cancelled = Signal()
+    commit_reached = Signal()
     finished = Signal()
 
     def __init__(
@@ -578,13 +651,21 @@ class _OperationWorker(QObject):
         *,
         operation_id: str,
         kind: DataOperationKind,
-        job: Callable[[Callable[[DataOperationPhase, str], None]], object],
+        job: Callable[
+            [
+                Callable[[DataOperationPhase, str], None],
+                Event,
+                Callable[[], None],
+            ],
+            object,
+        ],
     ) -> None:
         super().__init__()
         self._operation_id = operation_id
         self._kind = kind
         self._job = job
         self._phase = DataOperationPhase.PREPARING
+        self._cancel_event = Event()
 
     def _emit_phase(self, phase: DataOperationPhase, message_ja: str) -> None:
         self._phase = phase
@@ -597,10 +678,33 @@ class _OperationWorker(QObject):
             )
         )
 
+    def request_cancel(self) -> None:
+        """Set the flag the job consults at its next checkpoint.
+
+        ``threading.Event.set`` is thread-safe and idempotent — this may
+        run from the owning thread (UI cancel button) or inside the
+        activity registry's ``request_cancel`` callback.
+        """
+        self._cancel_event.set()
+
+    def _mark_commit_point(self) -> None:
+        """Runs on the worker thread — emits only.
+
+        The owning-thread slot performs the ``mark_commit_point`` registry
+        transition; the registry must never be touched off its UI thread.
+        """
+        self.commit_reached.emit()
+
     @Slot()
     def run(self) -> None:
         try:
-            result = self._job(self._emit_phase)
+            result = self._job(
+                self._emit_phase,
+                self._cancel_event,
+                self._mark_commit_point,
+            )
+        except _OPERATION_CANCEL_EXCEPTIONS:
+            self.cancelled.emit()
         except Exception as exc:
             self.failed.emit((self._phase, exc))
         else:
@@ -641,6 +745,7 @@ class DataManagementController(QObject):
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
     operation_failed = Signal(object)
+    operation_cancelled = Signal(object)
 
     def __init__(
         self,
@@ -709,10 +814,16 @@ class DataManagementController(QObject):
             )
             return operation_id
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> BackupCreateResult:
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> BackupCreateResult:
             emit(DataOperationPhase.BACKING_UP, 'バックアップを作成・検証しています')
             return self.backend.create_backup(
-                destination, allow_stale=allow_stale
+                destination,
+                allow_stale=allow_stale,
+                is_cancelled=cancel_event.is_set,
             )
 
         return self._start(
@@ -727,9 +838,15 @@ class DataManagementController(QObject):
         self._assert_idle()
         operation_id = uuid4().hex
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> RestorePreview:
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> RestorePreview:
             emit(DataOperationPhase.VALIDATING, 'バックアップの整合性と互換性を検証しています')
-            return self.backend.preview_restore(backup_path)
+            return self.backend.preview_restore(
+                backup_path, is_cancelled=cancel_event.is_set
+            )
 
         return self._start(
             operation_id=operation_id,
@@ -754,8 +871,17 @@ class DataManagementController(QObject):
             )
             return operation_id
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> RestoreResult:
-            return self.backend.restore(preview, on_phase=emit)
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> RestoreResult:
+            return self.backend.restore(
+                preview,
+                on_phase=emit,
+                is_cancelled=cancel_event.is_set,
+                on_commit_point=on_commit_point,
+            )
 
         return self._start(
             operation_id=operation_id,
@@ -782,7 +908,11 @@ class DataManagementController(QObject):
             )
             return operation_id
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> RelocationResult:
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> RelocationResult:
             emit(DataOperationPhase.RELOCATING, '移動先の空き容量と配置を確認しています')
             plan = self.backend.plan_relocation(destination_dir)
             if not plan.executable:
@@ -793,7 +923,11 @@ class DataManagementController(QObject):
                 DataOperationPhase.RELOCATING,
                 'データをコピーして検証しています',
             )
-            return self.backend.relocate(destination_dir)
+            return self.backend.relocate(
+                destination_dir,
+                is_cancelled=cancel_event.is_set,
+                on_commit_point=on_commit_point,
+            )
 
         return self._start(
             operation_id=operation_id,
@@ -813,9 +947,15 @@ class DataManagementController(QObject):
         self._assert_idle()
         operation_id = uuid4().hex
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> StorageReport:
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> StorageReport:
             emit(DataOperationPhase.SCANNING, '管理対象ストレージを確認しています')
-            return plan_storage_gc(self.backend.data_dir)
+            return plan_storage_gc(
+                self.backend.data_dir, is_cancelled=cancel_event.is_set
+            )
 
         return self._start(
             operation_id=operation_id,
@@ -831,9 +971,15 @@ class DataManagementController(QObject):
         self._assert_idle()
         operation_id = uuid4().hex
 
-        def job(emit: Callable[[DataOperationPhase, str], None]) -> StorageGcResult:
+        def job(
+            emit: Callable[[DataOperationPhase, str], None],
+            cancel_event: Event,
+            on_commit_point: Callable[[], None],
+        ) -> StorageGcResult:
             emit(DataOperationPhase.COLLECTING, '未参照アセットを再検証して削除しています')
-            return run_storage_gc(self.backend.data_dir)
+            return run_storage_gc(
+                self.backend.data_dir, is_cancelled=cancel_event.is_set
+            )
 
         return self._start(
             operation_id=operation_id,
@@ -847,7 +993,14 @@ class DataManagementController(QObject):
         *,
         operation_id: str,
         kind: DataOperationKind,
-        job: Callable[[Callable[[DataOperationPhase, str], None]], object],
+        job: Callable[
+            [
+                Callable[[DataOperationPhase, str], None],
+                Event,
+                Callable[[], None],
+            ],
+            object,
+        ],
         lifecycle_mode: str,
     ) -> str:
         thread = QThread(self)
@@ -861,6 +1014,8 @@ class DataManagementController(QObject):
         worker.progress.connect(self.progress_changed)
         worker.succeeded.connect(self._capture_success)
         worker.failed.connect(self._capture_failure)
+        worker.cancelled.connect(self._capture_cancelled)
+        worker.commit_reached.connect(self._operation_commit_reached)
         worker.finished.connect(thread.quit)
         thread.finished.connect(self._thread_finished)
         # NOTE: no ``finished -> worker.deleteLater``. Deleting a
@@ -894,8 +1049,15 @@ class DataManagementController(QObject):
         exclusive = lifecycle_mode in ('backup', 'restore', 'relocate')
         fingerprint = managed_data_fingerprint(self.backend.data_dir)
         active = self._active
+        cancellability = Cancellability.NOT_CANCELLABLE
+        cancel_callback = None
         if active is not None and active.operation_id == operation_id:
             active.input_fingerprint = fingerprint
+            if kind in _OPERATION_CANCELLABILITY:
+                cancellability = _OPERATION_CANCELLABILITY[kind]
+                # The registry invokes this inside request_cancel; the
+                # Event.set it performs is thread-safe.
+                cancel_callback = active.worker.request_cancel
         center.submit(
             operation_id=operation_id,
             operation_kind=kind.value,
@@ -912,8 +1074,36 @@ class DataManagementController(QObject):
                 if exclusive
                 else None
             ),
+            cancellability=cancellability,
+            cancel_callback=cancel_callback,
         )
         center.mark_running(operation_id)
+
+    def request_cancel(self) -> bool:
+        """Ask the running operation to stop cooperatively (#REV19/D2).
+
+        Returns False when nothing is running or the operation passed its
+        commit point — the caller surfaces that honestly instead of
+        pretending a cancel is in flight.
+        """
+        self._assert_owner_thread()
+        active = self._active
+        if active is None:
+            return False
+        if self.activity_center is not None:
+            return self.activity_center.request_cancel(active.operation_id)
+        cancellability = _OPERATION_CANCELLABILITY.get(
+            active.kind, Cancellability.NOT_CANCELLABLE
+        )
+        if cancellability is Cancellability.NOT_CANCELLABLE:
+            return False
+        if (
+            cancellability is Cancellability.CANCEL_UNTIL_COMMIT
+            and active.commit_reached
+        ):
+            return False
+        active.worker.request_cancel()
+        return True
 
     @Slot(object)
     def _mirror_progress(self, progress: object) -> None:
@@ -952,14 +1142,68 @@ class DataManagementController(QObject):
         active.failure_payload = (phase, exc)
 
     @Slot()
+    def _capture_cancelled(self) -> None:
+        active = self._active
+        if active is not None:
+            active.cancelled = True
+
+    @Slot()
+    def _operation_commit_reached(self) -> None:
+        """Apply the backend's commit boundary on the owning thread."""
+        active = self._active
+        if active is None:
+            return
+        active.commit_reached = True
+        if self.activity_center is not None:
+            try:
+                self.activity_center.mark_commit_point(active.operation_id)
+            except OperationTransitionError:
+                pass
+
+    @Slot()
     def _thread_finished(self) -> None:
         active = self._active
         if active is None:
             return
-        if active.failure_payload is not None:
+        if active.cancelled:
+            self._complete_cancelled(active)
+        elif active.failure_payload is not None:
             self._complete_failure(active)
         else:
             self._complete_success(active)
+
+    def _complete_cancelled(self, active: _ActiveOperation) -> None:
+        """Wind down an operation the worker abandoned cooperatively.
+
+        Lifecycle teardown mirrors the failure path — a cancelled
+        pre-commit restore/relocate leaves managed data untouched and
+        still must reopen the data handle — but the registry records
+        CANCELLED and the UI emits a neutral cancelled signal, never a
+        failure card (#REV19/D2).
+        """
+        restart_required = False
+        try:
+            if active.lifecycle_mode == 'backup':
+                self.lifecycle.finish_backup()
+            elif active.lifecycle_mode in ('restore', 'relocate'):
+                self.lifecycle.resume_after_restore_attempt()
+        except Exception:
+            restart_required = self.lifecycle.restart_required
+
+        self._note_superseded_inputs(active)
+        self._finish_active()
+        if self.activity_center is not None:
+            try:
+                self.activity_center.confirm_cancelled(active.operation_id)
+            except OperationTransitionError:
+                pass
+        self.operation_cancelled.emit(
+            DataOperationCancellation(
+                operation_id=active.operation_id,
+                kind=active.kind,
+                restart_required=restart_required,
+            )
+        )
 
     def _complete_success(self, active: _ActiveOperation) -> None:
         lifecycle_error: Exception | None = None

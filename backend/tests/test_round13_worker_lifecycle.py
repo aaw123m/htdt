@@ -67,7 +67,7 @@ def test_superseded_job_completion_is_discarded(tmp_path: Path) -> None:
     first_started = Event()
     release_first = Event()
 
-    def first_read() -> str:
+    def first_read(_cancel_event) -> str:
         first_started.set()
         release_first.wait(5.0)
         return "first-result"
@@ -77,7 +77,10 @@ def test_superseded_job_completion_is_discarded(tmp_path: Path) -> None:
     )
     assert _pump_until(lambda: first_started.is_set())
     workspace._start_job(
-        lambda: "second-result", applied.append, "job", purpose="rew_read"
+        lambda _cancel_event: "second-result",
+        applied.append,
+        "job",
+        purpose="rew_read",
     )
     release_first.set()
 
@@ -96,10 +99,16 @@ def test_unrelated_purpose_jobs_both_apply(tmp_path: Path) -> None:
 
     applied: list[object] = []
     workspace._start_job(
-        lambda: "list-result", applied.append, "job", purpose="rew_list"
+        lambda _cancel_event: "list-result",
+        applied.append,
+        "job",
+        purpose="rew_list",
     )
     workspace._start_job(
-        lambda: "read-result", applied.append, "job", purpose="rew_read"
+        lambda _cancel_event: "read-result",
+        applied.append,
+        "job",
+        purpose="rew_read",
     )
 
     assert _pump_until(lambda: workspace._job_pool.active_count == 0)

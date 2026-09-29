@@ -230,6 +230,22 @@ class NativeWorkerPool(QObject):
         whenever the callable returns.
         """
         self._shutdown_requested = True
+        return self._stop_tracked(timeout_ms)
+
+    def stop_all(self, timeout_ms: int | None = None) -> WorkerShutdownReport:
+        """Physically drain every tracked worker WITHOUT shutting the pool down.
+
+        Same bounded stop as :meth:`shutdown` (logical cancel → interrupt →
+        quit → bounded wait → detach lingerers, owner slots disconnected),
+        but ``_shutdown_requested`` stays unset: the pool — and therefore its
+        owner — remains usable and a later ``start`` is still accepted. Used
+        by the stop-busy deactivation escalation so an operator can abandon
+        wedged work and keep working in the same window instead of being
+        permanently vetoed by a worker that ignores its cancel flag.
+        """
+        return self._stop_tracked(timeout_ms)
+
+    def _stop_tracked(self, timeout_ms: int | None) -> WorkerShutdownReport:
         budget = (
             self._shutdown_timeout_ms if timeout_ms is None else int(timeout_ms)
         )
