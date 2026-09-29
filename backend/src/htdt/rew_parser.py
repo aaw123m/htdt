@@ -90,6 +90,11 @@ def parse_rew_frequency_response(raw: bytes, *, max_bytes: int = MAX_REW_TEXT_BY
                 # was likely meant as a data row — say so instead of
                 # dropping it silently into the header comment block.
                 warnings.append(f'non_ascii_numeric_line:{line_number}')
+            elif re.match(r'[0-9]+(\.[0-9]*)?[a-zA-Z_]', tokens[0]):
+                # A token like '40a' or '20Hz' starts as a number but is
+                # not one: a corrupted/truncated data row must warn rather
+                # than vanish into the header block.
+                warnings.append(f'junk_numeric_line:{line_number}')
             header_lines.append(original)
             continue
 
