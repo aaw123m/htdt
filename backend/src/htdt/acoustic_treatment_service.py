@@ -9,7 +9,7 @@ displayed benefit that was never evaluated.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from typing import Sequence
 
@@ -120,7 +120,7 @@ class AcousticTreatmentService:
             )
         definition_id = (
             definition_id
-            or f'treatment-{treatment_type}-{int(datetime.now().timestamp())}'
+            or f'treatment-{treatment_type}-{int(datetime.now(timezone.utc).timestamp())}'
         )
         dimensions = TreatmentDimensions(
             width_m=width_m,

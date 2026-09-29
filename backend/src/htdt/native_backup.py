@@ -31,6 +31,7 @@ from .cad_schema import (
 from .native_row_integrity import verify_native_row_integrity
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
+    ManagedAssetError,
     canonical_data_path as _canonical_data_path,
     sha256_file as _sha256_file,
     verify_managed_asset,
@@ -71,6 +72,14 @@ RESTORE_JOURNAL_SCHEMA_VERSION = 1
 RESTORE_ROLLBACK_SUFFIX = '-restore-rollback-'
 
 _LOGGER = logging.getLogger('htdt.native')
+
+
+class BackupError(ValueError):
+    """A backup archive, manifest, or backup-path validation failure.
+
+    Distinct from a bare ``ValueError`` so the user-facing error mapper can
+    name the backup domain instead of reporting generic invalid data.
+    """
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -148,14 +157,14 @@ class BackupManifest(BaseModel):
     def valid_manifest(self) -> 'BackupManifest':
         paths = [entry.path for entry in self.files]
         if len(paths) != len(set(paths)):
-            raise ValueError('backup manifest file paths must be unique')
+            raise BackupError('backup manifest file paths must be unique')
         databases = [entry for entry in self.files if entry.kind == 'database']
         if len(databases) != 1 or databases[0].path != DATABASE_NAME:
-            raise ValueError('backup manifest must contain exactly one native database')
+            raise BackupError('backup manifest must contain exactly one native database')
         for entry in self.files:
             _safe_archive_path(entry.path)
         if self.manifest_sha256 != _manifest_hash(self.identity_payload()):
-            raise ValueError('backup manifest identity hash mismatch')
+            raise BackupError('backup manifest identity hash mismatch')
         return self
 
     def identity_payload(self) -> dict[str, Any]:
@@ -183,12 +192,12 @@ def _manifest_hash(payload: dict[str, Any]) -> str:
 
 def _safe_archive_path(value: str) -> PurePosixPath:
     if '\\' in value:
-        raise ValueError(f'backup path must use POSIX separators: {value}')
+        raise BackupError(f'backup path must use POSIX separators: {value}')
     path = PurePosixPath(value)
     if path.is_absolute() or not path.parts or any(part in {'', '.', '..'} for part in path.parts):
-        raise ValueError(f'unsafe backup archive path: {value}')
+        raise BackupError(f'unsafe backup archive path: {value}')
     if ':' in path.parts[0]:
-        raise ValueError(f'unsafe backup archive path: {value}')
+        raise BackupError(f'unsafe backup archive path: {value}')
     return path
 
 
@@ -200,7 +209,7 @@ def _safe_data_path(data_dir: Path, relative_path: str) -> Path:
     try:
         resolved.relative_to(root)
     except ValueError as exc:
-        raise ValueError(f'backup file escapes native data root: {relative_path}') from exc
+        raise BackupError(f'backup file escapes native data root: {relative_path}') from exc
     return target
 
 
@@ -227,27 +236,27 @@ def _assert_safe_backup_destination(data_dir: Path, destination: Path) -> None:
     """
     source_database = _canonical_data_path(data_dir / DATABASE_NAME)
     if destination == source_database or _same_file(destination, source_database):
-        raise ValueError(
+        raise BackupError(
             f'backup destination overlaps the live native database: {destination}'
         )
     assets_root = _canonical_data_path(data_dir / MEASUREMENT_ASSETS_NAME)
     if destination.is_relative_to(assets_root):
-        raise ValueError(
+        raise BackupError(
             'backup destination is inside the managed measurement-assets '
             f'directory: {destination}'
         )
     if destination.is_dir():
-        raise ValueError(f'backup destination is a directory: {destination}')
+        raise BackupError(f'backup destination is a directory: {destination}')
     if not source_database.is_file():
         return
     try:
         asset_rows = _asset_rows(source_database)
     except sqlite3.DatabaseError as exc:
-        raise ValueError(f'native backup database is invalid: {exc}') from exc
+        raise BackupError(f'native backup database is invalid: {exc}') from exc
     for _digest, relative_path, _size_bytes in asset_rows:
         asset_path = _canonical_data_path(_safe_data_path(data_dir, relative_path))
         if destination == asset_path or _same_file(destination, asset_path):
-            raise ValueError(
+            raise BackupError(
                 'backup destination overlaps a managed measurement asset: '
                 f'{relative_path}'
             )
@@ -255,24 +264,24 @@ def _assert_safe_backup_destination(data_dir: Path, destination: Path) -> None:
 
 def _sqlite_health(path: Path) -> None:
     if not path.is_file():
-        raise ValueError('native backup database is missing')
+        raise BackupError('native backup database is missing')
     try:
         with closing(sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True)) as connection:
             integrity = connection.execute('PRAGMA integrity_check').fetchall()
             if integrity != [('ok',)]:
-                raise ValueError(f'SQLite integrity check failed: {integrity!r}')
+                raise BackupError(f'SQLite integrity check failed: {integrity!r}')
             foreign_keys = connection.execute('PRAGMA foreign_key_check').fetchall()
             if foreign_keys:
-                raise ValueError(f'SQLite foreign-key check failed: {foreign_keys!r}')
+                raise BackupError(f'SQLite foreign-key check failed: {foreign_keys!r}')
             # Semantic health (#313): physical/FK checks cannot see a row
             # whose duplicated columns drifted from its canonical payload.
             verify_native_row_integrity(connection)
         try:
             check_native_schema_compatibility(path)
         except NativeSchemaError as exc:
-            raise ValueError(f'native backup database schema is incompatible: {exc}') from exc
+            raise BackupError(f'native backup database schema is incompatible: {exc}') from exc
     except sqlite3.DatabaseError as exc:
-        raise ValueError(f'native backup database is invalid: {exc}') from exc
+        raise BackupError(f'native backup database is invalid: {exc}') from exc
 
 
 def _assert_staged_database_openable(database_path: Path) -> None:
@@ -309,7 +318,7 @@ def _assert_staged_database_openable(database_path: Path) -> None:
 
             SceneRepository(probe_path)
         except (NativeSchemaError, sqlite3.DatabaseError) as exc:
-            raise ValueError(
+            raise BackupError(
                 'native backup database cannot be opened by this application: '
                 f'{exc}'
             ) from exc
@@ -433,26 +442,29 @@ def _validate_asset_contract(
     for digest, relative_path, size_bytes in asset_rows:
         _safe_archive_path(relative_path)
         if relative_path in seen_paths:
-            raise ValueError(f'duplicate measurement asset path in database: {relative_path}')
+            raise BackupError(f'duplicate measurement asset path in database: {relative_path}')
         seen_paths.add(relative_path)
         # The per-asset file contract (digest shape, containment, regular
         # file, stored size, streamed SHA-256) is the same core check the
         # N60 runtime measurement authority applies on evidence reads.
-        verify_managed_asset(
-            data_dir=data_dir,
-            digest=digest,
-            relative_path=relative_path,
-            size_bytes=size_bytes,
-        )
+        try:
+            verify_managed_asset(
+                data_dir=data_dir,
+                digest=digest,
+                relative_path=relative_path,
+                size_bytes=size_bytes,
+            )
+        except ManagedAssetError as exc:
+            raise BackupError(str(exc)) from exc
         if manifest is not None:
             entry = manifest_assets.get(relative_path)
             if entry is None:
-                raise ValueError(f'measurement asset missing from backup manifest: {relative_path}')
+                raise BackupError(f'measurement asset missing from backup manifest: {relative_path}')
             if entry.sha256 != digest or entry.size_bytes != size_bytes:
-                raise ValueError(f'measurement asset manifest mismatch: {relative_path}')
+                raise BackupError(f'measurement asset manifest mismatch: {relative_path}')
     if manifest is not None and set(manifest_assets) != seen_paths:
         extras = sorted(set(manifest_assets) - seen_paths)
-        raise ValueError(f'backup manifest contains unreferenced measurement assets: {extras}')
+        raise BackupError(f'backup manifest contains unreferenced measurement assets: {extras}')
 
 
 def _snapshot_database(source_path: Path, destination_path: Path) -> None:
@@ -464,7 +476,7 @@ def _snapshot_database(source_path: Path, destination_path: Path) -> None:
             source.backup(destination)
             destination.commit()
     except sqlite3.DatabaseError as exc:
-        raise ValueError(f'could not create consistent SQLite backup: {exc}') from exc
+        raise BackupError(f'could not create consistent SQLite backup: {exc}') from exc
     _sqlite_health(destination_path)
 
 
@@ -602,7 +614,7 @@ def _create_backup(
             source_asset = _safe_data_path(data_dir, relative_path)
             target_asset = _safe_data_path(snapshot_root, relative_path)
             if source_asset.is_symlink() or not source_asset.is_file():
-                raise ValueError(f'measurement asset is missing or not a regular file: {relative_path}')
+                raise BackupError(f'measurement asset is missing or not a regular file: {relative_path}')
             target_asset.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_asset, target_asset)
 
@@ -620,7 +632,7 @@ def _create_backup(
             source_member = _safe_data_path(data_dir, member)
             target_member = _safe_data_path(snapshot_root, member)
             if source_member.is_symlink() or not source_member.is_file():
-                raise ValueError(f'legacy archive member is missing or not a regular file: {member}')
+                raise BackupError(f'legacy archive member is missing or not a regular file: {member}')
             target_member.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_member, target_member)
 
@@ -686,13 +698,13 @@ def _create_backup(
 def _zip_entries(archive: ZipFile) -> dict[str, ZipInfo]:
     infos = archive.infolist()
     if len(infos) > MAX_NATIVE_BACKUP_MEMBERS:
-        raise ValueError(
+        raise BackupError(
             f'backup archive has too many members: {len(infos)} '
             f'(limit={MAX_NATIVE_BACKUP_MEMBERS})'
         )
     names = [info.filename for info in infos]
     if len(names) != len(set(names)):
-        raise ValueError('backup archive contains duplicate member names')
+        raise BackupError('backup archive contains duplicate member names')
 
     expanded_total = 0
     entries: dict[str, ZipInfo] = {}
@@ -700,17 +712,17 @@ def _zip_entries(archive: ZipFile) -> dict[str, ZipInfo]:
         _safe_archive_path(info.filename)
         mode = (info.external_attr >> 16) & 0o170000
         if mode == stat.S_IFLNK:
-            raise ValueError(f'backup archive contains a symlink: {info.filename}')
+            raise BackupError(f'backup archive contains a symlink: {info.filename}')
         if info.is_dir():
-            raise ValueError(f'backup archive contains an unexpected directory entry: {info.filename}')
+            raise BackupError(f'backup archive contains an unexpected directory entry: {info.filename}')
         if info.file_size > MAX_NATIVE_BACKUP_MEMBER_BYTES:
-            raise ValueError(
+            raise BackupError(
                 f'backup member is too large: {info.filename} '
                 f'({info.file_size} bytes)'
             )
         expanded_total += info.file_size
         if expanded_total > MAX_NATIVE_BACKUP_EXPANDED_BYTES:
-            raise ValueError(
+            raise BackupError(
                 'backup expanded size exceeds limit: '
                 f'{expanded_total} > {MAX_NATIVE_BACKUP_EXPANDED_BYTES}'
             )
@@ -719,7 +731,7 @@ def _zip_entries(archive: ZipFile) -> dict[str, ZipInfo]:
             and info.file_size / max(1, info.compress_size)
             > MAX_NATIVE_BACKUP_COMPRESSION_RATIO
         ):
-            raise ValueError(
+            raise BackupError(
                 f'backup member compression ratio is excessive: {info.filename}'
             )
         entries[info.filename] = info
@@ -729,17 +741,17 @@ def _zip_entries(archive: ZipFile) -> dict[str, ZipInfo]:
 def _read_manifest(archive: ZipFile, entries: dict[str, ZipInfo]) -> BackupManifest:
     info = entries.get(MANIFEST_NAME)
     if info is None:
-        raise ValueError('backup manifest is missing')
+        raise BackupError('backup manifest is missing')
     if info.file_size > MAX_NATIVE_BACKUP_MANIFEST_BYTES:
-        raise ValueError('backup manifest exceeds size limit')
+        raise BackupError('backup manifest exceeds size limit')
     try:
         with archive.open(info, 'r') as source:
             payload = source.read(MAX_NATIVE_BACKUP_MANIFEST_BYTES + 1)
         if len(payload) > MAX_NATIVE_BACKUP_MANIFEST_BYTES:
-            raise ValueError('backup manifest exceeds size limit')
+            raise BackupError('backup manifest exceeds size limit')
         return BackupManifest.model_validate_json(payload)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise ValueError(f'backup manifest is invalid: {exc}') from exc
+        raise BackupError(f'backup manifest is invalid: {exc}') from exc
 
 
 def _extract_verified_member(
@@ -755,18 +767,18 @@ def _extract_verified_member(
         while chunk := source.read(1024 * 1024):
             written += len(chunk)
             if written > entry.size_bytes:
-                raise ValueError(f'backup member decoded size mismatch: {entry.path}')
+                raise BackupError(f'backup member decoded size mismatch: {entry.path}')
             digest.update(chunk)
             output.write(chunk)
     if written != entry.size_bytes:
-        raise ValueError(f'backup member decoded size mismatch: {entry.path}')
+        raise BackupError(f'backup member decoded size mismatch: {entry.path}')
     if digest.hexdigest() != entry.sha256:
-        raise ValueError(f'backup member SHA-256 mismatch: {entry.path}')
+        raise BackupError(f'backup member SHA-256 mismatch: {entry.path}')
 
 
 def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, int]:
     if backup_path.stat().st_size > MAX_NATIVE_BACKUP_ARCHIVE_BYTES:
-        raise ValueError(
+        raise BackupError(
             'backup archive exceeds size limit: '
             f'{backup_path.stat().st_size} > {MAX_NATIVE_BACKUP_ARCHIVE_BYTES}'
         )
@@ -777,7 +789,7 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
             expected = {MANIFEST_NAME, *(entry.path for entry in manifest.files)}
             actual = set(entries)
             if actual != expected:
-                raise ValueError(
+                raise BackupError(
                     f'backup archive members do not match manifest: '
                     f'missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}'
                 )
@@ -785,11 +797,11 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
             for entry in manifest.files:
                 info = entries[entry.path]
                 if info.file_size != entry.size_bytes:
-                    raise ValueError(f'backup member size mismatch: {entry.path}')
+                    raise BackupError(f'backup member size mismatch: {entry.path}')
                 target = _safe_data_path(stage_root, entry.path)
                 _extract_verified_member(archive, info, entry, target)
     except BadZipFile as exc:
-        raise ValueError(f'backup archive is not a valid ZIP container: {exc}') from exc
+        raise BackupError(f'backup archive is not a valid ZIP container: {exc}') from exc
 
     database_path = stage_root / DATABASE_NAME
     _sqlite_health(database_path)
@@ -802,7 +814,7 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
         manifest.native_schema_version is not None
         and manifest.native_schema_version != staged_schema_version
     ):
-        raise ValueError(
+        raise BackupError(
             'backup manifest native schema version does not match the '
             'staged database: manifest='
             f'{manifest.native_schema_version} staged={staged_schema_version}'

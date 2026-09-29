@@ -6,7 +6,7 @@ Policy (from the #578 review contract):
 3. raw ids/hashes only under details/copy technical info unless no human
    identity exists;
 4. unnamed revisions/plans receive generated human labels such as
-   ``2026-09-24 18:42 の保存`` instead of leaking hash/UUID fragments;
+   ``2026年9月24日 18:42 の保存`` instead of leaking hash/UUID fragments;
 5. selection widgets retain exact ids as hidden data — never fuzzy-resolve
    a selection by display text (widgets keep ids in ``UserRole``).
 
@@ -19,6 +19,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Mapping, Protocol
 
+from .localization import format_datetime
+
 
 class _HasLabel(Protocol):
     label: str
@@ -27,7 +29,7 @@ class _HasLabel(Protocol):
 def saved_label(created_at_utc: str) -> str:
     """Generated human label for an unnamed saved authority (#578).
 
-    ``2026-09-24 18:42 の保存`` — derived from the ISO-8601 UTC timestamp
+    ``2026年9月24日 18:42 の保存`` — derived from the ISO-8601 UTC timestamp
     every persisted authority carries. Falls back to the raw timestamp
     string rather than fabricating an identity when it is not parseable.
     """
@@ -36,7 +38,7 @@ def saved_label(created_at_utc: str) -> str:
         parsed = datetime.fromisoformat(created_at_utc.replace('Z', '+00:00'))
     except (AttributeError, ValueError):
         return created_at_utc
-    return f'{parsed:%Y-%m-%d %H:%M} の保存'
+    return f'{format_datetime(parsed)} の保存'
 
 
 def named_or_saved_label(name: str | None, created_at_utc: str) -> str:

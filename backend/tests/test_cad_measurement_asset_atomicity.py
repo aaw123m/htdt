@@ -249,7 +249,9 @@ def test_concurrent_same_digest_distinct_measurements_share_single_asset(
 
     assert results.count('ok') == 2
     assert target.read_bytes() == source
-    expected_relative = str(Path('measurement-assets') / digest)
+    # Persisted relative paths are always POSIX ('/' separators) so a project
+    # moved between platforms resolves identically.
+    expected_relative = f'measurement-assets/{digest}'
     assert _asset_rows(repository) == [(digest, expected_relative, len(source))]
     assert repository.get_measurement(record_a.measurement_id) == record_a
     assert repository.get_measurement(record_b.measurement_id) == record_b
