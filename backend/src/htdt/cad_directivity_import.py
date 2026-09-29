@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from hashlib import sha256
 import io
-from math import isfinite, log10
+from math import log10
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -30,6 +30,7 @@ from .cad_equipment import (
     InterpolationMethod,
     InterpolationProvenance,
 )
+from .ingress import strict_ascii_number
 
 
 DIRECTIVITY_IMPORT_REGISTRY_ID = 'htdt.directivity-import-adapters'
@@ -379,7 +380,9 @@ _ALLOWED_OPTIONAL_METADATA = {'reference_level_db', 'phase_reference'}
 
 def _parse_metadata_and_rows(source_bytes: bytes) -> tuple[dict[str, str], list[str]]:
     try:
-        text = source_bytes.decode('utf-8', errors='strict')
+        # utf-8-sig: a leading BOM is legal (Excel's "CSV UTF-8" writes one)
+        # while any other non-UTF-8 byte sequence still fails closed.
+        text = source_bytes.decode('utf-8-sig', errors='strict')
     except UnicodeDecodeError as exc:
         raise ValueError('polar_table source must be strict UTF-8') from exc
     lines = text.splitlines()
@@ -416,13 +419,7 @@ def _parse_metadata_and_rows(source_bytes: bytes) -> tuple[dict[str, str], list[
 
 
 def _finite_number(value: str, *, field_name: str) -> float:
-    try:
-        number = float(value)
-    except ValueError as exc:
-        raise ValueError(f'{field_name} must be numeric') from exc
-    if not isfinite(number):
-        raise ValueError(f'{field_name} must be finite')
-    return number
+    return strict_ascii_number(value, field_name=field_name)
 
 
 def _validate_angles(

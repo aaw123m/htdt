@@ -44,6 +44,7 @@ from .cad_external_admission import (
     external_asset_file,
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
+from .ingress import strict_ascii_number
 
 
 FOAM_BATCH_AUTHORITY_VERSION = 'foam-batch-1'
@@ -346,7 +347,9 @@ def parse_jcal_params_csv(text: str, *, admission_id: str) -> (
                 f'unrecognized JCAL parameter name: {key!r}'
             )
         try:
-            values[field] = float(row[1])
+            values[field] = strict_ascii_number(
+                row[1], field_name=f'JCAL parameter {key}'
+            )
         except ValueError:
             raise ValueError(
                 f'JCAL parameter {key!r} is not numeric: {row[1]!r}'

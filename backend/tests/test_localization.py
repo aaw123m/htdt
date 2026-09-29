@@ -126,8 +126,8 @@ def test_language_policy_resolution() -> None:
 
 def test_locale_formatting() -> None:
     moment = datetime(2026, 9, 23, 22, 17, tzinfo=timezone.utc)
-    assert format_datetime(moment, PresentationLocale.JAPANESE) == '2026年9月23日 22:17'
-    assert format_datetime(moment, PresentationLocale.ENGLISH) == '2026-09-23 22:17'
+    assert format_datetime(moment, PresentationLocale.JAPANESE) == '2026年9月23日 22:17 UTC'
+    assert format_datetime(moment, PresentationLocale.ENGLISH) == '2026-09-23 22:17 UTC'
     assert format_decimal(12345.6, places=1, locale=PresentationLocale.ENGLISH) == '12,345.6'
     assert format_bytes(1536) == '1.5 KB'
     assert format_percent(0.823, places=0) == '82%'

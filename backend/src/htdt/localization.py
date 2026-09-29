@@ -335,16 +335,24 @@ def format_datetime(
     value: datetime,
     locale: PresentationLocale = DEFAULT_LOCALE,
 ) -> str:
-    """Locale-aware timestamp (``2026-09-23 22:17`` vs ``2026年9月23日 22:17``)."""
+    """Locale-aware UTC timestamp (``2026-09-23 22:17 UTC`` vs ``2026年9月23日 22:17 UTC``).
+
+    Every persisted timestamp in the app is UTC — an unlabeled date+time
+    reads as local wall time, so the zone is always marked.
+    """
 
     local = value.astimezone(timezone.utc) if value.tzinfo else value
     rules = _rules(locale)
     if locale == PresentationLocale.JAPANESE:
         return (
             f'{local.year}{rules.year_suffix}{local.month}{rules.month_suffix}'
-            f'{local.day}{rules.day_suffix} {local.hour:02d}:{local.minute:02d}'
+            f'{local.day}{rules.day_suffix} '
+            f'{local.hour:02d}:{local.minute:02d} UTC'
         )
-    return f'{local.year:04d}-{local.month:02d}-{local.day:02d} {local.hour:02d}:{local.minute:02d}'
+    return (
+        f'{local.year:04d}-{local.month:02d}-{local.day:02d} '
+        f'{local.hour:02d}:{local.minute:02d} UTC'
+    )
 
 
 def format_date(value: date, locale: PresentationLocale = DEFAULT_LOCALE) -> str:

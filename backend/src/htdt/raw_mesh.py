@@ -15,6 +15,7 @@ from .limits import (
     MAX_CAPTURE_INGEST_VERTEX_COUNT,
 )
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
+from .ingress import strict_ascii_number
 
 
 RAW_MESH_IMPORTER_ID = 'htdt.raw_visual_mesh'
@@ -517,7 +518,11 @@ def _parse_obj(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]
                 raise RawMeshImportError(f'OBJ line {line_number}: vertex requires x y z')
             try:
                 vertices.append(
-                    RawMeshVertex(x=float(fields[1]), y=float(fields[2]), z=float(fields[3]))
+                    RawMeshVertex(
+                        x=strict_ascii_number(fields[1], field_name='x'),
+                        y=strict_ascii_number(fields[2], field_name='y'),
+                        z=strict_ascii_number(fields[3], field_name='z'),
+                    )
                 )
             except (ValueError, TypeError) as exc:
                 raise RawMeshImportError(f'OBJ line {line_number}: invalid vertex') from exc
@@ -791,7 +796,10 @@ def _parse_stl(asset: bytes) -> tuple[list[RawMeshVertex], list[RawMeshTriangle]
                 if len(fields) != 4:
                     raise RawMeshImportError('ASCII STL vertex line is malformed')
                 try:
-                    coords.extend(float(component) for component in fields[1:])
+                    coords.extend(
+                        strict_ascii_number(component, field_name='vertex')
+                        for component in fields[1:]
+                    )
                 except ValueError as exc:
                     raise RawMeshImportError('ASCII STL vertex is not numeric') from exc
             elif fields[:1] == ['endfacet']:

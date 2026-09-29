@@ -129,9 +129,9 @@ def test_backup_error_maps_to_backup_specific_message() -> None:
 
 def test_saved_label_uses_locale_datetime_format() -> None:
     assert saved_label('2026-09-24T18:42:31+00:00') == (
-        '2026年9月24日 18:42 の保存'
+        '2026年9月24日 18:42 UTC の保存'
     )
-    assert saved_label('2026-09-24T18:42:31Z') == '2026年9月24日 18:42 の保存'
+    assert saved_label('2026-09-24T18:42:31Z') == '2026年9月24日 18:42 UTC の保存'
     assert saved_label('not-a-timestamp') == 'not-a-timestamp'
 
 
