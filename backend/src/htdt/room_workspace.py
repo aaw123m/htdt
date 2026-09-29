@@ -1169,7 +1169,7 @@ class RoomWorkspaceController:
             raise EditStateError("復旧可能な下書きを処理してから履歴を復元してください")
         if self.working.has_preview:
             raise EditStateError("プレビュー中は復元できません")
-        if self.working.is_dirty:
+        if self.is_dirty:
             raise EditStateError("未保存の変更を保存または元に戻してから履歴を復元してください")
         head = self.repository.current_head(self.document_id)
         if head is not None and revision.revision_id == head.revision_id:
@@ -3419,6 +3419,20 @@ class SelectionInspector(QFrame):
                         return True
                     index = editor.AXES.index(axis)
                     return abs(field.value() - baseline[index]) <= 1e-9
+        orientation_baseline = self._baseline.get("orientation")
+        for index, field in enumerate(self.orientation_fields.values()):
+            if widget is field:
+                if orientation_baseline is None:
+                    return True
+                return abs(field.value() - orientation_baseline[index]) <= 1e-9
+        aim_baseline = self._baseline.get("aim")
+        for index, field in enumerate(
+            (self.aim_yaw_field, self.aim_pitch_field)
+        ):
+            if widget is field:
+                if aim_baseline is None:
+                    return True
+                return abs(field.value() - aim_baseline[index]) <= 1e-9
         return False
 
     @staticmethod
@@ -5704,6 +5718,13 @@ class RoomWorkspace(QWidget):
                 if e.kind == "seat"
             ):
                 del seat_bindings[stale_id]
+        for stale_id in list(screen_bindings):
+            if all(
+                e.entity_id != stale_id
+                for e in self.controller.document.entities
+                if e.kind == "screen"
+            ):
+                del screen_bindings[stale_id]
         policy_values = self.video_panel.current_policy_values()
         policy = workspace.policy.model_copy(
             update={
@@ -5752,6 +5773,16 @@ class RoomWorkspace(QWidget):
         """Persist/clear the selected listener pose for a seat (#632) and
         materialize its offsets into the seat card spins so what the user
         sees is exactly what the pose authority says."""
+        seat = next(
+            (
+                entity
+                for entity in self.controller.document.entities
+                if entity.entity_id == seat_id and entity.kind == "seat"
+            ),
+            None,
+        )
+        if seat is None:
+            return
         if pose_id is None:
             self.listener_pose_repository.clear_selection(
                 self.controller.document_id, seat_id
@@ -5784,6 +5815,16 @@ class RoomWorkspace(QWidget):
         self, screen_id: str, transfer_id: object
     ) -> None:
         """Persist/clear the selected screen-transfer authority (#541)."""
+        screen = next(
+            (
+                entity
+                for entity in self.controller.document.entities
+                if entity.entity_id == screen_id and entity.kind == "screen"
+            ),
+            None,
+        )
+        if screen is None:
+            return
         if transfer_id is None:
             self.screen_transfer_repository.clear_selection(
                 self.controller.document_id, screen_id
@@ -6265,6 +6306,12 @@ class RoomWorkspace(QWidget):
             ),
             labels=labels,
         )
+        selected_id = self.history_panel.selected_revision_id()
+        if selected_id is not None:
+            # Keep the open diff live against the (possibly new) HEAD instead
+            # of resetting the detail pane to the summary line.
+            self._history_diff(selected_id)
+            return
         self.history_panel.show_detail(
             f"リビジョン数: {len(revisions)} · HEAD: "
             + (
@@ -6804,6 +6851,7 @@ class RoomWorkspace(QWidget):
         self._sync_objects_panel()
         if self.current_context == "placement":
             self._sync_constraints_panel()
+            self._sync_video_panel()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:

@@ -616,6 +616,9 @@ class RoomVideoPanel(QWidget):
         self.seats_box.setSpacing(2)
         layout.addLayout(self.seats_box)
         self._seat_widgets: dict[str, dict[str, QWidget]] = {}
+        # (entity_id, name) pairs of the seats + risers the cards were built
+        # from — a rename keeps the id, so ids alone cannot detect staleness.
+        self._seat_signature: tuple[tuple[str, str], ...] = ()
         # #1056: seats whose eye/head numbers were explicitly materialized
         # (stored non-legacy binding, bound pose, or user-edited spins).
         # Untouched widget defaults never become seat bindings.
@@ -828,6 +831,11 @@ class RoomVideoPanel(QWidget):
                     self.screen_offset_z.setValue(binding.image_center_offset_local_m.z_m)
                     self.frame_clearance.setValue(binding.frame_clearance_m)
                 self._screen_entity_id = screen.entity_id
+            else:
+                # No screen entity in the document — the transfer combo and
+                # save button must not keep writing against a stale id.
+                self._screen_entity_id = None
+                self.screen_heading.setText("スクリーン画素（バインド未設定）")
 
             if displays:
                 display = next(
@@ -867,9 +875,16 @@ class RoomVideoPanel(QWidget):
             else:
                 self.display_heading.setText("ディスプレイ有効画域（バインド未設定）")
 
-            # Rebuild per-seat rows only when seat set changed.
-            seat_ids = [entity.entity_id for entity in seats]
-            if list(self._seat_widgets) != seat_ids:
+            # Rebuild per-seat rows when the seat/riser signature changed —
+            # card labels and the riser combo bake names in at build time.
+            risers = [
+                entity for entity in document.entities if entity.kind == 'riser'
+            ]
+            seat_signature = tuple(
+                (entity.entity_id, entity.name) for entity in (*seats, *risers)
+            )
+            if self._seat_signature != seat_signature:
+                self._seat_signature = seat_signature
                 while self.seats_box.count():
                     item = self.seats_box.takeAt(0)
                     widget = item.widget()
@@ -877,7 +892,6 @@ class RoomVideoPanel(QWidget):
                         widget.deleteLater()
                 self._seat_widgets = {}
                 self.seat_view_combo.clear()
-                risers = [entity for entity in document.entities if entity.kind == 'riser']
                 for seat in seats:
                     card = QWidget()
                     form = QFormLayout(card)
