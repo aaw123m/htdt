@@ -613,7 +613,7 @@ class CaptureReceiverService:
     def list_pairings(self) -> tuple[ReceiverPairing, ...]:
         with closing(self._connect()) as connection:
             rows = connection.execute(
-                'SELECT * FROM capture_receiver_pairings ORDER BY created_at_utc'
+                'SELECT * FROM capture_receiver_pairings ORDER BY created_at_utc, pairing_id'
             ).fetchall()
             return tuple(self._pairing_from_row(row) for row in rows)
 

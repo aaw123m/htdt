@@ -920,7 +920,12 @@ def ambient_overall_level_db(profile: AmbientNoiseProfile) -> float | None:
         return profile.overall_level_db
     if profile.level_semantics != 'absolute_spl' or not profile.band_level_db:
         return None
-    energy = sum(10.0 ** (level / 10.0) for level in profile.band_level_db)
+    # Finite-but-extreme band levels clamp to the representable power bound
+    # instead of raising OverflowError (see the smoothing convention).
+    energy = sum(
+        10.0 ** min(max(level / 10.0, -300.0), 300.0)
+        for level in profile.band_level_db
+    )
     if energy <= 0:
         return None
     return 10.0 * log10(energy)
@@ -1466,7 +1471,7 @@ class CadAmbientNoiseRepository:
     def list_profiles(self, document_id: str) -> tuple[AmbientNoiseProfile, ...]:
         with self._connect() as connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_ambient_profiles WHERE document_id=? ORDER BY created_at_utc',
+                'SELECT payload_json FROM cad_ambient_profiles WHERE document_id=? ORDER BY created_at_utc, profile_id',
                 (document_id,),
             ).fetchall()
         return tuple(

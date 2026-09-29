@@ -198,7 +198,11 @@ def compute_minimum_phase_deg(
                 'sub-band measurement axes need a producer-derived minimum '
                 'phase instead'
             )
-    magnitudes = tuple(10.0 ** (v / 20.0) for v in level_db)
+    # Saturate the power exponent like the smoothing authority: finite
+    # level inputs outside the representable linear range clamp to the
+    # honest bound instead of raising OverflowError (not a ValueError,
+    # so it would escape every caller's except-ValueError contract).
+    magnitudes = tuple(10.0 ** min(max(v / 20.0, -300.0), 300.0) for v in level_db)
     floor = min(magnitudes)
     if floor <= 0.0:
         magnitudes = tuple(max(v, floor * 1e-3, 1e-12) for v in magnitudes)

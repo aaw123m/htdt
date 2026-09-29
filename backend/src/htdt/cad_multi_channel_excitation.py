@@ -678,7 +678,10 @@ def compose_coherent_system_response(
     multipliers: dict[str, list[complex]] = {}
     applied_refs: list[ExactExternalAuthorityRef] = []
     for participant in scenario.participants:
-        gain = 10.0 ** (participant.drive.gain_db / 20.0)
+        try:
+            gain = 10.0 ** (participant.drive.gain_db / 20.0)
+        except OverflowError as exc:
+            raise ValueError('drive gain_db out of representable range') from exc
         polarity = float(participant.drive.polarity)
         delay = participant.drive.delay_s
         base = [

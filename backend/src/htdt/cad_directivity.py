@@ -1116,7 +1116,9 @@ def evaluate_directivity(
     exact_key = (frequency, horizontal, vertical)
     exact = samples.get(exact_key)
     if exact is not None:
-        magnitude_linear = 10.0 ** (exact.magnitude_db / 20.0)
+        magnitude_linear = 10.0 ** min(
+            max(exact.magnitude_db / 20.0, -300.0), 300.0
+        )
         phase_deg: float | None = None
         complex_real: float | None = None
         complex_imag: float | None = None
@@ -1240,7 +1242,9 @@ def evaluate_directivity(
             weight * sample.magnitude_db
             for sample, weight in weighted_samples
         )
-        magnitude_linear = 10.0 ** (magnitude_db / 20.0)
+        magnitude_linear = 10.0 ** min(
+            max(magnitude_db / 20.0, -300.0), 300.0
+        )
         return _make_evaluation_result(
             dataset=dataset,
             decision='SUPPORTED',
@@ -1273,7 +1277,9 @@ def evaluate_directivity(
             return unsupported(
                 'required complex interpolation sample lacks phase'
             )
-        magnitude = 10.0 ** (sample.magnitude_db / 20.0)
+        magnitude = 10.0 ** min(
+            max(sample.magnitude_db / 20.0, -300.0), 300.0
+        )
         angle_rad = radians(sample.phase_deg)
         complex_value += weight * complex(
             magnitude * cos(angle_rad),

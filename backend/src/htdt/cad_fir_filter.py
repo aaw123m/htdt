@@ -479,7 +479,11 @@ def _artifact_response(
     phase_terms = np.exp(-2j * pi * np.outer(freqs, k) / artifact.sample_rate_hz)
     response = phase_terms @ taps
     # Constant output gain folds into the complex response.
-    response = response * (10.0 ** (artifact.gain_db / 20.0))
+    try:
+        output_gain = 10.0 ** (artifact.gain_db / 20.0)
+    except OverflowError as exc:
+        raise ValueError('fir artifact gain_db out of representable range') from exc
+    response = response * output_gain
     magnitude = np.abs(response)
     phase = np.unwrap(np.angle(response))
     group_delay = (
