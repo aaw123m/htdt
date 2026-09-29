@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Literal
 import weakref
 
-from PySide6.QtCore import QByteArray, QPointF, Qt
+from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -813,7 +813,8 @@ class WorkflowApplicationComposition:
                     error_summary=operation_error_message(error),
                 )
             self.shell.statusBar().showMessage(
-                '自動バックアップを作成できませんでした'
+                '自動バックアップを作成できませんでした '
+                f'· {operation_error_message(error)}'
             )
             return
         if result is None:
@@ -1847,6 +1848,15 @@ class WorkflowApplicationComposition:
             ),
             open_link=self._open_activity_link,
         )
+
+        def _queue_refresh(_operation: object) -> None:
+            # Listeners fire synchronously on the mutating thread, and
+            # refresh is pull-on-activate otherwise — queue it so the ops
+            # table tracks op state while the page stays open. A deleted
+            # receiver drops its posted calls, so the page's teardown is safe.
+            QTimer.singleShot(0, page, page.refresh)
+
+        self.activity_center.subscribe(_queue_refresh)
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
