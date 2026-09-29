@@ -131,6 +131,10 @@ def provider_response_request_identity(
         raise ValueError(
             'requested band exceeds the provider valid frequency domain'
         )
+    if float(max_mode_hz) < float(domain.minimum_hz):
+        raise ValueError(
+            'requested band is below the provider valid frequency domain'
+        )
 
     parameters = canonical_prediction_json(
         {
