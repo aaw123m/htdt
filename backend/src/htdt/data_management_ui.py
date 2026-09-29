@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
 
@@ -170,7 +170,9 @@ def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> b
 
 
 def _default_backup_name(now: datetime | None = None) -> str:
-    stamp = (now or datetime.now()).strftime("%Y-%m-%d-%H%M")
+    # UTC + 'Z' marker: every persisted timestamp in the app is UTC, and an
+    # unlabeled local stamp in the filename reads as a different instant.
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d-%H%MZ")
     return f"HTDT-backup-{stamp}{_BACKUP_SUFFIX}"
 
 
@@ -189,7 +191,7 @@ def _format_bytes(value: int) -> str:
 def _format_created_at(value: str) -> str:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed.astimezone().strftime("%Y/%m/%d %H:%M")
+        return parsed.astimezone(timezone.utc).strftime("%Y/%m/%d %H:%M UTC")
     except ValueError:
         return value
 

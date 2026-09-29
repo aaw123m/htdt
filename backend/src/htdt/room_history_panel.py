@@ -9,6 +9,8 @@ rewind, so every save keeps a valid audit trail.
 
 from __future__ import annotations
 
+import re
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -190,9 +192,13 @@ class RoomHistoryPanel(QWidget):
             label = labels.get(revision.revision_id)
             label_text = label.label if label is not None else ''
             kinds = ' '.join(f'{name}×{count}' for name, count in summary.kind_counts)
+            # Drop sub-second precision but keep the zone suffix — a bare
+            # 'YYYY-MM-DD HH:MM:SS' cell reads as local wall time while the
+            # stored instant is UTC.
+            stamp = re.sub(r'\.\d+', '', revision.created_at_utc).replace('T', ' ')
             item = QTreeWidgetItem(
                 [
-                    revision.created_at_utc.replace('T', ' ')[:19] + marker + detached,
+                    stamp + marker + detached,
                     label_text,
                     f'{summary.entity_count}項目 · {kinds}' + ('' if summary.has_room else ' · 部屋なし'),
                 ]
