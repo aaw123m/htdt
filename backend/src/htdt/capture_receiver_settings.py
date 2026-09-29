@@ -178,9 +178,13 @@ class PairingDialog(QDialog):
             return
         expected = self._pairing.confirmation_code
         entered = self.confirm_code_edit.text().strip()
-        if expected and entered and expected != entered:
-            self.status_label.setText("確認コードが一致しません。")
-            return
+        if expected:
+            if not entered:
+                self.status_label.setText("確認コードを入力してください。")
+                return
+            if expected != entered:
+                self.status_label.setText("確認コードが一致しません。")
+                return
         try:
             pairing = self._controller.service.confirm_pairing(
                 self._pairing.pairing_id

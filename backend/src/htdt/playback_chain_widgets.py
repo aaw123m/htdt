@@ -507,8 +507,6 @@ class PlaybackChainDialog(QDialog):
         form.addRow("ピーク出力電圧 V RMS", self.amp_peak_v)
         self.amp_gain = QDoubleSpinBox()
         self.amp_gain.setRange(-40.0, 60.0)
-        self.amp_gain.setSpecialValueText("不明")
-        self.amp_gain.setMinimum(-40.0)
         self.amp_gain.setValue(0.0)
         form.addRow("ゲイン dB（0=不明扱い）", self.amp_gain)
         self.amp_channels = QDoubleSpinBox()

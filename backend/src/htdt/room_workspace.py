@@ -4432,7 +4432,10 @@ class RoomWorkspace(QWidget):
             return False
         name, ok = QInputDialog.getText(self, "ビューを保存", "ビュー名:")
         name = (name or "").strip()
-        if not ok or not name:
+        if not ok:
+            return False
+        if not name:
+            self._set_status("ビュー名を入力してください", error=True)
             return False
         hidden = sorted(self.controller.view_state.hidden_ids)
         spec = NamedViewSpec(
@@ -5795,7 +5798,10 @@ class RoomWorkspace(QWidget):
         label, ok = QInputDialog.getText(
             self, "ポーズ保存", "ポーズ名:", text=f"{seat.name} ポーズ"
         )
-        if not ok or not label.strip():
+        if not ok:
+            return
+        if not label.strip():
+            self._set_status("ポーズ名を入力してください", error=True)
             return
         widgets = self.video_panel._seat_widgets.get(seat_id)
         if widgets is None:
@@ -6925,6 +6931,25 @@ class SeatingLayoutDialog(QDialog):
                 self.riser_field.setCurrentIndex(idx)
         form.addRow("ライザー参照 (全列)", self.riser_field)
 
+        if existing is not None:
+            uniform = {
+                (
+                    row.count,
+                    row.spacing_m,
+                    row.row_spacing_m,
+                    row.stagger,
+                    row.riser_entity_id,
+                )
+                for row in existing.rows
+            }
+            if len(uniform) > 1:
+                note = QLabel(
+                    "注意: このレイアウトは列ごとの設定が異なります。"
+                    "ここで保存すると全列が最初の列の設定に均一化されます。"
+                )
+                note.setWordWrap(True)
+                form.addRow(note)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
@@ -6932,6 +6957,16 @@ class SeatingLayoutDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
+
+    def accept(self) -> None:
+        # Validate the aisle syntax while the dialog is still open — a
+        # post-close rejection would lose the whole form to a typo.
+        try:
+            self._parse_aisles()
+        except ValueError as exc:
+            warn_user(self, "座席レイアウトを適用できませんでした", exc)
+            return
+        super().accept()
 
     def spec(self) -> SeatingLayoutSpec | None:
         name = self.name_field.text().strip() or "座席ブロック"

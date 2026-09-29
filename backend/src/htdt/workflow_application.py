@@ -1070,7 +1070,12 @@ class WorkflowApplicationComposition:
         name, ok = QInputDialog.getText(
             self.shell, "新規プロジェクト", "プロジェクト名:"
         )
-        if not ok or not name.strip():
+        if not ok:
+            return
+        if not name.strip():
+            QMessageBox.warning(
+                self.shell, "新規プロジェクト", "プロジェクト名を入力してください"
+            )
             return
         try:
             entry = self.project_library.create_project(name)
@@ -1104,7 +1109,12 @@ class WorkflowApplicationComposition:
             "新しいプロジェクト名:",
             text=self.project_entry.display_name,
         )
-        if not ok or not name.strip():
+        if not ok:
+            return
+        if not name.strip():
+            QMessageBox.warning(
+                self.shell, "プロジェクト名を変更", "プロジェクト名を入力してください"
+            )
             return
         try:
             self.project_entry = self.project_library.rename_project(
@@ -1189,7 +1199,12 @@ class WorkflowApplicationComposition:
             "複製後のプロジェクト名:",
             text=f"{self.project_entry.display_name} のコピー",
         )
-        if not ok or not name.strip():
+        if not ok:
+            return
+        if not name.strip():
+            QMessageBox.warning(
+                self.shell, "プロジェクトを複製", "複製後のプロジェクト名を入力してください"
+            )
             return
         try:
             entry = self.project_library.duplicate_project(
@@ -3448,7 +3463,12 @@ class WorkflowApplicationComposition:
             "エクスポート名を入力してください",
             text="解析エクスポート",
         )
-        if not ok or not title:
+        if not ok:
+            return
+        if not title:
+            QMessageBox.warning(
+                self.shell, "解析エクスポート", "エクスポート名を入力してください"
+            )
             return
         export = build_analysis_export(
             document_id=self.document_id,

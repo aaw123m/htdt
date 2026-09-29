@@ -224,9 +224,11 @@ class StandardsProfileEditorDialog(QDialog):
         self.minimum_spin = QDoubleSpinBox()
         self.minimum_spin.setRange(-1e6, 1e6)
         self.minimum_spin.setSpecialValueText("なし")
+        self.minimum_spin.setValue(self.minimum_spin.minimum())
         self.maximum_spin = QDoubleSpinBox()
         self.maximum_spin.setRange(-1e6, 1e6)
         self.maximum_spin.setSpecialValueText("なし")
+        self.maximum_spin.setValue(self.maximum_spin.minimum())
         self.expected_edit = QLineEdit()
         self.expected_edit.setPlaceholderText("equals の期待値")
         bounds.addWidget(QLabel("下限"))
@@ -368,12 +370,14 @@ class StandardsProfileEditorDialog(QDialog):
         operator = str(self.operator_combo.currentData())
         minimum = (
             self.minimum_spin.value()
-            if self.minimum_spin.value() != self.minimum_spin.minimum()
+            if operator in ("min", "range")
+            and self.minimum_spin.value() != self.minimum_spin.minimum()
             else None
         )
         maximum = (
             self.maximum_spin.value()
-            if self.maximum_spin.value() != self.maximum_spin.maximum()
+            if operator in ("max", "range")
+            and self.maximum_spin.value() != self.maximum_spin.minimum()
             else None
         )
         expected_text = self.expected_edit.text().strip()

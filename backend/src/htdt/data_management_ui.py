@@ -153,8 +153,12 @@ def _default_restore_confirmation(parent: QWidget, preview: RestorePreview) -> b
     box = QMessageBox(parent)
     box.setWindowTitle("バックアップから復元")
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setText("現在のHTDTデータを、このバックアップの内容に置き換えます。")
+    box.setText(
+        f"現在のHTDTデータを、バックアップ"
+        f"「{preview.metadata.backup_path.name}」の内容に置き換えます。"
+    )
     box.setInformativeText(
+        f"バックアップ作成日時: {preview.metadata.created_at_utc}\n"
         "現在のデータは復元前バックアップとして自動保存されます。"
         "\n復元を開始しますか？"
     )

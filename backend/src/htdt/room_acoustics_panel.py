@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -155,7 +156,60 @@ class MaterialDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self) -> None:
-        if not self.label.text().strip() or not self.provenance.text().strip():
+        if not self.label.text().strip():
+            QMessageBox.warning(
+                self, '音響マテリアル', '名称を入力してください'
+            )
+            self.label.setFocus()
+            return
+        if not self.provenance.text().strip():
+            QMessageBox.warning(
+                self, '音響マテリアル', '出典を入力してください'
+            )
+            self.provenance.setFocus()
+            return
+        wave = self.wave_model.currentData()
+        geometric = self.geometric_model.currentData()
+        impedance_text = self.impedance.toPlainText().strip()
+        bands_text = self.bands.toPlainText().strip()
+        if wave == 'unsupported' and geometric == 'unsupported':
+            QMessageBox.warning(
+                self,
+                '音響マテリアル',
+                '波動対応または幾何対応のいずれかを選択してください',
+            )
+            return
+        if wave == 'specific_impedance_table' and not impedance_text:
+            QMessageBox.warning(
+                self,
+                '音響マテリアル',
+                '比インピーダンス表にはインピーダンス点を1行以上入力してください',
+            )
+            self.impedance.setFocus()
+            return
+        if wave != 'specific_impedance_table' and impedance_text:
+            QMessageBox.warning(
+                self,
+                '音響マテリアル',
+                'インピーダンス点は比インピーダンス表の場合のみ有効です',
+            )
+            self.impedance.setFocus()
+            return
+        if geometric == 'banded' and not bands_text:
+            QMessageBox.warning(
+                self,
+                '音響マテリアル',
+                'バンドモデルにはバンドを1行以上入力してください',
+            )
+            self.bands.setFocus()
+            return
+        if geometric != 'banded' and bands_text:
+            QMessageBox.warning(
+                self,
+                '音響マテリアル',
+                'バンドはbandedモデルの場合のみ有効です',
+            )
+            self.bands.setFocus()
             return
         super().accept()
 
@@ -238,10 +292,17 @@ class TreatmentDefinitionDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self) -> None:
-        if (
-            not self.name.text().strip()
-            or not self.layer_material.text().strip()
-        ):
+        if not self.name.text().strip():
+            QMessageBox.warning(
+                self, '音響処理の定義', '名称を入力してください'
+            )
+            self.name.setFocus()
+            return
+        if not self.layer_material.text().strip():
+            QMessageBox.warning(
+                self, '音響処理の定義', '層1 材質名を入力してください'
+            )
+            self.layer_material.setFocus()
             return
         super().accept()
 

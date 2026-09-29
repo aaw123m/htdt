@@ -264,7 +264,7 @@ class RetentionPolicyWidget(QWidget):
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("キャプチャデータの削除")
         box.setText(
-            "このキャプチャリビジョンのHTDT内データを削除します。"
+            f"キャプチャリビジョン {revision_id} のHTDT内データを削除します。"
         )
         box.setInformativeText(
             "外部の .htdtcapture バンドルは削除されません。"

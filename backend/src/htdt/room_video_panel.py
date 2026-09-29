@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QTreeWidget,
@@ -53,6 +54,18 @@ _DISPLAY_MOUNTING_ITEMS: tuple[tuple[str, str], ...] = (
 _ENTITY_ROLE = Qt.ItemDataRole.UserRole
 _SPEC_ROLE = Qt.ItemDataRole.UserRole
 _VARIANT_ROLE = Qt.ItemDataRole.UserRole
+
+# Tiers whose sealed authority requires typed transfer samples; mirrors the
+# AcousticScreenTransferAuthority validator — the dialog blocks honestly
+# before the form is lost instead of failing post-close.
+_SAMPLED_TIERS = frozenset(
+    {
+        'MAGNITUDE_NORMAL_INCIDENCE',
+        'FREQUENCY_AND_ANGLE',
+        'COMPLEX',
+        'TRANSMISSION_AND_REFLECTION',
+    }
+)
 
 
 class ProjectorSpecDialog(QDialog):
@@ -124,6 +137,33 @@ class ProjectorSpecDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        if not self.spec_id.text().strip():
+            QMessageBox.warning(
+                self, "プロジェクター仕様", "仕様IDを入力してください"
+            )
+            self.spec_id.setFocus()
+            return
+        if self.throw_min.value() > self.throw_max.value():
+            QMessageBox.warning(
+                self,
+                "プロジェクター仕様",
+                "スロー比の最小値が最大値を超えています",
+            )
+            return
+        for enabled, lo, hi, name in (
+            (self.shift_h_enabled, self.shift_h_min, self.shift_h_max, "水平レンズシフト"),
+            (self.shift_v_enabled, self.shift_v_min, self.shift_v_max, "垂直レンズシフト"),
+        ):
+            if enabled.currentIndex() != 0 and lo.value() > hi.value():
+                QMessageBox.warning(
+                    self,
+                    "プロジェクター仕様",
+                    f"{name}の最小値が最大値を超えています",
+                )
+                return
+        super().accept()
 
     def values(self) -> dict[str, object]:
         def _range(enabled: QComboBox, lo: QDoubleSpinBox, hi: QDoubleSpinBox):
@@ -208,7 +248,51 @@ class ScreenTransferDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self) -> None:
-        if not self.label.text().strip() or not self.provenance.text().strip():
+        if not self.label.text().strip():
+            QMessageBox.warning(
+                self, "スクリーン伝達権威", "名称を入力してください"
+            )
+            self.label.setFocus()
+            return
+        if not self.provenance.text().strip():
+            QMessageBox.warning(
+                self, "スクリーン伝達権威", "出典を入力してください"
+            )
+            self.provenance.setFocus()
+            return
+        tier = self.tier.currentData()
+        samples_text = self.samples.toPlainText().strip()
+        if tier == 'MEASURED_DATASET':
+            QMessageBox.warning(
+                self,
+                "スクリーン伝達権威",
+                "MEASURED_DATASET には実測データセット権威参照が必要なため、"
+                "このダイアログでは登録できません。下位のティアを選択してください",
+            )
+            return
+        if tier in _SAMPLED_TIERS and not samples_text:
+            QMessageBox.warning(
+                self,
+                "スクリーン伝達権威",
+                "このティアにはサンプル行が必要です "
+                "— 未測定なら UNKNOWN / AT_CLAIM を選択してください",
+            )
+            self.samples.setFocus()
+            return
+        if tier in ('UNKNOWN', 'AT_CLAIM') and samples_text:
+            QMessageBox.warning(
+                self,
+                "スクリーン伝達権威",
+                "UNKNOWN / AT_CLAIM ティアにサンプルは保存できません "
+                "— 測定データに見合うティアを選択してください",
+            )
+            return
+        if self.freq_min.value() > self.freq_max.value():
+            QMessageBox.warning(
+                self,
+                "スクリーン伝達権威",
+                "有効周波数の最小値が最大値を超えています",
+            )
             return
         super().accept()
 
@@ -300,7 +384,17 @@ class DisplaySpecDialog(QDialog):
         layout.addWidget(buttons)
 
     def accept(self) -> None:
-        if not self.spec_id.text().strip() or not self.user_label.text().strip():
+        if not self.spec_id.text().strip():
+            QMessageBox.warning(
+                self, "ディスプレイ仕様", "仕様IDを入力してください"
+            )
+            self.spec_id.setFocus()
+            return
+        if not self.user_label.text().strip():
+            QMessageBox.warning(
+                self, "ディスプレイ仕様", "表示名を入力してください"
+            )
+            self.user_label.setFocus()
             return
         super().accept()
 
