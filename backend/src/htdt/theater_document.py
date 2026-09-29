@@ -22,7 +22,7 @@ class TheaterWorkingDocument(RoomWorkingDocument):
         if len(ids) != len(set(ids)):
             raise EditStateError('replacement entity ids must be unique')
 
-        before = tuple(self._document.entity(entity_id) for entity_id in ids)
+        before = tuple(self._require_entity(entity_id) for entity_id in ids)
         command = TransformEntitiesCommand(before=before, after=validated)
         before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)

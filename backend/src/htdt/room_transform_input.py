@@ -235,7 +235,9 @@ class RoomEntityTransformController(QObject):
         )
         self._reset_state()
         if changed:
-            notes = self.workspace.controller.propagate_constraints(edited_ids)
+            notes = self.workspace.controller.propagate_constraints(
+                edited_ids, merge_with_previous=True
+            )
             self._controller._sync_recovery()
         else:
             notes = ()
@@ -473,7 +475,9 @@ class RoomEntityTransformController(QObject):
             return False
         changed = working.commit_preview()
         if changed:
-            notes = self.workspace.controller.propagate_constraints(set(targets))
+            notes = self.workspace.controller.propagate_constraints(
+                set(targets), merge_with_previous=True
+            )
             controller._sync_recovery()
         else:
             notes = ()

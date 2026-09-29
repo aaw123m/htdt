@@ -258,10 +258,13 @@ def test_deleted_member_relationship_stays_inspectable(tmp_path: Path) -> None:
     head = lineage[0].payload['constraints'][0]
     assert head['broken'] is True
 
-    # Undo restores the un-broken relation; the entity itself needs the
-    # delete's own Undo step — lineage keeps both versions meanwhile.
+    # Undo restores the removed member in one step; the broken marker is
+    # persisted maintenance state rather than a phantom history command, so
+    # the constraint stays broken and surfaced — never silently re-bound
+    # (#REVIEW14; the controller delete path marks inside its own Undo step).
     assert controller.undo()
-    assert not controller.authoring_constraints.constraints[0].broken
+    assert controller.committed_document.entity('speaker-fr')
+    assert controller.authoring_constraints.constraints[0].broken
 
 
 def test_same_name_replacement_never_inherits_relation(tmp_path: Path) -> None:
