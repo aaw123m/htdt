@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 10
+NATIVE_SCHEMA_VERSION = 11
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1101,6 +1101,23 @@ def _migrate_9_to_10(connection: sqlite3.Connection) -> None:
         backfill_scene_document_heads(connection)
 
 
+def _migrate_10_to_11(connection: sqlite3.Connection) -> None:
+    # Add the capture-disposition transition ledger. The table lives in
+    # the capture-inbox domain's convergence script — the same authority
+    # that creates the inbox tables when v6 lands — so the upgrade path
+    # is that convergence, applied to an already-current schema. There is
+    # no data backfill: transitions record changes from this schema
+    # forward; a historical item's disposition is on its row, not in a
+    # ledger that was never kept.
+    from . import capture_inbox
+
+    connection.row_factory = sqlite3.Row
+    try:
+        capture_inbox.run_capture_inbox_schema_convergence(connection)
+    finally:
+        connection.row_factory = None
+
+
 def require_native_tables(
     connection: sqlite3.Connection,
     *tables: str,
@@ -1133,6 +1150,7 @@ _MIGRATIONS = {
     8: _migrate_7_to_8,
     9: _migrate_8_to_9,
     10: _migrate_9_to_10,
+    11: _migrate_10_to_11,
 }
 
 

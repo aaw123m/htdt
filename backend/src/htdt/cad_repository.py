@@ -42,6 +42,17 @@ class SceneRevisionConflictError(ValueError):
     """A SceneRevision save violated the document's single-head lineage contract."""
 
 
+class SceneDocumentHeadIntegrityError(ValueError):
+    """The persisted head pointer references a revision that does not exist.
+
+    Every write path updates ``scene_document_heads`` and
+    ``scene_revisions`` inside the same transaction and every deletion
+    path removes both, so a head row whose ``head_revision_id`` resolves
+    to no revision is store corruption. Reading it as head-less would
+    silently fork the document's lineage authority; fail closed instead.
+    """
+
+
 class AuthoringConstraintIntegrityError(ValueError):
     """The persisted authoring-constraint authority is unreadable.
 
@@ -327,13 +338,33 @@ class SceneRepository:
         connection: sqlite3.Connection,
         document_id: str,
     ) -> sqlite3.Row | None:
-        """Return the ``scene_revisions`` row of the document's current head."""
-        return connection.execute(
+        """Return the ``scene_revisions`` row of the document's current head.
+
+        A head row that joins to no revision can only be corruption —
+        write and delete paths keep the two tables consistent in one
+        transaction. Returning ``None`` there would read the document as
+        head-less and let the next save fork a second root; raise instead.
+        """
+        row = connection.execute(
             'SELECT r.* FROM scene_document_heads h '
             'JOIN scene_revisions r ON r.revision_id = h.head_revision_id '
             'WHERE h.document_id=?',
             (document_id,),
         ).fetchone()
+        if row is not None:
+            return row
+        head = connection.execute(
+            'SELECT head_revision_id FROM scene_document_heads '
+            'WHERE document_id=?',
+            (document_id,),
+        ).fetchone()
+        if head is None:
+            return None
+        raise SceneDocumentHeadIntegrityError(
+            f'scene_document_heads row for document {document_id} points at '
+            f'missing scene_revision {head["head_revision_id"]}; the stored '
+            'head authority is corrupt'
+        )
 
     def get(self, revision_id: str) -> SceneRevision | None:
         with closing(self._connect()) as connection, connection:

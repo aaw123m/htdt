@@ -415,6 +415,7 @@ def test_execute_native_upgrade_survives_stale_evidence(
     Now the snapshot declares the stale set, the upgrade completes, and
     the marker records what was tolerated."""
 
+    from htdt.cad_schema import NATIVE_SCHEMA_VERSION
     from htdt.native_upgrade import (
         execute_native_upgrade,
         list_upgrade_events,
@@ -432,7 +433,7 @@ def test_execute_native_upgrade_survives_stale_evidence(
 
     event = execute_native_upgrade(data_dir)
     assert event.from_schema == 9
-    assert event.to_schema == 10
+    assert event.to_schema == NATIVE_SCHEMA_VERSION
     assert event.stale_authority_count == 3
     # The journal keeps the same declaration (the live marker is cleared
     # on verified completion by design).

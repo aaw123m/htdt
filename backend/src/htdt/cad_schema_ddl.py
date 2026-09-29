@@ -2348,6 +2348,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'capture_bundles',
     'capture_connected_space_documents',
     'capture_coordinate_authorities',
+    'capture_disposition_transitions',
     'capture_inbox_items',
     'capture_inbox_promotions',
     'capture_inbox_registrations',

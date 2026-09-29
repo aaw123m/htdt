@@ -387,8 +387,22 @@ class PredictionExecutionController:
         )
         self._submitted: OrderedDict[str, float] = OrderedDict()
         self._cancelling: OrderedDict[str, None] = OrderedDict()
-        if executor.progress_sink is None:
-            executor.progress_sink = self._on_progress
+        # Explicit lifecycle contract: the controller holds a sink lease
+        # for as long as it exists. A successor controller's lease stacks
+        # on top — it reports immediately rather than starving behind a
+        # stale binding — and releasing unwinds to whatever was effective
+        # before.
+        self._sink_lease = executor.acquire_progress_sink(self._on_progress)
+
+    def close(self) -> None:
+        """Release the progress-sink lease; idempotent."""
+        self._sink_lease.release()
+
+    def __enter__(self) -> 'PredictionExecutionController':
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
     @staticmethod
     def _cap(registry: OrderedDict[str, Any]) -> None:
