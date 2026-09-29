@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import AsyncIterable
 from pathlib import Path
 from typing import Any
@@ -45,12 +46,27 @@ def read_file_bounded(path: Path, max_bytes: int, *, label: str = 'file') -> byt
     return payload
 
 
-def read_response_bounded(response: Any, max_bytes: int, *, label: str = 'response') -> bytes:
+# Chunk size for deadline-bounded reads. ``read1`` performs at most one
+# underlying recv per call, so the wall-clock deadline is re-checked between
+# recvs; a plain ``read(n)`` can wait for the full byte count.
+_RESPONSE_READ_CHUNK_BYTES = 256 * 1024
+
+
+def read_response_bounded(
+    response: Any,
+    max_bytes: int,
+    *,
+    label: str = 'response',
+    deadline_s: float | None = None,
+) -> bytes:
     """Read an HTTP response body with a hard byte ceiling.
 
     An honest Content-Length above ``max_bytes`` is rejected without reading
     the body; the bounded ``read()`` remains authoritative when the header is
-    missing or inaccurate.
+    missing or inaccurate. When ``deadline_s`` is given and the response
+    supports ``read1`` (at most one recv per call), the transfer is also
+    bounded in wall-clock time: a per-socket-operation timeout alone cannot
+    stop a peer that keeps dribbling bytes under that window.
     """
     if max_bytes < 0:
         raise ValueError('max_bytes must be non-negative')
@@ -62,7 +78,26 @@ def read_response_bounded(response: Any, max_bytes: int, *, label: str = 'respon
             declared = 0
         if declared > max_bytes:
             raise _too_large(label, max_bytes, declared)
-    payload = response.read(max_bytes + 1)
+    read_once = getattr(response, 'read1', None)
+    if deadline_s is None or not callable(read_once):
+        payload = response.read(max_bytes + 1)
+    else:
+        if deadline_s <= 0:
+            raise ValueError('deadline_s must be positive')
+        deadline = time.monotonic() + deadline_s
+        chunks = bytearray()
+        while len(chunks) <= max_bytes:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f'{label} did not finish within the {deadline_s}s transfer deadline'
+                )
+            chunk = read_once(
+                min(_RESPONSE_READ_CHUNK_BYTES, max_bytes + 1 - len(chunks))
+            )
+            if not chunk:
+                break
+            chunks.extend(chunk)
+        payload = bytes(chunks)
     if len(payload) > max_bytes:
         raise _too_large(label, max_bytes, None)
     return payload

@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from math import isclose, isfinite
 from typing import Any, Mapping, Protocol
+from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request
 
@@ -19,6 +20,7 @@ from .rew_api import (
     RewRoomSimFrequencyResponse,
     RewRoomSimSnapshot,
     htdt_position_to_roomsim,
+    map_http_error,
     roomsim_position_to_htdt,
 )
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256
@@ -102,9 +104,12 @@ class RewRoomSimControlClient(RewApiClient):
                     response,
                     self.max_response_bytes,
                     label='REW API response',
+                    deadline_s=self.transfer_timeout_s,
                 )
         except IngressTooLargeError as exc:
             raise RewApiResponseTooLarge(str(exc)) from exc
+        except HTTPError as exc:
+            raise map_http_error(exc, path) from exc
         except (OSError, TimeoutError) as exc:
             raise RewApiUnavailable(str(exc)) from exc
         if not raw:
