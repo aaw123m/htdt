@@ -473,6 +473,8 @@ class JointOptimizationPanel(QWidget):
         )
 
     def _execute_selected(self) -> None:
+        if self._disposed:
+            return
         spec_id = self._selected_spec_id()
         if spec_id is None or self.is_running():
             return

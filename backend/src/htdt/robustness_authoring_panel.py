@@ -294,6 +294,8 @@ class RobustnessAuthoringPanel(QWidget):
         self._pool.cancel_all()
 
     def _run(self) -> None:
+        if self._disposed:
+            return
         spec = self._spec()
         index = self.candidate_combo.currentData()
         if spec is None or index is None or not self._candidates:

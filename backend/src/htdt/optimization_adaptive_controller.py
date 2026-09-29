@@ -79,6 +79,8 @@ from .user_facing_error import operation_error_message
 
 class AdaptiveControllerMixin:
     def build_selected_adaptive_plan(self) -> None:
+        if self._disposed:
+            return
         record = self._selected_validation_record()
         spec = self._selected_search_spec()
         if record is None or spec is None:
@@ -137,6 +139,8 @@ class AdaptiveControllerMixin:
         )
 
     def _adaptive_build_completed(self, key, result, error) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
                 'Adaptive Plan計算を中止しました'
