@@ -272,6 +272,11 @@ def _provider_option(
             f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) を超えます'
         )
+    if float(max_mode_hz) < float(domain.minimum_hz):
+        reasons.append(
+            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) の下限を下回ります'
+        )
     state: PredictionOptionState = 'BLOCKED' if reasons else 'READY'
     band = (
         f'帯域 {domain.minimum_hz:g}–{domain.maximum_hz:g} Hz · '
@@ -328,6 +333,11 @@ def _hybrid_option(
         reasons.append(
             f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) を超えます'
+        )
+    if float(max_mode_hz) < float(domain.minimum_hz):
+        reasons.append(
+            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) の下限を下回ります'
         )
     state: PredictionOptionState = 'BLOCKED' if reasons else 'READY'
     band = (
