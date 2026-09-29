@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .cad_colorimetry import ColorimeterCorrectionProfile
 from .cad_equipment import EquipmentDataProvenance
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
+from .ingress import strict_ascii_number
 
 
 METER_CORRECTION_PARSER_ID = 'htdt-cgats-ccxx-1'
@@ -66,6 +67,14 @@ def _unquote(token: str) -> str:
     if len(token) >= 2 and token.startswith('"') and token.endswith('"'):
         return token[1:-1]
     return token
+
+
+def _cgats_int(key: str, value: str) -> int:
+    # '[0-9]', not bare int(): int() accepts Unicode digits ('５') that the
+    # ASCII CGATS grammar does not emit.
+    if not re.fullmatch(r'[+-]?[0-9]+', value.strip()):
+        raise CgatsParseError(f'{key} is not an integer: {value!r}')
+    return int(value)
 
 
 def _line_tokens(line: str) -> list[str]:
@@ -169,9 +178,9 @@ def parse_cgats_document(text: str) -> CgatsDocument:
             key = tokens[0]
             value = ' '.join(_unquote(t) for t in tokens[1:])
             if key == 'NUMBER_OF_FIELDS':
-                number_of_fields = int(value)
+                number_of_fields = _cgats_int(key, value)
             elif key == 'NUMBER_OF_SETS':
-                number_of_sets = int(value)
+                number_of_sets = _cgats_int(key, value)
             else:
                 keywords.append((key, value))
             i += 1
@@ -223,7 +232,9 @@ def _float_rows(doc: CgatsDocument) -> tuple[tuple[float, ...], ...]:
         parsed: list[float] = []
         for cell in row:
             try:
-                parsed.append(float(cell))
+                parsed.append(
+                    strict_ascii_number(cell, field_name='data cell')
+                )
             except ValueError:
                 raise CgatsParseError(
                     f'non-numeric data cell {cell!r}'
@@ -320,7 +331,9 @@ def import_meter_correction(
     """
     source_sha256 = hashlib.sha256(data).hexdigest()
     try:
-        text = data.decode('utf-8')
+        # utf-8-sig: tolerate a leading BOM on file ingress; anything else
+        # non-UTF-8 still fails closed.
+        text = data.decode('utf-8-sig')
     except UnicodeDecodeError as exc:
         raise CgatsParseError(
             f'file is not UTF-8 text: {exc.reason}'
@@ -346,7 +359,7 @@ def import_meter_correction(
             raw = table.get(key)
             if raw is not None:
                 try:
-                    value = float(raw)
+                    value = strict_ascii_number(raw, field_name=key)
                 except ValueError:
                     raise CgatsParseError(
                         f'{key} is not numeric: {raw!r}'
@@ -358,7 +371,7 @@ def import_meter_correction(
         raw_bands = table.get('SPECTRAL_BANDS')
         if raw_bands is not None:
             try:
-                spectral_bands = int(float(raw_bands))
+                spectral_bands = _cgats_int('SPECTRAL_BANDS', raw_bands)
             except ValueError:
                 raise CgatsParseError(
                     f'SPECTRAL_BANDS is not an integer: {raw_bands!r}'

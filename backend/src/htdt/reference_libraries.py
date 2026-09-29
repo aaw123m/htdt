@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
@@ -218,17 +219,22 @@ class ReferenceLibraryIndex:
         family: LibraryFamily | None = None,
         include_archived: bool = False,
     ) -> tuple[LibraryEntry, ...]:
-        needle = query.strip().lower()
+        # NFKC+casefold on both sides so half-width kana / full-width digits
+        # in the query still match stored Japanese text (palette/command fold).
+        def fold(text: str) -> str:
+            return unicodedata.normalize('NFKC', text).casefold()
+
+        needle = fold(query.strip())
         results = [
             entry
             for entry in self.entries(
                 family=family, include_archived=include_archived
             )
             if not needle
-            or needle in entry.display_name.lower()
-            or needle in entry.description.lower()
-            or needle in entry.identity.lower()
-            or (entry.capability_summary and needle in entry.capability_summary.lower())
+            or needle in fold(entry.display_name)
+            or needle in fold(entry.description)
+            or needle in fold(entry.identity)
+            or (entry.capability_summary and needle in fold(entry.capability_summary))
         ]
         return tuple(results)
 

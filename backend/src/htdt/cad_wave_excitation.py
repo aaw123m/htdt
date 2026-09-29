@@ -466,7 +466,9 @@ class VolumeVelocityTableConverter:
             raise ValueError('wave-excitation calibration_scale must be positive')
 
         try:
-            text = source_bytes.decode('utf-8', errors='strict')
+            # utf-8-sig: tolerate a leading BOM on file ingress; anything
+            # else non-UTF-8 still fails closed.
+            text = source_bytes.decode('utf-8-sig', errors='strict')
         except UnicodeDecodeError as exc:
             raise ValueError(
                 'wave-excitation source table must be strict UTF-8'
@@ -564,7 +566,9 @@ class SourceResponseVolumeVelocityConverter:
                 'conjugate'
             )
         try:
-            text = source_bytes.decode('utf-8', errors='strict')
+            # utf-8-sig: tolerate a leading BOM on file ingress; anything
+            # else non-UTF-8 still fails closed.
+            text = source_bytes.decode('utf-8-sig', errors='strict')
         except UnicodeDecodeError as exc:
             raise ValueError(
                 'source-response wave-excitation payload must be strict UTF-8'

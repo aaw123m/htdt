@@ -54,6 +54,7 @@ from .cad_external_calibration import (
     OpaqueArtifactSection,
 )
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
+from .ingress import strict_ascii_number
 
 
 CAMILLADSP_ADAPTER_ID = 'htdt-camilladsp'
@@ -216,7 +217,12 @@ def _import_filter(
         return 'peq', fields, None, None
     if ftype == 'Gain':
         try:
-            gain_value = float(params.get('gain', 0.0))
+            raw_gain = params.get('gain', 0.0)
+            gain_value = (
+                strict_ascii_number(raw_gain, field_name='gain')
+                if isinstance(raw_gain, str)
+                else float(raw_gain)
+            )
         except (TypeError, ValueError):
             opaque.append(
                 OpaqueArtifactSection(
@@ -270,7 +276,12 @@ def _import_filter(
     if ftype == 'Delay':
         unit = str(params.get('unit', 'ms')).lower()
         try:
-            value = float(params.get('delay'))
+            raw_delay = params.get('delay')
+            value = (
+                strict_ascii_number(raw_delay, field_name='delay')
+                if isinstance(raw_delay, str)
+                else float(raw_delay)
+            )
         except (TypeError, ValueError):
             value = None
         if value is not None and unit in _DELAY_UNITS:

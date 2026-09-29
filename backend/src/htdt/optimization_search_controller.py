@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Callable
 from datetime import datetime, timezone
 from threading import Event
@@ -114,10 +115,14 @@ class CandidateTreeItem(QTreeWidgetItem):
 def _candidate_matches_filter(item: QTreeWidgetItem, needle: str) -> bool:
     if not needle:
         return True
-    haystack = ' '.join(
-        item.text(column) for column in range(item.columnCount())
+    # NFKC first so a half-width query ('ｽﾋﾟｰｶｰ', '１２０') still matches
+    # stored full-width/katakana text — palette_search/command_registry
+    # use the same fold.
+    haystack = unicodedata.normalize(
+        'NFKC',
+        ' '.join(item.text(column) for column in range(item.columnCount())),
     ).casefold()
-    return needle in haystack
+    return unicodedata.normalize('NFKC', needle).casefold() in haystack
 
 
 def _update_candidate_filter_note(

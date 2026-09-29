@@ -75,7 +75,7 @@ from .cad_source_response import (
     build_source_response,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
-from .ingress import read_file_bounded
+from .ingress import read_file_bounded, strict_ascii_number
 from .limits import MAX_ATTACHMENT_BYTES
 from .user_facing_error import operation_error_message
 
@@ -197,7 +197,7 @@ def _capability_from_source(
     if adapter_id == NORMALIZED_JSON_ADAPTER_ID:
         try:
             source = NormalizedDirectivityJsonV1.model_validate(
-                json.loads(raw.decode("utf-8", errors="strict"))
+                json.loads(raw.decode("utf-8-sig", errors="strict"))
             )
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"指向性JSONの解析に失敗しました: {exc}") from exc
@@ -262,10 +262,21 @@ def _capability_from_source(
             if not row:
                 continue
             frequencies.append(
-                float(row[columns["frequency_hz"]])
+                strict_ascii_number(
+                    row[columns["frequency_hz"]], field_name='frequency_hz'
+                )
             )
-            horizontal.append(float(row[columns[horizontal_column]]))
-            vertical.append(float(row[columns[vertical_column]]))
+            horizontal.append(
+                strict_ascii_number(
+                    row[columns[horizontal_column]],
+                    field_name=horizontal_column,
+                )
+            )
+            vertical.append(
+                strict_ascii_number(
+                    row[columns[vertical_column]], field_name=vertical_column
+                )
+            )
         if not frequencies:
             raise ValueError("指向性テーブルにサンプルがありません")
         return DirectivityCapability(

@@ -29,6 +29,7 @@ belongs to Support & Diagnostics, #604).
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Iterable, Mapping
@@ -231,28 +232,32 @@ class HelpRegistry:
         """Alias search powering the Command Palette help provider (#585).
 
         Matches topic ids, localized titles/summaries and keyword aliases in
-        both supported languages — the user can type ``speaker`` or
-        ``スピーカー`` without switching the whole UI locale.
+        both supported languages — the user can type ``speaker``,
+        ``スピーカー`` or the half-width ``ｽﾋﾟｰｶｰ`` without switching the
+        whole UI locale (NFKC+casefold, the palette/command fold).
         """
 
-        normalized = query.strip().lower()
+        def fold(text: str) -> str:
+            return unicodedata.normalize('NFKC', text).casefold()
+
+        normalized = fold(query.strip())
         if not normalized:
             return ()
         results: list[HelpSearchResult] = []
         for topic in self._topics.values():
             score = 0
-            if topic.topic_id.lower() == normalized:
+            if fold(topic.topic_id) == normalized:
                 score = 100
             else:
-                if normalized in topic.topic_id.lower():
+                if normalized in fold(topic.topic_id):
                     score = max(score, 40)
                 for locale, content in topic.content.items():
-                    if normalized in content.title.lower():
+                    if normalized in fold(content.title):
                         score = max(score, 60)
-                    if normalized in content.summary.lower():
+                    if normalized in fold(content.summary):
                         score = max(score, 30)
                 for keyword in topic.keywords:
-                    kw = keyword.lower()
+                    kw = fold(keyword)
                     if kw == normalized:
                         score = max(score, 80)
                     elif normalized in kw or kw in normalized:

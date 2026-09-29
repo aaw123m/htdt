@@ -36,6 +36,8 @@ from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .ingress import strict_ascii_number
+
 
 LOUDSPEAKER_INTERCHANGE_AUTHORITY_VERSION = (
     'loudspeaker-interchange-1'
@@ -104,7 +106,9 @@ def qualify_clf(source: bytes) -> ClfQualification:
     own declared version wins over heuristics.
     """
     try:
-        text = source.decode('utf-8', errors='strict')
+        # utf-8-sig: a leading BOM is tolerated on file ingress (the repo's
+        # convention); any other non-UTF-8 byte sequence still fails closed.
+        text = source.decode('utf-8-sig', errors='strict')
     except UnicodeDecodeError:
         return ClfQualification(
             verdict='not_clf', detail='CLF files are strict UTF-8 text'
@@ -129,11 +133,13 @@ def qualify_clf(source: bytes) -> ClfQualification:
         if in_frequency and stripped:
             parts = re.split(r'[\s,;]+', stripped)
             try:
-                float(parts[0])
+                # ASCII dialect only — float() would count a full-width
+                # digit row ('１２０ …') as numeric, inflating coverage.
+                strict_ascii_number(parts[0], field_name='frequency')
                 freq_rows += 1
             except ValueError:
                 pass
-        if re.match(r'^\s*R\s*\(?\s*\d', line):
+        if re.match(r'^\s*R\s*\(?\s*[0-9]', line):
             rotation_count += 1
         if re.match(
             r'^\s*(license|licence|distribution)\s*[:=]',

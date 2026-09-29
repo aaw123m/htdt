@@ -22,6 +22,7 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from .cad_auralization import _resample_band_limited
 from .canonical_json import canonical_json as _canonical, canonical_sha256 as _digest, canonicalize_payload
+from .ingress import strict_ascii_number
 
 
 FIR_SCHEMA_VERSION = 1
@@ -299,13 +300,12 @@ class FIRImportRecord(BaseModel):
 
 def _parse_tap_text(source_bytes: bytes) -> tuple[float, ...]:
     """Whitespace/comma-separated decimal taps; one tap per token."""
-    text = source_bytes.decode('utf-8')
+    # utf-8-sig: a leading BOM is legal (a tap list re-saved as UTF-8 in
+    # Notepad/Excel gains one) while non-UTF-8 bytes still fail closed.
+    text = source_bytes.decode('utf-8-sig')
     values: list[float] = []
     for token in text.replace(',', ' ').split():
-        value = float(token)
-        if not isfinite(value):
-            raise ValueError('imported fir tap is not finite')
-        values.append(float(value))
+        values.append(strict_ascii_number(token, field_name='fir tap'))
     if not values:
         raise ValueError('imported fir source contains no taps')
     return tuple(values)

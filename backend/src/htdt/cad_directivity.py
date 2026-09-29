@@ -637,7 +637,9 @@ class NormalizedJsonDirectivityAdapter:
     ) -> DirectivityDataset:
         source_asset_sha256 = sha256(source_bytes).hexdigest()
         try:
-            source_text = source_bytes.decode('utf-8', errors='strict')
+            # utf-8-sig: tolerate a leading BOM on file ingress; anything
+            # else non-UTF-8 still fails closed.
+            source_text = source_bytes.decode('utf-8-sig', errors='strict')
             raw = json.loads(source_text)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError('malformed normalized directivity JSON source') from exc

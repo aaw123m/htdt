@@ -55,7 +55,9 @@ _FILTER_TYPE_MAP: dict[str, str] = {
     'AP': 'all_pass',
 }
 
-_NUMBER = r'[-+]?\d+(?:\.\d+)?'
+# '[0-9]', not '\d': Python '\d' matches Unicode digits, so a pasted
+# 'Fc ５０ Hz' would silently coerce where the APO grammar means ASCII.
+_NUMBER = r'[-+]?[0-9]+(?:\.[0-9]+)?'
 
 
 

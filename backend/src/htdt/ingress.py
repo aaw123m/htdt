@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+import re
 import time
 from collections.abc import AsyncIterable
 from pathlib import Path
@@ -44,6 +46,32 @@ def read_file_bounded(path: Path, max_bytes: int, *, label: str = 'file') -> byt
     if len(payload) > max_bytes:
         raise _too_large(label, max_bytes, None)
     return payload
+
+
+# Python's float() also accepts Unicode digits ('５０'), underscores ('1_0')
+# and lexical 'inf'/'nan' — none of which a numeric data file emits.
+# Imported numeric tokens must match the ASCII decimal dialect instead of
+# whatever float() can coerce (the REW parser's _REW_NUMBER applies the
+# same rule; '[0-9]' rather than '\d' because '\d' matches Unicode digits).
+_ASCII_NUMBER = re.compile(
+    r'[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?'
+)
+
+
+def strict_ascii_number(value: str, *, field_name: str) -> float:
+    """Parse one imported numeric token as a finite ASCII decimal.
+
+    Non-dialect input — full-width digits, ``1_0``, lexical inf/nan — is
+    rejected as non-numeric instead of being silently coerced; overflow to
+    ±inf (e.g. '1e999') fails the finite check.
+    """
+    token = value.strip()
+    if not _ASCII_NUMBER.fullmatch(token):
+        raise ValueError(f'{field_name} must be numeric')
+    number = float(token)
+    if not math.isfinite(number):
+        raise ValueError(f'{field_name} must be finite')
+    return number
 
 
 # Chunk size for deadline-bounded reads. ``read1`` performs at most one
