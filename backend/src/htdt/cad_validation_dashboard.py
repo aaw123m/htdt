@@ -358,7 +358,7 @@ def compare_provider_versions(
             outcome = 'unchanged_fail'
         elif old_case.verdict != 'pass' and new_case.verdict == 'pass':
             outcome = 'newly_passing'
-        elif old_case.verdict == 'pass' and new_case.verdict != 'pass':
+        elif old_case.verdict != 'fail' and new_case.verdict == 'fail':
             outcome = 'newly_failing'
         else:
             outcome = 'not_rerun'
