@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
 from typing import Literal
 import weakref
 
@@ -23,18 +24,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .application_pages import (
-    ActivityPage,
-    CaptureInboxPage,
-    ProjectLibraryPage,
-    ProjectLibraryService,
-    ReferenceLibraryPage,
-    SupportPage,
-    activity_focus,
-    inbox_focus,
-    list_recent_revisions,
-    projects_focus,
-)
 from . import file_dialog_memory
 from .cad_input import (
     CAD_SCENE_COMMAND_IDS,
@@ -130,8 +119,6 @@ from .installation_handoff import (
     write_handoff_package,
 )
 from .installation_output_authority import InstallationReportService
-from .measurement_page_workspace import build_measurement_workspace_mount
-from .measurement_workflow import MeasurementWorkflowController
 from .help_registry import build_help_registry
 from .localization import (
     LanguagePolicy,
@@ -147,7 +134,6 @@ from .navigation_target import (
     navigation_target_from_uri,
 )
 from .project_lifecycle import ProjectLibrary, ProjectNotFoundError
-from .optimization_workflow_workspace import build_optimization_workspace_mount
 from .project_bundle import (
     BUNDLE_EXTENSION,
     BundleImportConflictError,
@@ -158,7 +144,6 @@ from .project_bundle import (
 from .project_library import ProjectLibraryEntry, ProjectLibraryError
 from .project_library_repository import ProjectLibraryRepository
 from .overview_readiness import OverviewReadinessService
-from .overview_workspace import OverviewWorkspace
 from .palette_search import (
     CommandPaletteProvider,
     HelpTopicPaletteProvider,
@@ -171,18 +156,7 @@ from .palette_search import (
     help_destinations,
     settings_destinations,
 )
-from .room_geometry_input import RoomGeometryInputController
-from .room_geometry_panel import RoomGeometryPanel
-from .room_prediction import RoomPredictionController, RoomPredictionPanel
-from .room_acoustics_panel import (
-    RoomAcousticsTabs,
-    RoomTreatmentPanel,
-    SurfaceMaterialPanel,
-)
 from .rew_api import RewApiClient, validate_rew_api_url
-from .room_transform_input import RoomEntityTransformController
-from .room_viewport import RoomViewport3D
-from .room_workspace import RoomWorkspace, SelectionInspector
 from . import dirty_state_dialog
 from .user_facing_error import (
     operation_error_message,
@@ -234,6 +208,80 @@ _DISPLAY_LENGTH_PREFERENCE_KEYS = frozenset(
 _REW_ENDPOINT_PREFERENCE_KEYS = frozenset(
     {'integrations.rew_host', 'integrations.rew_port'}
 )
+
+
+# Round 14 (memory/startup): the workspace/page modules are the heavy end
+# of the import graph — PyVista/VTK, matplotlib and pyqtgraph come in
+# through room_viewport, the measurement and optimization mounts, and the
+# application pages pull most of the project-surface stack. They are used
+# only inside the lazy WorkspaceMount factories below, so they resolve on
+# first attribute access (same _LAZY_EXPORTS pattern as native_cad.py):
+# boot pays for the shell alone, and each workspace pays its own import
+# the first time the user mounts it. Tests that monkeypatch
+# ``workflow_application.<name>`` still work — ``setattr`` lands in the
+# module dict before ``__getattr__`` is consulted.
+_LAZY_IMPORTS = {
+    'ActivityPage': ('.application_pages', 'ActivityPage'),
+    'CaptureInboxPage': ('.application_pages', 'CaptureInboxPage'),
+    'ProjectLibraryPage': ('.application_pages', 'ProjectLibraryPage'),
+    'ProjectLibraryService': ('.application_pages', 'ProjectLibraryService'),
+    'ReferenceLibraryPage': ('.application_pages', 'ReferenceLibraryPage'),
+    'SupportPage': ('.application_pages', 'SupportPage'),
+    'activity_focus': ('.application_pages', 'activity_focus'),
+    'inbox_focus': ('.application_pages', 'inbox_focus'),
+    'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
+    'projects_focus': ('.application_pages', 'projects_focus'),
+    'build_measurement_workspace_mount': (
+        '.measurement_page_workspace',
+        'build_measurement_workspace_mount',
+    ),
+    'MeasurementWorkflowController': (
+        '.measurement_workflow',
+        'MeasurementWorkflowController',
+    ),
+    'build_optimization_workspace_mount': (
+        '.optimization_workflow_workspace',
+        'build_optimization_workspace_mount',
+    ),
+    'OverviewWorkspace': ('.overview_workspace', 'OverviewWorkspace'),
+    'RoomGeometryInputController': (
+        '.room_geometry_input',
+        'RoomGeometryInputController',
+    ),
+    'RoomGeometryPanel': ('.room_geometry_panel', 'RoomGeometryPanel'),
+    'RoomPredictionController': (
+        '.room_prediction',
+        'RoomPredictionController',
+    ),
+    'RoomPredictionPanel': ('.room_prediction', 'RoomPredictionPanel'),
+    'RoomAcousticsTabs': ('.room_acoustics_panel', 'RoomAcousticsTabs'),
+    'RoomTreatmentPanel': ('.room_acoustics_panel', 'RoomTreatmentPanel'),
+    'SurfaceMaterialPanel': ('.room_acoustics_panel', 'SurfaceMaterialPanel'),
+    'RoomEntityTransformController': (
+        '.room_transform_input',
+        'RoomEntityTransformController',
+    ),
+    'RoomViewport3D': ('.room_viewport', 'RoomViewport3D'),
+    'RoomWorkspace': ('.room_workspace', 'RoomWorkspace'),
+    'SelectionInspector': ('.room_workspace', 'SelectionInspector'),
+}
+
+
+def __getattr__(name: str):
+    entry = _LAZY_IMPORTS.get(name)
+    if entry is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+    module_name, attribute = entry
+    from importlib import import_module
+
+    module = import_module(module_name, __package__)
+    value = getattr(module, attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted([*globals(), *_LAZY_IMPORTS])
 
 
 def bind_inspector_display_length_policy(
@@ -1786,8 +1834,9 @@ class WorkflowApplicationComposition:
             )
 
     def _make_projects(self) -> WorkspaceMount:
-        page = ProjectLibraryPage(
-            ProjectLibraryService(self.repository),
+        _self = sys.modules[__name__]
+        page = _self.ProjectLibraryPage(
+            _self.ProjectLibraryService(self.repository),
             current_document_id=lambda: self.document_id,
         )
         page.project_open_requested.connect(self._open_project_by_id)
@@ -1795,12 +1844,13 @@ class WorkflowApplicationComposition:
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
-            focus_target=lambda target: projects_focus(page, target),
+            focus_target=lambda target: _self.projects_focus(page, target),
         )
 
     def _make_inbox(self) -> WorkspaceMount:
         repository = CaptureInboxRepository(self.repository)
-        page = CaptureInboxPage(
+        _self = sys.modules[__name__]
+        page = _self.CaptureInboxPage(
             repository.list_items,
             on_navigate=self._navigate_target,
             inspect_item=repository.inspect,
@@ -1813,7 +1863,7 @@ class WorkflowApplicationComposition:
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
-            focus_target=lambda target: inbox_focus(page, target),
+            focus_target=lambda target: _self.inbox_focus(page, target),
         )
 
     def _make_activity(self) -> WorkspaceMount:
@@ -1855,8 +1905,9 @@ class WorkflowApplicationComposition:
                 *reversed(self.activity_center.recent(30)),
             )
 
-        page = ActivityPage(
-            lambda limit: list_recent_revisions(self.repository, limit),
+        _self = sys.modules[__name__]
+        page = _self.ActivityPage(
+            lambda limit: _self.list_recent_revisions(self.repository, limit),
             list_operations=operations,
             list_events=lambda limit: activity_service.recent(
                 self.document_id, limit=limit
@@ -1875,7 +1926,7 @@ class WorkflowApplicationComposition:
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
-            focus_target=lambda target: activity_focus(page, target),
+            focus_target=lambda target: _self.activity_focus(page, target),
         )
 
     def _open_activity_link(self, uri: str) -> bool:
@@ -1903,7 +1954,7 @@ class WorkflowApplicationComposition:
             )
         except Exception:  # noqa: BLE001 - hub sections are additive; never block the page
             library_index = None
-        page = ReferenceLibraryPage(
+        page = sys.modules[__name__].ReferenceLibraryPage(
             service.definitions, library_index=library_index
         )
 
@@ -1924,7 +1975,7 @@ class WorkflowApplicationComposition:
         )
 
     def _make_support(self) -> WorkspaceMount:
-        page = SupportPage(
+        page = sys.modules[__name__].SupportPage(
             self.data_dir,
             status_provider=(
                 self.capture_receiver.status_lines
@@ -2335,7 +2386,8 @@ class WorkflowApplicationComposition:
             )
 
     def _make_overview(self) -> WorkspaceMount:
-        page = OverviewWorkspace(
+        _self = sys.modules[__name__]
+        page = _self.OverviewWorkspace(
             self._build_overview_service(),
             self.document_id,
             navigate=self._navigate_target,
@@ -2348,8 +2400,9 @@ class WorkflowApplicationComposition:
         return WorkspaceMount.from_widget(page, on_activate=activate)
 
     def _make_room(self) -> WorkspaceMount:
-        workspace = RoomWorkspace(self.repository, self.document_id)
-        if not isinstance(workspace.viewport, RoomViewport3D):
+        _self = sys.modules[__name__]
+        workspace = _self.RoomWorkspace(self.repository, self.document_id)
+        if not isinstance(workspace.viewport, _self.RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
 
         preferences = getattr(self, "preferences", None)
@@ -2361,11 +2414,11 @@ class WorkflowApplicationComposition:
         bind_inspector_display_length_policy(workspace.inspector, preferences)
         bind_measure_display_length_policy(workspace.measure_panel, preferences)
 
-        geometry_input = RoomGeometryInputController(workspace, workspace.viewport)
+        geometry_input = _self.RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
-        geometry_panel = RoomGeometryPanel(geometry_input)
+        geometry_panel = _self.RoomGeometryPanel(geometry_input)
         workspace.attach_geometry_panel(geometry_panel)
-        transform_input = RoomEntityTransformController(workspace, workspace.viewport)
+        transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)
         workspace.attach_transform_input(transform_input)
         # Hard placement constraints (#486): reject drag commits that would
         # introduce a violation, mirroring the legacy dock's blocking gate.
@@ -2373,16 +2426,16 @@ class WorkflowApplicationComposition:
         workspace.optimizeRequested.connect(
             lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
         )
-        prediction = RoomPredictionController(
+        prediction = _self.RoomPredictionController(
             self.repository,
             workspace.controller,
             parent=workspace,
         )
-        prediction_panel = RoomPredictionPanel(prediction)
-        material_panel = SurfaceMaterialPanel(workspace.controller)
-        treatment_panel = RoomTreatmentPanel(workspace.controller)
+        prediction_panel = _self.RoomPredictionPanel(prediction)
+        material_panel = _self.SurfaceMaterialPanel(workspace.controller)
+        treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
         workspace.attach_acoustics_panel(
-            RoomAcousticsTabs(prediction_panel, material_panel, treatment_panel)
+            _self.RoomAcousticsTabs(prediction_panel, material_panel, treatment_panel)
         )
 
         def show_prediction_overlay(results: object) -> None:
@@ -2821,12 +2874,13 @@ class WorkflowApplicationComposition:
         return CommandAvailability.available()
 
     def _make_measurement(self) -> WorkspaceMount:
-        controller = MeasurementWorkflowController(
+        _self = sys.modules[__name__]
+        controller = _self.MeasurementWorkflowController(
             self.repository,
             self.document_id,
             rew_client=self._make_rew_client(),
         )
-        mount = build_measurement_workspace_mount(controller)
+        mount = _self.build_measurement_workspace_mount(controller)
         workspace = mount.widget
         original_activate = mount.on_activate
 
@@ -2875,7 +2929,8 @@ class WorkflowApplicationComposition:
         return CommandAvailability.available()
 
     def _make_optimization(self) -> WorkspaceMount:
-        mount = build_optimization_workspace_mount(
+        _self = sys.modules[__name__]
+        mount = _self.build_optimization_workspace_mount(
             self.repository,
             self.document_id,
             on_navigate=self._navigate_target,
@@ -3049,7 +3104,9 @@ class WorkflowApplicationComposition:
             return
         head_document_ids = [
             entry.document_id
-            for entry in ProjectLibraryService(self.repository).list_projects()
+            for entry in sys.modules[__name__].ProjectLibraryService(
+                self.repository
+            ).list_projects()
         ]
         if head_document_ids:
             self._bind_project_entry(

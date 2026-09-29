@@ -263,6 +263,19 @@ def _incoming_dir(data_dir: Path) -> Path:
     return intents_dir(data_dir) / INTENT_INCOMING_DIRNAME
 
 
+def ensure_intent_incoming_dir(data_dir: Path) -> Path:
+    """Create the incoming queue directory if needed and return its path.
+
+    Exists as public API so the running instance can put a filesystem
+    watch on the drop directory instead of polling ``drain_launch_intents``
+    on a timer.
+    """
+
+    incoming = _incoming_dir(Path(data_dir))
+    incoming.mkdir(parents=True, exist_ok=True)
+    return incoming
+
+
 _arrival_seq = 0
 
 
@@ -410,6 +423,7 @@ __all__ = [
     'complete_queued_intent',
     'describe_launch_intent',
     'drain_launch_intents',
+    'ensure_intent_incoming_dir',
     'forward_launch_intent',
     'intents_dir',
 ]
