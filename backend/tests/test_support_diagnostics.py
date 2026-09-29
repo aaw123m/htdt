@@ -256,6 +256,8 @@ def test_quick_check_non_ok_rows_fail(tmp_path, monkeypatch) -> None:
     (tmp_path / DATABASE_NAME).write_bytes(b'x')
 
     class FakeConn:
+        closed = False
+
         def __enter__(self):
             return self
 
@@ -265,6 +267,9 @@ def test_quick_check_non_ok_rows_fail(tmp_path, monkeypatch) -> None:
         def execute(self, query):
             assert 'quick_check' in query
             return [('database corruption on page 7',)]
+
+        def close(self):
+            FakeConn.closed = True
 
     monkeypatch.setattr(sd.sqlite3, 'connect', lambda *a, **k: FakeConn())
     report = run_health_checks(tmp_path)
