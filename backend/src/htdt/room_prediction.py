@@ -1506,7 +1506,12 @@ class RoomPredictionPanel(QWidget):
         if receiver is None or not option.runnable:
             self.run_button.setEnabled(False)
         else:
-            self.run_button.setEnabled(option.state == 'READY')
+            # A busy run keeps the button disabled even though this option
+            # itself is runnable — re-enabling here would let a mid-run
+            # option change claim the click starts a new prediction (#REV18).
+            self.run_button.setEnabled(
+                option.state == 'READY' and not self.controller.is_busy
+            )
 
     def _environment_changed(self) -> None:
         authority_id = self.environment.currentData()

@@ -724,6 +724,10 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         token = self._rew_tokens.get(token_id)
         if token is not None:
             self.rew_job_guard.cancel(token)
+            # Logical-cancel the worker too: a still-queued read never runs
+            # and a finishing read reports WORKER_CANCELLED instead of a
+            # successful result that must be discarded downstream (#REV18).
+            self._rew_pool.cancel(token_id)
             self.statusBar().showMessage('REW読込の待機をやめました · 遅延結果は適用しません')
         self._current_rew_token_id = None
 
@@ -770,6 +774,11 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         if error is not None:
             if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
                 self.statusBar().showMessage(f'REW読込失敗 · {operation_error_message(error)}')
+            return
+        if self.rew_job_guard.is_cancelled(token):
+            # The operator cancelled this read — the discard reason is the
+            # cancel itself, not a revision/constraint change (#REV18).
+            self.statusBar().showMessage('REW読込はキャンセルされました · 遅延結果は適用しません')
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):

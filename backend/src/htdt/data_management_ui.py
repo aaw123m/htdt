@@ -800,7 +800,11 @@ class DataManagementWidget(QWidget):
                 "データを安全に読み直せませんでした。HTDTを再起動してください。"
             )
         else:
-            self._refresh_actions()
+            # A widget mounted while an op is already running never saw the
+            # busy_changed(True) signal — reflect the busy state it read in
+            # __init__ or it would show enabled actions with no progress
+            # card while the operation runs underneath it (#REV18).
+            self._on_busy_changed(self._busy)
 
     @property
     def restart_required(self) -> bool:
