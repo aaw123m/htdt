@@ -4,6 +4,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+from math import isfinite
 import os
 from pathlib import Path
 import tempfile
@@ -1520,6 +1521,8 @@ class MeasurementPageWorkspace(QWidget):
                 mic_rate = int(mic_rate_text)
             except ValueError:
                 return None, None, "マイクのサンプルレートは整数で入力してください"
+            if mic_rate <= 0:
+                return None, None, "マイクのサンプルレートは正の整数で入力してください"
         cal_sha = self._text_or_none(self.mic_cal_sha_edit)
         if cal_sha is not None and (
             len(cal_sha) != 64
@@ -1533,6 +1536,8 @@ class MeasurementPageWorkspace(QWidget):
                 volume_db = float(volume_text)
             except ValueError:
                 return None, None, "AVRボリュームは数値（dB）で入力してください"
+            if not isfinite(volume_db):
+                return None, None, "AVRボリュームは有限の数値（dB）で入力してください"
 
         microphone = CadMicrophoneCapture(
             manufacturer=self._text_or_none(self.mic_manufacturer_edit),
