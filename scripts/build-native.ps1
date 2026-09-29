@@ -142,8 +142,11 @@ try {
         --add-data "$BuildInfoFile;htdt_build" `
         --paths "$RepoRoot\backend\src" `
         --collect-submodules htdt `
+        --collect-data htdt `
         --collect-all pyvista `
         --collect-all pyvistaqt `
+        --copy-metadata numpy `
+        --copy-metadata h5py `
         --distpath $OutputDir `
         --workpath (Join-Path $WorkRoot "build") `
         --specpath $WorkRoot `

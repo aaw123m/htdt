@@ -174,9 +174,17 @@ def generate_self_signed_cert(
     ]
     if san:
         command += ['-addext', f'subjectAltName={san}']
-    result = subprocess.run(
-        command, capture_output=True, text=True, timeout=30
-    )
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=30
+        )
+    except OSError as exc:
+        # openssl is an external prerequisite (not bundled): on a machine
+        # without it the raw FileNotFoundError would surface as a generic
+        # "file not found" — name the actual missing tool instead.
+        raise CaptureReceiverError(
+            '証明書の生成に必要な openssl コマンドが見つかりません'
+        ) from exc
     if result.returncode != 0:
         raise CaptureReceiverError(
             f'self-signed certificate generation failed: {result.stderr}'
