@@ -54,6 +54,7 @@ from .launch_intents import (
 from .native_backup import inspect_backup
 from .project_bundle import import_project_bundle
 from .project_library_repository import ProjectLibraryRepository
+from .user_facing_error import operation_error_message
 
 
 _LOGGER = logging.getLogger('htdt.native')
@@ -107,7 +108,10 @@ def route_launch_intent(
             return route_backup_intent(intent)
     except Exception as exc:  # pragma: no cover - last-resort guard
         _LOGGER.exception('launch intent routing raised: %s', intent.path)
-        return _result(intent, 'failed', f'予期しないルーティングエラー: {exc}')
+        return _result(
+            intent, 'failed',
+            f'予期しないルーティングエラー: {operation_error_message(exc)}',
+        )
     return _result(
         intent,
         'invalid_or_unsupported',
@@ -132,8 +136,11 @@ def route_open_project_intent(
         try:
             imported = import_project_bundle(repository, path)
         except Exception as exc:
+            _LOGGER.info('project bundle import failed for %s: %s', path, exc)
             return _result(
-                intent, 'failed', f'プロジェクトバンドルのインポートに失敗: {exc}'
+                intent, 'failed',
+                f'プロジェクトバンドルのインポートに失敗: '
+                f'{operation_error_message(exc)}',
             )
         _LOGGER.info(
             'project bundle imported: %s -> document %s (mode=%s)',
@@ -234,14 +241,18 @@ def route_capture_intent(
     try:
         import_capture_artifact(bundle_path, ingestion)
     except CaptureImportError as exc:
+        _LOGGER.info('capture import rejected for %s: %s', bundle_path, exc)
         return _result(
             intent,
             'failed',
-            f'キャプチャインポートが {exc.stage} で拒否されました: {exc}',
+            f'キャプチャインポートが {exc.stage} で拒否されました: '
+            f'{operation_error_message(exc)}',
         )
     except (ValueError, OSError) as exc:
+        _LOGGER.info('capture import failed for %s: %s', bundle_path, exc)
         return _result(
-            intent, 'failed', f'キャプチャインポートに失敗: {exc}'
+            intent, 'failed',
+            f'キャプチャインポートに失敗: {operation_error_message(exc)}',
         )
 
     try:
@@ -249,10 +260,12 @@ def route_capture_intent(
             build_ingestion_plan(FrozenBundle(bundle_path))
         )
     except (ValueError, OSError) as exc:
+        _LOGGER.info('ingestion plan rebuild failed for %s: %s', bundle_path, exc)
         return _result(
             intent,
             'failed',
-            f'キャプチャ取り込み計画を再構築できませんでした: {exc}',
+            f'キャプチャ取り込み計画を再構築できませんでした: '
+            f'{operation_error_message(exc)}',
         )
     if (
         descriptor is not None
@@ -274,8 +287,11 @@ def route_capture_intent(
             source_detail=str(path),
         )
     except Exception as exc:
+        _LOGGER.info('capture inbox staging failed for %s: %s', bundle_path, exc)
         return _result(
-            intent, 'failed', f'キャプチャ受信箱へのステージに失敗: {exc}'
+            intent, 'failed',
+            f'キャプチャ受信箱へのステージに失敗: '
+            f'{operation_error_message(exc)}',
         )
 
     outcome: LaunchIntentOutcome = (
@@ -303,10 +319,12 @@ def route_backup_intent(
     try:
         manifest, staged_schema = inspect_backup(path)
     except Exception as exc:
+        _LOGGER.info('backup validation failed for %s: %s', path, exc)
         return _result(
             intent,
             'invalid_or_unsupported',
-            f'有効な .htdt-backup アーカイブではありません: {exc}',
+            f'有効な .htdt-backup アーカイブではありません: '
+            f'{operation_error_message(exc)}',
         )
     return _result(
         intent,

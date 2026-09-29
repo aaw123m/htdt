@@ -347,7 +347,7 @@ class ValidationControllerMixin:
                     else f'不足 {missing_count}件'
                 )
             except Exception as exc:
-                readiness_text = f'確認できません: {exc}'
+                readiness_text = f'確認できません: {operation_error_message(exc)}'
             item = QTreeWidgetItem([
                 f'検証条件 {display_index}',
                 f'{campaign.model_id}/{campaign.model_version}',

@@ -476,11 +476,14 @@ def report_launch_failure(
     reason: str,
     recovery: str,
     log_path: Path | None,
+    technical_detail: str | None = None,
 ) -> None:
     """Show a concise visible failure; full detail stays in the diagnostics log.
 
-    Falls back to stderr when Qt cannot present a dialog (for example when the
-    display layer itself is what failed).
+    ``technical_detail`` (exception class/text) is presented collapsed under
+    the dialog's Details expander — the primary message stays a localized
+    reason + recovery. Falls back to stderr when Qt cannot present a dialog
+    (for example when the display layer itself is what failed).
     """
 
     sections = [reason]
@@ -495,8 +498,19 @@ def report_launch_failure(
         app = QApplication.instance()
         if app is None:
             app = QApplication([sys.argv[0]])
-        QMessageBox.critical(None, title, message)
+        box = QMessageBox(
+            QMessageBox.Icon.Critical,
+            title,
+            message,
+            QMessageBox.StandardButton.Ok,
+        )
+        if technical_detail:
+            box.setDetailedText(technical_detail)
+        box.exec()
         return
     except Exception:
         pass
-    write_stderr(f'{title}\n{message}')
+    if technical_detail:
+        write_stderr(f'{title}\n{message}\n{technical_detail}')
+    else:
+        write_stderr(f'{title}\n{message}')

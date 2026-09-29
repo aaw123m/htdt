@@ -264,8 +264,12 @@ def test_gui_startup_failure_is_logged_and_reported(
     assert len(reported) == 1
     failure = reported[0]
     assert failure["title"] == "HTDTが起動しませんでした"
-    assert "schema v99" in failure["reason"]
+    # Primary reason is the localized schema message; the raw exception
+    # text (with the real failing version) moves to the Details expander.
+    assert "データベース形式を確認できませんでした" == failure["reason"]
     assert "\n" not in failure["reason"]
+    assert "schema v99" in failure["technical_detail"]
+    assert "NativeSchemaError" in failure["technical_detail"]
     assert failure["log_path"] == data_dir / "diagnostics" / LOG_FILENAME
 
     text = _log_text(failure["log_path"])

@@ -46,6 +46,7 @@ from .storage_maintenance import (
     plan_storage_gc,
     run_storage_gc,
 )
+from .user_facing_error import operation_error_message
 
 
 class DataManagementBusyError(RuntimeError):
@@ -170,8 +171,11 @@ class DataOperationFailure:
     kind: DataOperationKind
     phase: DataOperationPhase
     message_ja: str
+    #: Operator-facing detail (localized via ``operation_error_message``).
     detail: str
     exception_type: str
+    #: Raw exception text preserved for diagnostics; never shown inline.
+    technical_detail: str = ''
     restart_required: bool = False
     data_restored: bool = False
 
@@ -874,7 +878,8 @@ class DataManagementController(QObject):
                     kind=active.kind,
                     phase=DataOperationPhase.RELOADING,
                     message_ja=message,
-                    detail=str(lifecycle_error),
+                    detail=operation_error_message(lifecycle_error),
+                    technical_detail=str(lifecycle_error),
                     exception_type=type(lifecycle_error).__name__,
                     restart_required=self.lifecycle.restart_required,
                     data_restored=active.kind is DataOperationKind.RESTORE,
@@ -902,6 +907,7 @@ class DataManagementController(QObject):
         )
         restart_required = False
         lifecycle_detail = ''
+        lifecycle_technical = ''
         try:
             if active.lifecycle_mode == 'backup':
                 self.lifecycle.finish_backup()
@@ -909,7 +915,8 @@ class DataManagementController(QObject):
                 self.lifecycle.resume_after_restore_attempt()
         except Exception as lifecycle_exc:
             restart_required = self.lifecycle.restart_required
-            lifecycle_detail = f' / reload failed: {lifecycle_exc}'
+            lifecycle_detail = f' / {operation_error_message(lifecycle_exc)}'
+            lifecycle_technical = f' / reload failed: {lifecycle_exc}'
 
         self._finish_active()
         if self.activity_center is not None:
@@ -926,7 +933,8 @@ class DataManagementController(QObject):
                 kind=active.kind,
                 phase=phase,
                 message_ja=self._failure_message(active.kind),
-                detail=f'{exc}{lifecycle_detail}',
+                detail=f'{operation_error_message(exc)}{lifecycle_detail}',
+                technical_detail=f'{exc}{lifecycle_technical}',
                 exception_type=type(exc).__name__,
                 restart_required=restart_required,
                 data_restored=False,
@@ -989,7 +997,8 @@ class DataManagementController(QObject):
                 kind=kind,
                 phase=phase,
                 message_ja=message_ja,
-                detail=str(exc),
+                detail=operation_error_message(exc),
+                technical_detail=str(exc),
                 exception_type=type(exc).__name__,
                 restart_required=self.lifecycle.restart_required,
             )

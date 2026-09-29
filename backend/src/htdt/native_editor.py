@@ -46,6 +46,7 @@ from .cad_scene import (
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
 from .room_viewport import _entity_mesh as _scene_entity_mesh
 from .command_palette import flush_focused_text_editor, focused_text_editor
+from .user_facing_error import operation_error_message, warn_user
 
 ROLE = int(Qt.ItemDataRole.UserRole)
 AXIS_NAMES: tuple[Literal['x', 'y', 'z'], ...] = ('x', 'y', 'z')
@@ -1071,8 +1072,15 @@ class NativeEditorWindow(QMainWindow):
             )
             self.working.mark_saved(result.revision.revision_id, result.revision.content_hash)
         except Exception as exc:
-            self.statusBar().showMessage(f'保存に失敗しました · 下書きは保持 · {exc}')
-            QMessageBox.critical(self, '保存に失敗しました', f'{exc}\n\n下書きと復旧スナップショットは保持されました。')
+            self.statusBar().showMessage(
+                f'保存に失敗しました · 下書きは保持 · {operation_error_message(exc)}'
+            )
+            warn_user(
+                self,
+                '保存に失敗しました',
+                exc,
+                effect='下書きと復旧スナップショットは保持されました。',
+            )
             return
         verb = '保存しました' if result.created else '変更なし'
         self.statusBar().showMessage(f'リビジョン {result.revision.revision_id[:8]} · {verb} · 保存済み')
@@ -1117,7 +1125,9 @@ class NativeEditorWindow(QMainWindow):
             else:
                 self.repository.clear_recovery(self.document_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'復旧スナップショットに失敗しました · {exc}')
+            self.statusBar().showMessage(
+                f'復旧スナップショットに失敗しました · {operation_error_message(exc)}'
+            )
 
     def _persist_view_state(self) -> None:
         self.view_state_save_timer.stop()
@@ -1130,7 +1140,9 @@ class NativeEditorWindow(QMainWindow):
                 locked_ids=self.view_state.locked_ids,
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'表示状態の保存に失敗しました · {exc}')
+            self.statusBar().showMessage(
+                f'表示状態の保存に失敗しました · {operation_error_message(exc)}'
+            )
 
     def _set_dirty_status(self) -> None:
         if self.working is None:

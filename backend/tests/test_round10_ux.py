@@ -69,6 +69,9 @@ def test_uncaught_exception_posts_failed_pseudo_operation(
         (entry,) = [op for op in recent if op.operation_kind == 'uncaught_exception']
         assert entry.state == OperationState.FAILED
         assert entry.title == '予期しないエラー'
+        # The summary leads with the mapped message; the exception
+        # identity stays on the record after it in parentheses.
+        assert '操作を完了できませんでした' in (entry.error_summary or '')
         assert 'RuntimeError' in (entry.error_summary or '')
         assert 'boom' in (entry.error_summary or '')
         # The persistent record carries the log path — the transient

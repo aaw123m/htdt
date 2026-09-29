@@ -398,6 +398,43 @@ def _packaged_application_icon() -> Path | None:
     return None
 
 
+#: Launch-failure reason per classified subsystem — the primary text of the
+#: generic launch dialog stays a localized, culprit-naming line instead of a
+#: raw exception dump (which lives in the Details expander / log).
+_LAUNCH_CLASS_REASON_JA = {
+    'renderer_initialization':
+        '描画エンジン（GPU/ドライバ）の初期化に失敗しました',
+    'schema_incompatibility': 'データ形式がこのビルドと互換性がありません',
+    'migration_failure': 'データ移行を完了できませんでした',
+    'preference_state': 'アプリケーション設定の読み込みに失敗しました',
+    'integration_initialization': '外部連携サービスの初期化に失敗しました',
+    'project_data': 'プロジェクトデータを開けませんでした',
+}
+
+
+def _launch_reason_ja(exc: BaseException) -> str:
+    """Localized primary reason for a launch-failure dialog.
+
+    Typed mappings win (file locked, permission denied, upgrade/schema
+    failures); otherwise the classified subsystem names what failed, and
+    only a truly unclassifiable error falls back to the generic line.
+    """
+
+    from .user_facing_error import operation_error_message
+
+    message = operation_error_message(exc)
+    if message != '操作を完了できませんでした':
+        return message
+    try:
+        from .startup_recovery import classify_startup_failure
+    except Exception:
+        return message
+    return _LAUNCH_CLASS_REASON_JA.get(
+        classify_startup_failure(exc),
+        message,
+    )
+
+
 def _route_launch_intent(
     intent: 'HTDTLaunchIntent',
     *,
@@ -418,6 +455,7 @@ def _route_launch_intent(
 
     from .launch_intents import describe_launch_intent
     from .launch_router import route_launch_intent
+    from .user_facing_error import operation_error_message
 
     application = getattr(window, 'workflow_application', None)
     if application is not None:
@@ -467,7 +505,10 @@ def _route_launch_intent(
                 result = result.model_copy(
                     update={
                         'outcome': outcome,
-                        'detail': f'プロジェクトの切り替えに失敗: {exc}',
+                        'detail': (
+                            'プロジェクトの切り替えに失敗: '
+                            f'{operation_error_message(exc)}'
+                        ),
                     }
                 )
             else:
@@ -544,8 +585,9 @@ def _route_launch_intent(
                     update={
                         'outcome': outcome,
                         'detail': (
-                            f'バックアップは有効ですがプレビュー画面が'
-                            f'ビジーまたは利用不可です: {exc}'
+                            'バックアップは有効ですがプレビュー画面が'
+                            'ビジーまたは利用不可です: '
+                            f'{operation_error_message(exc)}'
                         ),
                     }
                 )
@@ -1050,6 +1092,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             reason=newer_reason,
             recovery=newer_recovery,
             log_path=diagnostics.log_path,
+            technical_detail=concise_reason(exc),
         )
         return 1
     except NativeUpgradeError as exc:
@@ -1064,9 +1107,10 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDTがデータを更新できませんでした",
-            reason=concise_reason(exc),
+            reason=_launch_reason_ja(exc),
             recovery=_self.upgrade_failure_recovery_ja(exc),
             log_path=diagnostics.log_path,
+            technical_detail=concise_reason(exc),
         )
         return 1
     except Exception as exc:
@@ -1084,13 +1128,14 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDTが起動しませんでした",
-            reason=concise_reason(exc),
+            reason=_launch_reason_ja(exc),
             recovery=(
                 "この失敗でデータは変更されていません。HTDTをもう一度起動"
                 "してください。再発する場合は最新のバックアップを復元し、"
                 "診断ログをサポートへ共有してください。"
             ),
             log_path=diagnostics.log_path,
+            technical_detail=concise_reason(exc),
         )
         return 1
 
@@ -1207,13 +1252,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         report_launch_failure(
             title="HTDTのデータディレクトリを開けません",
-            reason=concise_reason(exc),
+            reason=_launch_reason_ja(exc),
             recovery=(
                 "保存先のドライブやフォルダを確認してからHTDTを起動し直して"
                 "ください。データを移動した場合は --data-dir で新しい場所を"
                 "指定してください。"
             ),
             log_path=None,
+            technical_detail=concise_reason(exc),
         )
         return 1
     diagnostics = configure_diagnostics(args.data_dir)

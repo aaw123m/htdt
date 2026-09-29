@@ -20,6 +20,7 @@ from .application_preferences import (
 )
 from .cad_repository import SceneRepository
 from .capture_receiver import CaptureReceiverService, ReceiverDeliveryRecord
+from .user_facing_error import operation_error_message
 
 
 PREFERENCE_KEY = 'integrations.capture_receiver_enabled'
@@ -120,7 +121,7 @@ class CaptureReceiverController(QObject):
         except Exception as exc:
             # Never raise inside a store notification — surface it like a
             # failed start instead.
-            self.last_error = str(exc)
+            self.last_error = operation_error_message(exc)
             _LOGGER.warning('capture receiver failed to stop: %s', exc)
         else:
             self.last_error = None
@@ -139,7 +140,7 @@ class CaptureReceiverController(QObject):
         try:
             self.service.start()
         except Exception as exc:
-            self.last_error = str(exc)
+            self.last_error = operation_error_message(exc)
             _LOGGER.warning('capture receiver failed to start: %s', exc)
             self.changed.emit()
             return self.last_error

@@ -153,7 +153,8 @@ class PairingDialog(QDialog):
             )
         except Exception as exc:
             QMessageBox.warning(
-                self, "ペアリング", f"QRコードを発行できませんでした · {exc}"
+                self, "ペアリング",
+                f"QRコードを発行できませんでした · {operation_error_message(exc)}"
             )
             return
         self._pairing = pairing
