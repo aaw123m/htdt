@@ -605,6 +605,19 @@ class ApplicationPreferenceStore:
     def subscribe(self, listener: Callable[[PreferenceChange], None]) -> None:
         self._listeners.append(listener)
 
+    def unsubscribe(self, listener: Callable[[PreferenceChange], None]) -> None:
+        """Detach a previously subscribed listener (idempotent).
+
+        The store is app-scoped and outlives per-composition subscribers:
+        a listener whose owner closed must be removed, or every later
+        commit keeps invoking a dead observer — and a listener that raises
+        surfaces as ``PreferenceNotificationError`` on an unrelated write.
+        """
+
+        self._listeners = [
+            existing for existing in self._listeners if existing != listener
+        ]
+
     def _commit(
         self, resolved: Mapping[str, object]
     ) -> tuple[PreferenceChange, ...]:

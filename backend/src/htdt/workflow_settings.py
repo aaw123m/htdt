@@ -98,8 +98,15 @@ class PreferencesWidget(QWidget):
         # Other surfaces write the same keys (e.g. the キャプチャ tab
         # applies integrations.capture_receiver_enabled through its
         # controller) — keep the rendered controls in sync with every
-        # committed change, not just this widget's own writes.
+        # committed change, not just this widget's own writes. The store
+        # is app-scoped and outlives this widget's shell, so release the
+        # subscription on destruction or an unrelated commit would keep
+        # touching a dead editor tree.
         store.subscribe(self._on_external_change)
+        # PySide6 silently never delivers ``destroyed`` to a bound method of
+        # the object being destroyed (same caveat as data_management's
+        # controller detach), so the release goes through a lambda.
+        self.destroyed.connect(lambda: self.release())
 
         for category in PreferenceCategory:
             definitions = store.definitions(category)
@@ -192,6 +199,11 @@ class PreferencesWidget(QWidget):
             editor.setToolTip(definition.description)
         self._editors[key] = editor
         return editor
+
+    def release(self) -> None:
+        """Detach from the shared store; safe to call more than once."""
+
+        self._store.unsubscribe(self._on_external_change)
 
     def _on_external_change(self, change: PreferenceChange) -> None:
         self._sync_editor(change.key)
