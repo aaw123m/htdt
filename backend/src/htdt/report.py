@@ -356,7 +356,7 @@ def render_report_html(payload: dict[str, Any]) -> str:
 <title>HTDT comparison {escape(str(comparison['id']))}</title>
 <style>
 body{{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f5f6f8;color:#1e242b}}main{{max-width:1080px;margin:auto;padding:32px}}
-section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}h1,h2{{margin-top:0}}table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;vertical-align:top}}code{{font-size:.9em}}.muted{{color:#606a75}}.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}.metric{{border:1px solid #e1e4e8;border-radius:8px;padding:12px}}.metric strong{{display:block;font-size:1.25rem}}.warn{{border-left:4px solid #a46a00;padding-left:12px}}svg{{width:100%;height:auto}}@media(max-width:700px){{.metrics{{grid-template-columns:1fr 1fr}}}}@media print{{body{{background:#fff}}main{{max-width:none;padding:16px}}section,.metric{{break-inside:avoid}}details{{display:none}}svg{{max-height:16cm}}}}
+section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}h1,h2{{margin-top:0}}table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;vertical-align:top}}td{{overflow-wrap:anywhere}}th{{overflow-wrap:break-word}}code{{font-size:.9em;overflow-wrap:anywhere}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}p,li{{overflow-wrap:break-word}}.muted{{color:#606a75}}.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}}.metric{{border:1px solid #e1e4e8;border-radius:8px;padding:12px}}.metric strong{{display:block;font-size:1.25rem}}.warn{{border-left:4px solid #a46a00;padding-left:12px}}svg{{width:100%;height:auto}}@media(max-width:700px){{.metrics{{grid-template-columns:1fr 1fr}}}}@media print{{body{{background:#fff}}main{{max-width:none;padding:16px}}h1,h2{{break-after:avoid}}tr{{break-inside:avoid}}section,.metric{{break-inside:avoid}}details{{display:none}}svg{{max-height:16cm}}}}
 </style></head><body><main>
 <h1>{escape(t['title'])}</h1>
 <p class="muted">{escape(t['project_line'].format(project=payload['project']['name'], comparison=comparison['id'], saved=comparison.get('created_at', '—')))}</p>
@@ -2307,7 +2307,8 @@ def render_installation_report_html(
     )
     entity_rows = ''.join(
         '<tr>'
-        f'<td><code>{escape(item.entity_id)}</code></td>'
+        f'<td><code>{escape(item.entity_id)}</code>'
+        f'<br><span class="muted">{escape(item.name)}</span></td>'
         f'<td>{escape(item.entity_kind)}</td>'
         f'<td>{escape(item.speaker_role or "—")}</td>'
         f'<td>{_metric(item.x_m)}</td><td>{_metric(item.y_m)}</td><td>{_metric(item.z_m)}</td>'
@@ -2355,7 +2356,7 @@ def render_installation_report_html(
 <title>HTDT installation {escape(authority.scene_revision_id)}</title>
 <style>
 body{{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f5f6f8;color:#1e242b}}main{{max-width:1100px;margin:auto;padding:32px}}
-section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}h1,h2{{margin-top:0}}table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;vertical-align:top}}code{{font-size:.9em}}.muted{{color:#606a75}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}@media print{{body{{background:#fff}}main{{max-width:none;padding:16px}}section{{break-inside:avoid}}details{{display:none}}}}
+section{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}h1,h2{{margin-top:0}}table{{border-collapse:collapse;width:100%}}th,td{{border-bottom:1px solid #e4e7eb;padding:8px;text-align:left;vertical-align:top}}td{{overflow-wrap:anywhere}}th{{overflow-wrap:break-word}}code{{font-size:.9em;overflow-wrap:anywhere}}.muted{{color:#606a75}}p,li{{overflow-wrap:break-word}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}@media print{{body{{background:#fff}}main{{max-width:none;padding:16px}}h1,h2{{break-after:avoid}}tr{{break-inside:avoid}}section{{break-inside:avoid}}details{{display:none}}}}
 </style></head><body><main>
 <h1>Home Theater Digital Twin — Installation Report</h1>
 <p class="muted">Exported {escape(exported_at)} · generation metadata is not part of semantic identity.</p>
