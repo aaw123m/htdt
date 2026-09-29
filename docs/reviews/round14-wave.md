@@ -126,4 +126,9 @@ themselves part of the honesty surface.)
   wrong-lane result rejected by the apply gate; determinism of request +
   result keys; GA dispatch refused by the PFFDTD candidate executor; band
   lower-bound BLOCKED at resolve (regression coverage for F1).
-- Regression: full `backend/tests` suite under `-n 4`.
+- Regression: full `backend/tests -n 4` — all pass except one documented
+  preexisting xdist concurrency flake
+  (`test_cad_hybrid_prediction_provider.py::test_evidence_lifecycle_rejects_illegal_promotions`,
+  `FileNotFoundError` on a fixture `.tmp` authority file under `-n≥2`;
+  same failure recorded on clean `main` in round14-errmsg, unrelated to
+  this diff — it passes serially and under `-n 4` file-scoped).
