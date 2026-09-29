@@ -69,7 +69,7 @@ def test_session_from_another_project_cannot_be_assigned(tmp_path: Path) -> None
         json=measurement_payload(context['id'], session['id']),
     )
     assert response.status_code == 404
-    assert 'session_not_found' in response.text
+    assert response.json()['detail'] == 'Session not found'
 
 
 def test_measurement_without_session_remains_explicitly_unassigned(tmp_path: Path) -> None:
