@@ -856,6 +856,8 @@ class SceneEntity(BaseModel):
 
     @model_validator(mode='after')
     def semantic_fields(self) -> 'SceneEntity':
+        if not self.name.strip():
+            raise ValueError('name must not be blank')
         if self.kind == 'speaker' and not self.speaker_role:
             raise ValueError('speaker_role is required for speakers')
         if self.kind != 'speaker' and (self.speaker_role is not None or self.aim_xyz is not None):
