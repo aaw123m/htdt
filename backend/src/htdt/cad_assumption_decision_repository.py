@@ -50,6 +50,10 @@ def _instant(value: str) -> datetime:
     """Parse a validated UTC-aware persisted timestamp (#869)."""
 
     parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        # Writers persist UTC ISO-8601; a foreign/restored row that lost its
+        # marker is the same instant — treating it as host-local would skew.
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
 
 

@@ -96,11 +96,11 @@ def _plan(revision, document_id: str):
 def test_saved_label_formats_utc_timestamp_as_japanese_save_label() -> None:
     assert (
         saved_label('2026-09-24T18:42:31+00:00')
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
     assert (
         saved_label('2026-09-24T18:42:31Z')
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
 
 
@@ -116,11 +116,11 @@ def test_named_or_saved_label_prefers_the_human_name() -> None:
     )
     assert (
         named_or_saved_label(None, '2026-09-24T18:42:00+00:00')
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
     assert (
         named_or_saved_label('', '2026-09-24T18:42:00+00:00')
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
 
 
@@ -128,21 +128,21 @@ def test_revision_display_label_prefers_user_label_then_generated() -> None:
     revision = _RevisionStub('rev-abc123def456', '2026-09-24T18:42:00+00:00')
     labels = {'rev-abc123def456': _LabelStub('部屋 確定版')}
     assert revision_display_label(revision, labels) == '部屋 確定版'
-    assert revision_display_label(revision, {}) == '2026-09-24 18:42 の保存'
-    assert revision_display_label(revision, None) == '2026-09-24 18:42 の保存'
+    assert revision_display_label(revision, {}) == '2026年9月24日 18:42 の保存'
+    assert revision_display_label(revision, None) == '2026年9月24日 18:42 の保存'
     empty_label = {'rev-abc123def456': _LabelStub('')}
     assert (
         revision_display_label(revision, empty_label)
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
 
 
 def test_variant_and_spec_labels_never_leak_ids() -> None:
     variant = _VariantStub('5.1ch 案', '2026-09-24T18:42:00+00:00')
-    assert variant_display_label(variant) == '5.1ch 案 · 2026-09-24 18:42 の保存'
+    assert variant_display_label(variant) == '5.1ch 案 · 2026年9月24日 18:42 の保存'
     assert (
         spec_display_label(None, '2026-09-24T18:42:00+00:00')
-        == '2026-09-24 18:42 の保存'
+        == '2026年9月24日 18:42 の保存'
     )
     assert (
         spec_display_label('標準探索', '2026-09-24T18:42:00+00:00')
@@ -150,7 +150,7 @@ def test_variant_and_spec_labels_never_leak_ids() -> None:
     )
     assert (
         format_versioned_label('v', '3', '2026-09-24T18:42:00+00:00')
-        == 'v 3 · 2026-09-24 18:42 の保存'
+        == 'v 3 · 2026年9月24日 18:42 の保存'
     )
 
 

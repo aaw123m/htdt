@@ -106,6 +106,8 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
     ('ManagedDataUnavailableError', 'storage.managed_data',
      '管理データにアクセスできませんでした',
      'データ保存先の設定を確認してください'),
+    ('BackupError', 'backup.invalid',
+     'バックアップデータを処理できませんでした', None),
     ('PreferenceError', 'preferences.error', '環境設定を適用できませんでした', None),
     ('IngressTooLargeError', 'ingress.too_large', 'ファイルが大きすぎます',
      'より小さいファイルを選択してください'),
