@@ -45,7 +45,7 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Literal
+from typing import Iterable, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -338,7 +338,9 @@ class AutomaticBackupScheduler:
 
         return tuple(record.path for record in self.generation_records())
 
-    def prune_generations(self) -> tuple[Path, ...]:
+    def prune_generations(
+        self, *, protected: Iterable[Path] = ()
+    ) -> tuple[Path, ...]:
         """Apply the rotation policy: rolling N newest + daily coverage.
 
         Scoped to ``AUTOMATIC_CLASSIFICATIONS`` only (#752): manual,
@@ -348,7 +350,8 @@ class AutomaticBackupScheduler:
         automatic class, keeps the newest ``keep_generations`` generations
         always, plus the newest generation of each UTC day while that day
         has no already-retained representative, up to
-        ``keep_daily_generations`` distinct days.
+        ``keep_daily_generations`` distinct days. ``protected`` paths are
+        never removed regardless of their embedded stamp.
         """
 
         automatic = [
@@ -357,6 +360,10 @@ class AutomaticBackupScheduler:
         keep: set[Path] = {
             record.path for record in automatic[: self.policy.keep_generations]
         }
+        # A generation just written under a skewed clock can embed a stamp
+        # older than the kept window — ordering by filename must never let
+        # a run delete the archive it just wrote.
+        keep.update(protected)
         day_seen: set[str] = set()
         day_kept = 0
         for record in automatic:
@@ -420,18 +427,31 @@ class AutomaticBackupScheduler:
         else:
             try:
                 elapsed = datetime.now(timezone.utc) - _parse_utc(str(last_run))
-            except ValueError:
+            except (ValueError, TypeError):
+                # Unparseable *or* offset-naive text (a naive value parses
+                # fine but crashes the aware subtraction): a backup run is
+                # the fail-safe answer to an unreadable interval clock.
                 due_reason = 'last automatic backup time is unreadable'
             else:
-                if elapsed < timedelta(hours=self.policy.interval_hours):
+                if elapsed < timedelta(0):
+                    # A future last-run stamp means clock skew — a moved-
+                    # backward clock or a state file written on another
+                    # machine. Counting it as "within interval" would stall
+                    # every automatic backup until real time catches up.
+                    due_reason = (
+                        'last automatic backup timestamp is in the future '
+                        '(clock skew)'
+                    )
+                elif elapsed < timedelta(hours=self.policy.interval_hours):
                     return False, (
                         f'within interval ({elapsed} < '
                         f'{self.policy.interval_hours}h)'
                     )
-                due_reason = (
-                    f'last automatic backup was {elapsed} ago '
-                    f'(interval {self.policy.interval_hours}h)'
-                )
+                else:
+                    due_reason = (
+                        f'last automatic backup was {elapsed} ago '
+                        f'(interval {self.policy.interval_hours}h)'
+                    )
         if trigger == 'clean_close':
             return True, f'clean shutdown satisfies a due backup: {due_reason}'
         return True, due_reason
@@ -488,7 +508,7 @@ class AutomaticBackupScheduler:
             'clean_close_pending': False,
         })
         self._save_state(state)
-        self.prune_generations()
+        self.prune_generations(protected=(destination,))
         _LOGGER.info(
             'automatic backup created: %s (classification=%s trigger=%s)',
             destination,
