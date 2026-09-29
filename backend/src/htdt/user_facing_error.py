@@ -26,6 +26,7 @@ from __future__ import annotations
 import errno as _errno
 import logging
 import re
+import sqlite3 as _sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -136,9 +137,10 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
 
 #: Failure classes where asking again is a reasonable next step — transient
 #: transports (REW API), file locks/permissions the user may have just fixed,
-#: and optimistic-concurrency rejections whose recovery text already says
-#: "retry". Deterministic input problems (parse, validation, not-found) stay
-#: non-retryable: re-running them without changes would re-fail identically.
+#: a store lock held by another process, and optimistic-concurrency
+#: rejections whose recovery text already says "retry". Deterministic input
+#: problems (parse, validation, not-found) stay non-retryable: re-running
+#: them without changes would re-fail identically.
 RETRYABLE_ERROR_CODES: frozenset[str] = frozenset(
     {
         'rew.unavailable',
@@ -146,6 +148,7 @@ RETRYABLE_ERROR_CODES: frozenset[str] = frozenset(
         'io.error',
         'io.permission',
         'io.no_space',
+        'storage.locked',
         'authority.conflict',
         'authority.stale_head',
     }
@@ -219,6 +222,45 @@ def _map_exception(
             '入力データを検証できませんでした',
             '必須項目と値の形式を確認してください',
         )
+    if isinstance(exc, _sqlite3.Error):
+        # sqlite errors are typed by ``sqlite_errorcode`` (an extended result
+        # code — mask to the primary byte), never by parsing message text:
+        # 'database is locked', 'malformed', and 'disk full' must each reach
+        # the operator as their real cause, not a generic failure.
+        primary = getattr(exc, 'sqlite_errorcode', 0) & 0xFF
+        if primary in (_sqlite3.SQLITE_BUSY, _sqlite3.SQLITE_LOCKED):
+            return (
+                'storage.locked',
+                'データベースが他の処理によって使用されています',
+                '他のアプリや処理を終了してから再試行してください',
+            )
+        if primary == _sqlite3.SQLITE_FULL:
+            return (
+                'io.no_space',
+                'ディスク容量が不足しています',
+                '空き容量を確保してから再試行してください',
+            )
+        if primary in (_sqlite3.SQLITE_CORRUPT, _sqlite3.SQLITE_NOTADB):
+            return (
+                'storage.corrupt',
+                'データベースが破損しています',
+                '最新のバックアップを復元してください',
+            )
+        if primary == _sqlite3.SQLITE_READONLY:
+            return (
+                'io.permission',
+                'データベースが読み取り専用です',
+                'データ保存先の権限を確認してください',
+            )
+        if primary == _sqlite3.SQLITE_IOERR:
+            return ('io.error', 'ファイルにアクセスできませんでした', None)
+        if primary == _sqlite3.SQLITE_CANTOPEN:
+            return (
+                'storage.cantopen',
+                'データベースを開けませんでした',
+                'データ保存先のパスと権限を確認してください',
+            )
+        return ('storage.error', 'データベース処理に失敗しました', None)
     if isinstance(exc, FileNotFoundError):
         return 'io.not_found', 'ファイルが見つかりません', 'パスを確認してください'
     if isinstance(exc, PermissionError):

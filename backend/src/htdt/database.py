@@ -98,6 +98,19 @@ def _dataset_row_valid(row: sqlite3.Row) -> bool:
     )
 
 
+def _loads_or_none(text: Any) -> tuple[Any, bool]:
+    """Parse a stored JSON column; ``(None, False)`` when it is corrupted.
+
+    Listing readers pair this with ``integrity_valid``: a row whose JSON no
+    longer parses is still returned (flagged) instead of crashing the whole
+    listing and hiding every healthy row behind one bad one.
+    """
+    try:
+        return json.loads(text), True
+    except (TypeError, json.JSONDecodeError):
+        return None, False
+
+
 def _column_names(db: sqlite3.Connection, table: str) -> set[str]:
     return {str(row['name']) for row in db.execute(f'PRAGMA table_info({table})')}
 
@@ -188,30 +201,36 @@ class Store:
             constraint_columns = _column_names(db, 'constraint_sets')
             if 'spec_sha256' not in constraint_columns:
                 db.execute('ALTER TABLE constraint_sets ADD COLUMN spec_sha256 TEXT')
-                for row in db.execute('SELECT id, spec_json FROM constraint_sets').fetchall():
-                    spec = json.loads(row['spec_json'])
-                    db.execute(
-                        'UPDATE constraint_sets SET spec_sha256 = ? WHERE id = ?',
-                        (canonical_json_sha256(spec), row['id']),
-                    )
+            # Backfill by NULL-marker, not by column presence: an interrupted
+            # open leaves the column committed (DDL autocommits) with the
+            # backfill UPDATEs rolled back — gating the fill on the column's
+            # absence would strand those rows hashed-as-corrupt forever.
+            for row in db.execute(
+                'SELECT id, spec_json FROM constraint_sets WHERE spec_sha256 IS NULL'
+            ).fetchall():
+                spec = json.loads(row['spec_json'])
+                db.execute(
+                    'UPDATE constraint_sets SET spec_sha256 = ? WHERE id = ?',
+                    (canonical_json_sha256(spec), row['id']),
+                )
             dataset_columns = _column_names(db, 'datasets')
             if 'dataset_sha256' not in dataset_columns:
                 db.execute('ALTER TABLE datasets ADD COLUMN dataset_sha256 TEXT')
-                for row in db.execute(
-                    'SELECT id, kind, frequency_blob, level_blob, phase_blob, '
-                    'metadata_json FROM datasets'
-                ).fetchall():
-                    db.execute(
-                        'UPDATE datasets SET dataset_sha256 = ? WHERE id = ?',
-                        (
-                            dataset_row_sha256(
-                                row['kind'], row['frequency_blob'],
-                                row['level_blob'], row['phase_blob'],
-                                row['metadata_json'],
-                            ),
-                            row['id'],
+            for row in db.execute(
+                'SELECT id, kind, frequency_blob, level_blob, phase_blob, '
+                'metadata_json FROM datasets WHERE dataset_sha256 IS NULL'
+            ).fetchall():
+                db.execute(
+                    'UPDATE datasets SET dataset_sha256 = ? WHERE id = ?',
+                    (
+                        dataset_row_sha256(
+                            row['kind'], row['frequency_blob'],
+                            row['level_blob'], row['phase_blob'],
+                            row['metadata_json'],
                         ),
-                    )
+                        row['id'],
+                    ),
+                )
             db.execute('INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', ('schema_version', str(SCHEMA_VERSION)))
             db.commit()
 
@@ -320,11 +339,12 @@ class Store:
                 ).fetchall()
         result = []
         for row in rows:
-            spec = json.loads(row['spec_json'])
+            spec, spec_ok = _loads_or_none(row['spec_json'])
             digest = canonical_json_sha256(spec)
             result.append({
                 'id': row['id'], 'project_id': row['project_id'], 'context_id': row['context_id'], 'name': row['name'],
-                'spec': spec, 'spec_sha256': row['spec_sha256'], 'integrity_valid': digest == row['spec_sha256'],
+                'spec': spec, 'spec_sha256': row['spec_sha256'],
+                'integrity_valid': spec_ok and digest == row['spec_sha256'],
                 'created_at': row['created_at'],
             })
         return result
@@ -337,11 +357,12 @@ class Store:
             ).fetchone()
         if row is None:
             return None
-        spec = json.loads(row['spec_json'])
+        spec, spec_ok = _loads_or_none(row['spec_json'])
         digest = canonical_json_sha256(spec)
         return {
             'id': row['id'], 'project_id': row['project_id'], 'context_id': row['context_id'], 'name': row['name'],
-            'spec': spec, 'spec_sha256': row['spec_sha256'], 'integrity_valid': digest == row['spec_sha256'],
+            'spec': spec, 'spec_sha256': row['spec_sha256'],
+            'integrity_valid': spec_ok and digest == row['spec_sha256'],
             'created_at': row['created_at'],
         }
 
@@ -380,12 +401,12 @@ class Store:
                 ).fetchall()
         result: list[dict[str, Any]] = []
         for row in rows:
-            spec = json.loads(row['spec_json'])
+            spec, spec_ok = _loads_or_none(row['spec_json'])
             result.append({
                 'id': row['id'], 'project_id': row['project_id'], 'context_id': row['context_id'],
                 'constraint_set_id': row['constraint_set_id'], 'name': row['name'], 'spec': spec,
                 'spec_sha256': row['spec_sha256'],
-                'integrity_valid': canonical_json_sha256(spec) == row['spec_sha256'],
+                'integrity_valid': spec_ok and canonical_json_sha256(spec) == row['spec_sha256'],
                 'created_at': row['created_at'],
             })
         return result
@@ -398,12 +419,12 @@ class Store:
             ).fetchone()
         if row is None:
             return None
-        spec = json.loads(row['spec_json'])
+        spec, spec_ok = _loads_or_none(row['spec_json'])
         return {
             'id': row['id'], 'project_id': row['project_id'], 'context_id': row['context_id'],
             'constraint_set_id': row['constraint_set_id'], 'name': row['name'], 'spec': spec,
             'spec_sha256': row['spec_sha256'],
-            'integrity_valid': canonical_json_sha256(spec) == row['spec_sha256'],
+            'integrity_valid': spec_ok and canonical_json_sha256(spec) == row['spec_sha256'],
             'created_at': row['created_at'],
         }
 
@@ -600,15 +621,19 @@ class Store:
         result = []
         for row in rows:
             frequency = _unpack(row['frequency_blob']) or ()
+            source_speaker_ids, ids_ok = _loads_or_none(row['source_speaker_ids_json'])
+            quality_reasons, reasons_ok = _loads_or_none(row['quality_reasons_json'])
+            metadata, metadata_ok = _loads_or_none(row['metadata_json'])
             result.append({'id': row['id'], 'dataset_id': row['dataset_id'], 'context_id': row['context_id'], 'session_id': row['session_id'],
                            'channel_role': row['channel_role'], 'evidence_type': row['evidence_type'],
-                           'source_speaker_ids': json.loads(row['source_speaker_ids_json']), 'radiation_scope': row['radiation_scope'],
+                           'source_speaker_ids': source_speaker_ids, 'radiation_scope': row['radiation_scope'],
                            'routing_evidence': row['routing_evidence'], 'captured_at': row['captured_at'], 'imported_at': row['imported_at'],
-                           'notes': row['notes'], 'quality_status': row['quality_status'], 'quality_reasons': json.loads(row['quality_reasons_json']),
+                           'notes': row['notes'], 'quality_status': row['quality_status'], 'quality_reasons': quality_reasons,
                            'quality_source': row['quality_source'], 'repeat_group': row['repeat_group'], 'asset_sha256': row['asset_sha256'],
-                           'dataset_sha256': row['dataset_sha256'], 'integrity_valid': _dataset_row_valid(row),
+                           'dataset_sha256': row['dataset_sha256'],
+                           'integrity_valid': _dataset_row_valid(row) and ids_ok and reasons_ok and metadata_ok,
                            'frequency_min_hz': frequency[0] if frequency else None, 'frequency_max_hz': frequency[-1] if frequency else None,
-                           'points': len(frequency), 'metadata': json.loads(row['metadata_json'])})
+                           'points': len(frequency), 'metadata': metadata})
         return result
 
     def get_frequency_response(self, dataset_id: str) -> FrequencyResponse:
@@ -634,13 +659,17 @@ class Store:
                                JOIN contexts c ON c.id = m.context_id WHERE d.id = ?''', (dataset_id,)).fetchone()
         if row is None:
             raise KeyError('dataset_not_found')
+        quality_reasons, reasons_ok = _loads_or_none(row['quality_reasons_json'])
+        dataset_metadata, metadata_ok = _loads_or_none(row['metadata_json'])
+        context_payload, context_ok = _loads_or_none(row['context_payload_json'])
         return {'dataset_id': row['dataset_id'], 'measurement_id': row['measurement_id'], 'project_id': row['project_id'], 'context_id': row['context_id'],
                 'session_id': row['session_id'], 'channel_role': row['channel_role'], 'evidence_type': row['evidence_type'],
-                'quality_status': row['quality_status'], 'quality_reasons': json.loads(row['quality_reasons_json']),
+                'quality_status': row['quality_status'], 'quality_reasons': quality_reasons,
                 'quality_source': row['quality_source'], 'repeat_group': row['repeat_group'], 'asset_sha256': row['asset_sha256'],
-                'dataset_sha256': row['dataset_sha256'], 'integrity_valid': _dataset_row_valid(row),
+                'dataset_sha256': row['dataset_sha256'],
+                'integrity_valid': _dataset_row_valid(row) and reasons_ok and metadata_ok and context_ok,
                 'context_revision_number': row['context_revision_number'],
-                'dataset_metadata': json.loads(row['metadata_json']), 'context_payload': json.loads(row['context_payload_json'])}
+                'dataset_metadata': dataset_metadata, 'context_payload': context_payload}
 
     def attach_asset(self, project_id: str, filename: str, raw: bytes, kind: str, label: str | None,
                      measurement_id: str | None, context_id: str | None) -> dict[str, Any]:
