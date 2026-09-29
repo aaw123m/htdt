@@ -187,6 +187,10 @@ def read_runtime_info(root: Path) -> RuntimeInfo | None:
         payload = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
+    # A marker whose JSON parses but is not an object is as unreadable as a
+    # truncated one — probing it with .get would raise inside diagnostics.
+    if not isinstance(payload, dict):
+        return None
     if payload.get('app_id') != APP_ID:
         return None
     pid = payload.get('pid')

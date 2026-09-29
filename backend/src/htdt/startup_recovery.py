@@ -95,7 +95,9 @@ def classify_startup_failure(evidence: str | BaseException) -> StartupFailureCla
         )
     ):
         return 'renderer_initialization'
-    if 'incompatible_newer' in text or 'schema v' in text and 'newer' in text:
+    if 'incompatible_newer' in text or (
+        'schema v' in text and 'newer' in text
+    ):
         return 'schema_incompatibility'
     if any(
         token in text
@@ -171,8 +173,15 @@ class RecoveryMetadata(BaseModel):
         return count
 
     def last_failure_class(self, build_id: str | None) -> StartupFailureClass | None:
+        """Most recent classified failure for THIS build's launch streak.
+
+        Same scope rule as ``repeated_startup_failures``: a clean exit or a
+        record from another build ends the streak — a different build's
+        failure class must not be attributed to this launch's decision.
+        """
+
         for record in reversed(self.records):
-            if record.clean_exit:
+            if record.clean_exit or record.build_id != build_id:
                 return None
             if record.failure_class is not None:
                 return record.failure_class

@@ -158,11 +158,53 @@ def environment_summary(
 
 
 def _schema_version() -> int:
-    """Native schema version surfaced to support output."""
+    """Native store schema version this build supports.
 
-    from .database import SCHEMA_VERSION  # local import keeps module Qt/db-light
+    The diagnostic surface covers ``cad-scenes.sqlite3`` — the native store
+    governed by ``cad_schema``'s ``native_schema_metadata`` authority — so
+    the reported version must come from that lineage, not the legacy
+    server store's ``database.SCHEMA_VERSION``.
+    """
 
-    return SCHEMA_VERSION
+    from .cad_schema import NATIVE_SCHEMA_VERSION  # local import keeps module Qt/db-light
+
+    return NATIVE_SCHEMA_VERSION
+
+
+def _store_schema_summary(data_dir: Path) -> dict[str, Any]:
+    """Stored-vs-supported schema state for the native store.
+
+    Support needs the real store authority, not just the app constant:
+    a store written by a newer build, pending migration, or unreadable
+    schema metadata is the difference between "update the app" and
+    "restore a backup".
+    """
+
+    from .cad_schema import (  # local import keeps module Qt/db-light
+        NATIVE_SCHEMA_VERSION,
+        NativeSchemaError,
+        native_schema_compatibility,
+        read_native_schema_version,
+    )
+
+    summary: dict[str, Any] = {
+        'supported_native_schema_version': NATIVE_SCHEMA_VERSION,
+    }
+    database_path = Path(data_dir) / DATABASE_NAME
+    if not database_path.is_file() or database_path.stat().st_size == 0:
+        summary['stored_native_schema_version'] = None
+        summary['native_schema_compatibility'] = 'no_store'
+        return summary
+    try:
+        stored = read_native_schema_version(database_path)
+    except (NativeSchemaError, sqlite3.Error) as exc:
+        summary['stored_native_schema_version'] = None
+        summary['native_schema_compatibility'] = 'unreadable'
+        summary['schema_error'] = str(exc)
+        return summary
+    summary['stored_native_schema_version'] = stored
+    summary['native_schema_compatibility'] = native_schema_compatibility(stored)
+    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +297,9 @@ def _check_database(data_dir: Path) -> list[HealthCheckResult]:
             absent.model_copy(
                 update={'check_id': 'storage.sqlite_quick_check'}
             ),
+            absent.model_copy(
+                update={'check_id': 'storage.schema_compatibility'}
+            ),
         ]
     try:
         with sqlite3.connect(
@@ -279,6 +324,13 @@ def _check_database(data_dir: Path) -> list[HealthCheckResult]:
                 category=HealthCategory.APP_STORAGE,
                 status=HealthStatus.FAIL,
                 summary='sqlite integrity could not be evaluated',
+                detail=str(exc),
+            ),
+            HealthCheckResult(
+                check_id='storage.schema_compatibility',
+                category=HealthCategory.APP_STORAGE,
+                status=HealthStatus.FAIL,
+                summary='schema compatibility could not be evaluated',
                 detail=str(exc),
             ),
         ]
@@ -310,7 +362,74 @@ def _check_database(data_dir: Path) -> list[HealthCheckResult]:
                 detail='; '.join(rows) if rows else 'no result row',
             )
         )
+    results.append(_check_schema_compatibility(path))
     return results
+
+
+def _check_schema_compatibility(path: Path) -> HealthCheckResult:
+    """Native-store schema verdict from the app's own schema authority.
+
+    ``check_native_schema_compatibility`` is the same read-path gate every
+    repository pays: a store it rejects (newer schema, alien tables,
+    unreadable metadata) is a real fault even though the file opens and
+    its pages are structurally sound — "opens + integrity ok" was
+    reporting healthy on a store the app refuses to load.
+    """
+
+    from .cad_schema import (  # local import keeps module Qt/db-light
+        NATIVE_SCHEMA_VERSION,
+        NativeSchemaError,
+        check_native_schema_compatibility,
+    )
+
+    try:
+        stored_version = check_native_schema_compatibility(path)
+    except NativeSchemaError as exc:
+        return HealthCheckResult(
+            check_id='storage.schema_compatibility',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.FAIL,
+            summary='project database schema is not supported by this build',
+            detail=(
+                f'{exc}. Restore a backup from before the data was written '
+                'or install the HTDT build that created it.'
+            ),
+        )
+    except Exception as exc:
+        return HealthCheckResult(
+            check_id='storage.schema_compatibility',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.FAIL,
+            summary='schema compatibility could not be evaluated',
+            detail=f'{type(exc).__name__}: {exc}',
+        )
+    if stored_version == NATIVE_SCHEMA_VERSION:
+        return HealthCheckResult(
+            check_id='storage.schema_compatibility',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.PASS,
+            summary=f'project database schema v{stored_version} is current',
+        )
+    if stored_version >= 1:
+        return HealthCheckResult(
+            check_id='storage.schema_compatibility',
+            category=HealthCategory.APP_STORAGE,
+            status=HealthStatus.ATTENTION,
+            summary=(
+                f'project database schema v{stored_version} predates this build'
+            ),
+            detail=(
+                f'supported schema is v{NATIVE_SCHEMA_VERSION}; the store '
+                'migrates on next open (a recovery copy is taken first)'
+            ),
+        )
+    return HealthCheckResult(
+        check_id='storage.schema_compatibility',
+        category=HealthCategory.APP_STORAGE,
+        status=HealthStatus.ATTENTION,
+        summary='project database is empty or pre-versioning',
+        detail='the store is adopted or initialized on next open',
+    )
 
 
 def _probe_lock_state(lock_path: Path) -> Literal['free', 'held', 'unknown']:
@@ -408,8 +527,22 @@ def _check_lock(data_dir: Path, *, owns_lock: bool = False) -> HealthCheckResult
 
 
 def _check_disk_space(data_dir: Path, min_free_mb: int = 512) -> HealthCheckResult:
+    """Free space on the volume holding the data directory.
+
+    A not-yet-created data directory (first launch, fresh profile) still
+    has a real answer: measure the nearest existing ancestor — the volume
+    is the same — instead of reporting the disk as unmeasurable.
+    """
+
+    probe = Path(data_dir)
+    probed = probe
+    while not probe.exists():
+        parent = probe.parent
+        if parent == probe:
+            break
+        probe = parent
     try:
-        usage = shutil.disk_usage(Path(data_dir))
+        usage = shutil.disk_usage(probe)
     except OSError as exc:
         return HealthCheckResult(
             check_id='storage.disk_space',
@@ -425,6 +558,9 @@ def _check_disk_space(data_dir: Path, min_free_mb: int = 512) -> HealthCheckResu
         category=HealthCategory.APP_STORAGE,
         status=status,
         summary=f'{free_mb} MiB free (minimum {min_free_mb} MiB)',
+        detail=(
+            f'measured on {probe}' if probe != probed else None
+        ),
     )
 
 
@@ -466,11 +602,41 @@ def run_health_checks(
     diagnostics opened inside a healthy run never flag their own lock.
     """
 
+    def storage_check(
+        check_id: str,
+        produce: Callable[[], Iterable[HealthCheckResult]],
+    ) -> list[HealthCheckResult]:
+        # Same isolation contract as the probes below: a check that crashes
+        # is itself a finding, never a blanked report.
+        try:
+            return list(produce())
+        except Exception as exc:
+            return [
+                HealthCheckResult(
+                    check_id=check_id,
+                    category=HealthCategory.APP_STORAGE,
+                    status=HealthStatus.FAIL,
+                    summary='storage check crashed',
+                    detail=f'{type(exc).__name__}: {exc}',
+                )
+            ]
+
     results: list[HealthCheckResult] = [
-        *_check_database(data_dir),
-        _check_lock(data_dir, owns_lock=owns_lock),
-        _check_disk_space(data_dir, min_free_mb=min_free_mb),
-        _check_assets_root(data_dir),
+        *storage_check(
+            'storage.database', lambda: _check_database(data_dir)
+        ),
+        *storage_check(
+            'storage.data_dir_lock',
+            lambda: [_check_lock(data_dir, owns_lock=owns_lock)],
+        ),
+        *storage_check(
+            'storage.disk_space',
+            lambda: [_check_disk_space(data_dir, min_free_mb=min_free_mb)],
+        ),
+        *storage_check(
+            'storage.assets_root',
+            lambda: [_check_assets_root(data_dir)],
+        ),
     ]
     if integrity_runner is not None:
         try:
@@ -585,6 +751,7 @@ class PackageCategory(StrEnum):
     CAPABILITY_INVENTORY = 'capability_inventory'
     PREFERENCES_SUMMARY = 'preferences_summary'
     PROJECT_IDS = 'project_ids'
+    LAUNCH_METADATA = 'launch_metadata'
 
 
 #: Material that must never enter a diagnostic package. The builder only
@@ -650,6 +817,10 @@ class DiagnosticPackageBuilder:
     def plan(self, *, include_project_ids: bool = False) -> PackagePlan:
         categories = [PackageCategory.LOGS, PackageCategory.BUILD_IDENTITY]
         categories.append(PackageCategory.SCHEMA_SUMMARY)
+        if (
+            diagnostics_dir(self.data_dir) / 'recovery-launch-metadata.json'
+        ).is_file():
+            categories.append(PackageCategory.LAUNCH_METADATA)
         if self.health_report is not None:
             categories.append(PackageCategory.HEALTH_RESULTS)
         if self.operation_failures:
@@ -806,7 +977,15 @@ class DiagnosticPackageBuilder:
             if PackageCategory.SCHEMA_SUMMARY in plan.categories:
                 _write_json(
                     'schema_summary.json',
-                    {'schema_version': _schema_version(), 'app_version': __version__},
+                    {
+                        'schema_version': _schema_version(),
+                        'app_version': __version__,
+                        **_store_schema_summary(self.data_dir),
+                    },
+                )
+            if PackageCategory.LAUNCH_METADATA in plan.categories:
+                self._write_launch_metadata(
+                    plan, _write_json, members, skipped
                 )
             if PackageCategory.HEALTH_RESULTS in plan.categories and self.health_report:
                 _write_json(
@@ -856,6 +1035,55 @@ class DiagnosticPackageBuilder:
             skipped=tuple(skipped),
             manifest_name='manifest.json',
         )
+
+    def _write_launch_metadata(
+        self,
+        plan: PackagePlan,
+        write_json: Callable[[str, Any], None],
+        members: dict[str, dict[str, Any]],
+        skipped: list[str],
+    ) -> None:
+        """Bounded launch history for the bundle (#739 recovery metadata).
+
+        The rolling record (build, mode, clean/unclean exit, failure class)
+        is the evidence support needs for repeated-startup-failure reports.
+        ``last_project_ref`` follows the same privacy rule as the
+        project-ids category: redacted unless the user opted in. A corrupt
+        metadata file is recorded as skipped, never replaced with an
+        empty history that would look like "no launches on record".
+        """
+
+        name = 'launch_metadata.json'
+        path = diagnostics_dir(self.data_dir) / 'recovery-launch-metadata.json'
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            members[name] = {
+                'status': 'skipped',
+                'reason': 'unreadable',
+            }
+            skipped.append(name)
+            return
+        if not isinstance(payload, dict):
+            members[name] = {
+                'status': 'skipped',
+                'reason': 'unreadable',
+            }
+            skipped.append(name)
+            return
+        records = payload.get('records')
+        if not isinstance(records, list):
+            members[name] = {
+                'status': 'skipped',
+                'reason': 'unreadable',
+            }
+            skipped.append(name)
+            return
+        if not plan.include_project_ids:
+            for record in records:
+                if isinstance(record, dict) and record.get('last_project_ref'):
+                    record['last_project_ref'] = '<set>'
+        write_json(name, payload)
 
     def _sanitized_preferences(self) -> dict[str, Any]:
         """Preferences summary without path values or credential-shaped keys."""
