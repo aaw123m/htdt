@@ -482,11 +482,13 @@ def _artifact_response(
     response = response * (10.0 ** (artifact.gain_db / 20.0))
     magnitude = np.abs(response)
     phase = np.unwrap(np.angle(response))
-    group_delay = (
-        -np.gradient(phase, freqs) / (2.0 * pi)
-        if freqs.size > 1
-        else np.zeros_like(phase)
-    )
+    # Analytic group delay -Im(H'/H) per evaluation frequency: a finite
+    # difference of the unwrapped phase over the caller's grid aliases
+    # whenever adjacent points span more than pi of phase.
+    derivative = ((-1j * k / artifact.sample_rate_hz) * phase_terms) @ taps
+    with np.errstate(divide='ignore', invalid='ignore'):
+        group_delay = -np.imag(derivative / response)
+    group_delay = np.nan_to_num(group_delay, nan=0.0)
     return response, phase, group_delay
 
 
