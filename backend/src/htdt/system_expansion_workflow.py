@@ -825,7 +825,9 @@ class SystemExpansionWorkflowService:
                 if item.manufacturer and item.model
                 else item.user_label or item.definition_id
             )
-            result.append((item.semantic_sha256, label))
+            result.append(
+                (item.semantic_sha256, f"{label} (v{item.version})")
+            )
         return tuple(result)
 
     def create_single_speaker_proposal(

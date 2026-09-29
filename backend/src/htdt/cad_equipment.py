@@ -325,7 +325,9 @@ class SensitivityReference(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    level_db_spl: float
+    # SPL at a stated drive/distance; sane physical range keeps wrong-unit
+    # entries (e.g. 0.087 for 87 dB) and absurd levels out of authority data.
+    level_db_spl: float = Field(gt=10.0, le=200.0)
     input_quantity: Literal['voltage_v_rms', 'power_w']
     input_value: float = Field(gt=0.0)
     distance_m: float = Field(gt=0.0)
@@ -344,14 +346,16 @@ class SplCapability(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    continuous_db_spl: float | None = None
-    peak_db_spl: float | None = None
+    continuous_db_spl: float | None = Field(default=None, gt=10.0, le=200.0)
+    peak_db_spl: float | None = Field(default=None, gt=10.0, le=200.0)
     reference_distance_m: float = Field(gt=0.0)
     valid_frequency_domain: FrequencyDomain | None = None
     continuous_duration_s: float | None = Field(default=None, gt=0.0)
     peak_duration_s: float | None = Field(default=None, gt=0.0)
     declared_headroom_db: float | None = Field(default=None, ge=0.0)
-    headroom_reference_level_db_spl: float | None = None
+    headroom_reference_level_db_spl: float | None = Field(
+        default=None, gt=10.0, le=200.0
+    )
     provenance: EquipmentDataProvenance
 
     @field_validator(
@@ -389,6 +393,17 @@ class SplCapability(BaseModel):
             and self.peak_db_spl < self.continuous_db_spl
         ):
             raise ValueError('peak SPL must not be below continuous SPL')
+        declared_levels = [
+            level
+            for level in (self.continuous_db_spl, self.peak_db_spl)
+            if level is not None
+        ]
+        if self.headroom_reference_level_db_spl is not None and declared_levels:
+            if self.headroom_reference_level_db_spl > max(declared_levels):
+                raise ValueError(
+                    'headroom reference level must not exceed the declared '
+                    'continuous/peak SPL'
+                )
         return self
 
 

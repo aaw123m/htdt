@@ -409,6 +409,16 @@ class EquipmentLibraryService:
         Manual evidence authorities are derived and retained for every
         cited provenance claim before the definition is saved.
         """
+        user_label = user_label.strip()
+        source_name = source_name.strip()
+        source_version = source_version.strip()
+        source_reference = source_reference.strip()
+        manufacturer = manufacturer.strip() or None if manufacturer else None
+        model = model.strip() or None if model else None
+        if not user_label:
+            raise ValueError("機材ラベルは必須です")
+        if not (source_name and source_version and source_reference):
+            raise ValueError("出典情報（名称・バージョン・参照）は必須です")
         provenance = self._provenance(
             evidence_kind=evidence_kind,
             source_name=source_name,
@@ -479,6 +489,16 @@ class EquipmentLibraryService:
         The base authority is never mutated; the new row shares its
         ``definition_id`` with a different ``version``.
         """
+        user_label = user_label.strip()
+        source_name = source_name.strip()
+        source_version = source_version.strip()
+        source_reference = source_reference.strip()
+        manufacturer = manufacturer.strip() or None if manufacturer else None
+        model = model.strip() or None if model else None
+        if not user_label:
+            raise ValueError("機材ラベルは必須です")
+        if not (source_name and source_version and source_reference):
+            raise ValueError("出典情報（名称・バージョン・参照）は必須です")
         provenance = self._provenance(
             evidence_kind=evidence_kind,
             source_name=source_name,
@@ -859,6 +879,10 @@ class EquipmentLibraryDialog(QDialog):
                 f"インポートできませんでした · {operation_error_message(exc)}",
             )
             return
+        # The import published a new immutable version — republish the list
+        # so pickers/preview reflect it immediately instead of a stale row.
+        self.refresh_definitions()
+        self.definitionsChanged.emit()
         QMessageBox.information(self, "指向性インポート", message)
 
 
