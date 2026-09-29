@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
+from math import log10
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -77,7 +78,10 @@ _BIQUAD_MAP = {
     'LowpassFO': 'low_pass',
 }
 
-_DELAY_UNITS = {'ms': 1e-3, 'us': 1e-6, 's': 1.0}
+#: CamillaDSP Delay ``unit`` values convertible to seconds without a
+#: sample rate ('mm'/'samples' need the speed of sound / sample rate;
+#: 's' is not a CamillaDSP unit at all).
+_DELAY_UNITS = {'ms': 1e-3, 'us': 1e-6}
 
 
 class CamillaDSPError(RuntimeError):
@@ -158,6 +162,7 @@ def _import_filter(
     *,
     opaque: list[OpaqueArtifactSection],
     file_deps: list[IncludeDependency],
+    diagnostics: list[str],
 ) -> tuple[str, dict[str, Any] | None, float | None, float | None]:
     """Normalize one CamillaDSP filter.
 
@@ -188,9 +193,21 @@ def _import_filter(
                 )
             )
             return 'opaque', None, None, None
+        if 'enabled' in params:
+            # CamillaDSP biquads have no ``enabled`` parameter — the
+            # pipeline step's ``bypassed`` flag controls application.
+            diagnostics.append(
+                f'biquad filter {name!r} declares an enabled parameter; '
+                'CamillaDSP applies biquads unconditionally'
+            )
+        if mapped in ('low_shelf', 'high_shelf') and 'slope' in params:
+            diagnostics.append(
+                f'shelf filter {name!r} is steepened by slope (dB/oct); '
+                'not directly comparable to an export Q'
+            )
         fields: dict[str, Any] = {
             'filter_type': mapped,
-            'enabled': bool(params.get('enabled', True)),
+            'enabled': True,
             'frequency_hz': params.get('freq') or params.get('freq_act'),
             'gain_db': params.get('gain'),
             'q': params.get('q') or params.get('q_act'),
@@ -199,7 +216,7 @@ def _import_filter(
         return 'peq', fields, None, None
     if ftype == 'Gain':
         try:
-            return 'gain', None, float(params.get('gain', 0.0)), None
+            gain_value = float(params.get('gain', 0.0))
         except (TypeError, ValueError):
             opaque.append(
                 OpaqueArtifactSection(
@@ -209,6 +226,47 @@ def _import_filter(
                 )
             )
             return 'opaque', None, None, None
+        if params.get('mute') is True:
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='unsupported_command',
+                    raw_text=raw,
+                    reason=f'gain filter {name!r} is muted; a muted channel is not a gain setting',
+                )
+            )
+            return 'opaque', None, None, None
+        scale = params.get('scale')
+        inverted = bool(params.get('inverted', False))
+        if scale is None or scale == 'dB':
+            gain_db = gain_value
+        elif scale == 'linear':
+            if gain_value == 0.0:
+                opaque.append(
+                    OpaqueArtifactSection(
+                        kind='unsupported_command',
+                        raw_text=raw,
+                        reason=f'gain filter {name!r} has linear gain 0 (silence); not representable in dB',
+                    )
+                )
+                return 'opaque', None, None, None
+            gain_db = 20.0 * log10(abs(gain_value))
+            # A negative linear factor inverts on top of the flag.
+            inverted = inverted != (gain_value < 0.0)
+        else:
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='unsupported_command',
+                    raw_text=raw,
+                    reason=f'gain filter {name!r} uses unrecognised scale {scale!r}',
+                )
+            )
+            return 'opaque', None, None, None
+        if inverted:
+            diagnostics.append(
+                f'gain filter {name!r} inverts the signal; polarity is not '
+                'modeled in the imported artifact'
+            )
+        return 'gain', None, gain_db, None
     if ftype == 'Delay':
         unit = str(params.get('unit', 'ms')).lower()
         try:
@@ -221,7 +279,7 @@ def _import_filter(
             OpaqueArtifactSection(
                 kind='unsupported_command',
                 raw_text=raw,
-                reason='delay in samples/mm needs the source sample rate or speed of sound; retained opaque',
+                reason=f'delay unit {unit!r} is not directly convertible to seconds; retained opaque',
             )
         )
         return 'opaque', None, None, None
@@ -332,6 +390,15 @@ def build_camilladsp_artifact(
                 )
             )
             continue
+        if step.get('bypassed') is True:
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='unsupported_command',
+                    raw_text=_section_text(step),
+                    reason='pipeline step is bypassed; its filters are not applied',
+                )
+            )
+            continue
         step_type = step.get('type')
         if step_type != 'Filter':
             opaque.append(
@@ -342,39 +409,95 @@ def build_camilladsp_artifact(
                 )
             )
             continue
-        channel_index = step.get('channel')
-        if not isinstance(channel_index, int):
+        # CamillaDSP filter steps target a *list* of channels (``channels:``);
+        # the legacy singular ``channel:`` names one index. An omitted or
+        # null ``channels`` applies the filters to every channel at that
+        # pipeline point; an empty list applies them to none.
+        indices: list[int] | None
+        if 'channels' in step:
+            step_channels = step.get('channels')
+            if step_channels is None:
+                indices = (
+                    list(range(n_channels))
+                    if isinstance(n_channels, int)
+                    else None
+                )
+            elif isinstance(step_channels, list):
+                indices = []
+                for index in step_channels:
+                    if not isinstance(index, int):
+                        indices = None
+                        break
+                    indices.append(index)
+            else:
+                indices = None
+        elif isinstance(step.get('channel'), int):
+            indices = [step['channel']]
+        else:
+            indices = (
+                list(range(n_channels))
+                if isinstance(n_channels, int)
+                else None
+            )
+        if indices is None:
             opaque.append(
                 OpaqueArtifactSection(
                     kind='malformed_line',
                     raw_text=_section_text(step),
-                    reason='filter pipeline step lacks a channel index',
+                    reason='filter pipeline step lacks resolvable channel indices',
                 )
             )
             continue
-        bucket = bucket_for(channel_index)
+        if isinstance(n_channels, int):
+            out_of_range = [
+                index
+                for index in indices
+                if index < 0 or index >= n_channels
+            ]
+            if out_of_range:
+                opaque.append(
+                    OpaqueArtifactSection(
+                        kind='malformed_line',
+                        raw_text=_section_text(step),
+                        reason=f'filter step targets nonexistent channels {out_of_range} '
+                        f'(playback declares {n_channels})',
+                    )
+                )
+                continue
+        if not indices:
+            opaque.append(
+                OpaqueArtifactSection(
+                    kind='unsupported_command',
+                    raw_text=_section_text(step),
+                    reason='filter step applies to no channels',
+                )
+            )
+            continue
         for filter_name in step.get('names') or []:
             category, fields, gain_db, delay_s = _import_filter(
                 filter_name,
                 filters.get(filter_name),
                 opaque=opaque,
                 file_deps=file_deps,
+                diagnostics=diagnostics,
             )
             if category == 'peq' and fields is not None:
-                bucket['peq'].append(
-                    (
-                        f'{filter_name}',
-                        band_counter,
-                        fields,
-                    )
-                )
+                band_entry = (f'{filter_name}', band_counter, fields)
+                for index in indices:
+                    bucket_for(index)['peq'].append(band_entry)
                 band_counter += 1
             elif category == 'gain' and gain_db is not None:
-                bucket['preamp_db'] = (
-                    (bucket['preamp_db'] or 0.0) + gain_db
-                )
+                for index in indices:
+                    bucket = bucket_for(index)
+                    bucket['preamp_db'] = (
+                        (bucket['preamp_db'] or 0.0) + gain_db
+                    )
             elif category == 'delay' and delay_s is not None:
-                bucket['delay_s'] = (bucket['delay_s'] or 0.0) + delay_s
+                for index in indices:
+                    bucket = bucket_for(index)
+                    bucket['delay_s'] = (
+                        (bucket['delay_s'] or 0.0) + delay_s
+                    )
 
     channel_map = channel_map or {}
     mapping: list[ChannelMappingEntry] = []

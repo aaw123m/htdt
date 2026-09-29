@@ -263,3 +263,162 @@ def test_deterministic_semantic_identity() -> None:
     assert first.semantic_sha256 == second.semantic_sha256
     changed = _build(BASIC_CONFIG + b'Preamp: 0 dB\n')
     assert changed.semantic_sha256 != first.semantic_sha256
+
+
+# ----------------------------------------------------------------------
+# #round14: Equalizer APO summation + include-scope + ALL-fold semantics
+
+
+def test_preamp_and_delay_accumulate() -> None:
+    artifact = _build(
+        b'Preamp: 1 dB\nPreamp: 0.5 dB\n'
+        b'Channel: L\nPreamp: -3 dB\nPreamp: -1 dB\n'
+        b'Delay: 1 ms\nDelay: 0.5 ms\n'
+    )
+    # E-APO sums every preamp applying to a channel (documented since 0.8);
+    # delay stages accumulate the same way.
+    assert artifact.global_preamp_db == pytest.approx(1.5)
+    channel = artifact.channels[0]
+    assert channel.preamp_db == pytest.approx(-4.0)
+    assert channel.delay_s == pytest.approx(0.0015)
+
+
+def test_include_inherits_and_returns_channel_scope() -> None:
+    files = {
+        'main.txt': (
+            b'Channel: L\nPreamp: -1 dB\nInclude: sub.txt\n'
+            b'Filter 2: ON PK Fc 200 Hz Gain -1 dB Q 1\n'
+        ),
+        'sub.txt': (
+            b'Filter 1: ON PK Fc 80 Hz Gain -2 dB Q 2\n'
+            b'Preamp: -2 dB\nChannel: R\n'
+        ),
+    }
+
+    def resolver(path: str):
+        return (path, files[path]) if path in files else None
+
+    artifact = _build(files['main.txt'], include_resolver=resolver)
+    by_label = {c.channel_label: c for c in artifact.channels}
+    # sub.txt inherits scope L at the include point; its `Channel: R`
+    # re-selects scope for the commands after the include.
+    assert by_label['L'].preamp_db == pytest.approx(-3.0)
+    assert [band.frequency_hz for band in by_label['L'].peq] == [80.0]
+    assert [band.frequency_hz for band in by_label['R'].peq] == [200.0]
+
+
+def test_channel_all_in_list_selects_every_channel() -> None:
+    artifact = _build(b'Channel: L ALL\nDelay: 2 ms\n')
+    by_label = {c.channel_label: c for c in artifact.channels}
+    # 'ALL' in a token list means all channels — the delay is unscoped,
+    # not also applied to an L bucket (which would double-count).
+    assert by_label['ALL'].delay_s == pytest.approx(0.002)
+    assert by_label['L'].delay_s is None
+
+
+def test_compare_composes_unscoped_and_scoped_preamp() -> None:
+    artifact = _build(
+        b'Preamp: 2 dB\nChannel: L\nPreamp: -1 dB\n',
+        channel_map={'L': 'ch-1'},
+    )
+    comparison = compare_imported_vs_exported(
+        artifact,
+        _export(gain_db=1.0, delay_s=0.0),
+        compared_at_utc=NOW,
+    )
+    # Effective L gain: 2 + (-1) = 1 dB — not either stage alone.
+    states = {item.field: item.state for item in comparison.items}
+    assert states['gain_db'] == 'exact_match'
+
+
+def test_compare_unscoped_delay_and_filters_reach_mapped_channels() -> None:
+    artifact = _build(
+        b'Delay: 1 ms\nFilter 1: ON PK Fc 50 Hz Gain -1 dB Q 2\n'
+        b'Channel: L\nFilter 2: ON PK Fc 80 Hz Gain -3 dB Q 1\n',
+        channel_map={'L': 'ch-1'},
+    )
+    export = _export(
+        gain_db=0.0,
+        delay_s=0.001,
+        peq=(
+            build_biquad_filter(
+                filter_id='f-1',
+                filter_type='peaking',
+                frequency_hz=50.0,
+                q=2.0,
+                gain_db=-1.0,
+                sample_rate_hz=48000,
+            ),
+            build_biquad_filter(
+                filter_id='f-2',
+                filter_type='peaking',
+                frequency_hz=80.0,
+                q=1.0,
+                gain_db=-3.0,
+                sample_rate_hz=48000,
+            ),
+        ),
+    )
+    comparison = compare_imported_vs_exported(
+        artifact, export, compared_at_utc=NOW
+    )
+    states = {
+        item.field: item.state
+        for item in comparison.items
+        if item.channel_id == 'ch-1'
+    }
+    # Unscoped settings apply to every channel — including mapped ones.
+    assert states['delay_s'] == 'exact_match'
+    assert states['peq[0].frequency_hz'] == 'exact_match'
+    assert states['peq[1].frequency_hz'] == 'exact_match'
+
+
+def test_compare_off_band_differs_from_active_export() -> None:
+    artifact = _build(
+        b'Channel: L\nFilter 1: OFF PK Fc 100 Hz Gain -3 dB Q 1.4\n',
+        channel_map={'L': 'ch-1'},
+    )
+    export = _export(
+        peq=(
+            build_biquad_filter(
+                filter_id='f-1',
+                filter_type='peaking',
+                frequency_hz=100.0,
+                q=1.4,
+                gain_db=-3.0,
+                sample_rate_hz=48000,
+            ),
+        )
+    )
+    comparison = compare_imported_vs_exported(
+        artifact, export, compared_at_utc=NOW
+    )
+    states = {item.field: item.state for item in comparison.items}
+    # Identical parameters but the hardware band is bypassed.
+    assert states['peq[0].enabled'] == 'value_differs'
+    assert states['peq[0].frequency_hz'] == 'exact_match'
+
+
+def test_compare_bandwidth_band_flags_unsupported_not_missing() -> None:
+    artifact = _build(
+        b'Channel: L\nFilter 1: ON PEQ Fc 100 Hz Gain 1 dB BW Oct 0.167\n',
+        channel_map={'L': 'ch-1'},
+    )
+    export = _export(
+        peq=(
+            build_biquad_filter(
+                filter_id='f-1',
+                filter_type='peaking',
+                frequency_hz=100.0,
+                q=1.4,
+                gain_db=1.0,
+                sample_rate_hz=48000,
+            ),
+        )
+    )
+    comparison = compare_imported_vs_exported(
+        artifact, export, compared_at_utc=NOW
+    )
+    states = {item.field: item.state for item in comparison.items}
+    # The import carries BW Oct — 'missing_in_import' was a false claim.
+    assert states['peq[0].q'] == 'unsupported_external'

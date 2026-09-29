@@ -41,6 +41,7 @@ _ARTIFACT_PREFIX = 'imported-calibration:'
 # as an opaque section instead of being guessed into a generic PEQ.
 _FILTER_TYPE_MAP: dict[str, str] = {
     'PK': 'peaking',
+    'PEQ': 'peaking',
     'LP': 'low_pass',
     'LPQ': 'low_pass',
     'HP': 'high_pass',
@@ -337,6 +338,7 @@ def _parse_config_text(
     include_deps: list[IncludeDependency],
     include_resolver: Callable[[str], tuple[str, bytes] | None] | None,
     file_deps: list[IncludeDependency] | None = None,
+    initial_scope: tuple[str, ...] = (),
     _include_stack: tuple[str, ...] = (),
     depth: int = 0,
 ) -> tuple[
@@ -345,21 +347,27 @@ def _parse_config_text(
     list[str],
     str | None,
     float | None,
+    tuple[str, ...],
 ]:
     """Parse one Equalizer APO config body. Returns
     (channel buckets, channel order, declared labels, device_context,
-    global_preamp).
+    global_preamp, final channel scope).
     ``declared`` accumulates every channel label a ``Channel:`` line
     selected, so scope declarations surface in the channel mapping even
     when no supported command lands under them.
     ``file_deps`` collects non-include file references (convolution IRs).
     Conditional blocks (``If``/``Else``/``EndIf``) block interpretation:
     every line inside one is recorded opaque — never silently applied
-    under an unevaluated condition."""
+    under an unevaluated condition.
+    ``Include:`` is textual inclusion: the channel selection the caller
+    had active at the include point applies inside the included file
+    (``initial_scope``), and a ``Channel:`` line inside the include
+    re-selects scope for the lines that follow the include (returned
+    scope)."""
     channels: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     declared: list[str] = []
-    scope: tuple[str, ...] = ()
+    scope: tuple[str, ...] = tuple(initial_scope)
     device_context: str | None = None
     global_preamp: float | None = None
     in_conditional = False
@@ -403,15 +411,14 @@ def _parse_config_text(
 
         if command == 'Channel':
             tokens = argument.replace(',', ' ').split()
-            if not tokens or tokens == ['ALL']:
-                scope = ()
-                if 'ALL' not in declared:
-                    declared.append('ALL')
-            else:
-                scope = tuple(tokens)
-                for token in scope:
-                    if token not in declared:
-                        declared.append(token)
+            # 'ALL' selects every channel — a token list containing it
+            # ('Channel: L ALL') still means all channels; treating 'ALL'
+            # as one scoped label among others would double-apply the
+            # command on any channel also named in the list.
+            scope = () if (not tokens or 'ALL' in tokens) else tuple(tokens)
+            for token in tokens or ('ALL',):
+                if token not in declared:
+                    declared.append(token)
             continue
 
         if command == 'Device':
@@ -452,10 +459,14 @@ def _parse_config_text(
                 )
                 continue
             if scope:
+                # Equalizer APO sums every Preamp that applies to the same
+                # channel — repeated Preamp commands accumulate in dB.
                 for bucket in _assign_channel(channels, scope, order).values():
-                    bucket['preamp_db'] = value
+                    bucket['preamp_db'] = (
+                        (bucket['preamp_db'] or 0.0) + value
+                    )
             else:
-                global_preamp = value
+                global_preamp = (global_preamp or 0.0) + value
             continue
 
         if command == 'Delay':
@@ -495,8 +506,10 @@ def _parse_config_text(
                     )
                 )
                 continue
+            # Every Delay command adds a delay stage to the selected
+            # channels — repeated Delay commands accumulate.
             for bucket in _assign_channel(channels, scope, order).values():
-                bucket['delay_s'] = delay_s
+                bucket['delay_s'] = (bucket['delay_s'] or 0.0) + delay_s
             continue
 
         if re.match(r'^Filter\s+\d+$', command):
@@ -619,6 +632,7 @@ def _parse_config_text(
                 sub_declared,
                 sub_device,
                 sub_global,
+                sub_scope,
             ) = _parse_config_text(
                 sub_text,
                 diagnostics=diagnostics,
@@ -626,9 +640,11 @@ def _parse_config_text(
                 include_deps=include_deps,
                 include_resolver=include_resolver,
                 file_deps=file_deps,
+                initial_scope=scope,
                 _include_stack=(*_include_stack, include_path),
                 depth=depth + 1,
             )
+            scope = sub_scope
             for label in sub_declared:
                 if label not in declared:
                     declared.append(label)
@@ -639,14 +655,18 @@ def _parse_config_text(
                 bucket = channels[label]
                 sub = sub_channels[label]
                 if sub['preamp_db'] is not None:
-                    bucket['preamp_db'] = sub['preamp_db']
+                    bucket['preamp_db'] = (
+                        (bucket['preamp_db'] or 0.0) + sub['preamp_db']
+                    )
                 if sub['delay_s'] is not None:
-                    bucket['delay_s'] = sub['delay_s']
+                    bucket['delay_s'] = (
+                        (bucket['delay_s'] or 0.0) + sub['delay_s']
+                    )
                 bucket['peq'].extend(sub['peq'])
             if sub_device and not device_context:
                 device_context = sub_device
             if sub_global is not None:
-                global_preamp = sub_global
+                global_preamp = (global_preamp or 0.0) + sub_global
             continue
 
         opaque.append(
@@ -658,7 +678,7 @@ def _parse_config_text(
             )
         )
 
-    return channels, order, declared, device_context, global_preamp
+    return channels, order, declared, device_context, global_preamp, scope
 
 
 def build_equalizer_apo_artifact(
@@ -688,7 +708,7 @@ def build_equalizer_apo_artifact(
     include_deps: list[IncludeDependency] = []
     file_deps: list[IncludeDependency] = []
 
-    channels, order, declared, device_context, global_preamp = (
+    channels, order, declared, device_context, global_preamp, _scope = (
         _parse_config_text(
             text,
             diagnostics=diagnostics,
@@ -799,6 +819,13 @@ def compare_imported_vs_exported(
     mapping = {entry.channel_label: entry for entry in artifact.channel_mapping}
     export_channels = {channel.channel_id: channel for channel in export.channels}
     artifact_fields_absent = ('polarity', 'routing', 'crossovers')
+    # The 'ALL' pseudo-channel holds every unscoped / ``Channel: ALL``
+    # setting: Equalizer APO applies those commands to every channel, so
+    # they compose with the channel-scoped values on every mapped channel
+    # (the same rule that already applied ``global_preamp_db``).
+    all_bucket = next(
+        (c for c in artifact.channels if c.channel_label == 'ALL'), None
+    )
 
     for channel in artifact.channels:
         entry = mapping.get(channel.channel_label)
@@ -825,11 +852,19 @@ def compare_imported_vs_exported(
             )
             continue
 
-        imported_gain = (
-            channel.preamp_db
-            if channel.preamp_db is not None
-            else artifact.global_preamp_db
-        )
+        # Equalizer APO sums every Preamp stage that applies to the
+        # channel — the unscoped preamp, an 'ALL'-bucket preamp and the
+        # channel-scoped preamp all compose, they do not override.
+        gain_parts = [
+            value
+            for value in (
+                artifact.global_preamp_db,
+                all_bucket.preamp_db if all_bucket is not None else None,
+                channel.preamp_db,
+            )
+            if value is not None
+        ]
+        imported_gain = sum(gain_parts) if gain_parts else None
         if imported_gain is None:
             items.append(
                 ImportedFieldComparison(
@@ -858,7 +893,16 @@ def compare_imported_vs_exported(
                 )
             )
 
-        if channel.delay_s is None:
+        delay_parts = [
+            value
+            for value in (
+                all_bucket.delay_s if all_bucket is not None else None,
+                channel.delay_s,
+            )
+            if value is not None
+        ]
+        imported_delay = sum(delay_parts) if delay_parts else None
+        if imported_delay is None:
             items.append(
                 ImportedFieldComparison(
                     channel_id=channel_id,
@@ -868,7 +912,7 @@ def compare_imported_vs_exported(
                 )
             )
         else:
-            delta = abs(channel.delay_s - exported.delay_s)
+            delta = abs(imported_delay - exported.delay_s)
             if delta == 0.0:
                 state = 'exact_match'
             elif delta <= delay_tolerance_s:
@@ -880,7 +924,7 @@ def compare_imported_vs_exported(
                     channel_id=channel_id,
                     field='delay_s',
                     state=state,
-                    detail=f'import {channel.delay_s:g} s vs export {exported.delay_s:g} s',
+                    detail=f'import {imported_delay:g} s vs export {exported.delay_s:g} s',
                 )
             )
 
@@ -894,10 +938,15 @@ def compare_imported_vs_exported(
                 )
             )
 
-        peq_count = max(len(channel.peq), len(exported.peq))
+        # Unscoped filters apply to every channel; the channel's
+        # effective band list is the all-scope bands followed by its own.
+        imported_peq = tuple(
+            (all_bucket.peq if all_bucket is not None else ()) + channel.peq
+        )
+        peq_count = max(len(imported_peq), len(exported.peq))
         for index in range(peq_count):
             field = f'peq[{index}]'
-            if index >= len(channel.peq):
+            if index >= len(imported_peq):
                 items.append(
                     ImportedFieldComparison(
                         channel_id=channel_id,
@@ -917,8 +966,21 @@ def compare_imported_vs_exported(
                     )
                 )
                 continue
-            band = channel.peq[index]
+            band = imported_peq[index]
             expected = exported.peq[index]
+            items.append(
+                ImportedFieldComparison(
+                    channel_id=channel_id,
+                    field=f'{field}.enabled',
+                    state='exact_match' if band.enabled else 'value_differs',
+                    detail=(
+                        'import band is ON; export filter is active'
+                        if band.enabled
+                        else 'import band is OFF (bypassed); export filter '
+                        'is active'
+                    ),
+                )
+            )
             if band.filter_type != expected.filter_type:
                 items.append(
                     ImportedFieldComparison(
@@ -942,8 +1004,20 @@ def compare_imported_vs_exported(
                         ImportedFieldComparison(
                             channel_id=channel_id,
                             field=f'{field}.{name}',
-                            state='missing_in_import',
-                            detail='import band does not carry this parameter',
+                            state=(
+                                'unsupported_external'
+                                if name == 'q'
+                                and band.bandwidth_oct is not None
+                                else 'missing_in_import'
+                            ),
+                            detail=(
+                                'import band does not carry this parameter'
+                                if name != 'q'
+                                or band.bandwidth_oct is None
+                                else f'import band carries BW Oct '
+                                f'{band.bandwidth_oct:g}; not directly '
+                                'comparable to export Q'
+                            ),
                         )
                     )
                     continue
