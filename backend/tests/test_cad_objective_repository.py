@@ -713,6 +713,53 @@ def test_pareto_repository_rejects_result_not_matching_evaluations(tmp_path) -> 
         repository.save_pareto_set(tampered)
 
 
+def test_pareto_set_rejects_mixed_evaluation_specs(tmp_path) -> None:
+    _scene_repo, revision, spec, candidates, repository, _responses = _fixture(tmp_path)
+    first = _movement_evaluation(revision, spec, candidates[0])
+    second = build_objective_evaluation(
+        revision,
+        spec,
+        candidates[1].candidate_id,
+        _movement_vector(candidates[1].candidate_id, revision, candidates[1]),
+        evaluation_spec={
+            'algorithm_version': 'objective-vector-1',
+            'objective_method': 'candidate_movement',
+            'objectives': ['movement.total_m', 'movement.max_m'],
+            'weights': {'movement.total_m': 2.0},
+        },
+        input_refs=(
+            CadObjectiveInputRef(
+                evidence_class='derived',
+                source_kind='candidate_geometry',
+                source_id=candidates[1].candidate_id,
+            ),
+        ),
+    )
+    assert first.evaluation_spec_sha256 != second.evaluation_spec_sha256
+    objective_ids = ('movement.total_m', 'movement.max_m')
+
+    with pytest.raises(ValueError, match='evaluation spec'):
+        build_pareto_set((first, second), objective_ids)
+
+    repository.save_evaluation(first)
+    repository.save_evaluation(second)
+    baseline = build_pareto_set((first,), objective_ids)
+    mixed_refs = tuple(
+        CadParetoEvaluationRef(
+            evaluation_id=evaluation.evaluation_id,
+            evaluation_sha256=evaluation.evaluation_sha256,
+            candidate_id=evaluation.candidate_id,
+        )
+        for evaluation in (first, second)
+    )
+    tampered = baseline.model_copy(update={'evaluations': mixed_refs})
+    tampered = tampered.model_copy(update={
+        'pareto_sha256': canonical_objective_sha256(tampered.identity_payload()),
+    })
+    with pytest.raises(ValueError, match='evaluation spec mismatch'):
+        repository.save_pareto_set(tampered)
+
+
 def test_objective_input_ref_order_is_canonical(tmp_path) -> None:
     _scene_repo, revision, spec, candidates, _repository, responses = _fixture(tmp_path)
     candidate_id = candidates[0].candidate_id

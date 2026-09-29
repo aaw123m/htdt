@@ -22,6 +22,7 @@ from htdt.cad_search import (
     search_spec_current_working,
 )
 from htdt.cad_search_models import (
+    CadCandidate,
     CadLinkedSearchVariable,
     CadSearchAxis,
     CadSearchSpec,
@@ -190,6 +191,50 @@ def test_candidate_apply_rejects_dirty_or_constraint_stale_working_state(tmp_pat
             spec=spec,
             current_constraint_set=_constraints(center_x=4.0),
         )
+
+
+def test_candidate_apply_rejects_violating_positions_and_identity_mismatch(tmp_path) -> None:
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision, spec, _ = _build(scene_repository)
+    constraints = _constraints()
+    working = WorkingDocument(
+        revision.document,
+        source_revision_id=revision.revision_id,
+        saved_content_hash=revision.content_hash,
+    )
+
+    # x=2.0 lands inside the rack-zone exclusion region; a fabricated
+    # candidate carrying a self-consistent pc- identity still fails apply.
+    forged_positions = {'speaker-fl': {'x_m': 2.0, 'y_m': 1.0, 'z_m': 1.0}}
+    forged_id = 'pc-' + canonical_search_sha256({
+        'search_spec_sha256': spec.search_spec_sha256,
+        'positions': forged_positions,
+    })[:20]
+    with pytest.raises(ValueError, match='placement constraints'):
+        apply_candidate_positions(
+            working,
+            CadCandidate(
+                candidate_id=forged_id,
+                raw_index=0,
+                feasible_index=0,
+                positions=forged_positions,
+            ),
+            spec=spec,
+            current_constraint_set=constraints,
+        )
+    assert working.committed_document.entity('speaker-fl').position.x_m == 1.0
+    assert working.history_length == 0
+
+    real = generate_cad_candidates(scene_repository, spec).candidates[-1]
+    mismatched = real.model_copy(update={'candidate_id': 'pc-' + '0' * 20})
+    with pytest.raises(ValueError, match='candidate identity'):
+        apply_candidate_positions(
+            working,
+            mismatched,
+            spec=spec,
+            current_constraint_set=constraints,
+        )
+    assert working.history_length == 0
 
 
 def test_room_boundary_only_search_allows_empty_explicit_constraint_workspace(tmp_path) -> None:

@@ -100,8 +100,12 @@ def build_pareto_set(
             or evaluation.scene_content_hash != first.scene_content_hash
             or evaluation.search_spec_id != first.search_spec_id
             or evaluation.search_spec_sha256 != first.search_spec_sha256
+            or evaluation.evaluation_spec_sha256 != first.evaluation_spec_sha256
         ):
-            raise ValueError('Pareto evaluations must share one SceneRevision and SearchSpec')
+            raise ValueError(
+                'Pareto evaluations must share one SceneRevision, SearchSpec '
+                'and evaluation spec'
+            )
 
     selected = tuple(objective_ids)
     result = pareto_front(tuple(item.vector for item in evaluations), selected)
