@@ -60,6 +60,7 @@ class RobustnessAuthoringPanel(QWidget):
         self._selected_spec_id = selected_spec_id
         self._on_status = on_status
         self._pool = NativeWorkerPool(self)
+        self._disposed = False
         self._candidates: tuple[RobustnessCandidateChoice, ...] = ()
         self._axes: tuple[RobustnessAxisChoice, ...] = ()
 
@@ -131,6 +132,7 @@ class RobustnessAuthoringPanel(QWidget):
         return self._pool.active_count > 0
 
     def dispose(self) -> None:
+        self._disposed = True
         report = self._pool.shutdown()
         if not report.all_stopped and self._on_status is not None:
             self._on_status(
@@ -261,6 +263,8 @@ class RobustnessAuthoringPanel(QWidget):
         return tuple(selected)
 
     def _refresh_run_state(self) -> None:
+        if self._disposed:
+            return
         running = self.is_running()
         self.cancel_button.setEnabled(running)
         if running:
@@ -338,6 +342,8 @@ class RobustnessAuthoringPanel(QWidget):
         return robustness_spec, len(samples), len(evaluations)
 
     def _run_completed(self, key: object, result: object, error: object) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.status_label.setText(
                 '評価を中止しました · 作成済みの仕様は保存されています'

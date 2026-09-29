@@ -419,6 +419,7 @@ class SystemExpansionRoomPanel(QFrame):
         super().__init__(parent)
         self.service = service
         self._pool = NativeWorkerPool(self)
+        self._disposed = False
         self._equipment_available = False
         self.setMinimumWidth(0)
         self.setSizePolicy(
@@ -859,6 +860,8 @@ class SystemExpansionRoomPanel(QFrame):
         )
 
     def _proposal_completed(self, key, result, error) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.authoring_status.setText(
                 "提案の作成を中止しました"
@@ -883,9 +886,12 @@ class SystemExpansionRoomPanel(QFrame):
         return self._pool.active_count > 0
 
     def dispose(self) -> None:
+        self._disposed = True
         self._pool.shutdown()
 
     def _refresh_run_state(self) -> None:
+        if self._disposed:
+            return
         running = self.is_running()
         self.create_proposal_button.setEnabled(
             self._equipment_available and not running
@@ -1038,6 +1044,7 @@ class SystemExpansionOptimizePanel(QFrame):
         super().__init__(parent)
         self.service = service
         self._pool = NativeWorkerPool(self)
+        self._disposed = False
         set_surface_role(self, SurfaceRole.RAISED)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -1204,6 +1211,8 @@ class SystemExpansionOptimizePanel(QFrame):
         )
 
     def _evaluation_completed(self, key, result, error) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.summary.setText(
                 "評価を中止しました · 完了した候補の証跡は保持されています"
@@ -1231,9 +1240,12 @@ class SystemExpansionOptimizePanel(QFrame):
         return self._pool.active_count > 0
 
     def dispose(self) -> None:
+        self._disposed = True
         self._pool.shutdown()
 
     def _refresh_run_state(self) -> None:
+        if self._disposed:
+            return
         running = self.is_running()
         self.evaluate_button.setEnabled(not running)
         self.apply_button.setEnabled(not running)

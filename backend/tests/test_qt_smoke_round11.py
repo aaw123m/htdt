@@ -161,6 +161,32 @@ def test_system_expansion_room_panel_constructs_offscreen(
     panel.deleteLater()
 
 
+def test_system_expansion_panels_swallow_post_dispose_callbacks(
+    tmp_path: Path,
+) -> None:
+    """Queued pool callbacks landing after dispose() must no-op instead of
+    touching dying widgets (sibling _disposed contract)."""
+    from htdt.system_expansion_widgets import SystemExpansionOptimizePanel
+
+    _app()
+    repository = _repository(tmp_path)
+    service = SystemExpansionWorkflowService(repository, F1_DOCUMENT_ID)
+
+    room_panel = SystemExpansionRoomPanel(service)
+    room_panel.dispose()
+    assert room_panel._disposed
+    room_panel._proposal_completed('proposal', object(), None)
+    room_panel._refresh_run_state()
+    room_panel.deleteLater()
+
+    optimize_panel = SystemExpansionOptimizePanel(service)
+    optimize_panel.dispose()
+    assert optimize_panel._disposed
+    optimize_panel._evaluation_completed('evaluation', object(), None)
+    optimize_panel._refresh_run_state()
+    optimize_panel.deleteLater()
+
+
 def test_optimization_workspace_selects_every_page(tmp_path: Path) -> None:
     _app()
     repository = _repository(tmp_path)

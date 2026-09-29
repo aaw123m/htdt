@@ -116,6 +116,22 @@ def test_evidence_kind_contract() -> None:
         record_field_evidence(session, kind='serial_capture')
 
 
+def test_evidence_numeric_accepts_int_for_float_field() -> None:
+    # Payload canonicalization normalizes int-for-float inputs to the
+    # sealed representation, so the record seals instead of failing its
+    # own hash check.
+    session = _session()
+    record = record_field_evidence(
+        session,
+        kind='numeric_measurement',
+        subject_ref='check-1',
+        value_numeric=5,
+        captured_at_utc='2026-09-24T03:00:00+00:00',
+    )
+    assert record.value_numeric == 5.0
+    assert isinstance(record.value_numeric, float)
+
+
 def test_repository_round_trip(tmp_path: Path) -> None:
     repo = FieldSessionRepository(tmp_path / 'cad.sqlite3')
     session = _session()

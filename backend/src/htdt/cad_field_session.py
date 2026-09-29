@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .r120_geometry_compiler import ExactExternalAuthorityRef
-from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash
+from .canonical_json import canonical_json as _canonical, canonical_sha256 as _hash, canonicalize_payload
 from .clock import utc_now_iso as _utc_now
 
 
@@ -391,7 +391,8 @@ def record_field_evidence(
         'review_state': 'pending_review',
     }
     provisional = FieldEvidenceRecord.model_construct(
-        **payload, semantic_sha256='0' * 64
+        **canonicalize_payload(FieldEvidenceRecord, payload),
+        semantic_sha256='0' * 64,
     )
     return FieldEvidenceRecord.model_validate(
         {

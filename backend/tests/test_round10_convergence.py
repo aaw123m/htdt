@@ -301,6 +301,26 @@ def test_authoring_panel_run_creates_spec_and_evaluates(
     panel.dispose()
 
 
+def test_authoring_panel_swallows_post_dispose_callbacks(
+    tmp_path: Path,
+) -> None:
+    """Queued pool callbacks landing after dispose() must no-op instead of
+    touching dying widgets (sibling _disposed contract)."""
+    fx = _fixture(tmp_path)
+    _movement_evaluation(fx)
+    _app()
+    panel = RobustnessAuthoringPanel(
+        _context(fx),
+        selected_spec_id=lambda: fx.search_spec.search_spec_id,
+        on_status=lambda _s: None,
+    )
+    panel.dispose()
+    assert panel._disposed
+    panel._run_completed('robustness', object(), None)
+    panel._refresh_run_state()
+    panel.deleteLater()
+
+
 def test_joint_panel_gates_create_button_on_missing_o90(
     tmp_path: Path,
 ) -> None:

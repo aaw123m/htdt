@@ -166,3 +166,21 @@ def test_execute_on_worker_leaves_ui_live_and_cancellable(tmp_path: Path) -> Non
     finally:
         panel.context.execute_spec = original  # type: ignore[method-assign]
         panel.dispose()
+
+
+def test_completion_after_dispose_is_a_no_op(tmp_path: Path) -> None:
+    """A worker completion already queued when the panel is disposed must
+    not touch the (dying) widget — the _disposed guard swallows it."""
+    fixture = _fixture(tmp_path)
+    statuses: list[str] = []
+    panel = _panel(fixture, tmp_path, statuses)
+    panel.refresh()
+
+    panel.dispose()
+    assert panel._disposed
+
+    label_before = panel.execution_label.text()
+    # Simulate the pool invoking the completion callback post-dispose.
+    panel._on_execution_completed('joint-x', object(), None)
+    panel._on_execution_progress(object())
+    assert panel.execution_label.text() == label_before
