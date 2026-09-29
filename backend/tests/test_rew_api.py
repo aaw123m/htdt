@@ -225,14 +225,17 @@ def test_snapshot_requires_exactly_one_uuid_and_all_requests_are_get() -> None:
     assert all(method == 'GET' for _, method in calls)
 
 
-@pytest.mark.parametrize('listing', [{}, {'1': {'uuid': 'abc'}, '2': {'uuid': 'abc'}}])
-def test_snapshot_rejects_missing_or_duplicate_uuid(listing: object) -> None:
+@pytest.mark.parametrize(
+    ('listing', 'expected'),
+    [({}, 'not found'), ({'1': {'uuid': 'abc'}, '2': {'uuid': 'abc'}}, 'not unique')],
+)
+def test_snapshot_rejects_missing_or_duplicate_uuid(listing: object, expected: str) -> None:
     def opener(request: Request, timeout: float) -> FakeResponse:
         if request.full_url.endswith('/measurements'):
             return FakeResponse(listing)
         raise AssertionError('detail endpoint must not be called')
 
-    with pytest.raises(RewApiError, match='not unique'):
+    with pytest.raises(RewApiError, match=expected):
         RewApiClient(opener=opener).get_frequency_response_snapshot('abc')
 
 

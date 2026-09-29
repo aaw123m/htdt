@@ -28,6 +28,15 @@ class RewApiUnavailable(RewApiError):
     pass
 
 
+class RewApiNotFound(RewApiError):
+    """The entity the request names does not exist upstream.
+
+    Distinct from a transport or shape failure: the REW endpoint answered
+    normally but holds no such measurement/mic-position/source, so HTTP
+    surfaces should answer 404 rather than a 502 that blames the upstream.
+    """
+
+
 class RewApiResponseTooLarge(RewApiError, IngressTooLargeError):
     """Oversized REW API payload rejected before unbounded allocation.
 
@@ -480,7 +489,7 @@ class RewApiClient:
         if not isinstance(mic_payload, list) or any(not isinstance(item, str) for item in mic_payload):
             raise RewApiError('Unexpected REW Room Simulator mic-position response shape')
         if mic_position not in mic_payload:
-            raise RewApiError(f'Unknown REW Room Simulator mic position: {mic_position}')
+            raise RewApiNotFound(f'Unknown REW Room Simulator mic position: {mic_position}')
         if source_name is None:
             path = '/roomsim/frequency-response'
         else:
@@ -488,7 +497,7 @@ class RewApiClient:
             if not isinstance(source_payload, list) or any(not isinstance(item, str) for item in source_payload):
                 raise RewApiError('Unexpected REW Room Simulator source-name response shape')
             if source_name not in source_payload:
-                raise RewApiError(f'Unknown REW Room Simulator source: {source_name}')
+                raise RewApiNotFound(f'Unknown REW Room Simulator source: {source_name}')
             path = f'/roomsim/{quote(source_name, safe="")}/frequency-response'
         payload = self._get_json(path, {'micposition': mic_position})
         if not isinstance(payload, dict):
@@ -544,7 +553,9 @@ class RewApiClient:
         if ppo is not None and not (1 <= ppo <= 384):
             raise ValueError('ppo must be between 1 and 384')
         matches = [item for item in self.list_measurements() if item.get('uuid') == measurement_uuid]
-        if len(matches) != 1:
+        if len(matches) == 0:
+            raise RewApiNotFound(f'REW measurement UUID not found: {measurement_uuid}')
+        if len(matches) > 1:
             raise RewApiError('Selected REW measurement UUID is not unique in the current measurement list')
         before = self.get_measurement(measurement_uuid)
         if before.get('uuid') != measurement_uuid:

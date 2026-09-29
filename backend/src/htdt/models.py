@@ -149,6 +149,12 @@ class ContextCreate(BaseModel):
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
+    @model_validator(mode='after')
+    def validate_name_not_blank(self) -> 'ProjectCreate':
+        if not self.name.strip():
+            raise ValueError('name must not be blank')
+        return self
+
 
 class SessionCreate(BaseModel):
     purpose: str | None = Field(default=None, max_length=300)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict
+import logging
 import math
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -32,8 +33,11 @@ from .search_space import (
     validate_search_spec,
 )
 from .report import build_report_payload, render_report_html
-from .rew_api import DEFAULT_REW_API_URL, RewApiClient, RewApiError, RewApiUnavailable
+from .rew_api import DEFAULT_REW_API_URL, RewApiClient, RewApiError, RewApiNotFound, RewApiUnavailable
 from .rew_parser import RewParseError, parse_rew_frequency_response
+
+
+logger = logging.getLogger(__name__)
 
 
 class HealthResponse(BaseModel):
@@ -144,6 +148,25 @@ def _comparison_warnings(a: dict, b: dict, confounder_count: int) -> list[str]:
 _API_FALLBACK_METHODS = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 
+# Store-level KeyError codes translated to the same operator-facing sentences
+# sibling routes raise literally. str(KeyError) would leak the Python repr
+# ("'project_not_found'") into the detail field instead.
+_KEY_ERROR_DETAILS = {
+    'project_not_found': 'Project not found',
+    'parent_context_not_found': 'Parent context not found',
+    'context_not_found': 'Context not found',
+    'session_not_found': 'Session not found',
+    'constraint_set_not_found': 'ConstraintSet not found',
+    'dataset_not_found': 'Dataset not found',
+    'measurement_not_found': 'Measurement not found',
+}
+
+
+def _key_error_detail(exc: KeyError) -> str:
+    code = str(exc.args[0]) if exc.args else ''
+    return _KEY_ERROR_DETAILS.get(code) or code or 'Not found'
+
+
 def _is_api_path(path: str) -> bool:
     """True when a decoded SPA-fallback path is really an ``/api`` URL.
 
@@ -248,6 +271,14 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             content={'detail': _finite_safe_error_detail(jsonable_encoder(exc.errors()))},
         )
 
+    @app.exception_handler(Exception)
+    async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        # Keep the traceback in the log (the custom handler replaces
+        # ServerErrorMiddleware's own logging) while the body stays a
+        # safe, uniform `{"detail": ...}` like every other error route.
+        logger.exception('Unhandled error on %s %s', request.method, request.url.path)
+        return JSONResponse(status_code=500, content={'detail': 'Internal Server Error'})
+
     @app.get('/api/health', response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(status='ok', version=__version__, platform_target='Windows 11 x64', rew_required=False,
@@ -291,6 +322,8 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             return RewApiClient.roomsim_response_payload(response)
         except RewApiUnavailable as exc:
             raise HTTPException(status_code=503, detail=f'REW API unavailable: {exc}') from exc
+        except RewApiNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RewApiError as exc:
             raise HTTPException(status_code=502, detail=f'Unexpected REW Room Simulator response: {exc}') from exc
 
@@ -344,7 +377,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         try:
             return store.create_session(project_id, request.purpose, request.started_at, request.notes)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.get('/api/projects/{project_id}/contexts')
     def list_contexts(project_id: str) -> list[dict]:
@@ -367,7 +400,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         try:
             return store.create_context(project_id, request.model_dump(mode='json'), request.parent_context_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.get('/api/projects/{project_id}/constraint-sets')
     def list_constraint_sets(project_id: str, context_id: str | None = Query(default=None)) -> list[dict]:
@@ -386,7 +419,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             spec = validate_constraint_set_for_context(request, context['payload'])
             return store.create_constraint_set(project_id, request.context_id, request.name, spec)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -462,7 +495,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
         return {**record, 'estimate': estimate}
 
     @app.get('/api/projects/{project_id}/search-specs/{search_spec_id}')
@@ -576,12 +609,14 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             )
         except RewApiUnavailable as exc:
             raise HTTPException(status_code=503, detail=f'REW API unavailable: {exc}') from exc
+        except RewApiNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except RewApiError as exc:
             raise HTTPException(status_code=502, detail=f'REW snapshot rejected: {exc}') from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.get('/api/projects/{project_id}/measurements')
     def list_measurements(project_id: str, context_id: str | None = Query(default=None),
@@ -591,7 +626,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         try:
             return store.list_measurements(project_id, context_id, session_id)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.post('/api/projects/{project_id}/measurements', status_code=201)
     def import_measurement(project_id: str, request: MeasurementImportRequest) -> dict:
@@ -607,7 +642,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except (ValueError, RewParseError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.get('/api/projects/{project_id}/datasets/{dataset_id}/feature-candidates')
     def feature_candidates(
@@ -639,7 +674,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
                 min_spacing_octaves=min_spacing_octaves,
             )
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
         except DatasetIntegrityError as exc:
             raise HTTPException(status_code=409, detail='Dataset failed integrity verification') from exc
         except FeatureDetectionError as exc:
@@ -701,7 +736,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         try:
             return store.list_attachments(project_id, context_id, measurement_id, kind)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.post('/api/projects/{project_id}/attachments', status_code=201)
     def create_attachment(project_id: str, request: AttachmentCreate) -> dict:
@@ -711,7 +746,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
     @app.get('/api/projects/{project_id}/comparisons')
     def list_comparisons(project_id: str) -> list[dict]:
@@ -801,7 +836,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
                               'interpretation_warnings': _comparison_warnings(descriptor_a, descriptor_b, len(classified['confounders']))}
             return store.save_comparison(project_id, request.dataset_a_id, request.dataset_b_id, request.model_dump(mode='json'), result_payload)
         except KeyError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
         except DatasetIntegrityError as exc:
             raise HTTPException(status_code=409, detail='Dataset failed integrity verification') from exc
         except ComparisonError as exc:
