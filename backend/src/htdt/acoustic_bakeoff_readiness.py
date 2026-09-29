@@ -934,11 +934,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    benchmark = load_acoustic_benchmark_manifest(args.manifest)
-    candidates = load_bakeoff_candidate_manifest(args.candidates)
-    profile = load_bakeoff_adoption_profile(args.adoption_profile)
-    ledger = load_readiness_evidence_ledger(args.evidence_ledger)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    try:
+        benchmark = load_acoustic_benchmark_manifest(args.manifest)
+        candidates = load_bakeoff_candidate_manifest(args.candidates)
+        profile = load_bakeoff_adoption_profile(args.adoption_profile)
+        ledger = load_readiness_evidence_ledger(args.evidence_ledger)
+    except (OSError, ValueError) as exc:
+        parser.error(f'{exc.__class__.__name__}: {exc}')
     report = build_production_adoption_readiness_report(
         benchmark,
         candidates,

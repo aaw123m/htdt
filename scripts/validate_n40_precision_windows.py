@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import ctypes
 import gc
 from pathlib import Path
@@ -167,6 +168,10 @@ def run_precision(app: QApplication, root: Path) -> bool:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description='Run the N40 precision mouse-select acceptance with real OS mouse input.',
+    )
+    parser.parse_args()
     app = QApplication.instance() or QApplication([sys.argv[0]])
     with tempfile.TemporaryDirectory(prefix='htdt-a10-precision-', ignore_cleanup_errors=True) as temp:
         passed = run_precision(app, Path(temp))

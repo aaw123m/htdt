@@ -13,6 +13,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 from tempfile import NamedTemporaryFile
@@ -57,6 +58,10 @@ def _directivity(provenance):
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__.splitlines()[0] if __doc__ else None,
+    )
+    parser.parse_args()
     manufacturer = _provenance('manufacturer', 'datasheet:fixture', 'a' * 64)
     user = _provenance('user_defined', 'manual:fixture', 'b' * 64)
     definitions = (

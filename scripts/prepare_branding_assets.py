@@ -64,7 +64,10 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
 
-    runtime_path, ico_path = render_branding_assets(args.source, args.output_dir)
+    try:
+        runtime_path, ico_path = render_branding_assets(args.source, args.output_dir)
+    except (OSError, ValueError) as exc:
+        parser.error(f'{exc.__class__.__name__}: {exc}')
     print(f"Rendered runtime icon: {runtime_path}")
     print(f"Rendered executable icon: {ico_path}")
     return 0
