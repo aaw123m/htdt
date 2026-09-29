@@ -756,6 +756,7 @@ class CaptureRetentionService:
             f'WHERE ingestion_run_id IN ({placeholders})',
             run_ids,
         )
+        self._purge_inbox_bookkeeping(connection, plan)
         # Content blobs are GC'd only when nothing left in the catalog
         # still references the digest — conservative by construction.
         for sha in plan.reclaimed_blob_sha256:
@@ -763,6 +764,130 @@ class CaptureRetentionService:
                 'DELETE FROM htdt_content_blobs WHERE payload_sha256=?',
                 (sha,),
             )
+
+    def _purge_inbox_bookkeeping(
+        self, connection: sqlite3.Connection, plan: CapturePurgePlan
+    ) -> None:
+        """Remove Capture Inbox review entries for purged lineages.
+
+        Inbox rows are a review queue over retained payloads; once the
+        payload is gone the queue entry can only strand (``inspect`` fails
+        as store corruption), so it is deleted with the run rows.
+        Supersessions/registrations naming a purged lineage dangle on
+        either side and go with it. An item flipped ``superseded`` by a
+        lineage that was just purged reverts to its promoted-derived
+        disposition: the replacement claim no longer exists.
+        """
+
+        digests = plan.lineage_digests
+        if not digests or not self._has_table(
+            connection, 'capture_inbox_items'
+        ):
+            return
+        placeholders = ','.join('?' for _ in digests)
+        if self._has_table(connection, 'capture_inbox_promotions'):
+            connection.execute(
+                f'DELETE FROM capture_inbox_promotions '
+                f'WHERE lineage_digest IN ({placeholders})',
+                digests,
+            )
+        if self._has_table(connection, 'capture_inbox_supersessions'):
+            connection.execute(
+                f'DELETE FROM capture_inbox_supersessions '
+                f'WHERE superseded_lineage_digest IN ({placeholders}) '
+                f'OR superseding_lineage_digest IN ({placeholders})',
+                digests + digests,
+            )
+        if self._has_table(connection, 'capture_inbox_registrations'):
+            connection.execute(
+                f'DELETE FROM capture_inbox_registrations '
+                f'WHERE older_lineage_digest IN ({placeholders}) '
+                f'OR newer_lineage_digest IN ({placeholders})',
+                digests + digests,
+            )
+        connection.execute(
+            f'DELETE FROM capture_inbox_items '
+            f'WHERE lineage_digest IN ({placeholders})',
+            digests,
+        )
+
+        if not self._has_table(connection, 'capture_inbox_supersessions'):
+            return
+        stuck = connection.execute(
+            "SELECT lineage_digest FROM capture_inbox_items "
+            "WHERE disposition='superseded'"
+        ).fetchall()
+        for row in stuck:
+            digest = str(row['lineage_digest'])
+            covered = {
+                str(entry['authority_kind'])
+                for entry in connection.execute(
+                    'SELECT authority_kind FROM capture_inbox_supersessions '
+                    'WHERE superseded_lineage_digest=?',
+                    (digest,),
+                ).fetchall()
+            }
+            promoted = set()
+            if self._has_table(connection, 'capture_inbox_promotions'):
+                promoted = {
+                    str(entry['authority_kind'])
+                    for entry in connection.execute(
+                        'SELECT authority_kind FROM capture_inbox_promotions '
+                        "WHERE lineage_digest=? AND outcome='promoted'",
+                        (digest,),
+                    ).fetchall()
+                }
+            if promoted and promoted <= covered:
+                continue  # still fully superseded by surviving records
+            disposition = (
+                'partially_promoted'
+                if promoted and promoted < set(
+                    self._available_authority_kinds(connection, digest)
+                )
+                else 'promoted'
+                if promoted
+                else 'pending'
+            )
+            # The promotion record's timestamp is when this disposition
+            # actually began; a revert to pending never had one.
+            began_at = None
+            if promoted:
+                began_row = connection.execute(
+                    "SELECT MAX(promoted_at_utc) AS began "
+                    'FROM capture_inbox_promotions '
+                    "WHERE lineage_digest=? AND outcome='promoted'",
+                    (digest,),
+                ).fetchone()
+                began_at = None if began_row is None else began_row['began']
+            connection.execute(
+                'UPDATE capture_inbox_items SET disposition=?, '
+                'disposition_reason=?, disposition_at_utc=? '
+                'WHERE lineage_digest=?',
+                (disposition, '', began_at, digest),
+            )
+
+    def _available_authority_kinds(
+        self, connection: sqlite3.Connection, lineage_digest: str
+    ) -> set[str]:
+        """Authority kinds the surviving plan offers, for re-deriving a
+        reverted disposition. Returns an empty set when the item's own
+        plan can no longer be read. Reads inside the purge transaction —
+        no second connection, no schema bootstrap."""
+        row = connection.execute(
+            'SELECT plan_json FROM capture_ingestion_runs '
+            'WHERE lineage_digest=? '
+            'ORDER BY recorded_at_utc DESC, ingestion_run_id DESC LIMIT 1',
+            (lineage_digest,),
+        ).fetchone()
+        if row is None:
+            return set()
+        from .capture_inbox import plan_authority_kinds
+        from .capture_ingestion_transaction import CaptureIngestionPlan
+
+        plan = CaptureIngestionPlan.model_validate_json(
+            str(row['plan_json'])
+        )
+        return set(plan_authority_kinds(plan))
 
     # ---- shared referrers -------------------------------------------------
 

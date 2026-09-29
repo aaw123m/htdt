@@ -142,9 +142,12 @@ class TestDefaultBundleReader:
         archive_bytes = _zip_bundle_dir(
             tmp_path / 'bundle', tmp_path / 'bundle.htdtcapture'
         )
-        read_plan, read_payloads = _default_bundle_reader(archive_bytes)
+        read_plan, read_payloads, read_manifest = _default_bundle_reader(
+            archive_bytes
+        )
         assert read_plan == plan
         assert read_payloads == payloads
+        assert read_manifest == manifest
         assert sha256(manifest).hexdigest() == read_plan['bundle']['bundle_digest']
 
     def test_non_zip_payload_rejected_cleanly(self):

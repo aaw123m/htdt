@@ -4383,11 +4383,14 @@ class CaptureIngestionRepository:
         while missing or failing evidence leaves the run unresolved
         rather than guessing.
         """
+        # Several runs can share one lineage (#413): resolve against the
+        # latest run, the same rule ``get_ingestion`` applies for plans.
         row = connection.execute(
             '''
             SELECT quality_state, quality_payload_sha256,
                    quality_ruleset_version
             FROM capture_ingestion_runs WHERE lineage_digest=?
+            ORDER BY recorded_at_utc DESC, ingestion_run_id DESC
             ''',
             (plan.lineage_digest,),
         ).fetchone()
@@ -4480,6 +4483,7 @@ class CaptureIngestionRepository:
                 SELECT quality_state, quality_payload_sha256,
                        quality_ruleset_version
                 FROM capture_ingestion_runs WHERE lineage_digest=?
+                ORDER BY recorded_at_utc DESC, ingestion_run_id DESC
                 ''',
                 (lineage_digest,),
             ).fetchone()
