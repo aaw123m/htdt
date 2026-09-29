@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import json
 from pathlib import Path
+from threading import Event
 
 import numpy as np
 import pyqtgraph as pg
@@ -643,7 +644,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self._rew_list_sequence += 1
         key = f'list:{self._rew_list_sequence}'
         self._latest_rew_list_key = key
-        self._start_rew_task(key, self.rew_client.list_measurements)
+        self._start_rew_task(
+            key,
+            lambda cancel_event: self.rew_client.list_measurements(
+                is_cancelled=cancel_event.is_set
+            ),
+        )
         self.statusBar().showMessage('REW測定一覧を読み込み中…')
 
     def read_selected_rew_async(self) -> None:
@@ -704,8 +710,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self._current_rew_token_id = token.job_id
         self._start_rew_task(
             token.job_id,
-            lambda: self.rew_client.get_frequency_response_snapshot(
-                str(external_id), ppo=None, unit='SPL', smoothing=None
+            lambda cancel_event: self.rew_client.get_frequency_response_snapshot(
+                str(external_id),
+                ppo=None,
+                unit='SPL',
+                smoothing=None,
+                is_cancelled=cancel_event.is_set,
             ),
         )
         scope_message = (
@@ -736,12 +746,14 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         """Live worker records owned by ``self._rew_pool``."""
         return self._rew_pool.tasks
 
-    def _start_rew_task(self, key: str, operation: Callable[[], object]) -> None:
+    def _start_rew_task(
+        self, key: str, operation: Callable[[Event], object]
+    ) -> None:
         if self._disposed:
             return
         self._rew_pool.start(
             key,
-            lambda _cancel_event: operation(),
+            lambda cancel_event: operation(cancel_event),
             self._rew_task_completed,
             on_finished=self._rew_task_finished,
         )

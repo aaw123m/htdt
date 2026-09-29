@@ -157,7 +157,7 @@ def test_data_management_op_mirrored_into_activity_center(tmp_path: Path) -> Non
 
     released = Event()
 
-    def job(emit):
+    def job(emit, _cancel_event, _on_commit_point):
         emit(DataOperationPhase.SCANNING, '走査しています')
         released.wait(10)
         return None

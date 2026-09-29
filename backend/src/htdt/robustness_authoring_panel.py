@@ -30,7 +30,11 @@ from PySide6.QtWidgets import (
 )
 
 from .native_editor import ROLE
-from .native_worker import WORKER_CANCELLED, NativeWorkerPool
+from .native_worker import (
+    WORKER_CANCELLED,
+    NativeWorkerPool,
+    WorkerShutdownReport,
+)
 from .robustness_authoring_context import (
     DEFAULT_ANGLE_DELTA_DEG,
     DEFAULT_POSITION_DELTA_M,
@@ -130,6 +134,17 @@ class RobustnessAuthoringPanel(QWidget):
 
     def is_running(self) -> bool:
         return self._pool.active_count > 0
+
+    def stop(self) -> WorkerShutdownReport:
+        """Drain in-flight authoring but keep the panel usable (#REV19/D1)."""
+        report = self._pool.stop_all()
+        self.status_label.setText(
+            'ばらつき評価を中止しました'
+            if report.all_stopped
+            else 'ばらつき評価の停止が遅延しています · 遅延結果は適用しません'
+        )
+        self._refresh_run_state()
+        return report
 
     def dispose(self) -> None:
         self._disposed = True

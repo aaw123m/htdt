@@ -30,6 +30,15 @@ class RewApiError(RuntimeError):
     pass
 
 
+class RewApiCancelledError(RewApiError):
+    """A multi-request REW read was abandoned at a cooperative checkpoint.
+
+    Raised only when the caller-supplied ``is_cancelled`` flag is set; the
+    NativeWorker running the read maps it to ``WORKER_CANCELLED`` so the
+    partial snapshot is discarded rather than applied.
+    """
+
+
 class RewApiUnavailable(RewApiError):
     pass
 
@@ -353,7 +362,17 @@ class RewApiClient:
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RewApiError('REW returned invalid JSON') from exc
 
-    def list_measurements(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _raise_if_cancelled(
+        is_cancelled: Callable[[], bool] | None,
+    ) -> None:
+        if is_cancelled is not None and is_cancelled():
+            raise RewApiCancelledError('REW read cancelled by the caller')
+
+    def list_measurements(
+        self, *, is_cancelled: Callable[[], bool] | None = None
+    ) -> list[dict[str, Any]]:
+        self._raise_if_cancelled(is_cancelled)
         return normalize_measurement_summaries(self._get_json('/measurements'))
 
     def get_audio_preflight(self) -> dict[str, Any]:
@@ -544,7 +563,13 @@ class RewApiClient:
         )
 
 
-    def get_measurement(self, measurement_id: str) -> dict[str, Any]:
+    def get_measurement(
+        self,
+        measurement_id: str,
+        *,
+        is_cancelled: Callable[[], bool] | None = None,
+    ) -> dict[str, Any]:
+        self._raise_if_cancelled(is_cancelled)
         payload = self._get_json(f'/measurements/{quote(measurement_id, safe="")}')
         if not isinstance(payload, dict):
             raise RewApiError('Unexpected REW measurement response shape')
@@ -577,16 +602,32 @@ class RewApiClient:
         )
 
     def get_frequency_response_snapshot(
-        self, measurement_uuid: str, *, ppo: int | None = None, unit: str = 'SPL', smoothing: str | None = None
+        self,
+        measurement_uuid: str,
+        *,
+        ppo: int | None = None,
+        unit: str = 'SPL',
+        smoothing: str | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> RewFrequencyResponseSnapshot:
         if ppo is not None and not (1 <= ppo <= 384):
             raise ValueError('ppo must be between 1 and 384')
-        matches = [item for item in self.list_measurements() if item.get('uuid') == measurement_uuid]
+        # The snapshot is four sequential requests; the cancel flag is
+        # honored between them so an abandoned read stops at the next
+        # request instead of finishing every remaining transfer (#REV19/D3).
+        self._raise_if_cancelled(is_cancelled)
+        matches = [
+            item
+            for item in self.list_measurements(is_cancelled=is_cancelled)
+            if item.get('uuid') == measurement_uuid
+        ]
         if len(matches) == 0:
             raise RewApiNotFound(f'REW measurement UUID not found: {measurement_uuid}')
         if len(matches) > 1:
             raise RewApiError('Selected REW measurement UUID is not unique in the current measurement list')
-        before = self.get_measurement(measurement_uuid)
+        before = self.get_measurement(
+            measurement_uuid, is_cancelled=is_cancelled
+        )
         if before.get('uuid') != measurement_uuid:
             raise RewApiError('REW measurement summary UUID does not match the requested UUID')
         query: dict[str, str | int] = {'unit': unit}
@@ -594,10 +635,13 @@ class RewApiClient:
             query['ppo'] = ppo
         if smoothing:
             query['smoothing'] = smoothing
+        self._raise_if_cancelled(is_cancelled)
         payload = self._get_json(f'/measurements/{quote(measurement_uuid, safe="")}/frequency-response', query)
         if not isinstance(payload, dict):
             raise RewApiError('Unexpected REW frequency-response response shape')
-        after = self.get_measurement(measurement_uuid)
+        after = self.get_measurement(
+            measurement_uuid, is_cancelled=is_cancelled
+        )
         if before != after:
             raise RewApiError('REW measurement changed while the snapshot was being read')
         decoded = decode_frequency_response(

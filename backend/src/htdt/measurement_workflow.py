@@ -736,15 +736,26 @@ class MeasurementWorkflowController:
     def clear_pending(self) -> None:
         self._pending = None
 
-    def list_rew_measurements(self) -> list[dict[str, Any]]:
-        return self.rew_client.list_measurements()
+    def list_rew_measurements(
+        self, *, cancel_event: Event | None = None
+    ) -> list[dict[str, Any]]:
+        return self.rew_client.list_measurements(
+            is_cancelled=(
+                None if cancel_event is None else cancel_event.is_set
+            )
+        )
 
-    def fetch_rew_snapshot(self, measurement_uuid: str) -> RewFrequencyResponseSnapshot:
+    def fetch_rew_snapshot(
+        self, measurement_uuid: str, *, cancel_event: Event | None = None
+    ) -> RewFrequencyResponseSnapshot:
         return self.rew_client.get_frequency_response_snapshot(
             measurement_uuid,
             unit="SPL",
             ppo=None,
             smoothing=None,
+            is_cancelled=(
+                None if cancel_event is None else cancel_event.is_set
+            ),
         )
 
     def _assignment_revision(self) -> SceneRevision:

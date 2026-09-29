@@ -382,7 +382,7 @@ def test_workflow_controller_dispose_leaves_slow_rew_thread_alive(
     controller._rew_pool._shutdown_timeout_ms = 100
     started = Event()
 
-    def slow_list() -> list:
+    def slow_list(_cancel_event) -> list:
         started.set()
         time.sleep(0.5)
         return []
@@ -414,7 +414,7 @@ def test_measurement_page_workspace_close_detaches_running_job(tmp_path: Path) -
     applied: list[object] = []
     started = Event()
 
-    def slow_call() -> str:
+    def slow_call(_cancel_event) -> str:
         started.set()
         time.sleep(0.5)
         return "late"

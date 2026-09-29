@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -571,6 +572,7 @@ def create_backup(
     destination: Path,
     *,
     allow_stale: bool = False,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> BackupManifest:
     """Create an atomic native-data backup without copying a live SQLite file directly.
 
@@ -587,7 +589,12 @@ def create_backup(
     """
 
     recover_interrupted_restore(Path(data_dir))
-    return _create_backup(data_dir, destination, allow_stale=allow_stale)
+    return _create_backup(
+        data_dir,
+        destination,
+        allow_stale=allow_stale,
+        is_cancelled=is_cancelled,
+    )
 
 
 def _create_backup(
@@ -595,6 +602,7 @@ def _create_backup(
     destination: Path,
     *,
     allow_stale: bool = False,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> BackupManifest:
     data_dir = _canonical_data_path(Path(data_dir))
     destination = _canonical_data_path(Path(destination))
@@ -611,6 +619,7 @@ def _create_backup(
         _snapshot_database(source_database, snapshot_database)
 
         for _digest, relative_path, _size_bytes in _asset_rows(snapshot_database):
+            _raise_if_backup_cancelled(is_cancelled)
             source_asset = _safe_data_path(data_dir, relative_path)
             target_asset = _safe_data_path(snapshot_root, relative_path)
             if source_asset.is_symlink() or not source_asset.is_file():
@@ -622,6 +631,7 @@ def _create_backup(
         # commissioning plans) joins the backup: copy each included
         # component into the snapshot so the manifest hashes it too (#769).
         for component in backup_included_components():
+            _raise_if_backup_cancelled(is_cancelled)
             source_aux = data_dir / component.path
             if not source_aux.is_file():
                 continue
@@ -629,6 +639,7 @@ def _create_backup(
             target_aux.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_aux, target_aux)
         for member in _legacy_archive_members(data_dir):
+            _raise_if_backup_cancelled(is_cancelled)
             source_member = _safe_data_path(data_dir, member)
             target_member = _safe_data_path(snapshot_root, member)
             if source_member.is_symlink() or not source_member.is_file():
@@ -688,9 +699,11 @@ def _create_backup(
                 _canonical_json(manifest.model_dump(mode='json')).encode('utf-8'),
             )
             for entry in manifest.files:
+                _raise_if_backup_cancelled(is_cancelled)
                 archive.write(_safe_data_path(snapshot_root, entry.path), arcname=entry.path)
 
-        validate_backup(archive_temp)
+        validate_backup(archive_temp, is_cancelled=is_cancelled)
+        _raise_if_backup_cancelled(is_cancelled)
         os.replace(archive_temp, destination)
     return manifest
 
@@ -776,7 +789,12 @@ def _extract_verified_member(
         raise BackupError(f'backup member SHA-256 mismatch: {entry.path}')
 
 
-def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, int]:
+def _stage_backup(
+    backup_path: Path,
+    stage_root: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> tuple[BackupManifest, int]:
     if backup_path.stat().st_size > MAX_NATIVE_BACKUP_ARCHIVE_BYTES:
         raise BackupError(
             'backup archive exceeds size limit: '
@@ -795,6 +813,7 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
                 )
 
             for entry in manifest.files:
+                _raise_if_backup_cancelled(is_cancelled)
                 info = entries[entry.path]
                 if info.file_size != entry.size_bytes:
                     raise BackupError(f'backup member size mismatch: {entry.path}')
@@ -866,14 +885,24 @@ def _stage_backup(backup_path: Path, stage_root: Path) -> tuple[BackupManifest, 
     return manifest, staged_schema_version
 
 
-def validate_backup(backup_path: Path) -> BackupManifest:
+def validate_backup(
+    backup_path: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> BackupManifest:
     """Fully validate an archive, including SQLite integrity and raw-asset hashes."""
 
-    manifest, _staged_schema_version = inspect_backup(backup_path)
+    manifest, _staged_schema_version = inspect_backup(
+        backup_path, is_cancelled=is_cancelled
+    )
     return manifest
 
 
-def inspect_backup(backup_path: Path) -> tuple[BackupManifest, int]:
+def inspect_backup(
+    backup_path: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> tuple[BackupManifest, int]:
     """Fully validate an archive and report the staged DB's native schema.
 
     The returned integer is the ``native_schema_metadata`` version actually
@@ -886,7 +915,9 @@ def inspect_backup(backup_path: Path) -> tuple[BackupManifest, int]:
     if not backup_path.is_file():
         raise FileNotFoundError(f'backup archive does not exist: {backup_path}')
     with tempfile.TemporaryDirectory(prefix='htdt-backup-validate-') as temp_name:
-        return _stage_backup(backup_path, Path(temp_name))
+        return _stage_backup(
+            backup_path, Path(temp_name), is_cancelled=is_cancelled
+        )
 
 
 def _remove_managed_data(data_dir: Path) -> None:
@@ -907,6 +938,22 @@ def _remove_managed_data(data_dir: Path) -> None:
 
 class RestoreRecoveryError(RuntimeError):
     """An interrupted restore swap could not be resolved to a valid state."""
+
+
+class BackupCancelledError(RuntimeError):
+    """A backup/restore/validation job honored a cooperative cancel request.
+
+    Raised only at checkpoints where nothing durable has been written (or,
+    for restore, only before the journal commits the swap); the caller maps
+    it to a CANCELLED outcome, never a failure (#REV19/D2).
+    """
+
+
+def _raise_if_backup_cancelled(
+    is_cancelled: Callable[[], bool] | None,
+) -> None:
+    if is_cancelled is not None and is_cancelled():
+        raise BackupCancelledError('backup operation cancelled by the caller')
 
 
 RestoreRecoveryAction = Literal[
@@ -1586,11 +1633,26 @@ def restore_backup(
     backup_path: Path,
     *,
     pre_restore_backup: Path | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+    on_commit_point: Callable[[], None] | None = None,
 ) -> tuple[BackupManifest, Path | None]:
-    """Restore validated managed native data with rollback if the live swap fails."""
+    """Restore validated managed native data with rollback if the live swap fails.
+
+    ``is_cancelled`` is honored while the archive stages and before the
+    rollback journal commits the swap; ``on_commit_point`` fires once the
+    durable intent record exists, after which the swap always runs its
+    journaled course (success or rollback) — that is the CANCEL_UNTIL_COMMIT
+    boundary the activity registry enforces (#REV19/D2).
+    """
 
     recover_interrupted_restore(Path(data_dir))
-    return _restore_backup(data_dir, backup_path, pre_restore_backup=pre_restore_backup)
+    return _restore_backup(
+        data_dir,
+        backup_path,
+        pre_restore_backup=pre_restore_backup,
+        is_cancelled=is_cancelled,
+        on_commit_point=on_commit_point,
+    )
 
 
 def _restore_backup(
@@ -1598,6 +1660,8 @@ def _restore_backup(
     backup_path: Path,
     *,
     pre_restore_backup: Path | None,
+    is_cancelled: Callable[[], bool] | None = None,
+    on_commit_point: Callable[[], None] | None = None,
 ) -> tuple[BackupManifest, Path | None]:
     data_dir = Path(data_dir)
     backup_path = Path(backup_path)
@@ -1606,7 +1670,9 @@ def _restore_backup(
 
     with tempfile.TemporaryDirectory(prefix='htdt-restore-stage-', dir=parent) as stage_name:
         stage_root = Path(stage_name)
-        manifest, _staged_schema_version = _stage_backup(backup_path, stage_root)
+        manifest, _staged_schema_version = _stage_backup(
+            backup_path, stage_root, is_cancelled=is_cancelled
+        )
 
         existing_database = data_dir / DATABASE_NAME
         pre_backup: Path | None = None
@@ -1625,7 +1691,16 @@ def _restore_backup(
                 # build awaiting revalidation) — the safety copy still
                 # exports it, flagged in the manifest, rather than leaving
                 # the pre-restore generation un-exportable.
-                _create_backup(data_dir, pre_backup, allow_stale=True)
+                _create_backup(
+                    data_dir,
+                    pre_backup,
+                    allow_stale=True,
+                    is_cancelled=is_cancelled,
+                )
+            except BackupCancelledError:
+                # A cancel request must never be swallowed by the
+                # failed-safety-snapshot fallback below.
+                raise
             except Exception as exc:
                 # The live store may itself be corrupt — that is the main
                 # reason this restore is running. A failed safety snapshot
@@ -1651,6 +1726,9 @@ def _restore_backup(
                     )
                     pre_backup = None
 
+        # Last cheap abort point: the rollback dir + journal only exist
+        # once the swap is committed to be recoverable.
+        _raise_if_backup_cancelled(is_cancelled)
         rollback_root = parent / f'.{data_dir.name}{RESTORE_ROLLBACK_SUFFIX}{uuid4().hex}'
         rollback_root.mkdir(parents=False, exist_ok=False)
         journal_time = _utc_now()
@@ -1673,6 +1751,11 @@ def _restore_backup(
         # crash at any later boundary is discoverable and recoverable.
         _write_restore_journal(rollback_root, journal)
         _fsync_directory(parent)
+        # Commit point: the durable intent record exists — the swap now
+        # owns its outcome (success or rollback) and cancel requests are
+        # refused by the activity registry (#REV19/D2).
+        if on_commit_point is not None:
+            on_commit_point()
 
         moved_database = False
         moved_assets = False

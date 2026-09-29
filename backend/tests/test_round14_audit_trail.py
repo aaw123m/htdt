@@ -433,7 +433,7 @@ def test_restore_reload_failure_records_an_honest_outcome(
         worker=_OperationWorker(
             operation_id=operation_id,
             kind=DataOperationKind.RESTORE,
-            job=lambda emit: None,
+            job=lambda emit, _cancel_event, _on_commit_point: None,
         ),
         lifecycle_mode='restore',
         result=None,

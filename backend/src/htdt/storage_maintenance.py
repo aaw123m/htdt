@@ -36,6 +36,7 @@ Rules that hold regardless of shape:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 import hashlib
@@ -72,6 +73,24 @@ GC_PENDING_TABLE = 'htdt_storage_gc_pending'
 
 class StorageMaintenanceError(ValueError):
     """Storage maintenance could not honor its safety contract."""
+
+
+class StorageMaintenanceCancelledError(StorageMaintenanceError):
+    """A scan/GC job honored a cooperative cancel request (#REV19/D2).
+
+    Inside the GC transaction the ``except Exception`` rollback path
+    leaves every registry row exactly as found; post-commit a partially
+    completed unlink pass just leaves pending rows the next GC resumes.
+    """
+
+
+def _raise_if_storage_cancelled(
+    is_cancelled: Callable[[], bool] | None,
+) -> None:
+    if is_cancelled is not None and is_cancelled():
+        raise StorageMaintenanceCancelledError(
+            'storage maintenance cancelled by the caller'
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +231,11 @@ def _gc_pending(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:
     return {str(row['sha256']): row for row in rows}
 
 
-def scan_storage(data_dir: Path) -> StorageReport:
+def scan_storage(
+    data_dir: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> StorageReport:
     """Classify every managed file without requiring a backup first."""
 
     data_dir = Path(data_dir)
@@ -229,6 +252,7 @@ def scan_storage(data_dir: Path) -> StorageReport:
     diagnostics_dir = data_dir / 'diagnostics'
     if diagnostics_dir.is_dir():
         for entry in diagnostics_dir.rglob('*'):
+            _raise_if_storage_cancelled(is_cancelled)
             if entry.is_file():
                 diagnostics_bytes += entry.stat().st_size
 
@@ -252,6 +276,7 @@ def scan_storage(data_dir: Path) -> StorageReport:
         pending = {}
 
     for digest, row in registry.items():
+        _raise_if_storage_cancelled(is_cancelled)
         relative = str(row['relative_path'])
         size = int(row['size_bytes'])
         if digest in digests:
@@ -265,6 +290,7 @@ def scan_storage(data_dir: Path) -> StorageReport:
 
     if assets_root.is_dir():
         for entry in sorted(assets_root.iterdir()):
+            _raise_if_storage_cancelled(is_cancelled)
             if not entry.is_file():
                 continue
             size = entry.stat().st_size
@@ -391,12 +417,20 @@ def _file_matches_digest(
     return hasher.hexdigest() == digest
 
 
-def plan_storage_gc(data_dir: Path) -> StorageReport:
+def plan_storage_gc(
+    data_dir: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> StorageReport:
     """Dry-run: the current orphan candidates and reclaimable bytes."""
-    return scan_storage(data_dir)
+    return scan_storage(data_dir, is_cancelled=is_cancelled)
 
 
-def run_storage_gc(data_dir: Path) -> StorageGcResult:
+def run_storage_gc(
+    data_dir: Path,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> StorageGcResult:
     """Delete only candidates still unreachable at delete time.
 
     One ``BEGIN IMMEDIATE`` transaction spans the reachability
@@ -413,7 +447,7 @@ def run_storage_gc(data_dir: Path) -> StorageGcResult:
         raise StorageMaintenanceError(
             f'native database not found: {db_path}'
         )
-    report = scan_storage(data_dir)
+    report = scan_storage(data_dir, is_cancelled=is_cancelled)
     candidates = {
         item.digest: item
         for item in report.orphan_candidates
@@ -439,6 +473,7 @@ def run_storage_gc(data_dir: Path) -> StorageGcResult:
             pending_rows = _gc_pending(connection)
             now = _utc_now()
             for digest in sorted(candidates):
+                _raise_if_storage_cancelled(is_cancelled)
                 # Re-validation immediately before delete: if the digest
                 # became reachable since the scan, keep it.
                 if digest in live_digests:
@@ -505,6 +540,7 @@ def run_storage_gc(data_dir: Path) -> StorageGcResult:
     freed = 0
     deleted_files = 0
     for digest in sorted(deleted_digests):
+        _raise_if_storage_cancelled(is_cancelled)
         target = candidates[digest].path
         try:
             size = target.stat().st_size
@@ -552,6 +588,7 @@ __all__ = [
     'StorageCategoryReport',
     'StorageGcResult',
     'StorageMaintenanceError',
+    'StorageMaintenanceCancelledError',
     'StorageReport',
     'plan_storage_gc',
     'referenced_asset_digests',
