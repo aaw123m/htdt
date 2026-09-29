@@ -112,9 +112,15 @@ def test_page_renders_family_sections(qapp, tmp_path: Path) -> None:
         assert "Acme Fixture Bookshelf" in rendered.get("equipment", [])
         assert "Fixture absorber" in rendered.get("material", [])
         assert "Fixture profile" in rendered.get("standard_profile", [])
-        # Scope column shows the JP user-visible scope label.
+        # Scope column shows the JP user-visible scope label: bundled rows
+        # are 同梱; the shared user-library fixture row stays ユーザーライブラリ.
         material_table = page._family_frames["material"][1]
-        assert material_table.item(0, 2).text() == "ユーザーライブラリ"
+        names_scopes = {
+            material_table.item(row, 0).text(): material_table.item(row, 2).text()
+            for row in range(material_table.rowCount())
+        }
+        assert names_scopes["Fixture absorber"] == "ユーザーライブラリ"
+        assert "同梱" in names_scopes.values()
     finally:
         page.close()
         page.deleteLater()
@@ -147,8 +153,13 @@ def test_archived_entries_are_hidden(qapp, tmp_path: Path) -> None:
     page = ReferenceLibraryPage(lambda: (), library_index=index)
     try:
         material_table = page._family_frames["material"][1]
-        assert material_table.rowCount() == 0
-        assert not material_table.isVisibleTo(page)
+        displayed = {
+            material_table.item(row, 0).text()
+            for row in range(material_table.rowCount())
+        }
+        assert "Fixture absorber" not in displayed
+        # Bundled catalog rows stay visible; only the archived row is hidden.
+        assert displayed
     finally:
         page.close()
         page.deleteLater()

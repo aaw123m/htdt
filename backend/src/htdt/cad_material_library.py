@@ -211,6 +211,18 @@ class MaterialAcousticEvidence(BaseModel):
                 raise ValueError('evidence frequency/value entries must be finite')
         if any(hz <= 0 for hz in self.frequency_hz):
             raise ValueError('evidence frequencies must be positive')
+        if self.quantity in {
+            'random_incidence_absorption_coefficient',
+            'normal_incidence_absorption_coefficient',
+            'scattering_coefficient',
+        } and any(not 0.0 <= v <= 1.0 for v in self.values):
+            raise ValueError(
+                'absorption/scattering coefficient values must lie in [0, 1]'
+            )
+        if self.quantity == 'transmission_loss' and any(
+            v < 0.0 for v in self.values
+        ):
+            raise ValueError('transmission loss values must be non-negative')
         if self.phase_deg is not None:
             if self.quantity not in _COMPLEX_CAPABLE_QUANTITIES:
                 raise ValueError(
@@ -226,7 +238,7 @@ class MaterialAcousticEvidence(BaseModel):
         if self.incidence_angle_deg is not None:
             if not isfinite(self.incidence_angle_deg):
                 raise ValueError('incidence angle must be finite')
-            if self.incidence not in {'oblique', 'unknown'}:
+            if self.incidence != 'oblique':
                 raise ValueError(
                     'incidence_angle_deg is only meaningful for oblique '
                     'incidence'

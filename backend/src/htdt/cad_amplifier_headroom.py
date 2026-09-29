@@ -179,6 +179,17 @@ class AmplifierOutputCapability(BaseModel):
             raise ValueError(
                 'peak capability and peak duration must be supplied together'
             )
+        if (
+            self.continuous_capability is not None
+            and self.peak_capability is not None
+            and self.continuous_capability.quantity
+            == self.peak_capability.quantity
+            and self.peak_capability.value < self.continuous_capability.value
+        ):
+            raise ValueError(
+                'peak amplifier capability must not be below continuous '
+                'in the same quantity'
+            )
         if self.gain_db is not None and self.reference_input is None:
             raise ValueError('evidenced amplifier gain requires reference input')
         if len(self.missing_unsupported_fields) != len(

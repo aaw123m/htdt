@@ -492,29 +492,39 @@ class SurfaceMaterialPanel(QWidget):
             return
         values = dialog.values()
         try:
+            impedance_rows = [
+                [part.strip() for part in line.split(',')]
+                for line in str(values['impedance_text']).splitlines()
+                if line.strip()
+            ]
+            if any(len(parts) != 3 for parts in impedance_rows):
+                raise ValueError(
+                    'インピーダンス行は 周波数,抵抗,リアクタンス の3列です'
+                )
             impedance = tuple(
                 SpecificImpedancePoint(
                     frequency_hz=float(parts[0]),
                     resistance_pa_s_m=float(parts[1]),
                     reactance_pa_s_m=float(parts[2]),
                 )
-                for parts in (
-                    [part.strip() for part in line.split(',')]
-                    for line in str(values['impedance_text']).splitlines()
-                    if line.strip()
-                )
+                for parts in impedance_rows
             )
+            band_rows = [
+                [part.strip() for part in line.split(',')]
+                for line in str(values['bands_text']).splitlines()
+                if line.strip()
+            ]
+            if any(not 2 <= len(parts) <= 3 for parts in band_rows):
+                raise ValueError(
+                    'バンド行は 中心周波数,吸収率,散乱率 （散乱率は省略可）です'
+                )
             bands = tuple(
                 GeometricAcousticBand(
                     center_hz=float(parts[0]),
                     absorption=float(parts[1]),
                     scattering=float(parts[2]) if len(parts) > 2 else 0.0,
                 )
-                for parts in (
-                    [part.strip() for part in line.split(',')]
-                    for line in str(values['bands_text']).splitlines()
-                    if line.strip()
-                )
+                for parts in band_rows
             )
             material = build_acoustic_material(
                 label=str(values['label']),
