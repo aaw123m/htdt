@@ -648,6 +648,12 @@ class CadObjectiveRepository:
                 or evaluation.search_spec_sha256 != pareto_set.search_spec_sha256
             ):
                 raise ValueError('Pareto objective evaluation binding mismatch')
+            if (
+                evaluations
+                and evaluation.evaluation_spec_sha256
+                != evaluations[0].evaluation_spec_sha256
+            ):
+                raise ValueError('Pareto objective evaluation spec mismatch')
             evaluations.append(evaluation)
 
         expected = pareto_front(

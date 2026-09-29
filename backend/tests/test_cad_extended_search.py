@@ -41,6 +41,7 @@ from htdt.cad_search import build_cad_search_spec, generate_cad_candidates
 from htdt.cad_search_models import CadSearchAxis
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.cad_walls import make_wall_topology
+from htdt.canonical_json import canonical_sha256
 
 
 DOCUMENT_ID = 'o80-extended-fixture'
@@ -312,6 +313,59 @@ def test_extended_apply_rejects_position_tampering_even_with_base_candidate_id(t
             current_constraint_set=constraints,
             current_document_id=DOCUMENT_ID,
         )
+
+
+def test_extended_apply_rejects_positions_violating_placement_constraints(tmp_path):
+    (
+        scene_repository,
+        revision,
+        constraints,
+        base_spec,
+        _base_page,
+        _capability,
+        _repository,
+        spec,
+    ) = _fixture(tmp_path)
+    page = generate_extended_candidates(scene_repository, base_spec, spec, limit=20)
+    candidate = page.candidates[-1]
+
+    # x=6.0 puts the speaker envelope outside the 5 m room boundary; a
+    # fabricated ec- id that stays self-consistent must still fail apply.
+    tampered_positions = {
+        entity_id: dict(position)
+        for entity_id, position in candidate.positions.items()
+    }
+    tampered_positions['fl']['x_m'] = 6.0
+    payload = {
+        'extended_search_sha256': spec.extended_search_sha256,
+        'base_candidate_id': candidate.base_candidate_id,
+        'positions': tampered_positions,
+        'aim_yaw_deg': dict(candidate.aim_yaw_deg),
+    }
+    if candidate.body_yaw_deg:
+        payload['body_yaw_deg'] = dict(candidate.body_yaw_deg)
+    if candidate.aim_pitch_deg:
+        payload['aim_pitch_deg'] = dict(candidate.aim_pitch_deg)
+    forged = candidate.model_copy(update={
+        'positions': tampered_positions,
+        'candidate_id': 'ec-' + canonical_sha256(payload)[:20],
+    })
+    working = WorkingDocument(
+        revision.document,
+        source_revision_id=revision.revision_id,
+        saved_content_hash=revision.content_hash,
+    )
+    with pytest.raises(ValueError, match='placement constraints'):
+        apply_extended_candidate(
+            working,
+            forged,
+            extended_spec=spec,
+            base_spec=base_spec,
+            current_constraint_set=constraints,
+            current_document_id=DOCUMENT_ID,
+        )
+    assert working.history_length == 0
+    assert working.committed_document.entity('fl').position.x_m == pytest.approx(1.0)
 
 
 def test_rew_roomsim_cannot_claim_toe_in_capability():

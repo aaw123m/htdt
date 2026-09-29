@@ -25,6 +25,7 @@ from .cad_scene import (
 from .cad_search import (
     candidate_preview_document,
     iter_cad_candidate_pages,
+    require_candidate_position_feasibility,
     search_spec_current_working,
 )
 from .cad_search_models import CadCandidate, CadSearchSpec
@@ -909,6 +910,12 @@ def apply_extended_candidate(
     )
     if expected_id != candidate.candidate_id:
         raise ValueError('extended candidate identity mismatch')
+    require_candidate_position_feasibility(
+        working.committed_document,
+        current_constraint_set,
+        base_spec,
+        candidate.positions,
+    )
 
     candidate_document = extended_candidate_preview_document(
         working.committed_document,

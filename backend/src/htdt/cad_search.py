@@ -26,6 +26,8 @@ from .cad_search_models import (
 from .placement_constraints import (
     ConstraintSetCreate,
     LinkedPlacementConstraint,
+    PlacementEvaluationRequest,
+    evaluate_constraint_set,
     validate_constraint_set_for_context,
 )
 from .search_space import (
@@ -70,14 +72,14 @@ def _linked_derivations(
 
 
 def _constraint_engine_spec(
-    revision: SceneRevision,
+    document: SceneDocument,
     constraint_set: CadConstraintSet,
     search_entity_ids: Iterable[str] = (),
     linked_variables: Iterable[CadLinkedSearchVariable] = (),
 ) -> tuple[dict, str]:
-    context = scene_to_g10_context(revision.document)
+    context = scene_to_g10_context(document)
     request = build_g10_constraint_request(
-        revision.document,
+        document,
         constraint_set,
         additional_entity_ids=search_entity_ids,
     )
@@ -125,7 +127,7 @@ def build_cad_search_spec(
 
     constraint_snapshot_json, constraint_workspace_hash = constraint_workspace_snapshot(constraint_set)
     engine_spec, engine_sha = _constraint_engine_spec(
-        revision,
+        revision.document,
         constraint_set,
         {axis.entity_id for axis in native_axes}
         | {variable.master_entity_id for variable in native_links}
@@ -213,7 +215,7 @@ def require_search_spec_authority(
         raise ValueError('SearchSpec constraint snapshot belongs to another document')
 
     engine_spec, engine_sha = _constraint_engine_spec(
-        revision,
+        revision.document,
         constraint_snapshot,
         {axis.entity_id for axis in spec.axes}
         | {variable.master_entity_id for variable in spec.linked_variables}
@@ -461,6 +463,42 @@ def candidate_preview_document(document: SceneDocument, candidate: CadCandidate)
     return document.model_copy(update={'entities': entities})
 
 
+def require_candidate_position_feasibility(
+    document: SceneDocument,
+    current_constraint_set: CadConstraintSet,
+    spec: CadSearchSpec,
+    positions: dict[str, dict[str, float]],
+) -> None:
+    """Replay the SearchSpec's declared placement authority over candidate positions.
+
+    Candidate enumeration only admits combinations that satisfy every
+    compiled placement constraint; apply-time callers hand this function a
+    candidate's declared positions so a fabricated or tampered candidate
+    cannot smuggle a constraint-violating scene through the apply boundary.
+    The engine spec is recompiled from the document and the current
+    constraint set rather than trusting the persisted payload, exactly like
+    generation does.
+    """
+
+    engine_spec, _engine_sha = _constraint_engine_spec(
+        document,
+        current_constraint_set,
+        {axis.entity_id for axis in spec.axes}
+        | {variable.master_entity_id for variable in spec.linked_variables}
+        | {variable.slave_entity_id for variable in spec.linked_variables},
+        spec.linked_variables,
+    )
+    evaluation = evaluate_constraint_set(
+        scene_to_g10_context(document),
+        engine_spec,
+        PlacementEvaluationRequest.model_validate({'positions': positions}),
+    )
+    if not evaluation['feasible']:
+        raise ValueError(
+            'candidate does not satisfy the SearchSpec placement constraints'
+        )
+
+
 def apply_candidate_positions(
     working: WorkingDocument,
     candidate: CadCandidate,
@@ -482,6 +520,18 @@ def apply_candidate_positions(
         raise ValueError('cannot apply candidate from a stale SearchSpec')
     if not candidate.positions:
         return False
+    expected_id = 'pc-' + canonical_search_sha256({
+        'search_spec_sha256': spec.search_spec_sha256,
+        'positions': candidate.positions,
+    })[:20]
+    if candidate.candidate_id != expected_id:
+        raise ValueError('candidate identity does not match its declared positions')
+    require_candidate_position_feasibility(
+        working.committed_document,
+        current_constraint_set,
+        spec,
+        candidate.positions,
+    )
 
     before = tuple(working.committed_document.entity(entity_id) for entity_id in sorted(candidate.positions))
     after = tuple(
