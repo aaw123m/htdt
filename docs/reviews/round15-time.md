@@ -82,4 +82,11 @@ Scoped run (new + touched suites): `test_round15_time.py` 7 passed;
 `test_automatic_backup`, `test_automatic_backup_runner`,
 `test_data_management_ui`, `test_room_history_panel`, `test_round14_dialogs`,
 `test_round11_design`, `test_cad_display_labels`, `test_round10_ux`,
-`test_native_launch` — 106 passed. Full suite result below once completed.
+`test_native_launch` — 106 passed.
+
+Full suite `pytest backend/tests -q -n 4` (6574 collected): **1 failed** —
+`test_cad_hybrid_prediction_provider.py::test_evidence_lifecycle_rejects_illegal_promotions`.
+Passes standalone and fails under `pytest-xdist` parallel scheduling, and fails
+identically on unmodified `main` (verified via a `main` worktree with
+`PYTHONPATH` pinned to main sources): a **preexisting test-isolation flake**,
+unrelated to this round's changes. All other tests passed/skipped.
