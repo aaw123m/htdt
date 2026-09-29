@@ -70,6 +70,13 @@ def _entity_local_to_world_xy(
     )
 
 
+def _entity_local_forward_angle(entity: SceneEntity) -> float:
+    """World XY angle of the entity-local +Y (forward) axis."""
+
+    matrix = quaternion_to_matrix3(entity.orientation)
+    return atan2(matrix[1][1], matrix[0][1])
+
+
 def _sector_polygon(
     center: tuple[float, float],
     radius: float,
@@ -111,7 +118,7 @@ def operational_zone_footprint(
         hx, hy = _entity_local_to_world_xy(entity, *zone.hinge_offset_m)
         # Hinge at a door edge: the door rest position points along the
         # entity-local +Y edge direction; sweep from there.
-        rest_angle = atan2(hy - float(entity.position.y_m), hx - float(entity.position.x_m))
+        rest_angle = _entity_local_forward_angle(entity)
         return _sector_polygon((hx, hy), float(zone.radius_m), rest_angle, float(zone.angle_deg))
 
     if zone.kind == 'rotate':
@@ -119,7 +126,13 @@ def operational_zone_footprint(
         center = (float(entity.position.x_m), float(entity.position.y_m))
         if float(zone.angle_deg) >= 360.0:
             return Point(*center).buffer(float(zone.radius_m), quad_segs=32)
-        return _sector_polygon(center, float(zone.radius_m), 0.0, float(zone.angle_deg))
+        # The partial sweep starts along the entity-local +Y forward axis.
+        return _sector_polygon(
+            center,
+            float(zone.radius_m),
+            _entity_local_forward_angle(entity),
+            float(zone.angle_deg),
+        )
 
     # recline / slide_out / service_access: swept corridor of the body
     # rectangle along the declared direction.

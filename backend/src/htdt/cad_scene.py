@@ -153,9 +153,10 @@ def quaternion_from_axis_angle_vector(
 def quaternion_from_matrix3(matrix: tuple[tuple[float, float, float], ...]) -> Quaternion4:
     """Recover a quaternion from a proper rotation matrix (numerically stable).
 
-    Rows are world-basis images of the local axes, matching the layout produced
-    by :func:`quaternion_to_matrix3`. The caller must pass an orthonormal
-    rotation (determinant +1); reflected or degenerate input fails closed.
+    Columns are world-basis images of the local axes, matching the layout
+    produced by :func:`quaternion_to_matrix3` (world = R · local). The caller
+    must pass an orthonormal rotation (determinant +1); reflected or
+    degenerate input fails closed.
     """
 
     m = tuple(
