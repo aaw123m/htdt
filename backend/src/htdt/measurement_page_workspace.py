@@ -1793,6 +1793,11 @@ class MeasurementPageWorkspace(QWidget):
         self.batch_add_button.setEnabled(not running)
         self.batch_attach_button.setEnabled(not running)
         self.batch_clear_button.setEnabled(not running)
+        # The worker thread mutates shared _BatchEntry state while it runs —
+        # the per-row resolution combo and item selection are GUI-side write
+        # paths onto the same entries, so the whole table is inert during a
+        # commit instead of racing the worker mid-flight.
+        self.batch_table.setEnabled(not running)
         self.batch_cancel_button.setVisible(running)
         self.batch_cancel_button.setEnabled(running)
         if running:

@@ -11,6 +11,8 @@ from .user_facing_error import operation_error_message
 
 class AdaptiveExtendedControllerMixin:
     def build_selected_adaptive_extended_plan(self) -> None:
+        if self._disposed:
+            return
         validation = self._selected_validation_record()
         extended_spec = self._selected_extended_spec()
         base_spec = self._selected_search_spec()
@@ -65,6 +67,8 @@ class AdaptiveExtendedControllerMixin:
         )
 
     def _adaptive_extended_build_completed(self, key, result, error) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
                 'Adaptive Extended Plan計算を中止しました'

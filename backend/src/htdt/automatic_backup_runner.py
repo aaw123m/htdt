@@ -47,6 +47,7 @@ class AutomaticBackupRunner(QObject):
         self.data_dir = Path(data_dir)
         self._pool = NativeWorkerPool(parent=self)
         self._attempted = False
+        self._closed = False
 
     def start(self) -> bool:
         """Kick off the due check once per runner; False if already asked."""
@@ -78,11 +79,17 @@ class AutomaticBackupRunner(QObject):
         return True
 
     def _on_completed(self, _key: object, result: object, error: object) -> None:
+        if self._closed:
+            # A queued completion delivered after shutdown() must not
+            # surface on the closing shell — the Activity Center entry and
+            # statusbar write belong to a live composition.
+            return
         if error == WORKER_CANCELLED:
             return
         self.backup_completed.emit(result, error)
 
     def shutdown(self) -> None:
+        self._closed = True
         self._pool.shutdown()
 
 

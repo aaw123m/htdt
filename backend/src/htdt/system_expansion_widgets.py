@@ -830,6 +830,8 @@ class SystemExpansionRoomPanel(QFrame):
                 row.set_zone(*zone)
 
     def _create_proposal(self) -> None:
+        if self._disposed:
+            return
         rows = self._speaker_rows()
         if not rows:
             self.authoring_status.setText(
@@ -1189,6 +1191,8 @@ class SystemExpansionOptimizePanel(QFrame):
         )
 
     def _evaluate(self) -> None:
+        if self._disposed:
+            return
         variant_ids = [
             variant.variant_id for variant in self.service.variants()
         ]
