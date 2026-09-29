@@ -357,6 +357,101 @@ def _choose_recovery_action(
     return None, None
 
 
+def _offer_post_update_revalidation(
+    app,
+    splash,
+    data_dir: Path,
+    diagnostics: NativeDiagnostics,
+) -> None:
+    """First-run-after-update stale-evidence summary + revalidation offer.
+
+    Any build change (a real schema upgrade, or a semantic re-key where
+    the schema version stayed the same) can strand persisted authority:
+    reads that replay sealed records start refusing with no explanation.
+    This check runs one bounded authority audit on the first launch of a
+    changed build and offers the 再検証 lane — records that honestly
+    re-derive under the current build get re-sealed; the rest stay stale
+    with reasons. Every failure here is non-fatal: launch proceeds.
+    """
+
+    from .authority_revalidation import (
+        launch_build_changed,
+        post_update_copy_ja,
+        revalidate_native_authority_graph,
+        write_launch_marker,
+    )
+    from .native_authority_audit import audit_native_authority_graph
+
+    database_path = Path(data_dir) / "cad-scenes.sqlite3"
+    try:
+        if not launch_build_changed(data_dir):
+            return
+        # The marker records "this build launched here", not "the data is
+        # clean" — stamp before the audit so a later audit failure does
+        # not re-run the (potentially expensive) check every launch.
+        write_launch_marker(data_dir)
+        if not database_path.is_file() or database_path.stat().st_size == 0:
+            return
+        audit = audit_native_authority_graph(database_path)
+    except Exception:  # noqa: BLE001 - post-update notice must never block launch
+        diagnostics.logger.warning(
+            "post-update stale-evidence check failed", exc_info=True
+        )
+        return
+    if audit.ok:
+        return
+
+    stale_count = len(
+        {(d.authority, d.record_ref) for d in audit.diagnostics}
+    )
+    diagnostics.logger.warning(
+        "post-update audit: %d records need revalidation (%s)",
+        stale_count,
+        audit.summary(),
+    )
+    from PySide6.QtWidgets import QMessageBox
+
+    if splash is not None:
+        splash.hide()
+    try:
+        box = QMessageBox(
+            QMessageBox.Icon.Warning,
+            "HTDT アップデート後の再検証",
+            post_update_copy_ja(stale_count),
+        )
+        revalidate_button = box.addButton(
+            "再検証を実行", QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton("あとで", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is revalidate_button:
+            try:
+                report = revalidate_native_authority_graph(database_path)
+                QMessageBox.information(
+                    None, "HTDT 再検証", report.summary_ja()
+                )
+                diagnostics.logger.info(
+                    "post-update revalidation: %d revalidated, "
+                    "%d kept stale",
+                    len(report.revalidated),
+                    len(report.kept_stale),
+                )
+            except Exception as exc:  # noqa: BLE001
+                diagnostics.logger.warning(
+                    "post-update revalidation failed", exc_info=True
+                )
+                QMessageBox.warning(
+                    None,
+                    "HTDT 再検証",
+                    "再検証を完了できませんでした。データは変更されていません。\n"
+                    f"詳細: {exc}",
+                )
+    finally:
+        if splash is not None:
+            splash.show()
+        _splash_status(splash, app)
+
+
 def _notify_instance_active(diagnostics: NativeDiagnostics) -> None:
     """Second-launch notice: the running instance was asked to surface.
 
@@ -839,6 +934,15 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             if splash is not None:
                 splash.show()
             _splash_status(splash, app)
+        # Round 14: after any build change — schema upgrade or a semantic
+        # re-key with no schema bump — audit persisted evidence once and
+        # offer the revalidation lane before the workspace opens. Safe
+        # Mode skips it: the guarded launch keeps project authority
+        # read-only.
+        if safe_mode_policy is None:
+            _offer_post_update_revalidation(
+                app, splash, args.data_dir, diagnostics
+            )
         _splash_status(splash, app, 'プロジェクトデータを開いています…')
         repository = SceneRepository(args.data_dir / "cad-scenes.sqlite3")
         # #627: surface what the legacy default document actually holds
@@ -1205,6 +1309,27 @@ def main(argv: list[str] | None = None) -> int:
             "プロジェクトへ移行し、アーカイブして終了"
         ),
     )
+    maintenance.add_argument(
+        "--revalidate",
+        action="store_true",
+        help=(
+            "アップデート後に要検証となった記録を現在のビルドで"
+            "再検証（再導出できる記録を再署名）して終了"
+        ),
+    )
+    # Round 14: the pre-update trap — a build that re-keyed persisted
+    # evidence makes --backup refuse, so the user cannot even export. This
+    # modifier pairs with --backup to write a degraded archive instead:
+    # every failing row is declared in the manifest and re-checked at
+    # restore staging.
+    parser.add_argument(
+        "--backup-allow-stale",
+        action="store_true",
+        help=(
+            "要再検証の記録をマニフェストに明記したうえで"
+            "バックアップを許可（--backup と併用）"
+        ),
+    )
     # Reports the display version ("<version>+g<sha>[.dirty]") so a packaged
     # binary identifies the exact source build it was produced from. This is
     # the same version recorded in installer AppVersion and backup manifests.
@@ -1212,6 +1337,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.workflow_shell and args.legacy_ui:
         parser.error("--workflow-shell と --legacy-ui は併用できません")
+    if args.backup_allow_stale and args.backup is None:
+        parser.error("--backup-allow-stale は --backup と併用してください")
 
     # #621: resolve the managed root through the documented precedence and
     # fail closed when a configured location is unavailable.
@@ -1230,6 +1357,8 @@ def main(argv: list[str] | None = None) -> int:
         launch_mode = "seed-synthetic-demo"
     elif args.migrate_legacy_data:
         launch_mode = "migrate-legacy-data"
+    elif args.revalidate:
+        launch_mode = "revalidate"
     else:
         launch_mode = "gui"
     maintenance_request = launch_mode != "gui"
@@ -1332,11 +1461,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.backup is not None:
             from .native_backup import create_backup
 
-            manifest = create_backup(args.data_dir, args.backup)
+            manifest = create_backup(
+                args.data_dir,
+                args.backup,
+                allow_stale=args.backup_allow_stale,
+            )
             print(
                 f"バックアップを作成しました: {args.backup} "
                 f"(schema={manifest.schema_version}, files={len(manifest.files)})"
             )
+            if manifest.stale_authorities:
+                print(
+                    "注意: "
+                    f"{len(manifest.stale_authorities)} 件の記録は検証を"
+                    "通過せず、マニフェストに明記されました。"
+                    "「データ管理」の「記録を再検証」または "
+                    "--revalidate で再検証できます。"
+                )
             return 0
         if args.restore is not None:
             from .native_backup import restore_backup
@@ -1357,6 +1498,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"自動バックアップを作成しました: {result[0]}")
             return 0
+        if args.revalidate:
+            from .authority_revalidation import (
+                revalidate_native_authority_graph,
+            )
+
+            report = revalidate_native_authority_graph(
+                args.data_dir / "cad-scenes.sqlite3"
+            )
+            print(report.summary_ja())
+            return 0 if report.resolved else 1
         if args.seed_synthetic_demo:
             from .cad_repository import SceneRepository
             from .cad_synthetic_demo import seed_synthetic_optimization_demo

@@ -267,7 +267,9 @@ def test_post_commit_verification_failure_quarantines_generation(
 ) -> None:
     _prepare_upgrade_candidate(tmp_path)
 
-    def _fail_verify(database_path: Path, expected_version: int) -> None:
+    def _fail_verify(
+        database_path: Path, expected_version: int, **kwargs: object
+    ) -> None:
         raise NativeUpgradeVerificationError(
             'semantic_audit', 'injected verification failure'
         )

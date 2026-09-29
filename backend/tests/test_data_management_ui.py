@@ -60,7 +60,9 @@ class _FakeController(QObject):
     def can_close_application(self) -> bool:
         return not self._busy
 
-    def create_backup(self, destination: Path) -> str:
+    def create_backup(
+        self, destination: Path, *, allow_stale: bool = False
+    ) -> str:
         self.backup_requests.append(Path(destination))
         return "backup-op"
 

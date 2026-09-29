@@ -322,14 +322,31 @@ class BackupMetadataView(QFrame):
         self._values["file_count"].setText(f"{metadata.file_count:,} 件")
         self._values["path"].setText(str(metadata.backup_path))
 
-        self.validation_status.setVisible(validated)
+        status_lines: list[str] = []
         if validated:
-            self.validation_status.setText(
+            status_lines.append(
                 "復元前検証: manifest / SHA-256 / SQLite整合性 / 外部キー / "
                 f"DB schema互換性（v{metadata.native_schema_version}） / "
                 "測定アセットを検証済み"
             )
-            set_semantic_state(self.validation_status, SemanticState.SUCCESS)
+        # Round 14: a degraded archive must never present as clean — the
+        # declared stale count is part of the archive's contract.
+        if metadata.stale_authority_count > 0:
+            status_lines.append(
+                f"検証を通過しなかった記録を "
+                f"{metadata.stale_authority_count} 件含みます"
+                "（マニフェストに明記。復元後に「記録を再検証」で"
+                "再導出できます）"
+            )
+        self.validation_status.setVisible(bool(status_lines))
+        self.validation_status.setText("\n".join(status_lines))
+        if status_lines:
+            set_semantic_state(
+                self.validation_status,
+                SemanticState.WARNING
+                if metadata.stale_authority_count > 0
+                else SemanticState.SUCCESS,
+            )
 
 
 class DataManagementWidget(QWidget):
@@ -516,8 +533,35 @@ class DataManagementWidget(QWidget):
         set_control_size(self.select_restore_button, ControlSize.STANDARD)
         self.select_restore_button.clicked.connect(self._choose_restore_file)
         actions.addWidget(self.select_restore_button)
+
+        # Round 14: the post-update revalidation lane — records stranded
+        # by a re-keyed build are re-derived here on demand, not only at
+        # the launch prompt.
+        self.revalidate_button = QPushButton(
+            "記録を再検証", operations_card
+        )
+        self.revalidate_button.setObjectName(
+            "dataManagementRevalidateButton"
+        )
+        set_control_size(self.revalidate_button, ControlSize.STANDARD)
+        self.revalidate_button.clicked.connect(self._run_revalidation)
+        actions.addWidget(self.revalidate_button)
         actions.addStretch(1)
         operations_layout.addLayout(actions)
+
+        # Round 14: when evidence is stale only because the build
+        # re-keyed it, a plain backup refuses — this opt-in writes a
+        # degraded archive declaring every failing row in the manifest,
+        # so the user's only copy is never un-exportable.
+        self.backup_allow_stale_checkbox = QCheckBox(
+            "検証を通過しない記録を含めてバックアップする"
+            "（対象はマニフェストに明記されます）",
+            operations_card,
+        )
+        self.backup_allow_stale_checkbox.setObjectName(
+            "dataManagementBackupAllowStale"
+        )
+        operations_layout.addWidget(self.backup_allow_stale_checkbox)
 
         # Round9 audit: saved generations were invisible — restore required
         # remembering where a backup file lived. List every restorable
@@ -836,7 +880,26 @@ class DataManagementWidget(QWidget):
         self._hide_status()
         self.result_metadata.hide()
         self.pre_restore_label.hide()
-        self.controller.create_backup(destination)
+        self.controller.create_backup(
+            destination,
+            allow_stale=self.backup_allow_stale_checkbox.isChecked(),
+        )
+
+    def _run_revalidation(self) -> None:
+        """Round 14: re-derive stale authority under the current build."""
+        if self._busy or self._restart_required:
+            return
+        try:
+            report = self.controller.revalidate()
+        except Exception as exc:  # noqa: BLE001 - surface, never crash the page
+            self._show_status(
+                "再検証を完了できませんでした",
+                str(exc),
+                SemanticState.ERROR,
+            )
+            return
+        QMessageBox.information(self, "HTDT 再検証", report.summary_ja())
+        self._refresh_generations()
 
     def _choose_restore_file(self) -> None:
         if self._busy or self._restart_required:
@@ -1056,6 +1119,20 @@ class DataManagementWidget(QWidget):
         self.result_metadata.set_metadata(result.metadata, validated=True)
         self.result_metadata.show()
         self.pre_restore_label.hide()
+        if result.metadata.stale_authority_count > 0:
+            # Degraded archive (round 14): backup succeeded, but say
+            # plainly that it carries unverified records and where the
+            # revalidation lane lives — never a silent success.
+            self._show_status(
+                "バックアップを作成しました（未検証の記録を含む）",
+                f"{result.metadata.backup_path}\n"
+                f"検証を通過しなかった記録: "
+                f"{result.metadata.stale_authority_count} 件"
+                "（マニフェストに明記されています）。"
+                "「記録を再検証」で再導出できます。",
+                SemanticState.WARNING,
+            )
+            return
         self._show_status(
             "バックアップを作成しました",
             str(result.metadata.backup_path),
@@ -1209,6 +1286,7 @@ class DataManagementWidget(QWidget):
         available = not self._busy and not self._restart_required
         self.backup_button.setEnabled(available)
         self.select_restore_button.setEnabled(available)
+        self.revalidate_button.setEnabled(available)
         self.migration_export_button.setEnabled(available)
         self.migration_import_button.setEnabled(available)
         self.relocate_button.setEnabled(available)

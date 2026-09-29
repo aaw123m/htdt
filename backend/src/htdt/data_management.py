@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from .authority_revalidation import RevalidationReport
 
 from .activity_center import (
     ActivityCenter,
@@ -130,6 +133,10 @@ class BackupMetadata:
     # backup' is a declared contract, not whatever was enumerated (#769).
     auxiliary_components: tuple[str, ...] = ()
     excluded_categories: tuple[str, ...] = ()
+    # Degraded-archive declaration count (round 14): >0 means the archive
+    # knowingly carries authority rows that failed semantic replay — each
+    # declared in manifest.stale_authorities and tolerated at staging.
+    stale_authority_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -266,6 +273,7 @@ def _metadata_from_manifest(
             entry.path for entry in manifest.files if entry.kind == 'auxiliary'
         ),
         excluded_categories=backup_excluded_names(),
+        stale_authority_count=len(manifest.stale_authorities),
     )
 
 
@@ -284,9 +292,36 @@ class DataManagementBackend:
 
         return read_native_schema_version(self.data_dir / DATABASE_NAME)
 
-    def create_backup(self, destination: Path) -> BackupCreateResult:
+    def revalidate(self) -> 'RevalidationReport':
+        """Run the post-update revalidation lane over the live store.
+
+        Re-derives every authority row that went stale only because a
+        newer build re-keyed its identity (round 14): routing profiles
+        and wiring checks re-seal under the current convention, persisted
+        comparisons re-run the replayable algorithm over their stored
+        inputs. Records that cannot be honestly re-derived stay stale
+        with an explicit reason — the returned report's ``summary_ja``
+        is the user-facing statement.
+        """
+
+        from .authority_revalidation import (
+            revalidate_native_authority_graph,
+        )
+
+        return revalidate_native_authority_graph(
+            self.data_dir / DATABASE_NAME
+        )
+
+    def create_backup(
+        self,
+        destination: Path,
+        *,
+        allow_stale: bool = False,
+    ) -> BackupCreateResult:
         destination = Path(destination)
-        manifest = native_create_backup(self.data_dir, destination)
+        manifest = native_create_backup(
+            self.data_dir, destination, allow_stale=allow_stale
+        )
         # The manual generation already covers the current data, so the
         # automatic scheduler must not archive the same bytes again on its
         # next tick — best-effort mark, never gates the backup itself.
@@ -632,7 +667,17 @@ class DataManagementController(QObject):
                 f'data management operation already running: {self._active.kind.value}'
             )
 
-    def create_backup(self, destination: Path) -> str:
+    def revalidate(self) -> 'RevalidationReport':
+        """Run the post-update revalidation lane over the live store."""
+
+        return self.backend.revalidate()
+
+    def create_backup(
+        self,
+        destination: Path,
+        *,
+        allow_stale: bool = False,
+    ) -> str:
         self._assert_owner_thread()
         self._assert_idle()
         operation_id = uuid4().hex
@@ -650,7 +695,9 @@ class DataManagementController(QObject):
 
         def job(emit: Callable[[DataOperationPhase, str], None]) -> BackupCreateResult:
             emit(DataOperationPhase.BACKING_UP, 'バックアップを作成・検証しています')
-            return self.backend.create_backup(destination)
+            return self.backend.create_backup(
+                destination, allow_stale=allow_stale
+            )
 
         return self._start(
             operation_id=operation_id,
