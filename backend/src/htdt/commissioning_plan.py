@@ -125,9 +125,15 @@ class CommissioningPlanRepository:
         if not self._path.exists():
             return {'plans': {}}
         try:
-            return json.loads(self._path.read_text(encoding='utf-8'))
-        except (json.JSONDecodeError, OSError):
+            data = json.loads(self._path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
             return {'plans': {}}
+        if not isinstance(data, dict) or not isinstance(data.get('plans'), dict):
+            # Well-formed JSON in a foreign shape is as unusable as a torn
+            # file: treat the registry as empty rather than let every
+            # method crash on ``.get``/``.setdefault``/``.values``.
+            return {'plans': {}}
+        return data
 
     def _store(self, data: dict) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,7 +188,8 @@ class CommissioningPlanRepository:
         plans = data.get('plans', {})
         active = data.get('active_document_id')
         ordered = sorted(
-            plans.values(), key=lambda raw: raw.get('updated_at_utc', '')
+            (raw for raw in plans.values() if isinstance(raw, dict)),
+            key=lambda raw: raw.get('updated_at_utc', ''),
         )
         for raw in reversed(ordered):
             if raw.get('document_id') == active or active is None:
@@ -194,9 +201,11 @@ class CommissioningPlanRepository:
     def list_plans(self) -> tuple[CommissioningPlan, ...]:
         plans = []
         for raw in self._load().get('plans', {}).values():
+            if not isinstance(raw, dict):
+                continue
             try:
                 plans.append(self.get(raw['document_id']))
-            except CommissioningPlanError:
+            except (CommissioningPlanError, KeyError, TypeError):
                 continue
         return tuple(p for p in plans if p is not None)
 

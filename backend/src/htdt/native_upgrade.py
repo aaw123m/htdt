@@ -222,10 +222,11 @@ def _free_space(path: Path) -> int | None:
 def plan_native_upgrade(data_dir: Path) -> NativeUpgradePlan:
     """Inspect the live database without mutating it.
 
-    A missing or zero-byte database is a fresh install, not an upgrade of
-    existing user data: no recovery generation is meaningful there. A
-    non-empty unversioned database is a genuine legacy upgrade subject to
-    ``cad_schema`` adoption gates.
+    A missing database is a fresh install, not an upgrade of existing user
+    data: no recovery generation is meaningful there. An existing
+    zero-byte file fails closed in ``read_native_schema_version`` as torn
+    or truncated state. A non-empty unversioned database is a genuine
+    legacy upgrade subject to ``cad_schema`` adoption gates.
     """
 
     data_dir = Path(data_dir)
@@ -239,7 +240,7 @@ def plan_native_upgrade(data_dir: Path) -> NativeUpgradePlan:
         # schema authority's own error at the lifecycle boundary.
         raise
 
-    is_fresh = not database_path.is_file() or database_path.stat().st_size == 0
+    is_fresh = not database_path.is_file()
     if is_fresh:
         compatibility: UpgradeCompatibility = 'fresh_install'
         migration_steps: tuple[int, ...] = ()
@@ -388,7 +389,7 @@ def list_upgrade_events(data_dir: Path) -> tuple[UpgradeEvent, ...]:
                 events.append(UpgradeEvent.model_validate_json(line))
             except ValueError:
                 _LOGGER.warning('skipping unreadable upgrade event: %r', line[:200])
-    except OSError:
+    except (OSError, ValueError):
         return ()
     return tuple(reversed(events))
 
@@ -728,6 +729,16 @@ def execute_native_upgrade(
 
     if plan.compatibility == 'current':
         marker = read_upgrade_state(data_dir)
+        if marker is None and upgrade_state_path(data_dir).is_file():
+            # A present-but-unreadable marker is an unresolved quarantine
+            # signal, not an absent one: the live generation may be the
+            # committed-but-never-verified product of a crashed migration.
+            # Fail closed instead of silently skipping quarantine.
+            raise NativeUpgradeQuarantineError(
+                'the durable upgrade state marker is unreadable, so the live '
+                'database cannot be proven verified: '
+                f'{upgrade_state_path(data_dir)}'
+            )
         if (
             marker is not None
             and marker.state in QUARANTINED_UPGRADE_STATES
