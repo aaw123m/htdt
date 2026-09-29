@@ -80,7 +80,9 @@ from .native_editor import ROLE
 from .native_worker import WORKER_CANCELLED
 from .optimization_search_controller import (
     CandidateTreeItem,
+    _CANDIDATE_SORT_KEY_ROLE,
     _candidate_matches_filter,
+    _normalized_text,
     _update_candidate_filter_note,
 )
 from .user_facing_error import operation_error_message
@@ -844,7 +846,7 @@ class ExtendedSearchControllerMixin:
             if page is None:
                 self._apply_extended_candidate_filter()
                 return
-            for candidate in page.candidates:
+            for row_index, candidate in enumerate(page.candidates):
                 position_text = ' · '.join(
                     f'{entity_id}:('
                     f'{position["x_m"]:.2f},'
@@ -871,6 +873,11 @@ class ExtendedSearchControllerMixin:
                     body_text,
                 ])
                 item.setData(0, ROLE, candidate.candidate_id)
+                item.setData(
+                    0,
+                    _CANDIDATE_SORT_KEY_ROLE,
+                    page.offset + row_index,
+                )
                 tree.addTopLevelItem(item)
                 if candidate.candidate_id == self.extended_selected_candidate_id:
                     selected_item = item
@@ -884,9 +891,7 @@ class ExtendedSearchControllerMixin:
         if tree is None:
             return
         field = getattr(self, 'extended_candidate_filter_field', None)
-        needle = (
-            field.text().strip().casefold() if field is not None else ''
-        )
+        needle = _normalized_text(field.text()) if field is not None else ''
         visible = 0
         with QSignalBlocker(tree):
             for index in range(tree.topLevelItemCount()):

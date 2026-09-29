@@ -993,6 +993,12 @@ class OptimizationWorkflowController(
             ["候補", "元候補", "位置", "音響 yaw", "筐体 yaw"]
         )
         self.extended_candidate_tree.setSortingEnabled(True)
+        # 候補 column carries the canonical enumeration index as its sort
+        # key — pin ascending so the default view is enumeration order,
+        # like the 番号-sorted search tree.
+        self.extended_candidate_tree.sortItems(
+            0, Qt.SortOrder.AscendingOrder
+        )
         self.extended_candidate_tree.itemSelectionChanged.connect(
             self._extended_candidate_selected
         )

@@ -235,6 +235,7 @@ class CommissioningWizard(QDialog):
         try:
             rows = self.repository._connect().execute(
                 'SELECT document_id FROM scene_document_heads'
+                ' ORDER BY document_id'
             ).fetchall()
             return tuple(
                 row[0] for row in rows if row[0] != self.current_document_id
