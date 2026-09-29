@@ -19,6 +19,12 @@ from .limits import MAX_REW_API_RESPONSE_BYTES, MAX_REW_ARRAY_SAMPLES, max_base6
 DEFAULT_REW_API_URL = 'http://127.0.0.1:4735'
 ROOMSIM_ADAPTER_VERSION = 'rew-roomsim-readonly-1'
 
+# Wall-clock ceiling for one response body transfer. The per-socket timeout
+# bounds a single recv only; a peer trickling bytes under that window would
+# otherwise hold the read open indefinitely (the worker can only be
+# cancelled logically, so a wedged transfer must time out on its own).
+DEFAULT_REW_API_TRANSFER_TIMEOUT_S = 30.0
+
 
 class RewApiError(RuntimeError):
     pass
@@ -287,19 +293,39 @@ def normalize_measurement_summaries(payload: Any) -> list[dict[str, Any]]:
     raise RewApiError('Unexpected REW measurements response shape')
 
 
+def map_http_error(exc: HTTPError, path: str) -> RewApiError:
+    """Translate an HTTP status the REW API answered into the client taxonomy.
+
+    A 404 names a missing upstream entity, not a transport failure; other
+    4xx statuses mean the endpoint is alive but rejected the request. Only
+    5xx and real transport errors are unavailability.
+    """
+    if exc.code == 404:
+        return RewApiNotFound(f'REW API has no resource at {path}')
+    if exc.code < 500:
+        return RewApiError(f'REW API rejected the request (HTTP {exc.code})')
+    return RewApiUnavailable(f'REW API failed with HTTP {exc.code}')
+
+
 class RewApiClient:
     def __init__(
         self,
         base_url: str = DEFAULT_REW_API_URL,
         *,
         timeout_s: float = 1.5,
+        transfer_timeout_s: float = DEFAULT_REW_API_TRANSFER_TIMEOUT_S,
         opener: Callable[..., Any] = urlopen,
         max_response_bytes: int = MAX_REW_API_RESPONSE_BYTES,
     ) -> None:
         self.base_url = validate_rew_api_url(base_url)
         if max_response_bytes < 0:
             raise ValueError('max_response_bytes must be non-negative')
+        if timeout_s <= 0:
+            raise ValueError('timeout_s must be positive')
+        if transfer_timeout_s <= 0:
+            raise ValueError('transfer_timeout_s must be positive')
         self.timeout_s = timeout_s
+        self.transfer_timeout_s = transfer_timeout_s
         self._opener = opener
         self.max_response_bytes = max_response_bytes
 
@@ -314,10 +340,13 @@ class RewApiClient:
                     response,
                     self.max_response_bytes,
                     label='REW API response',
+                    deadline_s=self.transfer_timeout_s,
                 )
         except IngressTooLargeError as exc:
             raise RewApiResponseTooLarge(str(exc)) from exc
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        except HTTPError as exc:
+            raise map_http_error(exc, path) from exc
+        except (URLError, TimeoutError, OSError) as exc:
             raise RewApiUnavailable(str(exc)) from exc
         try:
             return json.loads(raw.decode('utf-8'))

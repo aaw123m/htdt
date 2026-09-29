@@ -178,11 +178,20 @@ def _valid_local_url(value: object) -> str | None:
     return f'http://{parsed.hostname}:{port}/'
 
 
+# An /api/health answer is a tiny JSON object; anything much bigger cannot be
+# a healthy HTDT backend, and bounding the read keeps the launcher probe from
+# buffering an unbounded body from a mismatched or misbehaving endpoint.
+_PROBE_MAX_RESPONSE_BYTES = 64 * 1024
+
+
 def probe_htdt(url: str, timeout_s: float = 0.35) -> bool:
     request = Request(f'{url}api/health', headers={'Accept': 'application/json'}, method='GET')
     try:
         with urlopen(request, timeout=timeout_s) as response:
-            payload = json.loads(response.read().decode('utf-8'))
+            raw = response.read(_PROBE_MAX_RESPONSE_BYTES + 1)
+            if len(raw) > _PROBE_MAX_RESPONSE_BYTES:
+                return False
+            payload = json.loads(raw.decode('utf-8'))
     except (HTTPError, URLError, TimeoutError, OSError, UnicodeDecodeError, json.JSONDecodeError):
         return False
     return (

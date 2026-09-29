@@ -1397,13 +1397,34 @@ def _make_handler(service: CaptureReceiverService):
         def log_message(self, format: str, *args) -> None:  # noqa: A002
             return
 
+        def _respond(self, status: int, content_type: str, payload: bytes) -> None:
+            try:
+                self.send_response(status)
+                self.send_header('Content-Type', content_type)
+                self.send_header('Content-Length', str(len(payload)))
+                if self.close_connection:
+                    self.send_header('Connection', 'close')
+                self.end_headers()
+                self.wfile.write(payload)
+            except OSError:
+                # The peer went away mid-response; there is nobody left to
+                # report the failure to, so just drop the connection.
+                self.close_connection = True
+
         def _json(self, status: int, body: dict) -> None:
-            payload = json.dumps(body).encode('utf-8')
-            self.send_response(status)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Content-Length', str(len(payload)))
-            self.end_headers()
-            self.wfile.write(payload)
+            self._respond(status, 'application/json', json.dumps(body).encode('utf-8'))
+
+        def _declares_body(self) -> bool:
+            """True when the request announces a body this handler does not read."""
+            if self.headers.get('Transfer-Encoding'):
+                return True
+            raw = self.headers.get('Content-Length')
+            if raw is None:
+                return False
+            try:
+                return int(raw) > 0
+            except ValueError:
+                return True
 
         def _route(self) -> tuple[str, str, str] | None:
             """→ (token, resource, suffix) for paired routes, else None."""
@@ -1416,6 +1437,11 @@ def _make_handler(service: CaptureReceiverService):
             return token, resource_name, suffix
 
         def do_GET(self) -> None:  # noqa: N802
+            if self._declares_body():
+                # No GET route consumes a body: answer, then close so the
+                # leftover bytes cannot be parsed as the next request on
+                # this kept-alive connection.
+                self.close_connection = True
             route = self._route()
             if route is None:
                 self._json(404, {'detail': 'unknown endpoint'})
@@ -1437,13 +1463,7 @@ def _make_handler(service: CaptureReceiverService):
                         token, suffix, capture_instance_id
                     )
                     if isinstance(body, (bytes, bytearray)):
-                        self.send_response(status)
-                        self.send_header(
-                            'Content-Type', 'application/octet-stream'
-                        )
-                        self.send_header('Content-Length', str(len(body)))
-                        self.end_headers()
-                        self.wfile.write(body)
+                        self._respond(status, 'application/octet-stream', bytes(body))
                     else:
                         self._json(status, body)
                 else:
@@ -1461,6 +1481,8 @@ def _make_handler(service: CaptureReceiverService):
         def do_POST(self) -> None:  # noqa: N802
             route = self._route()
             if route is None:
+                if self._declares_body():
+                    self.close_connection = True
                 self._json(404, {'detail': 'unknown endpoint'})
                 return
             token, resource, suffix = route
@@ -1470,19 +1492,37 @@ def _make_handler(service: CaptureReceiverService):
                 if is_receipt
                 else service.max_archive_bytes
             )
+            if self.headers.get('Transfer-Encoding'):
+                # Framed bodies are not decoded here: answering without
+                # reading them would desync the next request on this
+                # kept-alive connection, so answer once and close.
+                self.close_connection = True
+                self._json(400, {
+                    'detail': 'Transfer-Encoding is not supported; send Content-Length'
+                })
+                return
             raw_length = self.headers.get('Content-Length')
             try:
                 length = int(raw_length) if raw_length is not None else 0
             except ValueError:
+                self.close_connection = True
                 self._json(400, {'detail': 'invalid Content-Length'})
                 return
             if length < 0:
+                self.close_connection = True
                 self._json(400, {'detail': 'invalid Content-Length'})
                 return
             if length > ceiling:
+                self.close_connection = True
                 self._json(413, {'detail': 'request exceeds byte ceiling'})
                 return
             body = self.rfile.read(length) if length else b''
+            if len(body) != length:
+                # The peer went away mid-transfer: never feed a truncated
+                # payload to the delivery or receipt handlers.
+                self.close_connection = True
+                self._json(400, {'detail': 'incomplete request body'})
+                return
             headers = {key: value for key, value in self.headers.items()}
             if resource == 'deliveries' and not suffix:
                 status, response = service.handle_delivery(
