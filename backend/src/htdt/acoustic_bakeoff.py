@@ -691,16 +691,23 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
-    benchmark = load_acoustic_benchmark_manifest(args.manifest)
-    candidates = load_bakeoff_candidate_manifest(args.candidates)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    try:
+        benchmark = load_acoustic_benchmark_manifest(args.manifest)
+        candidates = load_bakeoff_candidate_manifest(args.candidates)
+    except (OSError, ValueError) as exc:
+        parser.error(f'{exc.__class__.__name__}: {exc}')
 
     if args.command == 'preflight':
-        adoption_profile = (
-            load_bakeoff_adoption_profile(args.adoption_profile)
-            if args.adoption_profile is not None
-            else None
-        )
+        try:
+            adoption_profile = (
+                load_bakeoff_adoption_profile(args.adoption_profile)
+                if args.adoption_profile is not None
+                else None
+            )
+        except (OSError, ValueError) as exc:
+            parser.error(f'{exc.__class__.__name__}: {exc}')
         print(
             json.dumps(
                 preflight_summary(benchmark, candidates, adoption_profile),
@@ -710,8 +717,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    run = load_bakeoff_run(args.run)
-    validate_bakeoff_run(benchmark, candidates, run)
+    try:
+        run = load_bakeoff_run(args.run)
+    except (OSError, ValueError) as exc:
+        parser.error(f'{exc.__class__.__name__}: {exc}')
+    try:
+        validate_bakeoff_run(benchmark, candidates, run)
+    except ValueError as exc:
+        parser.exit(1, f'{parser.prog}: error: run validation failed: {exc}\n')
     print(
         json.dumps(
             {

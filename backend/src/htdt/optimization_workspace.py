@@ -184,6 +184,10 @@ class OptimizationWorkspaceWindow(
         self.search_preview_button: QPushButton | None = None
         self.search_clear_preview_button: QPushButton | None = None
         self.search_apply_button: QPushButton | None = None
+        # Created only by OptimizationWorkflowWorkspace's search dock; the
+        # shared SearchControllerMixin refresh guards on them being None here.
+        self.search_reauthor_button: QPushButton | None = None
+        self.search_generate_reason_label: QLabel | None = None
         self.measurement_plan_button: QPushButton | None = None
         self.measurement_plan_label: QLabel | None = None
         self.measurement_plan_tree: QTreeWidget | None = None

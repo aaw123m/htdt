@@ -9,6 +9,16 @@
 # See docs/RELEASING.md.
 __version__ = "0.2.0.dev0"
 
+# PySide6's signature import hook unwraps each module it audits; pydantic's
+# lazy ``__getattr__`` migration then re-enters ``_internal._validators`` while
+# it is still initializing, so any htdt module whose import chain reaches
+# pydantic *after* QtCore is loaded dies with a circular-import ImportError.
+# Finalizing the lazy chain here — ``pydantic.errors`` first, which loads the
+# chain safely even when the hook is already installed — makes direct
+# ``import htdt.<gui module>`` order-independent.
+import pydantic.errors  # noqa: F401
+from pydantic import Field as _Field  # noqa: F401
+
 from .migration_guard import install_migration_guard
 
 install_migration_guard()

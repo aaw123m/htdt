@@ -1141,6 +1141,13 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Consoles in a non-UTF-8 code page (e.g. cp1252) would otherwise crash the
+    # Japanese help/maintenance output — after the requested work already
+    # completed — so stdout gets the same tolerant policy write_stderr uses.
+    try:
+        sys.stdout.reconfigure(errors='backslashreplace')
+    except (AttributeError, OSError, ValueError):
+        pass
     parser = argparse.ArgumentParser(description="HTDT ネイティブCADエディター")
     # #621: --data-dir > bootstrap config > platform default. A bootstrap
     # root that is unavailable fails closed rather than silently reopening
