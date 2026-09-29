@@ -35,7 +35,7 @@ import sqlite3
 import tempfile
 import uuid
 import zipfile
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -302,8 +302,11 @@ def _check_database(data_dir: Path) -> list[HealthCheckResult]:
             ),
         ]
     try:
-        with sqlite3.connect(
-            f'file:{path.as_posix()}?mode=ro', uri=True
+        # ``with sqlite3.connect`` alone commits/rolls back but never
+        # closes — wrap in closing() so the health probe cannot pin an
+        # open descriptor on the project database on the error path too.
+        with closing(
+            sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True)
         ) as conn:
             rows = [
                 str(row[0])

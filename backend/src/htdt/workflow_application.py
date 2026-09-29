@@ -515,6 +515,14 @@ class WorkflowApplicationComposition:
         )
         self._open_project_callback = open_project
         self._spawned_compositions: list[WorkflowApplicationComposition] = []
+        # Weak back-reference to the composition that spawned this one during
+        # a close+respawn project switch. The chain is flattened on every
+        # respawn (see ``_open_document``) so dead intermediate graphs become
+        # collectable instead of accumulating one per switch; the weakref
+        # keeps the new live composition from pinning its dead parent.
+        self._switch_parent: weakref.ReferenceType[
+            WorkflowApplicationComposition
+        ] | None = None
 
         self.registry = CommandRegistry()
         register_default_commands(self.registry)
@@ -1114,7 +1122,20 @@ class WorkflowApplicationComposition:
             preferences=self.preferences,
             safe_mode=self.safe_mode,
         )
-        self._spawned_compositions.append(composition)
+        composition._switch_parent = weakref.ref(self)
+        # Each dead hop keeps exactly one successor link, repointed straight
+        # at the newest leaf: intermediate compositions lose their only
+        # strong upward reference and are freed with their shells instead
+        # of chaining dead graphs (activity center, registries, panels)
+        # for the rest of the process lifetime.
+        self._spawned_compositions = [composition]
+        ancestor_ref = self._switch_parent
+        while ancestor_ref is not None:
+            ancestor = ancestor_ref()
+            if ancestor is None:
+                break
+            ancestor._spawned_compositions = [composition]
+            ancestor_ref = ancestor._switch_parent
         # The close hooks shut this composition's backup runner down; the
         # respawned composition needs its own due check or automatic
         # backups silently stop for the rest of the process lifetime.
@@ -1958,6 +1979,13 @@ class WorkflowApplicationComposition:
             QTimer.singleShot(0, page, page.refresh)
 
         self.activity_center.subscribe(_queue_refresh)
+        # The activity center is composition-scoped and outlives this mount
+        # (dispose_mounts on in-place project swaps): drop the listener when
+        # the page is destroyed or every remount adds a dead refresh closure
+        # that keeps firing stale singleShots and pinning the dead page.
+        page.destroyed.connect(
+            lambda: self.activity_center.unsubscribe(_queue_refresh)
+        )
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,

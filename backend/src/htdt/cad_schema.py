@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import closing
 from dataclasses import dataclass
 import logging
@@ -482,7 +483,22 @@ def connect_sqlite(path: Path) -> sqlite3.Connection:
 # store never enables WAL, so every committed write mutates the main file and
 # therefore bumps mtime_ns/ctime_ns (and usually size); a matching signature
 # proves the stored version is still the one the earlier full check produced.
-_ENSURED_SCHEMA_SIGNATURES: dict[str, tuple[int, int, int, int, int]] = {}
+_ENSURED_SCHEMA_SIGNATURES: OrderedDict[
+    str, tuple[int, int, int, int, int]
+] = OrderedDict()
+
+#: Signature memos are keyed by database path — a long session opening many
+#: distinct project databases must not accumulate one entry per path ever
+#: seen. Entries are invalidated by file signature anyway, so LRU eviction
+#: only ever re-runs a cheap read-only check.
+_SCHEMA_SIGNATURE_CACHE_LIMIT = 512
+
+
+def _memoize_schema_signature(cache: OrderedDict, key: str, value) -> None:
+    cache[key] = value
+    cache.move_to_end(key)
+    while len(cache) > _SCHEMA_SIGNATURE_CACHE_LIMIT:
+        cache.popitem(last=False)
 
 
 def _db_file_signature(path: Path) -> tuple[int, int, int, int, int] | None:
@@ -579,9 +595,9 @@ def native_schema_compatibility(version: int) -> NativeSchemaCompatibility:
 # write mutates mtime/size, so a stale entry can never outlive a write.
 # Each repository method pays this read-only gate; at listing volume the
 # per-call ro-connection mattered more than the version query itself.
-_COMPATIBLE_SCHEMA_SIGNATURES: dict[
+_COMPATIBLE_SCHEMA_SIGNATURES: OrderedDict[
     str, tuple[tuple[int, int, int, int, int], int]
-] = {}
+] = OrderedDict()
 
 
 def check_native_schema_compatibility(path: Path) -> int:
@@ -598,6 +614,7 @@ def check_native_schema_compatibility(path: Path) -> int:
     if signature is not None:
         cached = _COMPATIBLE_SCHEMA_SIGNATURES.get(str(path))
         if cached is not None and cached[0] == signature:
+            _COMPATIBLE_SCHEMA_SIGNATURES.move_to_end(str(path))
             return cached[1]
     if not path.is_file() or path.stat().st_size == 0:
         return 0
@@ -614,9 +631,10 @@ def check_native_schema_compatibility(path: Path) -> int:
             if version == 0:
                 _validate_legacy_tables(connection)
             if signature is not None:
-                _COMPATIBLE_SCHEMA_SIGNATURES[str(path)] = (
-                    signature,
-                    version,
+                _memoize_schema_signature(
+                    _COMPATIBLE_SCHEMA_SIGNATURES,
+                    str(path),
+                    (signature, version),
                 )
             return version
     except sqlite3.DatabaseError as exc:
@@ -1150,6 +1168,7 @@ def ensure_native_schema(path: Path) -> int:
         signature is not None
         and _ENSURED_SCHEMA_SIGNATURES.get(str(path)) == signature
     ):
+        _ENSURED_SCHEMA_SIGNATURES.move_to_end(str(path))
         # This exact file generation already completed the migration
         # authority in this process; any write since would have changed the
         # signature. ``ensure_native_schema`` only ever returns
@@ -1188,7 +1207,9 @@ def ensure_native_schema(path: Path) -> int:
                     )
         signature = _db_file_signature(path)
         if signature is not None:
-            _ENSURED_SCHEMA_SIGNATURES[str(path)] = signature
+            _memoize_schema_signature(
+                _ENSURED_SCHEMA_SIGNATURES, str(path), signature
+            )
         return version
     except sqlite3.DatabaseError as exc:
         raise NativeSchemaError(f'native database schema migration failed: {exc}') from exc

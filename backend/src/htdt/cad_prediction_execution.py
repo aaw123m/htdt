@@ -23,6 +23,7 @@ validated runtime evidence for ETA, so the contract cannot express one.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import threading
 import time
@@ -50,6 +51,11 @@ from .canonical_json import canonical_json as _canonical, canonical_sha256 as _d
 
 PREDICTION_EXECUTION_SCHEMA_VERSION = 1
 PREDICTION_EXECUTION_AUTHORITY_VERSION = 'prediction-execution-ux-1'
+
+# Per-task live bookkeeping stays bounded across a long campaign: only the
+# most recent task ids keep progress/cancellation entries; completed tasks
+# are replayable from the runtime repository instead.
+EXECUTION_PROGRESS_CACHE_LIMIT = 512
 
 ExecutionAdmissionState = Literal['ADMITTED', 'DEFER', 'REJECT']
 ExecutionCacheState = Literal['EXACT_CACHE_HIT', 'NO_EXACT_RESULT']
@@ -376,11 +382,21 @@ class PredictionExecutionController:
     def __init__(self, executor: BoundedR140Executor) -> None:
         self.executor = executor
         self._lock = threading.Lock()
-        self._progress: dict[str, tuple[float | None, str | None]] = {}
-        self._submitted: dict[str, float] = {}
-        self._cancelling: set[str] = set()
+        self._progress: OrderedDict[str, tuple[float | None, str | None]] = (
+            OrderedDict()
+        )
+        self._submitted: OrderedDict[str, float] = OrderedDict()
+        self._cancelling: OrderedDict[str, None] = OrderedDict()
         if executor.progress_sink is None:
             executor.progress_sink = self._on_progress
+
+    @staticmethod
+    def _cap(registry: OrderedDict[str, Any]) -> None:
+        # Per-task bookkeeping must stay bounded across a long campaign:
+        # keep only the most recent task ids; older entries are already
+        # terminal and their progress view degrades to the attempt record.
+        while len(registry) > EXECUTION_PROGRESS_CACHE_LIMIT:
+            registry.popitem(last=False)
 
     def _on_progress(
         self,
@@ -390,18 +406,26 @@ class PredictionExecutionController:
     ) -> None:
         with self._lock:
             self._progress[task_id] = (fraction, message)
+            self._progress.move_to_end(task_id)
+            self._cap(self._progress)
 
     def mark_submitted(self, task_id: str) -> None:
         with self._lock:
             self._submitted[task_id] = time.monotonic()
+            self._submitted.move_to_end(task_id)
+            self._cap(self._submitted)
             self._progress.setdefault(task_id, (None, None))
+            self._progress.move_to_end(task_id)
+            self._cap(self._progress)
 
     def request_cancellation(self, task_id: str) -> bool:
         """Request cooperative cancellation; returns True when registered."""
         accepted = self.executor.cancel(task_id)
         if accepted:
             with self._lock:
-                self._cancelling.add(task_id)
+                self._cancelling[task_id] = None
+                self._cancelling.move_to_end(task_id)
+                self._cap(self._cancelling)
         return accepted
 
     def progress_view(
@@ -448,7 +472,7 @@ class PredictionExecutionController:
         summary = self.executor.run_schedule(schedule)
         with self._lock:
             for attempt in summary.attempts:
-                self._cancelling.discard(attempt.task_id)
+                self._cancelling.pop(attempt.task_id, None)
         return summary
 
     def attempt_history(
