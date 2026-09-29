@@ -874,16 +874,24 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             safe_mode_policy, post_launch_action = _choose_recovery_action(
                 launch_decision, diagnostics
             )
-        launch_record = record_launch(
-            args.data_dir,
-            build_id=version_string(),
-            launch_mode=(
-                'safe_mode'
-                if safe_mode_policy is not None
-                else launch_decision.mode
-            ),
-            started_at_utc=datetime.now(timezone.utc).isoformat(),
-        )
+        try:
+            launch_record = record_launch(
+                args.data_dir,
+                build_id=version_string(),
+                launch_mode=(
+                    'safe_mode'
+                    if safe_mode_policy is not None
+                    else launch_decision.mode
+                ),
+                started_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception:
+            # Launch bookkeeping is diagnostic evidence, never a gate: an
+            # unwritable recovery-metadata file must not fail the launch
+            # itself (the launch would then be reported as a crash it
+            # never was).
+            diagnostics.logger.exception('launch record write failed')
+            launch_record = None
         # Round8-lifecycle deferred item: an honest splash for the
         # pre-window phase — shown only after the recovery decision is
         # resolved (dialogs are user input, not loading), and hidden while
@@ -1187,10 +1195,19 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if capture_receiver is not None:
             capture_receiver.shutdown()
         # #739: the session reached a clean close — the launch record is
-        # completed so it no longer counts as failed-startup evidence.
-        complete_launch(
-            args.data_dir, launch_record.launch_id, clean=True
-        )
+        # completed so it no longer counts as failed-startup evidence. A
+        # bookkeeping failure here must not fall through to the generic
+        # startup-failure handler: the session WAS clean, and recording it
+        # as crashed would offer a false recovery next launch.
+        if launch_record is not None:
+            try:
+                complete_launch(
+                    args.data_dir, launch_record.launch_id, clean=True
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'clean-close launch record write failed'
+                )
         # #755: shutdown performs no archive work — the event loop and
         # window are already gone and a hidden post-UI backup is invisible
         # and uninterruptible. Record the clean close cheaply; the next
@@ -1207,12 +1224,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     except IncompatibleNewerSchemaError as exc:
         _close_splash(splash)
         if launch_record is not None:
-            complete_launch(
-                args.data_dir,
-                launch_record.launch_id,
-                clean=False,
-                failure_class='schema_incompatibility',
-            )
+            try:
+                complete_launch(
+                    args.data_dir,
+                    launch_record.launch_id,
+                    clean=False,
+                    failure_class='schema_incompatibility',
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'failed-launch record write failed'
+                )
         diagnostics.log_startup_failure(exc)
         newer_reason, newer_recovery = _self.newer_schema_dialog_copy_ja(exc)
         report_launch_failure(
@@ -1226,12 +1248,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     except NativeUpgradeError as exc:
         _close_splash(splash)
         if launch_record is not None:
-            complete_launch(
-                args.data_dir,
-                launch_record.launch_id,
-                clean=False,
-                failure_class='migration_failure',
-            )
+            try:
+                complete_launch(
+                    args.data_dir,
+                    launch_record.launch_id,
+                    clean=False,
+                    failure_class='migration_failure',
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'failed-launch record write failed'
+                )
         diagnostics.log_startup_failure(exc)
         report_launch_failure(
             title="HTDTがデータを更新できませんでした",

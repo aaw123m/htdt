@@ -11,6 +11,7 @@ import pytest
 
 from htdt.runtime_instance import (
     LOCK_FILENAME,
+    RUNTIME_FILENAME,
     RuntimeInfo,
     SingleInstanceGuard,
     write_runtime_info,
@@ -30,6 +31,19 @@ from htdt.support_diagnostics import (
     previous_session_unexpected_end,
     run_health_checks,
 )
+
+
+def _native_db(path: Path, schema_version: int) -> None:
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            'CREATE TABLE native_schema_metadata '
+            '(singleton INTEGER PRIMARY KEY, schema_version INTEGER)'
+        )
+        conn.execute(
+            'INSERT INTO native_schema_metadata '
+            '(singleton, schema_version) VALUES (1, ?)',
+            (schema_version,),
+        )
 
 
 def test_failure_correlation_id() -> None:
@@ -309,3 +323,180 @@ def test_lock_check_stale_metadata_is_not_held(tmp_path) -> None:
     )
     assert check.status == HealthStatus.PASS
     assert 'stale' in (check.detail or '')
+
+
+# -- round14: schema compatibility is part of storage truth ---------------------
+
+
+def _schema_check(report):
+    return next(
+        r for r in report.results if r.check_id == 'storage.schema_compatibility'
+    )
+
+
+def test_schema_check_current_store_passes(tmp_path) -> None:
+    from htdt.cad_schema import NATIVE_SCHEMA_VERSION
+
+    _native_db(tmp_path / DATABASE_NAME, NATIVE_SCHEMA_VERSION)
+    report = run_health_checks(tmp_path)
+    check = _schema_check(report)
+    assert check.status == HealthStatus.PASS
+    assert report.overall != HealthStatus.FAIL
+
+
+def test_schema_check_newer_store_fails(tmp_path) -> None:
+    """A store a newer build wrote must never read as healthy (#749 truth)."""
+
+    _native_db(tmp_path / DATABASE_NAME, 999)
+    report = run_health_checks(tmp_path)
+    check = _schema_check(report)
+    assert check.status == HealthStatus.FAIL
+    assert 'v999' in (check.detail or '')
+    assert report.overall == HealthStatus.FAIL
+
+
+def test_schema_check_migration_required_is_attention(tmp_path) -> None:
+    """An older store is supported but not silent — migration is pending."""
+
+    _native_db(tmp_path / DATABASE_NAME, 3)
+    report = run_health_checks(tmp_path)
+    check = _schema_check(report)
+    assert check.status == HealthStatus.ATTENTION
+    assert 'v3' in check.summary
+    assert report.overall == HealthStatus.ATTENTION
+
+
+def test_schema_check_alien_sqlite_fails(tmp_path) -> None:
+    """A valid sqlite that is not an HTDT store is a real fault, not 'ok'."""
+
+    with sqlite3.connect(tmp_path / DATABASE_NAME) as conn:
+        conn.execute('CREATE TABLE unrelated (id INTEGER)')
+    report = run_health_checks(tmp_path)
+    assert _schema_check(report).status == HealthStatus.FAIL
+    assert report.overall == HealthStatus.FAIL
+
+
+def test_schema_check_missing_store_is_not_applicable(tmp_path) -> None:
+    report = run_health_checks(tmp_path)
+    assert _schema_check(report).status == HealthStatus.NOT_APPLICABLE
+
+
+# -- round14: corrupt runtime marker must not crash the diagnostic --------------
+
+
+@pytest.mark.parametrize('raw', ['[1, 2, 3]', '5', '"marker"', 'true'])
+def test_runtime_info_non_dict_json_is_no_marker(tmp_path, raw) -> None:
+    (tmp_path / RUNTIME_FILENAME).write_text(raw, encoding='utf-8')
+    evidence = previous_session_unexpected_end(tmp_path)
+    assert evidence.unexpected_end is False
+    assert 'no runtime marker' in evidence.detail
+
+
+# -- round14: disk check answers from the real volume ---------------------------
+
+
+def test_disk_space_measures_existing_ancestor(tmp_path) -> None:
+    missing = tmp_path / 'deep' / 'not-created'
+    report = run_health_checks(missing)
+    check = next(
+        r for r in report.results if r.check_id == 'storage.disk_space'
+    )
+    assert check.status in (HealthStatus.PASS, HealthStatus.FAIL)
+    assert 'unavailable' not in check.summary
+
+
+# -- round14: bundle carries the bounded launch history -------------------------
+
+
+def test_package_includes_launch_metadata(tmp_path) -> None:
+    from htdt.startup_recovery import complete_launch, record_launch
+
+    data_dir = tmp_path / 'data'
+    record = record_launch(
+        data_dir,
+        build_id='b1',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:00:00Z',
+        project_ref='secret-project-name',
+    )
+    complete_launch(
+        data_dir, record.launch_id, clean=False,
+        failure_class='renderer_initialization',
+    )
+
+    builder = DiagnosticPackageBuilder(data_dir)
+    plan = builder.plan()
+    assert PackageCategory.LAUNCH_METADATA in plan.categories
+
+    result = builder.build(tmp_path / 'pkg.zip', plan)
+    with zipfile.ZipFile(result.path) as archive:
+        assert 'launch_metadata.json' in archive.namelist()
+        payload = json.loads(archive.read('launch_metadata.json'))
+        entry = payload['records'][0]
+        assert entry['failure_class'] == 'renderer_initialization'
+        assert entry['clean_exit'] is False
+        # Project identity stays behind the opt-in, like project_ids.
+        assert entry['last_project_ref'] == '<set>'
+
+
+def test_package_launch_metadata_respects_project_optin(tmp_path) -> None:
+    from htdt.startup_recovery import complete_launch, record_launch
+
+    data_dir = tmp_path / 'data'
+    record = record_launch(
+        data_dir,
+        build_id='b1',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:00:00Z',
+        project_ref='named-project',
+    )
+    complete_launch(data_dir, record.launch_id, clean=True)
+
+    builder = DiagnosticPackageBuilder(
+        data_dir, project_ids={'named-project': 'doc-1'}
+    )
+    plan = builder.plan(include_project_ids=True)
+    result = builder.build(tmp_path / 'pkg.zip', plan)
+    with zipfile.ZipFile(result.path) as archive:
+        payload = json.loads(archive.read('launch_metadata.json'))
+        assert payload['records'][0]['last_project_ref'] == 'named-project'
+
+
+def test_package_launch_metadata_corrupt_file_is_skipped_not_empty(
+    tmp_path,
+) -> None:
+    """A torn metadata file is marked skipped — never an empty history."""
+
+    data_dir = tmp_path / 'data'
+    diag = data_dir / 'diagnostics'
+    diag.mkdir(parents=True)
+    (diag / 'recovery-launch-metadata.json').write_bytes(b'{"records": [')
+
+    builder = DiagnosticPackageBuilder(data_dir)
+    plan = builder.plan()
+    result = builder.build(tmp_path / 'pkg.zip', plan)
+    with zipfile.ZipFile(result.path) as archive:
+        assert 'launch_metadata.json' not in archive.namelist()
+        manifest = json.loads(archive.read('manifest.json'))
+        member = manifest['members']['launch_metadata.json']
+        assert member['status'] == 'skipped'
+
+
+# -- round14: schema summary reports the native store's own authority -----------
+
+
+def test_schema_summary_reports_native_store(tmp_path) -> None:
+    from htdt.cad_schema import NATIVE_SCHEMA_VERSION
+
+    data_dir = tmp_path / 'data'
+    data_dir.mkdir()
+    _native_db(data_dir / DATABASE_NAME, NATIVE_SCHEMA_VERSION)
+
+    builder = DiagnosticPackageBuilder(data_dir)
+    result = builder.build(tmp_path / 'pkg.zip', builder.plan())
+    with zipfile.ZipFile(result.path) as archive:
+        summary = json.loads(archive.read('schema_summary.json'))
+    assert summary['schema_version'] == NATIVE_SCHEMA_VERSION
+    assert summary['supported_native_schema_version'] == NATIVE_SCHEMA_VERSION
+    assert summary['stored_native_schema_version'] == NATIVE_SCHEMA_VERSION
+    assert summary['native_schema_compatibility'] == 'current'

@@ -274,6 +274,39 @@ def test_annotate_launch_records_project_ref(tmp_path: Path) -> None:
     assert annotated.last_project_ref == 'project-9'
 
 
+def test_last_failure_class_is_scoped_to_build(tmp_path: Path) -> None:
+    """A different build's failure class never steers this launch."""
+
+    record = record_launch(
+        tmp_path,
+        build_id='build-A',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:00:00+00:00',
+    )
+    complete_launch(
+        tmp_path,
+        record.launch_id,
+        clean=False,
+        failure_class='project_data',
+    )
+    # A newer build crashes without a classified failure.
+    record_launch(
+        tmp_path,
+        build_id='build-B',
+        launch_mode='normal',
+        started_at_utc='2026-01-01T00:01:00+00:00',
+    )
+    metadata = load_recovery_metadata(tmp_path)
+    assert metadata.last_failure_class('build-B') is None
+    decision = decide_launch(
+        unclean_previous_session=True,
+        metadata=metadata,
+        build_id='build-B',
+    )
+    # Restore guidance requires evidence from THIS build's own streak.
+    assert not decision.restore_recommended
+
+
 def test_annotate_launch_unknown_launch_id_is_a_noop(tmp_path: Path) -> None:
     from htdt.startup_recovery import annotate_launch
 
