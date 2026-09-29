@@ -108,7 +108,13 @@ def load_camilladsp_config(
             f'CamillaDSP config is {len(source_bytes)} bytes '
             f'(limit {max_bytes})',
         )
-    text = source_bytes.decode('utf-8-sig', errors='replace')
+    try:
+        text = source_bytes.decode('utf-8-sig')
+    except UnicodeDecodeError as error:
+        raise CamillaDSPError(
+            'unsupported_encoding',
+            'config must be UTF-8 text',
+        ) from error
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:

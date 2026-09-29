@@ -3348,6 +3348,7 @@ class WorkflowApplicationComposition:
                         f'{stem}_settings.json': result.json_text,
                         f'{stem}_settings.csv': result.csv_text,
                     },
+                    bom_suffixes=('.csv',),
                 ).values()
             )
         except Exception as exc:
@@ -3494,6 +3495,7 @@ class WorkflowApplicationComposition:
                         f'{stem}_export.json': render_analysis_json(export),
                         f'{stem}_report.html': render_analysis_html(export),
                     },
+                    bom_suffixes=('.csv',),
                 ).values()
             )
         except Exception as exc:

@@ -592,14 +592,27 @@ def _parse_config_text(
                 diagnostics.append(f'unresolved include: {include_path}')
                 continue
             resolved_name, resolved_bytes = resolved
+            resolved_sha = sha256(resolved_bytes).hexdigest()
+            try:
+                sub_text = resolved_bytes.decode('utf-8-sig')
+            except UnicodeDecodeError:
+                include_deps.append(
+                    IncludeDependency(
+                        include_path=include_path,
+                        resolved=False,
+                        source_sha256=resolved_sha,
+                        diagnostics=('include target is not UTF-8 text',),
+                    )
+                )
+                diagnostics.append(f'undecodable include: {include_path}')
+                continue
             include_deps.append(
                 IncludeDependency(
                     include_path=include_path,
                     resolved=True,
-                    source_sha256=sha256(resolved_bytes).hexdigest(),
+                    source_sha256=resolved_sha,
                 )
             )
-            sub_text = resolved_bytes.decode('utf-8-sig', errors='replace')
             (
                 sub_channels,
                 sub_order,
@@ -666,7 +679,10 @@ def build_equalizer_apo_artifact(
     visible as diagnostics and dependency rows.
     """
     source_sha = sha256(source_bytes).hexdigest()
-    text = source_bytes.decode('utf-8-sig', errors='replace')
+    try:
+        text = source_bytes.decode('utf-8-sig')
+    except UnicodeDecodeError as error:
+        raise ValueError('source is not UTF-8 text') from error
     diagnostics: list[str] = list(diagnostics_extra)
     opaque: list[OpaqueArtifactSection] = []
     include_deps: list[IncludeDependency] = []

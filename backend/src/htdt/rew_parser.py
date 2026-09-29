@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import hashlib
 import math
 import re
+import unicodedata
 
 from .ingress import IngressTooLargeError
 from .limits import MAX_REW_TEXT_BYTES
@@ -11,6 +12,12 @@ from .limits import MAX_REW_TEXT_BYTES
 
 PARSER_VERSION = 'rew-text-1'
 _SPLIT = re.compile(r'[\t ]+')
+# Python's float() also accepts Unicode digits ('２０'), underscores and
+# 'inf'/'nan' — none of which a REW export emits. Data-row tokens must
+# match the ASCII decimal dialect instead of whatever float() can coerce.
+_REW_NUMBER = re.compile(
+    r'[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?'
+)
 
 
 class RewParseError(ValueError):
@@ -59,6 +66,7 @@ def parse_rew_frequency_response(raw: bytes, *, max_bytes: int = MAX_REW_TEXT_BY
     levels: list[float] = []
     phases: list[float] = []
     header_lines: list[str] = []
+    warnings: list[str] = []
     row_width: int | None = None
 
     for line_number, original in enumerate(text.splitlines(), start=1):
@@ -74,8 +82,19 @@ def parse_rew_frequency_response(raw: bytes, *, max_bytes: int = MAX_REW_TEXT_BY
             pass
 
         if not starts_numeric:
+            if (
+                not tokens[0][0].isascii()
+                and unicodedata.category(tokens[0][0]) == 'Nd'
+            ):
+                # A line leading with a non-ASCII digit (e.g. '４０．５')
+                # was likely meant as a data row — say so instead of
+                # dropping it silently into the header comment block.
+                warnings.append(f'non_ascii_numeric_line:{line_number}')
             header_lines.append(original)
             continue
+
+        if not all(_REW_NUMBER.fullmatch(token) for token in tokens):
+            raise RewParseError(f'Line {line_number}: non-REW numeric characters')
 
         if len(tokens) not in (2, 3):
             raise RewParseError(f'Line {line_number}: expected 2 or 3 numeric columns')
@@ -107,7 +126,6 @@ def parse_rew_frequency_response(raw: bytes, *, max_bytes: int = MAX_REW_TEXT_BY
     if len(frequencies) < 2:
         raise RewParseError('At least two frequency-response rows are required')
 
-    warnings: list[str] = []
     phase: tuple[float, ...] | None = tuple(phases) if row_width == 3 else None
     phase_status = 'unknown' if phase is not None else 'absent'
     if phase is not None and all(value == 0 for value in phase):
