@@ -1850,8 +1850,14 @@ class WorkflowApplicationComposition:
     def _make_inbox(self) -> WorkspaceMount:
         repository = CaptureInboxRepository(self.repository)
         _self = sys.modules[__name__]
+
+        def list_items(**kwargs):
+            # surface ingestions a crash left committed but unstaged
+            repository.reconcile_orphaned_ingestions()
+            return repository.list_items(**kwargs)
+
         page = _self.CaptureInboxPage(
-            repository.list_items,
+            list_items,
             on_navigate=self._navigate_target,
             inspect_item=repository.inspect,
             defer_item=repository.defer,

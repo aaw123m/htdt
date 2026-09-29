@@ -809,6 +809,10 @@ class CaptureReceiverService:
         if artifact_digest and artifact_digest != plan.bundle.bundle_digest:
             return reject('artifact digest header disagrees with the bundle')
 
+        # heal earlier crashes first: an ingest committed before its
+        # stage leaves an invisible orphan until a delivery arrives
+        self.inbox_repository.reconcile_orphaned_ingestions()
+
         try:
             self.ingestion_repository.ingest(
                 plan, payloads, manifest=manifest
