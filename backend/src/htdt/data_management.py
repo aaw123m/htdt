@@ -228,7 +228,6 @@ class DataOperationProgress:
     phase: DataOperationPhase
     message_ja: str
     fraction: float | None = None
-    can_cancel: bool = False
 
 
 @dataclass(frozen=True)

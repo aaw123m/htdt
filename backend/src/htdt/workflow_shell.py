@@ -722,6 +722,12 @@ class WorkflowShellWindow(QMainWindow):
         # Hooks fire once a close has passed every guard and the exit-time
         # dirty-state resolution — the point where the close is committed.
         self._close_hooks: list[Callable[[], None]] = []
+        # The deactivation context closeEvent feeds to dirty-state
+        # resolution. A project switch reuses close() to tear this shell
+        # down, but "アプリケーションの終了" prompts would mislabel that
+        # flow — the switcher sets 'project_switch' for its close attempt
+        # and restores 'exit' afterwards (#REV18).
+        self._deactivation_context: DeactivationContext = 'exit'
         self._data_mutations_frozen = False
         for registration in registration_tuple:
             if registration.contexts:
@@ -1062,7 +1068,9 @@ class WorkflowShellWindow(QMainWindow):
                 return
         # #610: app exit gets the same explicit resolution as navigation,
         # checked across every mounted workspace, not only the current one.
-        allowed, reason = self.router.resolve_dispose_all("exit")
+        allowed, reason = self.router.resolve_dispose_all(
+            self._deactivation_context
+        )
         if not allowed:
             self.statusBar().showMessage(reason or "現在の作業を完了してから終了してください")
             event.ignore()

@@ -11,6 +11,7 @@ import weakref
 
 from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QInputDialog,
@@ -1062,10 +1063,17 @@ class WorkflowApplicationComposition:
                 ).notice_text(),
             )
             return
-        if not self.shell.close():
-            # Close was vetoed by a dirty/running workspace — the opened
-            # timestamp already bumped, which is benign.
-            return
+        # The switch tears this shell down through close(), so the
+        # dirty-state prompts must name the real context — a "アプリケー
+        # ションの終了" title would mislabel a project switch (#REV18).
+        self.shell._deactivation_context = 'project_switch'
+        try:
+            if not self.shell.close():
+                # Close was vetoed by a dirty/running workspace — the opened
+                # timestamp already bumped, which is benign.
+                return
+        finally:
+            self.shell._deactivation_context = 'exit'
         self._open_document(opened.document_id)
 
     def _open_document(self, document_id: str) -> None:
@@ -1298,6 +1306,13 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
+        # The export runs synchronously on this thread; on a large project
+        # it can take well past 30s. Label the freeze honestly — an
+        # unmarked hang invites a force-kill mid-write (#REV18).
+        self.shell.statusBar().showMessage(
+            "プロジェクトバンドルをエクスポートしています…"
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = export_project_bundle(
                 self.repository,
@@ -1313,6 +1328,8 @@ class WorkflowApplicationComposition:
                 ).notice_text(),
             )
             return
+        finally:
+            QApplication.restoreOverrideCursor()
         box = QMessageBox(self.shell)
         box.setWindowTitle("プロジェクトをエクスポートしました")
         box.setIcon(QMessageBox.Icon.Information)
@@ -1336,9 +1353,15 @@ class WorkflowApplicationComposition:
         )
         if not selected:
             return
+        # Same synchronous-write labelling as export (#REV18).
+        self.shell.statusBar().showMessage(
+            "プロジェクトバンドルをインポートしています…"
+        )
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = import_project_bundle(self.repository, Path(selected))
         except BundleImportConflictError as exc:
+            QApplication.restoreOverrideCursor()
             # A record-identity collision is the only bundle failure a copy
             # import can resolve — manifest/schema rejections re-fail
             # identically and must not offer a dead-end retry path.
@@ -1349,6 +1372,10 @@ class WorkflowApplicationComposition:
             )
             if retry != QMessageBox.StandardButton.Yes:
                 return
+            self.shell.statusBar().showMessage(
+                "プロジェクトバンドルをコピーとしてインポートしています…"
+            )
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 result = import_project_bundle(
                     self.repository, Path(selected), import_as_copy=True
@@ -1358,11 +1385,15 @@ class WorkflowApplicationComposition:
                     self.shell, "インポートできませんでした", retry_exc
                 )
                 return
+            finally:
+                QApplication.restoreOverrideCursor()
         except Exception as exc:
             warn_user(
                 self.shell, "インポートできませんでした", exc
             )
             return
+        finally:
+            QApplication.restoreOverrideCursor()
         QMessageBox.information(
             self.shell,
             "プロジェクトをインポートしました",
