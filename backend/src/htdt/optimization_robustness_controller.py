@@ -11,6 +11,7 @@ from .cad_robustness_repository import CadRobustnessRepository
 from .cad_search_models import constraint_workspace_snapshot
 from .native_editor import ROLE
 from .optimization_robustness_overlay import build_robustness_overlay_model
+from .user_facing_error import operation_error_message
 from .optimization_robustness_presenter import (
     build_robustness_candidate_presentation,
     robustness_comparison_eligibility,
@@ -123,7 +124,7 @@ class RobustnessControllerMixin:
             )
         except ValueError as exc:
             self.robustness_detail_label.setText(
-                f'3Dばらつき表示を構築できません: {exc}'
+                f'3Dばらつき表示を構築できません: {operation_error_message(exc)}'
             )
             return
 

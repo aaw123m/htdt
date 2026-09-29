@@ -105,6 +105,28 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
     ('PreferenceError', 'preferences.error', '環境設定を適用できませんでした', None),
     ('IngressTooLargeError', 'ingress.too_large', 'ファイルが大きすぎます',
      'より小さいファイルを選択してください'),
+    # Launch/data-format family: subclasses of NativeUpgradeError must
+    # precede it (pattern lookup is MRO-membership based).
+    ('IncompatibleNewerSchemaError', 'schema.too_new',
+     'このデータはより新しいHTDT形式で作成・更新されています',
+     'データを作成した新しいビルドで開くか、互換性のあるバックアップを復元してください'),
+    ('InsufficientUpgradeSpaceError', 'migration.no_space',
+     '更新前の復旧コピーを作成する空き容量が不足しています',
+     '空き容量を確保してから再起動してください'),
+    ('NativeUpgradeQuarantineError', 'migration.quarantine',
+     'データ形式更新後の検証が完了していないため、前のデータが保持されています',
+     '再起動して検証を再試行してください'),
+    ('NativeUpgradeVerificationError', 'migration.verify',
+     'データ形式更新後の検証を完了できませんでした',
+     '再起動して検証を再試行するか、復旧用コピーから復元してください'),
+    ('NativeUpgradeError', 'migration.failed',
+     'データ形式を更新できませんでした',
+     '再起動して再試行するか、最新のバックアップを復元してください'),
+    ('MigrationOpenError', 'migration.open',
+     'データ移行を完了できませんでした',
+     '最新のバックアップを復元するか、診断ログを確認してください'),
+    ('NativeSchemaError', 'schema.error',
+     'データベース形式を確認できませんでした', None),
     # RewApiUnavailable must precede its RewApiError base: pattern lookup is
     # MRO-membership based, so the more specific entry must come first.
     ('RewApiUnavailable', 'rew.unavailable', 'REWに接続できませんでした',
@@ -207,6 +229,15 @@ def _map_exception(
                 'io.no_space',
                 'ディスク容量が不足しています',
                 '空き容量を確保してから再試行してください',
+            )
+        # EADDRINUSE (POSIX 98/48, WinSock 10048): the real culprit is a
+        # port conflict, not a file — name it so the receiver settings
+        # dialog tells the user to change the port or stop the occupant.
+        if getattr(exc, 'errno', None) in (_errno.EADDRINUSE, 10048):
+            return (
+                'io.address_in_use',
+                '指定のアドレス・ポートはすでに使用中です',
+                'ポート番号を変更するか、使用中のアプリを終了してください',
             )
         return 'io.error', 'ファイルにアクセスできませんでした', None
     if isinstance(exc, KeyError):

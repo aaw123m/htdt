@@ -972,8 +972,9 @@ class DataManagementWidget(QWidget):
             self.legacy_label.show()
         elif report.state == 'unreadable':
             self.legacy_label.setText(
-                "レガシーデータベースを読み取れませんでした: "
-                f"{report.detail}"
+                "レガシーデータベース (htdt.sqlite3) を読み取れませんでした。"
+                "ファイルが破損している可能性があります — "
+                "バックアップからの復元またはサポートへの共有を検討してください。"
             )
             self.legacy_label.show()
         else:

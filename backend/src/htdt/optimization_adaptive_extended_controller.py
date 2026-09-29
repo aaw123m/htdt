@@ -113,7 +113,7 @@ class AdaptiveExtendedControllerMixin:
             )
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Adaptive Extended Planを読めません · {exc}'
+                f'Adaptive Extended Planを読めません · {operation_error_message(exc)}'
             )
             return
 

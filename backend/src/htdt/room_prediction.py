@@ -437,7 +437,7 @@ class RoomPredictionController(QObject):
                     model_key=RECTANGULAR_MODEL_KEY,
                     label='簡易矩形モデル',
                     state='BLOCKED',
-                    reasons=(str(exc),),
+                    reasons=(operation_error_message(exc),),
                 ),
             )
         try:

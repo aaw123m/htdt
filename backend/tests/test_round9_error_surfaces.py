@@ -332,7 +332,8 @@ def test_gui_launch_reports_data_dir_failure(
     assert rc == 1
     (call,) = reported
     assert call['title'] == 'HTDTのデータディレクトリを開けません'
-    assert 'root missing' in call['reason']
+    assert call['reason'] == '管理データにアクセスできませんでした'
+    assert 'root missing' in call['technical_detail']
 
 
 def test_maintenance_launch_prints_data_dir_failure_without_dialog(

@@ -644,7 +644,7 @@ class WorkflowApplicationComposition:
         self._uncaught_op_count += 1
         try:
             log_path = getattr(diagnostics, 'log_path', None)
-            detail = concise_reason(exc)
+            detail = f'{operation_error_message(exc)} ({concise_reason(exc)})'
             if log_path is not None:
                 detail += f' — ログ: {log_path}'
             operation_id = self.activity_center.submit(
