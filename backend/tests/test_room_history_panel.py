@@ -171,3 +171,53 @@ def test_resync_preserves_selection_and_show_detail() -> None:
 
     panel.show_detail('差分テキスト')
     assert panel.detail.toPlainText() == '差分テキスト'
+
+
+def test_label_fields_reflect_stored_label_on_selection() -> None:
+    _app()
+    panel = RoomHistoryPanel()
+    labels = {
+        'rev-a': RevisionLabel(
+            revision_id='rev-a',
+            label='v1候補',
+            note='初期状態',
+            updated_at_utc='2026-09-26T10:00:00Z',
+        )
+    }
+    panel.sync_revisions(
+        (_revision('rev-a', _doc()), _revision('rev-b', _doc())),
+        head_revision_id='rev-b',
+        labels=labels,
+    )
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))
+    assert panel.label_field.text() == 'v1候補'
+    assert panel.note_field.text() == '初期状態'
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(1))
+    assert panel.label_field.text() == ''
+    assert panel.note_field.text() == ''
+
+
+def test_detached_row_names_its_true_parent() -> None:
+    from htdt.cad_display_labels import saved_label
+
+    _app()
+    panel = RoomHistoryPanel()
+    doc = _doc()
+    parent = _revision('rev-p', doc)
+    detached = SceneRevision(
+        revision_id='rev-d',
+        document_id=doc.document_id,
+        parent_revision_id='rev-p',
+        created_at_utc='2026-09-26T11:00:00Z',
+        content_hash=scene_content_hash(doc),
+        document=doc,
+        detached=True,
+    )
+    panel.sync_revisions((parent, detached), head_revision_id='rev-p', labels={})
+
+    row_text = panel.tree.topLevelItem(1).text(0)
+    assert 'detached' in row_text
+    assert '←' in row_text
+    assert saved_label(parent.created_at_utc) in row_text

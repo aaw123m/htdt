@@ -119,7 +119,11 @@ from .cad_listener_pose import (
     listener_pose_for_seat,
     seat_binding_from_pose,
 )
-from .cad_repository import RecoverySnapshot, SceneRepository
+from .cad_repository import (
+    RecoverySnapshot,
+    SceneRepository,
+    SceneRevisionConflictError,
+)
 from .cad_screen_transfer import (
     CadScreenTransferRepository,
     TransferSample,
@@ -1100,6 +1104,8 @@ class RoomWorkspaceController:
         revision = self.repository.get(revision_id)
         if revision is None:
             raise EditStateError("対象のリビジョンが見つかりません")
+        if revision.document_id != self.document_id:
+            raise EditStateError("対象のリビジョンは別のドキュメントに属しています")
         if self.recovery_candidate is not None:
             raise EditStateError("復旧可能な下書きを処理してから履歴を復元してください")
         if self.working.has_preview:
@@ -1109,10 +1115,15 @@ class RoomWorkspaceController:
         head = self.repository.current_head(self.document_id)
         if head is not None and revision.revision_id == head.revision_id:
             raise EditStateError("現在の先頭版と同じ内容です")
-        result = self.repository.save(
-            revision.document,
-            parent_revision_id=head.revision_id if head is not None else None,
-        )
+        try:
+            result = self.repository.save(
+                revision.document,
+                parent_revision_id=head.revision_id if head is not None else None,
+            )
+        except SceneRevisionConflictError as exc:
+            raise EditStateError(
+                "別の変更で先頭版が更新されました。最新の状態を読み込んでから復元してください"
+            ) from exc
         self.working = TheaterWorkingDocument(
             result.revision.document,
             source_revision_id=result.revision.revision_id,
@@ -1133,10 +1144,15 @@ class RoomWorkspaceController:
         # a scene-identical save still reports a change when the sidecars
         # moved, and the commit point advances the baseline either way.
         sidecars_were_dirty = self._sidecars_dirty()
-        result = self.repository.save(
-            self.committed_document,
-            parent_revision_id=self.working.source_revision_id,
-        )
+        try:
+            result = self.repository.save(
+                self.committed_document,
+                parent_revision_id=self.working.source_revision_id,
+            )
+        except SceneRevisionConflictError as exc:
+            raise EditStateError(
+                "別の変更で先頭版が更新されました。最新の状態を読み込んでから保存してください"
+            ) from exc
         self.working.mark_saved(
             result.revision.revision_id,
             result.revision.content_hash,
@@ -6266,7 +6282,11 @@ class RoomWorkspace(QWidget):
         if not self.commit_pending_editor():
             self._set_status("入力中の値を確定できないため保存できません", error=True)
             return False
-        created = self.controller.save()
+        try:
+            created = self.controller.save()
+        except EditStateError as exc:
+            self._set_operation_error("保存できませんでした", exc)
+            return False
         self._refresh()
         self._set_status("保存しました" if created else "変更はありません")
         return created

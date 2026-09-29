@@ -512,9 +512,23 @@ class SceneRepository:
                     parent_geometry is None or parent_geometry.geometry_id != geometry.geometry_id
                 )
                 if geometry_changed and geometry.source_scene_revision_id != parent_revision_id:
-                    raise ValueError(
-                        'new R120 semantic geometry must bind to the exact parent SceneRevision'
-                    )
+                    # A geometry restored from history keeps the source pointer
+                    # it was committed with — that pointer records where the
+                    # geometry was derived, not this commit's parent. It stays
+                    # truthful as long as the identical geometry already exists
+                    # in this document's lineage (geometry_id hashes the whole
+                    # self-verifying core, source pointer included). Only a
+                    # genuinely NEW derivation must bind to the parent.
+                    reintroduced = connection.execute(
+                        'SELECT 1 FROM scene_revisions WHERE document_id=? '
+                        "AND json_extract(payload_json, "
+                        "'$.r120_semantic_geometry.geometry_id')=? LIMIT 1",
+                        (document.document_id, geometry.geometry_id),
+                    ).fetchone()
+                    if reintroduced is None:
+                        raise ValueError(
+                            'new R120 semantic geometry must bind to the exact parent SceneRevision'
+                        )
 
         revision_id = revision_id or str(uuid4())
         created_at = created_at_utc or datetime.now(timezone.utc).isoformat()
