@@ -471,3 +471,46 @@ def test_launch_marker_tracks_build_identity(tmp_path: Path):
 
     marker_path.unlink()
     assert launch_build_changed(data_dir)
+
+
+def test_summary_ja_points_at_the_real_backup_checkbox_label(tmp_path: Path):
+    """Round-14 regression guard: the kept-stale guidance must name the
+    checkbox as it actually reads in the data-management page, or the user
+    is pointed at a control that does not exist."""
+    from htdt.authority_revalidation import (
+        RevalidationOutcome,
+        RevalidationReport,
+    )
+    from htdt.native_authority_audit import (
+        AuthorityAuditDiagnostic,
+        AuthorityAuditReport,
+    )
+
+    diagnostic = AuthorityAuditDiagnostic(
+        authority='routing_profile',
+        record_ref='rp-stale-1',
+        failure_class='noncanonical_derivation',
+        dependency='signal_path',
+        message='stored signature differs',
+    )
+    report = RevalidationReport(
+        database_path=tmp_path / 'db.sqlite3',
+        outcomes=(
+            RevalidationOutcome(
+                authority='routing_profile',
+                record_ref='rp-stale-1',
+                action='kept_stale',
+                detail='再導出できませんでした',
+            ),
+        ),
+        audit=AuthorityAuditReport(
+            database_path=tmp_path / 'db.sqlite3',
+            checked=(('cad_routing_profiles', 1),),
+            diagnostics=(diagnostic,),
+        ),
+    )
+
+    summary = report.summary_ja()
+    # The real checkbox label on the operations card is
+    # 「検証を通過しない記録を含めてバックアップする（対象はマニフェストに明記されます）」
+    assert '検証を通過しない記録を含めてバックアップ' in summary

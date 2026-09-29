@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from htdt.data_management import (
     BackupCreateResult,
@@ -51,6 +51,7 @@ class _FakeController(QObject):
         self.relocate_requests: list[Path] = []
         self.storage_scan_requests = 0
         self.storage_gc_requests = 0
+        self.revalidate_calls = 0
 
     @property
     def is_busy(self) -> bool:
@@ -85,6 +86,10 @@ class _FakeController(QObject):
     def gc_storage(self) -> str:
         self.storage_gc_requests += 1
         return "storage-gc-op"
+
+    def revalidate(self):
+        self.revalidate_calls += 1
+        return SimpleNamespace(summary_ja=lambda: "summary-ja-stub")
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -367,5 +372,35 @@ def test_generations_row_hides_when_nothing_is_saved(
 
     assert widget.generations_combo.count() == 0
     assert widget.generations_row.isHidden()
+
+    component.close()
+
+
+def test_revalidate_button_runs_revalidation_and_shows_report(
+    app: QApplication,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round-14 regression guard: the revalidation button calls
+    ``controller.revalidate()`` and surfaces the report summary. The test
+    double must shadow that signature — without it the whole lane is
+    untestable and diverges silently from the real controller."""
+    controller = _FakeController(tmp_path / "data")
+    component = build_data_management_component(controller)
+    widget = component.widget
+
+    info_calls: list[tuple] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: info_calls.append(args),
+    )
+
+    widget.revalidate_button.click()
+
+    assert controller.revalidate_calls == 1
+    assert len(info_calls) == 1
+    assert "HTDT 再検証" in str(info_calls[0])
+    assert "summary-ja-stub" in str(info_calls[0])
 
     component.close()

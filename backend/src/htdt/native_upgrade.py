@@ -1054,6 +1054,7 @@ def _resolve_quarantined_generation(
         outcome='completed',
         migration_commit_state='committed',
         live_generation_state='migrated_verified',
+        stale_authority_count=len(marker.declared_stale_authorities),
     )
     _append_upgrade_event(data_dir, event)
     # Re-verification earned the right to prune retained recovery
