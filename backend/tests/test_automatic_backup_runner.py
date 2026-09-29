@@ -35,7 +35,7 @@ class _NotDueScheduler:
     def evaluate(self, _trigger):
         return False, 'within interval'
 
-    def run_due(self, _trigger):
+    def run_due(self, _trigger, **_kwargs):
         raise AssertionError('run_due must not run when not due')
 
 
@@ -46,12 +46,12 @@ class _DueScheduler:
     def evaluate(self, _trigger):
         return True, 'no automatic backup has ever run'
 
-    def run_due(self, _trigger):
+    def run_due(self, _trigger, **_kwargs):
         return Path('C:/backups/gen.htdt-backup'), SimpleNamespace()
 
 
 class _FailingScheduler(_DueScheduler):
-    def run_due(self, _trigger):
+    def run_due(self, _trigger, **_kwargs):
         raise RuntimeError('disk full')
 
 

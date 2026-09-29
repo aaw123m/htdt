@@ -1454,7 +1454,33 @@ def main(argv: list[str] | None = None) -> int:
     diagnostics.log_session_start(launch_mode)
 
     guard = SingleInstanceGuard(args.data_dir)
-    if not guard.acquire():
+    try:
+        acquired = guard.acquire()
+    except OSError as exc:
+        # mkdir/os.open on the managed root failing (read-only filesystem,
+        # permission denied, a foreign object in the way) is an unavailable
+        # root, not lock contention — report it in the same honest lane as
+        # the availability check instead of crashing with a traceback.
+        diagnostics.log_startup_failure(exc)
+        if maintenance_request:
+            print(
+                f"HTDTのデータディレクトリが利用不可です: {exc}",
+                file=sys.stderr,
+            )
+            return 1
+        report_launch_failure(
+            title="HTDTのデータディレクトリを開けません",
+            reason=_launch_reason_ja(exc),
+            recovery=(
+                "保存先のドライブやフォルダを確認してからHTDTを起動し直して"
+                "ください。データを移動した場合は --data-dir で新しい場所を"
+                "指定してください。"
+            ),
+            log_path=diagnostics.log_path,
+            technical_detail=concise_reason(exc),
+        )
+        return 1
+    if not acquired:
         diagnostics.log_lock_contention(read_lock_metadata(args.data_dir))
         # #612 + round9: a second GUI launch is not a failure — its
         # file-open intents are handed to the running instance through the

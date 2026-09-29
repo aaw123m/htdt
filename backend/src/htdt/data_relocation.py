@@ -283,6 +283,15 @@ def assert_managed_root_available(
             raise ManagedDataUnavailableError(
                 f'{root} is reserved as the destination of {phase_detail}'
             )
+    if root.exists() and not root.is_dir():
+        # A file sitting where the managed root belongs fails identically
+        # for explicit/default/bootstrap — without this guard the first
+        # directory creation downstream crashes on an opaque FileExistsError.
+        raise ManagedDataUnavailableError(
+            f'HTDT data directory {root} is occupied by a file, not a '
+            'directory. Remove or rename the file, or start HTDT with a '
+            'different --data-dir.'
+        )
     if source == 'bootstrap' and not root.is_dir():
         raise ManagedDataUnavailableError(
             f'HTDT data directory {root} (from the bootstrap configuration) '

@@ -45,7 +45,7 @@ import logging
 import os
 from pathlib import Path
 import re
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -464,11 +464,15 @@ class AutomaticBackupScheduler:
         *,
         classification: BackupClassification | None = None,
         force: bool = False,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> tuple[Path, BackupManifest] | None:
         """Create a validated generation when the trigger says it is due.
 
         Returns the (path, manifest) pair of the new generation, or None
-        when evaluation said no backup was warranted.
+        when evaluation said no backup was warranted. ``is_cancelled``
+        propagates the worker pool's shutdown flag into the copy loop so a
+        closing window aborts the archive cooperatively instead of leaving
+        the worker to be detached mid-write.
         """
 
         should, reason = self.evaluate(trigger)
@@ -491,7 +495,10 @@ class AutomaticBackupScheduler:
         # producing safety generations: any stale row is declared in the
         # manifest and re-checked at staging.
         manifest = create_backup(
-            self.data_dir, destination, allow_stale=True
+            self.data_dir,
+            destination,
+            allow_stale=True,
+            is_cancelled=is_cancelled,
         )
         # A generation of ANY class proves the current fingerprint is
         # covered, but only routine automatic classes advance the periodic

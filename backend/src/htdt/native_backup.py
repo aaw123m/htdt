@@ -428,6 +428,7 @@ def _validate_asset_contract(
     data_dir: Path,
     database_path: Path,
     manifest: BackupManifest | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> None:
     asset_rows = _asset_rows(database_path)
     manifest_assets = (
@@ -441,6 +442,7 @@ def _validate_asset_contract(
     )
     seen_paths: set[str] = set()
     for digest, relative_path, size_bytes in asset_rows:
+        _raise_if_backup_cancelled(is_cancelled)
         _safe_archive_path(relative_path)
         if relative_path in seen_paths:
             raise BackupError(f'duplicate measurement asset path in database: {relative_path}')
@@ -486,6 +488,7 @@ def _build_manifest(
     database_path: Path,
     *,
     stale_authorities: tuple[BackupStaleAuthority, ...] = (),
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> BackupManifest:
     entries: list[BackupFileEntry] = [
         BackupFileEntry(
@@ -496,6 +499,7 @@ def _build_manifest(
         )
     ]
     for digest, relative_path, size_bytes in _asset_rows(database_path):
+        _raise_if_backup_cancelled(is_cancelled)
         verify_managed_asset(
             data_dir=snapshot_root,
             digest=digest,
@@ -512,6 +516,7 @@ def _build_manifest(
     # snapshot are declared on the manifest so whole-data restore owns them
     # exactly — e.g. commissioning-plans.json survives PC migration (#769).
     for component in backup_included_components():
+        _raise_if_backup_cancelled(is_cancelled)
         aux_path = snapshot_root / auxiliary_archive_path(component)
         if not aux_path.is_file():
             continue
@@ -525,6 +530,7 @@ def _build_manifest(
     # immutable user evidence — losing it in a backup/restore would silently
     # erase the pre-migration record.
     for member in _legacy_archive_members(snapshot_root):
+        _raise_if_backup_cancelled(is_cancelled)
         member_path = _safe_data_path(snapshot_root, member)
         entries.append(BackupFileEntry(
             path=member,
@@ -625,7 +631,7 @@ def _create_backup(
             if source_asset.is_symlink() or not source_asset.is_file():
                 raise BackupError(f'measurement asset is missing or not a regular file: {relative_path}')
             target_asset.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_asset, target_asset)
+            _copy_file_cancellable(source_asset, target_asset, is_cancelled)
 
         # Registry-declared auxiliary data (project-scoped metadata such as
         # commissioning plans) joins the backup: copy each included
@@ -637,7 +643,7 @@ def _create_backup(
                 continue
             target_aux = snapshot_root / auxiliary_archive_path(component)
             target_aux.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_aux, target_aux)
+            _copy_file_cancellable(source_aux, target_aux, is_cancelled)
         for member in _legacy_archive_members(data_dir):
             _raise_if_backup_cancelled(is_cancelled)
             source_member = _safe_data_path(data_dir, member)
@@ -645,11 +651,12 @@ def _create_backup(
             if source_member.is_symlink() or not source_member.is_file():
                 raise BackupError(f'legacy archive member is missing or not a regular file: {member}')
             target_member.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_member, target_member)
+            _copy_file_cancellable(source_member, target_member, is_cancelled)
 
         _validate_asset_contract(
             data_dir=snapshot_root,
             database_path=snapshot_database,
+            is_cancelled=is_cancelled,
         )
         # A snapshot carrying stale, missing or non-canonical authority is
         # only packaged as a restorable archive when the caller explicitly
@@ -667,7 +674,9 @@ def _create_backup(
         audit_probe = snapshot_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
         shutil.copyfile(snapshot_database, audit_probe)
         try:
-            audit_report = audit_native_authority_graph(audit_probe)
+            audit_report = audit_native_authority_graph(
+                audit_probe, is_cancelled=is_cancelled
+            )
         finally:
             _remove_path_quiet(audit_probe)
         stale_authorities: tuple[BackupStaleAuthority, ...] = ()
@@ -690,6 +699,7 @@ def _create_backup(
             snapshot_root,
             snapshot_database,
             stale_authorities=stale_authorities,
+            is_cancelled=is_cancelled,
         )
 
         archive_temp = temp_root / 'backup.tmp'
@@ -700,7 +710,12 @@ def _create_backup(
             )
             for entry in manifest.files:
                 _raise_if_backup_cancelled(is_cancelled)
-                archive.write(_safe_data_path(snapshot_root, entry.path), arcname=entry.path)
+                _write_zip_member(
+                    archive,
+                    _safe_data_path(snapshot_root, entry.path),
+                    entry.path,
+                    is_cancelled,
+                )
 
         validate_backup(archive_temp, is_cancelled=is_cancelled)
         _raise_if_backup_cancelled(is_cancelled)
@@ -842,6 +857,7 @@ def _stage_backup(
         data_dir=stage_root,
         database_path=database_path,
         manifest=manifest,
+        is_cancelled=is_cancelled,
     )
     # A structurally valid archive can still carry a semantically corrupt
     # authority graph — stale references, tampered derived records or
@@ -858,7 +874,9 @@ def _stage_backup(
     audit_probe = stage_root / f'.{DATABASE_NAME}.audit-{uuid4().hex}'
     shutil.copyfile(database_path, audit_probe)
     try:
-        audit_report = audit_native_authority_graph(audit_probe)
+        audit_report = audit_native_authority_graph(
+            audit_probe, is_cancelled=is_cancelled
+        )
     finally:
         _remove_path_quiet(audit_probe)
     if not audit_report.ok:
@@ -954,6 +972,55 @@ def _raise_if_backup_cancelled(
 ) -> None:
     if is_cancelled is not None and is_cancelled():
         raise BackupCancelledError('backup operation cancelled by the caller')
+
+
+#: Copy/deflate chunk size. Cancellation latency stays inside one chunk so a
+#: worker asked to stop lands within the pool shutdown budget even when a
+#: single measurement asset is large.
+_COPY_CHUNK_BYTES = 4 * 1024 * 1024
+
+
+def _copy_file_cancellable(
+    source: Path,
+    target: Path,
+    is_cancelled: Callable[[], bool] | None,
+) -> None:
+    """``shutil.copyfile`` semantics with a cancel poll per chunk."""
+
+    with source.open('rb') as src, target.open('wb') as dst:
+        while True:
+            _raise_if_backup_cancelled(is_cancelled)
+            chunk = src.read(_COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            dst.write(chunk)
+
+
+def _write_zip_member(
+    archive: ZipFile,
+    source: Path,
+    arcname: str,
+    is_cancelled: Callable[[], bool] | None,
+) -> None:
+    """``ZipFile.write`` equivalent streamed in cancellable chunks.
+
+    ``ZipInfo.from_file`` derives the same entry metadata ``write`` would
+    (mtime, Unix mode bits, file size); only the streaming loop differs so
+    archive bytes stay identical.
+    """
+
+    zinfo = ZipInfo.from_file(
+        source, arcname, strict_timestamps=archive._strict_timestamps
+    )
+    zinfo.compress_type = archive.compression
+    zinfo._compresslevel = archive.compresslevel
+    with source.open('rb') as src, archive.open(zinfo, 'w') as dest:
+        while True:
+            _raise_if_backup_cancelled(is_cancelled)
+            chunk = src.read(_COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            dest.write(chunk)
 
 
 RestoreRecoveryAction = Literal[

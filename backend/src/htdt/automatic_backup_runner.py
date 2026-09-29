@@ -68,7 +68,13 @@ class AutomaticBackupRunner(QObject):
             if _cancel.is_set():
                 return None
             self.backup_started.emit()
-            result = scheduler.run_due('periodic')
+            # Propagate the pool's cancel flag through the copy loop: a
+            # window closing mid-archive must abort the write cooperatively
+            # (BackupCancelledError → "cancelled" completion), never be
+            # detached and killed mid-write past the shutdown budget.
+            result = scheduler.run_due(
+                'periodic', is_cancelled=_cancel.is_set
+            )
             if result is None:
                 # Re-evaluated as not due (e.g. a concurrent manual backup
                 # satisfied the interval) — nothing to surface.

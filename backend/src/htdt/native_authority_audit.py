@@ -3676,6 +3676,8 @@ def _order_clause(connection: sqlite3.Connection, table: str) -> str:
 
 def audit_native_authority_graph(
     database_path: Path | str,
+    *,
+    is_cancelled: Callable[[], bool] | None = None,
 ) -> AuthorityAuditReport:
     """Replay every persisted authority in ``database_path`` fail-closed.
 
@@ -3685,8 +3687,20 @@ def audit_native_authority_graph(
     audit a clone — never a file whose bytes are pinned by a manifest.
 
     Each row is classified and reported rather than aborting at the first
-    failure so operators see the full damage surface.
+    failure so operators see the full damage surface. ``is_cancelled`` is a
+    cooperative-cancel poll evaluated per row — a full replay can far
+    outlive a worker shutdown budget, so backup callers pass their cancel
+    flag through to abort mid-pass instead of being detached mid-verify.
     """
+
+    def _poll_cancel() -> None:
+        if is_cancelled is None:
+            return
+        # Lazy: native_backup imports this module inside its own functions,
+        # so a module-level import here would be circular.
+        from .native_backup import _raise_if_backup_cancelled
+
+        _raise_if_backup_cancelled(is_cancelled)
 
     db_path = Path(database_path)
     data_dir = db_path.parent
@@ -3743,6 +3757,7 @@ def audit_native_authority_graph(
             ).fetchall()
             count = 0
             for row in rows:
+                _poll_cancel()
                 key = tuple(row[column] for column in probe.columns)
                 record_ref = ':'.join(str(part) for part in key)
                 try:
@@ -3771,6 +3786,7 @@ def audit_native_authority_graph(
                 else 'SELECT lineage_digest AS run_ref, plan_json '
                 'FROM capture_ingestion_runs ORDER BY lineage_digest'
             ).fetchall():
+                _poll_cancel()
                 ref = str(row['run_ref'])
                 try:
                     plan = json.loads(row['plan_json'])
@@ -3807,6 +3823,7 @@ def audit_native_authority_graph(
                 sql += f' WHERE {where}'
             sql += _order_clause(connection, table)
             for row in connection.execute(sql).fetchall():
+                _poll_cancel()
                 digest = row[sha_column]
                 ref = f'{table}:{digest}'
                 try:
@@ -3872,6 +3889,7 @@ def audit_native_authority_graph(
                 'SELECT payload_sha256, byte_count, payload_blob '
                 'FROM htdt_content_blobs ORDER BY payload_sha256'
             ).fetchall():
+                _poll_cancel()
                 digest = row['payload_sha256']
                 try:
                     blob = bytes(row['payload_blob'])
@@ -3949,6 +3967,7 @@ def audit_native_authority_graph(
                     f'SELECT {select} FROM "{table}"'
                     + _order_clause(connection, table)
                 ).fetchall():
+                    _poll_cancel()
                     for column in payload_columns:
                         raw = row[column]
                         if raw is None:
