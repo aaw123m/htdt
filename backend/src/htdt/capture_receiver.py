@@ -61,6 +61,7 @@ from .capture_ingestion_transaction import (
 )
 from .capture_inbox import (
     CAPTURE_INBOX_UNASSIGNED_SCOPE,
+    PROMOTION_AUTHORITY_KINDS,
     CaptureInboxRepository,
 )
 from .ingress import IngressTooLargeError, read_file_bounded
@@ -630,19 +631,32 @@ class CaptureReceiverService:
         pairing = self._pairing_for_token(token)
         if pairing is None or pairing.state not in ('offered', 'active'):
             return None
+        # The advertised contract must equal the implemented one: payload
+        # schemas are every versioned bundle family the ingestion pipeline
+        # validates, and authority families are the kinds the Capture Inbox
+        # can promote — both read from their single authorities instead of
+        # being hand-mirrored here.
+        from .capture_bundle import _load_support_matrix
+
+        def _version_key(version: str) -> list[int]:
+            return [int(part) if part.isdigit() else 0 for part in version.split('.')]
+
+        accepted_payload_schemas = [
+            {
+                'schema': contract['schema_id'],
+                'versions': sorted(contract['read'], key=_version_key),
+            }
+            for contract in _load_support_matrix()['families'].values()
+            if contract.get('schema_id') and contract.get('read')
+        ]
         return {
             'schema': CAPABILITIES_SCHEMA,
             'schema_version': CAPABILITIES_SCHEMA_VERSION,
             'endpoint_identity': pairing.receiver_instance_id,
             'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
             'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
-            'accepted_payload_schemas': [
-                {
-                    'schema': 'htdt.capture.connected-spaces',
-                    'versions': ['1.0.0'],
-                },
-            ],
-            'supported_authority_families': [],
+            'accepted_payload_schemas': accepted_payload_schemas,
+            'supported_authority_families': sorted(PROMOTION_AUTHORITY_KINDS),
             'max_archive_bytes': self.max_archive_bytes,
             'mission_receipts_supported': True,
             'accepted_artifact_kinds': [
@@ -1186,12 +1200,29 @@ class CaptureReceiverService:
             receipt = json.loads(body.decode('utf-8'))
         except Exception:
             return 400, {'detail': 'receipt is not valid JSON'}
+        if not isinstance(receipt, dict):
+            return 400, {'detail': 'receipt is not a JSON object'}
         if receipt.get('schema') != MISSION_RECEIPT_SCHEMA:
             return 400, {'detail': 'unexpected receipt schema'}
+        if receipt.get('schema_version') != MISSION_RECEIPT_SCHEMA_VERSION:
+            return 400, {'detail': 'unsupported receipt schema version'}
         if receipt.get('package_id') != package_id:
             return 400, {'detail': 'receipt package mismatch'}
         if receipt.get('capture_instance_id') != capture_instance_id:
             return 400, {'detail': 'receipt device mismatch'}
+        # The receipt declares which pairing/instance it reports for; a
+        # present-but-wrong identity is a malformed claim and must not be
+        # recorded against this pairing's package.
+        if (
+            receipt.get('paired_destination_id') is not None
+            and receipt['paired_destination_id'] != pairing.pairing_id
+        ):
+            return 400, {'detail': 'receipt pairing mismatch'}
+        if (
+            receipt.get('receiver_instance_id') is not None
+            and receipt['receiver_instance_id'] != pairing.receiver_instance_id
+        ):
+            return 400, {'detail': 'receipt receiver mismatch'}
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM capture_mission_packages WHERE package_id=?',
@@ -1204,7 +1235,15 @@ class CaptureReceiverService:
                 return 404, {'detail': 'package not offered to this pairing'}
             if receipt.get('package_sha256') != package.package_sha256:
                 return 400, {'detail': 'receipt digest mismatch'}
-            result = receipt.get('validation_result', '')
+            result = receipt.get('validation_result')
+            detail = receipt.get('detail')
+            # Both report fields are text on the wire: anything else is a
+            # malformed claim, not a verdict — and non-strings cannot be
+            # bound to the status_detail column anyway.
+            if not isinstance(result, str) or (
+                detail is not None and not isinstance(detail, str)
+            ):
+                return 400, {'detail': 'receipt verdict fields must be strings'}
             status = (
                 'received'
                 if result in ('imported', 'duplicate', 'superseding')
@@ -1215,7 +1254,7 @@ class CaptureReceiverService:
                 'status_detail=?, updated_at_utc=? WHERE package_id=?',
                 (
                     status,
-                    receipt.get('detail') or result,
+                    detail or result,
                     _utc_now(),
                     package_id,
                 ),
