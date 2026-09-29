@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.routing import Match
 
 from . import __version__
 from .acoustics import analyze_rectangular_context
@@ -864,7 +865,23 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         # gated-off /api/docs and /api/openapi.json would serve the app shell.
         @app.api_route('/api', methods=_API_FALLBACK_METHODS, include_in_schema=False)
         @app.api_route('/api/{path:path}', methods=_API_FALLBACK_METHODS, include_in_schema=False)
-        def api_not_found(path: str = '') -> None:
+        def api_not_found(request: Request, path: str = '') -> None:
+            # A path that matches a concrete API route under a different
+            # method is a 405, not a 404 — the catch-all only wins on
+            # method, so it must not mask the real route's existence.
+            for route in request.app.routes:
+                if getattr(route, 'endpoint', None) is api_not_found:
+                    continue
+                if not getattr(route, 'path', '').startswith('/api'):
+                    continue
+                match, _ = route.matches(request.scope)
+                if match is not Match.NONE:
+                    allowed = sorted(getattr(route, 'methods', None) or [])
+                    raise HTTPException(
+                        status_code=405,
+                        detail='Method Not Allowed',
+                        headers={'Allow': ', '.join(allowed)} if allowed else None,
+                    )
             raise HTTPException(status_code=404, detail='Not Found')
 
         @app.get('/{path:path}', include_in_schema=False)
