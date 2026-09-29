@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_document import EditStateError
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID, RoomPrism, RoomVertex, room_vertices
 from .cad_wall_models import WallConstraintBinding, WallOpening, WallSegment, WallTopology
@@ -287,6 +288,17 @@ class WallEditorWindow(RoomEditorWindow):
             return None
         return self.working.committed_document.wall_topology
 
+    def _commit_room_topology(self, room: RoomPrism, topology: WallTopology) -> bool:
+        """Commit a wall-op snapshot; validation failures surface as status."""
+
+        try:
+            return self.working.replace_room_topology(room, topology)
+        except (EditStateError, ValueError) as exc:
+            self.statusBar().showMessage(
+                f'壁を確定できません · {operation_error_message(exc)}'
+            )
+            return False
+
     def _ensure_wall_topology(self) -> bool:
         room = self._current_room()
         if room is None:
@@ -295,7 +307,7 @@ class WallEditorWindow(RoomEditorWindow):
         if self._current_topology() is not None:
             return True
         topology = make_wall_topology(room)
-        if self.working.replace_room_topology(room, topology):
+        if self._commit_room_topology(room, topology):
             self._sync_recovery()
             self._rebuild()
         return True
@@ -452,7 +464,7 @@ class WallEditorWindow(RoomEditorWindow):
             self._rebuild()
             self.statusBar().showMessage('壁の移動は変更なしで終了しました')
             return
-        changed = self.working.replace_room_topology(room, topology)
+        changed = self._commit_room_topology(room, topology)
         if changed:
             self._sync_recovery()
         self.selected_wall_id = selected
@@ -481,7 +493,7 @@ class WallEditorWindow(RoomEditorWindow):
         except WallTopologyError as exc:
             self.statusBar().showMessage(f'壁を分割できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(new_room, new_topology):
+        if self._commit_room_topology(new_room, new_topology):
             self._sync_recovery()
         self.selected_wall_id = first_id
         self._rebuild()
@@ -511,7 +523,7 @@ class WallEditorWindow(RoomEditorWindow):
         except WallTopologyError as exc:
             self.statusBar().showMessage(f'壁を結合できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(new_room, new_topology):
+        if self._commit_room_topology(new_room, new_topology):
             self._sync_recovery()
         self.selected_wall_id = merged_id
         self._rebuild()
@@ -533,7 +545,7 @@ class WallEditorWindow(RoomEditorWindow):
         except WallTopologyError as exc:
             self.statusBar().showMessage(f'壁を削除できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(new_room, new_topology):
+        if self._commit_room_topology(new_room, new_topology):
             self._sync_recovery()
         self.selected_wall_id = replacement_id
         self._rebuild()
@@ -565,7 +577,7 @@ class WallEditorWindow(RoomEditorWindow):
         except WallTopologyError as exc:
             self.statusBar().showMessage(f'開口を追加できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(room, new_topology):
+        if self._commit_room_topology(room, new_topology):
             self._sync_recovery()
         self._rebuild()
         self.statusBar().showMessage('ドア開口を追加しました · 壁ローカル位置で保持します')
@@ -585,7 +597,7 @@ class WallEditorWindow(RoomEditorWindow):
         except (ValueError, WallTopologyError) as exc:
             self.statusBar().showMessage(f'クリアランス参照を追加できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(room, new_topology):
+        if self._commit_room_topology(room, new_topology):
             self._sync_recovery()
         self._rebuild()
         self.statusBar().showMessage('クリアランス参照を追加しました · 壁IDの変更にも追従します')
@@ -611,7 +623,7 @@ class WallEditorWindow(RoomEditorWindow):
             self._refresh_wall_inspector()
             self.statusBar().showMessage(f'壁厚を変更できません · {operation_error_message(exc)}')
             return
-        if self.working.replace_room_topology(room, candidate):
+        if self._commit_room_topology(room, candidate):
             self._sync_recovery()
             self._rebuild()
             self.statusBar().showMessage('壁厚を変更しました · 室内境界と参照は維持されています')

@@ -46,6 +46,8 @@ class SceneDiff:
     room_changed: bool
     wall_topology_changed: bool
     semantic_geometry_changed: bool
+    attachments_changed: bool = False
+    construction_assemblies_changed: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -56,6 +58,8 @@ class SceneDiff:
             and not self.room_changed
             and not self.wall_topology_changed
             and not self.semantic_geometry_changed
+            and not self.attachments_changed
+            and not self.construction_assemblies_changed
         )
 
 
@@ -119,6 +123,10 @@ def diff_scene_documents(before: SceneDocument, after: SceneDocument) -> SceneDi
         semantic_geometry_changed=(
             before.r120_semantic_geometry != after.r120_semantic_geometry
         ),
+        attachments_changed=before.attachments != after.attachments,
+        construction_assemblies_changed=(
+            before.construction_assemblies != after.construction_assemblies
+        ),
     )
 
 
@@ -142,6 +150,10 @@ def diff_summary_lines(diff: SceneDiff, document: SceneDocument) -> tuple[str, .
         lines.append('壁構造（壁・開口部）を変更')
     if diff.semantic_geometry_changed:
         lines.append('意味ジオメトリを変更')
+    if diff.attachments_changed:
+        lines.append('取付・マウント関係を変更')
+    if diff.construction_assemblies_changed:
+        lines.append('構造アセンブリを変更')
     for entity_id in diff.added_entity_ids:
         lines.append(f'{_label(entity_id)} を追加')
     for entity_id in diff.removed_entity_ids:

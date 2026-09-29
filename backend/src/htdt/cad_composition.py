@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 
+from .cad_document import EditStateError
 from .cad_scene import RoomPrism
 from .user_facing_error import operation_error_message
 from .wall_editor import WallEditorWindow
@@ -40,7 +41,7 @@ class CadEditorWindow(WallEditorWindow):
             return super()._replace_room(room)
         try:
             changed = self.working.replace_room_topology(room, topology)
-        except ValueError as exc:
+        except (EditStateError, ValueError) as exc:
             message = (
                 '部屋の変更を確定できません · 壁・開口参照を確認してください'
                 f' · {operation_error_message(exc)}'

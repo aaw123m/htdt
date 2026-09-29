@@ -53,7 +53,7 @@ from .cad_constraint_authoring import (
     make_wall_clearance_constraint,
     remove_constraint,
 )
-from .cad_constraints import evaluate_cad_constraints
+from .cad_constraints import CadConstraintAdapterError, evaluate_cad_constraints
 from .cad_constraint_policy import blocking_candidate_violations
 from .cad_constraint_repository import CadConstraintRepository
 from .cad_display_labels import revision_display_label
@@ -994,6 +994,10 @@ class RoomWorkspaceController:
             return None
         try:
             return evaluate_cad_constraints(self.document, self.constraint_set)
+        except CadConstraintAdapterError:
+            # Dangling wall/entity references must surface in the panel
+            # (evaluate_error path), not be swallowed into "no results".
+            raise
         except ValueError:
             return None
 
@@ -1001,8 +1005,14 @@ class RoomWorkspaceController:
         """Hard-constraint gate: reject a move commit that introduces violations."""
         if self.constraint_set is None or not self.constraint_set.constraints:
             return None
-        before = evaluate_cad_constraints(self.committed_document, self.constraint_set)
-        candidate = evaluate_cad_constraints(self.document, self.constraint_set)
+        try:
+            before = evaluate_cad_constraints(self.committed_document, self.constraint_set)
+            candidate = evaluate_cad_constraints(self.document, self.constraint_set)
+        except CadConstraintAdapterError as exc:
+            # A constraint whose wall/entity reference dangles cannot be
+            # evaluated — block the commit honestly instead of crashing or
+            # silently skipping the gate.
+            return f"配置制約が参照先を失っています · {exc}"
         blocking = blocking_candidate_violations(before, candidate, changed_ids)
         if blocking:
             reasons = "、".join(item.name or item.reason_ja for item in blocking[:2])

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .cad_document import CommandPresentation, EditStateError, WorkingDocument
 from .cad_scene import RoomPrism, SceneDocument
 from .cad_wall_models import WallTopology
+from .physical_attachment import apply_attachments
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,12 @@ class RoomWorkingDocument(WorkingDocument):
     ) -> bool:
         # model_copy(update=...) does not revalidate by design; validate the exact
         # snapshot that will become part of history before it can be committed.
+        # ValidationError propagates as ValueError — the documented fail-closed
+        # surface callers already handle.
         validated = SceneDocument.model_validate(after.model_dump(mode='python'))
+        # Attached-child positions are derived state: store the resolved
+        # projection so the command's exact-state checks stay consistent.
+        validated = apply_attachments(validated)
         before_hash = self._content_hash()
         self._document = self._history.push(
             ReplaceRoomCommand(
