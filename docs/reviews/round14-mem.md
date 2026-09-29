@@ -19,7 +19,7 @@ operation with `tracemalloc` diffs. Windows 2022, Python 3.12.10,
 | RSS at exec — fresh data dir | 336–341 MB | 174–180 MB | **~−160 MB** |
 | Idle CPU, app sitting after boot | 0.00% (measured) | 0.00–0.28% | ≈flat |
 | RSS — project switch (×6) | +52.8 MB (~8.8 MB/switch) | ~0 MB (−2 MB over 4) | **leak removed** |
-| Top-level widgets after 4 project switches | 197 → 297 (+25/switch steady-state) | stable ~37–109 (mount churn only) | **leak removed** |
+| Top-level widgets after 4 project switches | 197 → 297 (+25/switch steady-state) | flat 12 after heavy-mount dispose (was growing +26/cycle) | **leak removed** |
 | RSS — workspace cycle ×10 (all 4 destinations) | — | ~0.9 MB/cycle residual | noted, small |
 | Dialogs (settings ×15, palette ×15) | — | 0.0 MB / +0.1 MB | clean |
 
@@ -58,7 +58,26 @@ operation with `tracemalloc` diffs. Windows 2022, Python 3.12.10,
    `QEvent.DeferredDelete` at the end of `dispose_mounts`, so mounts are
    really destroyed before the next project mounts; per-switch RSS delta
    ~0 (`workflow_shell.py`).
-3. **Eager workspace module imports in `workflow_application`.**
+   Runtime re-verification then showed a residual: the mounts die, but
+   their **unparented popup children** (plot context menus, `ViewBoxMenu`,
+   `QFrame` popups — not `QObject` children of the mount tree, so no
+   `deleteLater` ever reaches them) still accumulated +26 hidden
+   `Qt.Popup` top-levels per heavy-mount dispose, linear/unbounded
+   (58→116 over 3 iterations). `dispose_mounts` now also queues every
+   unparented `Qt.Popup` top-level for deletion before the flush —
+   application-level top-levels (dialogs, the parented command palette)
+   are unaffected. Post-dispose top-levels flat at 12 every cycle.
+3. **`--legacy-ui` rollback boot dead since Round 10** (pre-existing
+   regression found while re-verifying the new lazy path).
+   `OptimizationWorkspaceWindow.__init__` crashed in
+   `optimization_search_controller` with `AttributeError:
+   search_reauthor_button` — the reauthor/reason/filter controls were
+   added only on the new-path `optimization_workflow_controller` build
+   (`d90c770e`), so the legacy window's `None`-default init block never
+   declared them. Added the three missing `None` defaults
+   (`optimization_workspace.py`); `--legacy-ui` boots to a constructed
+   window again.
+4. **Eager workspace module imports in `workflow_application`.**
    `room_viewport`, `room_workspace`, `application_pages`,
    `overview_workspace`, `measurement_*`, `optimization_*`, room panel
    modules were top-level imports although every use site lives inside
@@ -68,7 +87,7 @@ operation with `tracemalloc` diffs. Windows 2022, Python 3.12.10,
    `monkeypatch.setattr` keeps working). `import workflow_application`
    2.7→1.05 s. Heavy modules now load only when their workspace is first
    mounted.
-4. **800 ms launch-intent poll for the app's whole lifetime.** The
+5. **800 ms launch-intent poll for the app's whole lifetime.** The
    intent pump stat()-polled `intents/incoming/` every 800 ms forever.
    Replaced with a `QFileSystemWatcher` on the incoming dir (created via
    new `launch_intents.ensure_intent_incoming_dir`) plus a 5 s fallback
@@ -128,7 +147,12 @@ python scripts/round14_resource_probe.py session --data-dir <dir>
   `ensure_intent_incoming_dir` for watch targets.
 - `backend/src/htdt/workflow_application.py` — `_LAZY_IMPORTS` lazy
   facade for workspace/page modules.
+- `backend/src/htdt/optimization_workspace.py` — declare the three
+  newer search controls as `None` in the legacy init block (unbreaks
+  `--legacy-ui` boot).
 - `backend/src/htdt/workflow_shell.py` — `dispose_mounts` flushes
-  deferred deletes so disposed mounts actually die.
+  deferred deletes so disposed mounts actually die, and reaps orphaned
+  unparented `Qt.Popup` top-levels (plot/context menus) so they cannot
+  accumulate across project switches.
 - `scripts/round14_resource_probe.py` — the measurement harness (boot +
   session modes, cProfile option).
