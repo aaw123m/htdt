@@ -355,6 +355,31 @@ class WorkspaceRouter(QStackedWidget):
             self.removeWidget(mount.widget)
             mount.widget.setParent(None)
             mount.widget.deleteLater()
+        # A disposed mount keeps receiving posted events while its own
+        # teardown (close handlers, child menus, plotters) unwinds, and Qt
+        # reposts the pending DeferredDelete behind them — the mounts then
+        # survive as hidden top-level widgets (~45 top-levels and several
+        # MB per project switch). Flushing deferred deletes guarantees the
+        # mounts are really destroyed before the next project mounts.
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+
+        # Mount-owned popups (plot context menus, ViewBoxMenu, tooltip
+        # frames) are not QObject children of the mount tree, so the
+        # mounts' deleteLater never reaches them: ~26 hidden unparented
+        # Qt.Popup top-levels accumulated per heavy-mount dispose. They are
+        # transient by definition, so queue them alongside the mounts;
+        # application-level top-levels (dialogs, the command palette) are
+        # parented and unaffected.
+        app = QApplication.instance()
+        if app is not None:
+            for widget in app.topLevelWidgets():
+                if (
+                    widget.parentWidget() is None
+                    and widget.windowType() == Qt.WindowType.Popup
+                ):
+                    widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     def shutdown(self) -> None:
         self.dispose_mounts()

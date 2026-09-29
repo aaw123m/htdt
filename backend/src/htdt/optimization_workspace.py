@@ -179,6 +179,9 @@ class OptimizationWorkspaceWindow(
         self.search_save_button: QPushButton | None = None
         self.search_generate_button: QPushButton | None = None
         self.search_cancel_button: QPushButton | None = None
+        self.search_reauthor_button: QPushButton | None = None
+        self.search_generate_reason_label: QLabel | None = None
+        self.search_candidate_filter_field: QLineEdit | None = None
         self.search_prev_button: QPushButton | None = None
         self.search_next_button: QPushButton | None = None
         self.search_preview_button: QPushButton | None = None

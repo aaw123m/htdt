@@ -103,6 +103,10 @@ _LAZY_EXPORTS = {
     'complete_queued_intent': ('.launch_intents', 'complete_queued_intent'),
     'describe_launch_intent': ('.launch_intents', 'describe_launch_intent'),
     'drain_launch_intents': ('.launch_intents', 'drain_launch_intents'),
+    'ensure_intent_incoming_dir': (
+        '.launch_intents',
+        'ensure_intent_incoming_dir',
+    ),
     'forward_launch_intent': ('.launch_intents', 'forward_launch_intent'),
     'route_launch_intent': ('.launch_router', 'route_launch_intent'),
 }
@@ -783,7 +787,6 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     QIcon = _self.QIcon
     apply_dark_theme = _self.apply_dark_theme
     SceneRepository = _self.SceneRepository
-    OptimizationWorkspaceWindow = _self.OptimizationWorkspaceWindow
     log_default_document_classification = (
         _self.log_default_document_classification
     )
@@ -1059,7 +1062,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 )
         _splash_status(splash, app, 'ウィンドウを構築しています…')
         window = (
-            OptimizationWorkspaceWindow(repository, project_entry.document_id)
+            _self.OptimizationWorkspaceWindow(repository, project_entry.document_id)
             if args.legacy_ui
             else build_workflow_shell(
                 repository,
@@ -1140,21 +1143,42 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # Route launch-time intents once the event loop is up, then keep
         # draining the single-instance forward queue for the life of the
         # window.
-        from PySide6.QtCore import QTimer
+        from PySide6.QtCore import QFileSystemWatcher, QTimer
 
         QTimer.singleShot(
             0, app, lambda: [_dispatch(i) for i in initial_intents]
         )
 
+        # Round 14: deliver forwarded intents through a filesystem watch on
+        # the incoming queue directory instead of stat()-polling it every
+        # 800ms for the whole session. The slow timer remains only as a
+        # safety net for platforms where the watch silently drops its path
+        # (the queue dir being replaced, some network filesystems), keeping
+        # the guaranteed drain latency bounded without a constant poll.
+        incoming_dir = _self.ensure_intent_incoming_dir(args.data_dir)
+        intent_watcher = QFileSystemWatcher([str(incoming_dir)])
+
+        def _rearm_intent_watch() -> None:
+            # QFileSystemWatcher stops reporting once the watched directory
+            # is removed; re-add it after each signal/tick so a recreated
+            # queue directory keeps delivering.
+            if (
+                incoming_dir.is_dir()
+                and str(incoming_dir) not in intent_watcher.directories()
+            ):
+                intent_watcher.addPath(str(incoming_dir))
+
+        def _drain() -> None:
+            _drain_queued_launch_intents(args.data_dir, _dispatch)
+            _rearm_intent_watch()
+
+        intent_watcher.directoryChanged.connect(lambda _path: _drain())
+
         # Unparented on purpose: the router's window abstraction is not
         # necessarily a QObject, and the local reference keeps the pump
         # alive through app.exec() either way.
         intent_pump = QTimer()
-        intent_pump.setInterval(800)
-
-        def _drain() -> None:
-            _drain_queued_launch_intents(args.data_dir, _dispatch)
-
+        intent_pump.setInterval(5000)
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
         exit_code = int(app.exec())
