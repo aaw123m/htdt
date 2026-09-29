@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from math import log10
+from math import log10, remainder
 
 import numpy as np
 
@@ -91,7 +91,10 @@ def smoothed_level_trace(
         # the scalar loop did — window totals stay bit-identical (NumPy's
         # accumulate is pairwise and could drift an ulp). Window bounds
         # still come from scalar ``**`` so libm cannot shift membership.
-        powers = [10.0 ** (v / 10.0) for v in level]
+        # dB magnitudes beyond ~3080 underflow/overflow float64 powers; the
+        # saturating clamp keeps the power mean finite and monotone instead
+        # of collapsing the window sum to 0 (log10(0) crash) or inf.
+        powers = [10.0 ** min(max(v / 10.0, -300.0), 300.0) for v in level]
         lows = np.array(
             [c * (2.0 ** (-half_width)) for c in frequency],
             dtype=np.float64,
@@ -110,7 +113,7 @@ def smoothed_level_trace(
             lo = center * (2.0 ** (-half_width))
             hi = center * (2.0 ** half_width)
             powers = [
-                10.0 ** (level[i] / 10.0)
+                10.0 ** min(max(level[i] / 10.0, -300.0), 300.0)
                 for i in range(len(frequency))
                 if lo <= frequency[i] <= hi
             ]
@@ -152,10 +155,10 @@ def phase_trace(
     for index in range(1, len(phase)):
         previous = unwrapped[-1]
         candidate = phase[index]
-        while candidate - previous > 180.0:
-            candidate -= 360.0
-        while previous - candidate >= 180.0:
-            candidate += 360.0
+        # Fold the delta into (-180, 180]: remainder gives [-180, 180],
+        # so the -180 tie is folded to +180 to keep the interval half-open.
+        delta = remainder(candidate - previous, 360.0)
+        candidate = previous + (180.0 if delta == -180.0 else delta)
         unwrapped.append(candidate)
     return DerivedPhaseTrace(
         frequency_hz=frequency,

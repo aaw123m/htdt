@@ -158,6 +158,8 @@ def _volume_axes(
     stride_m: float,
 ) -> tuple[RegularGridAxis, RegularGridAxis, RegularGridAxis]:
     stride = _finite(stride_m, field_name='grid stride')
+    if stride <= 0.0:
+        raise ValueError('grid stride must be positive')
     axes: list[RegularGridAxis] = []
     for name, origin, extent in (
         ('x_m', frame.origin_x_m, frame.width_m),
