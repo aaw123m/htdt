@@ -129,6 +129,8 @@ class CriterionRule(BaseModel):
         else:
             if self.expected is None:
                 raise ValueError('equals rule requires expected')
+            if isinstance(self.expected, float) and not isfinite(self.expected):
+                raise ValueError('equals rule expected value must be finite')
             if self.minimum is not None or self.maximum is not None:
                 raise ValueError('equals rule does not accept numeric bounds')
 
