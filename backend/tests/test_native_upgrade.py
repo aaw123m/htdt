@@ -474,3 +474,55 @@ def test_upgrade_failure_recovery_hint_is_japanese(tmp_path: Path) -> None:
     assert '再起動' in quarantine
     assert '復旧用コピー' in quarantine
     assert '変更されていません' in generic
+
+
+def test_quarantine_retry_event_journals_declared_stale_authorities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round-14 regression guard: a quarantine-retry that verifies over
+    tolerated stale rows must journal ``stale_authority_count`` on the
+    completed event — the same contract the first-pass completed event
+    keeps. ``None`` would read as a fully verified generation."""
+    _prepare_upgrade_candidate(tmp_path)
+
+    def _fail_verify(
+        database_path: Path, expected_version: int, **kwargs: object
+    ) -> None:
+        raise NativeUpgradeVerificationError(
+            'semantic_audit', 'injected verification failure'
+        )
+
+    monkeypatch.setattr(
+        'htdt.native_upgrade._verify_upgraded_database', _fail_verify
+    )
+    with pytest.raises(NativeUpgradeQuarantineError):
+        execute_native_upgrade(tmp_path)
+    monkeypatch.undo()
+
+    # The degraded recovery snapshot carried two rows already stale before
+    # the migration; the durable marker declares them for the retry.
+    declared = (
+        {
+            'authority': 'routing_profile',
+            'record_ref': 'rp-stale-1',
+            'failure_class': 'noncanonical_derivation',
+        },
+        {
+            'authority': 'wiring_check',
+            'record_ref': 'wc-stale-1',
+            'failure_class': 'noncanonical_derivation',
+        },
+    )
+    marker = read_upgrade_state(tmp_path)
+    assert marker is not None
+    write_upgrade_state(
+        tmp_path,
+        marker.model_copy(
+            update={'declared_stale_authorities': declared}
+        ),
+    )
+
+    event = execute_native_upgrade(tmp_path)
+
+    assert event.outcome == 'completed'
+    assert event.stale_authority_count == len(declared)

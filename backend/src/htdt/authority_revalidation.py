@@ -130,9 +130,9 @@ class RevalidationReport:
         if len(self.kept_stale) > 10:
             lines.append(f'・ほか {len(self.kept_stale) - 10} 件')
         lines.append(
-            '未検証の記録を含むバックアップは「要再検証の記録を含めて'
-            'バックアップ」を有効にするか --backup-allow-stale で作成'
-            'できます。'
+            '未検証の記録を含むバックアップは「検証を通過しない記録を'
+            '含めてバックアップする」を有効にするか '
+            '--backup-allow-stale で作成できます。'
         )
         return '\n'.join(lines)
 
