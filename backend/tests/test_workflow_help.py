@@ -67,6 +67,28 @@ def test_shortcuts_lists_shell_level_shortcuts() -> None:
     assert all('保存' not in text for text in texts[1:])
 
 
+def test_shortcuts_lists_alias_bindings_and_nudge() -> None:
+    """Alias shortcuts (Backspace, Ctrl+Shift+Z) are real bindings via
+    CommandShortcutBinder — the reference must list them, plus the
+    viewport arrow-key nudge that lives outside the registry (round-14)."""
+    _app()
+    dialog = _shortcuts_dialog(
+        CommandDefinition(
+            command_id='a',
+            display_name='削除',
+            shortcut='Delete',
+            shortcut_aliases=('Backspace',),
+        ),
+    )
+    texts = [label.text() for label in dialog.findChildren(QLabel)]
+    assert 'Delete  削除' in texts
+    assert 'Backspace  削除' in texts
+    assert (
+        '矢印キー（部屋ビュー）  選択項目をグリッド1ステップ移動（Shiftで10倍）'
+        in texts
+    )
+
+
 def test_palette_usage_dialog_has_fixed_content() -> None:
     _app()
     dialog = HelpDialog.palette_usage()

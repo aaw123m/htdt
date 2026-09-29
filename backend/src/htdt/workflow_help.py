@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from .command_registry import CommandRegistry
-from .help_registry import HelpTopic
+from .help_registry import HelpTopic, shortcut_reference
 from .localization import PresentationLocale
 from .ui_theme import TypographyRole, set_typography_role
 
@@ -36,17 +36,19 @@ class HelpDialog(QDialog):
         cls, registry: CommandRegistry, parent: QWidget | None = None
     ) -> "HelpDialog":
         # Shell-level QShortcuts are registered outside the command registry
-        # (palette open, navigation history, help) — listing only registry
-        # shortcuts would render an incomplete reference.
+        # (palette open, navigation history, help, viewport arrow-key nudge)
+        # — listing only registry shortcuts would render an incomplete
+        # reference. Registry rows come from shortcut_reference() so alias
+        # bindings (Backspace, Ctrl+Shift+Z) cannot silently drop out.
         lines = (
             "Ctrl+K  コマンドパレットを開く",
             "Alt+←  前の画面に戻る",
             "Alt+→  次の画面に進む",
             "F1  ショートカット一覧（ヘルプ）",
+            "矢印キー（部屋ビュー）  選択項目をグリッド1ステップ移動（Shiftで10倍）",
         ) + tuple(
-            f"{definition.shortcut}  {definition.display_name}"
-            for definition in registry.definitions()
-            if definition.shortcut
+            f"{doc.shortcut}  {doc.display_name}"
+            for doc in shortcut_reference(registry)
         )
         return cls("キーボードショートカット一覧", lines, parent)
 
