@@ -165,7 +165,7 @@ def _schema_document_for_version(
         raise CaptureBundleError(
             f"{path}: family {family} does not support "
             f"schema_version {version!r} ({status}; "
-            f"supported={sorted(read)})"
+            f"supported={sorted(read, key=lambda v: [int(x) if x.isdigit() else 0 for x in v.split('.')])})"
         )
     return key
 
