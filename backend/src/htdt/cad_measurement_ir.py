@@ -46,10 +46,37 @@ class ParsedImpulseResponse:
     header_lines: tuple[str, ...]
     warnings: tuple[str, ...]
     source_sha256: str
+    declared_step_s: float | None = None
+    declared_start_s: float | None = None
+    declared_length: int | None = None
+    declared_peak: float | None = None
+    declared_peak_index: int | None = None
     parser_version: str = REW_IR_PARSER_VERSION
 
 
 _SPLIT = re.compile(r'[\t, ]+')
+
+# REW IR text exports annotate scalar metadata as ``<value> // <label>``
+# lines between the header block and the bare amplitude column — e.g.
+# ``2.0833333333333333E-5 // Sample interval (seconds)``. The numeric part
+# carries declarations HTDT cannot otherwise infer from an amplitude-only
+# column; the label selects the field it feeds. Any other ``//``-suffixed
+# line is preserved verbatim in ``header_lines``.
+_IR_METADATA_LABELS: tuple[tuple[str, str], ...] = (
+    ('sample interval (seconds)', 'declared_step_s'),
+    ('start time (seconds)', 'declared_start_s'),
+    ('response length', 'declared_length'),
+    ('peak value', 'declared_peak'),
+    ('peak index', 'declared_peak_index'),
+)
+
+
+def _token_decimals(token: str) -> int:
+    """Decimal places a timestamp token carries — its own quantization."""
+    mantissa = token.split('e', 1)[0].split('E', 1)[0]
+    if '.' not in mantissa:
+        return 0
+    return len(mantissa.split('.', 1)[1])
 
 
 def _decode_ir(raw: bytes) -> str:
@@ -90,6 +117,13 @@ def parse_rew_impulse_response(
     amplitudes: list[float] = []
     header_lines: list[str] = []
     row_width: int | None = None
+    declared_step_s: float | None = None
+    declared_start_s: float | None = None
+    declared_length: int | None = None
+    declared_peak: float | None = None
+    declared_peak_index: float | None = None
+    timestamp_decimals = 0
+    warnings: list[str] = []
 
     for line_number, original in enumerate(text.splitlines(), start=1):
         line = original.strip()
@@ -104,6 +138,42 @@ def parse_rew_impulse_response(
             pass
 
         if not starts_numeric:
+            header_lines.append(original)
+            continue
+
+        # ``<number> // <label>`` metadata rows (a real REW export declares
+        # peak value/index, response length, sample interval and start
+        # time this way) are provenance, not samples: feed the declared
+        # fields and preserve the raw line verbatim.
+        comment_index = next(
+            (i for i, token in enumerate(tokens) if token.startswith('//')),
+            None,
+        )
+        if comment_index is not None:
+            value_tokens = tokens[:comment_index]
+            label = ' '.join(tokens[comment_index + 1:]).strip().lower()
+            field = dict(_IR_METADATA_LABELS).get(label)
+            if field is not None and value_tokens:
+                try:
+                    meta_value = float(value_tokens[0])
+                except ValueError:
+                    meta_value = None
+                if meta_value is not None and isfinite(meta_value):
+                    if field == 'declared_step_s':
+                        declared_step_s = meta_value
+                    elif field == 'declared_start_s':
+                        declared_start_s = meta_value
+                    elif field == 'declared_length':
+                        declared_length = int(meta_value)
+                    elif field == 'declared_peak':
+                        declared_peak = meta_value
+                    elif field == 'declared_peak_index':
+                        declared_peak_index = meta_value
+            elif value_tokens:
+                # A numeric row carrying an unrecognized '//' comment is
+                # kept verbatim but dropped from the samples — surface it
+                # instead of silently losing a data row.
+                warnings.append(f'ir_commented_row:{line_number}')
             header_lines.append(original)
             continue
 
@@ -130,12 +200,25 @@ def parse_rew_impulse_response(
             amplitudes.append(values[0])
         else:
             time_s, amplitude = values
+            # Comma-separated rows whose fields are all integers cannot be
+            # told apart from locale decimal-comma single-column data
+            # ('0,5' = 0.5, not time=0 amp=5): reject rather than silently
+            # import wrong amplitudes at a 1 Hz inferred rate.
+            if ',' in line and '.' not in line:
+                raise RewIrParseError(
+                    f'Line {line_number}: comma-separated integer rows are '
+                    'ambiguous with decimal-comma locale exports; '
+                    'locale-formatted decimals are not supported'
+                )
             if times and time_s <= times[-1]:
                 raise RewIrParseError(
                     f'Line {line_number}: time values must be strictly increasing'
                 )
             times.append(time_s)
             amplitudes.append(amplitude)
+            timestamp_decimals = max(
+                timestamp_decimals, _token_decimals(tokens[0])
+            )
 
     if len(amplitudes) < 2:
         raise RewIrParseError(
@@ -143,24 +226,51 @@ def parse_rew_impulse_response(
         )
 
     sample_rate_hz: float | None = None
-    warnings: list[str] = []
     if times:
         step = times[1] - times[0]
         if step <= 0 or not isfinite(step):
             raise RewIrParseError('impulse-response time step is invalid')
+        # Uniformity is judged within the file's own precision: two
+        # rounded timestamps can deviate by up to ~2 decimal quanta, so
+        # the tolerance honors the text's least significant digit while
+        # still rejecting genuinely non-uniform sampling.
+        tolerance = min(
+            max(
+                1e-9 * max(1.0, abs(step)),
+                2.5 * (10.0 ** -max(1, timestamp_decimals)),
+            ),
+            0.25 * step,
+        )
         for index in range(2, len(times)):
             delta = times[index] - times[index - 1]
-            if abs(delta - step) > 1e-9 * max(1.0, abs(step)):
+            if abs(delta - step) > tolerance:
                 raise RewIrParseError(
                     'impulse-response sampling is not uniform; '
                     'the file cannot be regridded by HTDT'
                 )
         sample_rate_hz = 1.0 / step
+    elif declared_step_s is not None and declared_step_s > 0:
+        # The export declared its own sample interval — preferred over an
+        # inferred or caller-declared rate.
+        sample_rate_hz = 1.0 / declared_step_s
     else:
         warnings.append(
             'ir_time_axis_unresolved: amplitude-only export requires an '
             'explicit sample rate declaration'
         )
+
+    if declared_length is not None and declared_length != len(amplitudes):
+        warnings.append(
+            f'ir_declared_length_mismatch:{declared_length}:{len(amplitudes)}'
+        )
+    if declared_peak is not None and amplitudes:
+        observed_peak = max(abs(value) for value in amplitudes)
+        if abs(observed_peak - abs(declared_peak)) > 1e-9 * max(
+            1.0, abs(declared_peak)
+        ):
+            warnings.append(
+                f'ir_declared_peak_mismatch:{declared_peak}:{observed_peak}'
+            )
 
     return ParsedImpulseResponse(
         time_s=tuple(times),
@@ -169,6 +279,15 @@ def parse_rew_impulse_response(
         header_lines=tuple(header_lines),
         warnings=tuple(warnings),
         source_sha256=sha256(raw).hexdigest(),
+        declared_step_s=declared_step_s,
+        declared_start_s=declared_start_s,
+        declared_length=declared_length,
+        declared_peak=declared_peak,
+        declared_peak_index=(
+            int(declared_peak_index)
+            if declared_peak_index is not None
+            else None
+        ),
     )
 
 
@@ -288,7 +407,12 @@ def normalize_rew_ir_text(
             'impulse-response sample rate is unresolved: the export has no '
             'time column and no explicit sample_rate_hz was declared'
         )
-    start = parsed.time_s[0] if parsed.time_s else 0.0
+    if parsed.time_s:
+        start = parsed.time_s[0]
+    elif parsed.declared_start_s is not None:
+        start = parsed.declared_start_s
+    else:
+        start = 0.0
     dataset = CadImpulseResponseDataset(
         dataset_id=dataset_id or str(uuid4()),
         measurement_id=measurement_id,
@@ -330,11 +454,17 @@ def _rederive_rew_ir_text_dataset(raw: bytes) -> dict[str, Any]:
     halves on save and on every authoritative read.
     """
     parsed = parse_rew_impulse_response(raw)
+    if parsed.time_s:
+        start_time_s = parsed.time_s[0]
+    elif parsed.declared_start_s is not None:
+        start_time_s = parsed.declared_start_s
+    else:
+        start_time_s = 0.0
     return {
         'parsed': parsed,
         'amplitudes': parsed.amplitudes,
         'sample_rate_hz': parsed.sample_rate_hz,
-        'start_time_s': parsed.time_s[0] if parsed.time_s else 0.0,
+        'start_time_s': start_time_s,
         'source_sha256': parsed.source_sha256,
         'importer_version': parsed.parser_version,
     }
@@ -404,16 +534,13 @@ def verify_imported_ir_dataset(
             'IR dataset does not match the canonical import transformation '
             'output for its raw asset'
         )
-    if parsed.time_s:
-        expected_rate = float(parsed.sample_rate_hz)  # type: ignore[arg-type]
+    if parsed.sample_rate_hz is not None:
+        expected_rate = float(parsed.sample_rate_hz)
         if abs(float(dataset.sample_rate_hz) - expected_rate) > 1e-9 * expected_rate:
             raise ValueError('IR dataset sample rate does not match its raw asset')
-        if float(dataset.start_time_s) != float(parsed.time_s[0]):
-            raise ValueError('IR dataset start time does not match its raw asset')
-    elif float(dataset.start_time_s) != 0.0:
-        raise ValueError(
-            'IR dataset declares a non-zero start time its raw asset cannot carry'
-        )
+    expected_start = derived['start_time_s']
+    if float(dataset.start_time_s) != float(expected_start):
+        raise ValueError('IR dataset start time does not match its raw asset')
 
 
 def ir_observation_fields(dataset: CadImpulseResponseDataset) -> dict[str, Any]:

@@ -55,7 +55,7 @@ _FILTER_TYPE_MAP: dict[str, str] = {
     'AP': 'all_pass',
 }
 
-_NUMBER = r'-?\d+(?:\.\d+)?'
+_NUMBER = r'[-+]?\d+(?:\.\d+)?'
 
 
 
@@ -277,7 +277,7 @@ class ImportedVsExportComparison(BaseModel):
 
 
 def _parse_number(text: str) -> float | None:
-    match = re.search(_NUMBER, text)
+    match = re.match(_NUMBER, text)
     return float(match.group(0)) if match else None
 
 
@@ -298,13 +298,21 @@ def _parse_filter_line(body: str) -> tuple[dict[str, Any] | None, str | None]:
     if fc:
         frequency = float(fc.group(1))
     else:
+        if re.search(r'\bFc\b', rest, re.IGNORECASE):
+            return None, 'Fc value is not parseable'
         bare = re.match(rf'^\s*({_NUMBER})\s*Hz\b', rest, re.IGNORECASE)
         if bare:
             frequency = float(bare.group(1))
 
     gain = re.search(rf'\bGain\s+({_NUMBER})\s*dB', rest, re.IGNORECASE)
+    if not gain and re.search(r'\bGain\b', rest, re.IGNORECASE):
+        return None, 'Gain value is not parseable'
     q = re.search(rf'\bQ\s+({_NUMBER})', rest, re.IGNORECASE)
+    if not q and re.search(r'\bQ\b', rest, re.IGNORECASE):
+        return None, 'Q value is not parseable'
     bw = re.search(rf'\bBW\s+Oct\s+({_NUMBER})', rest, re.IGNORECASE)
+    if not bw and re.search(r'\bBW\b', rest, re.IGNORECASE):
+        return None, 'BW Oct value is not parseable'
 
     return {
         'enabled': enabled,
