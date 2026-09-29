@@ -179,14 +179,13 @@ def _linear_phase_score(taps: tuple[float, ...]) -> bool:
     n = len(taps)
     if n < 2:
         return True
-    symmetric = all(
-        abs(taps[i] - taps[n - 1 - i]) <= _SYMMETRY_TOLERANCE
-        for i in range(n // 2)
-    )
-    antisymmetric = all(
-        abs(taps[i] + taps[n - 1 - i]) <= _SYMMETRY_TOLERANCE
-        for i in range(n // 2)
-    )
+    # Vectorized pair checks: same elementwise differences/sums and the
+    # same tolerance comparison as the scalar loop over i in range(n//2);
+    # for odd n the middle tap is still deliberately unconstrained.
+    front = np.asarray(taps[: n // 2], dtype=np.float64)
+    back = np.asarray(taps[n - 1 : n - 1 - n // 2 : -1], dtype=np.float64)
+    symmetric = bool(np.all(np.abs(front - back) <= _SYMMETRY_TOLERANCE))
+    antisymmetric = bool(np.all(np.abs(front + back) <= _SYMMETRY_TOLERANCE))
     return symmetric or antisymmetric
 
 

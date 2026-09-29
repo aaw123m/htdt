@@ -502,13 +502,36 @@ def _nearest_sample(
     )
 
 
+# Frequency-ordered views of immutable impedance-sample tuples. Per-point
+# evaluation loops re-sorted the same tuple on every call; entries are
+# keyed by ``id`` and store the tuple itself, so the key cannot be recycled
+# to a different live tuple and an ``is`` match is authoritative.
+_ORDERED_SAMPLES_CACHE_SIZE = 64
+_ordered_samples_cache: dict[
+    int, tuple[tuple[ImpedanceSample, ...], tuple[ImpedanceSample, ...]]
+] = {}
+
+
+def _ordered_samples(
+    samples: tuple[ImpedanceSample, ...],
+) -> tuple[ImpedanceSample, ...]:
+    cached = _ordered_samples_cache.get(id(samples))
+    if cached is not None and cached[0] is samples:
+        return cached[1]
+    ordered = tuple(sorted(samples, key=lambda sample: sample.frequency_hz))
+    if len(_ordered_samples_cache) >= _ORDERED_SAMPLES_CACHE_SIZE:
+        _ordered_samples_cache.clear()
+    _ordered_samples_cache[id(samples)] = (samples, ordered)
+    return ordered
+
+
 def _interpolated_complex(
     samples: tuple[ImpedanceSample, ...],
     frequency_hz: float,
     interpolation: ImpedanceInterpolation | None = None,
 ) -> complex | None:
     """Complex curve lookup honoring the declared interpolation policy."""
-    ordered = sorted(samples, key=lambda sample: sample.frequency_hz)
+    ordered = _ordered_samples(samples)
     if frequency_hz < ordered[0].frequency_hz or (
         frequency_hz > ordered[-1].frequency_hz
     ):
@@ -537,7 +560,7 @@ def _interpolated_magnitude(
     frequency_hz: float,
     interpolation: ImpedanceInterpolation | None = None,
 ) -> float | None:
-    ordered = sorted(samples, key=lambda sample: sample.frequency_hz)
+    ordered = _ordered_samples(samples)
     if frequency_hz < ordered[0].frequency_hz or (
         frequency_hz > ordered[-1].frequency_hz
     ):
@@ -633,7 +656,7 @@ def _load_impedance_at(
     magnitude otherwise, None when the tier has no curve/nominal to use.
     """
     if load.tier == 'complex_curve':
-        ordered = sorted(load.samples, key=lambda s: s.frequency_hz)
+        ordered = _ordered_samples(load.samples)
         if frequency_hz < ordered[0].frequency_hz or (
             frequency_hz > ordered[-1].frequency_hz
         ):

@@ -423,6 +423,11 @@ def _iacc(
     if norm <= 0.0:
         raise ValueError('IACC undefined on a silent ear channel')
     max_lag = int(round(max_lag_s * sample_rate_hz))
+    # One shared product buffer: ``l_seg * r_seg`` allocated a full-window
+    # temporary per lag (2*max_lag+1 allocations of ~window size).
+    # np.multiply(..., out=) writes the same elementwise products into the
+    # reused buffer, so np.sum sees identical inputs and corr is unchanged.
+    product = np.empty(len(left_w), dtype=np.float64)
     best = 0.0
     for lag in range(-max_lag, max_lag + 1):
         if lag >= 0:
@@ -431,7 +436,9 @@ def _iacc(
         else:
             l_seg = left_w[: lag]
             r_seg = right_w[-lag:]
-        corr = float(np.sum(l_seg * r_seg)) / norm
+        segment = product[: l_seg.size]
+        np.multiply(l_seg, r_seg, out=segment)
+        corr = float(np.sum(segment)) / norm
         if abs(corr) > abs(best):
             best = corr
     return best

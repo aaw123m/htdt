@@ -16,6 +16,7 @@ from math import isfinite, log2, log10
 from statistics import pvariance
 from typing import Any, Literal, Sequence
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .cad_calibration import CadTargetCurve
@@ -405,16 +406,41 @@ def _fractional_octave_smooth(
     """
     center_fraction = 2.0 ** (fraction_octaves / 2.0)
     smoothed: list[float] = []
-    for center, _ in zip(frequencies, magnitudes_db):
-        low = center / center_fraction
-        high = center * center_fraction
-        window = [
-            float(v)
-            for f, v in zip(frequencies, magnitudes_db)
-            if low <= f <= high
-        ]
-        power = sum(10.0 ** (v / 10.0) for v in window) / len(window)
-        smoothed.append(10.0 * log10(power))
+    axis = np.asarray(frequencies, dtype=np.float64)
+    if (
+        axis.size > 1
+        and len(frequencies) == len(magnitudes_db)
+        and bool(np.all(axis[1:] >= axis[:-1]))
+    ):
+        # Sorted axis: the window is the contiguous slice
+        # [searchsorted(low,'left'), searchsorted(high,'right')) — same
+        # membership as the ``low <= f <= high`` scan. Per-element
+        # ``low``/``high`` come from IEEE-exact division/multiplication
+        # and powers keep scalar ``10.0 ** x`` so libm cannot shift
+        # values; slicing a Python list preserves input order, so ``sum``
+        # folds the window exactly as the scalar loop did — totals stay
+        # bit-identical (NumPy's accumulate is pairwise and could drift
+        # an ulp).
+        powers = [10.0 ** (v / 10.0) for v in magnitudes_db]
+        lows = axis / center_fraction
+        highs = axis * center_fraction
+        lo_index = np.searchsorted(axis, lows, side='left')
+        hi_index = np.searchsorted(axis, highs, side='right')
+        for lo_i, hi_i in zip(lo_index, hi_index):
+            window = powers[lo_i:hi_i]
+            power = sum(window) / len(window)
+            smoothed.append(10.0 * log10(power))
+    else:
+        for center, _ in zip(frequencies, magnitudes_db):
+            low = center / center_fraction
+            high = center * center_fraction
+            window = [
+                float(v)
+                for f, v in zip(frequencies, magnitudes_db)
+                if low <= f <= high
+            ]
+            power = sum(10.0 ** (v / 10.0) for v in window) / len(window)
+            smoothed.append(10.0 * log10(power))
     return tuple(smoothed)
 
 
