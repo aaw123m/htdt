@@ -2609,6 +2609,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'capture inbox triage/disposition bookkeeping — operational '
         'intake state, not canonical authority',
     ),
+    'capture_disposition_transitions': (
+        'OPERATIONAL_METADATA',
+        'capture inbox disposition audit ledger — append-only '
+        'operational bookkeeping',
+    ),
     'capture_inbox_promotions': (
         'OPERATIONAL_METADATA',
         'capture inbox promotion log — operational bookkeeping',

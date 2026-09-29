@@ -307,6 +307,9 @@ def test_prediction_execution_bookkeeping_is_bounded() -> None:
     executor = SimpleNamespace(
         progress_sink=None,
         cancel=lambda task_id: True,
+        acquire_progress_sink=lambda sink: SimpleNamespace(
+            release=lambda: None
+        ),
     )
     controller = PredictionExecutionController(executor)
 

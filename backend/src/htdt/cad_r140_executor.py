@@ -340,6 +340,48 @@ class ExecutionCancellationToken:
 ProgressSink = Callable[[str, float, str | None], None]
 
 
+class ProgressSinkLease:
+    """Explicit hold on an executor's effective progress sink.
+
+    Acquired through ``BoundedR140Executor.acquire_progress_sink`` and
+    returned by ``release`` (or the context-manager exit). Leases stack:
+    the most recently acquired lease is the sink new tasks report into
+    until it is released, at which point the previous lease — or the
+    executor's base ``progress_sink`` — becomes effective again. A
+    controller that goes away without its events being re-routed can
+    therefore neither keep receiving progress meant for a successor nor
+    leave its sink as the executor's effective destination.
+    """
+
+    def __init__(
+        self, executor: 'BoundedR140Executor', sink: ProgressSink
+    ) -> None:
+        self._executor = executor
+        self._sink = sink
+        self._released = False
+
+    @property
+    def sink(self) -> ProgressSink:
+        return self._sink
+
+    @property
+    def released(self) -> bool:
+        return self._released
+
+    def release(self) -> None:
+        """Return the lease; releasing twice is a no-op."""
+        if self._released:
+            return
+        self._released = True
+        self._executor._release_progress_sink(self)
+
+    def __enter__(self) -> 'ProgressSinkLease':
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.release()
+
+
 class ExecutionInvocationContext:
     """Runtime port passed to a solver adapter callback."""
 
@@ -962,7 +1004,8 @@ class BoundedR140Executor:
         self.runtime_repository = runtime_repository
         self.worker_port = worker_port
         self.max_workers = int(max_workers)
-        self.progress_sink = progress_sink
+        self._base_progress_sink = progress_sink
+        self._progress_sink_leases: list[ProgressSinkLease] = []
         self._pool = ThreadPoolExecutor(
             max_workers=self.max_workers,
             thread_name_prefix='htdt-r140',
@@ -982,6 +1025,43 @@ class BoundedR140Executor:
         if self._closed:
             raise RuntimeError('R140 executor is closed')
 
+    @property
+    def progress_sink(self) -> ProgressSink | None:
+        """The sink tasks report into: the newest held lease, else the
+        base sink. Read per task invocation so a successor controller's
+        lease governs subsequent reports without re-registering."""
+        with self._lock:
+            if self._progress_sink_leases:
+                return self._progress_sink_leases[-1]._sink
+            return self._base_progress_sink
+
+    @progress_sink.setter
+    def progress_sink(self, sink: ProgressSink | None) -> None:
+        with self._lock:
+            self._base_progress_sink = sink
+
+    def acquire_progress_sink(self, sink: ProgressSink) -> ProgressSinkLease:
+        """Take an explicit lease on the effective progress sink.
+
+        The lease becomes the sink new task invocations report into until
+        released; releasing unwinds to the previously-held lease (or the
+        base sink). This is the lifecycle contract ``progress_sink``
+        alone could not express: a controller holds the destination
+        explicitly and gives it up deterministically.
+        """
+        lease = ProgressSinkLease(self, sink)
+        with self._lock:
+            self._ensure_open()
+            self._progress_sink_leases.append(lease)
+        return lease
+
+    def _release_progress_sink(self, lease: ProgressSinkLease) -> None:
+        with self._lock:
+            try:
+                self._progress_sink_leases.remove(lease)
+            except ValueError:
+                pass
+
     def cancel(self, task_id: str) -> bool:
         with self._lock:
             token = self._tokens.get(task_id)
@@ -998,6 +1078,7 @@ class BoundedR140Executor:
             if self._closed:
                 return
             self._closed = True
+            self._progress_sink_leases.clear()
             tokens = tuple(self._tokens.values())
         for token in tokens:
             token.request()

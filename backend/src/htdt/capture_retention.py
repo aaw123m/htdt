@@ -27,6 +27,7 @@ import sqlite3
 from typing import Literal
 
 from .cad_schema import connect_sqlite
+from .clock import utc_now_iso as _utc_now
 
 
 class CaptureRetentionError(ValueError):
@@ -805,6 +806,14 @@ class CaptureRetentionService:
                 f'OR newer_lineage_digest IN ({placeholders})',
                 digests + digests,
             )
+        # The disposition ledger's foreign key makes it a child of the
+        # purged item rows; it goes with them like the other bookkeeping.
+        if self._has_table(connection, 'capture_disposition_transitions'):
+            connection.execute(
+                f'DELETE FROM capture_disposition_transitions '
+                f'WHERE lineage_digest IN ({placeholders})',
+                digests,
+            )
         connection.execute(
             f'DELETE FROM capture_inbox_items '
             f'WHERE lineage_digest IN ({placeholders})',
@@ -865,6 +874,18 @@ class CaptureRetentionService:
                 'WHERE lineage_digest=?',
                 (disposition, '', began_at, digest),
             )
+            if self._has_table(connection, 'capture_disposition_transitions'):
+                from .capture_inbox import record_disposition_transition
+
+                record_disposition_transition(
+                    connection,
+                    digest,
+                    'superseded',
+                    disposition,
+                    reason='superseding lineage purged; disposition reverted',
+                    actor='retention_purge',
+                    changed_at_utc=began_at or _utc_now(),
+                )
 
     def _available_authority_kinds(
         self, connection: sqlite3.Connection, lineage_digest: str

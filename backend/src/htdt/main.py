@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.routing import Match
 
 from . import __version__
@@ -48,6 +48,128 @@ class HealthResponse(BaseModel):
     rew_required: bool
     measurement_hardware_required: bool
     schema_version: int
+
+
+# Upper bound a single list page may return. Legacy list endpoints used to
+# serialize the whole resource; explicit paging now exists, and the default
+# page equals the bound so unparameterized requests are wire-identical.
+MAX_LIST_PAGE_SIZE = 10_000
+
+# Any JSON value the store round-trips through *_json columns.
+JsonPayload = dict | list | str | int | float | bool | None
+
+
+class _StoreRow(BaseModel):
+    """Base for response rows materialized by the legacy JSON store.
+
+    Each model declares the fields every row of that resource carries;
+    ``extra='allow'`` keeps store-defined extras on the wire unchanged,
+    so declaring a response_model cannot alter a response body.
+    """
+
+    model_config = ConfigDict(extra='allow')
+
+
+class ProjectRow(_StoreRow):
+    id: str
+    name: str
+    created_at: str
+
+
+class SessionRow(_StoreRow):
+    id: str
+    project_id: str
+    purpose: str | None
+    started_at: str | None
+    notes: str | None
+    created_at: str
+    measurement_count: int
+
+
+class ContextRow(_StoreRow):
+    id: str
+    project_id: str
+    revision_number: int
+    parent_context_id: str | None
+    created_at: str
+    payload: JsonPayload
+
+
+class ConstraintSetRow(_StoreRow):
+    id: str
+    project_id: str
+    context_id: str
+    name: str | None
+    spec: JsonPayload
+    spec_sha256: str
+    integrity_valid: bool
+    created_at: str
+
+
+class SearchSpecRow(_StoreRow):
+    id: str
+    project_id: str
+    context_id: str
+    constraint_set_id: str
+    name: str | None
+    spec: JsonPayload
+    spec_sha256: str
+    integrity_valid: bool
+    created_at: str
+
+
+class MeasurementRow(_StoreRow):
+    id: str
+    dataset_id: str
+    context_id: str
+    session_id: str | None
+    channel_role: str
+    evidence_type: str
+    source_speaker_ids: JsonPayload
+    radiation_scope: str
+    routing_evidence: str
+    captured_at: str | None
+    imported_at: str
+    notes: str | None
+    quality_status: str
+    quality_reasons: JsonPayload
+    quality_source: str
+    repeat_group: str | None
+    asset_sha256: str | None
+    dataset_sha256: str | None
+    integrity_valid: bool
+    frequency_min_hz: float | None
+    frequency_max_hz: float | None
+    points: int
+    metadata: JsonPayload
+
+
+class AttachmentRow(_StoreRow):
+    id: str
+    project_id: str
+    asset_sha256: str
+    measurement_id: str | None
+    context_id: str | None
+    kind: str
+    label: str | None
+    filename: str
+    size_bytes: int
+    created_at: str
+
+
+class ComparisonRow(_StoreRow):
+    id: str
+    project_id: str
+    dataset_a_id: str
+    dataset_b_id: str
+    spec: JsonPayload
+    result: JsonPayload
+    created_at: str
+
+
+def _page(rows: list[dict], offset: int, limit: int) -> list[dict]:
+    """Apply bounded list pagination without changing row order or shape."""
+    return rows[offset : offset + limit]
 
 
 # The legacy browser backup/restore contract is retired (issue #332): it was a
@@ -354,26 +476,33 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except RewApiError as exc:
             raise HTTPException(status_code=502, detail=f'Unexpected REW API response: {exc}') from exc
 
-    @app.get('/api/projects')
-    def list_projects() -> list[dict]:
-        return store.list_projects()
+    @app.get('/api/projects', response_model=list[ProjectRow])
+    def list_projects(
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
+        return _page(store.list_projects(), offset, limit)
 
     @app.post('/api/projects', status_code=201)
     def create_project(request: ProjectCreate) -> dict:
         return store.create_project(request.name)
 
-    @app.get('/api/projects/{project_id}')
+    @app.get('/api/projects/{project_id}', response_model=ProjectRow)
     def get_project(project_id: str) -> dict:
         project = store.get_project(project_id)
         if project is None:
             raise HTTPException(status_code=404, detail='Project not found')
         return project
 
-    @app.get('/api/projects/{project_id}/sessions')
-    def list_sessions(project_id: str) -> list[dict]:
+    @app.get('/api/projects/{project_id}/sessions', response_model=list[SessionRow])
+    def list_sessions(
+        project_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
-        return store.list_sessions(project_id)
+        return _page(store.list_sessions(project_id), offset, limit)
 
     @app.post('/api/projects/{project_id}/sessions', status_code=201)
     def create_session(project_id: str, request: SessionCreate) -> dict:
@@ -382,11 +511,15 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
-    @app.get('/api/projects/{project_id}/contexts')
-    def list_contexts(project_id: str) -> list[dict]:
+    @app.get('/api/projects/{project_id}/contexts', response_model=list[ContextRow])
+    def list_contexts(
+        project_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
-        return store.list_contexts(project_id)
+        return _page(store.list_contexts(project_id), offset, limit)
 
     @app.get('/api/projects/{project_id}/contexts/{context_id}/geometry')
     def context_geometry(project_id: str, context_id: str) -> dict:
@@ -405,13 +538,18 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
-    @app.get('/api/projects/{project_id}/constraint-sets')
-    def list_constraint_sets(project_id: str, context_id: str | None = Query(default=None)) -> list[dict]:
+    @app.get('/api/projects/{project_id}/constraint-sets', response_model=list[ConstraintSetRow])
+    def list_constraint_sets(
+        project_id: str,
+        context_id: str | None = Query(default=None),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
         if context_id is not None and store.get_context(project_id, context_id) is None:
             raise HTTPException(status_code=404, detail='Context not found')
-        return store.list_constraint_sets(project_id, context_id)
+        return _page(store.list_constraint_sets(project_id, context_id), offset, limit)
 
     @app.post('/api/projects/{project_id}/constraint-sets', status_code=201)
     def create_constraint_set(project_id: str, request: ConstraintSetCreate) -> dict:
@@ -426,7 +564,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.get('/api/projects/{project_id}/constraint-sets/{constraint_set_id}')
+    @app.get('/api/projects/{project_id}/constraint-sets/{constraint_set_id}', response_model=ConstraintSetRow)
     def get_constraint_set(project_id: str, constraint_set_id: str) -> dict:
         record = store.get_constraint_set(project_id, constraint_set_id)
         if record is None:
@@ -450,13 +588,18 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         return {**result, 'constraint_set_id': record['id'], 'constraint_set_spec_sha256': record['spec_sha256'],
                 'context_id': record['context_id']}
 
-    @app.get('/api/projects/{project_id}/search-specs')
-    def list_search_specs(project_id: str, context_id: str | None = Query(default=None)) -> list[dict]:
+    @app.get('/api/projects/{project_id}/search-specs', response_model=list[SearchSpecRow])
+    def list_search_specs(
+        project_id: str,
+        context_id: str | None = Query(default=None),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
         if context_id is not None and store.get_context(project_id, context_id) is None:
             raise HTTPException(status_code=404, detail='Context not found')
-        return store.list_search_specs(project_id, context_id)
+        return _page(store.list_search_specs(project_id, context_id), offset, limit)
 
     @app.post('/api/projects/{project_id}/search-specs/preview')
     def preview_search_spec(project_id: str, request: SearchSpecCreate) -> dict:
@@ -501,7 +644,7 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
         return {**record, 'estimate': estimate}
 
-    @app.get('/api/projects/{project_id}/search-specs/{search_spec_id}')
+    @app.get('/api/projects/{project_id}/search-specs/{search_spec_id}', response_model=SearchSpecRow)
     def get_search_spec(project_id: str, search_spec_id: str) -> dict:
         record = store.get_search_spec(project_id, search_spec_id)
         if record is None:
@@ -621,13 +764,18 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
-    @app.get('/api/projects/{project_id}/measurements')
-    def list_measurements(project_id: str, context_id: str | None = Query(default=None),
-                          session_id: str | None = Query(default=None)) -> list[dict]:
+    @app.get('/api/projects/{project_id}/measurements', response_model=list[MeasurementRow])
+    def list_measurements(
+        project_id: str,
+        context_id: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
         try:
-            return store.list_measurements(project_id, context_id, session_id)
+            return _page(store.list_measurements(project_id, context_id, session_id), offset, limit)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
@@ -730,14 +878,19 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
             'warnings': warnings,
         }
 
-    @app.get('/api/projects/{project_id}/attachments')
-    def list_attachments(project_id: str, context_id: str | None = Query(default=None),
-                         measurement_id: str | None = Query(default=None),
-                         kind: AttachmentKind | None = Query(default=None)) -> list[dict]:
+    @app.get('/api/projects/{project_id}/attachments', response_model=list[AttachmentRow])
+    def list_attachments(
+        project_id: str,
+        context_id: str | None = Query(default=None),
+        measurement_id: str | None = Query(default=None),
+        kind: AttachmentKind | None = Query(default=None),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
         try:
-            return store.list_attachments(project_id, context_id, measurement_id, kind)
+            return _page(store.list_attachments(project_id, context_id, measurement_id, kind), offset, limit)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
@@ -751,11 +904,15 @@ def create_app(data_dir: Path | None = None, rew_client: RewApiClient | None = N
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=_key_error_detail(exc)) from exc
 
-    @app.get('/api/projects/{project_id}/comparisons')
-    def list_comparisons(project_id: str) -> list[dict]:
+    @app.get('/api/projects/{project_id}/comparisons', response_model=list[ComparisonRow])
+    def list_comparisons(
+        project_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=MAX_LIST_PAGE_SIZE, ge=1, le=MAX_LIST_PAGE_SIZE),
+    ) -> list[dict]:
         if store.get_project(project_id) is None:
             raise HTTPException(status_code=404, detail='Project not found')
-        return store.list_comparisons(project_id)
+        return _page(store.list_comparisons(project_id), offset, limit)
 
     def report_snapshot(project_id: str, comparison_id: str) -> tuple[dict, dict]:
         project = store.get_project(project_id)

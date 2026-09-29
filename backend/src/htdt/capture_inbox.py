@@ -48,6 +48,7 @@ INBOX_ITEM_DOMAIN = 'htdt.capture.inbox-item.v1'
 INBOX_PROMOTION_DOMAIN = 'htdt.capture.inbox-promotion.v1'
 INBOX_SUPERSESSION_DOMAIN = 'htdt.capture.inbox-supersession.v1'
 INBOX_REGISTRATION_DOMAIN = 'htdt.capture.cross-revision-registration.v1'
+INBOX_TRANSITION_DOMAIN = 'htdt.capture.disposition-transition.v1'
 
 # Deliveries that arrive without an explicit project destination land in the
 # shared inbox scope; the receipt names this destination so no routing is
@@ -226,6 +227,29 @@ class CaptureInboxSupersession(BaseModel):
     created_at_utc: str = Field(min_length=1)
 
 
+class CaptureDispositionTransition(BaseModel):
+    """One row of the append-only disposition ledger.
+
+    Every change to an item's disposition — staging, operator actions,
+    promotion-derived outcomes, supersession, and retention reverts —
+    records one transition inside the same transaction as the disposition
+    update it describes. ``from_disposition`` is ``None`` only on the
+    staging transition that creates the item.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    transition_id: str = Field(
+        pattern=r'^capture-disposition-transition:[0-9a-f]{64}$'
+    )
+    lineage_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    from_disposition: InboxDisposition | None = None
+    to_disposition: InboxDisposition
+    reason: str = ''
+    actor: str = Field(min_length=1)
+    changed_at_utc: str = Field(min_length=1)
+
+
 class CaptureCrossRevisionRegistration(BaseModel):
     """Accepted explicit alignment between two capture revisions (#395 route)."""
 
@@ -313,6 +337,60 @@ def _inbox_hash(domain: str, value: object) -> str:
     return canonical_sha256({'domain': domain, 'payload': value})
 
 
+def record_disposition_transition(
+    connection: sqlite3.Connection,
+    lineage_digest: str,
+    from_disposition: str | None,
+    to_disposition: str,
+    *,
+    reason: str = '',
+    actor: str,
+    changed_at_utc: str,
+) -> str:
+    """Append one row to the disposition-transition ledger.
+
+    Runs inside the caller's write transaction so the audit row commits
+    or rolls back with the disposition update it describes. ``actor``
+    names the write path that produced the change (``'stage'``,
+    ``'defer'``, ``'promotion_outcome'``, ``'supersede'``,
+    ``'retention_purge'``, ...). The row is ordered after every earlier
+    transition for the item — its id is content-derived from the change
+    plus the per-item sequence, never from wall-clock uniqueness.
+    """
+    sequence = connection.execute(
+        'SELECT COUNT(*) FROM capture_disposition_transitions '
+        'WHERE lineage_digest=?',
+        (lineage_digest,),
+    ).fetchone()[0]
+    transition_id = 'capture-disposition-transition:' + _inbox_hash(
+        INBOX_TRANSITION_DOMAIN,
+        {
+            'lineage_digest': lineage_digest,
+            'from_disposition': from_disposition,
+            'to_disposition': to_disposition,
+            'sequence': sequence,
+        },
+    )
+    connection.execute(
+        '''
+        INSERT INTO capture_disposition_transitions(
+            transition_id, lineage_digest, from_disposition,
+            to_disposition, reason, actor, changed_at_utc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (
+            transition_id,
+            lineage_digest,
+            from_disposition,
+            to_disposition,
+            reason,
+            actor,
+            changed_at_utc,
+        ),
+    )
+    return transition_id
+
+
 def plan_authority_kinds(
     plan: CaptureIngestionPlan,
 ) -> frozenset[PromotionAuthorityKind]:
@@ -365,6 +443,7 @@ class CaptureInboxRepository:
                 'capture_inbox_promotions',
                 'capture_inbox_supersessions',
                 'capture_inbox_registrations',
+                'capture_disposition_transitions',
             )
 
     def _converge_schema(self, connection: sqlite3.Connection) -> None:
@@ -460,6 +539,20 @@ class CaptureInboxRepository:
                 created_at_utc TEXT NOT NULL,
                 UNIQUE(older_lineage_digest, newer_lineage_digest)
             );
+
+            CREATE TABLE IF NOT EXISTS capture_disposition_transitions (
+                transition_id TEXT PRIMARY KEY,
+                lineage_digest TEXT NOT NULL
+                    REFERENCES capture_inbox_items(lineage_digest),
+                from_disposition TEXT,
+                to_disposition TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                changed_at_utc TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS
+            idx_capture_disposition_transitions_item
+            ON capture_disposition_transitions(lineage_digest);
             '''
         )
         self._repoint_items_lineage_parent(connection)
@@ -649,6 +742,15 @@ class CaptureInboxRepository:
                         if 'connected_space' in plan_authority_kinds(plan)
                         else 0,
                     ),
+                )
+                record_disposition_transition(
+                    connection,
+                    plan.lineage_digest,
+                    None,
+                    'pending',
+                    reason='staged for review',
+                    actor='stage',
+                    changed_at_utc=arrived,
                 )
                 row = self._row(connection, plan.lineage_digest)
                 connection.commit()
@@ -880,6 +982,29 @@ class CaptureInboxRepository:
                 connection, 'superseded_lineage_digest', lineage_digest
             )
 
+    def disposition_transitions(
+        self, lineage_digest: str
+    ) -> tuple[CaptureDispositionTransition, ...]:
+        """The item's disposition audit trail, oldest first."""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT * FROM capture_disposition_transitions '
+                'WHERE lineage_digest=? ORDER BY rowid',
+                (lineage_digest,),
+            ).fetchall()
+            return tuple(
+                CaptureDispositionTransition(
+                    transition_id=row['transition_id'],
+                    lineage_digest=row['lineage_digest'],
+                    from_disposition=row['from_disposition'],
+                    to_disposition=row['to_disposition'],
+                    reason=row['reason'],
+                    actor=row['actor'],
+                    changed_at_utc=row['changed_at_utc'],
+                )
+                for row in rows
+            )
+
     def _promotions_for(
         self, connection: sqlite3.Connection, lineage_digest: str
     ) -> tuple[CaptureInboxPromotionRecord, ...]:
@@ -1042,6 +1167,8 @@ class CaptureInboxRepository:
         self,
         lineage_digest: str,
         updates: Mapping[str, object],
+        *,
+        actor: str = 'facet_update',
     ) -> CaptureInboxItem:
         with closing(self._connect()) as connection:
             try:
@@ -1054,6 +1181,16 @@ class CaptureInboxRepository:
                         f'UPDATE capture_inbox_items SET {column}=? '
                         'WHERE lineage_digest=?',
                         (value, lineage_digest),
+                    )
+                if 'disposition' in updates:
+                    record_disposition_transition(
+                        connection,
+                        lineage_digest,
+                        row['disposition'],
+                        updates['disposition'],
+                        reason=str(updates.get('disposition_reason') or ''),
+                        actor=actor,
+                        changed_at_utc=_utc_now(),
                     )
                 updated = self._row(connection, lineage_digest)
                 connection.commit()
@@ -1162,6 +1299,7 @@ class CaptureInboxRepository:
                 'disposition_reason': reason,
                 'disposition_at_utc': _utc_now(),
             },
+            actor='defer',
         )
 
     def resume(self, lineage_digest: str) -> CaptureInboxItem:
@@ -1181,6 +1319,7 @@ class CaptureInboxRepository:
                 # time here would claim a disposal that did not happen.
                 'disposition_at_utc': None,
             },
+            actor='resume',
         )
 
     def reject(self, lineage_digest: str, reason: str) -> CaptureInboxItem:
@@ -1201,6 +1340,7 @@ class CaptureInboxRepository:
                 'disposition_reason': reason,
                 'disposition_at_utc': _utc_now(),
             },
+            actor='reject',
         )
 
     # ------------------------------------------------------------------
@@ -1357,6 +1497,16 @@ class CaptureInboxRepository:
                     'disposition_at_utc=? WHERE lineage_digest=?',
                     (disposition, new_disposition_at, lineage_digest),
                 )
+                if disposition != item.disposition:
+                    record_disposition_transition(
+                        connection,
+                        lineage_digest,
+                        item.disposition,
+                        disposition,
+                        reason=f'promotion outcome: {outcome}',
+                        actor='promotion_outcome',
+                        changed_at_utc=new_disposition_at,
+                    )
                 record = connection.execute(
                     'SELECT * FROM capture_inbox_promotions '
                     'WHERE promotion_record_id=?',
@@ -1523,7 +1673,12 @@ class CaptureInboxRepository:
                         (superseded_lineage_digest,),
                     ).fetchall()
                 }
-                if promoted and promoted <= covered:
+                if (
+                    promoted
+                    and promoted <= covered
+                    and older_row['disposition'] != 'superseded'
+                ):
+                    stamped = _utc_now()
                     connection.execute(
                         'UPDATE capture_inbox_items SET disposition=?, '
                         'disposition_reason=?, disposition_at_utc=? '
@@ -1531,9 +1686,18 @@ class CaptureInboxRepository:
                         (
                             'superseded',
                             f'superseded by {superseding_lineage_digest}: {reason}',
-                            _utc_now(),
+                            stamped,
                             superseded_lineage_digest,
                         ),
+                    )
+                    record_disposition_transition(
+                        connection,
+                        superseded_lineage_digest,
+                        older_row['disposition'],
+                        'superseded',
+                        reason=f'superseded by {superseding_lineage_digest}: {reason}',
+                        actor='supersede',
+                        changed_at_utc=stamped,
                     )
                 row = connection.execute(
                     'SELECT * FROM capture_inbox_supersessions '
