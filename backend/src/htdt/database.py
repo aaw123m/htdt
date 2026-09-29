@@ -243,7 +243,7 @@ class Store:
 
     def list_projects(self) -> list[dict[str, Any]]:
         with self.connect() as db:
-            return [dict(row) for row in db.execute('SELECT * FROM projects ORDER BY created_at DESC')]
+            return [dict(row) for row in db.execute('SELECT * FROM projects ORDER BY created_at DESC, id DESC')]
 
     def get_project(self, project_id: str) -> dict[str, Any] | None:
         with self.connect() as db:
@@ -279,7 +279,7 @@ class Store:
             rows = db.execute(
                 '''SELECT s.*, COUNT(m.id) AS measurement_count
                    FROM sessions s LEFT JOIN measurements m ON m.session_id = s.id
-                   WHERE s.project_id = ? GROUP BY s.id ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.created_at DESC''',
+                   WHERE s.project_id = ? GROUP BY s.id ORDER BY COALESCE(s.started_at, s.created_at) DESC, s.created_at DESC, s.id DESC''',
                 (project_id,),
             ).fetchall()
         return [dict(row) for row in rows]
@@ -331,10 +331,10 @@ class Store:
     def list_constraint_sets(self, project_id: str, context_id: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as db:
             if context_id is None:
-                rows = db.execute('SELECT * FROM constraint_sets WHERE project_id = ? ORDER BY created_at DESC', (project_id,)).fetchall()
+                rows = db.execute('SELECT * FROM constraint_sets WHERE project_id = ? ORDER BY created_at DESC, id DESC', (project_id,)).fetchall()
             else:
                 rows = db.execute(
-                    'SELECT * FROM constraint_sets WHERE project_id = ? AND context_id = ? ORDER BY created_at DESC',
+                    'SELECT * FROM constraint_sets WHERE project_id = ? AND context_id = ? ORDER BY created_at DESC, id DESC',
                     (project_id, context_id),
                 ).fetchall()
         result = []
@@ -393,10 +393,10 @@ class Store:
     def list_search_specs(self, project_id: str, context_id: str | None = None) -> list[dict[str, Any]]:
         with self.connect() as db:
             if context_id is None:
-                rows = db.execute('SELECT * FROM search_specs WHERE project_id = ? ORDER BY created_at DESC', (project_id,)).fetchall()
+                rows = db.execute('SELECT * FROM search_specs WHERE project_id = ? ORDER BY created_at DESC, id DESC', (project_id,)).fetchall()
             else:
                 rows = db.execute(
-                    'SELECT * FROM search_specs WHERE project_id = ? AND context_id = ? ORDER BY created_at DESC',
+                    'SELECT * FROM search_specs WHERE project_id = ? AND context_id = ? ORDER BY created_at DESC, id DESC',
                     (project_id, context_id),
                 ).fetchall()
         result: list[dict[str, Any]] = []
@@ -617,7 +617,7 @@ class Store:
                 params.append(session_id)
             rows = db.execute('''SELECT m.*, d.id AS dataset_id, d.kind, d.frequency_blob, d.level_blob, d.phase_blob, d.metadata_json,
                                d.dataset_sha256, d.asset_sha256 FROM measurements m
-                               JOIN datasets d ON d.measurement_id = m.id WHERE ''' + ' AND '.join(where) + ' ORDER BY m.imported_at DESC', params).fetchall()
+                               JOIN datasets d ON d.measurement_id = m.id WHERE ''' + ' AND '.join(where) + ' ORDER BY m.imported_at DESC, m.id DESC', params).fetchall()
         result = []
         for row in rows:
             frequency = _unpack(row['frequency_blob']) or ()
@@ -713,7 +713,7 @@ class Store:
             if kind is not None:
                 where.append('l.kind = ?')
                 params.append(kind)
-            rows = db.execute('SELECT l.*, a.size_bytes FROM asset_links l JOIN assets a ON a.sha256 = l.asset_sha256 WHERE ' + ' AND '.join(where) + ' ORDER BY l.created_at DESC', params).fetchall()
+            rows = db.execute('SELECT l.*, a.size_bytes FROM asset_links l JOIN assets a ON a.sha256 = l.asset_sha256 WHERE ' + ' AND '.join(where) + ' ORDER BY l.created_at DESC, l.id DESC', params).fetchall()
         return [dict(row) for row in rows]
 
     def save_comparison(self, project_id: str, dataset_a_id: str, dataset_b_id: str, spec: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
@@ -731,7 +731,7 @@ class Store:
 
     def list_comparisons(self, project_id: str) -> list[dict[str, Any]]:
         with self.connect() as db:
-            rows = db.execute('SELECT * FROM comparisons WHERE project_id = ? ORDER BY created_at DESC', (project_id,)).fetchall()
+            rows = db.execute('SELECT * FROM comparisons WHERE project_id = ? ORDER BY created_at DESC, id DESC', (project_id,)).fetchall()
         return [{'id': row['id'], 'project_id': row['project_id'], 'dataset_a_id': row['dataset_a_id'], 'dataset_b_id': row['dataset_b_id'],
                  'spec': json.loads(row['spec_json']), 'result': json.loads(row['result_json']), 'created_at': row['created_at']} for row in rows]
 

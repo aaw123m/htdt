@@ -1465,7 +1465,12 @@ def _validate_payload_documents(
 def validate_bundle(path: Path) -> dict:
     """Validate a bundle directory or .htdtcapture ZIP; return the report."""
     source = DirectorySource(path) if path.is_dir() else ZipSource(path)
-    result = _validate_source(source)
+    archive = getattr(source, "zf", None)
+    try:
+        result = _validate_source(source)
+    finally:
+        if archive is not None:
+            archive.close()
     return {
         key: value for key, value in result.items() if not key.startswith("_")
     }

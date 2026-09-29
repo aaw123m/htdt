@@ -1074,7 +1074,7 @@ class SceneRepository:
             else:
                 rows = connection.execute(
                     f'SELECT document_id, {key_column} AS record_id, payload_json, updated_at_utc '
-                    f'FROM {table} WHERE document_id=? ORDER BY updated_at_utc',
+                    f'FROM {table} WHERE document_id=? ORDER BY updated_at_utc, {key_column}',
                     (document_id,),
                 ).fetchall()
             records: list[EditorPayloadRecord] = []

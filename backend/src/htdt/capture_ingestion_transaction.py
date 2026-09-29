@@ -4280,7 +4280,7 @@ class CaptureIngestionRepository:
             '''
             SELECT lineage_digest, plan_json, recorded_at_utc
             FROM capture_ingestion_runs
-            ORDER BY recorded_at_utc
+            ORDER BY recorded_at_utc, lineage_digest
             '''
         ).fetchall()
         for run in runs:
@@ -4551,7 +4551,7 @@ class CaptureIngestionRepository:
             rows = connection.execute(
                 '''
                 SELECT * FROM capture_revisions
-                ORDER BY capture_series_id, registered_at_utc
+                ORDER BY capture_series_id, registered_at_utc, capture_revision_id
                 '''
             ).fetchall()
         return tuple(self._revision_record(row) for row in rows)
@@ -4562,7 +4562,7 @@ class CaptureIngestionRepository:
                 '''
                 SELECT capture_revision_id, detail
                 FROM capture_revision_conflicts
-                ORDER BY recorded_at_utc
+                ORDER BY recorded_at_utc, rowid
                 '''
             ).fetchall()
         return tuple(
@@ -4622,7 +4622,7 @@ class CaptureIngestionRepository:
                 row['bundle_digest']
                 for row in connection.execute(
                     'SELECT bundle_digest FROM capture_bundles '
-                    'ORDER BY created_at'
+                    'ORDER BY created_at, bundle_digest'
                 ).fetchall()
             ]
         return tuple(
