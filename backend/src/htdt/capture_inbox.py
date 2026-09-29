@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from contextlib import closing
 import json
+import logging
 from pathlib import Path
 import sqlite3
 from typing import Callable, Iterable, Literal, Mapping
@@ -53,6 +54,11 @@ INBOX_REGISTRATION_DOMAIN = 'htdt.capture.cross-revision-registration.v1'
 # guessed. Promotion out of this scope still requires an explicit operator
 # assign to a document.
 CAPTURE_INBOX_UNASSIGNED_SCOPE = 'capture-inbox-unassigned'
+
+# Provenance for inbox items restaged by reconcile_orphaned_ingestions().
+CAPTURE_INBOX_RECOVERY_SOURCE = 'restart_recovery'
+
+_LOGGER = logging.getLogger('htdt.capture_inbox')
 
 
 def capture_inbox_item_project_id(item: 'CaptureInboxItem') -> str | None:
@@ -654,6 +660,54 @@ class CaptureInboxRepository:
             except Exception:
                 connection.rollback()
                 raise
+
+    def reconcile_orphaned_ingestions(
+        self, *, max_items: int = 50
+    ) -> tuple[CaptureInboxItem, ...]:
+        """Restage persisted ingestions that never reached the inbox.
+
+        Every delivery lane commits ``ingest()`` before ``stage()`` — a
+        process death between the two leaves durable evidence with no
+        review row and no delivery ledger, invisible until a redelivery
+        happens to arrive. Re-staging surfaces the orphan for normal
+        review instead of leaving it to be silently purged later.
+        Idempotent: already-staged lineages are untouched.
+        """
+        recovered: list[CaptureInboxItem] = []
+        with closing(self._connect()) as connection:
+            digests = [
+                str(row['lineage_digest'])
+                for row in connection.execute(
+                    '''
+                    SELECT DISTINCT r.lineage_digest
+                    FROM capture_ingestion_runs r
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM capture_inbox_items i
+                        WHERE i.lineage_digest = r.lineage_digest
+                    )
+                    ORDER BY r.lineage_digest
+                    LIMIT ?
+                    ''',
+                    (max_items,),
+                )
+            ]
+        for digest in digests:
+            try:
+                plan = self.ingestion_repository.get_ingestion(digest)
+                if plan is None:
+                    continue
+                staged = self.stage(
+                    plan,
+                    arrival_source=CAPTURE_INBOX_RECOVERY_SOURCE,
+                    source_detail='未ステージの取り込みを復旧',
+                )
+                if staged.created:
+                    recovered.append(staged.item)
+            except Exception:
+                _LOGGER.exception(
+                    'could not restage orphaned ingestion %s', digest
+                )
+        return tuple(recovered)
 
     def _classify(
         self, connection: sqlite3.Connection, plan: CaptureIngestionPlan

@@ -589,6 +589,7 @@ def _create_backup(
     _assert_safe_backup_destination(data_dir, destination)
     source_database = data_dir / DATABASE_NAME
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _sweep_backup_staging(destination.parent)
 
     with tempfile.TemporaryDirectory(prefix='htdt-backup-', dir=destination.parent) as temp_name:
         temp_root = Path(temp_name)
@@ -1446,6 +1447,96 @@ def _recover_rollback_dir(data_dir: Path, rollback_root: Path) -> RestoreRecover
     return _recover_journaled_swap(data_dir, rollback_root, journal)
 
 
+_CRASH_RESIDUE_MIN_AGE_SECONDS = 60.0
+
+
+def _sweep_open_residue(data_dir: Path, parent: Path) -> None:
+    """Best-effort cleanup of crash residue around the managed root.
+
+    Atomic writers publish by rename, so a ``.<name>.<pid>.tmp`` sibling or
+    a ``htdt-restore-stage-*`` staging directory still present at open can
+    only be remnant of a process death — the live paths never keep the
+    temp name, and journaled restore stages are settled (and consumed) by
+    the rollback pass above. Anything fresher than the age floor is left
+    for the next pass so an in-flight write is never swept. Failures only
+    warn: residue is junk, never a startup blocker.
+    """
+    cutoff = time.time() - _CRASH_RESIDUE_MIN_AGE_SECONDS
+    try:
+        for candidate in parent.iterdir():
+            if not (
+                candidate.is_dir()
+                and candidate.name.startswith('htdt-restore-stage-')
+            ):
+                continue
+            try:
+                if candidate.stat().st_mtime > cutoff:
+                    continue
+            except OSError:
+                continue
+            _LOGGER.warning(
+                'removing interrupted restore staging dir %s', candidate
+            )
+            _discard_dir_quiet(candidate)
+    except OSError:
+        pass
+    for directory in (
+        data_dir,
+        data_dir / 'launch-intents' / 'incoming',
+    ):
+        try:
+            if not directory.is_dir():
+                continue
+            for candidate in directory.iterdir():
+                if not (
+                    candidate.is_file()
+                    and candidate.name.startswith('.')
+                    and candidate.name.endswith('.tmp')
+                ):
+                    continue
+                try:
+                    if candidate.stat().st_mtime > cutoff:
+                        continue
+                    candidate.unlink()
+                    _LOGGER.warning(
+                        'removed interrupted-write temp file %s', candidate
+                    )
+                except OSError:
+                    _LOGGER.warning(
+                        'could not remove crash temp file %s', candidate
+                    )
+        except OSError:
+            continue
+
+
+def _sweep_backup_staging(parent: Path) -> None:
+    """Remove ``htdt-backup-*`` staging dirs a crash left beside archives.
+
+    Real backup archives are ``*.htdt-backup`` files; a directory with the
+    same prefix is always an abandoned snapshot staging tree. Same age
+    floor as the open-time sweep so an in-flight backup is untouched.
+    """
+    cutoff = time.time() - _CRASH_RESIDUE_MIN_AGE_SECONDS
+    try:
+        for candidate in parent.iterdir():
+            if not (
+                candidate.is_dir()
+                and candidate.name.startswith('htdt-backup-')
+            ):
+                continue
+            try:
+                if candidate.stat().st_mtime > cutoff:
+                    continue
+            except OSError:
+                continue
+            _LOGGER.warning(
+                'removing interrupted backup staging dir %s', candidate
+            )
+            _discard_dir_quiet(candidate)
+    except OSError:
+        pass
+
+
 def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
     """Resolve interrupted managed-data restore swaps for *data_dir*.
 
@@ -1455,6 +1546,8 @@ def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
     unjournaled remnants are recovered only when live data is invalid. When
     no valid state can be produced a RestoreRecoveryError is raised so the
     caller never opens or seeds a database over ambiguous managed data.
+    Orphan staging dirs and atomic-writer temp files left by a process
+    death are then swept — they can never read as valid state.
     """
     data_dir = _canonical_data_path(Path(data_dir))
     parent = data_dir.parent
@@ -1472,6 +1565,7 @@ def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
         events.append(_recover_rollback_dir(data_dir, candidate))
     if events:
         _fsync_directory(parent)
+    _sweep_open_residue(data_dir, parent)
     return events
 
 

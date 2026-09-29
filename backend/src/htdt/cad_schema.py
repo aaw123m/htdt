@@ -1119,12 +1119,19 @@ _MIGRATIONS = {
 
 
 def ensure_native_schema(path: Path) -> int:
-    """Atomically migrate a native CAD database to the supported schema.
+    """Migrate a native CAD database to the supported schema.
 
     Existing 0.1.0-era databases have no central schema marker. They are adopted
     as v1 only after integrity/foreign-key checks and only when every table
     matches a known pre-versioning HTDT signature. A database from a newer
     application is never opened.
+
+    Durability: each migration step writes the version ledger and
+    ``schema_version`` marker last, but domain-convergence helpers commit at
+    internal boundaries (``executescript``), so a crash mid-chain can leave
+    the stored version at an earlier step boundary rather than inside one.
+    Every step is idempotent, so the next open resumes from the last
+    committed boundary — never a half-applied step reading as complete.
     """
 
     path = Path(path)

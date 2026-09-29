@@ -238,6 +238,11 @@ def route_capture_intent(
                 )
 
     ingestion = CaptureIngestionRepository(repository)
+    inbox = CaptureInboxRepository(repository, ingestion)
+    # surface earlier ingestions a crash left committed but unstaged —
+    # runs before this lane's own ingest so the new run is not a
+    # false orphan
+    inbox.reconcile_orphaned_ingestions()
     try:
         import_capture_artifact(bundle_path, ingestion)
     except CaptureImportError as exc:
@@ -280,7 +285,7 @@ def route_capture_intent(
         )
 
     try:
-        staged = CaptureInboxRepository(repository, ingestion).stage(
+        staged = inbox.stage(
             plan,
             arrival_source=CAPTURE_ARRIVAL_SOURCE,
             scope=CAPTURE_STAGE_SCOPE,
