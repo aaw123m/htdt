@@ -1417,7 +1417,7 @@ class CadWaveExcitationRepository:
                     (
                         derivation.source_asset_sha256,
                         source_filename or '',
-                        str(target.relative_to(self.path.parent)),
+                        target.relative_to(self.path.parent).as_posix(),
                         len(bound_source) if bound_source is not None else 0,
                     ),
                 )

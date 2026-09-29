@@ -270,7 +270,7 @@ class CadVideoGeometryRepository:
                     (
                         evidence.source_sha256,
                         source_filename or '',
-                        str(target.relative_to(self.path.parent)),
+                        target.relative_to(self.path.parent).as_posix(),
                         len(bound_source),
                     ),
                 )
