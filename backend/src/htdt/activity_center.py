@@ -336,10 +336,22 @@ class ActivityCenter:
     after process exit.
     """
 
-    def __init__(self, *, history_limit: int = ACTIVITY_HISTORY_LIMIT) -> None:
+    def __init__(
+        self,
+        *,
+        history_limit: int = ACTIVITY_HISTORY_LIMIT,
+        record_limit: int | None = None,
+    ) -> None:
         self._records: dict[str, _OperationRecord] = {}
         self._history: list[ApplicationOperation] = []
         self._history_limit = history_limit
+        # Full records (cancel path + domain payload) are only retained for
+        # active operations plus a bounded tail of recent terminal ones —
+        # the history row stays the canonical long-term entry, so a busy
+        # session cannot pile one record per operation ever submitted.
+        self._record_limit = (
+            history_limit if record_limit is None else record_limit
+        )
         self._listeners: list[Callable[[ApplicationOperation], None]] = []
 
     # -- registration ----------------------------------------------------
@@ -347,9 +359,24 @@ class ActivityCenter:
     def subscribe(self, listener: Callable[[ApplicationOperation], None]) -> None:
         self._listeners.append(listener)
 
+    def unsubscribe(self, listener: Callable[[ApplicationOperation], None]) -> None:
+        """Detach a previously subscribed listener (idempotent).
+
+        The registry outlives workspace mounts: a listener owned by a
+        disposed mount must be removed, or every later transition keeps
+        invoking a dead observer and retaining its closure forever.
+        """
+
+        self._listeners = [
+            existing for existing in self._listeners if existing != listener
+        ]
+
     def _emit(self, record: _OperationRecord) -> None:
+        self._emit_snapshot(record.snapshot)
+
+    def _emit_snapshot(self, snapshot: ApplicationOperation) -> None:
         for listener in tuple(self._listeners):
-            listener(record.snapshot)
+            listener(snapshot)
 
     def _archive(self, record: _OperationRecord) -> None:
         # One operation_id (one attempt) occupies one logical history row:
@@ -364,6 +391,19 @@ class ActivityCenter:
             self._history.append(record.snapshot)
         if len(self._history) > self._history_limit:
             del self._history[: len(self._history) - self._history_limit]
+        # Evict the oldest terminal records once the registry grows past
+        # the record budget; active records and the bounded recent tail
+        # are retained so get()/retry() still resolve for operations the
+        # operator can still see.
+        excess = len(self._records) - self._record_limit
+        if excess > 0:
+            for operation_id in list(self._records):
+                if excess <= 0:
+                    break
+                if self._records[operation_id].snapshot.is_active:
+                    continue
+                del self._records[operation_id]
+                excess -= 1
 
     def submit(
         self,
@@ -387,9 +427,16 @@ class ActivityCenter:
         attempt: int = 1,
     ) -> str:
         operation_id = operation_id or f'op-{uuid.uuid4().hex[:12]}'
-        if operation_id in self._records:
+        if (
+            operation_id in self._records
+            or self._history_snapshot(operation_id) is not None
+        ):
             raise OperationTransitionError(f'duplicate operation id {operation_id}')
-        if retry_of is not None and retry_of not in self._records:
+        if (
+            retry_of is not None
+            and retry_of not in self._records
+            and self._history_snapshot(retry_of) is None
+        ):
             raise OperationTransitionError(
                 f'retry references unknown operation {retry_of}'
             )
@@ -433,9 +480,19 @@ class ActivityCenter:
 
     # -- read ------------------------------------------------------------
 
+    def _history_snapshot(
+        self, operation_id: str
+    ) -> ApplicationOperation | None:
+        for snapshot in reversed(self._history):
+            if snapshot.operation_id == operation_id:
+                return snapshot
+        return None
+
     def get(self, operation_id: str) -> ApplicationOperation | None:
         record = self._records.get(operation_id)
-        return None if record is None else record.snapshot
+        if record is not None:
+            return record.snapshot
+        return self._history_snapshot(operation_id)
 
     def require(self, operation_id: str) -> ApplicationOperation:
         snapshot = self.get(operation_id)
@@ -619,6 +676,31 @@ class ActivityCenter:
                     update={'current_for_input': False, 'updated_at': _utc_now()}
                 )
                 self._emit(record)
+        # Terminal records evicted from ``_records`` survive only as bounded
+        # history rows — apply the same reclassification in place so the
+        # rendered history still marks stale inputs without retaining the
+        # full records forever.
+        for index, snapshot in enumerate(self._history):
+            if snapshot.operation_id in self._records:
+                continue
+            if not snapshot.input_authority_refs:
+                continue
+            if not changed.intersection(snapshot.input_authority_refs):
+                if snapshot.current_for_input:
+                    self._history[index] = snapshot.model_copy(
+                        update={'updated_at': _utc_now()}
+                    )
+                continue
+            if not snapshot.current_for_input:
+                continue
+            update: dict[str, Any] = {
+                'current_for_input': False,
+                'updated_at': _utc_now(),
+            }
+            if snapshot.state == OperationState.COMPLETED:
+                update['state'] = OperationState.COMPLETED_FOR_HISTORICAL_INPUT
+            self._history[index] = snapshot.model_copy(update=update)
+            self._emit_snapshot(self._history[index])
 
     # -- retry -----------------------------------------------------------
 
@@ -640,8 +722,14 @@ class ActivityCenter:
         supplies a real delivery path.
         """
 
-        record = self._record(operation_id)
-        snapshot = record.snapshot
+        record = self._records.get(operation_id)
+        snapshot = (
+            record.snapshot
+            if record is not None
+            else self._history_snapshot(operation_id)
+        )
+        if snapshot is None:
+            raise KeyError(f'unknown operation {operation_id}')
         if snapshot.retry_policy != RetryPolicy.SAFE_NEW_ATTEMPT:
             raise OperationTransitionError(
                 f'operation {operation_id} is not safely retryable'
@@ -674,7 +762,7 @@ class ActivityCenter:
             domain_payload=(
                 request.domain_payload
                 if request.domain_payload is not None
-                else record.domain_payload
+                else (record.domain_payload if record is not None else None)
             ),
             retry_of=snapshot.operation_id,
             attempt=snapshot.attempt + 1,

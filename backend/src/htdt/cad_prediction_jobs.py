@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from uuid import uuid4
 
 from .cad_repository import SceneRevision
+
+
+#: Bound on remembered cancelled job ids — generous enough that a
+#: completion still in flight after this many cancels is already stale.
+CANCELLED_JOB_LIMIT = 4096
 
 
 @dataclass(frozen=True)
@@ -38,7 +44,11 @@ class PredictionJobGuard:
     def __init__(self) -> None:
         self._sequence = 0
         self._latest_by_operation: dict[str, str] = {}
-        self._cancelled: set[str] = set()
+        # Cancelled job ids must outlive arbitrary late completions, but a
+        # session that cancels thousands of jobs cannot retain one set
+        # entry per id forever — keep the newest ids, since a completion
+        # still pending after that many cancels is beyond any live window.
+        self._cancelled: OrderedDict[str, None] = OrderedDict()
 
     def submit(
         self,
@@ -75,7 +85,10 @@ class PredictionJobGuard:
         return token
 
     def cancel(self, token: PredictionJobToken) -> None:
-        self._cancelled.add(token.job_id)
+        self._cancelled[token.job_id] = None
+        self._cancelled.move_to_end(token.job_id)
+        while len(self._cancelled) > CANCELLED_JOB_LIMIT:
+            self._cancelled.popitem(last=False)
 
     def is_cancelled(self, token: PredictionJobToken) -> bool:
         return token.job_id in self._cancelled

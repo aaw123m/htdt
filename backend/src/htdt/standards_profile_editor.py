@@ -499,7 +499,8 @@ class StandardsProfileEditorDialog(QDialog):
         if not selected:
             return
         try:
-            text = open(selected, encoding="utf-8").read()
+            with open(selected, encoding="utf-8") as handle:
+                text = handle.read()
             profile = self.service.import_profile_json(text)
         except (ValueError, OSError) as exc:
             warn_user(self, "プロファイルをインポートできませんでした", exc)
