@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from bisect import bisect_left
+from functools import lru_cache
 from hashlib import sha256
 from itertools import product
 import json
@@ -827,10 +828,24 @@ def _wrap_horizontal(
     return 0.0 if wrapped == 0.0 else wrapped
 
 
+# Cached ``_sample_map`` views: evaluation loops look up a handful of
+# keys per call, so rebuilding the full (f,h,v)->sample dict every call
+# dominated evaluation time (~85% in profiling). Entries are keyed by
+# object identity — the strong reference keeps the key's ``id`` from being
+# recycled while the entry lives, so an ``is`` match is authoritative.
+_SAMPLE_MAP_CACHE_SIZE = 8
+_sample_map_cache: dict[
+    int, tuple[DirectivityDataset, dict[tuple[float, float, float], DirectivitySample]]
+] = {}
+
+
 def _sample_map(
     dataset: DirectivityDataset,
 ) -> dict[tuple[float, float, float], DirectivitySample]:
-    return {
+    cached = _sample_map_cache.get(id(dataset))
+    if cached is not None and cached[0] is dataset:
+        return cached[1]
+    mapping = {
         (
             sample.frequency_hz,
             sample.horizontal_angle_deg,
@@ -838,8 +853,13 @@ def _sample_map(
         ): sample
         for sample in dataset.samples
     }
+    if len(_sample_map_cache) >= _SAMPLE_MAP_CACHE_SIZE:
+        _sample_map_cache.clear()
+    _sample_map_cache[id(dataset)] = (dataset, mapping)
+    return mapping
 
 
+@lru_cache(maxsize=8192)
 def _sample_hash(sample: DirectivitySample) -> str:
     return _digest(sample.model_dump(mode='json'))
 

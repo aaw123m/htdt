@@ -15,6 +15,7 @@ from math import isfinite, sqrt
 from typing import Any, Literal
 from uuid import uuid4
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .comparison import FrequencyResponse, _grid, _interpolate_many
@@ -265,16 +266,37 @@ def run_multi_seat_analysis(
     rows = tuple(
         _interpolate_many(response, grid) for response in member_responses
     )
-    min_db = tuple(min(row[i] for row in rows) for i in range(len(grid)))
-    max_db = tuple(max(row[i] for row in rows) for i in range(len(grid)))
+    # Per-column statistics, ~MxG work moved into C. Results replay for
+    # exact equality, so every operation reproduces the scalar loop's
+    # numeric semantics: ``zip(*rows)`` transposes in C and builtin
+    # min/max/sum over a column tuple fold/select exactly like the
+    # per-index comprehensions (Python 3.12 ``sum`` is compensated in
+    # either form), and the diff/square pass is elementwise IEEE-exact.
+    columns = list(zip(*rows))
+    matrix = np.asarray(rows, dtype=np.float64)
+    has_nan = bool(np.isnan(matrix).any())
+    min_db = tuple(min(col) for col in columns)
+    max_db = tuple(max(col) for col in columns)
     spread_db = tuple(hi - lo for hi, lo in zip(max_db, min_db, strict=True))
-    upper = tuple(max(range(len(rows)), key=lambda m, i=i: rows[m][i]) for i in range(len(grid)))
-    lower = tuple(min(range(len(rows)), key=lambda m, i=i: rows[m][i]) for i in range(len(grid)))
+    if has_nan:
+        # NaN key order in max/min(range,key=) differs from np.argmax's
+        # NaN-wins selection — keep the scalar path for degenerate input.
+        upper = tuple(
+            max(range(len(rows)), key=lambda m, i=i: rows[m][i])
+            for i in range(len(grid))
+        )
+        lower = tuple(
+            min(range(len(rows)), key=lambda m, i=i: rows[m][i])
+            for i in range(len(grid))
+        )
+    else:
+        # argmax/argmin return the first extremal index, matching the
+        # range-key comprehensions' first-occurrence tie-break.
+        upper = tuple(int(v) for v in np.argmax(matrix, axis=0))
+        lower = tuple(int(v) for v in np.argmin(matrix, axis=0))
     mean_db: tuple[float, ...] = ()
     if central_tendency == 'arithmetic_mean_in_db':
-        mean_db = tuple(
-            sum(row[i] for row in rows) / len(rows) for i in range(len(grid))
-        )
+        mean_db = tuple(sum(col) / len(rows) for col in columns)
     outlier_index = None
     if outlier_band_hz is not None and len(rows) >= 2 and len(grid) >= 2:
         band_indices = [
@@ -282,17 +304,22 @@ def run_multi_seat_analysis(
             if outlier_band_hz[0] <= f <= outlier_band_hz[1]
         ]
         if band_indices:
-            band_mean = [
-                sum(row[i] for row in rows) / len(rows) for i in band_indices
-            ]
+            band_mean = np.asarray(
+                [sum(columns[i]) / len(rows) for i in band_indices]
+            )
+            band_diff_sq = (matrix[:, band_indices] - band_mean) ** 2
+            # ``sum`` over the row's band terms in order matches the
+            # scalar comprehension; sqrt stays a scalar call.
             deviations = [
-                sqrt(
-                    sum((rows[m][i] - band_mean[k]) ** 2 for k, i in enumerate(band_indices))
-                    / len(band_indices)
-                )
-                for m in range(len(rows))
+                sqrt(sum(row_terms.tolist()) / len(band_indices))
+                for row_terms in band_diff_sq
             ]
-            outlier_index = max(range(len(rows)), key=lambda m: deviations[m])
+            if has_nan:
+                outlier_index = max(
+                    range(len(rows)), key=lambda m: deviations[m]
+                )
+            else:
+                outlier_index = int(np.argmax(deviations))
     payload: dict[str, Any] = {
         'result_id': str(uuid4()),
         'set_id': analysis_set.set_id,

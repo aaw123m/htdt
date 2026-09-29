@@ -410,13 +410,21 @@ def run_ir_analysis(
     # fixed -20 dB prominence floor after the direct-arrival sample.
     markers: list[IRReflectionMarker] = []
     t0_index = t0 - start
-    for i in range(1, min(windowed.size - 1, int(0.5 * fs))):
-        if (
-            etc_db[i] > -20.0
-            and etc_db[i] > etc_db[i - 1]
-            and etc_db[i] >= etc_db[i + 1]
-            and i > t0_index
-        ):
+    marker_limit = min(windowed.size - 1, int(0.5 * fs))
+    if marker_limit > 1:
+        # Vectorized form of the per-sample scan — identical predicates
+        # (strict rise, non-falling right neighbour, -20 dB floor, after
+        # t0) selecting the same ascending indices; the first eight are
+        # taken, matching the early break.
+        hits = (
+            np.nonzero(
+                (etc_db[1:marker_limit] > -20.0)
+                & (etc_db[1:marker_limit] > etc_db[: marker_limit - 1])
+                & (etc_db[1:marker_limit] >= etc_db[2 : marker_limit + 1])
+            )[0]
+            + 1
+        )
+        for i in hits[hits > t0_index][:8]:
             markers.append(
                 IRReflectionMarker(
                     marker_index=len(markers),
@@ -425,8 +433,6 @@ def run_ir_analysis(
                     delay_s=float(i - t0_index) / fs,
                 )
             )
-            if len(markers) >= 8:
-                break
 
     if silent:
         decay_db = np.full(windowed.size, -140.0)
@@ -500,7 +506,7 @@ def run_ir_analysis(
         clarity_block = (
             'insufficient usable dynamic range for the late-energy integral'
         )
-    energy = windowed.astype(np.float64) ** 2
+    energy = windowed ** 2
     for split_ms in spec.clarity_split_times_ms:
         split_samples = int(round(split_ms * 0.001 * fs))
         kinds: list[tuple[str, Literal['dB', 'ratio']]] = []
@@ -577,28 +583,33 @@ def run_ir_analysis(
     hop = max(1, int(round(window_n * (1.0 - spec.tf_overlap))))
     win = np.hanning(window_n)
     spec_times: list[float] = []
-    columns: list[np.ndarray] = []
-    for start_i in range(0, windowed.size - window_n + 1, hop):
-        frame = windowed[start_i : start_i + window_n] * win
-        magnitude = np.abs(np.fft.rfft(frame))
-        columns.append(magnitude)
-        spec_times.append(float((start_i + window_n // 2) / fs))
-    if columns:
-        peak = max(c.max() for c in columns if c.size) or 1.0
+    spec_levels: tuple[tuple[float, ...], ...] = ()
+    spec_freq_tuple: tuple[float, ...] = ()
+    frame_starts = range(0, windowed.size - window_n + 1, hop)
+    if len(frame_starts):
+        # One batched rfft over all frames instead of a per-frame call;
+        # pocketfft transforms each row independently so magnitudes are
+        # unchanged.
+        frames = (
+            np.lib.stride_tricks.sliding_window_view(windowed, window_n)[
+                ::hop
+            ]
+            * win
+        )
+        magnitudes = np.abs(np.fft.rfft(frames, axis=1))
+        spec_times = [
+            float((start_i + window_n // 2) / fs)
+            for start_i in frame_starts
+        ]
+        peak = float(magnitudes.max()) or 1.0
         spec_freqs = np.fft.rfftfreq(window_n, d=1.0 / fs)
         # Magnitude ratios use 20·log10; clamping the ratio at 1e-6 lands
         # exactly on the -120 dB floor and avoids log10(0).
         spec_levels = tuple(
-            tuple(
-                float(v)
-                for v in 20.0 * np.log10(np.maximum(c / peak, 1e-6))
-            )
-            for c in columns
+            tuple(float(v) for v in row)
+            for row in 20.0 * np.log10(np.maximum(magnitudes / peak, 1e-6))
         )
         spec_freq_tuple = tuple(float(f) for f in spec_freqs)
-    else:
-        spec_levels = ()
-        spec_freq_tuple = ()
 
     payload: dict[str, Any] = {
         'result_id': str(uuid4()),

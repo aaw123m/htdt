@@ -12,6 +12,8 @@ import json
 from dataclasses import dataclass
 from math import log10
 
+import numpy as np
+
 from .cad_measurement_models import CadFrequencyResponseDataset
 
 
@@ -76,15 +78,43 @@ def smoothed_level_trace(
         )
     half_width = 1.0 / (2.0 * fraction)
     smoothed: list[float] = []
-    for center in frequency:
-        lo = center * (2.0 ** (-half_width))
-        hi = center * (2.0 ** half_width)
-        powers = [
-            10.0 ** (level[i] / 10.0)
-            for i in range(len(frequency))
-            if lo <= frequency[i] <= hi
-        ]
-        smoothed.append(10.0 * log10(sum(powers) / len(powers)))
+    frequencies = np.asarray(frequency, dtype=np.float64)
+    if (
+        len(frequency) > 1
+        and len(frequency) == len(level)
+        and bool(np.all(frequencies[1:] >= frequencies[:-1]))
+    ):
+        # Sorted axis: each window is the contiguous slice
+        # [searchsorted(lo,'left'), searchsorted(hi,'right')), so membership
+        # matches the ``lo <= f <= hi`` scan exactly. Slicing a Python list
+        # preserves the input order, so ``sum`` folds the window exactly as
+        # the scalar loop did — window totals stay bit-identical (NumPy's
+        # accumulate is pairwise and could drift an ulp). Window bounds
+        # still come from scalar ``**`` so libm cannot shift membership.
+        powers = [10.0 ** (v / 10.0) for v in level]
+        lows = np.array(
+            [c * (2.0 ** (-half_width)) for c in frequency],
+            dtype=np.float64,
+        )
+        highs = np.array(
+            [c * (2.0 ** half_width) for c in frequency], dtype=np.float64
+        )
+        lo_index = np.searchsorted(frequencies, lows, side='left')
+        hi_index = np.searchsorted(frequencies, highs, side='right')
+        for lo_i, hi_i in zip(lo_index, hi_index):
+            window = powers[lo_i:hi_i]
+            smoothed.append(10.0 * log10(sum(window) / len(window)))
+    else:
+        # Unsorted axis: contiguous slices do not apply — keep the scan.
+        for center in frequency:
+            lo = center * (2.0 ** (-half_width))
+            hi = center * (2.0 ** half_width)
+            powers = [
+                10.0 ** (level[i] / 10.0)
+                for i in range(len(frequency))
+                if lo <= frequency[i] <= hi
+            ]
+            smoothed.append(10.0 * log10(sum(powers) / len(powers)))
     return DerivedLevelTrace(
         frequency_hz=frequency,
         level_db=tuple(smoothed),
