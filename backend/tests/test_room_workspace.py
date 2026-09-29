@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QApplication, QDockWidget, QFrame
 
+from htdt.cad_document import EditStateError
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
     F1_DOCUMENT_ID,
@@ -947,3 +948,73 @@ def test_video_panel_switches_between_projection_and_display_targets(
 
     panel.deleteLater()
     app.processEvents()
+
+
+def test_room_controller_save_reports_moved_head_as_edit_state(tmp_path) -> None:
+    repository = _f1_repository(tmp_path)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    controller.add_object("speaker")
+
+    # A second writer advances the head behind this controller's back.
+    head = repository.current_head(F1_DOCUMENT_ID)
+    repository.save(
+        head.document.model_copy(update={"entities": head.document.entities[:-1]}),
+        parent_revision_id=head.revision_id,
+    )
+
+    with pytest.raises(EditStateError, match="別の変更で先頭版が更新されました"):
+        controller.save()
+    assert controller.is_dirty
+
+
+def test_room_controller_restore_reports_moved_head_as_edit_state(tmp_path) -> None:
+    repository = _f1_repository(tmp_path)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    controller.add_object("speaker")
+    controller.save()
+    target = repository.current_head(F1_DOCUMENT_ID)
+    controller.add_object("speaker")
+    controller.save()
+
+    # Head moves between restore_revision's head read and its commit.
+    real_save = repository.save
+
+    def racing_save(document, *, parent_revision_id):
+        current = repository.current_head(F1_DOCUMENT_ID)
+        real_save(
+            current.document.model_copy(
+                update={"entities": current.document.entities[:-1]}
+            ),
+            parent_revision_id=current.revision_id,
+        )
+        return real_save(document, parent_revision_id=parent_revision_id)
+
+    repository.save = racing_save
+    try:
+        with pytest.raises(EditStateError, match="別の変更で先頭版が更新されました"):
+            controller.restore_revision(target.revision_id)
+    finally:
+        repository.save = real_save
+
+
+def test_room_workspace_save_reports_conflict_instead_of_raising(tmp_path) -> None:
+    _app()
+    repository = _f1_repository(tmp_path)
+    workspace = RoomWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeRoomViewport(parent),
+    )
+    controller = workspace.controller
+    controller.add_object("speaker")
+
+    head = repository.current_head(F1_DOCUMENT_ID)
+    repository.save(
+        head.document.model_copy(update={"entities": head.document.entities[:-1]}),
+        parent_revision_id=head.revision_id,
+    )
+
+    assert workspace.save() is False
+    # The unsaved edit is still there — a failed save must not drop it.
+    assert controller.is_dirty
+    workspace.deleteLater()

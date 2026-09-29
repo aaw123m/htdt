@@ -9,10 +9,19 @@ from htdt.cad_document import WorkingDocument
 from htdt.cad_repository import SceneRepository, SceneRevisionConflictError
 from htdt.cad_scene import (
     Position3,
+    SceneDocument,
     canonical_scene_json,
     make_empty_scene,
     make_f1_scene,
     scene_content_hash,
+)
+from htdt.raw_mesh import import_raw_visual_mesh
+from htdt.semantic_geometry import (
+    SurfaceSemanticAssignment,
+    convert_raw_visual_mesh_to_semantic_geometry,
+    explicit_identity_source_to_scene_transform,
+    make_semantic_geometry_conversion_request,
+    raw_triangle_ids,
 )
 
 
@@ -827,3 +836,79 @@ def test_authoritative_revision_still_fails_closed_on_corruption(tmp_path: Path)
     # SceneRevision payload must still raise instead of silently resetting.
     with pytest.raises(ValueError):
         repository.latest(first.document_id)
+
+
+_CLOSED_TETRA = b'v 0 0 0\nv 5 0 0\nv 0 4 0\nv 0 0 2.5\nf 1 3 2\nf 1 2 4\nf 1 4 3\nf 2 3 4\n'
+
+
+def _tetra_geometry(source_revision_id: str | None):
+    mesh = import_raw_visual_mesh(_CLOSED_TETRA, source_name='revision-test.obj')
+    request = make_semantic_geometry_conversion_request(
+        mesh,
+        source_scene_revision_id=source_revision_id,
+        source_to_scene_transform=explicit_identity_source_to_scene_transform(
+            reason='test mesh coordinates are explicit HTDT metres',
+        ),
+        surface_assignments=(
+            SurfaceSemanticAssignment(
+                surface_key='room-shell',
+                triangle_ids=raw_triangle_ids(mesh),
+                semantic_class='room_boundary',
+            ),
+        ),
+    )
+    return convert_raw_visual_mesh_to_semantic_geometry(mesh, request)
+
+
+def _geometry_document(document_id: str, geometry) -> SceneDocument:
+    return SceneDocument(
+        document_id=document_id,
+        schema_version=4,
+        room=None,
+        entities=(),
+        r120_semantic_geometry=geometry,
+    )
+
+
+def test_save_reintroduces_historical_geometry_with_true_binding(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(
+        _geometry_document('geo-doc', _tetra_geometry(None)),
+        parent_revision_id=None,
+    ).revision
+    second = repository.save(
+        _geometry_document('geo-doc', _tetra_geometry(first.revision_id)),
+        parent_revision_id=first.revision_id,
+    ).revision
+    third = repository.save(
+        _geometry_document('geo-doc', _tetra_geometry(second.revision_id)),
+        parent_revision_id=second.revision_id,
+    ).revision
+
+    # Restoring an old revision reintroduces its superseded geometry: the
+    # source pointer it carries is the TRUE derivation revision, not the new
+    # parent — the restored payload stays byte-identical to the stored one.
+    restored = repository.save(first.document, parent_revision_id=third.revision_id)
+    assert restored.created
+    assert restored.revision.parent_revision_id == third.revision_id
+    assert restored.revision.content_hash == first.content_hash
+    assert (
+        restored.revision.document.r120_semantic_geometry.geometry_id
+        == first.document.r120_semantic_geometry.geometry_id
+    )
+
+
+def test_new_geometry_must_still_bind_to_the_parent(tmp_path: Path) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(
+        _geometry_document('geo-doc', _tetra_geometry(None)),
+        parent_revision_id=None,
+    ).revision
+    # A geometry that never existed in this document's lineage still has to
+    # declare the exact parent it was derived from.
+    forged = _tetra_geometry('revision-never-committed')
+    with pytest.raises(ValueError, match='must bind to the exact parent'):
+        repository.save(
+            _geometry_document('geo-doc', forged),
+            parent_revision_id=first.revision_id,
+        )

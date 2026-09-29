@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import revision_display_label
 from .cad_scene_history import diff_summary_lines, summarize_revision
 from .ui_theme import TypographyRole, set_typography_role
 
@@ -99,6 +100,7 @@ class RoomHistoryPanel(QWidget):
 
         self._selected_revision_id: str | None = None
         self._previewing = False
+        self._labels: dict = {}
 
     def selected_revision_id(self) -> str | None:
         return self._selected_revision_id
@@ -115,6 +117,9 @@ class RoomHistoryPanel(QWidget):
 
     def _on_current_changed(self, current: QTreeWidgetItem | None, _previous) -> None:
         self._selected_revision_id = None if current is None else str(current.data(0, _REVISION_ROLE))
+        stored = self._labels.get(self._selected_revision_id) if self._selected_revision_id else None
+        self.label_field.setText(stored.label if stored is not None else '')
+        self.note_field.setText(stored.note if stored is not None else '')
         if self._previewing:
             self._on_preview_toggled(True)
         self._emit_detail()
@@ -162,14 +167,26 @@ class RoomHistoryPanel(QWidget):
     ) -> None:
         """Refresh rows; ``labels`` maps revision_id → RevisionLabel."""
 
+        self._labels = dict(labels)
         self.tree.blockSignals(True)
         self.tree.clear()
         head_id = head_revision_id
+        by_id = {revision.revision_id: revision for revision in revisions}
         keep_current: QTreeWidgetItem | None = None
         for revision in revisions:
             summary = summarize_revision(revision.document)
             marker = ' ●HEAD' if revision.revision_id == head_id else ''
-            detached = ' ◇detached' if revision.detached else ''
+            detached = ''
+            if revision.detached:
+                # A detached row's only visible lineage is its parent pointer —
+                # name the branch point so the flat list doesn't hide the fork.
+                parent = by_id.get(revision.parent_revision_id)
+                branch = (
+                    f' ←{revision_display_label(parent, labels)}'
+                    if parent is not None
+                    else ''
+                )
+                detached = ' ◇detached' + branch
             label = labels.get(revision.revision_id)
             label_text = label.label if label is not None else ''
             kinds = ' '.join(f'{name}×{count}' for name, count in summary.kind_counts)
