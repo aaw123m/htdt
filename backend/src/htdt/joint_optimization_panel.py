@@ -100,6 +100,7 @@ class JointOptimizationPanel(QWidget):
         self._baseline: JointBaseline | None = None
         self._dsp_rows: dict[str, dict] = {}
         self._pool = NativeWorkerPool(self)
+        self._disposed = False
         self.progressChanged.connect(self._on_execution_progress)
 
         layout = QVBoxLayout(self)
@@ -434,6 +435,7 @@ class JointOptimizationPanel(QWidget):
         return self._pool.active_count > 0
 
     def dispose(self) -> None:
+        self._disposed = True
         report = self._pool.shutdown()
         if not report.all_stopped and self._on_status is not None:
             self._on_status(
@@ -493,6 +495,8 @@ class JointOptimizationPanel(QWidget):
         self.execution_label.setText('中止を要求しました…')
 
     def _on_execution_progress(self, result) -> None:
+        if self._disposed:
+            return
         processed = result.candidates_generated + result.candidates_reused
         self.execution_label.setText(
             '実行中: 候補 '
@@ -503,6 +507,8 @@ class JointOptimizationPanel(QWidget):
         )
 
     def _on_execution_completed(self, _key, result, error) -> None:
+        if self._disposed:
+            return
         if error == WORKER_CANCELLED:
             self.execution_label.setText('実行を中止しました（部分結果は保持）')
             if self._on_status is not None:

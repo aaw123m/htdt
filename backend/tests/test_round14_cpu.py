@@ -420,11 +420,28 @@ def test_ordered_samples_cache_and_interpolation():
             sorted_samples[-1].real(), sorted_samples[-1].imag()
         )
 
+    def scalar_magnitude(sorted_samples, f):
+        previous = sorted_samples[0]
+        for sample in sorted_samples:
+            if sample.frequency_hz >= f:
+                if sample.frequency_hz == previous.frequency_hz:
+                    return sample.magnitude()
+                ratio = (f - previous.frequency_hz) / (
+                    sample.frequency_hz - previous.frequency_hz
+                )
+                return previous.magnitude() + ratio * (
+                    sample.magnitude() - previous.magnitude()
+                )
+            previous = sample
+        return sorted_samples[-1].magnitude()
+
     for f in (50.0, 75.0, 123.4, 400.0):
         assert _interpolated_complex(samples, f) == scalar_complex(
             ordered, f
         )
-        assert _interpolated_magnitude(samples, f) is None or True
+        assert _interpolated_magnitude(samples, f) == scalar_magnitude(
+            ordered, f
+        )
     # Out-of-band behavior preserved.
     assert _interpolated_complex(samples, 49.9) is None
     assert _interpolated_magnitude(samples, 401.0) is None
