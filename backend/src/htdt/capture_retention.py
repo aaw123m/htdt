@@ -848,11 +848,22 @@ class CaptureRetentionService:
                 if promoted
                 else 'pending'
             )
+            # The promotion record's timestamp is when this disposition
+            # actually began; a revert to pending never had one.
+            began_at = None
+            if promoted:
+                began_row = connection.execute(
+                    "SELECT MAX(promoted_at_utc) AS began "
+                    'FROM capture_inbox_promotions '
+                    "WHERE lineage_digest=? AND outcome='promoted'",
+                    (digest,),
+                ).fetchone()
+                began_at = None if began_row is None else began_row['began']
             connection.execute(
                 'UPDATE capture_inbox_items SET disposition=?, '
                 'disposition_reason=?, disposition_at_utc=? '
                 'WHERE lineage_digest=?',
-                (disposition, '', None, digest),
+                (disposition, '', began_at, digest),
             )
 
     def _available_authority_kinds(
