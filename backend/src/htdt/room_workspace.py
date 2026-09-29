@@ -449,6 +449,9 @@ class RoomWorkspaceController:
         self._underlay_calibration: dict | None = None
         self._constraint_state = None  # AuthoringConstraintSet, lazy
         self._last_constraint_notes: tuple[str, ...] = ()
+        # Labels of constraints broken inside a delete command — reported once
+        # by mark_broken_constraints on the next refresh (#REVIEW14).
+        self._pending_broken_labels: tuple[str, ...] = ()
         # (source_revision_id, committed content hash, sidecar digest)
         # acknowledged via the keep_draft resolution; edits invalidate it so
         # the prompt reappears (#915 — sidecars joined the token).
@@ -874,10 +877,51 @@ class RoomWorkspaceController:
         return changed
 
     def delete_entities(self, entity_ids: tuple[str, ...]) -> int:
-        """Undo-safe batch delete: one command, exact restore, selection cleaned."""
+        """Undo-safe batch delete: one command, exact restore, selection cleaned.
+
+        Constraints losing a member are marked broken inside the same Undo
+        step (#REVIEW14): undoing the delete restores the entities and the
+        unbroken constraint set atomically, and the refresh-time marker never
+        pushes a phantom command that would livelock Undo.
+        """
         if not entity_ids or not self.can_edit:
             return 0
-        changed = self.working.delete_entities(entity_ids)
+        removed_ids = set(entity_ids)
+        state = self.authoring_constraints
+        after_state = None
+        labels: list[str] = []
+        if state.constraints:
+            marked = []
+            for constraint in state.constraints:
+                if not constraint.broken and set(constraint.entity_ids) & removed_ids:
+                    marked.append(
+                        constraint.model_copy(
+                            update={
+                                'broken': True,
+                                'broken_reason': '拘束の対象オブジェクトが削除されました',
+                            }
+                        )
+                    )
+                    labels.append(constraint.label or constraint.constraint_id)
+                else:
+                    marked.append(constraint)
+            if labels:
+                after_state = state.model_copy(
+                    update={
+                        'constraints': tuple(marked),
+                        'solve_version': state.solve_version + 1,
+                    }
+                )
+        if after_state is None:
+            changed = self.working.delete_entities(entity_ids)
+        else:
+            changed = self.working.delete_entities(
+                entity_ids,
+                apply_side=lambda: self._apply_constraint_state(after_state),
+                revert_side=lambda: self._apply_constraint_state(state),
+            )
+            if changed:
+                self._pending_broken_labels += tuple(labels)
         self.view_state.sanitize(self.document)
         self._sync_recovery()
         self._persist_view_state()
@@ -900,6 +944,10 @@ class RoomWorkspaceController:
             return 0
         if any(self.view_state.is_locked(eid) for eid in ids):
             return 0
+        # Fuse the per-entity duplicates into the single Undo step this
+        # method promises (#REVIEW14) — before the fix a group duplicate
+        # pushed N commands and Undo restored them one at a time.
+        marker = self.working.history_index
         new_ids: list[str] = []
         for entity_id in ids:
             source = self.document.entity(entity_id)
@@ -919,6 +967,7 @@ class RoomWorkspaceController:
             new_ids.append(new_id)
         if not new_ids:
             return 0
+        self.working.merge_history_since(marker)
         self.view_state.set_selection(new_ids, primary_id=new_ids[0])
         self._sync_recovery()
         self._persist_view_state()
@@ -1575,12 +1624,31 @@ class RoomWorkspaceController:
         notes, self._last_constraint_notes = self._last_constraint_notes, ()
         return notes
 
-    def propagate_constraints(self, changed_ids: set[str]) -> tuple[str, ...]:
+    def pop_pending_broken_labels(self) -> tuple[str, ...]:
+        """Labels of constraints broken inside a delete command (consumed once).
+
+        The delete step marks constraints atomically, but the refresh still
+        reports the breakage through mark_broken_constraints.
+        """
+
+        labels, self._pending_broken_labels = self._pending_broken_labels, ()
+        return labels
+
+    def propagate_constraints(
+        self,
+        changed_ids: set[str],
+        *,
+        merge_with_previous: bool = False,
+    ) -> tuple[str, ...]:
         """Re-solve constraints touched by an edit; returns warning notes.
 
         Deterministic local solve: only the declared driver propagates to its
         subjects. A subject-side edit that would violate the constraint marks
         it broken — it is surfaced, never silently dropped or jittered.
+
+        ``merge_with_previous`` fuses the propagation step into the driver
+        edit that caused it, so one Undo restores both (#REVIEW14); callers
+        only set it immediately after committing the driver edit.
         """
 
         state = self.authoring_constraints
@@ -1639,6 +1707,7 @@ class RoomWorkspaceController:
             )
             # One Undo unit: entity propagation and the constraint-state
             # mutation commit together (#843).
+            index_before = self.working.history_index
             self.working.apply_entity_set_edit(
                 replaced_before=tuple(replaced_before),
                 replaced_after=tuple(replaced_after),
@@ -1648,6 +1717,11 @@ class RoomWorkspaceController:
                 apply_side=lambda: self._apply_constraint_state(new_state),
                 revert_side=lambda: self._apply_constraint_state(state),
             )
+            if (
+                merge_with_previous
+                and self.working.history_index == index_before + 1
+            ):
+                self.working.merge_last(2)
         return tuple(notes)
 
     def mark_broken_constraints(self) -> tuple[str, ...]:
@@ -1656,7 +1730,7 @@ class RoomWorkspaceController:
 
         state = self.authoring_constraints
         if not state.constraints:
-            return ()
+            return self.pop_pending_broken_labels()
         existing = {entity.entity_id for entity in self.document.entities}
         broken_labels: list[str] = []
         constraints = list(state.constraints)
@@ -1675,7 +1749,10 @@ class RoomWorkspaceController:
                 broken_labels.append(constraint.label or constraint.constraint_id)
                 changed = True
         if changed:
-            self.update_authoring_constraints(
+            # Refresh-derived marking is state maintenance, not a user edit:
+            # apply the constraint set directly so Undo is never wedged behind
+            # a phantom step it must immediately recreate (#REVIEW14).
+            self._apply_constraint_state(
                 state.model_copy(
                     update={
                         'constraints': tuple(constraints),
@@ -1683,7 +1760,7 @@ class RoomWorkspaceController:
                     }
                 )
             )
-        return tuple(broken_labels)
+        return self.pop_pending_broken_labels() + tuple(broken_labels)
 
     def guide_render_items(self) -> tuple[GuideRenderItem, ...]:
         """Construction-guide lines derived from constraints (display-only)."""
@@ -1803,7 +1880,9 @@ class RoomWorkspaceController:
             )
         changed = self.working.update_entity(entity_id, **updates)
         if changed:
-            notes = self.propagate_constraints({entity_id})
+            notes = self.propagate_constraints(
+                {entity_id}, merge_with_previous=True
+            )
             self._sync_recovery()
             if notes:
                 self._last_constraint_notes = notes
@@ -1872,7 +1951,9 @@ class RoomWorkspaceController:
             orientation=orientation_aligning_forward(entity.aim_xyz),
         )
         if changed:
-            self.propagate_constraints({entity.entity_id})
+            self.propagate_constraints(
+                {entity.entity_id}, merge_with_previous=True
+            )
             self._sync_recovery()
         return changed
 
@@ -4907,7 +4988,9 @@ class RoomWorkspace(QWidget):
         return True
 
     def _propagate_and_report(self, changed_ids: set[str]) -> None:
-        notes = self.controller.propagate_constraints(changed_ids)
+        notes = self.controller.propagate_constraints(
+            changed_ids, merge_with_previous=True
+        )
         self.controller._sync_recovery()
         self._refresh()
         if notes:
@@ -6490,7 +6573,9 @@ class RoomWorkspace(QWidget):
             return False
         changed = self.controller.update_entities(updates)
         if changed:
-            notes = self.controller.propagate_constraints(set(updates))
+            notes = self.controller.propagate_constraints(
+                set(updates), merge_with_previous=True
+            )
             if notes:
                 self.controller._last_constraint_notes = notes
         return changed

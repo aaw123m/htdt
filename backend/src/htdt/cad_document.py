@@ -321,6 +321,39 @@ def _append_entities(document: SceneDocument, additions: tuple[SceneEntity, ...]
 
 
 @dataclass(frozen=True)
+class SequentialEditCommand:
+    """Several applied commands fused into one Undo step (a committed macro).
+
+    ``apply`` replays the inner commands in order and ``revert`` unwinds in
+    reverse, so the fused step restores the state before the first member —
+    e.g. a driver edit plus its constraint propagation, or a multi-duplicate.
+    """
+
+    commands: tuple[EditCommand, ...]
+    presentation: CommandPresentation | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.commands) < 2:
+            raise EditStateError('a sequential command requires at least two steps')
+
+    @property
+    def is_noop(self) -> bool:
+        return all(command.is_noop for command in self.commands)
+
+    def apply(self, document: SceneDocument) -> SceneDocument:
+        updated = document
+        for command in self.commands:
+            updated = command.apply(updated)
+        return updated
+
+    def revert(self, document: SceneDocument) -> SceneDocument:
+        updated = document
+        for command in reversed(self.commands):
+            updated = command.revert(updated)
+        return updated
+
+
+@dataclass(frozen=True)
 class CompositeEditCommand:
     """One Undo step covering an entity edit plus external design state.
 
@@ -611,8 +644,14 @@ class EditorViewState:
         self.selected_ids = ordered
 
 
+DEFAULT_HISTORY_LIMIT = 500
+
+
 class CommandHistory:
-    def __init__(self) -> None:
+    def __init__(self, *, limit: int = DEFAULT_HISTORY_LIMIT) -> None:
+        if limit < 1:
+            raise ValueError('history limit must be positive')
+        self._limit = limit
         self._commands: list[EditCommand] = []
         self._index = 0
 
@@ -680,7 +719,33 @@ class CommandHistory:
         self._commands = self._commands[: self._index]
         self._commands.append(command)
         self._index += 1
+        # Bounded in memory: pushing past the limit evicts the oldest entries.
+        # Eviction can only happen right after a push, when the redo tail is
+        # empty, so index stays aligned with the applied cursor.
+        overflow = len(self._commands) - self._limit
+        if overflow > 0:
+            del self._commands[:overflow]
+            self._index -= overflow
         return new_document
+
+    def merge_last(self, count: int) -> bool:
+        """Fuse the ``count`` most recent applied commands into one Undo step.
+
+        Replaying ``apply``/``revert`` on the fused command reproduces the
+        inner sequence exactly; only commands below the redo cursor qualify,
+        so a pending redo branch is never folded into an undo step.
+        """
+
+        if count < 2 or count > self._index:
+            return False
+        segment = self._commands[self._index - count : self._index]
+        fused = SequentialEditCommand(
+            commands=tuple(segment),
+            presentation=_presentation_of(segment[0]),
+        )
+        self._commands[self._index - count : self._index] = [fused]
+        self._index -= count - 1
+        return True
 
     def undo(self, document: SceneDocument) -> SceneDocument:
         if not self.can_undo:
@@ -729,6 +794,19 @@ class WorkingDocument:
     @property
     def history_length(self) -> int:
         return self._history.length
+
+    @property
+    def history_index(self) -> int:
+        """Current apply cursor — capture before an op to fuse it later."""
+        return self._history.index
+
+    def merge_last(self, count: int) -> bool:
+        """Fuse the ``count`` most recently applied commands into one step."""
+        return self._history.merge_last(count)
+
+    def merge_history_since(self, index: int) -> bool:
+        """Fuse every command pushed since ``index`` into one Undo step."""
+        return self._history.merge_last(self._history.index - index)
 
     @property
     def can_undo(self) -> bool:
@@ -784,6 +862,13 @@ class WorkingDocument:
     def history_entries(self, *, limit: int | None = None) -> tuple[CommandHistoryEntry, ...]:
         return self._history.entries(limit=limit)
 
+    def _require_entity(self, entity_id: str) -> SceneEntity:
+        """Fail-closed entity lookup: a missing id is an EditStateError."""
+        try:
+            return self._document.entity(entity_id)
+        except KeyError:
+            raise EditStateError(f'entity not in the scene: {entity_id}') from None
+
     def _begin_preview(self, entity_ids: tuple[str, ...], kind: Literal['move', 'rotate']) -> tuple[SceneEntity, ...]:
         if self.has_preview:
             raise EditStateError('another preview is already active')
@@ -791,7 +876,7 @@ class WorkingDocument:
             raise EditStateError('preview requires at least one entity')
         if len(set(entity_ids)) != len(entity_ids):
             raise EditStateError('preview entity ids must be unique')
-        entities = tuple(self._document.entity(entity_id) for entity_id in entity_ids)
+        entities = tuple(self._require_entity(entity_id) for entity_id in entity_ids)
         self._preview_kind = kind
         self._preview_entity_ids = entity_ids
         self._preview_before_entities = entities
@@ -896,9 +981,15 @@ class WorkingDocument:
         after_ids = tuple(entity.entity_id for entity in after)
         if len(set(before_ids)) != len(before_ids) or before_ids != after_ids:
             raise EditStateError('transform entities must preserve a unique ordered entity-id set')
-        current = tuple(self._document.entity(entity_id) for entity_id in before_ids)
+        current = tuple(self._require_entity(entity_id) for entity_id in before_ids)
         if current != before:
             raise EditStateError('transform before state does not match the current document')
+        # model_copy does not revalidate — revalidate so a replacement can
+        # never smuggle an invariant-breaking entity into history (#REVIEW14).
+        after = tuple(
+            SceneEntity.model_validate(entity.model_dump(mode='python'))
+            for entity in after
+        )
         command = TransformEntitiesCommand(
             before=before,
             after=after,
@@ -914,7 +1005,7 @@ class WorkingDocument:
     def move_entity(self, entity_id: str, position: Position3) -> bool:
         if self.has_preview:
             raise EditStateError('cannot commit a numeric move while a preview is active')
-        before_entity = self._document.entity(entity_id)
+        before_entity = self._require_entity(entity_id)
         before = before_entity.position
         command = MoveEntityCommand(
             entity_id,
@@ -929,7 +1020,7 @@ class WorkingDocument:
     def rotate_entity(self, entity_id: str, orientation: Quaternion4) -> bool:
         if self.has_preview:
             raise EditStateError('cannot commit a numeric rotation while a preview is active')
-        before_entity = self._document.entity(entity_id)
+        before_entity = self._require_entity(entity_id)
         before = before_entity.orientation
         command = RotateEntityCommand(
             entity_id,
@@ -996,8 +1087,8 @@ class WorkingDocument:
     ) -> bool:
         if self.has_preview:
             raise EditStateError('cannot duplicate an entity while a preview is active')
-        source_index = next(index for index, entity in enumerate(self._document.entities) if entity.entity_id == entity_id)
-        source = self._document.entities[source_index]
+        source = self._require_entity(entity_id)
+        source_index = self._document.entities.index(source)
         payload = source.model_dump(mode='python')
         payload['entity_id'] = new_entity_id
         payload['name'] = name or f'{source.name} Copy'
@@ -1015,7 +1106,10 @@ class WorkingDocument:
             raise EditStateError('cannot update an entity while a preview is active')
         if 'entity_id' in updates and updates['entity_id'] != target_entity_id:
             raise EditStateError('entity_id cannot be changed')
-        before = self._document.entity(target_entity_id)
+        unknown = set(updates) - set(SceneEntity.model_fields)
+        if unknown:
+            raise EditStateError(f'unsupported entity fields: {sorted(unknown)}')
+        before = self._require_entity(target_entity_id)
         payload = before.model_dump(mode='python')
         payload.update(updates)
         payload['entity_id'] = target_entity_id
@@ -1038,12 +1132,22 @@ class WorkingDocument:
     def delete_entity(self, entity_id: str) -> bool:
         return self.delete_entities((entity_id,))
 
-    def delete_entities(self, entity_ids: tuple[str, ...] | list[str]) -> bool:
+    def delete_entities(
+        self,
+        entity_ids: tuple[str, ...] | list[str],
+        *,
+        apply_side: Callable[[], None] | None = None,
+        revert_side: Callable[[], None] | None = None,
+    ) -> bool:
         """Delete several entities as one Undo step, restoring exact index order.
 
         A group delete is one semantic operation: the batch records each removed
         entity with its original index so ``undo`` restores the exact prior
         entity list — the #480/#482 contract that batch delete remains Undo-safe.
+
+        ``apply_side``/``revert_side`` wrap the delete in a composite command so
+        external design state (e.g. constraints broken by losing a member) joins
+        the same Undo step.
         """
         if self.has_preview:
             raise EditStateError('cannot delete entities while a preview is active')
@@ -1068,19 +1172,26 @@ class WorkingDocument:
             if edge.parent_entity_id in removed_id_set
             and edge.child_entity_id not in removed_id_set
         )
-        before_hash = self._content_hash()
-        self._document = self._history.push(
-            DeleteEntitiesCommand(
-                removed=tuple(removed),
-                presentation=CommandPresentation(
-                    action='delete',
-                    subject_names=tuple(entity.name for _, entity in removed),
-                ),
-                before_attachments=before_attachments,
-                orphaned_positions=orphaned_positions,
-            ),
-            self._document,
+        presentation = CommandPresentation(
+            action='delete',
+            subject_names=tuple(entity.name for _, entity in removed),
         )
+        inner: EditCommand = DeleteEntitiesCommand(
+            removed=tuple(removed),
+            presentation=presentation,
+            before_attachments=before_attachments,
+            orphaned_positions=orphaned_positions,
+        )
+        command: EditCommand = inner
+        if apply_side is not None or revert_side is not None:
+            command = CompositeEditCommand(
+                inner=inner,
+                apply_side=apply_side,
+                revert_side=revert_side,
+                presentation=presentation,
+            )
+        before_hash = self._content_hash()
+        self._document = self._history.push(command, self._document)
         return self._content_hash() != before_hash
 
     def update_entities(self, updates: dict[str, dict[str, Any]]) -> bool:
@@ -1096,9 +1207,12 @@ class WorkingDocument:
         before: list[SceneEntity] = []
         after: list[SceneEntity] = []
         for entity_id, entity_updates in updates.items():
-            source = self._document.entity(entity_id)
+            source = self._require_entity(entity_id)
             if 'entity_id' in entity_updates and entity_updates['entity_id'] != entity_id:
                 raise EditStateError('entity_id cannot be changed')
+            unknown = set(entity_updates) - set(SceneEntity.model_fields)
+            if unknown:
+                raise EditStateError(f'unsupported entity fields: {sorted(unknown)}')
             payload = source.model_dump(mode='python')
             payload.update(entity_updates)
             payload['entity_id'] = entity_id
@@ -1180,6 +1294,24 @@ class WorkingDocument:
 
         if self.has_preview:
             raise EditStateError('cannot apply a batched edit while a preview is active')
+        # Fail closed: every declared before-state must match the document.
+        current = {entity.entity_id: entity for entity in self._document.entities}
+        for snapshot in removed + replaced_before:
+            if current.get(snapshot.entity_id) != snapshot:
+                raise EditStateError('batched edit before state does not match the current document')
+        overlapping = {entity.entity_id for entity in added} & current.keys()
+        if overlapping:
+            raise EditStateError(f'entities already exist: {sorted(overlapping)}')
+        # model_copy does not revalidate — revalidate every inbound entity so
+        # a command can never smuggle an invariant-breaking entity (#REVIEW14).
+        added = tuple(
+            SceneEntity.model_validate(entity.model_dump(mode='python'))
+            for entity in added
+        )
+        replaced_after = tuple(
+            SceneEntity.model_validate(entity.model_dump(mode='python'))
+            for entity in replaced_after
+        )
         index_of = {
             entity.entity_id: index for index, entity in enumerate(self._document.entities)
         }
@@ -1212,14 +1344,6 @@ class WorkingDocument:
             )
         if command.is_noop:
             return False
-        # Fail closed: every declared before-state must match the document.
-        current = {entity.entity_id: entity for entity in self._document.entities}
-        for snapshot in removed + replaced_before:
-            if current.get(snapshot.entity_id) != snapshot:
-                raise EditStateError('batched edit before state does not match the current document')
-        overlapping = {entity.entity_id for entity in added} & current.keys()
-        if overlapping:
-            raise EditStateError(f'entities already exist: {sorted(overlapping)}')
         before_hash = self._content_hash()
         self._document = self._history.push(command, self._document)
         return (
