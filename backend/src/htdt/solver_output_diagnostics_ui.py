@@ -222,7 +222,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
         if any(entry.payload_state == 'unreadable' for entry in entries):
             note += ' · 読み取り不可を含む'
         self.summary_label.setText(
-            f'ソルバー成果物 {len(entries)} 件 '
+            f'ソルバー成果物 {len(entries)} 件'
             f'（検証済み {bound} / 台帳のみ {len(entries) - bound}）{note}'
         )
         self.table.setRowCount(len(entries))
