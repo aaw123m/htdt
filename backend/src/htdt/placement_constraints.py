@@ -56,6 +56,11 @@ class EntityProfile(BaseModel):
     footprint_radius_m: float = Field(default=0.0, ge=0)
     safety_margin_m: float = Field(default=0.0, ge=0)
     footprint_vertices_xy_m: list[ConstraintPoint2D] | None = None
+    # R120B: world-Z half-extent of the entity's oriented bounding envelope
+    # about its position (position is the envelope centre). None means the
+    # entity declares no Z extent — the room-prism check falls back to the
+    # centre point and entity-collision checks skip the entity.
+    z_extent_m: float | None = Field(default=None, ge=0)
 
     @model_validator(mode='after')
     def valid_footprint(self) -> 'EntityProfile':
@@ -64,6 +69,8 @@ class EntityProfile(BaseModel):
             if len(vertices) < 3:
                 raise ValueError('entity footprint requires at least three vertices')
             polygon_from_vertices([(item.x_m, item.y_m) for item in vertices])
+        if self.z_extent_m is not None and not isfinite(self.z_extent_m):
+            raise ValueError('entity z extent must be finite')
         return self
 
     @property
@@ -152,6 +159,25 @@ class PairDistanceConstraint(BaseModel):
         return self
 
 
+class EntityCollisionConstraint(BaseModel):
+    """Declared 3D entity-entity collision prohibition (R120B).
+
+    Requires both entities to declare an XY envelope AND a Z extent in the
+    constraint set's entity profiles; when either cannot be established the
+    constraint fails closed rather than treating overlap as unknown.
+    """
+    constraint_id: str = Field(min_length=1, max_length=100)
+    kind: Literal['entity_collision']
+    entity_a: str = Field(min_length=1, max_length=100)
+    entity_b: str = Field(min_length=1, max_length=100)
+
+    @model_validator(mode='after')
+    def different_entities(self) -> 'EntityCollisionConstraint':
+        if self.entity_a == self.entity_b:
+            raise ValueError('entity_collision requires two different entities')
+        return self
+
+
 class LinkedPlacementConstraint(BaseModel):
     constraint_id: str = Field(min_length=1, max_length=100)
     kind: Literal['linked_placement']
@@ -177,6 +203,7 @@ PlacementConstraint = Annotated[
     | AxisConstraint
     | MovementBudgetConstraint
     | PairDistanceConstraint
+    | EntityCollisionConstraint
     | LinkedPlacementConstraint,
     Field(discriminator='kind'),
 ]
@@ -247,7 +274,7 @@ def _constraint_entity_ids(constraint: PlacementConstraint) -> tuple[str, ...]:
         return tuple(constraint.entity_ids)
     if isinstance(constraint, (AxisConstraint, MovementBudgetConstraint)):
         return (constraint.entity_id,)
-    if isinstance(constraint, (PairDistanceConstraint, LinkedPlacementConstraint)):
+    if isinstance(constraint, (PairDistanceConstraint, EntityCollisionConstraint, LinkedPlacementConstraint)):
         return (constraint.entity_a, constraint.entity_b)
     raise TypeError(type(constraint).__name__)
 
@@ -273,6 +300,17 @@ def validate_constraint_set_for_context(request: ConstraintSetCreate, context_pa
             region = _region_geometry(constraint.region)
             if not room_polygon.covers(region):
                 raise ValueError(f'Constraint {constraint.constraint_id} region must be fully inside the exact room footprint')
+        if isinstance(constraint, EntityCollisionConstraint):
+            profile_by_id = {
+                item.entity_id: item for item in request.entity_profiles
+            }
+            for entity_id in (constraint.entity_a, constraint.entity_b):
+                profile = profile_by_id.get(entity_id)
+                if profile is None or profile.z_extent_m is None:
+                    raise ValueError(
+                        f'Constraint {constraint.constraint_id} requires a '
+                        f'declared XY envelope and Z extent for {entity_id}'
+                    )
         if isinstance(constraint, MovementBudgetConstraint) and baselines[constraint.entity_id] is None:
             raise ValueError(f'Constraint {constraint.constraint_id} requires a baseline position for {constraint.entity_id}')
         if isinstance(constraint, LinkedPlacementConstraint) and constraint.relation.startswith('equal_delta_'):
@@ -325,6 +363,29 @@ def _entity_envelope(
     return point if radius_m <= _EPS else point.buffer(radius_m)
 
 
+def _envelope_xy_collision(a: BaseGeometry, b: BaseGeometry) -> bool:
+    """Positive-intersection XY collision between two entity envelopes.
+
+    Two envelopes collide when their interiors overlap (positive-area
+    intersection) or when a point envelope lands strictly inside another —
+    shared boundaries and vertex touches are adjacency, not collision.
+    """
+    if a.is_empty or b.is_empty:
+        return False
+    intersection = a.intersection(b)
+    if intersection.is_empty:
+        return False
+    if getattr(intersection, 'area', 0.0) > _EPS:
+        return True
+    if isinstance(a, Point):
+        if isinstance(b, Point):
+            return a.equals_exact(b, _EPS)
+        return b.contains(a)
+    if isinstance(b, Point):
+        return a.contains(b)
+    return False
+
+
 def _profile_observation(profile: EntityProfile | None) -> dict[str, Any]:
     if profile is None:
         return {
@@ -338,6 +399,7 @@ def _profile_observation(profile: EntityProfile | None) -> dict[str, Any]:
             else 'legacy_radius'
         ),
         'effective_radius_m': profile.effective_radius_m,
+        'z_extent_m': profile.z_extent_m,
     }
 
 
@@ -398,21 +460,51 @@ def evaluate_constraint_set(
         point = Point(x_m, y_m)
         envelope = _entity_envelope(point, profile)
         xy_inside = bool(room_polygon.covers(envelope))
-        z_inside = -_EPS <= z_m <= room_height + _EPS
+        # R120B: the floor side keeps the legacy origin-point semantics
+        # (physical entities anchor to the floor by their origin), while
+        # the ceiling side upgrades to the full declared envelope — a
+        # placement whose XY envelope fits but whose 3D envelope exceeds
+        # the room height is still rejected. Entities without a declared
+        # Z extent keep the legacy centre-point check on both sides.
+        z_extent = None if profile is None else profile.z_extent_m
+        if z_extent is None:
+            z_bottom = None
+            z_top = None
+            z_inside = -_EPS <= z_m <= room_height + _EPS
+        else:
+            z_bottom = z_m - float(z_extent)
+            z_top = z_m + float(z_extent)
+            z_inside = z_m >= -_EPS and z_top <= room_height + _EPS
+        actual: dict[str, Any] = {
+            'xy_inside': xy_inside,
+            'z_m': z_m,
+            **_profile_observation(profile),
+        }
+        if z_extent is not None:
+            actual['z_bottom_m'] = z_bottom
+            actual['z_top_m'] = z_top
         observations.append({
             'constraint_id': f'__room_boundary__:{entity_id}',
             'kind': 'room_boundary',
             'entity_ids': [entity_id],
-            'actual': {'xy_inside': xy_inside, 'z_m': z_m, **_profile_observation(profile)},
+            'actual': actual,
             'required': {'xy_inside': True, 'z_range_m': [0.0, room_height]},
             'passed': xy_inside and z_inside,
         })
         if not xy_inside or not z_inside:
+            rejection_details: dict[str, Any] = {
+                'xy_inside': xy_inside,
+                'z_m': z_m,
+                'z_range_m': [0.0, room_height],
+                **_profile_observation(profile),
+            }
+            if z_extent is not None:
+                rejection_details['z_bottom_m'] = z_bottom
+                rejection_details['z_top_m'] = z_top
             rejections.append(_rejection(
                 f'__room_boundary__:{entity_id}', 'room_boundary', [entity_id],
                 'Entity envelope is outside the exact room prism',
-                xy_inside=xy_inside, z_m=z_m, z_range_m=[0.0, room_height],
-                **_profile_observation(profile),
+                **rejection_details,
             ))
 
     def require_position(constraint_id: str, kind: str, entity_id: str) -> tuple[float, float, float] | None:
@@ -573,6 +665,77 @@ def evaluate_constraint_set(
                     profile_a=_profile_observation(profile_a),
                     profile_b=_profile_observation(profile_b),
                     min_m=constraint.min_m, max_m=constraint.max_m,
+                ))
+
+        elif isinstance(constraint, EntityCollisionConstraint):
+            a = require_position(constraint.constraint_id, constraint.kind, constraint.entity_a)
+            b = require_position(constraint.constraint_id, constraint.kind, constraint.entity_b)
+            if a is None or b is None:
+                continue
+            profile_a = profiles.get(constraint.entity_a)
+            profile_b = profiles.get(constraint.entity_b)
+            envelopes_ok = (
+                profile_a is not None
+                and profile_a.z_extent_m is not None
+                and profile_b is not None
+                and profile_b.z_extent_m is not None
+            )
+            if not envelopes_ok:
+                observations.append({
+                    'constraint_id': constraint.constraint_id, 'kind': constraint.kind,
+                    'entity_ids': [constraint.entity_a, constraint.entity_b],
+                    'actual': {
+                        'envelopes_declared': False,
+                        'profile_a': _profile_observation(profile_a),
+                        'profile_b': _profile_observation(profile_b),
+                    },
+                    'required': {'envelopes_declared': True},
+                    'passed': False,
+                })
+                rejections.append(_rejection(
+                    constraint.constraint_id, constraint.kind,
+                    [constraint.entity_a, constraint.entity_b],
+                    'Entity collision cannot be established without declared '
+                    '3D envelopes for both entities',
+                    profile_a=_profile_observation(profile_a),
+                    profile_b=_profile_observation(profile_b),
+                ))
+                continue
+            envelope_a = _entity_envelope(Point(a[0], a[1]), profile_a)
+            envelope_b = _entity_envelope(Point(b[0], b[1]), profile_b)
+            xy_collide = _envelope_xy_collision(envelope_a, envelope_b)
+            a_bottom = a[2] - float(profile_a.z_extent_m)
+            a_top = a[2] + float(profile_a.z_extent_m)
+            b_bottom = b[2] - float(profile_b.z_extent_m)
+            b_top = b[2] + float(profile_b.z_extent_m)
+            z_overlap = (min(a_top, b_top) - max(a_bottom, b_bottom)) > _EPS
+            collided = xy_collide and z_overlap
+            observations.append({
+                'constraint_id': constraint.constraint_id, 'kind': constraint.kind,
+                'entity_ids': [constraint.entity_a, constraint.entity_b],
+                'actual': {
+                    'xy_collision': xy_collide,
+                    'z_intervals_m': {
+                        constraint.entity_a: [a_bottom, a_top],
+                        constraint.entity_b: [b_bottom, b_top],
+                    },
+                    'z_overlap': z_overlap,
+                    'profile_a': _profile_observation(profile_a),
+                    'profile_b': _profile_observation(profile_b),
+                },
+                'required': {'xy_collision': False, 'z_overlap': False},
+                'passed': not collided,
+            })
+            if collided:
+                rejections.append(_rejection(
+                    constraint.constraint_id, constraint.kind,
+                    [constraint.entity_a, constraint.entity_b],
+                    'Entity envelopes overlap in 3D',
+                    xy_collision=xy_collide,
+                    z_intervals_m={
+                        constraint.entity_a: [a_bottom, a_top],
+                        constraint.entity_b: [b_bottom, b_top],
+                    },
                 ))
 
         elif isinstance(constraint, LinkedPlacementConstraint):

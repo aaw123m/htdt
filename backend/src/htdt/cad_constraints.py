@@ -8,13 +8,19 @@ from .cad_constraint_models import (
     CadConstraintEvaluation,
     CadConstraintResult,
     CadConstraintSet,
+    CadEntityCollisionConstraint,
     CadExclusionRegionConstraint,
     CadPairDistanceConstraint,
     CadPlacementConstraint,
     CadWallClearanceConstraint,
 )
 from .cad_orientation_constraints import entity_horizontal_footprint
-from .cad_scene import Position3, SceneDocument, room_vertices
+from .cad_scene import (
+    Position3,
+    SceneDocument,
+    quaternion_to_matrix3,
+    room_vertices,
+)
 from .placement_constraints import (
     ConstraintSetCreate,
     PlacementEvaluationRequest,
@@ -67,7 +73,7 @@ def wall_edge_maps(document: SceneDocument) -> tuple[dict[str, str], dict[str, s
 def _constraint_entity_ids(constraint: CadPlacementConstraint) -> tuple[str, ...]:
     if isinstance(constraint, (CadAllowedRegionConstraint, CadExclusionRegionConstraint, CadWallClearanceConstraint)):
         return tuple(constraint.entity_ids)
-    if isinstance(constraint, CadPairDistanceConstraint):
+    if isinstance(constraint, (CadPairDistanceConstraint, CadEntityCollisionConstraint)):
         return (constraint.entity_a, constraint.entity_b)
     raise TypeError(type(constraint).__name__)
 
@@ -176,6 +182,13 @@ def _g10_constraint_payload(
             'distance_mode': constraint.distance_mode,
             'distance_reference': constraint.distance_reference,
         }
+    if isinstance(constraint, CadEntityCollisionConstraint):
+        return {
+            'constraint_id': constraint.constraint_id,
+            'kind': 'entity_collision',
+            'entity_a': constraint.entity_a,
+            'entity_b': constraint.entity_b,
+        }
     raise TypeError(type(constraint).__name__)
 
 
@@ -192,12 +205,23 @@ def _entity_profile(document: SceneDocument, entity_id: str) -> dict[str, Any] |
         }
         for x, y in list(footprint.exterior.coords)[:-1]
     ]
+    # R120B: world-Z half-extent of the oriented size_m envelope — the third
+    # row of the rotation matrix maps local axes onto world Z, and |m_2i|
+    # weights each local half-extent. This matches the corner-hull footprint
+    # math in cad_orientation_constraints.entity_horizontal_footprint.
+    matrix = quaternion_to_matrix3(entity.orientation)
+    z_extent = (
+        abs(matrix[2][0]) * float(entity.size_m.x_m) * 0.5
+        + abs(matrix[2][1]) * float(entity.size_m.y_m) * 0.5
+        + abs(matrix[2][2]) * float(entity.size_m.z_m) * 0.5
+    )
     return {
         'entity_id': entity.entity_id,
         # Keep the legacy radius for backwards-compatible diagnostics/fallback.
         'footprint_radius_m': radius,
         'safety_margin_m': 0.0,
         'footprint_vertices_xy_m': vertices,
+        'z_extent_m': z_extent,
     }
 
 
@@ -267,6 +291,8 @@ def _reason(kind: str, passed: bool, region_role: str | None) -> tuple[str, str]
         return ('wall_clearance.out_of_range', '壁との離隔が必要範囲を満たしていません')
     if kind == 'pair_distance':
         return ('pair_distance.out_of_range', '物体間距離が必要範囲を満たしていません')
+    if kind == 'entity_collision':
+        return ('entity_collision.overlap', '物体同士が3D範囲で干渉しています')
     return (f'{kind}.failed', '配置制約を満たしていません')
 
 
