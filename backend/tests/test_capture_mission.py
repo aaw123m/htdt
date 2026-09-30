@@ -256,6 +256,70 @@ def test_mission_package_embeds_hash_pinned_dependencies() -> None:
         decode_mission_package(tampered.model_dump_json())
 
 
+def _mission_wire(**tweaks) -> str:
+    document = _document(
+        room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+        entities=(_speaker('spk-fl', 'FL', 1.0),),
+    )
+    project = new_project_reference(document_id='mission-doc-1')
+    mission = build_mission(
+        document, project=project, purpose='initial_capture'
+    )
+    package = build_mission_package(mission)
+    wire = json.loads(package.model_dump_json())
+    for dotted, value in tweaks.items():
+        keys = dotted.split('__')
+        node = wire
+        for key in keys[:-1]:
+            node = node[int(key)] if key.isdigit() else node[key]
+        node[keys[-1]] = value
+    return json.dumps(wire)
+
+
+def test_decode_revalidates_plan_and_mission_hashes() -> None:
+    for payload in (
+        # Plan content changed while plan_sha256 stayed recorded.
+        _mission_wire(mission__plan__room_name='forged room'),
+        _mission_wire(mission__plan__purpose='recapture'),
+        # Plan hash link broken.
+        _mission_wire(mission__plan__plan_sha256='0' * 64),
+        # Baseline / lineage content changed under a stale mission_sha256.
+        _mission_wire(mission__baseline__document_id='mission-doc-2'),
+        _mission_wire(mission__baseline__scene_revision_id='rev-99'),
+        _mission_wire(mission__issued_from='repair_request'),
+        _mission_wire(
+            mission__supersedes_mission_id=(
+                '00000000-0000-4000-8000-000000000000'
+            )
+        ),
+    ):
+        with pytest.raises(CaptureMissionError):
+            decode_mission_package(payload)
+
+
+def test_decode_revalidates_derived_identities() -> None:
+    for payload in (
+        _mission_wire(
+            mission__plan__plan_id=(
+                '00000000-0000-4000-8000-000000000000'
+            )
+        ),
+        _mission_wire(
+            mission__mission_id='00000000-0000-4000-8000-000000000000'
+        ),
+        _mission_wire(
+            package_id='00000000-0000-4000-8000-000000000000'
+        ),
+        _mission_wire(
+            dependencies__0__dependency_id=(
+                '00000000-0000-4000-8000-000000000000'
+            )
+        ),
+    ):
+        with pytest.raises(CaptureMissionError):
+            decode_mission_package(payload)
+
+
 def test_bounded_equipment_snapshot_requires_known_definitions() -> None:
     from htdt.cad_equipment_catalog import EquipmentCatalogSnapshot
 
