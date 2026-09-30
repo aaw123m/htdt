@@ -910,6 +910,13 @@ def read_generic_biquad_json(text: str) -> CadCalibrationExportSnapshot:
 def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
     """Render a human/spreadsheet-facing CSV export of exported biquad settings.
 
+    A metadata header block carries the export's provenance — plan identity,
+    adapter/format version and the sample rate the biquad coefficients were
+    computed for, without which they cannot be interpreted — followed by one
+    row per exported filter, in the same field order as the channel review
+    (crossovers and routing included as canonical JSON like the installation
+    CSVs do).
+
     Every row is routed through :func:`csv_safe_row` so channel/output/filter
     identifiers are neutralized against spreadsheet formula interpretation
     (see ``htdt.csv_export`` for the single-quote escaping convention).
@@ -917,13 +924,50 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
 
     buffer = io.StringIO(newline='')
     writer = csv.writer(buffer, lineterminator='\n')
+    writer.writerow(csv_safe_row(['section', 'key', 'value']))
+    writer.writerow(csv_safe_row(['export', 'export_id', snapshot.export_id]))
+    writer.writerow(csv_safe_row(['export', 'format_id', snapshot.format_id]))
+    writer.writerow(csv_safe_row([
+        'export',
+        'adapter',
+        f'{snapshot.adapter_id}@{snapshot.adapter_version}',
+    ]))
+    writer.writerow(csv_safe_row([
+        'export', 'calibration_plan_id', snapshot.calibration_plan_id,
+    ]))
+    writer.writerow(csv_safe_row([
+        'export',
+        'requested_plan_semantic_sha256',
+        snapshot.requested_plan_semantic_sha256,
+    ]))
+    writer.writerow(csv_safe_row([
+        'export',
+        'exported_settings_semantic_sha256',
+        snapshot.exported_settings_semantic_sha256,
+    ]))
+    writer.writerow(csv_safe_row([
+        'export', 'sample_rate_hz', snapshot.sample_rate_hz,
+    ]))
+    writer.writerow(csv_safe_row([
+        'export', 'created_at_utc', snapshot.created_at_utc,
+    ]))
+    writer.writerow(csv_safe_row([
+        'export', 'quantization_applied', str(snapshot.quantization_applied).lower(),
+    ]))
+    for index, note in enumerate(snapshot.quantization_notes):
+        writer.writerow(csv_safe_row([
+            'metadata', f'quantization_note.{index + 1}', note,
+        ]))
     writer.writerow(csv_safe_row([
         'channel_id',
         'role_id',
+        'source_entity_id',
         'physical_output_id',
         'channel_gain_db',
         'delay_s',
         'polarity',
+        'crossover_json',
+        'routing_json',
         'filter_index',
         'filter_id',
         'filter_type',
@@ -937,14 +981,24 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
         'a2',
     ]))
     for channel in snapshot.channels:
+        crossover_json = _canonical_json(
+            [item.model_dump(mode='json') for item in channel.crossovers]
+        )
+        routing_json = _canonical_json(list(channel.routing))
+        channel_fields = [
+            channel.channel_id,
+            channel.role_id,
+            channel.source_entity_id,
+            channel.physical_output_id,
+            channel.gain_db,
+            channel.delay_s,
+            channel.polarity,
+            crossover_json,
+            routing_json,
+        ]
         if not channel.peq:
             writer.writerow(csv_safe_row([
-                channel.channel_id,
-                channel.role_id,
-                channel.physical_output_id,
-                channel.gain_db,
-                channel.delay_s,
-                channel.polarity,
+                *channel_fields,
                 '',
                 '',
                 '',
@@ -960,12 +1014,7 @@ def render_generic_biquad_csv(snapshot: CadCalibrationExportSnapshot) -> str:
             continue
         for index, item in enumerate(channel.peq):
             writer.writerow(csv_safe_row([
-                channel.channel_id,
-                channel.role_id,
-                channel.physical_output_id,
-                channel.gain_db,
-                channel.delay_s,
-                channel.polarity,
+                *channel_fields,
                 index,
                 item.filter_id,
                 item.filter_type,

@@ -792,19 +792,23 @@ def test_generic_biquad_csv_neutralizes_formula_prefixed_identifiers(tmp_path: P
 
     csv_text = render_generic_biquad_csv(dangerous)
     rows = [row for row in csv.reader(io.StringIO(csv_text)) if row]
-    assert rows[0] == [
-        'channel_id', 'role_id', 'physical_output_id', 'channel_gain_db',
-        'delay_s', 'polarity', 'filter_index', 'filter_id', 'filter_type',
+    header_index = next(
+        i for i, row in enumerate(rows) if row and row[0] == 'channel_id'
+    )
+    assert rows[header_index] == [
+        'channel_id', 'role_id', 'source_entity_id', 'physical_output_id',
+        'channel_gain_db', 'delay_s', 'polarity', 'crossover_json',
+        'routing_json', 'filter_index', 'filter_id', 'filter_type',
         'frequency_hz', 'q', 'filter_gain_db', 'b0', 'b1', 'b2', 'a1', 'a2',
     ]
-    data = rows[1]
+    data = rows[header_index + 1]
     assert data[0] == '\'=cmd|"/c calc"!A0'
     assert data[1] == "'@role"
-    assert data[2] == "'\t=out-fl"
-    assert data[7] == "'=evil-filter"
-    assert data[8] == 'peaking'
+    assert data[3] == "'\t=out-fl"
+    assert data[10] == "'=evil-filter"
+    assert data[11] == 'peaking'
     # Numeric cells remain plain parseable literals.
-    assert float(data[3]) == channel.gain_db
+    assert float(data[4]) == channel.gain_db
     for cell in data:
         candidate = cell.lstrip()
         assert not candidate or candidate[0] not in ('=', '+', '@')

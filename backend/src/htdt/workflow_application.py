@@ -70,11 +70,10 @@ from .cad_prediction_repository import CadPredictionRepository
 from .analysis_export import (
     AnalysisExportMeta,
     build_analysis_export,
-    comparison_metadata_entries,
+    comparison_export_parts,
     render_analysis_csv,
     render_analysis_html,
     render_analysis_json,
-    series_from_comparison,
     series_from_measurement_dataset,
 )
 from .cad_repository import SceneRepository
@@ -3595,13 +3594,16 @@ class WorkflowApplicationComposition:
                 )
             )
         for comparison in comparisons:
-            series.append(
-                series_from_comparison(
-                    comparison,
-                    current_scene_revision_id=current_revision_id,
-                )
+            # The comparison surface renders three curves — side A levels,
+            # side B levels and the A−B difference — plus the semantics
+            # payload, so the bundle ships all of it like the workspace's
+            # single-comparison export does.
+            comparison_series, comparison_metadata = comparison_export_parts(
+                comparison,
+                current_scene_revision_id=current_revision_id,
             )
-            metadata.extend(comparison_metadata_entries(comparison))
+            series.extend(comparison_series)
+            metadata.extend(comparison_metadata)
         if not series:
             QMessageBox.warning(
                 self.shell,

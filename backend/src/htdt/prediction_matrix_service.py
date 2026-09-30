@@ -389,7 +389,12 @@ class PredictionMatrixService:
         spec_id: str,
         matrix_source_id: str,
         matrix_receiver_id: str,
-    ) -> tuple[float, tuple[float, ...], tuple[float, ...] | None] | None:
+    ) -> tuple[
+        float,
+        tuple[float, ...],
+        tuple[float, ...],
+        tuple[float, ...] | None,
+    ] | None:
         """One cell's exact transfer evidence (frequency, magnitude, phase)."""
         result_set = self.repository.latest_result_set(spec_id)
         if result_set is None:
@@ -398,16 +403,13 @@ class PredictionMatrixService:
             transfer = result_set.transfer(
                 matrix_source_id, matrix_receiver_id
             )
-        except KeyError:
+        except (KeyError, ValueError):
             return None
         return (
             transfer.pressure_reference_pa,
             tuple(transfer.frequency_hz),
             tuple(transfer.magnitude_pa),
-        ) if transfer.phase_deg is None else (
-            transfer.pressure_reference_pa,
-            tuple(transfer.frequency_hz),
-            tuple(transfer.magnitude_pa),
+            None if transfer.phase_deg is None else tuple(transfer.phase_deg),
         )
 
     # ------------------------------------------------------------------
