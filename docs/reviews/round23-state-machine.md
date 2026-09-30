@@ -165,8 +165,29 @@ in the harness before any product conclusion was drawn:
 - Harness suite (this file): **530/530 walks green** on the branch.
 - Scoped regression: `test_activity_center`, `test_native_worker`,
   `test_workspace_dirty_state` all green.
-- Full `backend/tests` suite on the merge-test result: see PR notes
-  (run in flight at branch cut).
+- Full `backend/tests` suite green on the merge-test tree (~75 min).
+
+## Post-merge E2E follow-up (devin/rev23-machine-2)
+
+Runtime offscreen verification of the nine fixes surfaced a residual
+defect in #6's repair:
+
+- **Residual**: `note_authorities_changed` still aborted mid-batch when
+  `_records` exceeded `record_limit`. Each reclassifying
+  `_transition` → `_archive` evicts the oldest terminal records —
+  including not-yet-visited ones — so the next visited evicted op fell
+  through to the history fallback and raised
+  `OperationTransitionError('already completed')`. The calling
+  `_note_superseded_inputs` swallows it, so the batch half-applied
+  silently. The 530-walk harness missed it because walks never exceed
+  `record_limit` while carrying matching `input_authority_refs`. Fixed:
+  that transition now tolerates the mid-pass eviction (the op's
+  surviving history row is reclassified in place by pass 2). Kept
+  regression test:
+  `test_authorities_changed_reclassifies_past_record_evictions`
+  (fails pre-fix with `OperationTransitionError: operation op-1 is
+  already completed`; green post-fix). Found by runtime E2E testing,
+  not by a seeded walk.
 
 ## Deferred
 
@@ -174,3 +195,12 @@ in the harness before any product conclusion was drawn:
   ~0.7 s worst-case op vs 15 s budget). One flake observed pre-fix on
   this box; the diagnostic now dumps the lingering-thread states on
   failure for faster triage.
+- Pre-existing (not caused by this round, found by E2E): the
+  bundle-completion slot `worker.completed → _bundle_job_completed`
+  runs on the worker thread because `WorkflowApplicationComposition`
+  is not a `QObject`, so the export/import done `QMessageBox` is built
+  and `exec()`'d off-GUI-thread (undefined behavior / crash risk).
+- Pre-existing: closing during a running backup
+  (`audit_native_authority_graph`) leaves a detached worker that the
+  interpreter teardown destroys — exit code 127 in the recorded case
+  (no hang; `lingering_thread_count` was honest).

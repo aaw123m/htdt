@@ -697,11 +697,17 @@ class ActivityCenter:
             if not snapshot.current_for_input:
                 continue
             if snapshot.state == OperationState.COMPLETED:
-                self._transition(
-                    snapshot.operation_id,
-                    OperationState.COMPLETED_FOR_HISTORICAL_INPUT,
-                    current_for_input=False,
-                )
+                try:
+                    self._transition(
+                        snapshot.operation_id,
+                        OperationState.COMPLETED_FOR_HISTORICAL_INPUT,
+                        current_for_input=False,
+                    )
+                except OperationTransitionError:
+                    # An earlier archive in this same pass evicted this
+                    # terminal record past the bound — pass 2 below
+                    # reclassifies the surviving history row in place.
+                    continue
             else:
                 record.snapshot = snapshot.model_copy(
                     update={'current_for_input': False, 'updated_at': _utc_now()}

@@ -2067,6 +2067,79 @@ def test_activity_state_machine_walk(seed: int, tmp_path: Path) -> None:
     _run_activity_walk(seed, tmp_path)
 
 
+def test_authorities_changed_reclassifies_past_record_evictions() -> None:
+    """Regression for mid-pass record eviction aborting the batch.
+
+    With the record store past its bound, each reclassifying
+    ``_transition`` -> ``_archive`` evicts the oldest terminal records —
+    including not-yet-visited ones. The pass must still reach every
+    operation: the evicted op's surviving history row is reclassified in
+    place, and no ``OperationTransitionError`` may escape (before the
+    fix, the batch silently half-applied: the call raised — swallowed by
+    ``_note_superseded_inputs`` — leaving later ops stale).
+    """
+
+    center = ActivityCenter(history_limit=20, record_limit=4)
+    ids = []
+    for index in range(4):
+        ids.append(
+            center.submit(
+                operation_kind='prediction',
+                operation_class=OperationClass.COMPUTE,
+                title=f'収容{index}',
+                input_authority_refs=('auth-target',),
+                operation_id=f'op-{index}',
+            )
+        )
+    # Complete while at the bound so all four stay resident terminal.
+    for operation_id in ids:
+        center.mark_running(operation_id)
+        center.complete(operation_id)
+    assert len(center._records) == 4  # noqa: SLF001
+    # Submit past the bound without any terminal transition — records
+    # grow unevicted, so the next archive pass finds excess.
+    for index in range(4, 12):
+        ids.append(
+            center.submit(
+                operation_kind='prediction',
+                operation_class=OperationClass.COMPUTE,
+                title=f'追加{index}',
+                input_authority_refs=('auth-target',),
+                operation_id=f'op-{index}',
+            )
+        )
+    # Ref-free actives stay untouched throughout.
+    for index in range(12, 14):
+        center.submit(
+            operation_kind='prediction',
+            operation_class=OperationClass.COMPUTE,
+            title=f'対象外{index}',
+            operation_id=f'op-{index}',
+        )
+    assert len(center._records) > 4  # noqa: SLF001
+    resident_terminal = [
+        operation_id
+        for operation_id, record in center._records.items()  # noqa: SLF001
+        if not record.snapshot.is_active
+    ]
+    assert len(resident_terminal) >= 2
+
+    center.note_authorities_changed({'auth-target'})
+
+    for operation_id in ids:
+        snapshot = center.get(operation_id)
+        assert snapshot is not None, f'{operation_id} unresolvable'
+        assert not snapshot.current_for_input, f'{operation_id} kept stale input truth'
+        assert snapshot.state in (
+            OperationState.COMPLETED_FOR_HISTORICAL_INPUT,
+            OperationState.RUNNING,
+            OperationState.QUEUED,
+        ), f'{operation_id} unexpected state {snapshot.state}'
+        if snapshot.operation_id in {f'op-{i}' for i in range(4)}:
+            assert snapshot.state == OperationState.COMPLETED_FOR_HISTORICAL_INPUT
+
+
+
 # ---------------------------------------------------------------------------
 # Surface 4 — NativeWorkerPool real-thread interleavings.
 # ---------------------------------------------------------------------------
