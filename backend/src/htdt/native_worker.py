@@ -106,6 +106,42 @@ def _release_lingering(thread: QThread) -> None:
     _LINGERING_THREADS.pop(thread, None)
 
 
+class _WorkerCompletionRelay(QObject):
+    """Queued per-task receiver for ``worker.completed``.
+
+    Lives on the pool's owner thread: ``completed`` emits inside
+    ``NativeWorker.run`` on the worker thread and PySide only queues
+    delivery to receivers that have thread affinity — a plain callable
+    connected directly would run on the worker thread, where its Qt calls
+    (dialogs, status surfaces) deadlock or ghost. Each task gets its own
+    relay, which forwards the payload tagged with the Python worker object
+    it was created for, so the pool can gate delivery on *object identity*
+    rather than ``QObject.sender()``. The sender pointer is unsafe to
+    compare: the queued metacall stores a raw C++ pointer, and if the
+    emitting worker is freed before dispatch its address can be reused by
+    the next task's worker — a stale emission would then look live. The
+    strong reference here keeps the emitting C++ object alive until the
+    metacall has been consumed, so such reuse cannot happen at all.
+
+    Releasing a task pops the relay's Python entry and *disconnects* the
+    signal — never ``deleteLater``. The relay's wrapper is the last owner
+    of ``self._worker``, so a deferred delete of the relay would cascade
+    into destroying a moved-to-thread worker inside posted-event
+    delivery — the same Windows abort the worker wiring itself avoids
+    (see ``start``). The orphan C++ relay instead lives out its days as a
+    pool child and dies with the pool.
+    """
+
+    def __init__(self, pool: "NativeWorkerPool", worker: NativeWorker) -> None:
+        super().__init__(pool)
+        self._pool = pool
+        self._worker = worker
+
+    @Slot(object, object, object)
+    def receive(self, key: object, result: object, error: object) -> None:
+        self._pool._dispatch_completed(self._worker, key, result, error)
+
+
 class NativeWorkerPool(QObject):
     """Own the ``QThread`` + ``NativeWorker`` pairs of one controller or window.
 
@@ -117,6 +153,15 @@ class NativeWorkerPool(QObject):
     that ignores cancellation past the timeout is detached to module ownership
     until it actually stops, so teardown is deterministic and no running
     QThread is destroyed together with its owner.
+
+    ``on_completed``/``on_finished`` callbacks are delivered on the thread
+    that owns this pool (normally the UI thread) through the pool's own
+    queued slots — a plain callable is never invoked inside the worker,
+    so GUI-touching handlers are safe without a per-call-site relay. A
+    completion whose task record was already released (shutdown, stop_all,
+    key restart) or that arrives from a superseded worker is dropped at
+    dispatch, and a queued emission can therefore never resurrect a
+    released task's callback.
     """
 
     def __init__(
@@ -135,6 +180,7 @@ class NativeWorkerPool(QObject):
                 Callable[[str], None] | None,
             ],
         ] = {}
+        self._relays: dict[str, _WorkerCompletionRelay] = {}
         self._shutdown_requested = False
         self._last_shutdown_report = WorkerShutdownReport()
         # destroy() must go through a plain callable: PySide6 silently never
@@ -172,7 +218,13 @@ class NativeWorkerPool(QObject):
         *,
         on_finished: Callable[[str], None] | None = None,
     ) -> tuple[QThread, NativeWorker]:
-        """Create, wire and start one worker thread owned by this pool."""
+        """Create, wire and start one worker thread owned by this pool.
+
+        ``on_completed`` runs on this pool's owner thread (queued through
+        the pool itself — plain callables are never invoked on the worker
+        thread) and only while the task record is still live; ``on_finished``
+        likewise runs on the owner thread when the thread finishes.
+        """
         if self._shutdown_requested:
             raise RuntimeError("worker pool is shut down")
         if key in self._tasks:
@@ -186,7 +238,16 @@ class NativeWorkerPool(QObject):
         thread.setProperty("htdtWorkerKey", key)
         thread.started.connect(worker.run)
         if on_completed is not None:
-            worker.completed.connect(on_completed)
+            # Relay through a per-task QObject living on this pool's owner
+            # thread: ``completed`` emits inside ``NativeWorker.run`` on
+            # the worker thread, and PySide only queues delivery to
+            # receivers that have thread affinity — a plain callable
+            # (lambda, bound method of a non-QObject owner) would run
+            # directly on the worker thread, where its Qt calls (dialogs,
+            # status surfaces) deadlock or ghost.
+            relay = _WorkerCompletionRelay(self, worker)
+            self._relays[key] = relay
+            worker.completed.connect(relay.receive)
         worker.completed.connect(thread.quit)
         # NOTE: the worker is deliberately never connected to deleteLater.
         # Deleting a moved-to-thread QObject while its QThread emits
@@ -200,6 +261,39 @@ class NativeWorkerPool(QObject):
         self._callbacks[key] = (on_completed, on_finished)
         thread.start()
         return thread, worker
+
+    def _dispatch_completed(
+        self,
+        worker: NativeWorker,
+        key: object,
+        result: object,
+        error: object,
+    ) -> None:
+        """Invoke ``on_completed`` for a still-live task on the owner thread.
+
+        Reached only through the task's own ``_WorkerCompletionRelay`` — a
+        queued call, so this always runs on the pool's owner thread. The
+        gate is at dispatch time rather than connect time: an emission
+        queued before the task record was released
+        (``shutdown``/``stop_all``/``_detach``) or emitted by a worker
+        whose key has been restarted is dropped by the worker-identity
+        check, which is strictly stronger than ``disconnect`` — Qt cannot
+        retract an event that is already posted. Identity is compared as
+        Python objects, never via ``QObject.sender()`` — that raw-pointer
+        lookup can resolve to a different task's worker after an
+        allocator-reuse, which is why the relay carries the worker itself
+        and pins it alive. An exception escaping the callback propagates
+        out to ``sys.excepthook`` like any other slot failure
+        (diagnostics + uncaught surface); it is not swallowed here.
+        """
+        task_key = str(key)
+        record = self._tasks.get(task_key)
+        if record is None or record[1] is not worker:
+            return
+        callbacks = self._callbacks.get(task_key)
+        on_completed = None if callbacks is None else callbacks[0]
+        if on_completed is not None:
+            on_completed(task_key, result, error)
 
     def cancel(self, key: str) -> bool:
         """Logically cancel one task; False when the key is unknown."""
@@ -218,10 +312,12 @@ class NativeWorkerPool(QObject):
         """Physically stop tracked workers with one bounded wait.
 
         Every worker is logically cancelled first so a late ``completed``
-        result reports ``"cancelled"`` and cannot apply. Owner completion
-        slots are then disconnected — a belt-and-suspenders measure, since
-        already-queued emissions still require the owner's disposed guard —
-        and each thread is interrupted and asked to quit. Threads get the
+        result reports ``"cancelled"`` and cannot apply, then each thread is
+        interrupted and asked to quit. Completions emitted before a task's
+        record is released — including ones the worker already posted to the
+        owner thread's queue — are dropped at dispatch by
+        ``_dispatch_completed``, which Qt cannot retract once posted (see
+        ``_release_task``). Threads get the
         remaining part of ``timeout_ms`` (default ``shutdown_timeout_ms``)
         to finish. A thread still running afterwards is detached to module
         ownership and surfaced through ``WorkerShutdownReport.lingering_keys``;
@@ -236,8 +332,8 @@ class NativeWorkerPool(QObject):
         """Physically drain every tracked worker WITHOUT shutting the pool down.
 
         Same bounded stop as :meth:`shutdown` (logical cancel → interrupt →
-        quit → bounded wait → detach lingerers, owner slots disconnected),
-        but ``_shutdown_requested`` stays unset: the pool — and therefore its
+        quit → bounded wait → detach lingerers, queued completions dropped
+        at dispatch), but ``_shutdown_requested`` stays unset: the pool — and therefore its
         owner — remains usable and a later ``start`` is still accepted. Used
         by the stop-busy deactivation escalation so an operator can abandon
         wedged work and keep working in the same window instead of being
@@ -276,18 +372,24 @@ class NativeWorkerPool(QObject):
         return report
 
     def _release_task(self, key: str) -> None:
-        """Drop bookkeeping and silence not-yet-emitted completions."""
-        record = self._tasks.pop(key, None)
-        callbacks = self._callbacks.pop(key, None)
-        if record is None or callbacks is None:
-            return
-        _thread, worker = record
-        on_completed = callbacks[0]
-        if on_completed is not None:
-            try:
-                worker.completed.disconnect(on_completed)
-            except (RuntimeError, TypeError):
-                pass
+        """Drop bookkeeping and silence not-yet-delivered completions.
+
+        The owner callback is never connected to the worker directly — it
+        dispatches through ``_dispatch_completed``, which requires the task
+        record to still be live and the emitting worker to still own the
+        key. Popping the record here therefore silences every later
+        delivery, including emissions the worker already posted to the
+        owner thread's queue (``disconnect`` does not retract those — the
+        dead-receiver skip plus the record gate below does).
+        """
+        self._tasks.pop(key, None)
+        self._callbacks.pop(key, None)
+        relay = self._relays.pop(key, None)
+        if relay is not None:
+            # Disconnect, never deleteLater: freeing the relay's C++ side
+            # would cascade into destroying the pinned worker inside
+            # posted-event delivery (see _WorkerCompletionRelay).
+            relay._worker.completed.disconnect(relay.receive)
 
     def _detach(self, key: str) -> None:
         """Move a still-running thread to module ownership until finished."""
@@ -334,6 +436,9 @@ class NativeWorkerPool(QObject):
             return
         self._tasks.pop(str(key), None)
         callbacks = self._callbacks.pop(str(key), None)
+        relay = self._relays.pop(str(key), None)
+        if relay is not None:
+            relay._worker.completed.disconnect(relay.receive)
         on_finished = None if callbacks is None else callbacks[1]
         if on_finished is not None:
             try:

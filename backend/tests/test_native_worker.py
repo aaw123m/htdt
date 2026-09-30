@@ -7,6 +7,7 @@ from threading import Event
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import QThread
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
 
@@ -18,6 +19,7 @@ from htdt.measurement_workflow import MeasurementWorkflowController
 from htdt.native_worker import (
     DEFAULT_WORKER_SHUTDOWN_TIMEOUT_MS,
     WORKER_CANCELLED,
+    NativeWorker,
     NativeWorkerPool,
     lingering_thread_count,
 )
@@ -216,6 +218,127 @@ def test_lingering_worker_stays_alive_until_thread_finishes() -> None:
     # the point is that the moved-to-thread object was still alive to emit it.
     assert completions == [("linger", None, WORKER_CANCELLED)]
     pool.deleteLater()
+
+
+def test_on_completed_delivers_on_pool_owner_thread() -> None:
+    """REV24-RELAY: a plain callable must never run inside the worker.
+
+    ``worker.completed`` emits inside ``NativeWorker.run`` on the worker
+    thread; a non-QObject receiver connected to it directly is invoked
+    there (the UXFLOW deadlock class). The pool now relays delivery
+    through its own queued slot, so the callback lands on the thread
+    that owns the pool.
+    """
+    app = _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=500)
+    delivered_on: list[object] = []
+    completions: list[tuple[object, object, object]] = []
+
+    pool.start(
+        "ui-bound",
+        lambda _cancel: "result",
+        lambda key, result, error: (
+            delivered_on.append(QThread.currentThread()),
+            completions.append((key, result, error)),
+        ),
+    )
+    assert _pump_until(lambda: "ui-bound" not in pool.tasks)
+    assert delivered_on == [app.thread()]
+    assert completions == [("ui-bound", "result", None)]
+    pool.deleteLater()
+
+
+def test_completion_queued_before_release_is_dropped() -> None:
+    """An emission already posted to the owner queue at release time
+    must never deliver — ``disconnect`` cannot retract a queued event,
+    so the dispatch gate (live record + worker identity) has to.
+    """
+    app = _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=500)
+    completions: list[object] = []
+
+    def instant(_cancel_event: Event) -> str:
+        return "early"
+
+    pool.start("early", instant, lambda k, r, e: completions.append(r))
+    # The worker may already have emitted — shutdown releases the record
+    # either way, and every delivery afterwards must find it gone.
+    pool.shutdown()
+    app.processEvents()
+    # The direct dispatch path refuses a released record the same way.
+    pool._dispatch_completed(
+        NativeWorker("early", instant), "early", "late", None
+    )
+    assert completions == []
+    pool.deleteLater()
+
+
+def test_superseded_worker_completion_never_reaches_new_callback() -> None:
+    """A late emission from a worker whose key was restarted is dropped
+    by worker identity — it must not deliver to the new task's callback."""
+    app = _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=500)
+    baseline = lingering_thread_count()
+    seen: list[tuple[object, object, object]] = []
+    first_started = Event()
+    release_first = Event()
+
+    def first(_cancel_event: Event) -> str:
+        first_started.set()
+        release_first.wait(5.0)
+        return "stale"
+
+    def second(_cancel_event: Event) -> str:
+        return "fresh"
+
+    _old_thread, old_worker = pool.start(
+        "dup", first, lambda *args: seen.append(args)
+    )
+    assert _pump_until(first_started.is_set)
+    pool.start("dup", second, lambda *args: seen.append(args))
+    # The superseded worker emits after the key was detached to the new
+    # task — delivered or not, it must never be attributed to the new
+    # callback.
+    old_worker.completed.emit("dup", "stale", None)
+    app.processEvents()
+    release_first.set()
+    assert _pump_until(lambda: "dup" not in pool.tasks)
+    app.processEvents()
+    assert seen == [("dup", "fresh", None)]
+    pool.shutdown()
+    assert _pump_until(lambda: lingering_thread_count() == baseline)
+    pool.deleteLater()
+
+
+def test_callback_exception_surfaces_without_wedging_pool() -> None:
+    """A raising ``on_completed`` escapes the slot to sys.excepthook — it
+    must not swallow the error, block ``thread.quit``, or skip
+    ``on_finished``."""
+    import sys
+
+    app = _app()
+    pool = NativeWorkerPool(shutdown_timeout_ms=500)
+    finished: list[str] = []
+    hooked: list[BaseException] = []
+    previous = sys.excepthook
+    sys.excepthook = lambda _t, e, _tb: hooked.append(e)
+    try:
+        def boom(_key, _result, _error) -> None:
+            raise RuntimeError("callback-boom")
+
+        pool.start(
+            "raising",
+            lambda _cancel: "ok",
+            boom,
+            on_finished=finished.append,
+        )
+        assert _pump_until(lambda: "raising" not in pool.tasks)
+        assert _pump_until(lambda: bool(hooked))
+        assert isinstance(hooked[0], RuntimeError)
+        assert finished == ["raising"]
+    finally:
+        sys.excepthook = previous
+        pool.deleteLater()
 
 
 def test_restarting_a_busy_key_detaches_the_previous_task() -> None:

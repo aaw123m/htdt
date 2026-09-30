@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
+from threading import Event
 from typing import Literal
 import weakref
 
@@ -69,7 +70,9 @@ from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_objective_repository import CadObjectiveRepository
 from .cad_prediction_repository import CadPredictionRepository
 from .analysis_export import (
+    AnalysisExportBundle,
     AnalysisExportMeta,
+    AnalysisSeries,
     build_analysis_export,
     comparison_export_parts,
     render_analysis_csv,
@@ -457,31 +460,6 @@ def _is_kind(workspace: RoomWorkspace, entity_id: str, kind: str) -> bool:
         return False
 
 
-class _BundleJobCompletionRelay(QObject):
-    """UI-thread receiver for bundle-pool completions.
-
-    ``NativeWorker.completed`` emits inside ``NativeWorker.run`` on the
-    worker thread; PySide only queues delivery when the receiver has
-    QObject thread affinity. A bound method of this plain composition
-    would be invoked DIRECTLY on the worker thread — its Qt calls
-    (QMessageBox parenting, ``.exec()``, statusBar writes) then produced
-    ``QObject::setParent ... different thread`` warnings, ghosted modal
-    dialogs and deadlocked the app after export/import (REV24-UXFLOW).
-    """
-
-    def __init__(
-        self,
-        deliver: Callable[[object, object, object], None],
-        parent: QObject,
-    ) -> None:
-        super().__init__(parent)
-        self._deliver = deliver
-
-    @Slot(object, object, object)
-    def receive(self, key: object, result: object, error: object) -> None:
-        self._deliver(key, result, error)
-
-
 @dataclass(frozen=True, slots=True)
 class _NavigationProjectResolution:
     """Typed-target ``project_id`` resolved onto a document — or failed closed.
@@ -493,6 +471,57 @@ class _NavigationProjectResolution:
     document_id: str | None
     status: Literal['ok', 'missing', 'archived', 'deleted']
     display_name: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _AnalysisExportPreparation:
+    """Worker-produced half of the analysis export (#512).
+
+    ``series``/``metadata`` cross the thread boundary as plain immutable
+    data; the UI resumes with the prompts and queues the write job.
+    """
+
+    series: tuple[AnalysisSeries, ...]
+    metadata: tuple[AnalysisExportMeta, ...]
+    omitted_measurements: int
+
+
+@dataclass(frozen=True, slots=True)
+class _AnalysisExportWriteResult:
+    """Outcome of the analysis-export write job for the completion dialog."""
+
+    export: AnalysisExportBundle
+    written: tuple[Path, ...]
+    omitted_measurements: int
+    comparisons_failed: bool
+
+
+def _write_analysis_export(
+    target: Path, export: AnalysisExportBundle
+) -> tuple[Path, ...]:
+    """Claim one ``analysis-N`` stem and publish the three members atomically.
+
+    One generation per stem: re-exporting into the same folder never
+    overwrites or mixes with a previous export — a fresh ``analysis-N``
+    stem is claimed and the three members are published atomically or not
+    at all.
+    """
+    stem = claim_export_stem(
+        target,
+        'analysis',
+        ('_export.csv', '_export.json', '_report.html'),
+    )
+    return tuple(
+        write_export_files(
+            target,
+            {
+                f'{stem}_export.csv': render_analysis_csv(export),
+                f'{stem}_export.json': render_analysis_json(export),
+                f'{stem}_report.html': render_analysis_html(export),
+            },
+            bom_suffixes=('.csv',),
+        ).values()
+    )
 
 
 class WorkflowApplicationComposition:
@@ -662,9 +691,6 @@ class WorkflowApplicationComposition:
         # notice is never wiped (#REV24-UXFLOW).
         self._bundle_status_message: str | None = None
         self._bundle_pool = NativeWorkerPool(self.shell)
-        self._bundle_receiver = _BundleJobCompletionRelay(
-            self._bundle_job_completed, self.shell
-        )
         self.data_management_component = build_data_management_component(
             self.data_management_controller
         )
@@ -1439,9 +1465,9 @@ class WorkflowApplicationComposition:
             return
         # Runs on the bundle worker pool — a large project's snapshot
         # + zip walk used to freeze the UI thread for tens of seconds
-        # (#REV19). Completion is relayed through ``_bundle_receiver`` so
-        # ``_bundle_job_completed`` runs on the UI thread, which owns the
-        # wait cursor and the result dialog.
+        # (#REV19). The pool relays the completion onto the UI thread, so
+        # ``_bundle_job_completed`` — a bound method of this plain
+        # composition — runs where the wait cursor and result dialog live.
         self._begin_bundle_job(
             "プロジェクトバンドルをエクスポートしています…"
         )
@@ -1452,7 +1478,7 @@ class WorkflowApplicationComposition:
                 self.document_id,
                 Path(selected),
             ),
-            self._bundle_receiver.receive,
+            self._bundle_job_completed,
         )
 
     def _import_project_bundle(self) -> None:
@@ -1470,8 +1496,8 @@ class WorkflowApplicationComposition:
         if not selected:
             return
         # Offloaded like export (#REV19); the record-identity-conflict
-        # retry question is asked in ``_bundle_job_completed`` on the UI
-        # thread (via ``_bundle_receiver``) after the first attempt fails.
+        # retry question is asked in ``_bundle_job_completed``, which the
+        # pool delivers on the UI thread after the first attempt fails.
         self._bundle_import_path = Path(selected)
         self._begin_bundle_job(
             "プロジェクトバンドルをインポートしています…"
@@ -1481,7 +1507,7 @@ class WorkflowApplicationComposition:
             lambda _cancel_event: import_project_bundle(
                 self.repository, Path(selected)
             ),
-            self._bundle_receiver.receive,
+            self._bundle_job_completed,
         )
 
     def _archive_dialog(self, *, archived: bool) -> None:
@@ -3677,8 +3703,30 @@ class WorkflowApplicationComposition:
         comparisons into the deterministic analysis export (CSV/JSON/HTML)
         via the typed series adapters — provenance and historical flags
         are derived from the real authorities, never typed in.
-        """
 
+        The evidence re-verification (SHA-256 over every measurement
+        asset) and series assembly run on the bundle pool: their cost
+        scales with total stored asset bytes, so a project with real
+        capture data would stall the shell behind the dialogs. The UI
+        resumes in ``_analysis_export_prepare_done`` for the prompts,
+        then a second job performs the render + write.
+        """
+        self._begin_bundle_job("解析エクスポートを作成しています…")
+        self._bundle_pool.start(
+            "project.bundle.analysis_export.prepare",
+            self._analysis_export_prepare,
+            self._bundle_job_completed,
+        )
+
+    def _analysis_export_prepare(
+        self, cancel_event: Event
+    ) -> _AnalysisExportPreparation | None:
+        """Worker half of the analysis export — runs off the UI thread.
+
+        ``None`` means the project holds nothing exportable at all; a
+        cooperative stop still surfaces as ``WORKER_CANCELLED`` because
+        ``NativeWorker.run`` re-checks the flag after the op returns.
+        """
         measurements = CadMeasurementRepository(self.repository)
         records = measurements.list_measurements(self.document_id)
         comparisons: tuple = ()
@@ -3696,12 +3744,7 @@ class WorkflowApplicationComposition:
                 )
             )
         if not records and not comparisons and not metadata:
-            QMessageBox.warning(
-                self.shell,
-                "解析エクスポート",
-                "書き出せる測定・比較データがありません。",
-            )
-            return
+            return None
         head = self.repository.current_head(self.document_id)
         current_revision_id = (
             head.revision_id if head is not None else None
@@ -3709,6 +3752,8 @@ class WorkflowApplicationComposition:
         series = []
         omitted_measurements = 0
         for record in records:
+            if cancel_event.is_set():
+                return None
             try:
                 bundle = measurements.get_evidence_bundle(
                     record.measurement_id
@@ -3747,7 +3792,31 @@ class WorkflowApplicationComposition:
             )
             series.extend(comparison_series)
             metadata.extend(comparison_metadata)
-        if not series:
+        return _AnalysisExportPreparation(
+            series=tuple(series),
+            metadata=tuple(metadata),
+            omitted_measurements=omitted_measurements,
+        )
+
+    def _analysis_export_prepare_done(
+        self, result: _AnalysisExportPreparation | None, error: object
+    ) -> None:
+        """UI half of the analysis export: prompt, then queue the write."""
+        if isinstance(error, Exception):
+            warn_user(
+                self.shell,
+                "解析エクスポートを作成できませんでした",
+                error,
+            )
+            return
+        if result is None:
+            QMessageBox.warning(
+                self.shell,
+                "解析エクスポート",
+                "書き出せる測定・比較データがありません。",
+            )
+            return
+        if not result.series:
             QMessageBox.warning(
                 self.shell,
                 "解析エクスポート",
@@ -3771,8 +3840,8 @@ class WorkflowApplicationComposition:
             document_id=self.document_id,
             title=title,
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
-            series=tuple(series),
-            metadata=tuple(metadata),
+            series=result.series,
+            metadata=result.metadata,
         )
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
@@ -3782,47 +3851,47 @@ class WorkflowApplicationComposition:
         )
         if not directory:
             return
-        target = Path(directory)
-        # One generation per stem: re-exporting into the same folder
-        # never overwrites or mixes with a previous export — a fresh
-        # ``analysis-N`` stem is claimed and the three members are
-        # published atomically or not at all.
-        try:
-            stem = claim_export_stem(
-                target,
-                'analysis',
-                ('_export.csv', '_export.json', '_report.html'),
-            )
-            written = tuple(
-                write_export_files(
-                    target,
-                    {
-                        f'{stem}_export.csv': render_analysis_csv(export),
-                        f'{stem}_export.json': render_analysis_json(export),
-                        f'{stem}_report.html': render_analysis_html(export),
-                    },
-                    bom_suffixes=('.csv',),
-                ).values()
-            )
-        except Exception as exc:
+        comparisons_failed = any(
+            meta.key == 'omitted.comparisons' for meta in result.metadata
+        )
+        omitted = result.omitted_measurements
+        self._begin_bundle_job("解析エクスポートを書き出しています…")
+        self._bundle_pool.start(
+            "project.bundle.analysis_export.write",
+            lambda _cancel_event: _AnalysisExportWriteResult(
+                export=export,
+                written=_write_analysis_export(Path(directory), export),
+                omitted_measurements=omitted,
+                comparisons_failed=comparisons_failed,
+            ),
+            self._bundle_job_completed,
+        )
+
+    def _analysis_export_write_done(
+        self, result: _AnalysisExportWriteResult | None, error: object
+    ) -> None:
+        """Surface the written analysis export — runs on the UI thread."""
+        if isinstance(error, Exception):
             warn_user(
-                self.shell, "解析エクスポートを書き出せませんでした", exc
+                self.shell, "解析エクスポートを書き出せませんでした", error
             )
+            return
+        if result is None:
             return
         box = QMessageBox(self.shell)
         box.setWindowTitle("解析エクスポートを書き出しました")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(
             "次のファイルを書き出しました:\n"
-            + "\n".join(str(path) for path in written)
+            + "\n".join(str(path) for path in result.written)
         )
-        details = [f"仕様 SHA-256: {export.spec_sha256}"]
-        if omitted_measurements:
+        details = [f"仕様 SHA-256: {result.export.spec_sha256}"]
+        if result.omitted_measurements:
             details.append(
-                f"{omitted_measurements} 件の測定データは検証に失敗したため"
+                f"{result.omitted_measurements} 件の測定データは検証に失敗したため"
                 "除外しました（ファイル内の metadata に記録されています）"
             )
-        if metadata and any(m.key == 'omitted.comparisons' for m in metadata):
+        if result.comparisons_failed:
             details.append(
                 "保存済み比較を検証できなかったため、比較は除外しました"
             )
@@ -3852,8 +3921,8 @@ class WorkflowApplicationComposition:
         """Apply the finished bundle job's outcome on the UI thread.
 
         Late completions can never reach here after close/project-switch —
-        the close-hook shutdown disconnects ``on_completed`` inside the
-        pool's release path.
+        the close-hook shutdown releases each task record inside the pool,
+        and the pool drops any delivery that outlives its record.
         """
         task_key = str(key)
         self._bundle_busy = False
@@ -3873,6 +3942,12 @@ class WorkflowApplicationComposition:
             self.shell.statusBar().showMessage(
                 "プロジェクトバンドル処理を中止しました"
             )
+            return
+        if task_key.startswith("project.bundle.analysis_export.prepare"):
+            self._analysis_export_prepare_done(result, error)
+            return
+        if task_key.startswith("project.bundle.analysis_export.write"):
+            self._analysis_export_write_done(result, error)
             return
         if task_key.startswith("project.bundle.export"):
             if isinstance(error, Exception):
@@ -3917,7 +3992,7 @@ class WorkflowApplicationComposition:
                             source,
                             import_as_copy=True,
                         ),
-                        self._bundle_receiver.receive,
+                        self._bundle_job_completed,
                     )
                 return
             if isinstance(error, Exception):
