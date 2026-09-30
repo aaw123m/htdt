@@ -76,6 +76,7 @@ def evaluate_measurement_readiness(
         item.get('kind') == 'microphone_calibration'
         and item.get('context_id') == context_id
         and isinstance(item.get('filename'), str)
+        and bool(item['filename'])
         and expected_cal is not None
         and _basename(item['filename']).casefold() == expected_cal.casefold()
         for item in attachments
