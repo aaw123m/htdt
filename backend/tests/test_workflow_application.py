@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEventLoop, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -640,3 +640,48 @@ def test_prompt_project_name_cancel_aborts(
     composition.shell.close()
     composition.shell.deleteLater()
     app.processEvents()
+
+
+def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> None:
+    """REV24-UXFLOW: ``_bundle_job_completed`` is a bound method of the
+    plain (non-QObject) composition — connected directly to
+    ``worker.completed`` it ran ON the worker thread, so every Qt call in
+    the handler (QMessageBox parenting, ``.exec()``, statusBar writes) was
+    a cross-thread violation that ghosted modal dialogs and deadlocked
+    the app after export/import. The composition now relays the signal
+    through a QObject living on the UI thread."""
+    app = _app()
+    composition = _composition(tmp_path)
+    delivered_on: list[object] = []
+    loop = QEventLoop()
+
+    original = composition._bundle_job_completed
+
+    def spy(*args):
+        delivered_on.append(QThread.currentThread())
+        result = original(*args)
+        loop.quit()
+        return result
+
+    monkeypatch.setattr(composition._bundle_receiver, '_deliver', spy)
+    monkeypatch.setattr(
+        QMessageBox, 'exec', lambda self: QDialog.DialogCode.Accepted
+    )
+
+    composition._begin_bundle_job('エクスポート中…')
+    composition._bundle_pool.start(
+        'project.bundle.export',
+        lambda _cancel: SimpleNamespace(
+            row_count=1, asset_count=1, manifest_sha256='x'
+        ),
+        composition._bundle_receiver.receive,
+    )
+    QTimer.singleShot(10_000, loop.quit)
+    loop.exec()
+    try:
+        assert delivered_on == [app.thread()]
+        assert composition._bundle_busy is False
+    finally:
+        composition.shell.close()
+        composition.shell.deleteLater()
+        app.processEvents()
