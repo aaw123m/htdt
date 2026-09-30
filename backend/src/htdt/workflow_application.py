@@ -238,6 +238,14 @@ _LAZY_IMPORTS = {
     'inbox_focus': ('.application_pages', 'inbox_focus'),
     'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
     'projects_focus': ('.application_pages', 'projects_focus'),
+    'SolverOutputDiagnosticsDialog': (
+        '.solver_output_diagnostics_ui',
+        'SolverOutputDiagnosticsDialog',
+    ),
+    'open_solver_output_ledger': (
+        '.solver_output_ledger',
+        'open_solver_output_ledger',
+    ),
     'build_measurement_workspace_mount': (
         '.measurement_page_workspace',
         'build_measurement_workspace_mount',
@@ -2059,6 +2067,7 @@ class WorkflowApplicationComposition:
             ),
             export_diagnostics=self._export_diagnostics_package,
             open_authority_graph=self._open_authority_inspector,
+            open_solver_diagnostics=self._open_solver_diagnostics,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -2116,6 +2125,28 @@ class WorkflowApplicationComposition:
         )
         dialog = AuthorityInspectorDialog(
             graph, on_deep_link=self._navigate_target, parent=parent
+        )
+        dialog.exec()
+
+    def _open_solver_diagnostics(self, parent: QWidget) -> None:
+        """Open the solver-output ledger view for the current document.
+
+        REV24-SURFACE: read-only projection over the solver stack's
+        bound/unbound payload ledger — the same classification
+        ``audit_table_modes`` reports. The projection is rebuilt at open
+        time and never persisted.
+        """
+        if not self.document_id:
+            return
+        _self = sys.modules[__name__]
+        ledger = _self.open_solver_output_ledger(
+            self.repository.path, self.document_id
+        )
+        dialog = _self.SolverOutputDiagnosticsDialog(
+            ledger,
+            self.repository.list_revision_summaries(self.document_id),
+            self.repository.revision_labels(self.document_id),
+            parent=parent,
         )
         dialog.exec()
 

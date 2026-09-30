@@ -1319,12 +1319,14 @@ class SupportPage(QWidget):
         status_provider: Callable[[], tuple[str, ...]] | None = None,
         export_diagnostics: Callable[[QWidget], str | None] | None = None,
         open_authority_graph: Callable[[QWidget], None] | None = None,
+        open_solver_diagnostics: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._status_provider = status_provider
         self._export_diagnostics = export_diagnostics
         self._open_authority_graph = open_authority_graph
+        self._open_solver_diagnostics = open_solver_diagnostics
         layout = _page_layout(
             self,
             "サポート",
@@ -1357,6 +1359,15 @@ class SupportPage(QWidget):
             layout.addWidget(self.authority_button)
         else:
             self.authority_button = None
+        if self._open_solver_diagnostics is not None:
+            self.solver_button = QPushButton("ソルバー出力の診断", self)
+            self.solver_button.setObjectName("supportOpenSolverDiagnostics")
+            self.solver_button.clicked.connect(
+                lambda: self._open_solver_diagnostics(self)
+            )
+            layout.addWidget(self.solver_button)
+        else:
+            self.solver_button = None
         if self._export_diagnostics is not None:
             self.export_button = QPushButton("診断パッケージをエクスポート", self)
             self.export_button.setObjectName("supportExportDiagnostics")
