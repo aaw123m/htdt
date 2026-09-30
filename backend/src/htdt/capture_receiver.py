@@ -913,6 +913,10 @@ class CaptureReceiverService:
     ) -> ReceiverDeliveryRecord:
         key = delivery_key or f'{pairing.pairing_id}:{delivery_id or archive_sha256}'
         with closing(self._connect()) as connection, connection:
+            # BEGIN IMMEDIATE serializes the dedup read with the ledger write:
+            # two concurrent re-deliveries of the same key must not both pass
+            # the existence check and collide on the delivery_key insert.
+            connection.execute('BEGIN IMMEDIATE')
             existing = connection.execute(
                 'SELECT * FROM capture_receiver_deliveries WHERE delivery_key=?',
                 (key,),
