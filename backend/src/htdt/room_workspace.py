@@ -4536,7 +4536,9 @@ class RoomWorkspace(QWidget):
             self._pre_isolation_hidden = set(self.controller.view_state.hidden_ids)
         self.controller.isolate_entities(keep)
         self._render()
-        self._set_status(f"「{kind}」のみ表示しています")
+        self._set_status(
+            f"「{SelectionInspector.KIND_LABELS.get(kind, kind)}」のみ表示しています"
+        )
         return True
 
     def clear_isolation(self) -> bool:

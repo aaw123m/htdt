@@ -56,6 +56,12 @@ def _plan_status_label(plan: CapturePurgePlan) -> str:
     }[plan.status]
 
 
+_DEPENDENT_KIND_LABELS = {
+    "semantic_promotion": "意味昇格",
+    "mesh_composition": "メッシュ合成",
+}
+
+
 def _plan_summary_lines(plan: CapturePurgePlan) -> list[str]:
     lines = [
         f"結果: {_plan_status_label(plan)}",
@@ -77,7 +83,8 @@ def _plan_summary_lines(plan: CapturePurgePlan) -> list[str]:
         lines.append("削除を妨げている参照:")
         for dependent in plan.blocking_dependents[:8]:
             lines.append(
-                f"・{dependent.kind} {dependent.identifier}"
+                f"・{_DEPENDENT_KIND_LABELS.get(dependent.kind, dependent.kind)}"
+                f" {dependent.identifier}"
             )
         remaining = len(plan.blocking_dependents) - 8
         if remaining > 0:

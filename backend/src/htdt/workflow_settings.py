@@ -26,6 +26,7 @@ from .application_preferences import (
     PreferenceChange,
     PreferenceDefinition,
     PreferenceError,
+    PreferenceLoadState,
     PreferenceValueType,
 )
 from .data_management_ui import DataManagementComponent
@@ -45,6 +46,98 @@ _CATEGORY_LABELS: dict[PreferenceCategory, str] = {
     PreferenceCategory.COMPUTE: "計算",
     PreferenceCategory.FILES_EXPORT: "ファイルと出力",
     PreferenceCategory.DIAGNOSTICS: "診断",
+}
+
+
+#: User-facing Japanese name per registered preference key — the row label
+#: must never render the internal dotted identifier. A key added to
+#: PREFERENCE_DEFINITIONS without an entry here falls back to the raw key
+#: so nothing silently lies about what it edits.
+_PREFERENCE_LABELS: dict[str, str] = {
+    'general.language': '表示言語',
+    'general.startup_destination': '起動時に表示する画面',
+    'general.reopen_last_project': '前回のプロジェクトを再開する',
+    'display_input.length_unit': '長さの表示単位',
+    'display_input.numeric_precision': '数値の小数点以下桁数',
+    'display_input.angle_unit': '角度の表示単位',
+    'display_input.theme': '外観テーマ',
+    'display_input.reduced_motion': '視覚効果を減らす',
+    'display_input.high_contrast': 'ハイコントラスト表示',
+    'integrations.rew_host': 'REW APIホスト',
+    'integrations.rew_port': 'REW APIポート',
+    'integrations.capture_receiver_enabled': 'Captureレシーバーを有効化',
+    'compute.preferred_backend': '実行バックエンドの優先順位',
+    'compute.max_concurrency': '長時間ジョブの最大並行数',
+    'compute.scratch_dir': '作業フォルダ',
+    'compute.storage_ceiling_mb': '作業領域の上限 (MiB)',
+    'files.export_dir': 'エクスポート先フォルダ',
+    'files.portable_bundle_include_libraries': 'バンドルにライブラリ定義を含める',
+    'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子を含める',
+}
+
+
+#: One-line Japanese description per key — shown as the row/tooltip hint
+#: instead of the definition's English authoring note.
+_PREFERENCE_DESCRIPTIONS: dict[str, str] = {
+    'general.language': 'ユーザーインターフェースの表示言語です。',
+    'general.startup_destination': '起動時に最初に表示する画面です。',
+    'general.reopen_last_project': '起動時に最近使ったプロジェクトを提案・再開します。',
+    'display_input.length_unit': '長さの表示単位です（内部のSI保存値は変わりません）。',
+    'display_input.numeric_precision': '表示する小数点以下の桁数です。',
+    'display_input.angle_unit': '角度の表示単位です（現在は度のみ）。',
+    'display_input.theme': '外観テーマのポリシーです。',
+    'display_input.reduced_motion': 'OS設定で不十分な場合にアニメーション等を抑えます。',
+    'display_input.high_contrast': 'OS設定で不十分な場合にコントラストを上げます。',
+    'integrations.rew_host': 'REW APIの接続先ホストです（ループバックのみ）。',
+    'integrations.rew_port': 'REW APIの接続ポートです。',
+    'integrations.capture_receiver_enabled': 'ネイティブCaptureレシーバーを有効にします。',
+    'compute.preferred_backend': '検証済みの実行バックエンドの中から優先順位を選びます。',
+    'compute.max_concurrency': '長時間ジョブのローカル並行数の上限です。',
+    'compute.scratch_dir': '作業・キャッシュ領域のルートです（空欄 = データフォルダ既定値）。',
+    'compute.storage_ceiling_mb': '作業・キャッシュ領域の上限MiBです（0 = 管理しません）。',
+    'files.export_dir': 'エクスポート・レポートの既定フォルダです（空欄 = システムのドキュメント）。',
+    'files.portable_bundle_include_libraries': 'ポータブルバンドルに再利用可能なライブラリ定義を同梱します。',
+    'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子・ハッシュを含めます。',
+}
+
+
+#: Japanese labels for enum option values, keyed per preference key. Values
+#: missing from a key's map render raw — host addresses and unit symbols are
+#: already the right display form.
+_PREFERENCE_VALUE_LABELS: dict[str, dict[object, str]] = {
+    'general.language': {
+        'system_default': 'システムに従う',
+        'ja': '日本語',
+        'en': 'English',
+    },
+    'general.startup_destination': {
+        'overview': '概要',
+        'reopen_last_project': '前回のプロジェクトを再開',
+    },
+    'display_input.angle_unit': {
+        'degree': '度',
+    },
+    'display_input.theme': {
+        'system': 'システムに従う',
+        'light': 'ライト',
+        'dark': 'ダーク',
+    },
+    'compute.preferred_backend': {
+        'auto': '自動',
+        'cpu': 'CPU',
+        'gpu_when_validated': 'GPU（検証済みのみ）',
+    },
+}
+
+
+#: The write-refused banner names the load state — the enum value is an
+#: internal id, so map it to what the operator is actually looking at.
+_LOAD_STATE_LABELS: dict[PreferenceLoadState, str] = {
+    PreferenceLoadState.OK: '正常',
+    PreferenceLoadState.MISSING: 'なし',
+    PreferenceLoadState.PARTIAL_INVALID_VALUE: '一部の値が無効',
+    PreferenceLoadState.CORRUPT: '破損',
+    PreferenceLoadState.INCOMPATIBLE_NEWER_SCHEMA: '新しい形式のファイル',
 }
 
 
@@ -128,7 +221,7 @@ class PreferencesWidget(QWidget):
 
     @staticmethod
     def _row_label(definition: PreferenceDefinition) -> QLabel:
-        text = definition.key
+        text = _PREFERENCE_LABELS.get(definition.key, definition.key)
         if definition.key in PENDING_PREFERENCE_KEYS:
             text += "（準備中）"
         if definition.restart_required:
@@ -139,7 +232,9 @@ class PreferencesWidget(QWidget):
                 "この設定はまだ実装されていないため、現在は変更できません。"
             )
         elif definition.description:
-            label.setToolTip(definition.description)
+            label.setToolTip(
+                _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
+            )
         return label
 
     def _build_editor(self, definition: PreferenceDefinition) -> QWidget:
@@ -151,8 +246,11 @@ class PreferencesWidget(QWidget):
             )
         elif definition.value_type == PreferenceValueType.ENUM:
             combo = QComboBox()
+            value_labels = _PREFERENCE_VALUE_LABELS.get(definition.key, {})
             for value in definition.allowed_values or ():
-                combo.addItem(str(value), userData=value)
+                combo.addItem(
+                    str(value_labels.get(value, value)), userData=value
+                )
             combo.currentIndexChanged.connect(
                 lambda _index, k=key, c=combo: self._commit(k, c.currentData())
             )
@@ -196,7 +294,9 @@ class PreferencesWidget(QWidget):
                 "この設定はまだ実装されていないため、現在は変更できません。"
             )
         elif definition.description:
-            editor.setToolTip(definition.description)
+            editor.setToolTip(
+                _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
+            )
         self._editors[key] = editor
         return editor
 
@@ -267,9 +367,12 @@ class PreferencesWidget(QWidget):
             editor.setEnabled(writable and key not in PENDING_PREFERENCE_KEYS)
         if not writable:
             detail = self._store.load_error or "unknown"
+            load_state = _LOAD_STATE_LABELS.get(
+                self._store.load_state, self._store.load_state.value
+            )
             self.status.setText(
                 "設定ファイルを上書きできません"
-                f"（{self._store.load_state.value}: {detail}）。"
+                f"（{load_state}: {detail}）。"
                 "リセットすると以前のファイルを保存した上で既定値に戻ります。"
             )
             set_semantic_state(self.status, SemanticState.WARNING)

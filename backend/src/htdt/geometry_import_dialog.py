@@ -207,6 +207,82 @@ _COMPILER_READINESS_LABELS = {
     'blocked_by_surface_semantics': 'ブロック: 面の意味分類が未割当',
 }
 
+#: The mesh issue codes in raw_mesh_health._ISSUE_TEXT are the authority's
+#: diagnostic language; the dialog renders their localized names and the
+#: recommended next action in Japanese.
+_ISSUE_CODE_LABELS = {
+    'open_boundary': '開放境界',
+    'non_manifold_edge': '非多様体エッジ',
+    'duplicate_face': '重複面',
+    'overlapping_face': '重なり面',
+    'inverted_normal': '法線反転',
+    'sliver_face': '細長面',
+    'tiny_feature': '微小フィーチャ',
+    'watertightness': '水密性',
+}
+
+_ISSUE_ACTION_LABELS = {
+    'open_boundary': '開放境界エッジを確認し、小さな穴を閉じるか意図的な開口として扱ってください',
+    'non_manifold_edge': '非多様体エッジを確認してください — クリーンアップではなく再構築が必要な場合があります',
+    'duplicate_face': '決定論的クリーンアップで完全一致する重複を削除してください',
+    'overlapping_face': '重なりを確認してください — 修復はジオメトリ変更を伴うため手動で解決します',
+    'inverted_normal': '向きが確定的に解決できる面のみ巻き方向を修正してください',
+    'sliver_face': '細長面を確認してください — 境界付き修復には明示的な許容誤差が必要です',
+    'tiny_feature': '成分を棚卸ししてください — 保持・非表示・除外を明示的に選びます（自動削除しません）',
+    'watertightness': '漏れている境界を特定し、隙間ごとに壁か意図的な開口か判断してください',
+}
+
+_ACOUSTIC_VOLUME_LABELS = {
+    'not_ready': '未対応',
+    'geometry_checks_pass_but_semantic_conversion_required':
+        '検査合格（意味変換が必要）',
+}
+
+_REPAIR_OPERATION_LABELS = {
+    'exact_duplicate_vertex_consolidation': '完全一致頂点の統合',
+    'tolerance_vertex_weld': '許容誤差内の頂点溶接',
+    'correct_consistent_winding': '面の巻き方向の統一',
+    'remove_exact_duplicate_faces': '完全一致する重複面の削除',
+    'remove_degenerate_faces': '退化面の削除',
+    'remove_unreferenced_vertices': '未参照頂点の削除',
+    'fill_hole': '穴埋め',
+    'large_gap_closure': '大きな隙間の閉鎖',
+    'non_manifold_surgery': '非多様体の手術的修復',
+    'self_intersection_remesh': '自己交差のリメッシュ',
+    'boolean_reconstruction': 'ブール演算による再構築',
+    'point_cloud_surface_reconstruction': '点群からの表面再構築',
+    'overlapping_surface_resolution': '重なり面の解決',
+    'acoustic_room_inference': '音響空間の推定',
+}
+
+_REPAIR_RISK_LABELS = {
+    'A_deterministic': 'A・決定論的',
+    'B_bounded': 'B・境界付き',
+    'C_semantic': 'C・意味分類',
+    'unsupported': '対象外',
+}
+
+
+def _unresolved_finding_label(text: str) -> str:
+    """Localize a repair-runner unresolved finding (``kind:detail``)."""
+    head, _, detail = text.partition(':')
+    if head == 'unsupported_operation':
+        kind = detail
+        return f'{_REPAIR_OPERATION_LABELS.get(kind, kind)}は対象外のため未解決'
+    if head == 'blocked_operation':
+        kind, _, detail = detail.partition(':')
+        name = _REPAIR_OPERATION_LABELS.get(kind, kind)
+        if detail == 'would_remove_all_faces':
+            return f'{name}がブロックされました（全面が削除されるため）'
+        if detail.startswith('non_manifold_components='):
+            count = detail.partition('=')[2]
+            return f'{name}がブロックされました（非多様体成分 {count} 件）'
+        if detail.startswith('non_orientable_components='):
+            count = detail.partition('=')[2]
+            return f'{name}がブロックされました（非可配向成分 {count} 件）'
+        return f'{name}がブロックされました（{detail or "詳細不明"}）'
+    return text
+
 
 def _diagnostic_count_text(findings) -> str:
     failed = [f for f in findings if f.state == 'fail']
@@ -278,7 +354,7 @@ class GeometryImportDialog(QDialog):
     # --- declaration group ---------------------------------------------------
 
     def _build_declaration_group(self) -> QGroupBox:
-        group = QGroupBox('ソースの単位・座標系（演算子の宣言）')
+        group = QGroupBox('ソースの単位・座標系（オペレーターによる宣言）')
         form = QFormLayout(group)
 
         self.unit_combo = QComboBox()
@@ -290,7 +366,7 @@ class GeometryImportDialog(QDialog):
             self.unit_combo.setCurrentIndex(index)
             self.unit_combo.setEnabled(False)
             self.unit_combo.setToolTip(
-                'このフォーマットはメートルを宣言しています（format_specification）'
+                'このフォーマットはメートルを宣言しています（フォーマット仕様）'
             )
         else:
             self.unit_combo.insertItem(0, '（単位を選択してください）', None)
@@ -342,7 +418,8 @@ class GeometryImportDialog(QDialog):
         self.diagnostic_summary = QLabel(
             _diagnostic_count_text(self.diagnostics.findings)
             + f' · {components} · '
-            f'音響体積: {self.diagnostics.acoustic_volume_readiness}'
+            f'音響体積: '
+            f'{_ACOUSTIC_VOLUME_LABELS.get(self.diagnostics.acoustic_volume_readiness, self.diagnostics.acoustic_volume_readiness)}'
         )
         self.diagnostic_summary.setWordWrap(True)
         layout.addWidget(self.diagnostic_summary)
@@ -377,11 +454,19 @@ class GeometryImportDialog(QDialog):
             self.issues_table.setItem(
                 row, 1, QTableWidgetItem(_CATEGORY_LABELS.get(issue.category, issue.category))
             )
-            self.issues_table.setItem(row, 2, QTableWidgetItem(issue.code))
+            self.issues_table.setItem(
+                row, 2,
+                QTableWidgetItem(_ISSUE_CODE_LABELS.get(issue.code, issue.code)),
+            )
             self.issues_table.setItem(
                 row, 3, QTableWidgetItem('' if issue.count is None else str(issue.count))
             )
-            self.issues_table.setItem(row, 4, QTableWidgetItem(issue.action))
+            self.issues_table.setItem(
+                row, 4,
+                QTableWidgetItem(
+                    _ISSUE_ACTION_LABELS.get(issue.code, issue.action)
+                ),
+            )
         self.issues_table.resizeColumnsToContents()
 
     def _readiness_text(self, health: MeshHealthSummary) -> str:
@@ -397,8 +482,8 @@ class GeometryImportDialog(QDialog):
         group = QGroupBox('境界付き修復プレビュー')
         layout = QVBoxLayout(group)
         hint = QLabel(
-            '決定論的（A）/境界付き（B）の修復のみ実行できます。'
-            '穴埋め・再構築などのC/unsupported操作は失敗クローズです。'
+            '決定論的（A）・境界付き（B）の修復のみ実行できます。'
+            '穴埋め・再構築などの意味分類（C）・対象外の操作は実行できません。'
         )
         hint.setWordWrap(True)
         set_typography_role(hint, TypographyRole.SECONDARY)
@@ -407,7 +492,10 @@ class GeometryImportDialog(QDialog):
         self.repair_checks: dict[str, QCheckBox] = {}
         for kind, risk, label in _REPAIR_CHECKBOXES:
             check = QCheckBox(f'[{risk}] {label}')
-            check.setToolTip(f'操作: {kind}（リスククラス {classify_repair_operation(kind)}）')
+            risk_class = classify_repair_operation(kind)
+            check.setToolTip(
+                f'リスククラス: {_REPAIR_RISK_LABELS.get(risk_class, risk_class)}'
+            )
             self.repair_checks[kind] = check
             layout.addWidget(check)
 
@@ -504,11 +592,18 @@ class GeometryImportDialog(QDialog):
             if result.execution_state == 'applied'
         ]
         unresolved = list(repaired.unsupported_unresolved_findings)
+        applied_labels = [
+            _REPAIR_OPERATION_LABELS.get(kind, kind) for kind in applied
+        ]
         self.repair_result.setText(
             f'頂点 {repaired.vertex_count_before}→{repaired.vertex_count_after} · '
             f'面 {repaired.triangle_count_before}→{repaired.triangle_count_after} · '
-            f'適用: {("・".join(applied)) or "なし"}'
-            + (f' · 未解決: {"・".join(unresolved)}' if unresolved else '')
+            f'適用: {("・".join(applied_labels)) or "なし"}'
+            + (
+                f' · 未解決: {"・".join(_unresolved_finding_label(u) for u in unresolved)}'
+                if unresolved
+                else ''
+            )
             + f' · 修復後: {_diagnostic_count_text(diagnostic.findings)}'
         )
 

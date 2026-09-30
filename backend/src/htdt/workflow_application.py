@@ -10,6 +10,7 @@ from typing import Literal
 import weakref
 
 from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer, Slot
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -1011,7 +1012,7 @@ class WorkflowApplicationComposition:
             lambda: self._archive_dialog(archived=True),
         )
         menu.addAction(
-            "アーカイブから復元…(&U)",
+            "アーカイブ解除…(&U)",
             lambda: self._archive_dialog(archived=False),
         )
 
@@ -1443,7 +1444,7 @@ class WorkflowApplicationComposition:
             if entry.archived != archived
             and entry.project_id != self.project_entry.project_id
         )
-        title = "プロジェクトをアーカイブ" if archived else "アーカイブから復元"
+        title = "プロジェクトをアーカイブ" if archived else "アーカイブ解除"
         entry = self._choose_project(candidates, title, title)
         if entry is None:
             return
@@ -2935,6 +2936,9 @@ class WorkflowApplicationComposition:
             "room.view.fit_all",
         )
         menu = QMenu(workspace)
+        # exec() returns once the popup closes; deleting it then also drops
+        # the item shortcuts it carried, so nothing outlives the menu.
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         # Descriptive edit history (#662): Undo/Redo items name the exact change
         # they apply; the bounded tail is a read-only "recent edits" listing.
@@ -2947,9 +2951,9 @@ class WorkflowApplicationComposition:
         ):
             definition = self.registry.definition(command_id)
             availability = self.registry.availability(command_id)
-            if definition.shortcut:
-                label = f"{label}    {definition.shortcut}"
             action = menu.addAction(label)
+            if definition.shortcut:
+                action.setShortcut(QKeySequence(definition.shortcut))
             action.setEnabled(availability.enabled)
             if availability.disabled_reason:
                 action.setToolTip(availability.disabled_reason)
@@ -2982,10 +2986,9 @@ class WorkflowApplicationComposition:
         for command_id in command_ids:
             definition = self.registry.definition(command_id)
             availability = self.registry.availability(command_id)
-            label = definition.display_name
+            action = menu.addAction(definition.display_name)
             if definition.shortcut:
-                label = f"{label}    {definition.shortcut}"
-            action = menu.addAction(label)
+                action.setShortcut(QKeySequence(definition.shortcut))
             action.setEnabled(availability.enabled)
             if availability.disabled_reason:
                 action.setToolTip(availability.disabled_reason)

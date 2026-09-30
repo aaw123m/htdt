@@ -208,6 +208,43 @@ TARGET_KIND_ROUTES: dict[
     ),
 }
 
+#: User-facing Japanese name per target kind — surfaced in resolution
+#: messages so the enum id never renders into a sentence. A kind that
+#: arrives from a future/persisted link falls back to its raw id.
+_NAVIGATION_KIND_LABELS: dict[NavigationTargetKind, str] = {
+    NavigationTargetKind.WORKSPACE: "ワークスペース",
+    NavigationTargetKind.PROJECT: "プロジェクト",
+    NavigationTargetKind.SCENE_ENTITY: "シーンオブジェクト",
+    NavigationTargetKind.SCENE_REVISION: "シーンリビジョン",
+    NavigationTargetKind.SYSTEM_VARIANT: "システム提案",
+    NavigationTargetKind.MEASUREMENT: "測定",
+    NavigationTargetKind.MEASUREMENT_CAMPAIGN: "測定キャンペーン",
+    NavigationTargetKind.PREDICTION_RESULT: "予測結果",
+    NavigationTargetKind.OPTIMIZATION_CANDIDATE: "最適化候補",
+    NavigationTargetKind.OPTIMIZATION_COMPARISON: "最適化比較",
+    NavigationTargetKind.COMMISSIONING_EVALUATION: "コミッショニング評価",
+    NavigationTargetKind.CAPTURE_DELIVERY: "Capture配送",
+    NavigationTargetKind.CAPTURE_INBOX_ITEM: "取り込み項目",
+    NavigationTargetKind.EQUIPMENT_DEFINITION: "機材定義",
+    NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE: "設置済み機材",
+    NavigationTargetKind.TREATMENT_DEFINITION: "処理材定義",
+    NavigationTargetKind.PROJECT_CHECKPOINT: "プロジェクトチェックポイント",
+    NavigationTargetKind.ACTIVITY_JOB: "アクティビティジョブ",
+    NavigationTargetKind.HELP_TOPIC: "ヘルプ",
+    NavigationTargetKind.OPERATING_PRESET: "運用プリセット",
+    NavigationTargetKind.HEALTH_BASELINE: "健全性ベースライン",
+    NavigationTargetKind.HEALTH_CHECK_PLAN: "健全性チェック計画",
+    NavigationTargetKind.PROJECT_NOTE: "プロジェクトメモ",
+    NavigationTargetKind.CALIBRATION_PLAN: "校正プラン",
+    NavigationTargetKind.AV_SYNC_CONDITION: "AV同期条件",
+}
+
+
+def navigation_kind_label(kind: NavigationTargetKind) -> str:
+    """Japanese display label for a target kind (raw id as last resort)."""
+    return _NAVIGATION_KIND_LABELS.get(kind, kind.value)
+
+
 _TARGET_UNSUPPORTED_REASON = (
     "この対象（{kind}）を表示できる画面がありません。"
     "ワークスペースの登録を確認してください。"
@@ -388,7 +425,9 @@ class NavigationResolver:
             target=target,
             link=None,
             status="unsupported",
-            message=_TARGET_UNSUPPORTED_REASON.format(kind=target.kind.value),
+            message=_TARGET_UNSUPPORTED_REASON.format(
+                kind=navigation_kind_label(target.kind)
+            ),
         )
 
 
