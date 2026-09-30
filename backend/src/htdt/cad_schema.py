@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 11
+NATIVE_SCHEMA_VERSION = 12
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1141,6 +1141,13 @@ def _migrate_10_to_11(connection: sqlite3.Connection) -> None:
         connection.row_factory = None
 
 
+def _migrate_11_to_12(connection: sqlite3.Connection) -> None:
+    # Install the R150 late-field energy artifact table: a new append-only
+    # authority the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 def require_native_tables(
     connection: sqlite3.Connection,
     *tables: str,
@@ -1174,6 +1181,7 @@ _MIGRATIONS = {
     9: _migrate_8_to_9,
     10: _migrate_9_to_10,
     11: _migrate_10_to_11,
+    12: _migrate_11_to_12,
 }
 
 
