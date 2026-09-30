@@ -478,6 +478,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS r160_stitched_hybrid_responses ( artifact_id TEXT PRIMARY KEY, semantic_sha256 TEXT NOT NULL UNIQUE, composition_spec_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS r160_late_energy_decay_artifacts ( artifact_id TEXT PRIMARY KEY, semantic_sha256 TEXT NOT NULL UNIQUE, late_field_input_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS scene_revisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, revision_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, parent_revision_id TEXT, created_at_utc TEXT NOT NULL, content_hash TEXT NOT NULL, payload_json TEXT NOT NULL, detached INTEGER NOT NULL DEFAULT 0, detached_reason TEXT, FOREIGN KEY(parent_revision_id) REFERENCES scene_revisions(revision_id) )
     """
     ,
@@ -2396,7 +2404,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'project_action_items',
     'project_templates',
     'r150_path_frequency_response_artifacts',
+    'r160_late_energy_decay_artifacts',
     'r160_numerical_hybrid_responses',
+    'r160_stitched_hybrid_responses',
     'scene_document_heads',
     'scene_recovery_snapshots',
     'scene_revisions',

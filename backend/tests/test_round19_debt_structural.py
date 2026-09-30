@@ -236,7 +236,7 @@ class TestDispositionTransitions:
         self, tmp_path: Path
     ) -> None:
         path = tmp_path / 'cad.sqlite3'
-        assert ensure_native_schema(path) == NATIVE_SCHEMA_VERSION == 11
+        assert ensure_native_schema(path) == NATIVE_SCHEMA_VERSION >= 11
         with sqlite3.connect(path) as connection:
             columns = {
                 row[1]
@@ -270,14 +270,16 @@ class TestDispositionTransitions:
             )
             connection.execute(
                 'DELETE FROM native_schema_migrations '
-                'WHERE schema_version=11'
+                'WHERE schema_version>=11'
             )
             connection.execute(
                 'DROP TABLE capture_disposition_transitions'
             )
 
-        assert ensure_native_schema(scene.path) == 11
-        assert read_native_schema_version(scene.path) == 11
+        assert ensure_native_schema(scene.path) == NATIVE_SCHEMA_VERSION
+        assert read_native_schema_version(scene.path) == (
+            NATIVE_SCHEMA_VERSION
+        )
 
         item = inbox.get(typed.lineage_digest)
         assert item is not None

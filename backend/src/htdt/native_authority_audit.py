@@ -2919,6 +2919,16 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'numerical hybrid response authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'r160_stitched_hybrid_responses': (
+        'STRUCTURAL_ONLY',
+        'stitched union-band hybrid response authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'r160_late_energy_decay_artifacts': (
+        'STRUCTURAL_ONLY',
+        'bounded late-energy decay artifact authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
     'cad_acoustic_materials': (
         'STRUCTURAL_ONLY',
         'acoustic material authority; canonical replay path pending — '
