@@ -113,6 +113,7 @@ from htdt.cad_video_geometry import (
     projector_spec_optical_values,
 )
 from htdt.cad_video_geometry_repository import CadVideoGeometryRepository
+from htdt.installation_handoff import build_installation_handoff
 from htdt.installation_output_authority import (
     InstallationAuthorityError,
     InstallationReportService,
@@ -1614,3 +1615,222 @@ def test_replay_verifier_fails_closed_on_tampered_authority(tmp_path: Path) -> N
         connection.commit()
     with pytest.raises(InstallationAuthorityError, match='does not exist'):
         service.verify_installation_output_replay(output)
+
+
+def test_target_section_authority_discovery_binds_latest_matching_record(
+    tmp_path: Path,
+) -> None:
+    """Handoff section pins: latest record bound to the exact target wins."""
+    ctx = _authorities(tmp_path)
+    revision = ctx['revision']
+    variant = ctx['variant']
+    service = ctx['service']
+
+    # Baseline target: the baseline-bound video/standards evaluations are
+    # discovered; a calibration plan bound to a variant is not a match.
+    baseline_pins = service.latest_target_section_authority_ids(
+        revision.revision_id
+    )
+    assert baseline_pins.video_geometry_evaluation_id == (
+        ctx['video'].evaluation_id
+    )
+    assert baseline_pins.standards_evaluation_id == (
+        ctx['standards'].evaluation_id
+    )
+    assert baseline_pins.calibration_plan_id is None
+
+    plan, export, verification, _events = _save_calibration_authorities(
+        ctx['calibration_repository'],
+        ctx['measurement_repository'],
+        ctx['quality_repository'],
+        revision,
+        variant,
+    )
+    variant_video = evaluate_video_geometry(
+        baseline=revision,
+        variant=variant,
+        projector_specification=ctx['specification'],
+        request=_video_request(ctx['specification']),
+    )
+    ctx['video_repository'].save_evaluation(variant_video)
+    _profile, variant_standards, variant_evidence = _standards(
+        revision, variant=variant
+    )
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
+    ctx['standards_repository'].save_evaluation(variant_standards)
+
+    # Variant target: baseline-bound evaluations are skipped in favor of
+    # the variant-bound ones, and the plan's latest export/verification
+    # chain is pinned alongside it.
+    variant_pins = service.latest_target_section_authority_ids(
+        revision.revision_id,
+        variant.variant_id,
+    )
+    assert variant_pins.video_geometry_evaluation_id == (
+        variant_video.evaluation_id
+    )
+    assert variant_pins.standards_evaluation_id == (
+        variant_standards.evaluation_id
+    )
+    assert variant_pins.calibration_plan_id == plan.plan_id
+    assert variant_pins.calibration_export_id == export.export_id
+    assert variant_pins.calibration_verification_plan_id == (
+        verification.verification_plan_id
+    )
+
+    # The discovered pins resolve into AVAILABLE sections through the
+    # strict pin path and replay to the same semantic output.
+    output = service.build_installation_output_from_authorities(
+        scene_revision_id=revision.revision_id,
+        system_variant_id=variant.variant_id,
+        video_geometry_evaluation_id=variant_pins.video_geometry_evaluation_id,
+        standards_evaluation_id=variant_pins.standards_evaluation_id,
+        calibration_plan_id=variant_pins.calibration_plan_id,
+        calibration_export_id=variant_pins.calibration_export_id,
+        calibration_verification_plan_id=(
+            variant_pins.calibration_verification_plan_id
+        ),
+    )
+    assert output.projector is not None
+    assert output.projector.status == 'AVAILABLE'
+    assert output.standards is not None and output.standards.status == 'AVAILABLE'
+    assert output.calibration is not None
+    assert output.calibration.status == 'AVAILABLE'
+    assert output.calibration.export_id == export.export_id
+    assert output.calibration.verification_plan_id == (
+        verification.verification_plan_id
+    )
+    assert service.verify_installation_output_replay(output) == output
+
+
+def test_handoff_packages_discovered_section_authorities(
+    tmp_path: Path,
+) -> None:
+    """The export entry point populates sections whose authority exists."""
+    ctx = _authorities(tmp_path)
+    revision = ctx['revision']
+    variant = ctx['variant']
+
+    handoff = build_installation_handoff(
+        ctx['service'],
+        scene_revision_id=revision.revision_id,
+        system_variant_id='',
+        generated_at_utc=NOW,
+    )
+    assert handoff.output.projector is not None
+    assert handoff.output.projector.status == 'AVAILABLE'
+    assert handoff.output.standards is not None
+    assert handoff.output.standards.status == 'AVAILABLE'
+
+    # Baseline-bound evaluations are not claimed by a variant target.
+    variant_handoff = build_installation_handoff(
+        ctx['service'],
+        scene_revision_id=revision.revision_id,
+        system_variant_id=variant.variant_id,
+        generated_at_utc=NOW,
+    )
+    assert variant_handoff.output.projector is not None
+    assert variant_handoff.output.projector.status == 'UNKNOWN'
+    assert variant_handoff.output.standards is not None
+    assert variant_handoff.output.standards.status == 'UNKNOWN'
+
+    variant_video = evaluate_video_geometry(
+        baseline=revision,
+        variant=variant,
+        projector_specification=ctx['specification'],
+        request=_video_request(ctx['specification']),
+    )
+    ctx['video_repository'].save_evaluation(variant_video)
+    _profile, variant_standards, variant_evidence = _standards(
+        revision, variant=variant
+    )
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
+    ctx['standards_repository'].save_evaluation(variant_standards)
+    _plan, export, verification, _events = _save_calibration_authorities(
+        ctx['calibration_repository'],
+        ctx['measurement_repository'],
+        ctx['quality_repository'],
+        revision,
+        variant,
+    )
+
+    variant_handoff = build_installation_handoff(
+        ctx['service'],
+        scene_revision_id=revision.revision_id,
+        system_variant_id=variant.variant_id,
+        generated_at_utc=NOW,
+    )
+    assert variant_handoff.output.projector is not None
+    assert variant_handoff.output.projector.status == 'AVAILABLE'
+    assert variant_handoff.output.standards is not None
+    assert variant_handoff.output.standards.status == 'AVAILABLE'
+    assert variant_handoff.output.calibration is not None
+    assert variant_handoff.output.calibration.status == 'AVAILABLE'
+    assert variant_handoff.output.calibration.export_id == export.export_id
+    assert variant_handoff.output.calibration.verification_plan_id == (
+        verification.verification_plan_id
+    )
+
+
+def test_production_surface_service_wiring_discovers_bound_authorities(
+    tmp_path: Path,
+) -> None:
+    """for_scene_repository wiring (the operator path) resolves every store.
+
+    The installation-handoff export builds its service through
+    ``InstallationReportService.for_scene_repository``; on a seeded project
+    it must resolve the same bound authorities the explicit repo wiring
+    does — including SystemVariant targets.
+    """
+    ctx = _authorities(tmp_path)
+    revision = ctx['revision']
+    variant = ctx['variant']
+    service = InstallationReportService.for_scene_repository(
+        ctx['scene_repository']
+    )
+
+    baseline_pins = service.latest_target_section_authority_ids(
+        revision.revision_id
+    )
+    assert baseline_pins.video_geometry_evaluation_id == (
+        ctx['video'].evaluation_id
+    )
+    assert baseline_pins.standards_evaluation_id == (
+        ctx['standards'].evaluation_id
+    )
+
+    plan, export, verification, _events = _save_calibration_authorities(
+        ctx['calibration_repository'],
+        ctx['measurement_repository'],
+        ctx['quality_repository'],
+        revision,
+        variant,
+    )
+    _profile, variant_standards, variant_evidence = _standards(
+        revision, variant=variant
+    )
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
+    ctx['standards_repository'].save_evaluation(variant_standards)
+
+    # The variant pick resolves (previously impossible without a
+    # system-variant store on the service) and packages every bound section.
+    handoff = build_installation_handoff(
+        service,
+        scene_revision_id=revision.revision_id,
+        system_variant_id=variant.variant_id,
+        generated_at_utc=NOW,
+    )
+    assert handoff.output.standards is not None
+    assert handoff.output.standards.status == 'AVAILABLE'
+    assert handoff.output.calibration is not None
+    assert handoff.output.calibration.status == 'AVAILABLE'
+    assert handoff.output.calibration.export_id == export.export_id
+    assert handoff.output.calibration.verification_plan_id == (
+        verification.verification_plan_id
+    )
+    assert service.verify_installation_output_replay(
+        handoff.output
+    ) == handoff.output
