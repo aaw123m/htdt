@@ -24,11 +24,14 @@ from htdt.cad_hybrid_late_energy import (
     CadLateEnergyDecayRepository,
     LateFieldBandDecay,
     LateFieldSurfaceCapability,
+    R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF,
     build_late_energy_decay_law,
     build_late_field_input_authority,
+    late_energy_decay_observable_manifest,
     solve_late_energy_decay,
     surface_scattering_evidence_ref,
 )
+from htdt.cad_late_field_energy import LATE_FIELD_ARTIFACT_SCHEMA_REF
 from htdt.cad_hybrid_numerical_composition import (
     build_hybrid_convention_normalization_authority,
     compute_native_wave_transfer,
@@ -946,3 +949,65 @@ def test_late_energy_repository_roundtrip_and_stale_rejection(
         repository.get(artifact.artifact_id)
     evidences[evidence.evidence_id] = evidence
     assert repository.get(artifact.artifact_id) == artifact
+
+
+def _supported_late_energy_artifact(
+    bands_hz: tuple[float, ...] = (500.0, 1000.0),
+):
+    path_artifact = _path_artifact(bands_hz=bands_hz)
+    evidence = _scattering_evidence('surface:wall-1', bands_hz)
+    late_input = build_late_field_input_authority(
+        path_artifact=path_artifact,
+        source_entity_id='source-1',
+        receiver_id='receiver-1',
+        surface_capabilities=(
+            LateFieldSurfaceCapability(
+                surface_id='surface:wall-1',
+                capability='scattering_modeled',
+                evidence_ref=surface_scattering_evidence_ref(evidence),
+                detail='synthetic modeled scattering',
+            ),
+        ),
+    )
+    artifact = solve_late_energy_decay(
+        path_artifact=path_artifact,
+        late_field_input=late_input,
+        decay_law=_decay_law(bands_hz),
+        scattering_evidence={evidence.evidence_id: evidence},
+    )
+    assert artifact.capability_state == 'SUPPORTED'
+    return artifact
+
+
+def test_late_energy_observable_defaults_to_canonical_schema_ref() -> None:
+    artifact = _supported_late_energy_artifact()
+    observable = artifact.as_solver_observable()
+    assert observable.observable == 'late_energy_decay'
+    assert observable.artifact_authority == artifact.as_external_ref()
+    assert observable.encoding_schema_ref == (
+        R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
+    )
+    assert observable.valid_frequency_domain == (
+        artifact.valid_frequency_domain
+    )
+    assert late_energy_decay_observable_manifest(artifact) == observable
+
+
+def test_late_energy_observable_explicit_schema_ref_preserved() -> None:
+    artifact = _supported_late_energy_artifact()
+    observable = artifact.as_solver_observable(
+        _ref('late-energy-encoding')
+    )
+    assert observable.encoding_schema_ref == _ref('late-energy-encoding')
+
+
+def test_late_energy_observable_schema_refs_are_distinct() -> None:
+    # Both slices bind observable 'late_energy_decay'; envelopes disambiguate
+    # the two encodings by encoding_schema_ref.
+    assert R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF != (
+        LATE_FIELD_ARTIFACT_SCHEMA_REF
+    )
+    assert (
+        R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF.authority_id
+        != LATE_FIELD_ARTIFACT_SCHEMA_REF.authority_id
+    )

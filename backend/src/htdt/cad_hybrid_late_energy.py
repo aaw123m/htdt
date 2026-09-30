@@ -1,8 +1,8 @@
 """R160 residual — bounded late-energy decay derivation.
 
 The typed foundation (PR #254/#262) reserves a ``LateEnergyDecay`` component
-slot but no solver artifact with observable ``late_energy_decay`` exists.
-This module derives one from exact late-field inputs:
+slot. This module derives the observable's bounded decay-model artifact
+from exact late-field inputs:
 
 - ``DeterministicPathArtifact`` — the exact R150 path set. At each recorded
   specular reflection, ``scattering`` of the arriving energy leaves the
@@ -25,9 +25,17 @@ This module derives one from exact late-field inputs:
 
 The resulting ``LateEnergyDecayArtifact`` carries per-band injected late
 energy, per-path audited contributions, and bounded decay samples, and is
-exactly what a solver-result envelope manifest with observable
-``late_energy_decay`` binds — which is what ``build_hybrid_acoustic_result``
-promotes into the ``LateEnergyDecay(state='AVAILABLE')`` component.
+exposed to a solver-result envelope manifest under
+:data:`R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF` — which is what
+``build_hybrid_acoustic_result`` promotes into the
+``LateEnergyDecay(state='AVAILABLE')`` component.
+
+Two artifact types bind the ``late_energy_decay`` observable name: this
+bounded decay model and the R150 late-field contribution authority
+(``cad_late_field_energy``, ``LATE_FIELD_ARTIFACT_SCHEMA_REF`` — per-band
+energy upper bounds, not decay samples). Envelopes disambiguate the two
+encodings by ``encoding_schema_ref``; ``build_hybrid_acoustic_result`` fails
+closed when more than one ``late_energy_decay`` candidate is bound.
 """
 
 from __future__ import annotations
@@ -84,6 +92,20 @@ LateEnergyCapability = Literal['SUPPORTED', 'UNSUPPORTED']
 LATE_ENERGY_DECAY_OBSERVABLE = 'late_energy_decay'
 LATE_ENERGY_DECAY_MODEL = (
     'bounded_exponential_after_last_deterministic_arrival_v1'
+)
+
+R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF = ExactExternalAuthorityRef(
+    authority_id='htdt.r160-late-energy-decay-artifact.schema',
+    authority_version=R160_LATE_ENERGY_ARTIFACT_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'schema': 'LateEnergyDecayArtifact',
+            'schema_version': 1,
+            'quantity': 'late_energy_density_per_m2',
+            'decay_model': LATE_ENERGY_DECAY_MODEL,
+            'phase_capability': 'NOT_APPLICABLE',
+        }
+    ),
 )
 
 
@@ -494,14 +516,23 @@ class LateEnergyDecayArtifact(BaseModel):
 
     def as_solver_observable(
         self,
-        encoding_schema_ref: ExactExternalAuthorityRef,
+        encoding_schema_ref: ExactExternalAuthorityRef | None = None,
     ) -> AcousticSolverObservableArtifact:
         return AcousticSolverObservableArtifact(
             observable=LATE_ENERGY_DECAY_OBSERVABLE,
             artifact_authority=self.as_external_ref(),
-            encoding_schema_ref=encoding_schema_ref,
+            encoding_schema_ref=(
+                encoding_schema_ref or R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
+            ),
             valid_frequency_domain=self.valid_frequency_domain,
         )
+
+
+def late_energy_decay_observable_manifest(
+    artifact: LateEnergyDecayArtifact,
+) -> AcousticSolverObservableArtifact:
+    """Expose a persisted decay artifact as the R160 late-energy observable."""
+    return artifact.as_solver_observable()
 
 
 def _band_materials(
@@ -950,6 +981,7 @@ __all__ = [
     'CadLateEnergyDecayRepository',
     'LATE_ENERGY_DECAY_MODEL',
     'LATE_ENERGY_DECAY_OBSERVABLE',
+    'R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF',
     'LateEnergyBandResult',
     'LateEnergyDecayArtifact',
     'LateEnergyDecayLaw',
@@ -966,6 +998,7 @@ __all__ = [
     'R160_LATE_FIELD_INPUT_VERSION',
     'build_late_energy_decay_law',
     'build_late_field_input_authority',
+    'late_energy_decay_observable_manifest',
     'solve_late_energy_decay',
     'surface_scattering_evidence_ref',
 ]

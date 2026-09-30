@@ -48,6 +48,13 @@ semantic payload, persistence re-resolves every exact authority and regenerates
 the artifact from them on reopen, and an R160
 :class:`AcousticSolverResultEnvelope` row exposes the artifact as the typed
 ``late_energy_decay`` observable.
+
+The ``late_energy_decay`` observable name is shared with the R160 bounded
+late-energy decay artifact (``cad_hybrid_late_energy``,
+``R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF`` — derived decay samples, not
+upper bounds). Envelopes disambiguate the two encodings by
+``encoding_schema_ref``; ``build_hybrid_acoustic_result`` fails closed when
+more than one ``late_energy_decay`` candidate is bound.
 """
 
 from __future__ import annotations
