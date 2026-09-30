@@ -13,7 +13,7 @@ surface never mutates authority: it renders the projection only.
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Callable, Mapping
 
 from PySide6.QtWidgets import (
     QComboBox,
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -43,8 +44,10 @@ _KIND_LABELS = {
     'solver_result': 'ソルバー結果',
     'path_artifact': '確定的パス成果物',
     'late_field': '遅延フィールドエネルギー成果物',
+    'path_frequency_response': '確定的パス周波数応答成果物',
     'late_energy_decay': '遅延エネルギー減衰成果物',
     'stitched_response': '統合ハイブリッド応答成果物',
+    'numerical_hybrid_response': '数値ハイブリッド応答成果物',
     'hybrid_result': 'ハイブリッド音響結果',
     'stitching_policy': 'スティッチングポリシー',
     'prediction_provider': 'ハイブリッド予測プロバイダ',
@@ -72,6 +75,7 @@ _OBSERVABLE_LABELS = {
     'late_decay': '遅延減衰',
     'complex_pressure': '複素音圧',
     'deterministic_paths': '確定的パス',
+    'complex_acoustic_pressure_per_volume_velocity': '複素音圧',
 }
 
 _BINDING_LABELS = {
@@ -93,6 +97,9 @@ _CAPABILITY_LABELS = {
     'COMPLETED': '完了',
     'READY': '実行可能',
     'SUPPORTED': '対応',
+    'COMPLEX_SUPPORTED': '複素対応',
+    'COMPLEX': '複素',
+    'MAGNITUDE_ONLY': '振幅のみ',
     'UNSUPPORTED': '非対応',
     'CONTINUOUS': '連続',
     'GAP_PRESERVED': 'ギャップ保持',
@@ -124,7 +131,13 @@ def _capability_label(value: str) -> str:
 
 
 class SolverOutputDiagnosticsDialog(QDialog):
-    """Inspect the solver-output ledger for the current document."""
+    """Inspect the solver-output ledger for the current document.
+
+    ``open_authority_graph`` — when provided — is invoked with this
+    dialog as parent and the selected row's resolved scene revision, so
+    the composition can open the authority inspector on the revision the
+    artifact's provenance resolves to.
+    """
 
     def __init__(
         self,
@@ -132,6 +145,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
         revisions: tuple,
         labels: Mapping[str, object] | None = None,
         *,
+        open_authority_graph: Callable[[QWidget, str], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -140,6 +154,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
         self.resize(760, 560)
         self._ledger = ledger
         self._displayed: list[SolverArtifactEntry] = []
+        self._open_authority_graph = open_authority_graph
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel('対象リビジョン:'))
@@ -195,6 +210,11 @@ class SolverOutputDiagnosticsDialog(QDialog):
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
+        self.authority_button = QPushButton('権威グラフで開く')
+        self.authority_button.setObjectName('solverAuthorityOpenButton')
+        self.authority_button.setEnabled(False)
+        self.authority_button.clicked.connect(self._open_in_authority_graph)
+        buttons.addButton(self.authority_button, QDialogButtonBox.ActionRole)
         layout.addWidget(buttons)
 
         self.revision_combo.currentIndexChanged.connect(self._refresh_table)
@@ -278,6 +298,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
             self.capability_label.setText('-')
             self.hash_label.setText('-')
             self.payload_state_label.setText('-')
+            self.authority_button.setEnabled(False)
             return
         self.artifact_id_label.setText(entry.artifact_id)
         self.provenance_label.setText(entry.provenance_ref or '—')
@@ -298,6 +319,36 @@ class SolverOutputDiagnosticsDialog(QDialog):
             set_semantic_state(self.payload_state_label, SemanticState.WARNING)
         else:
             set_semantic_state(self.payload_state_label, None)
+        self.authority_button.setEnabled(
+            self._open_authority_graph is not None
+            and self._authority_revision(entry) is not None
+        )
+
+    def _authority_revision(self, entry: SolverArtifactEntry) -> str | None:
+        """Revision whose authority node the row should open on.
+
+        The row's provenance anchor in the authority graph is its resolved
+        scene revision set: prefer the revision the current filter selects
+        when the row resolves to it, otherwise the first resolved revision
+        (``scene_revision_ids`` is sorted). ``None`` for orphaned rows.
+        """
+        if not entry.scene_revision_ids:
+            return None
+        selection = self._selected_filter()
+        if selection in entry.scene_revision_ids:
+            return selection
+        return entry.scene_revision_ids[0]
+
+    def _open_in_authority_graph(self) -> None:
+        selected = self.table.selectedItems()
+        if not selected or self._open_authority_graph is None:
+            return
+        row = selected[0].row()
+        if not 0 <= row < len(self._displayed):
+            return
+        revision_id = self._authority_revision(self._displayed[row])
+        if revision_id is not None:
+            self._open_authority_graph(self, revision_id)
 
 
 __all__ = [

@@ -273,7 +273,7 @@ def test_overview_warns_when_bound_prediction_goes_stale(
 
     stale_prediction = SimpleNamespace(
         status='completed',
-        result_id='pred-stale',
+        prediction_id='pred-stale',
         scene_revision_id=first.revision_id,
         scene_content_hash=first.content_hash,
         geometry_compatibility='supported',

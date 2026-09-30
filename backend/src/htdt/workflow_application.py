@@ -182,6 +182,7 @@ from .authority_graph import (
     build_authority_graph,
     measurement_authority_source,
     scene_revision_authority_source,
+    scene_revision_node_id,
     system_variant_authority_source,
 )
 from .authority_inspector_ui import AuthorityInspectorDialog
@@ -2129,11 +2130,17 @@ class WorkflowApplicationComposition:
             focus_target=focus_target,
         )
 
-    def _open_authority_inspector(self, parent: QWidget) -> None:
+    def _open_authority_inspector(
+        self,
+        parent: QWidget,
+        initial_node_id: str | None = None,
+    ) -> None:
         """Build the live authority projection and open the inspector (#590).
 
         Read-side only: the graph is rebuilt from the canonical
-        repositories at open time, never persisted.
+        repositories at open time, never persisted. ``initial_node_id``
+        preselects the node the caller asked to inspect (e.g. the scene
+        revision a solver-ledger row resolved to).
         """
         if not self.document_id:
             return
@@ -2165,7 +2172,10 @@ class WorkflowApplicationComposition:
             ]
         )
         dialog = AuthorityInspectorDialog(
-            graph, on_deep_link=self._navigate_target, parent=parent
+            graph,
+            on_deep_link=self._navigate_target,
+            initial_node_id=initial_node_id,
+            parent=parent,
         )
         dialog.exec()
 
@@ -2187,6 +2197,11 @@ class WorkflowApplicationComposition:
             ledger,
             self.repository.list_revision_summaries(self.document_id),
             self.repository.revision_labels(self.document_id),
+            open_authority_graph=lambda parent_, revision_id: (
+                self._open_authority_inspector(
+                    parent_, scene_revision_node_id(revision_id)
+                )
+            ),
             parent=parent,
         )
         dialog.exec()
