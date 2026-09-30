@@ -396,6 +396,9 @@ class BatchImportItem:
     duplicate_kind: BatchDuplicateKind
     duplicate_of_measurement_id: str | None
     duplicate_of_name: str | None
+    # Set when the item duplicates another *uncommitted* batch entry rather
+    # than persisted evidence — the reuse target resolves at commit time.
+    duplicate_of_item_id: str | None
     resolution: BatchResolution
     assignment: MeasurementAssignment | None
     committed_measurement_id: str | None
@@ -441,6 +444,10 @@ class _BatchEntry:
         tuple[CadMeasurementRecord, CadFrequencyResponseDataset, str, bytes] | None
     ) = None
     commit_context: CadAcquisitionContext | None = None
+    # In-queue duplicate edge: this entry carries the same source identity
+    # as an earlier *uncommitted* batch item (persisted lookups cannot see
+    # it yet), so reuse must resolve the sibling's committed identity.
+    duplicate_of_item_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -989,12 +996,11 @@ class MeasurementWorkflowController:
             ir_semantics=ir_semantics,
             calibration_state=calibration_state,
         )
-        self.measurement_repository.save_ir_dataset(
+        return self.measurement_repository.save_ir_dataset(
             dataset,
             raw_filename=raw_filename,
             raw_bytes=raw_bytes,
         )
-        return dataset
 
     def ir_datasets_for_measurement(
         self, measurement_id: str
@@ -2162,6 +2168,31 @@ class MeasurementWorkflowController:
             by_ext_fn(self.document_id) if by_ext_fn is not None else {},
         )
 
+    def _staged_duplicate_sources(
+        self,
+    ) -> tuple[dict[str, '_BatchEntry'], dict[str, '_BatchEntry']]:
+        """(source_sha256 -> entry, external_source_id -> entry) over the
+        uncommitted batch queue — the in-flight sibling half of duplicate
+        detection.
+
+        ``_classify_duplicate`` only sees persisted evidence, so two
+        identical sources staged before either commits would both classify
+        'new' and register byte-identical measurements. ``setdefault``
+        keeps the earliest sibling as the canonical target.
+        """
+        by_sha: dict[str, '_BatchEntry'] = {}
+        by_ext: dict[str, '_BatchEntry'] = {}
+        for entry in self._batch.values():
+            if entry.committed or entry.pending is None:
+                continue
+            if entry.raw_bytes is not None:
+                by_sha.setdefault(sha256(entry.raw_bytes).hexdigest(), entry)
+            if entry.rew_snapshot is not None:
+                by_ext.setdefault(
+                    entry.rew_snapshot.decoded.measurement_id, entry
+                )
+        return by_sha, by_ext
+
     def _classify_duplicate(
         self,
         pending: PendingMeasurementImport | None,
@@ -2278,6 +2309,19 @@ class MeasurementWorkflowController:
         else:
             status = 'staged'
         pending = entry.pending
+        duplicate_of_name: str | None = None
+        if entry.duplicate_of_measurement_id is not None:
+            duplicate_of_name = (duplicate_names or {}).get(
+                entry.duplicate_of_measurement_id,
+                entry.duplicate_of_measurement_id,
+            )
+        elif entry.duplicate_of_item_id is not None:
+            sibling = self._batch.get(entry.duplicate_of_item_id)
+            duplicate_of_name = (
+                sibling.source_label
+                if sibling is not None
+                else entry.duplicate_of_item_id
+            )
         return BatchImportItem(
             item_id=entry.item_id,
             filename=entry.source_label,
@@ -2286,14 +2330,8 @@ class MeasurementWorkflowController:
             error=entry.error,
             duplicate_kind=entry.duplicate_kind,
             duplicate_of_measurement_id=entry.duplicate_of_measurement_id,
-            duplicate_of_name=(
-                None
-                if entry.duplicate_of_measurement_id is None
-                else (duplicate_names or {}).get(
-                    entry.duplicate_of_measurement_id,
-                    entry.duplicate_of_measurement_id,
-                )
-            ),
+            duplicate_of_name=duplicate_of_name,
+            duplicate_of_item_id=entry.duplicate_of_item_id,
             resolution=entry.resolution,
             assignment=entry.assignment,
             committed_measurement_id=entry.committed_measurement_id,
@@ -2326,6 +2364,10 @@ class MeasurementWorkflowController:
         # One document-scoped lookup for the whole batch — classifying each
         # file against persisted evidence stays O(1) per file.
         source_maps = self._duplicate_source_maps()
+        # In-queue siblings share the persisted-evidence classification: two
+        # identical files staged before either commits must not both pass
+        # as 'new' and register two byte-identical measurements.
+        staged_sha, _staged_ext = self._staged_duplicate_sources()
         staged_entries: list[_BatchEntry] = []
         for raw, filename in files:
             pending: PendingMeasurementImport | None = None
@@ -2349,6 +2391,12 @@ class MeasurementWorkflowController:
             kind, duplicate_of = self._classify_duplicate(
                 pending, raw, source_maps
             )
+            duplicate_of_item_id: str | None = None
+            if kind == 'new' and pending is not None:
+                sibling = staged_sha.get(sha256(raw).hexdigest())
+                if sibling is not None:
+                    kind = 'exact_duplicate'
+                    duplicate_of_item_id = sibling.item_id
             entry = _BatchEntry(
                 item_id=uuid4().hex,
                 source_kind='rew_text',
@@ -2366,9 +2414,12 @@ class MeasurementWorkflowController:
                 committed_measurement_id=None,
                 committed=False,
                 attachments=[],
+                duplicate_of_item_id=duplicate_of_item_id,
             )
             self._batch[entry.item_id] = entry
             staged_entries.append(entry)
+            if pending is not None:
+                staged_sha.setdefault(sha256(raw).hexdigest(), entry)
         # The duplicate-name label map is built once for all staged items —
         # never inside the per-item view path.
         names = self._duplicate_names_for(staged_entries)
@@ -2383,6 +2434,7 @@ class MeasurementWorkflowController:
         """Stage already-fetched REW API measurements into the batch queue."""
         revision = self.latest_revision()
         source_maps = self._duplicate_source_maps()
+        _staged_sha, staged_ext = self._staged_duplicate_sources()
         staged_entries: list[_BatchEntry] = []
         for snapshot in snapshots:
             pending: PendingMeasurementImport | None = None
@@ -2410,6 +2462,12 @@ class MeasurementWorkflowController:
             kind, duplicate_of = self._classify_duplicate(
                 pending, None, source_maps
             )
+            duplicate_of_item_id = None
+            if kind == 'new' and pending is not None:
+                sibling = staged_ext.get(pending.rew_snapshot.decoded.measurement_id)
+                if sibling is not None:
+                    kind = 'same_acquisition'
+                    duplicate_of_item_id = sibling.item_id
             entry = _BatchEntry(
                 item_id=uuid4().hex,
                 source_kind='rew_api',
@@ -2429,9 +2487,14 @@ class MeasurementWorkflowController:
                 committed_measurement_id=None,
                 committed=False,
                 attachments=[],
+                duplicate_of_item_id=duplicate_of_item_id,
             )
             self._batch[entry.item_id] = entry
             staged_entries.append(entry)
+            if pending is not None:
+                staged_ext.setdefault(
+                    pending.rew_snapshot.decoded.measurement_id, entry
+                )
         names = self._duplicate_names_for(staged_entries)
         return tuple(
             self._batch_item_view(entry, names) for entry in staged_entries
@@ -2613,9 +2676,39 @@ class MeasurementWorkflowController:
             if (
                 entry.duplicate_kind in ('exact_duplicate', 'same_acquisition')
                 and entry.resolution == 'reuse_existing'
-                and entry.duplicate_of_measurement_id is not None
             ):
-                entry.committed_measurement_id = entry.duplicate_of_measurement_id
+                reuse_target = entry.duplicate_of_measurement_id
+                if reuse_target is None and entry.duplicate_of_item_id is not None:
+                    sibling = self._batch.get(entry.duplicate_of_item_id)
+                    if sibling is not None and sibling.committed:
+                        reuse_target = sibling.committed_measurement_id
+                if reuse_target is None:
+                    # The staged sibling may have committed in this run (or
+                    # since staging) — persisted evidence is authoritative.
+                    _kind, persisted_target = self._classify_duplicate(
+                        pending, entry.raw_bytes
+                    )
+                    if persisted_target is not None:
+                        reuse_target = persisted_target
+                if (
+                    reuse_target is None
+                    or self.measurement_repository.get_measurement(reuse_target)
+                    is None
+                ):
+                    # 'reuse_existing' can never silently become an insert:
+                    # an unsatisfied reuse target is reported honestly and
+                    # the item stays committable on retry.
+                    entry.error = '再利用先の測定がまだ保存されていません'
+                    outcomes.append(
+                        BatchCommitOutcome(
+                            item=self._batch_item_view(entry, duplicate_names),
+                            outcome='skipped',
+                            measurement_id=None,
+                            error=entry.error,
+                        )
+                    )
+                    continue
+                entry.committed_measurement_id = reuse_target
                 try:
                     self._install_staged_attachments(entry)
                 except Exception as exc:
