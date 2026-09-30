@@ -645,6 +645,7 @@ class RoomVideoPanel(QWidget):
         eval_row.setSpacing(4)
         self.evaluate_button = QPushButton("評価")
         self.variant_combo = QComboBox()
+        self.variant_combo.setAccessibleName("評価バリアント")
         self.variant_combo.addItem("ベースライン（現在の保存版）", None)
         eval_row.addWidget(self.evaluate_button)
         eval_row.addWidget(self.variant_combo, stretch=1)

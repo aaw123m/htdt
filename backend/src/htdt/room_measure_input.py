@@ -262,6 +262,7 @@ class RoomMeasurePanel(QWidget):
         for mode, label in MEASURE_MODE_LABELS.items():
             self.mode_combo.addItem(label, mode)
         self.reference_combo = QComboBox()
+        self.reference_combo.setAccessibleName('計測基準')
         for kind, label in MEASURE_REFERENCE_LABELS.items():
             if kind != 'free_point':
                 self.reference_combo.addItem(label, kind)

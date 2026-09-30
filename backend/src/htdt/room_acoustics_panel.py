@@ -612,6 +612,7 @@ class RoomTreatmentPanel(QWidget):
         layout.addWidget(self.place_button)
 
         self.placements = QTreeWidget()
+        self.placements.setAccessibleName('配置一覧')
         self.placements.setHeaderLabels(('配置', '状態'))
         layout.addWidget(self.placements, stretch=1)
         self.install_button = QPushButton('選択配置を installed にする')
@@ -628,6 +629,7 @@ class RoomTreatmentPanel(QWidget):
         self.compare_button.clicked.connect(self._record_comparison)
         layout.addWidget(self.compare_button)
         self.comparisons = QTreeWidget()
+        self.comparisons.setAccessibleName('比較一覧')
         self.comparisons.setHeaderLabels(('比較', '候補'))
         layout.addWidget(self.comparisons)
         self.status = QLabel('')
@@ -897,6 +899,7 @@ class RoomAcousticsTabs(QTabWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self.setAccessibleName('音響コンテキスト')
         self._panels = (prediction_panel, material_panel, treatment_panel)
         for panel, label in (
             (prediction_panel, '予測'),

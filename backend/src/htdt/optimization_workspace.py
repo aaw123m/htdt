@@ -325,6 +325,7 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(axis_actions)
 
         self.search_axis_tree = QTreeWidget()
+        self.search_axis_tree.setAccessibleName('探索軸')
         self.search_axis_tree.setHeaderLabels(['物体', '軸', '最小', '最大', '刻み'])
         self.search_axis_tree.setMinimumHeight(120)
         layout.addWidget(self.search_axis_tree)
@@ -369,6 +370,7 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(linked_actions)
 
         self.search_linked_tree = QTreeWidget()
+        self.search_linked_tree.setAccessibleName('連動パラメータ')
         self.search_linked_tree.setHeaderLabels(['マスター', 'スレーブ', '関係', '鏡面x'])
         self.search_linked_tree.setMinimumHeight(90)
         layout.addWidget(self.search_linked_tree)
@@ -381,6 +383,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.search_save_button)
 
         self.search_spec_tree = QTreeWidget()
+        self.search_spec_tree.setAccessibleName('保存済み探索設定')
         self.search_spec_tree.setHeaderLabels(['探索仕様', '入力版', '状態'])
         self.search_spec_tree.setMinimumHeight(150)
         self.search_spec_tree.itemSelectionChanged.connect(self._search_spec_selected)
@@ -409,6 +412,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.search_summary_label)
 
         self.search_candidate_tree = QTreeWidget()
+        self.search_candidate_tree.setAccessibleName('生成候補')
         self.search_candidate_tree.setHeaderLabels(['候補', 'index', '位置'])
         self.search_candidate_tree.setMinimumHeight(180)
         self.search_candidate_tree.itemSelectionChanged.connect(self._search_candidate_selected)
@@ -436,12 +440,14 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.measurement_plan_label)
 
         self.measurement_plan_tree = QTreeWidget()
+        self.measurement_plan_tree.setAccessibleName('実測候補')
         self.measurement_plan_tree.setHeaderLabels(['実測候補', '状態', 'シーン', '測定'])
         self.measurement_plan_tree.setMinimumHeight(120)
         self.measurement_plan_tree.itemSelectionChanged.connect(self._measurement_plan_selected)
         layout.addWidget(self.measurement_plan_tree)
 
         self.measurement_match_list = QListWidget()
+        self.measurement_match_list.setAccessibleName('関連実測候補')
         self.measurement_match_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.measurement_match_list.setMinimumHeight(90)
         layout.addWidget(self.measurement_match_list)
@@ -458,6 +464,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(comparison_label)
 
         self.objective_list = QListWidget()
+        self.objective_list.setAccessibleName('objective一覧')
         self.objective_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.objective_list.setMinimumHeight(100)
         layout.addWidget(self.objective_list)
@@ -471,6 +478,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.pareto_summary_label)
 
         self.pareto_tree = QTreeWidget()
+        self.pareto_tree.setAccessibleName('Pareto比較候補')
         self.pareto_tree.setHeaderLabels(['候補', 'Pareto', '根拠', '指標'])
         self.pareto_tree.setMinimumHeight(180)
         self.pareto_tree.itemSelectionChanged.connect(self._pareto_candidate_selected)
@@ -499,6 +507,7 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(assignment_actions)
 
         self.campaign_assignment_tree = QTreeWidget()
+        self.campaign_assignment_tree.setAccessibleName('検証候補')
         self.campaign_assignment_tree.setHeaderLabels(['候補', '役割'])
         self.campaign_assignment_tree.setMinimumHeight(100)
         layout.addWidget(self.campaign_assignment_tree)
@@ -557,6 +566,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(campaign_save)
 
         self.campaign_tree = QTreeWidget()
+        self.campaign_tree.setAccessibleName('検証キャンペーン')
         self.campaign_tree.setHeaderLabels(['campaign', 'model', '候補', 'readiness'])
         self.campaign_tree.setMinimumHeight(130)
         self.campaign_tree.itemSelectionChanged.connect(self._campaign_selected)
@@ -629,6 +639,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.validation_refresh_button)
 
         self.validation_tree = QTreeWidget()
+        self.validation_tree.setAccessibleName('保存済み検証')
         self.validation_tree.setHeaderLabels([
             'validation', 'scope', 'residual', 'trend', 'sensitivity', 'repeatability', 'gate'
         ])
@@ -684,6 +695,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.adaptive_build_button)
 
         self.adaptive_tree = QTreeWidget()
+        self.adaptive_tree.setAccessibleName('Adaptive Plan')
         self.adaptive_tree.setHeaderLabels([
             'プラン / 候補', 'スコープ', '獲得', '補正objective'
         ])
@@ -703,6 +715,7 @@ class OptimizationWorkspaceWindow(
 
         capability_actions = QHBoxLayout()
         self.extended_capability_combo = QComboBox()
+        self.extended_capability_combo.setAccessibleName('拡張能力の検証結果')
         self.extended_capability_combo.setMinimumContentsLength(24)
         capability_actions.addWidget(self.extended_capability_combo)
         synthetic_capability = QPushButton('Synthetic capability作成')
@@ -788,6 +801,7 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(extended_axis_actions)
 
         self.extended_axis_tree = QTreeWidget()
+        self.extended_axis_tree.setAccessibleName('拡張探索軸')
         self.extended_axis_tree.setHeaderLabels([
             'speaker', 'parameter', '最小', '最大', '刻み'
         ])
@@ -799,6 +813,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(save_extended)
 
         self.extended_spec_tree = QTreeWidget()
+        self.extended_spec_tree.setAccessibleName('拡張探索設定')
         self.extended_spec_tree.setHeaderLabels([
             'extended', 'model', 'parameter', '状態'
         ])
@@ -835,6 +850,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.extended_summary_label)
 
         self.extended_candidate_tree = QTreeWidget()
+        self.extended_candidate_tree.setAccessibleName('拡張生成候補')
         self.extended_candidate_tree.setHeaderLabels([
             '候補', 'ベース', '位置', '音響yaw', 'ボディyaw'
         ])
@@ -904,6 +920,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.adaptive_extended_build_button)
 
         self.adaptive_extended_tree = QTreeWidget()
+        self.adaptive_extended_tree.setAccessibleName('拡張 Adaptive Plan')
         self.adaptive_extended_tree.setHeaderLabels([
             'プラン / 候補', 'スコープ', '獲得', '特徴 / 指標'
         ])

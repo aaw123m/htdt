@@ -85,6 +85,7 @@ class RoomConstraintsPanel(QWidget):
         layout.addWidget(self.optimize_button)
 
         self.results_tree = QTreeWidget()
+        self.results_tree.setAccessibleName("配置制約一覧")
         self.results_tree.setHeaderLabels(("制約", "対象", "状態"))
         self.results_tree.setRootIsDecorated(False)
         self.results_tree.setUniformRowHeights(True)

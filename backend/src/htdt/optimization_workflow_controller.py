@@ -777,6 +777,7 @@ class OptimizationWorkflowController(
         # #1090: task-first range presets add sane axis ranges for the
         # selected entity without touching the low-level numeric form.
         self.search_preset_combo = QComboBox()
+        self.search_preset_combo.setAccessibleName('探索プリセット')
         for key, label, _axes, _range, _step in self.SEARCH_RANGE_PRESETS:
             self.search_preset_combo.addItem(label, key)
         self.search_preset_apply_button = QPushButton("プリセットで軸を追加")
@@ -784,6 +785,7 @@ class OptimizationWorkflowController(
             self.apply_search_range_preset
         )
         self.search_axis_tree = QTreeWidget()
+        self.search_axis_tree.setAccessibleName('探索軸')
         self.search_axis_tree.setHeaderLabels(["物体", "軸", "最小", "最大", "刻み"])
         self.linked_master_combo = QComboBox()
         self.linked_slave_combo = QComboBox()
@@ -804,10 +806,12 @@ class OptimizationWorkflowController(
         self.linked_remove_button = QPushButton("選択連動を削除")
         self.linked_remove_button.clicked.connect(self.remove_selected_linked_variable)
         self.search_linked_tree = QTreeWidget()
+        self.search_linked_tree.setAccessibleName('連動パラメータ')
         self.search_linked_tree.setHeaderLabels(["マスター", "スレーブ", "関係", "鏡面x"])
         self.search_save_button = QPushButton("探索設定を保存")
         self.search_save_button.clicked.connect(self.save_search_spec)
         self.search_spec_tree = QTreeWidget()
+        self.search_spec_tree.setAccessibleName('保存済み探索設定')
         self.search_spec_tree.setHeaderLabels(["探索設定", "入力状態", "状態"])
         self.search_spec_tree.itemSelectionChanged.connect(self._search_spec_selected)
         self.search_reauthor_button = QPushButton("同じ条件で再探索")
@@ -826,6 +830,7 @@ class OptimizationWorkflowController(
         self.search_generate_reason_label.setWordWrap(True)
         self.search_generate_reason_label.hide()
         self.search_candidate_tree = QTreeWidget()
+        self.search_candidate_tree.setAccessibleName('生成候補')
         self.search_candidate_tree.setHeaderLabels(["候補", "番号", "位置"])
         # #1088: header sorting (番号 column sorts numerically) plus a text
         # filter so large candidate pages stay triageable.
@@ -858,6 +863,7 @@ class OptimizationWorkflowController(
         )
         self.measurement_plan_label = QLabel("実測候補未登録")
         self.measurement_plan_tree = QTreeWidget()
+        self.measurement_plan_tree.setAccessibleName('実測候補')
         self.measurement_plan_tree.setHeaderLabels(["実測候補", "状態", "保存状態", "測定"])
         self.measurement_plan_tree.itemSelectionChanged.connect(
             self._measurement_plan_selected
@@ -866,6 +872,7 @@ class OptimizationWorkflowController(
             self._refresh_campaign_measurement_points
         )
         self.measurement_match_list = QListWidget()
+        self.measurement_match_list.setAccessibleName('関連実測候補')
         self.measurement_match_list.setSelectionMode(
             QListWidget.SelectionMode.MultiSelection
         )
@@ -882,10 +889,12 @@ class OptimizationWorkflowController(
         self.pareto_refresh_button.clicked.connect(self.refresh_pareto_comparison)
         self.pareto_summary_label = QLabel("比較指標が未読込です")
         self.pareto_tree = QTreeWidget()
+        self.pareto_tree.setAccessibleName('Pareto比較候補')
         self.pareto_tree.setHeaderLabels(["候補", "Pareto", "根拠", "指標"])
         self.pareto_tree.itemSelectionChanged.connect(self._pareto_candidate_selected)
 
         self.campaign_assignment_tree = QTreeWidget()
+        self.campaign_assignment_tree.setAccessibleName('検証候補')
         self.campaign_assignment_tree.setHeaderLabels(["候補", "役割"])
         self.campaign_model_version_field = QLineEdit()
         self.campaign_low_field = self._number_field(1.0, 20_000.0, 20.0, 1)
@@ -904,6 +913,7 @@ class OptimizationWorkflowController(
         ):
             field.setSpecialValueText("要設定")
         self.campaign_tree = QTreeWidget()
+        self.campaign_tree.setAccessibleName('検証キャンペーン')
         self.campaign_tree.setHeaderLabels(["検証条件", "モデル", "候補", "準備状況"])
         self.campaign_tree.itemSelectionChanged.connect(self._campaign_selected)
         self.campaign_detail_label = QLabel("検証条件が未選択です")
@@ -922,6 +932,7 @@ class OptimizationWorkflowController(
         self.validation_refresh_button = QPushButton("保存済み検証を更新")
         self.validation_refresh_button.clicked.connect(self.refresh_model_validations)
         self.validation_tree = QTreeWidget()
+        self.validation_tree.setAccessibleName('保存済み検証')
         self.validation_tree.setHeaderLabels(
             ["検証", "範囲", "残差", "傾向", "感度", "再現性", "推薦可否"]
         )
@@ -946,11 +957,13 @@ class OptimizationWorkflowController(
         self.adaptive_cancel_button.setEnabled(False)
         self.adaptive_cancel_button.clicked.connect(self.cancel_adaptive_build)
         self.adaptive_tree = QTreeWidget()
+        self.adaptive_tree.setAccessibleName('Adaptive Plan')
         self.adaptive_tree.setHeaderLabels(["計画 / 候補", "範囲", "取得値", "補正指標"])
         self.adaptive_tree.itemSelectionChanged.connect(self._adaptive_selected)
         self.adaptive_detail_label = QLabel("次候補の計画が未選択です")
 
         self.extended_capability_combo = QComboBox()
+        self.extended_capability_combo.setAccessibleName('拡張能力の検証結果')
         self.extended_parameter_combo = QComboBox()
         self.extended_parameter_combo.addItem("音響の向き（yaw）", "aim_yaw_deg")
         self.extended_parameter_combo.addItem("音響の向き（pitch）", "aim_pitch_deg")
@@ -971,10 +984,12 @@ class OptimizationWorkflowController(
         self.extended_limit_field.setRange(1, 50_000)
         self.extended_limit_field.setValue(10_000)
         self.extended_axis_tree = QTreeWidget()
+        self.extended_axis_tree.setAccessibleName('拡張探索軸')
         self.extended_axis_tree.setHeaderLabels(
             ["スピーカー", "パラメータ", "最小", "最大", "刻み"]
         )
         self.extended_spec_tree = QTreeWidget()
+        self.extended_spec_tree.setAccessibleName('拡張探索設定')
         self.extended_spec_tree.setHeaderLabels(
             ["拡張探索", "モデル", "パラメータ", "状態"]
         )
@@ -989,6 +1004,7 @@ class OptimizationWorkflowController(
         self.extended_cancel_button.clicked.connect(self.cancel_extended_generation)
         self.extended_summary_label = QLabel("拡張候補は未生成です")
         self.extended_candidate_tree = QTreeWidget()
+        self.extended_candidate_tree.setAccessibleName('拡張生成候補')
         self.extended_candidate_tree.setHeaderLabels(
             ["候補", "元候補", "位置", "音響 yaw", "筐体 yaw"]
         )

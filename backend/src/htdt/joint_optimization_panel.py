@@ -163,6 +163,7 @@ class JointOptimizationPanel(QWidget):
         layout.addLayout(actions)
 
         self.spec_tree = QTreeWidget(self)
+        self.spec_tree.setAccessibleName('結合最適化仕様')
         self.spec_tree.setColumnCount(5)
         self.spec_tree.setHeaderLabels(
             ('仕様', 'モード', 'DSP変数', '候補上限', '状態')

@@ -27,8 +27,10 @@ class RobustnessControllerMixin:
         )
         self.robustness_summary_label.setWordWrap(True)
         self.robustness_comparison_tree = QTreeWidget()
+        self.robustness_comparison_tree.setAccessibleName('ばらつき比較')
         self.robustness_comparison_tree.setHeaderLabels(['項目'])
         self.robustness_tree = QTreeWidget()
+        self.robustness_tree.setAccessibleName('ばらつき評価')
         self.robustness_tree.setHeaderLabels(
             [
                 '候補',

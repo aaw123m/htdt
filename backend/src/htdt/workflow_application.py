@@ -82,10 +82,12 @@ from .cad_search_repository import CadSearchRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .export_io import claim_export_stem, write_export_files
 from .availability_reasons import availability_reason
+from .accessible_labels import wire_label_buddies
 from .command_palette import (
     CommandPaletteController,
     CommandShortcutBinder,
     flush_focused_text_editor,
+    focused_text_editor,
 )
 from .capture_receiver_controller import CaptureReceiverController
 from .capture_receiver_settings import CaptureReceiverPanel
@@ -575,6 +577,17 @@ class WorkflowApplicationComposition:
         )
         self.shell.command_registry = self.registry  # type: ignore[attr-defined]
         self.shell.command_palette_controller = self.command_palette  # type: ignore[attr-defined]
+        # project.save is a GLOBAL command: the workspaces bind their own
+        # Ctrl+S inside their widget trees, but Overview/Measurement and
+        # the app destinations still need a key path to reach a mounted
+        # workspace's dirty document. WindowShortcut yields to their more
+        # specific WidgetWithChildren bindings inside those workspaces.
+        self._shell_save_binder = CommandShortcutBinder(
+            self.shell,
+            self.registry,
+            command_ids=("project.save",),
+            shortcut_context=Qt.ShortcutContext.WindowShortcut,
+        )
 
         backend = DataManagementBackend(self.data_dir)
         lifecycle = ApplicationDataLifecycle(
@@ -636,6 +649,9 @@ class WorkflowApplicationComposition:
                 parent=self.shell,
             ),
         )
+        # The settings dialog is built once outside the router, so its
+        # caption labels get their buddies here rather than at mount time.
+        wire_label_buddies(self.settings_dialog)
         if capture_receiver is not None:
             capture_receiver.delivery_staged.connect(
                 self._announce_capture_delivery
@@ -963,38 +979,38 @@ class WorkflowApplicationComposition:
             pass
 
     def _build_project_menu(self) -> None:
-        menu = self.shell.menuBar().addMenu("プロジェクト")
+        menu = self.shell.menuBar().addMenu("プロジェクト(&P)")
         menu.addAction(
-            "新規プロジェクト…", self._new_project
+            "新規プロジェクト…(&N)", self._new_project
         )
         menu.addAction(
-            "プロジェクトを開く…", self._open_project_dialog
-        )
-        menu.addSeparator()
-        menu.addAction(
-            "プロジェクト名を変更…", self._rename_project
-        )
-        menu.addAction(
-            "プロジェクトを複製…", self._duplicate_project
+            "プロジェクトを開く…(&O)", self._open_project_dialog
         )
         menu.addSeparator()
         menu.addAction(
-            "プロジェクトをエクスポート…", self._export_project_bundle
+            "プロジェクト名を変更…(&R)", self._rename_project
         )
         menu.addAction(
-            "プロジェクトをインポート…", self._import_project_bundle
-        )
-        menu.addSeparator()
-        menu.addAction(
-            "デリバラブルセンター…", self._open_deliverables
+            "プロジェクトを複製…(&D)", self._duplicate_project
         )
         menu.addSeparator()
         menu.addAction(
-            "アーカイブ…",
+            "プロジェクトをエクスポート…(&E)", self._export_project_bundle
+        )
+        menu.addAction(
+            "プロジェクトをインポート…(&I)", self._import_project_bundle
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "デリバラブルセンター…(&C)", self._open_deliverables
+        )
+        menu.addSeparator()
+        menu.addAction(
+            "アーカイブ…(&A)",
             lambda: self._archive_dialog(archived=True),
         )
         menu.addAction(
-            "アーカイブから復元…",
+            "アーカイブから復元…(&U)",
             lambda: self._archive_dialog(archived=False),
         )
 
@@ -2258,6 +2274,51 @@ class WorkflowApplicationComposition:
                 self.registry.unbind(command_id)
             except KeyError:
                 pass
+        # Workspaces that own project.save rebind it in their activate()
+        # right after this unbind; everywhere else the key routes to any
+        # mounted workspace holding a dirty document.
+        self.registry.bind(
+            "project.save",
+            execute=self._save_dirty_workspaces,
+            availability=self._dirty_workspace_availability,
+        )
+
+    def _mounted_dirty_workspaces(self) -> tuple[QWidget, ...]:
+        dirty: list[QWidget] = []
+        for destination, mount in self.shell.router.mounts():
+            if not isinstance(destination, WorkspaceId):
+                continue
+            workspace = mount.widget
+            controller = getattr(workspace, 'controller', None)
+            if controller is None:
+                continue
+            if focused_text_editor(workspace) is not None:
+                dirty.append(workspace)
+                continue
+            if getattr(controller, 'is_dirty', False) or getattr(
+                getattr(controller, 'working', None), 'is_dirty', False
+            ):
+                dirty.append(workspace)
+        return tuple(dirty)
+
+    def _dirty_workspace_availability(self) -> CommandAvailability:
+        if self._mounted_dirty_workspaces():
+            return CommandAvailability.available()
+        return CommandAvailability.blocked(
+            availability_reason('project.save.nothing_to_save')
+        )
+
+    def _save_dirty_workspaces(self) -> None:
+        for workspace in self._mounted_dirty_workspaces():
+            save = getattr(workspace, 'save', None)
+            if callable(save):
+                save()
+                continue
+            controller = getattr(workspace, 'controller', None)
+            controller_save = getattr(controller, 'save', None)
+            if callable(controller_save):
+                flush_focused_text_editor(workspace)
+                controller_save()
 
     def _bind_room_tool_commands(self, workspace: RoomWorkspace) -> None:
         """Bind the room CAD tool commands (views, underlay, layout, seating,

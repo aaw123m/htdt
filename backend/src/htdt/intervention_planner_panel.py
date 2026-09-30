@@ -178,6 +178,7 @@ class InterventionPlannerPanel(QFrame):
         self.band_low_field.setRange(1.0, 20000.0)
         self.band_low_field.setValue(80.0)
         self.band_high_field = QDoubleSpinBox()
+        self.band_high_field.setAccessibleName('帯域 上限 Hz')
         self.band_high_field.setRange(2.0, 22000.0)
         self.band_high_field.setValue(160.0)
         band_row.addWidget(self.band_low_field)

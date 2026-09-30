@@ -71,8 +71,10 @@ class RoomHistoryPanel(QWidget):
         label_row.setSpacing(4)
         self.label_field = QLineEdit()
         self.label_field.setPlaceholderText("ラベル（例: v2 候補）")
+        self.label_field.setAccessibleName("ラベル")
         self.note_field = QLineEdit()
         self.note_field.setPlaceholderText("メモ（任意）")
+        self.note_field.setAccessibleName("メモ")
         self.label_button = QPushButton("ラベル保存")
         label_row.addWidget(self.label_field, stretch=1)
         label_row.addWidget(self.note_field, stretch=1)
@@ -93,6 +95,7 @@ class RoomHistoryPanel(QWidget):
         self.detail = QTextEdit()
         self.detail.setReadOnly(True)
         self.detail.setPlaceholderText("リビジョンを選択すると詳細と差分を表示します")
+        self.detail.setAccessibleName("リビジョン詳細")
         layout.addWidget(self.detail, stretch=1)
 
         self.preview_button.toggled.connect(self._on_preview_toggled)
