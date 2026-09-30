@@ -372,3 +372,31 @@ def test_backup_round_trip_passes_with_audit_enabled(tmp_path: Path):
     assert restored_manifest == manifest
     restored_scene = SceneRepository(target / 'cad-scenes.sqlite3')
     assert restored_scene.get(result.source_revision_id) is not None
+
+
+def test_table_policy_registry_has_no_duplicate_or_malformed_entries() -> None:
+    """REV24: silent shadowing — duplicate keys keep only the last entry.
+
+    The capture_* and cad_* blocks were re-registered further down the
+    same literal, leaving earlier OPERATIONAL_METADATA entries (and one
+    malformed one-tuple) as dead code the audit never saw.
+    """
+
+    import ast
+    import htdt.native_authority_audit as audit_module
+
+    source = Path(audit_module.__file__).read_text(encoding='utf-8')
+    literal = None
+    for node in ast.walk(ast.parse(source)):
+        target = getattr(node, 'target', None)
+        if (
+            isinstance(node, ast.AnnAssign)
+            and getattr(target, 'id', '') == '_TABLE_POLICY'
+        ):
+            literal = node.value
+    assert literal is not None
+
+    keys = [ast.literal_eval(key) for key in literal.keys]
+    assert len(keys) == len(set(keys))
+    for entry in literal.values:
+        assert isinstance(entry, ast.Tuple) and len(entry.elts) == 2
