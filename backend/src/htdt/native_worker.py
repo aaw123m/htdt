@@ -301,6 +301,11 @@ class NativeWorkerPool(QObject):
         self._release_task(key)
         thread.setParent(None)
         thread.finished.connect(lambda: _release_lingering(thread))
+        # The thread can finish in the window between the bounded wait and
+        # this connect — its earlier finished->deleteLater wiring still
+        # destroys the C++ object, so released-on-destroyed is the
+        # guaranteed drop path for that race.
+        thread.destroyed.connect(lambda *_args: _release_lingering(thread))
         if not thread.isRunning():
             # Finished between the shutdown check and the reparent.
             _LINGERING_THREADS.pop(thread, None)

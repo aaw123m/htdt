@@ -233,7 +233,11 @@ class ApplicationOperation(BaseModel):
 
     @property
     def can_cancel_now(self) -> bool:
-        if not self.is_active or self.cancel_committed:
+        if (
+            not self.is_active
+            or self.cancel_committed
+            or self.state == OperationState.CANCELLATION_REQUESTED
+        ):
             return False
         return self.cancellability in (
             Cancellability.CANCELLABLE,
@@ -377,6 +381,18 @@ class ActivityCenter:
     def _emit_snapshot(self, snapshot: ApplicationOperation) -> None:
         for listener in tuple(self._listeners):
             listener(snapshot)
+
+    def _sync_history_row(self, record: _OperationRecord) -> None:
+        """Mirror an in-place snapshot update into its history row.
+
+        ``record.snapshot`` is re-bound on every write, so a terminal row
+        archived earlier would otherwise keep serving the stale object once
+        the live record is eventually evicted.
+        """
+        for index, existing in enumerate(self._history):
+            if existing.operation_id == record.snapshot.operation_id:
+                self._history[index] = record.snapshot
+                return
 
     def _archive(self, record: _OperationRecord) -> None:
         # One operation_id (one attempt) occupies one logical history row:
@@ -528,9 +544,17 @@ class ActivityCenter:
 
     def _record(self, operation_id: str) -> _OperationRecord:
         record = self._records.get(operation_id)
-        if record is None:
-            raise KeyError(f'unknown operation {operation_id}')
-        return record
+        if record is not None:
+            return record
+        # A terminal operation whose record was released still resolves
+        # through the bounded history — mutating calls must not misreport it
+        # as unknown just because the live record aged out.
+        snapshot = self._history_snapshot(operation_id)
+        if snapshot is not None:
+            raise OperationTransitionError(
+                f'operation {operation_id} is already {snapshot.state}'
+            )
+        raise KeyError(f'unknown operation {operation_id}')
 
     def _transition(
         self,
@@ -548,6 +572,7 @@ class ActivityCenter:
         fields: dict[str, Any] = {'updated_at': _utc_now()}
         if target in (
             OperationState.RUNNING,
+            OperationState.CANCELLATION_REQUESTED,
         ) and current.started_at is None:
             fields['started_at'] = _utc_now()
         if target in TERMINAL_STATES:
@@ -626,7 +651,10 @@ class ActivityCenter:
         point can be cancelled — the UI must never offer Cancel otherwise.
         """
 
-        record = self._record(operation_id)
+        try:
+            record = self._record(operation_id)
+        except OperationTransitionError:
+            return False
         snapshot = record.snapshot
         if not snapshot.can_cancel_now:
             return False
@@ -653,7 +681,9 @@ class ActivityCenter:
         """
 
         changed = set(authority_refs)
-        for record in self._records.values():
+        # ``_transition`` archives terminal records (and may evict beyond the
+        # record bound), mutating ``_records`` mid-loop — iterate a snapshot.
+        for record in list(self._records.values()):
             snapshot = record.snapshot
             if not snapshot.input_authority_refs:
                 continue
@@ -662,6 +692,7 @@ class ActivityCenter:
                     record.snapshot = snapshot.model_copy(
                         update={'updated_at': _utc_now()}
                     )
+                    self._sync_history_row(record)
                 continue
             if not snapshot.current_for_input:
                 continue
@@ -675,6 +706,7 @@ class ActivityCenter:
                 record.snapshot = snapshot.model_copy(
                     update={'current_for_input': False, 'updated_at': _utc_now()}
                 )
+                self._sync_history_row(record)
                 self._emit(record)
         # Terminal records evicted from ``_records`` survive only as bounded
         # history rows — apply the same reclassification in place so the
@@ -741,6 +773,16 @@ class ActivityCenter:
             if retry_factory is not None
             else OperationRetryRequest()
         )
+        cancellability = (
+            snapshot.cancellability
+            if request.cancel_callback is not None
+            else Cancellability.NOT_CANCELLABLE
+        )
+        if cancellability == Cancellability.NOT_CANCELLABLE:
+            # A declared non-cancellable attempt keeps its contract even when
+            # the factory wires a live callback — submit() rejects the
+            # contradictory pair, so the stray wiring is dropped here.
+            request = OperationRetryRequest(domain_payload=request.domain_payload)
         return self.submit(
             operation_kind=snapshot.operation_kind,
             operation_class=snapshot.operation_class,
@@ -749,11 +791,7 @@ class ActivityCenter:
             document_ref=snapshot.document_ref,
             input_authority_refs=snapshot.input_authority_refs,
             revision_ref=snapshot.revision_ref,
-            cancellability=(
-                snapshot.cancellability
-                if request.cancel_callback is not None
-                else Cancellability.NOT_CANCELLABLE
-            ),
+            cancellability=cancellability,
             retry_policy=snapshot.retry_policy,
             navigation_policy=snapshot.navigation_policy,
             navigation_block_reason=snapshot.navigation_block_reason,
