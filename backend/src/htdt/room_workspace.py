@@ -771,17 +771,25 @@ class RoomWorkspaceController:
                 self.keep_draft()
                 return True, "未保存の変更を下書きとして残しました"
             if action == "commit_preview":
+                if not self.working.has_preview:
+                    return False, "確定できるプレビューがありません"
                 self.working.commit_preview()
                 self._sync_recovery()
                 return True, "プレビューを確定しました"
             if action == "cancel_preview":
+                if not self.working.has_preview:
+                    return False, "キャンセルできるプレビューがありません"
                 self.working.cancel_preview()
                 self._sync_recovery()
                 return True, "プレビューを破棄しました"
             if action == "recover_draft":
+                if self.recovery_candidate is None:
+                    return False, "復旧できる下書きがありません"
                 self.recover_draft()
                 return True, "下書きを復旧しました"
             if action == "discard_recovery":
+                if self.recovery_candidate is None:
+                    return False, "破棄できる復旧データがありません"
                 self.discard_recovery()
                 return True, "復旧データを破棄しました"
         except (EditStateError, ValueError) as error:
@@ -1156,7 +1164,7 @@ class RoomWorkspaceController:
     def set_revision_label(self, revision_id: str, label: str, note: str) -> None:
         if label.strip() or note.strip():
             self.repository.set_revision_label(
-                revision_id, label.strip(), note.strip()
+                revision_id, label=label.strip(), note=note.strip()
             )
         else:
             self.repository.clear_revision_label(revision_id)
