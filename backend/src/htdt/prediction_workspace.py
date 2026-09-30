@@ -398,7 +398,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         if not isinstance(result, tuple) or not result or not all(
             isinstance(item, CadPredictionResult) for item in result
         ):
-            self.statusBar().showMessage('予測結果を拒否しました · result contract mismatch')
+            self.statusBar().showMessage('予測結果を拒否しました · 結果の形式が一致しません')
             return
         if any(
             item.input_hash != token.input_hash
@@ -409,7 +409,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             or item.constraint_workspace_hash != token.constraint_workspace_hash
             for item in result
         ):
-            self.statusBar().showMessage('予測結果を拒否しました · immutable input identity mismatch')
+            self.statusBar().showMessage('予測結果を拒否しました · 実行時と入力が一致しません')
             return
         context = self._current_prediction_context()
         if context is None or not self.prediction_job_guard.can_apply(token, context):

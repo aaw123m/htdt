@@ -785,7 +785,7 @@ class RoomWorkspaceController:
                 self.discard_recovery()
                 return True, "復旧データを破棄しました"
         except (EditStateError, ValueError) as error:
-            return False, str(error)
+            return False, operation_error_message(error)
         return False, "この状態では実行できない操作です"
 
     def set_selection(self, entity_id: str | None, *, additive: bool = False) -> None:
@@ -1064,7 +1064,7 @@ class RoomWorkspaceController:
             # A constraint whose wall/entity reference dangles cannot be
             # evaluated — block the commit honestly instead of crashing or
             # silently skipping the gate.
-            return f"配置制約が参照先を失っています · {exc}"
+            return f"配置制約が参照先を失っています · {operation_error_message(exc)}"
         blocking = blocking_candidate_violations(before, candidate, changed_ids)
         if blocking:
             reasons = "、".join(item.name or item.reason_ja for item in blocking[:2])

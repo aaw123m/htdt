@@ -572,6 +572,7 @@ class WorkflowApplicationComposition:
             self.palette_service,
             context_provider=lambda: self._command_context(),
             on_deep_link=self._navigate_target,
+            on_help_topic=self._open_help_topic,
         )
         self.shell.command_registry = self.registry  # type: ignore[attr-defined]
         self.shell.command_palette_controller = self.command_palette  # type: ignore[attr-defined]

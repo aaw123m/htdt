@@ -1800,8 +1800,8 @@ class SystemExpansionMeasurementPanel(QFrame):
                 variant_id, purpose=purpose
             )
         except ValueError as exc:
-            QMessageBox.warning(
-                self, "キャンペーンを事前登録", str(exc)
+            warn_user(
+                self, "キャンペーンを事前登録できませんでした", exc
             )
             return
         self.refresh()

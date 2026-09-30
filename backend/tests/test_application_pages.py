@@ -190,7 +190,7 @@ def test_capture_inbox_detail_preserves_item_and_project_context(
         app.processEvents()
         text = page.detail.text()
         assert "（未割り当て）" in text
-        assert "new_series" in text
+        assert "新しい系列" in text
         assert "昇格可能性" in text
 
         # Scope assignment binds the item to the chosen project document.

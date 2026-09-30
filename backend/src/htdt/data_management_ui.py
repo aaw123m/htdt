@@ -908,7 +908,7 @@ class DataManagementWidget(QWidget):
         except Exception as exc:  # noqa: BLE001 - surface, never crash the page
             self._show_status(
                 "再検証を完了できませんでした",
-                str(exc),
+                operation_error_message(exc),
                 SemanticState.ERROR,
             )
             return
