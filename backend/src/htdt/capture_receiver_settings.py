@@ -203,6 +203,19 @@ class PairingDialog(QDialog):
             self.status_label.setText("解除するデバイスを選択してください。")
             return
         pairing_id = item.data(Qt.ItemDataRole.UserRole)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("ペアリングの解除")
+        box.setText(f"「{item.text()}」のペアリングを解除します。")
+        box.setInformativeText(
+            "解除すると、このデバイスからの新しい取り込みは受け付けなくなります。"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
         try:
             self._controller.service.revoke_pairing(pairing_id)
         except Exception as exc:

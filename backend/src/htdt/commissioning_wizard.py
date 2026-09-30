@@ -128,7 +128,8 @@ class CommissioningWizard(QDialog):
             | QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
-        buttons.button(QDialogButtonBox.StandardButton.Save).setText('保存して閉じる')
+        self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
+        self.save_button.setText('保存して閉じる')
         buttons.accepted.connect(self._save_and_close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -136,6 +137,13 @@ class CommissioningWizard(QDialog):
         self._pages: list[QWidget] = []
         self._page_index = 0
         self._build_pages()
+        self.name_edit.textChanged.connect(self._update_save_enabled)
+        self.new_radio.toggled.connect(self._update_save_enabled)
+        self.existing_radio.toggled.connect(self._update_save_enabled)
+        self.existing_combo.currentIndexChanged.connect(
+            self._update_save_enabled
+        )
+        self._update_save_enabled()
         self._show_page(0)
 
     # -- pages -----------------------------------------------------------
@@ -260,6 +268,16 @@ class CommissioningWizard(QDialog):
         self._show_page(self._page_index + 1)
 
     # -- persistence ----------------------------------------------------
+
+    def _update_save_enabled(self, *_args: object) -> None:
+        if self.new_radio.isChecked():
+            self.save_button.setEnabled(
+                bool(self.name_edit.text().strip())
+            )
+        else:
+            self.save_button.setEnabled(
+                self.existing_combo.currentData() is not None
+            )
 
     def _collect_intent(self) -> CommissioningIntent:
         goals = tuple(
