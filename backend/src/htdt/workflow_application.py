@@ -3377,15 +3377,21 @@ class WorkflowApplicationComposition:
         )
         if system_variant_id is None:
             return
-        service = InstallationReportService(
-            scene_repository=self.repository
+        service = InstallationReportService.for_scene_repository(
+            self.repository
         )
-        handoff = build_installation_handoff(
-            service,
-            scene_revision_id=scene_revision_id,
-            system_variant_id=system_variant_id,
-            generated_at_utc=datetime.now(timezone.utc).isoformat(),
-        )
+        try:
+            handoff = build_installation_handoff(
+                service,
+                scene_revision_id=scene_revision_id,
+                system_variant_id=system_variant_id,
+                generated_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+        except Exception as exc:
+            warn_user(
+                self.shell, "設置ハンドオフを作成できませんでした", exc
+            )
+            return
         preview = QDialog(self.shell)
         preview.setWindowTitle("設置ハンドオフ プレビュー")
         preview_layout = QVBoxLayout(preview)

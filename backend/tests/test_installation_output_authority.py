@@ -1772,3 +1772,65 @@ def test_handoff_packages_discovered_section_authorities(
     assert variant_handoff.output.calibration.verification_plan_id == (
         verification.verification_plan_id
     )
+
+
+def test_production_surface_service_wiring_discovers_bound_authorities(
+    tmp_path: Path,
+) -> None:
+    """for_scene_repository wiring (the operator path) resolves every store.
+
+    The installation-handoff export builds its service through
+    ``InstallationReportService.for_scene_repository``; on a seeded project
+    it must resolve the same bound authorities the explicit repo wiring
+    does — including SystemVariant targets.
+    """
+    ctx = _authorities(tmp_path)
+    revision = ctx['revision']
+    variant = ctx['variant']
+    service = InstallationReportService.for_scene_repository(
+        ctx['scene_repository']
+    )
+
+    baseline_pins = service.latest_target_section_authority_ids(
+        revision.revision_id
+    )
+    assert baseline_pins.video_geometry_evaluation_id == (
+        ctx['video'].evaluation_id
+    )
+    assert baseline_pins.standards_evaluation_id == (
+        ctx['standards'].evaluation_id
+    )
+
+    plan, export, verification, _events = _save_calibration_authorities(
+        ctx['calibration_repository'],
+        ctx['measurement_repository'],
+        ctx['quality_repository'],
+        revision,
+        variant,
+    )
+    _profile, variant_standards, variant_evidence = _standards(
+        revision, variant=variant
+    )
+    for _evidence in variant_evidence:
+        ctx['standards_repository'].save_observation_authority(_evidence)
+    ctx['standards_repository'].save_evaluation(variant_standards)
+
+    # The variant pick resolves (previously impossible without a
+    # system-variant store on the service) and packages every bound section.
+    handoff = build_installation_handoff(
+        service,
+        scene_revision_id=revision.revision_id,
+        system_variant_id=variant.variant_id,
+        generated_at_utc=NOW,
+    )
+    assert handoff.output.standards is not None
+    assert handoff.output.standards.status == 'AVAILABLE'
+    assert handoff.output.calibration is not None
+    assert handoff.output.calibration.status == 'AVAILABLE'
+    assert handoff.output.calibration.export_id == export.export_id
+    assert handoff.output.calibration.verification_plan_id == (
+        verification.verification_plan_id
+    )
+    assert service.verify_installation_output_replay(
+        handoff.output
+    ) == handoff.output

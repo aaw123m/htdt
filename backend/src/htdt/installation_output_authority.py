@@ -222,6 +222,47 @@ class InstallationReportService:
         self.cable_run_repository = cable_run_repository
         self.signal_path_repository = signal_path_repository
 
+    @classmethod
+    def for_scene_repository(
+        cls,
+        scene_repository: SceneRepository,
+    ) -> "InstallationReportService":
+        """Wire every section repository over one native CAD database.
+
+        Operator surfaces hold only the ``SceneRepository``; the report needs
+        all section stores up front so each section can resolve — or honestly
+        report absent — persisted authority.
+        """
+        system_variant_repository = CadSystemVariantRepository(scene_repository)
+        measurement_repository = CadMeasurementRepository(scene_repository)
+        quality_repository = CadMeasurementQualityRepository(
+            measurement_repository
+        )
+        return cls(
+            scene_repository=scene_repository,
+            system_variant_repository=system_variant_repository,
+            video_geometry_repository=CadVideoGeometryRepository(
+                scene_repository, system_variant_repository
+            ),
+            standards_repository=CadStandardsRepository(
+                scene_repository, system_variant_repository
+            ),
+            treatment_repository=CadAcousticTreatmentRepository(
+                scene_repository, system_variant_repository
+            ),
+            calibration_repository=CadCalibrationRepository(
+                scene_repository=scene_repository,
+                system_variant_repository=system_variant_repository,
+                measurement_repository=measurement_repository,
+                quality_repository=quality_repository,
+            ),
+            measurement_repository=measurement_repository,
+            measurement_quality_repository=quality_repository,
+            datum_repository=CadInstallationDatumRepository(scene_repository),
+            cable_run_repository=CadCableRunRepository(scene_repository),
+            signal_path_repository=CadSignalPathRepository(scene_repository),
+        )
+
     # -- repository fallbacks ------------------------------------------------
 
     def _variant_repository(self) -> CadSystemVariantRepository | None:
