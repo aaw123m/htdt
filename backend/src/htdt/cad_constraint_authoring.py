@@ -37,6 +37,7 @@ CONSTRAINT_KIND_LABELS: dict[str, str] = {
     'exclusion': '除外領域',
     'wall_clearance': '壁離隔',
     'pair_distance': '物体間離隔',
+    'entity_collision': '物体間衝突',
 }
 
 

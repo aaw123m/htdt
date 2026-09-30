@@ -27,6 +27,7 @@ from pydantic import (
 )
 
 from .cad_equipment import FrequencyDomain
+from .cad_hybrid_prediction_provider import HybridPredictionProviderRef
 from .cad_multi_channel_excitation import (
     ScenarioSourceTransfer,
 )
@@ -273,7 +274,9 @@ class MatrixCellTransfer(BaseModel):
     magnitude_pa: tuple[float, ...] = Field(min_length=2)
     phase_deg: tuple[float, ...] | None = None
     pressure_reference_pa: float = Field(default=20.0e-6, gt=0.0)
-    provider_ref: PredictionProviderRef | None = None
+    provider_ref: (
+        PredictionProviderRef | HybridPredictionProviderRef | None
+    ) = None
     result_authority_ref: ExactExternalAuthorityRef | None = None
     source_normalization_id: str | None = Field(
         default=None, min_length=1

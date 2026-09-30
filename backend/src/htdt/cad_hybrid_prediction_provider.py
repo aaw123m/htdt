@@ -74,6 +74,9 @@ HybridProviderConsumerKind = Literal[
     'O50_MEASUREMENT_PLAN',
     'O60_VALIDATION',
     'O70_ADAPTIVE',
+    'O80_MULTI_SEAT',
+    'O80_MULTI_RADIATOR',
+    'O80_AIM_ANALYSIS',
 ]
 
 

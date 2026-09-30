@@ -100,11 +100,28 @@ class CadPairDistanceConstraint(BaseModel):
         return self
 
 
+class CadEntityCollisionConstraint(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    constraint_id: str = Field(min_length=1)
+    kind: Literal['entity_collision'] = 'entity_collision'
+    name: str = Field(min_length=1)
+    entity_a: str = Field(min_length=1)
+    entity_b: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def valid_pair(self) -> 'CadEntityCollisionConstraint':
+        if self.entity_a == self.entity_b:
+            raise ValueError('entity collision requires two different entities')
+        return self
+
+
 CadPlacementConstraint = Annotated[
     CadAllowedRegionConstraint
     | CadExclusionRegionConstraint
     | CadWallClearanceConstraint
-    | CadPairDistanceConstraint,
+    | CadPairDistanceConstraint
+    | CadEntityCollisionConstraint,
     Field(discriminator='kind'),
 ]
 
