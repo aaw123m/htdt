@@ -654,6 +654,12 @@ class CommandHistory:
         self._limit = limit
         self._commands: list[EditCommand] = []
         self._index = 0
+        # Monotonic push counter: unlike ``_index`` it never moves backwards
+        # under cap eviction, so it is the correct marker for "commands pushed
+        # since X" (``merge_history_since``). ``_dropped`` counts commands
+        # evicted by the bound so surfaces can say oldest history is gone.
+        self._pushed_total = 0
+        self._dropped = 0
 
     @property
     def can_undo(self) -> bool:
@@ -670,6 +676,16 @@ class CommandHistory:
     @property
     def index(self) -> int:
         return self._index
+
+    @property
+    def epoch(self) -> int:
+        """Total successful pushes — a stable marker unaffected by eviction."""
+        return self._pushed_total
+
+    @property
+    def dropped(self) -> int:
+        """Commands evicted by the bound — oldest edits are gone for good."""
+        return self._dropped
 
     def undo_label(self) -> str | None:
         if not self.can_undo:
@@ -719,6 +735,7 @@ class CommandHistory:
         self._commands = self._commands[: self._index]
         self._commands.append(command)
         self._index += 1
+        self._pushed_total += 1
         # Bounded in memory: pushing past the limit evicts the oldest entries.
         # Eviction can only happen right after a push, when the redo tail is
         # empty, so index stays aligned with the applied cursor.
@@ -726,6 +743,7 @@ class CommandHistory:
         if overflow > 0:
             del self._commands[:overflow]
             self._index -= overflow
+            self._dropped += overflow
         return new_document
 
     def merge_last(self, count: int) -> bool:
@@ -765,11 +783,11 @@ class CommandHistory:
 
 
 class WorkingDocument:
-    def __init__(self, document: SceneDocument, *, source_revision_id: str | None = None, saved_content_hash: str | None = None) -> None:
+    def __init__(self, document: SceneDocument, *, source_revision_id: str | None = None, saved_content_hash: str | None = None, history_limit: int = DEFAULT_HISTORY_LIMIT) -> None:
         self._document = document
         self._source_revision_id = source_revision_id
         self._saved_hash = saved_content_hash or self._content_hash()
-        self._history = CommandHistory()
+        self._history = CommandHistory(limit=history_limit)
         self._preview_kind: Literal['move', 'rotate'] | None = None
         self._preview_entity_ids: tuple[str, ...] = ()
         self._preview_before_entities: tuple[SceneEntity, ...] = ()
@@ -797,16 +815,31 @@ class WorkingDocument:
 
     @property
     def history_index(self) -> int:
-        """Current apply cursor — capture before an op to fuse it later."""
+        """Current apply cursor — position within the retained commands."""
         return self._history.index
+
+    @property
+    def history_epoch(self) -> int:
+        """Monotonic push counter — capture before an op to fuse it later.
+
+        Unlike ``history_index`` this never moves backwards when the bounded
+        history evicts its oldest commands, so a marker captured before a
+        multi-push operation stays meaningful at the history cap.
+        """
+        return self._history.epoch
+
+    @property
+    def history_dropped(self) -> int:
+        """Commands evicted by the history bound — truth for the UI."""
+        return self._history.dropped
 
     def merge_last(self, count: int) -> bool:
         """Fuse the ``count`` most recently applied commands into one step."""
         return self._history.merge_last(count)
 
-    def merge_history_since(self, index: int) -> bool:
-        """Fuse every command pushed since ``index`` into one Undo step."""
-        return self._history.merge_last(self._history.index - index)
+    def merge_history_since(self, epoch: int) -> bool:
+        """Fuse every command pushed since ``history_epoch`` ``epoch`` into one Undo step."""
+        return self._history.merge_last(self._history.epoch - epoch)
 
     @property
     def can_undo(self) -> bool:

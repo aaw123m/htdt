@@ -18,6 +18,7 @@ from .cad_scene import SceneDocument, scene_content_hash
 # history summary reads identically to the object palette.
 ENTITY_FIELD_LABELS: dict[str, str] = {
     'name': '名称',
+    'kind': '種別',
     'position': '位置',
     'orientation': '向き',
     'size_m': 'サイズ',
@@ -25,6 +26,8 @@ ENTITY_FIELD_LABELS: dict[str, str] = {
     'speaker_role': 'スピーカーロール',
     'aim_xyz': '指向',
     'body_geometry': '形状',
+    'semantic_bindings': '機能割当',
+    'operational_zones': '運用クリアランス',
 }
 
 
@@ -48,6 +51,10 @@ class SceneDiff:
     semantic_geometry_changed: bool
     attachments_changed: bool = False
     construction_assemblies_changed: bool = False
+    #: Entity ORDER is persisted content (it feeds the content hash): a
+    #: reorder-only revision changes the document and must not diff empty
+    #: even though no entity's fields moved (#REV21).
+    entity_order_changed: bool = False
 
     @property
     def is_empty(self) -> bool:
@@ -60,11 +67,13 @@ class SceneDiff:
             and not self.semantic_geometry_changed
             and not self.attachments_changed
             and not self.construction_assemblies_changed
+            and not self.entity_order_changed
         )
 
 
 _ENTITY_DIFF_FIELDS = (
     'name',
+    'kind',
     'position',
     'orientation',
     'size_m',
@@ -72,6 +81,8 @@ _ENTITY_DIFF_FIELDS = (
     'speaker_role',
     'aim_xyz',
     'body_geometry',
+    'semantic_bindings',
+    'operational_zones',
 )
 
 
@@ -114,6 +125,8 @@ def diff_scene_documents(before: SceneDocument, after: SceneDocument) -> SceneDi
                 fields=fields,
             )
         )
+    before_ids = tuple(entity.entity_id for entity in before.entities)
+    after_ids = tuple(entity.entity_id for entity in after.entities)
     return SceneDiff(
         added_entity_ids=added,
         removed_entity_ids=removed,
@@ -127,20 +140,40 @@ def diff_scene_documents(before: SceneDocument, after: SceneDocument) -> SceneDi
         construction_assemblies_changed=(
             before.construction_assemblies != after.construction_assemblies
         ),
+        # Only a same-set reorder is reported as reorder — with additions or
+        # removals a changed order is expected and not a separate fact.
+        entity_order_changed=(
+            not added and not removed and before_ids != after_ids
+        ),
     )
 
 
-def diff_summary_lines(diff: SceneDiff, document: SceneDocument) -> tuple[str, ...]:
+def diff_summary_lines(
+    diff: SceneDiff,
+    document: SceneDocument,
+    *,
+    fallback_document: SceneDocument | None = None,
+) -> tuple[str, ...]:
     """Japanese summary lines describing a diff, anchored to names in ``document``.
 
     ``document`` is whichever side the reader is anchored to (normally the
     newer revision) so entity names resolve to familiar labels.
+    ``fallback_document`` supplies names for entities missing from the anchor
+    (removed entities only exist on the older side) — without it their raw
+    ids are shown.
     """
 
     entities = {entity.entity_id: entity for entity in document.entities}
+    fallback_entities = (
+        {}
+        if fallback_document is None
+        else {
+            entity.entity_id: entity for entity in fallback_document.entities
+        }
+    )
 
     def _label(entity_id: str) -> str:
-        entity = entities.get(entity_id)
+        entity = entities.get(entity_id) or fallback_entities.get(entity_id)
         return entity.name if entity is not None else entity_id
 
     lines: list[str] = []
@@ -154,6 +187,8 @@ def diff_summary_lines(diff: SceneDiff, document: SceneDocument) -> tuple[str, .
         lines.append('取付・マウント関係を変更')
     if diff.construction_assemblies_changed:
         lines.append('構造アセンブリを変更')
+    if diff.entity_order_changed:
+        lines.append('オブジェクトの順序を変更')
     for entity_id in diff.added_entity_ids:
         lines.append(f'{_label(entity_id)} を追加')
     for entity_id in diff.removed_entity_ids:

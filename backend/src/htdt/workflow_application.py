@@ -2903,6 +2903,19 @@ class WorkflowApplicationComposition:
                 marker = "●" if entry.applied else "○"
                 item = menu.addAction(f"{marker} {entry.label}")
                 item.setEnabled(False)
+            # Say when the tail hides older edits, and when the bounded
+            # history has already evicted its oldest commands — otherwise
+            # the menu reads as if the shown slice were the whole history.
+            hidden = controller.working.history_length - len(entries)
+            dropped = controller.working.history_dropped
+            if hidden or dropped:
+                parts: list[str] = []
+                if hidden:
+                    parts.append(f"さらに {hidden} 件")
+                if dropped:
+                    parts.append(f"履歴上限で最古 {dropped} 件は破棄済み")
+                tail = menu.addAction("… " + " · ".join(parts))
+                tail.setEnabled(False)
         menu.addSeparator()
 
         for command_id in command_ids:
