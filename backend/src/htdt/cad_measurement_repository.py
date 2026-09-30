@@ -557,8 +557,19 @@ class CadMeasurementRepository:
         return tuple(self._row_to_attachment(row) for row in rows)
 
     def read_attachment(self, attachment: CadMeasurementAttachment) -> bytes:
-        """Verified bytes for one persisted attachment."""
-        return self._asset_store.read_verified(attachment.sha256)
+        """Verified bytes for one persisted attachment.
+
+        A missing managed file fails closed like every other authoritative
+        read (``ManagedAssetError``) — never a silent ``None`` that callers
+        could mistake for empty content.
+        """
+        raw = self._asset_store.read_verified(attachment.sha256)
+        if raw is None:
+            raise ManagedAssetError(
+                'measurement asset is missing or not a regular file: '
+                f'{attachment.sha256}'
+            )
+        return raw
 
     @staticmethod
     def _row_to_attachment(row: sqlite3.Row) -> CadMeasurementAttachment:

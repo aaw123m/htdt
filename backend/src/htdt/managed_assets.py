@@ -303,6 +303,69 @@ class ManagedAssetStore:
         finally:
             temp.unlink(missing_ok=True)
 
+    def install_stream(
+        self,
+        digest: str,
+        reader,
+        *,
+        max_bytes: int,
+        expected_size: int | None = None,
+    ) -> int:
+        """Durably install bytes pulled from *reader* at the digest path.
+
+        Same atomic contract as ``install`` — a unique temporary file in
+        the same filesystem, fsync, verification, then ``os.replace`` —
+        but reads bounded chunks, so arbitrarily large assets install in
+        constant memory. Returns the byte count written. A stream longer
+        than *max_bytes*, shorter/longer than *expected_size*, or hashing
+        to anything but *digest* fails closed with ``ManagedAssetError``
+        and leaves no file behind.
+        """
+
+        target = self.asset_path(digest)
+        descriptor, temp_name = tempfile.mkstemp(
+            dir=self.assets_dir, prefix='.asset-', suffix='.tmp'
+        )
+        temp = Path(temp_name)
+        written = 0
+        hasher = sha256()
+        try:
+            with os.fdopen(descriptor, 'wb') as handle:
+                while True:
+                    chunk = reader.read(min(1 << 20, max_bytes + 1 - written))
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    hasher.update(chunk)
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ManagedAssetError(
+                            'streamed managed asset exceeds the byte bound'
+                        )
+                handle.flush()
+                os.fsync(handle.fileno())
+            if expected_size is not None and written != expected_size:
+                raise ManagedAssetError(
+                    'streamed managed asset size mismatch'
+                )
+            if hasher.hexdigest() != digest:
+                raise ManagedAssetError(
+                    'streamed managed asset digest mismatch'
+                )
+            if sha256_file(temp) != digest:
+                raise RuntimeError('managed asset write verification failed')
+            try:
+                os.replace(temp, target)
+            except PermissionError:
+                # Same Windows replace-race fallback as install(): an
+                # identical digest already at the target is a success.
+                if sha256_file(target) != digest:
+                    raise
+            self.fsync_directory(self.assets_dir)
+        finally:
+            temp.unlink(missing_ok=True)
+        return written
+
     def ensure_installed(self, digest: str, raw_bytes: bytes) -> None:
         """Install *raw_bytes* unless the identical digest is already stored.
 

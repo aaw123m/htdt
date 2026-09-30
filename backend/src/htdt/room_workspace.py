@@ -1791,9 +1791,23 @@ class RoomWorkspaceController:
                     segments_domain=underlay_segments_domain(underlay),
                     opacity=underlay.opacity,
                     elevation_m=underlay.elevation_m,
+                    missing_source=self.underlay_missing_source(underlay),
                 )
             )
         return tuple(items)
+
+    def underlay_missing_source(self, underlay: FloorPlanUnderlay) -> bool:
+        """True when the record references blob bytes the store lost.
+
+        A missing source or render blob means the underlay renders empty or
+        its provenance is gone — surfaces must mark it, never present a
+        normal-looking blank underlay (integrity failure, not empty data).
+        """
+
+        for digest in (underlay.render_blob_sha256, underlay.source_blob_sha256):
+            if digest and not self.repository.has_blob(digest):
+                return True
+        return False
 
     def add_object(self, kind: str) -> SceneEntity:
         if not self.can_edit:
@@ -4792,9 +4806,11 @@ class RoomWorkspace(QWidget):
         )
         for underlay in self.controller.underlays():
             calibrated = is_calibrated(underlay)
+            missing = self.controller.underlay_missing_source(underlay)
             sub = menu.addMenu(
                 f"{underlay.name}"
                 + ("" if calibrated else "（未校正）")
+                + ("（データ欠落）" if missing else "")
             )
             shown = sub.addAction("表示")
             shown.setCheckable(True)

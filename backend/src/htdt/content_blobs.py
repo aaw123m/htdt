@@ -68,6 +68,21 @@ def store_content_blob(
     return digest
 
 
+def content_blob_exists(
+    connection: sqlite3.Connection,
+    payload_sha256: str,
+) -> bool:
+    """Cheap presence probe — integrity itself stays the reader's job."""
+
+    return (
+        connection.execute(
+            f'SELECT 1 FROM {CONTENT_BLOB_TABLE} WHERE payload_sha256=?',
+            (payload_sha256,),
+        ).fetchone()
+        is not None
+    )
+
+
 def read_content_blob(
     connection: sqlite3.Connection,
     payload_sha256: str,
