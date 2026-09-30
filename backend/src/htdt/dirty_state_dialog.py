@@ -59,6 +59,7 @@ def _choose(prompt, parent: QWidget | None) -> DirtyResolutionAction | None:
     box.setText(prompt.message)
     box.setStandardButtons(QMessageBox.StandardButton.NoButton)
     buttons: dict[object, DirtyResolutionAction] = {}
+    default_button = None
     for choice in prompt.choices:
         role = (
             QMessageBox.ButtonRole.DestructiveRole
@@ -67,7 +68,15 @@ def _choose(prompt, parent: QWidget | None) -> DirtyResolutionAction | None:
         )
         button = box.addButton(choice.label, role)
         buttons[button] = choice.action
-    box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
+        if default_button is None and not choice.destructive:
+            default_button = button
+    cancel_button = box.addButton(
+        "キャンセル", QMessageBox.ButtonRole.RejectRole
+    )
+    # Enter must never pick a destructive resolution: default to the first
+    # non-destructive choice (save/keep/open), or Cancel when every choice
+    # is destructive (e.g. busy workspaces offering only stop_busy).
+    box.setDefaultButton(default_button or cancel_button)
     box.exec()
     return buttons.get(box.clickedButton())
 
@@ -127,6 +136,9 @@ def choose_snapshot_action(
         f"保存済みの状態を{action_label}", QMessageBox.ButtonRole.DestructiveRole
     )
     box.addButton("キャンセル", QMessageBox.ButtonRole.RejectRole)
+    # Enter saves first — the non-destructive choice; Esc/Cancel aborts and
+    # never produces an artifact.
+    box.setDefaultButton(save_button)
     box.exec()
     clicked = box.clickedButton()
     if clicked is last_saved_button:

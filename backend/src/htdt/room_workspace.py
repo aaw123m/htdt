@@ -4214,11 +4214,21 @@ class RoomWorkspace(QWidget):
         root.addLayout(content, 1)
 
         self._last_operation_error_detail: str | None = None
+        self.status_strip = QFrame()
+        set_surface_role(self.status_strip, SurfaceRole.RAISED)
+        strip_layout = QHBoxLayout(self.status_strip)
+        strip_layout.setContentsMargins(12, 6, 12, 6)
+        strip_layout.setSpacing(12)
         self.status = QLabel()
-        self.status.setContentsMargins(12, 6, 12, 6)
-        set_surface_role(self.status, SurfaceRole.RAISED)
         set_typography_role(self.status, TypographyRole.SECONDARY)
-        root.addWidget(self.status)
+        strip_layout.addWidget(self.status, 1)
+        # Always-visible dirty badge on the same strip: the notice label is
+        # reused for last-action text and must never hide whether the
+        # document actually has unsaved changes.
+        self.dirty_status_label = QLabel()
+        set_typography_role(self.dirty_status_label, TypographyRole.SECONDARY)
+        strip_layout.addWidget(self.dirty_status_label)
+        root.addWidget(self.status_strip)
 
         self.set_context("geometry")
         self._refresh(reset_camera=True)
@@ -6906,10 +6916,16 @@ class RoomWorkspace(QWidget):
             if callable(refresh_acoustics):
                 refresh_acoustics()
         self._render(reset_camera=reset_camera)
-        if not self.status.text():
-            self._set_status(
-                "未保存の変更があります" if self.controller.is_dirty else "保存済み"
-            )
+        # Dirty state is refreshed on its own badge every render — routing it
+        # through the notice strip meant the first notice suppressed it
+        # forever and "保存しました" stayed up while edits were pending.
+        self.dirty_status_label.setText(
+            "未保存の変更があります" if self.controller.is_dirty else "保存済み"
+        )
+        set_semantic_state(
+            self.dirty_status_label,
+            SemanticState.WARNING if self.controller.is_dirty else None,
+        )
 
     def _refresh_inspector(self) -> None:
         entity = None

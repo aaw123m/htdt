@@ -170,6 +170,12 @@ class NativeEditorWindow(QMainWindow):
         toolbar.addActions((self.save_action, self.undo_action, self.redo_action, self.delete_action))
         toolbar.addSeparator()
 
+        # Persistent dirty badge in the status bar's permanent zone: a
+        # transient showMessage got clobbered by the next notice, leaving
+        # the document dirty with no '未保存' hint anywhere.
+        self._dirty_indicator = QLabel()
+        self.statusBar().addPermanentWidget(self._dirty_indicator)
+
         self.transform_group = QActionGroup(self)
         self.transform_group.setExclusive(True)
         self.move_action = self._action('移動', None, self._activate_move_mode)
@@ -318,6 +324,7 @@ class NativeEditorWindow(QMainWindow):
         self.selected_id = self.view_state.selected_id
         self.recovery_candidate = self.repository.recovery(self.document_id)
         self._rebuild(reset_camera=True)
+        self._set_dirty_status()
         if self.recovery_candidate is not None:
             self.statusBar().showMessage(
                 f'F1 · リビジョン {revision.revision_id[:8]} · 復旧データあり · 下書きを復旧または復旧データを破棄を選択'
@@ -1084,7 +1091,7 @@ class NativeEditorWindow(QMainWindow):
             return
         verb = '保存しました' if result.created else '変更なし'
         self.statusBar().showMessage(f'リビジョン {result.revision.revision_id[:8]} · {verb} · 保存済み')
-        self._update_actions()
+        self._set_dirty_status()
 
     def recover_draft(self) -> None:
         if self.recovery_candidate is None:
@@ -1103,6 +1110,7 @@ class NativeEditorWindow(QMainWindow):
         self.selected_id = self.view_state.selected_id
         self.recovery_candidate = None
         self._rebuild(reset_camera=True)
+        self._set_dirty_status()
         self.statusBar().showMessage(f'リビジョン {source.revision_id[:8]} から下書きを復旧 · 未保存')
 
     def discard_recovery(self) -> None:
@@ -1147,7 +1155,9 @@ class NativeEditorWindow(QMainWindow):
     def _set_dirty_status(self) -> None:
         if self.working is None:
             return
-        self.statusBar().showMessage('未保存' if self.working.is_dirty else '保存済み')
+        self._dirty_indicator.setText(
+            '未保存' if self.working.is_dirty else '保存済み'
+        )
         self._update_actions()
 
     def _update_actions(self) -> None:
