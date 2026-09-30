@@ -436,6 +436,12 @@ class ReferenceLibraryIndex:
         )
 
 
+#: Sentinel for ``LibraryMetaStore._file_signature`` when the file
+#: cannot be stat'ed — treated as "changed" so a write re-reads instead of
+#: overwriting an unverifiable file.
+_STAT_FAILED = object()
+
+
 class LibraryMetaStore:
     """App-local store for archive/hide flags.
 
@@ -447,6 +453,7 @@ class LibraryMetaStore:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self._archived: set[str] = set()
+        self._persisted_signature: object = None
         self._load()
 
     @classmethod
@@ -454,6 +461,37 @@ class LibraryMetaStore:
         return cls(Path(data_dir) / LIBRARY_META_FILENAME)
 
     def _load(self) -> None:
+        try:
+            self._load_current()
+        finally:
+            self._persisted_signature = self._file_signature()
+
+    def _file_signature(self) -> object:
+        """Identity of the on-disk document last consumed, compared before
+        every write so an external edit is merged in, not overwritten."""
+
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return _STAT_FAILED
+        return (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_size,
+        )
+
+    def _refresh_if_modified(self) -> None:
+        """Re-read the file when another writer touched it since last load."""
+
+        if self._file_signature() != self._persisted_signature:
+            self._load()
+
+    def _load_current(self) -> None:
+        self._archived = set()
         if not self.path.exists():
             return
         try:
@@ -482,6 +520,7 @@ class LibraryMetaStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp, self.path)
+            self._persisted_signature = self._file_signature()
         except BaseException:
             try:
                 os.unlink(tmp)
@@ -493,6 +532,7 @@ class LibraryMetaStore:
         return semantic_key in self._archived
 
     def set_archived(self, semantic_key: str, archived: bool) -> None:
+        self._refresh_if_modified()
         if archived:
             self._archived.add(semantic_key)
         else:

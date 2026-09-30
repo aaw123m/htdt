@@ -286,6 +286,10 @@ class Store:
 
     def create_context(self, project_id: str, payload: dict[str, Any], parent_context_id: str | None) -> dict[str, Any]:
         with self.connect() as db:
+            # BEGIN IMMEDIATE serializes the MAX(revision_number)+1 read with
+            # the INSERT below: two concurrent requests must not compute the
+            # same revision and collide on UNIQUE(project_id, revision_number).
+            db.execute('BEGIN IMMEDIATE')
             if db.execute('SELECT id FROM projects WHERE id = ?', (project_id,)).fetchone() is None:
                 raise KeyError('project_not_found')
             if parent_context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (parent_context_id, project_id)).fetchone() is None:
@@ -428,7 +432,7 @@ class Store:
             'created_at': row['created_at'],
         }
 
-    def _store_asset(self, filename: str, raw: bytes) -> tuple[str, Path, bool, bool]:
+    def _store_asset(self, filename: str, raw: bytes) -> tuple[str, Path, bool]:
         digest = hashlib.sha256(raw).hexdigest()
         with self.connect() as db:
             existing = db.execute('SELECT relative_path FROM assets WHERE sha256 = ?', (digest,)).fetchone()
@@ -436,17 +440,15 @@ class Store:
             target = self.root / str(existing['relative_path'])
             if not target.is_file():
                 raise AssetIntegrityError(f'Raw asset {digest} is referenced by the database but missing on disk')
-            return digest, target, False, True
+            return digest, target, True
         suffix = Path(filename).suffix.lower()
         safe_suffix = suffix if suffix and len(suffix) <= 12 else '.bin'
         target = self.assets_dir / f'{digest}{safe_suffix}'
-        created = False
         if not target.exists():
             temp = target.with_suffix(target.suffix + '.tmp')
             temp.write_bytes(raw)
             os.replace(temp, target)
-            created = True
-        return digest, target, created, False
+        return digest, target, False
 
     def import_measurement(self, project_id: str, context_id: str, filename: str, raw: bytes, channel_role: str,
                            evidence_type: str, source_speaker_ids: list[str], radiation_scope: str, captured_at: str | None,
@@ -454,7 +456,7 @@ class Store:
                            quality_reasons: list[str] | None = None, quality_source: str = 'unknown', repeat_group: str | None = None,
                            session_id: str | None = None) -> dict[str, Any]:
         parsed = parse_rew_frequency_response(raw)
-        asset_sha, asset_path, asset_created, already_known = self._store_asset(filename, raw)
+        asset_sha, asset_path, already_known = self._store_asset(filename, raw)
         measurement_id, dataset_id, imported_at = str(uuid4()), str(uuid4()), utc_now()
         metadata = {'parser_version': parsed.parser_version, 'phase_status': parsed.phase_status, 'level_reference': parsed.level_reference,
                     'warnings': list(parsed.warnings), 'header_lines': list(parsed.header_lines), 'source_sha256': parsed.source_sha256}
@@ -464,30 +466,28 @@ class Store:
         metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False)
         dataset_sha = dataset_row_sha256('frequency_response', frequency_blob, level_blob, phase_blob, metadata_json)
         existing_count = 0
-        try:
-            with self.connect() as db:
-                if db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
-                    raise KeyError('context_not_found')
-                if session_id is not None and db.execute('SELECT id FROM sessions WHERE id = ? AND project_id = ?', (session_id, project_id)).fetchone() is None:
-                    raise KeyError('session_not_found')
-                existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
-                db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
-                db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
-                           radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
-                           quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids, allow_nan=False), radiation_scope,
-                            routing_evidence, captured_at, imported_at, notes, quality_status, json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False),
-                            quality_source, repeat_group.strip() if repeat_group else None))
-                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
-                           dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
-                            phase_blob, metadata_json, dataset_sha, imported_at))
-                db.commit()
-        except Exception:
-            if asset_created:
-                asset_path.unlink(missing_ok=True)
-            raise
+        # The content-addressed file is deliberately kept on a failed
+        # transaction: another request may already reference the same digest,
+        # and an unreferenced file is the established safe failure mode.
+        with self.connect() as db:
+            if db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
+                raise KeyError('context_not_found')
+            if session_id is not None and db.execute('SELECT id FROM sessions WHERE id = ? AND project_id = ?', (session_id, project_id)).fetchone() is None:
+                raise KeyError('session_not_found')
+            existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
+            db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
+                       (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
+            db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
+                       radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
+                       quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids, allow_nan=False), radiation_scope,
+                        routing_evidence, captured_at, imported_at, notes, quality_status, json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False),
+                        quality_source, repeat_group.strip() if repeat_group else None))
+            db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
+                       dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
+                        phase_blob, metadata_json, dataset_sha, imported_at))
+            db.commit()
         return {'measurement_id': measurement_id, 'dataset_id': dataset_id, 'asset_sha256': asset_sha, 'points': len(parsed.frequency_hz),
                 'frequency_min_hz': parsed.frequency_hz[0], 'frequency_max_hz': parsed.frequency_hz[-1], 'phase_status': parsed.phase_status,
                 'warnings': list(parsed.warnings), 'duplicate_asset': already_known or existing_count > 0,
@@ -526,7 +526,7 @@ class Store:
         }
         raw = canonical_json(wrapper).encode('utf-8')
         filename = f'rew-api-{decoded.measurement_id}.json'
-        asset_sha, asset_path, asset_created, already_known = self._store_asset(filename, raw)
+        asset_sha, asset_path, already_known = self._store_asset(filename, raw)
         measurement_id, dataset_id, imported_at = str(uuid4()), str(uuid4()), utc_now()
         summary = snapshot.measurement_summary
         captured_at = summary.get('date') if isinstance(summary.get('date'), str) and summary.get('date') else None
@@ -559,30 +559,25 @@ class Store:
         metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True, allow_nan=False)
         dataset_sha = dataset_row_sha256('frequency_response', frequency_blob, level_blob, phase_blob, metadata_json)
         existing_count = 0
-        try:
-            with self.connect() as db:
-                if db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
-                    raise KeyError('context_not_found')
-                if session_id is not None and db.execute('SELECT id FROM sessions WHERE id = ? AND project_id = ?', (session_id, project_id)).fetchone() is None:
-                    raise KeyError('session_not_found')
-                existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
-                db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
-                db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
-                           radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
-                           quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids or [], allow_nan=False),
-                            radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status,
-                            json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False), quality_source, repeat_group.strip() if repeat_group else None))
-                db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
-                           dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                           (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
-                            phase_blob, metadata_json, dataset_sha, imported_at))
-                db.commit()
-        except Exception:
-            if asset_created:
-                asset_path.unlink(missing_ok=True)
-            raise
+        with self.connect() as db:
+            if db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
+                raise KeyError('context_not_found')
+            if session_id is not None and db.execute('SELECT id FROM sessions WHERE id = ? AND project_id = ?', (session_id, project_id)).fetchone() is None:
+                raise KeyError('session_not_found')
+            existing_count = int(db.execute('SELECT COUNT(*) FROM datasets WHERE asset_sha256 = ?', (asset_sha,)).fetchone()[0])
+            db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
+                       (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), imported_at))
+            db.execute('''INSERT INTO measurements(id, project_id, context_id, session_id, channel_role, evidence_type, source_speaker_ids_json,
+                       radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status, quality_reasons_json,
+                       quality_source, repeat_group) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (measurement_id, project_id, context_id, session_id, channel_role, evidence_type, json.dumps(source_speaker_ids or [], allow_nan=False),
+                        radiation_scope, routing_evidence, captured_at, imported_at, notes, quality_status,
+                        json.dumps(quality_reasons or [], ensure_ascii=False, allow_nan=False), quality_source, repeat_group.strip() if repeat_group else None))
+            db.execute('''INSERT INTO datasets(id, measurement_id, asset_sha256, kind, frequency_blob, level_blob, phase_blob, metadata_json,
+                       dataset_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (dataset_id, measurement_id, asset_sha, 'frequency_response', frequency_blob, level_blob,
+                        phase_blob, metadata_json, dataset_sha, imported_at))
+            db.commit()
         return {
             'measurement_id': measurement_id,
             'dataset_id': dataset_id,
@@ -673,25 +668,20 @@ class Store:
 
     def attach_asset(self, project_id: str, filename: str, raw: bytes, kind: str, label: str | None,
                      measurement_id: str | None, context_id: str | None) -> dict[str, Any]:
-        asset_sha, asset_path, asset_created, already_known = self._store_asset(filename, raw)
+        asset_sha, asset_path, already_known = self._store_asset(filename, raw)
         created_at, link_id = utc_now(), str(uuid4())
-        try:
-            with self.connect() as db:
-                if db.execute('SELECT id FROM projects WHERE id = ?', (project_id,)).fetchone() is None:
-                    raise KeyError('project_not_found')
-                if measurement_id is not None and db.execute('SELECT id FROM measurements WHERE id = ? AND project_id = ?', (measurement_id, project_id)).fetchone() is None:
-                    raise KeyError('measurement_not_found')
-                if context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
-                    raise KeyError('context_not_found')
-                db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-                           (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), created_at))
-                db.execute('INSERT INTO asset_links(id, project_id, asset_sha256, measurement_id, context_id, kind, label, filename, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                           (link_id, project_id, asset_sha, measurement_id, context_id, kind, label, filename, created_at))
-                db.commit()
-        except Exception:
-            if asset_created:
-                asset_path.unlink(missing_ok=True)
-            raise
+        with self.connect() as db:
+            if db.execute('SELECT id FROM projects WHERE id = ?', (project_id,)).fetchone() is None:
+                raise KeyError('project_not_found')
+            if measurement_id is not None and db.execute('SELECT id FROM measurements WHERE id = ? AND project_id = ?', (measurement_id, project_id)).fetchone() is None:
+                raise KeyError('measurement_not_found')
+            if context_id is not None and db.execute('SELECT id FROM contexts WHERE id = ? AND project_id = ?', (context_id, project_id)).fetchone() is None:
+                raise KeyError('context_not_found')
+            db.execute('INSERT OR IGNORE INTO assets(sha256, relative_path, original_filename, size_bytes, created_at) VALUES (?, ?, ?, ?, ?)',
+                       (asset_sha, asset_path.relative_to(self.root).as_posix(), filename, len(raw), created_at))
+            db.execute('INSERT INTO asset_links(id, project_id, asset_sha256, measurement_id, context_id, kind, label, filename, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                       (link_id, project_id, asset_sha, measurement_id, context_id, kind, label, filename, created_at))
+            db.commit()
         return {'id': link_id, 'project_id': project_id, 'asset_sha256': asset_sha, 'measurement_id': measurement_id, 'context_id': context_id,
                 'kind': kind, 'label': label, 'filename': filename, 'size_bytes': len(raw), 'created_at': created_at, 'duplicate_asset': already_known}
 

@@ -115,6 +115,11 @@ _WRITE_REFUSED_STATES = frozenset(
 
 PREFERENCES_RECOVERY_SUFFIX = '.recovery'
 
+#: Sentinel for ``_file_signature`` when the file exists but cannot be
+#: stat'ed — treated as "changed", so a write attempt re-reads and hits the
+#: load-state refusal path instead of overwriting blind.
+_STAT_FAILED = object()
+
 
 @dataclass(frozen=True, slots=True)
 class PreferenceDefinition:
@@ -428,6 +433,7 @@ class ApplicationPreferenceStore:
         self._opaque_values: dict[str, object] = {}
         self._load_error: str | None = None
         self._load_state = PreferenceLoadState.MISSING
+        self._persisted_signature: object = None
         self._listeners: list[Callable[[PreferenceChange], None]] = []
         self._load()
 
@@ -438,6 +444,47 @@ class ApplicationPreferenceStore:
         return cls(Path(data_dir) / PREFERENCES_FILENAME)
 
     def _load(self) -> None:
+        try:
+            self._load_current()
+        finally:
+            self._persisted_signature = self._file_signature()
+
+    def _file_signature(self) -> object:
+        """Identity of the on-disk document this store last consumed.
+
+        Compared before every durable write so an external editor (manual
+        edit, sync tool, another process) is detected: the write merges
+        onto the freshly re-read file instead of silently overwriting the
+        interleaved change.
+        """
+
+        try:
+            stat = self.path.stat()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return _STAT_FAILED
+        return (
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_size,
+        )
+
+    def _refresh_if_modified(self) -> None:
+        """Re-read the file when another writer touched it since last load.
+
+        Called at the top of every write entry point. A file that became
+        corrupt or newer-schema externally refreshes into the refused
+        state (writes stay blocked honestly); a deleted file refreshes to
+        MISSING (the next write recreates it).
+        """
+
+        if self._file_signature() != self._persisted_signature:
+            self._load()
+
+    def _load_current(self) -> None:
         self._values = {}
         self._opaque_values = {}
         self._load_error = None
@@ -544,6 +591,7 @@ class ApplicationPreferenceStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_name, self.path)
+            self._persisted_signature = self._file_signature()
         except BaseException:
             try:
                 os.unlink(tmp_name)
@@ -666,6 +714,7 @@ class ApplicationPreferenceStore:
         which keeps features from inventing parallel persistence.
         """
 
+        self._refresh_if_modified()
         self._check_writable()
         definition = self.definition(key)
         validated = definition.validate(value)
@@ -676,6 +725,7 @@ class ApplicationPreferenceStore:
         return PreferenceChange(key=key, old=old, new=validated)
 
     def reset(self, key: str) -> PreferenceChange:
+        self._refresh_if_modified()
         self._check_writable()
         definition = self.definition(key)
         old = self.get(key)
@@ -692,6 +742,7 @@ class ApplicationPreferenceStore:
         commit. A partially-applied batch is impossible (#742).
         """
 
+        self._refresh_if_modified()
         self._check_writable()
         resolved = {
             k: self.definition(k).validate(v) for k, v in values.items()
