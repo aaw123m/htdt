@@ -162,7 +162,7 @@ class CadAcousticSolverDispatchRepository:
                     raise ValueError(
                         'solver adapter descriptor id exists with different semantics'
                     )
-                return self._validate_descriptor(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_acoustic_solver_adapters(
@@ -213,13 +213,23 @@ class CadAcousticSolverDispatchRepository:
     def _validate_dispatch(
         self,
         binding: AcousticSolverDispatchBinding,
+        *,
+        _validated_snapshot=None,
+        _validated_request=None,
     ) -> AcousticSolverDispatchBinding:
         binding = AcousticSolverDispatchBinding.model_validate(
             binding.model_dump(mode='python')
         )
-        snapshot = self.snapshot_repository.get_snapshot(
-            binding.acoustic_scene_snapshot_id
-        )
+        if (
+            _validated_snapshot is not None
+            and _validated_snapshot.snapshot_id
+            == binding.acoustic_scene_snapshot_id
+        ):
+            snapshot = _validated_snapshot
+        else:
+            snapshot = self.snapshot_repository.get_snapshot(
+                binding.acoustic_scene_snapshot_id
+            )
         if snapshot is None:
             raise ValueError(
                 'solver dispatch references missing AcousticSceneSnapshot'
@@ -227,9 +237,16 @@ class CadAcousticSolverDispatchRepository:
         if snapshot.semantic_sha256 != binding.acoustic_scene_snapshot_sha256:
             raise ValueError('solver dispatch AcousticSceneSnapshot hash mismatch')
 
-        request = self.snapshot_repository.get_prediction_request(
-            binding.prediction_request_id
-        )
+        if (
+            _validated_request is not None
+            and _validated_request.request_id == binding.prediction_request_id
+        ):
+            request = _validated_request
+        else:
+            request = self.snapshot_repository.get_prediction_request(
+                binding.prediction_request_id,
+                _validated_snapshot=snapshot,
+            )
         if request is None:
             raise ValueError(
                 'solver dispatch references missing AcousticPredictionRequest'
@@ -300,7 +317,7 @@ class CadAcousticSolverDispatchRepository:
                     raise ValueError(
                         'solver dispatch id exists with different semantics'
                     )
-                return self._validate_dispatch(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_acoustic_solver_dispatch_bindings(
@@ -332,6 +349,9 @@ class CadAcousticSolverDispatchRepository:
     def get_dispatch(
         self,
         binding_id: str,
+        *,
+        _validated_snapshot=None,
+        _validated_request=None,
     ) -> AcousticSolverDispatchBinding | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -347,5 +367,7 @@ class CadAcousticSolverDispatchRepository:
         return self._validate_dispatch(
             AcousticSolverDispatchBinding.model_validate_json(
                 row['payload_json']
-            )
+            ),
+            _validated_snapshot=_validated_snapshot,
+            _validated_request=_validated_request,
         )

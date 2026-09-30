@@ -1001,7 +1001,7 @@ class CadAcousticSnapshotRepository:
                     raise ValueError(
                         'AcousticSceneSnapshot id already exists with different semantics'
                     )
-                return self._validate_snapshot(persisted)
+                return persisted
 
             collision = connection.execute(
                 """
@@ -1019,7 +1019,7 @@ class CadAcousticSnapshotRepository:
                     raise ValueError(
                         'AcousticSceneSnapshot hash collision with different semantics'
                     )
-                return self._validate_snapshot(persisted)
+                return persisted
 
             connection.execute(
                 """
@@ -1244,6 +1244,8 @@ class CadAcousticSnapshotRepository:
     def get_prediction_request(
         self,
         request_id: str,
+        *,
+        _validated_snapshot: AcousticSceneSnapshot | None = None,
     ) -> AcousticPredictionRequest | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -1259,9 +1261,16 @@ class CadAcousticSnapshotRepository:
         request = AcousticPredictionRequest.model_validate_json(
             row['payload_json']
         )
-        snapshot = self.get_snapshot(
-            request.acoustic_scene_snapshot_id
-        )
+        if (
+            _validated_snapshot is not None
+            and _validated_snapshot.snapshot_id
+            == request.acoustic_scene_snapshot_id
+        ):
+            snapshot = _validated_snapshot
+        else:
+            snapshot = self.get_snapshot(
+                request.acoustic_scene_snapshot_id
+            )
         if snapshot is None:
             raise ValueError(
                 'persisted AcousticPredictionRequest references missing snapshot'

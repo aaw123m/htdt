@@ -91,6 +91,7 @@ from .cad_geometric_acoustics_adapter import (
     SourceDirectivityContribution,
     _directivity_contribution,
     _material_contribution,
+    _occluder_triangles,
     _position_tuple,
     _region_point_membership,
     _round_float,
@@ -983,6 +984,7 @@ def _segment_blocked_ignoring_triangles(
     *,
     tolerance: float,
     ignored_triangle_indices: frozenset[int],
+    occluder_records: tuple | None = None,
 ) -> bool:
     """Triangle-level occlusion check skipping only the incident triangles.
 
@@ -990,13 +992,18 @@ def _segment_blocked_ignoring_triangles(
     crosses a solid obstacle's far faces requires a different diffraction
     treatment and must not silently pass.
     """
-    for index, _triangle in enumerate(compiled.triangles):
+    if occluder_records is None:
+        occluder_records = tuple(
+            (index,) + _triangle_vertices(compiled, index)
+            for index in range(len(compiled.triangles))
+        )
+    for index, vertex_a, vertex_b, vertex_c in occluder_records:
         if index in ignored_triangle_indices:
             continue
         hit = _segment_triangle_intersection_parameter(
             start,
             end,
-            _triangle_vertices(compiled, index),
+            (vertex_a, vertex_b, vertex_c),
             tolerance=tolerance,
             distance_scaled_tolerance=True,
         )
@@ -1201,10 +1208,17 @@ def execute_late_field_energy(
     contributions: list[LateEnergyPathContribution] = []
     rejected: list[LateFieldRejectedCandidate] = []
 
+    occluder_triangles = _occluder_triangles(compiled_geometry)
+    occluder_records = tuple(
+        (index,) + _triangle_vertices(compiled_geometry, index)
+        for index in range(len(compiled_geometry.triangles))
+    )
+
     for source in execution_input.sources:
         dataset = dataset_by_hash[source.directivity_dataset_sha256]
         source_point = _position_tuple(source.source_reference_point)
         source_axis = source.source_axis
+        source_patch_cache: dict[str, tuple] = {}
         for receiver in execution_input.receivers:
             receiver_point = _position_tuple(receiver.world_position)
 
@@ -1227,6 +1241,8 @@ def execute_late_field_energy(
                         tolerance=tolerance,
                         places=places,
                         sound_speed=sound_speed,
+                        source_patch_cache=source_patch_cache,
+                        occluder_triangles=occluder_triangles,
                     )
                     if isinstance(rejected_record, LateFieldRejectedCandidate):
                         rejected.append(rejected_record)
@@ -1288,6 +1304,7 @@ def execute_late_field_energy(
                         places=places,
                         sound_speed=sound_speed,
                         kind=enabled_kind,
+                        occluder_records=occluder_records,
                     )
                     if isinstance(result, LateFieldRejectedCandidate):
                         rejected.append(result)
@@ -1398,6 +1415,8 @@ def _evaluate_scattering_candidate(
     tolerance: float,
     places: int,
     sound_speed: float,
+    source_patch_cache: dict[str, tuple] | None = None,
+    occluder_triangles: tuple | None = None,
 ) -> LateEnergyPathContribution | LateFieldRejectedCandidate | None:
     kind: LateFieldPathKind = 'surface_scattering'
     interaction_key = plane.source_surface_id
@@ -1412,47 +1431,66 @@ def _evaluate_scattering_candidate(
             reason=reason,
         )
 
-    if plane.compiled_triangle_indices:
-        patch_triangle_indices = tuple(plane.compiled_triangle_indices)
-    elif (
-        surface_mapping is not None
-        and surface_mapping.compiled_triangle_indices
-    ):
-        patch_triangle_indices = tuple(
-            surface_mapping.compiled_triangle_indices
-        )
-    else:
-        return reject(
-            'UNSUPPORTED_GEOMETRY',
-            'boundary surface resolves no compiled triangles in the exact mesh',
-        )
-    centroid, patch_area, vertices = _patch_geometry(
-        compiled_geometry,
-        patch_triangle_indices,
+    cached_patch = (
+        source_patch_cache.get(interaction_key)
+        if source_patch_cache is not None
+        else None
     )
-    if patch_area <= tolerance * tolerance:
-        return reject(
-            'UNSUPPORTED_GEOMETRY',
-            'boundary surface patch area is degenerate within tolerance',
-        )
+    if cached_patch is None:
+        if plane.compiled_triangle_indices:
+            patch_triangle_indices = tuple(plane.compiled_triangle_indices)
+        elif (
+            surface_mapping is not None
+            and surface_mapping.compiled_triangle_indices
+        ):
+            patch_triangle_indices = tuple(
+                surface_mapping.compiled_triangle_indices
+            )
+        else:
+            cached_patch = (
+                'reject',
+                'UNSUPPORTED_GEOMETRY',
+                'boundary surface resolves no compiled triangles in the exact mesh',
+            )
+        if cached_patch is None:
+            centroid, patch_area, vertices = _patch_geometry(
+                compiled_geometry,
+                patch_triangle_indices,
+            )
+            if patch_area <= tolerance * tolerance:
+                cached_patch = (
+                    'reject',
+                    'UNSUPPORTED_GEOMETRY',
+                    'boundary surface patch area is degenerate within tolerance',
+                )
+            elif _segment_blocked(
+                compiled_geometry,
+                source_point,
+                centroid,
+                tolerance=tolerance,
+                distance_scaled_tolerance=True,
+                occluder_triangles=occluder_triangles,
+            ):
+                cached_patch = (
+                    'reject',
+                    'BLOCKED_VISIBILITY',
+                    'source-to-patch-centroid segment is occluded by the exact shell',
+                )
+            else:
+                cached_patch = ('ok', centroid, patch_area, vertices)
+        if source_patch_cache is not None:
+            source_patch_cache[interaction_key] = cached_patch
+    if cached_patch[0] == 'reject':
+        return reject(cached_patch[1], cached_patch[2])
+    _, centroid, patch_area, vertices = cached_patch
 
-    if _segment_blocked(
-        compiled_geometry,
-        source_point,
-        centroid,
-        tolerance=tolerance,
-        distance_scaled_tolerance=True,
-    ):
-        return reject(
-            'BLOCKED_VISIBILITY',
-            'source-to-patch-centroid segment is occluded by the exact shell',
-        )
     if _segment_blocked(
         compiled_geometry,
         centroid,
         receiver_point,
         tolerance=tolerance,
         distance_scaled_tolerance=True,
+        occluder_triangles=occluder_triangles,
     ):
         return reject(
             'BLOCKED_VISIBILITY',
@@ -1601,6 +1639,7 @@ def _evaluate_diffraction_candidate(
     places: int,
     sound_speed: float,
     kind: LateFieldPathKind,
+    occluder_records: tuple | None = None,
 ) -> LateEnergyPathContribution | LateFieldRejectedCandidate | None:
     interaction_key = edge.edge_key
 
@@ -1634,6 +1673,7 @@ def _evaluate_diffraction_candidate(
         apex,
         tolerance=tolerance,
         ignored_triangle_indices=ignored,
+        occluder_records=occluder_records,
     ):
         return reject(
             'EDGE_REQUIRES_HIGHER_ORDER_DIFFRACTION',
@@ -1646,6 +1686,7 @@ def _evaluate_diffraction_candidate(
         receiver_point,
         tolerance=tolerance,
         ignored_triangle_indices=ignored,
+        occluder_records=occluder_records,
     ):
         return reject(
             'EDGE_REQUIRES_HIGHER_ORDER_DIFFRACTION',
@@ -1900,7 +1941,8 @@ class CadLateFieldEnergyArtifactRepository:
         if snapshot is None or snapshot.semantic_sha256 != artifact.snapshot_sha256:
             raise ValueError('late-field artifact exact snapshot is missing or mismatched')
         request = self.snapshot_repository.get_prediction_request(
-            artifact.prediction_request_id
+            artifact.prediction_request_id,
+            _validated_snapshot=snapshot,
         )
         if (
             request is None
@@ -1909,7 +1951,11 @@ class CadLateFieldEnergyArtifactRepository:
             raise ValueError(
                 'late-field artifact exact prediction request is missing or mismatched'
             )
-        dispatch = self.dispatch_repository.get_dispatch(artifact.dispatch_binding_id)
+        dispatch = self.dispatch_repository.get_dispatch(
+            artifact.dispatch_binding_id,
+            _validated_snapshot=snapshot,
+            _validated_request=request,
+        )
         if (
             dispatch is None
             or dispatch.semantic_sha256 != artifact.dispatch_binding_sha256
@@ -2074,7 +2120,7 @@ class CadLateFieldEnergyArtifactRepository:
                     raise ValueError(
                         'late-field artifact id exists with different semantics'
                     )
-                return self._validate(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_late_field_artifacts(

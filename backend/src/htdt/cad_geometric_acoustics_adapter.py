@@ -34,6 +34,7 @@ from .cad_geometric_acoustics_portal import (
     PORTAL_SIDE_SEMANTICS,
     GeometricPortalAperture,
     GeometricPortalGraph,
+    _region_shell_triangles,
     compile_portal_graph,
     compile_single_portal_aperture,
     directed_region_reachable,
@@ -2909,6 +2910,23 @@ def _segment_triangle_intersection_parameter(
         return None
     return t
 
+def _occluder_triangles(
+    compiled: R120CompiledGeometry,
+) -> tuple[
+    tuple[
+        str,
+        tuple[float, float, float],
+        tuple[float, float, float],
+        tuple[float, float, float],
+    ],
+    ...,
+]:
+    return tuple(
+        (triangle.source_surface_id,) + _triangle_vertices(compiled, index)
+        for index, triangle in enumerate(compiled.triangles)
+    )
+
+
 def _segment_blocked(
     compiled: R120CompiledGeometry,
     start: Sequence[float],
@@ -2917,14 +2935,24 @@ def _segment_blocked(
     tolerance: float,
     ignored_surface_ids: frozenset[str] = frozenset(),
     distance_scaled_tolerance: bool = False,
+    occluder_triangles: Sequence[
+        tuple[
+            str,
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
 ) -> bool:
-    for index, triangle in enumerate(compiled.triangles):
-        if triangle.source_surface_id in ignored_surface_ids:
+    if occluder_triangles is None:
+        occluder_triangles = _occluder_triangles(compiled)
+    for surface_id, vertex_a, vertex_b, vertex_c in occluder_triangles:
+        if surface_id in ignored_surface_ids:
             continue
         hit = _segment_triangle_intersection_parameter(
             start,
             end,
-            _triangle_vertices(compiled, index),
+            (vertex_a, vertex_b, vertex_c),
             tolerance=tolerance,
             distance_scaled_tolerance=distance_scaled_tolerance,
         )
@@ -3559,6 +3587,15 @@ def _append_single_portal_first_order_reflections(
     material_resolver: MaterialAuthorityResolver,
     paths: list[DeterministicAcousticPath],
     rejected: list[RejectedPathCandidate],
+    occluder_triangles: Sequence[
+        tuple[
+            str,
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
+    region_shell_cache: dict[str, tuple] | None = None,
 ) -> None:
     """Emit exact one-reflection/one-Portal paths for the bounded two-region lane."""
 
@@ -3599,6 +3636,10 @@ def _append_single_portal_first_order_reflections(
     receiver_world = _position_tuple(receiver.world_position)
     region_by_id = {item.region_id: item for item in execution_input.region_declarations}
     portal_surface_ids = set(aperture.source_surface_ids)
+    if occluder_triangles is None:
+        occluder_triangles = _occluder_triangles(compiled_geometry)
+    if region_shell_cache is None:
+        region_shell_cache = {}
 
     for plane in sorted(execution_input.boundary_planes, key=lambda item: item.source_surface_id):
         surface_id = plane.source_surface_id
@@ -3755,6 +3796,14 @@ def _append_single_portal_first_order_reflections(
             region = region_by_id.get(region_id)
             if region is None:
                 raise ValueError(f'reflected Portal path references unresolved AcousticRegion {region_id}')
+            shell_triangles = region_shell_cache.get(region_id)
+            if shell_triangles is None:
+                shell_triangles = _region_shell_triangles(
+                    compiled_geometry,
+                    region,
+                    execution_input.portal_apertures,
+                )
+                region_shell_cache[region_id] = shell_triangles
             membership = region_segment_membership_with_portal_caps(
                 compiled_geometry=compiled_geometry,
                 region=region,
@@ -3762,6 +3811,7 @@ def _append_single_portal_first_order_reflections(
                 start=segment_points[index],
                 end=segment_points[index + 1],
                 tolerance_m=execution_input.geometric_tolerance_m,
+                shell_triangles=shell_triangles,
             )
             if membership != 'valid':
                 rejected.append(
@@ -3785,6 +3835,7 @@ def _append_single_portal_first_order_reflections(
                 segment_points[index + 1],
                 tolerance=execution_input.geometric_tolerance_m,
                 distance_scaled_tolerance=True,
+                occluder_triangles=occluder_triangles,
             ):
                 rejected.append(
                     RejectedPathCandidate(
@@ -4023,6 +4074,15 @@ def _append_portal_graph_reflections(
     topology_paths: Sequence[tuple[tuple[str, ...], tuple[str, ...]]],
     paths: list[DeterministicAcousticPath],
     rejected: list[RejectedPathCandidate],
+    occluder_triangles: Sequence[
+        tuple[
+            str,
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
+    region_shell_cache: dict[str, tuple] | None = None,
 ) -> None:
     """Emit bounded interleaved specular reflections along directed Portal graph paths.
 
@@ -4049,6 +4109,8 @@ def _append_portal_graph_reflections(
             material_resolver=material_resolver,
             paths=paths,
             rejected=rejected,
+            occluder_triangles=occluder_triangles,
+            region_shell_cache=region_shell_cache,
         )
         return
     if (
@@ -4096,6 +4158,12 @@ def _append_portal_graph_reflections(
     incidence_angle_tolerance = (
         execution_input.incidence_exact_angle_tolerance_deg or 1.0
     )
+    if occluder_triangles is None:
+        occluder_triangles = _occluder_triangles(compiled_geometry)
+    if region_shell_cache is None:
+        region_shell_cache = {}
+    first_order_plane_evals: dict[str, tuple] = {}
+    second_order_pair_evals: dict[tuple[str, str], tuple] = {}
     emitted_rejections: set[tuple[tuple[str, ...], str, str]] = set()
 
     def reject(
@@ -4235,6 +4303,14 @@ def _append_portal_graph_reflections(
                 raise ValueError(
                     f'reflected Portal path references unresolved AcousticRegion {region_id}'
                 )
+            shell_triangles = region_shell_cache.get(region_id)
+            if shell_triangles is None:
+                shell_triangles = _region_shell_triangles(
+                    compiled_geometry,
+                    region,
+                    execution_input.portal_apertures,
+                )
+                region_shell_cache[region_id] = shell_triangles
             membership = region_segment_membership_with_portal_caps(
                 compiled_geometry=compiled_geometry,
                 region=region,
@@ -4242,6 +4318,7 @@ def _append_portal_graph_reflections(
                 start=points[segment_index],
                 end=points[segment_index + 1],
                 tolerance_m=execution_input.geometric_tolerance_m,
+                shell_triangles=shell_triangles,
             )
             if membership != 'valid':
                 reject(
@@ -4257,6 +4334,7 @@ def _append_portal_graph_reflections(
                 points[segment_index + 1],
                 tolerance=execution_input.geometric_tolerance_m,
                 distance_scaled_tolerance=True,
+                occluder_triangles=occluder_triangles,
             ):
                 reject(
                     surface_ids,
@@ -4286,6 +4364,226 @@ def _append_portal_graph_reflections(
             sum(segment_lengths),
         )
 
+    def evaluate_first_order_plane(
+        plane: GeometricSurfacePlane,
+    ) -> tuple:
+        """Path-independent single-plane reflection evaluation.
+
+        Returns (decision, reason) on failure or
+        (None, reflection, resolved_material, incidence) on success."""
+        image = _mirror_source(source_world, plane)
+        reflection = _reflection_point(
+            image,
+            receiver_world,
+            plane,
+            tolerance=execution_input.geometric_tolerance_m,
+        )
+        if reflection is None or not _point_on_surface(
+            compiled_geometry,
+            plane.source_surface_id,
+            reflection,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'cross-region reflection point lies outside the exact finite '
+                'semantic R120 surface triangle extent',
+            )
+        if _point_has_other_surface_contact(
+            compiled_geometry,
+            plane.source_surface_id,
+            reflection,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'cross-region reflection contact is shared-edge or '
+                'multi-surface ambiguous within declared tolerance',
+            )
+        if plane.material_authority is None:
+            return (
+                'UNSUPPORTED_BOUNDARY_QUANTITY',
+                'cross-region reflection surface has no exact material authority',
+            )
+        resolved_material = material_resolver(plane.material_authority)
+        if (
+            resolved_material is None
+            or resolved_material.authority_ref != plane.material_authority
+        ):
+            return (
+                'UNSUPPORTED_BOUNDARY_QUANTITY',
+                'cross-region reflection material authority is stale or unresolved',
+            )
+        incidence = _reflection_incidence(
+            plane,
+            _vector(source_world, reflection),
+            decimals=execution_input.identity_decimal_places,
+        )
+        return (None, reflection, resolved_material, incidence)
+
+    def evaluate_second_order_pair(
+        first_plane: GeometricSurfacePlane,
+        second_plane: GeometricSurfacePlane,
+    ) -> tuple:
+        """Path-independent ordered plane-pair evaluation.
+
+        Returns (decision, reason) on failure or
+        (None, first_point, second_point, resolved_materials, incidences)
+        on success."""
+        if first_plane.source_surface_id == second_plane.source_surface_id:
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'same-surface immediate repeat is a degenerate second-order '
+                'interaction and is not synthesized',
+            )
+        if _planes_coincident(
+            first_plane,
+            second_plane,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'ordered second-order planes are coincident within the '
+                'declared geometric tolerance',
+            )
+        reconstructed = _second_order_reflection_points(
+            source_world,
+            receiver_world,
+            first_plane,
+            second_plane,
+            tolerance=execution_input.geometric_tolerance_m,
+        )
+        if reconstructed is None:
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'ordered second-order image reconstruction has no '
+                'unambiguous finite plane intersection',
+            )
+        first_point, second_point = reconstructed
+        leg_lengths = (
+            _distance(source_world, first_point),
+            _distance(first_point, second_point),
+            _distance(second_point, receiver_world),
+        )
+        if any(
+            value <= execution_input.geometric_tolerance_m
+            for value in leg_lengths
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'second-order reflection points collapse or create a '
+                'zero-length propagation segment',
+            )
+        if not _point_on_surface(
+            compiled_geometry,
+            first_plane.source_surface_id,
+            first_point,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'first second-order reflection point lies outside the exact '
+                'finite semantic R120 surface triangle extent',
+            )
+        if not _point_on_surface(
+            compiled_geometry,
+            second_plane.source_surface_id,
+            second_point,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'second second-order reflection point lies outside the exact '
+                'finite semantic R120 surface triangle extent',
+            )
+        if _point_has_other_surface_contact(
+            compiled_geometry,
+            first_plane.source_surface_id,
+            first_point,
+            tolerance=execution_input.geometric_tolerance_m,
+        ) or _point_has_other_surface_contact(
+            compiled_geometry,
+            second_plane.source_surface_id,
+            second_point,
+            tolerance=execution_input.geometric_tolerance_m,
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'second-order reflection contact is shared-edge or '
+                'multi-surface ambiguous within declared tolerance',
+            )
+        if (
+            _segment_grazes_plane(
+                source_world,
+                first_point,
+                first_plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            or _segment_grazes_plane(
+                first_point,
+                second_point,
+                first_plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            or _segment_grazes_plane(
+                first_point,
+                second_point,
+                second_plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+            or _segment_grazes_plane(
+                second_point,
+                receiver_world,
+                second_plane,
+                tolerance=execution_input.geometric_tolerance_m,
+            )
+        ):
+            return (
+                'UNSUPPORTED_GEOMETRY',
+                'grazing or plane-parallel second-order contact is '
+                'ambiguous within declared tolerance',
+            )
+        resolved_materials: list[GeometricMaterialAuthority] = []
+        material_failure = False
+        for interaction_plane in (first_plane, second_plane):
+            if interaction_plane.material_authority is None:
+                material_failure = True
+                break
+            resolved = material_resolver(interaction_plane.material_authority)
+            if (
+                resolved is None
+                or resolved.authority_ref
+                != interaction_plane.material_authority
+            ):
+                material_failure = True
+                break
+            resolved_materials.append(resolved)
+        if material_failure or len(resolved_materials) != 2:
+            return (
+                'UNSUPPORTED_BOUNDARY_QUANTITY',
+                'one or more ordered second-order surfaces lack an exact '
+                'resolvable geometric material authority',
+            )
+        incidences = (
+            _reflection_incidence(
+                first_plane,
+                _vector(source_world, first_point),
+                decimals=execution_input.identity_decimal_places,
+            ),
+            _reflection_incidence(
+                second_plane,
+                _vector(first_point, second_point),
+                decimals=execution_input.identity_decimal_places,
+            ),
+        )
+        return (
+            None,
+            first_point,
+            second_point,
+            resolved_materials,
+            incidences,
+        )
+
     for ordered_region_ids, ordered_portal_ids in topology_paths:
         if not ordered_portal_ids:
             continue
@@ -4299,62 +4597,14 @@ def _append_portal_graph_reflections(
             )
             if not slots:
                 continue
-            image = _mirror_source(source_world, plane)
-            reflection = _reflection_point(
-                image,
-                receiver_world,
-                plane,
-                tolerance=execution_input.geometric_tolerance_m,
-            )
-            if reflection is None or not _point_on_surface(
-                compiled_geometry,
-                plane.source_surface_id,
-                reflection,
-                tolerance=execution_input.geometric_tolerance_m,
-            ):
-                reject(
-                    surface_ids,
-                    'UNSUPPORTED_GEOMETRY',
-                    'cross-region reflection point lies outside the exact finite '
-                    'semantic R120 surface triangle extent',
-                )
+            plane_eval = first_order_plane_evals.get(plane.source_surface_id)
+            if plane_eval is None:
+                plane_eval = evaluate_first_order_plane(plane)
+                first_order_plane_evals[plane.source_surface_id] = plane_eval
+            if plane_eval[0] is not None:
+                reject(surface_ids, plane_eval[0], plane_eval[1])
                 continue
-            if _point_has_other_surface_contact(
-                compiled_geometry,
-                plane.source_surface_id,
-                reflection,
-                tolerance=execution_input.geometric_tolerance_m,
-            ):
-                reject(
-                    surface_ids,
-                    'UNSUPPORTED_GEOMETRY',
-                    'cross-region reflection contact is shared-edge or '
-                    'multi-surface ambiguous within declared tolerance',
-                )
-                continue
-            if plane.material_authority is None:
-                reject(
-                    surface_ids,
-                    'UNSUPPORTED_BOUNDARY_QUANTITY',
-                    'cross-region reflection surface has no exact material authority',
-                )
-                continue
-            resolved_material = material_resolver(plane.material_authority)
-            if (
-                resolved_material is None
-                or resolved_material.authority_ref != plane.material_authority
-            ):
-                reject(
-                    surface_ids,
-                    'UNSUPPORTED_BOUNDARY_QUANTITY',
-                    'cross-region reflection material authority is stale or unresolved',
-                )
-                continue
-            incidence = _reflection_incidence(
-                plane,
-                _vector(source_world, reflection),
-                decimals=execution_input.identity_decimal_places,
-            )
+            _, reflection, resolved_material, incidence = plane_eval
             for slot in slots:
                 assembled = assemble_chain(
                     ordered_region_ids,
@@ -4469,170 +4719,27 @@ def _append_portal_graph_reflections(
                 )
                 if not slots_second:
                     continue
-                if first_plane.source_surface_id == second_plane.source_surface_id:
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'same-surface immediate repeat is a degenerate second-order '
-                        'interaction and is not synthesized',
-                    )
-                    continue
-                if _planes_coincident(
-                    first_plane,
-                    second_plane,
-                    tolerance=execution_input.geometric_tolerance_m,
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'ordered second-order planes are coincident within the '
-                        'declared geometric tolerance',
-                    )
-                    continue
-                reconstructed = _second_order_reflection_points(
-                    source_world,
-                    receiver_world,
-                    first_plane,
-                    second_plane,
-                    tolerance=execution_input.geometric_tolerance_m,
-                )
-                if reconstructed is None:
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'ordered second-order image reconstruction has no '
-                        'unambiguous finite plane intersection',
-                    )
-                    continue
-                first_point, second_point = reconstructed
-                leg_lengths = (
-                    _distance(source_world, first_point),
-                    _distance(first_point, second_point),
-                    _distance(second_point, receiver_world),
-                )
-                if any(
-                    value <= execution_input.geometric_tolerance_m
-                    for value in leg_lengths
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'second-order reflection points collapse or create a '
-                        'zero-length propagation segment',
-                    )
-                    continue
-                if not _point_on_surface(
-                    compiled_geometry,
+                pair_key = (
                     first_plane.source_surface_id,
-                    first_point,
-                    tolerance=execution_input.geometric_tolerance_m,
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'first second-order reflection point lies outside the exact '
-                        'finite semantic R120 surface triangle extent',
-                    )
-                    continue
-                if not _point_on_surface(
-                    compiled_geometry,
                     second_plane.source_surface_id,
-                    second_point,
-                    tolerance=execution_input.geometric_tolerance_m,
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'second second-order reflection point lies outside the exact '
-                        'finite semantic R120 surface triangle extent',
-                    )
-                    continue
-                if _point_has_other_surface_contact(
-                    compiled_geometry,
-                    first_plane.source_surface_id,
-                    first_point,
-                    tolerance=execution_input.geometric_tolerance_m,
-                ) or _point_has_other_surface_contact(
-                    compiled_geometry,
-                    second_plane.source_surface_id,
-                    second_point,
-                    tolerance=execution_input.geometric_tolerance_m,
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'second-order reflection contact is shared-edge or '
-                        'multi-surface ambiguous within declared tolerance',
-                    )
-                    continue
-                if (
-                    _segment_grazes_plane(
-                        source_world,
-                        first_point,
-                        first_plane,
-                        tolerance=execution_input.geometric_tolerance_m,
-                    )
-                    or _segment_grazes_plane(
-                        first_point,
-                        second_point,
-                        first_plane,
-                        tolerance=execution_input.geometric_tolerance_m,
-                    )
-                    or _segment_grazes_plane(
-                        first_point,
-                        second_point,
-                        second_plane,
-                        tolerance=execution_input.geometric_tolerance_m,
-                    )
-                    or _segment_grazes_plane(
-                        second_point,
-                        receiver_world,
-                        second_plane,
-                        tolerance=execution_input.geometric_tolerance_m,
-                    )
-                ):
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_GEOMETRY',
-                        'grazing or plane-parallel second-order contact is '
-                        'ambiguous within declared tolerance',
-                    )
-                    continue
-                resolved_materials: list[GeometricMaterialAuthority] = []
-                material_failure = False
-                for interaction_plane in (first_plane, second_plane):
-                    if interaction_plane.material_authority is None:
-                        material_failure = True
-                        break
-                    resolved = material_resolver(interaction_plane.material_authority)
-                    if (
-                        resolved is None
-                        or resolved.authority_ref
-                        != interaction_plane.material_authority
-                    ):
-                        material_failure = True
-                        break
-                    resolved_materials.append(resolved)
-                if material_failure or len(resolved_materials) != 2:
-                    reject(
-                        surface_ids,
-                        'UNSUPPORTED_BOUNDARY_QUANTITY',
-                        'one or more ordered second-order surfaces lack an exact '
-                        'resolvable geometric material authority',
-                    )
-                    continue
-                incidences = (
-                    _reflection_incidence(
-                        first_plane,
-                        _vector(source_world, first_point),
-                        decimals=execution_input.identity_decimal_places,
-                    ),
-                    _reflection_incidence(
-                        second_plane,
-                        _vector(first_point, second_point),
-                        decimals=execution_input.identity_decimal_places,
-                    ),
                 )
+                pair_eval = second_order_pair_evals.get(pair_key)
+                if pair_eval is None:
+                    pair_eval = evaluate_second_order_pair(
+                        first_plane,
+                        second_plane,
+                    )
+                    second_order_pair_evals[pair_key] = pair_eval
+                if pair_eval[0] is not None:
+                    reject(surface_ids, pair_eval[0], pair_eval[1])
+                    continue
+                (
+                    _,
+                    first_point,
+                    second_point,
+                    resolved_materials,
+                    incidences,
+                ) = pair_eval
                 for first_slot in slots_first:
                     for second_slot in slots_second:
                         if second_slot < first_slot:
@@ -4786,6 +4893,14 @@ def execute_deterministic_ga(
     )
     paths: list[DeterministicAcousticPath] = []
     rejected: list[RejectedPathCandidate] = []
+    occluder_triangles = _occluder_triangles(compiled_geometry)
+    region_shell_cache: dict[str, tuple] = {}
+    topology_paths_cache: dict[
+        tuple[str | None, str | None],
+        tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] | ValueError,
+    ] = {}
+    portal_aperture_by_id: dict | None = None
+    portal_region_by_id: dict | None = None
 
     for source in execution_input.sources:
         dataset = dataset_by_hash.get(source.directivity_dataset_sha256)
@@ -4863,6 +4978,7 @@ def execute_deterministic_ga(
                             segment_end,
                             tolerance=execution_input.geometric_tolerance_m,
                             distance_scaled_tolerance=True,
+                            occluder_triangles=occluder_triangles,
                         )
                         for segment_start, segment_end in (
                             (source_world, crossing),
@@ -4972,36 +5088,51 @@ def execute_deterministic_ga(
                         'multi-Portal execution input is missing exact bounded topology authority'
                     )
 
-                aperture_by_portal_id = {
-                    item.portal_id: item
-                    for item in execution_input.portal_apertures
-                }
-                if len(aperture_by_portal_id) != len(execution_input.portal_apertures):
-                    raise ValueError('multi-Portal execution input has duplicate Portal identity')
-                region_by_id = {
-                    item.region_id: item
-                    for item in execution_input.region_declarations
-                }
-                if len(region_by_id) != len(execution_input.region_declarations):
-                    raise ValueError('multi-Portal execution input has duplicate region identity')
+                if portal_aperture_by_id is None:
+                    portal_aperture_by_id = {
+                        item.portal_id: item
+                        for item in execution_input.portal_apertures
+                    }
+                    if len(portal_aperture_by_id) != len(
+                        execution_input.portal_apertures
+                    ):
+                        raise ValueError('multi-Portal execution input has duplicate Portal identity')
+                    portal_region_by_id = {
+                        item.region_id: item
+                        for item in execution_input.region_declarations
+                    }
+                    if len(portal_region_by_id) != len(
+                        execution_input.region_declarations
+                    ):
+                        raise ValueError('multi-Portal execution input has duplicate region identity')
 
-                try:
-                    topology_paths = enumerate_simple_directed_region_paths(
-                        graph,
-                        source_region_id=source.acoustic_region_id,
-                        receiver_region_id=receiver.acoustic_region_id,
-                    )
-                except ValueError as exc:
+                topology_key = (
+                    source.acoustic_region_id,
+                    receiver.acoustic_region_id,
+                )
+                cached_topology = topology_paths_cache.get(topology_key)
+                if cached_topology is None:
+                    try:
+                        cached_topology = enumerate_simple_directed_region_paths(
+                            graph,
+                            source_region_id=source.acoustic_region_id,
+                            receiver_region_id=receiver.acoustic_region_id,
+                        )
+                    except ValueError as exc:
+                        cached_topology = exc
+                    topology_paths_cache[topology_key] = cached_topology
+                if isinstance(cached_topology, ValueError):
                     rejected.append(
                         RejectedPathCandidate(
                             source_entity_id=source.source_entity_id,
                             receiver_id=receiver.receiver_id,
                             path_type='direct',
                             decision='UNSUPPORTED_PORTAL_TOPOLOGY',
-                            reason=str(exc),
+                            reason=str(cached_topology),
                         )
                     )
                     continue
+                topology_paths = cached_topology
 
                 if not topology_paths:
                     if directed_region_reachable(
@@ -5055,7 +5186,7 @@ def execute_deterministic_ga(
                     )
 
                     for portal_index, portal_id in enumerate(ordered_portal_ids):
-                        aperture = aperture_by_portal_id.get(portal_id)
+                        aperture = portal_aperture_by_id.get(portal_id)
                         if aperture is None:
                             raise ValueError(
                                 f'Portal graph references unresolved aperture identity {portal_id}'
@@ -5128,13 +5259,21 @@ def execute_deterministic_ga(
                     )
                     segment_evidence: list[PortalRegionSegmentEvidence] = []
                     for segment_index, region_id in enumerate(ordered_region_ids):
-                        region = region_by_id.get(region_id)
+                        region = portal_region_by_id.get(region_id)
                         if region is None:
                             raise ValueError(
                                 f'Portal graph path references unresolved region {region_id}'
                             )
                         segment_start = segment_points[segment_index]
                         segment_end = segment_points[segment_index + 1]
+                        shell_triangles = region_shell_cache.get(region_id)
+                        if shell_triangles is None:
+                            shell_triangles = _region_shell_triangles(
+                                compiled_geometry,
+                                region,
+                                execution_input.portal_apertures,
+                            )
+                            region_shell_cache[region_id] = shell_triangles
                         membership = region_segment_membership_with_portal_caps(
                             compiled_geometry=compiled_geometry,
                             region=region,
@@ -5142,6 +5281,7 @@ def execute_deterministic_ga(
                             start=segment_start,
                             end=segment_end,
                             tolerance_m=execution_input.geometric_tolerance_m,
+                            shell_triangles=shell_triangles,
                         )
                         if membership != 'valid':
                             rejected.append(
@@ -5165,6 +5305,7 @@ def execute_deterministic_ga(
                             segment_end,
                             tolerance=execution_input.geometric_tolerance_m,
                             distance_scaled_tolerance=True,
+                            occluder_triangles=occluder_triangles,
                         ):
                             rejected.append(
                                 RejectedPathCandidate(
@@ -5269,6 +5410,8 @@ def execute_deterministic_ga(
                     topology_paths=topology_paths,
                     paths=paths,
                     rejected=rejected,
+                    occluder_triangles=occluder_triangles,
+                    region_shell_cache=region_shell_cache,
                 )
                 continue
 
@@ -5294,6 +5437,7 @@ def execute_deterministic_ga(
                 receiver_world,
                 tolerance=execution_input.geometric_tolerance_m,
                 distance_scaled_tolerance=general_geometry,
+                occluder_triangles=occluder_triangles,
             ):
                 rejected.append(
                     RejectedPathCandidate(
@@ -5454,6 +5598,7 @@ def execute_deterministic_ga(
                     tolerance=execution_input.geometric_tolerance_m,
                     ignored_surface_ids=ignored,
                     distance_scaled_tolerance=general_geometry,
+                    occluder_triangles=occluder_triangles,
                 ) or _segment_blocked(
                     compiled_geometry,
                     reflection,
@@ -5461,6 +5606,7 @@ def execute_deterministic_ga(
                     tolerance=execution_input.geometric_tolerance_m,
                     ignored_surface_ids=ignored,
                     distance_scaled_tolerance=general_geometry,
+                    occluder_triangles=occluder_triangles,
                 ):
                     rejected.append(
                         RejectedPathCandidate(
@@ -5821,6 +5967,7 @@ def execute_deterministic_ga(
                                 segment_end,
                                 tolerance=execution_input.geometric_tolerance_m,
                                 distance_scaled_tolerance=True,
+                                occluder_triangles=occluder_triangles,
                             )
                             for segment_start, segment_end in (
                                 (source_world, first_point),
@@ -6232,6 +6379,8 @@ class CadDeterministicPathArtifactRepository:
     def _validate_execution_input(
         self,
         execution_input: DeterministicGaExecutionInput,
+        *,
+        _resolved_out: dict | None = None,
     ) -> DeterministicGaExecutionInput:
         execution_input = DeterministicGaExecutionInput.model_validate(
             execution_input.model_dump(mode='python')
@@ -6243,7 +6392,8 @@ class CadDeterministicPathArtifactRepository:
         ):
             raise ValueError('GA execution input exact snapshot is missing or mismatched')
         request = self.snapshot_repository.get_prediction_request(
-            execution_input.prediction_request_id
+            execution_input.prediction_request_id,
+            _validated_snapshot=snapshot,
         )
         if (
             request is None
@@ -6254,7 +6404,9 @@ class CadDeterministicPathArtifactRepository:
                 'GA execution input exact prediction request is missing or mismatched'
             )
         dispatch = self.dispatch_repository.get_dispatch(
-            execution_input.dispatch_binding_id
+            execution_input.dispatch_binding_id,
+            _validated_snapshot=snapshot,
+            _validated_request=request,
         )
         if (
             dispatch is None
@@ -6354,6 +6506,17 @@ class CadDeterministicPathArtifactRepository:
             raise ValueError(
                 'GA execution input does not reproduce from exact persisted authorities'
             )
+        if _resolved_out is not None:
+            _resolved_out.update(
+                {
+                    'snapshot': snapshot,
+                    'request': request,
+                    'dispatch': dispatch,
+                    'descriptor': descriptor,
+                    'compiled': compiled,
+                    'datasets': datasets,
+                }
+            )
         return execution_input
 
     def save_execution_input(
@@ -6378,7 +6541,7 @@ class CadDeterministicPathArtifactRepository:
                     raise ValueError(
                         'GA execution input id exists with different semantics'
                     )
-                return self._validate_execution_input(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_deterministic_ga_execution_inputs(
@@ -6408,6 +6571,8 @@ class CadDeterministicPathArtifactRepository:
     def get_execution_input(
         self,
         execution_input_id: str,
+        *,
+        _resolved_out: dict | None = None,
     ) -> DeterministicGaExecutionInput | None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
@@ -6423,7 +6588,8 @@ class CadDeterministicPathArtifactRepository:
         return self._validate_execution_input(
             DeterministicGaExecutionInput.model_validate_json(
                 row['payload_json']
-            )
+            ),
+            _resolved_out=_resolved_out,
         )
 
     def _validate(
@@ -6433,7 +6599,11 @@ class CadDeterministicPathArtifactRepository:
         artifact = DeterministicPathArtifact.model_validate(
             artifact.model_dump(mode='python')
         )
-        execution_input = self.get_execution_input(artifact.execution_input_id)
+        resolved_bundle: dict = {}
+        execution_input = self.get_execution_input(
+            artifact.execution_input_id,
+            _resolved_out=resolved_bundle,
+        )
         if (
             execution_input is None
             or execution_input.semantic_sha256 != artifact.execution_input_sha256
@@ -6446,29 +6616,43 @@ class CadDeterministicPathArtifactRepository:
             raise ValueError(
                 'path artifact exact GA execution input is missing or mismatched'
             )
-        snapshot = self.snapshot_repository.get_snapshot(artifact.snapshot_id)
+        snapshot = resolved_bundle.get('snapshot')
+        if snapshot is None or snapshot.snapshot_id != artifact.snapshot_id:
+            snapshot = self.snapshot_repository.get_snapshot(artifact.snapshot_id)
         if snapshot is None or snapshot.semantic_sha256 != artifact.snapshot_sha256:
             raise ValueError('path artifact exact snapshot is missing or mismatched')
-        request = self.snapshot_repository.get_prediction_request(
-            artifact.prediction_request_id
-        )
+        request = resolved_bundle.get('request')
+        if request is None or request.request_id != artifact.prediction_request_id:
+            request = self.snapshot_repository.get_prediction_request(
+                artifact.prediction_request_id,
+                _validated_snapshot=snapshot,
+            )
         if (
             request is None
             or request.request_semantic_sha256 != artifact.prediction_request_sha256
         ):
             raise ValueError('path artifact exact prediction request is missing or mismatched')
-        dispatch = self.dispatch_repository.get_dispatch(
-            artifact.dispatch_binding_id
-        )
+        dispatch = resolved_bundle.get('dispatch')
+        if dispatch is None or dispatch.binding_id != artifact.dispatch_binding_id:
+            dispatch = self.dispatch_repository.get_dispatch(
+                artifact.dispatch_binding_id,
+                _validated_snapshot=snapshot,
+                _validated_request=request,
+            )
         if (
             dispatch is None
             or dispatch.semantic_sha256 != artifact.dispatch_binding_sha256
             or dispatch.state != 'READY'
         ):
             raise ValueError('path artifact exact READY dispatch is missing or mismatched')
-        descriptor = self.dispatch_repository.get_descriptor(
-            artifact.adapter_descriptor_id
-        )
+        descriptor = resolved_bundle.get('descriptor')
+        if (
+            descriptor is None
+            or descriptor.descriptor_id != artifact.adapter_descriptor_id
+        ):
+            descriptor = self.dispatch_repository.get_descriptor(
+                artifact.adapter_descriptor_id
+            )
         if (
             descriptor is None
             or descriptor.semantic_sha256 != artifact.adapter_descriptor_sha256
@@ -6489,9 +6673,14 @@ class CadDeterministicPathArtifactRepository:
         ):
             raise ValueError('path artifact exact GA configuration is missing or mismatched')
 
-        compiled = self.snapshot_repository.r120_repository.get_compiled_geometry(
-            artifact.r120_compiled_geometry_id
-        )
+        compiled = resolved_bundle.get('compiled')
+        if (
+            compiled is None
+            or compiled.compiled_geometry_id != artifact.r120_compiled_geometry_id
+        ):
+            compiled = self.snapshot_repository.r120_repository.get_compiled_geometry(
+                artifact.r120_compiled_geometry_id
+            )
         if (
             compiled is None
             or compiled.compiled_hash_sha256
@@ -6528,12 +6717,24 @@ class CadDeterministicPathArtifactRepository:
             'multi_portal_first_order_specular',
             'multi_portal_second_order_specular',
         ):
+            resolved_datasets = resolved_bundle.get('datasets')
+            datasets_by_sha = (
+                {item.semantic_sha256: item for item in resolved_datasets}
+                if resolved_datasets is not None
+                else {}
+            )
             datasets: list[DirectivityDataset] = []
             for source_input in execution_input.sources:
-                dataset = (
-                    self.snapshot_repository.r110_repository.directivity_repository
-                    .get_dataset_by_hash(source_input.directivity_dataset_sha256)
+                dataset = datasets_by_sha.get(
+                    source_input.directivity_dataset_sha256
                 )
+                if dataset is None:
+                    dataset = (
+                        self.snapshot_repository.r110_repository
+                        .directivity_repository.get_dataset_by_hash(
+                            source_input.directivity_dataset_sha256
+                        )
+                    )
                 if dataset is None:
                     raise ValueError('reflected Portal path exact DirectivityDataset is missing')
                 datasets.append(dataset)
@@ -6574,6 +6775,23 @@ class CadDeterministicPathArtifactRepository:
         execution_receiver_by_id = {
             item.receiver_id: item for item in execution_input.receivers
         }
+        expected_routes_cache: dict = {}
+        region_shell_cache: dict[str, tuple] = {}
+        occluder_triangles = _occluder_triangles(compiled)
+        model_by_sha: dict = {}
+        dataset_by_sha: dict = {}
+        portal_apertures = execution_input.portal_apertures
+        aperture_by_portal_id = (
+            {item.portal_id: item for item in portal_apertures}
+            if portal_apertures is not None
+            else {}
+        )
+        region_declarations = execution_input.region_declarations
+        region_by_id = (
+            {item.region_id: item for item in region_declarations}
+            if region_declarations is not None
+            else {}
+        )
         for path in artifact.paths:
             source = source_by_id.get(path.source_entity_id)
             receiver = receiver_by_id.get(path.receiver_id)
@@ -6601,11 +6819,18 @@ class CadDeterministicPathArtifactRepository:
                     raise ValueError(
                         'path Portal graph authority no longer resolves from exact execution input'
                     )
-                expected_routes = enumerate_simple_directed_region_paths(
-                    graph,
-                    source_region_id=execution_source.acoustic_region_id,
-                    receiver_region_id=execution_receiver.acoustic_region_id,
+                routes_key = (
+                    execution_source.acoustic_region_id,
+                    execution_receiver.acoustic_region_id,
                 )
+                expected_routes = expected_routes_cache.get(routes_key)
+                if expected_routes is None:
+                    expected_routes = enumerate_simple_directed_region_paths(
+                        graph,
+                        source_region_id=execution_source.acoustic_region_id,
+                        receiver_region_id=execution_receiver.acoustic_region_id,
+                    )
+                    expected_routes_cache[routes_key] = expected_routes
                 portal_ids = tuple(
                     item.portal_id
                     for item in portal_interactions
@@ -6615,14 +6840,6 @@ class CadDeterministicPathArtifactRepository:
                         'path ordered region/Portal route no longer resolves from exact graph authority'
                     )
 
-                aperture_by_portal_id = {
-                    item.portal_id: item
-                    for item in execution_input.portal_apertures
-                }
-                region_by_id = {
-                    item.region_id: item
-                    for item in execution_input.region_declarations
-                }
                 source_point = _position_tuple(execution_source.source_reference_point)
                 receiver_point = _position_tuple(execution_receiver.world_position)
                 direct = _vector(source_point, receiver_point)
@@ -6699,6 +6916,14 @@ class CadDeterministicPathArtifactRepository:
                         raise ValueError(
                             'path AcousticRegion declaration no longer resolves exactly'
                         )
+                    shell_triangles = region_shell_cache.get(region_id)
+                    if shell_triangles is None:
+                        shell_triangles = _region_shell_triangles(
+                            compiled,
+                            region,
+                            execution_input.portal_apertures,
+                        )
+                        region_shell_cache[region_id] = shell_triangles
                     membership = region_segment_membership_with_portal_caps(
                         compiled_geometry=compiled,
                         region=region,
@@ -6706,6 +6931,7 @@ class CadDeterministicPathArtifactRepository:
                         start=segment_points[index],
                         end=segment_points[index + 1],
                         tolerance_m=execution_input.geometric_tolerance_m,
+                        shell_triangles=shell_triangles,
                     )
                     if membership != 'valid':
                         raise ValueError(
@@ -6717,6 +6943,7 @@ class CadDeterministicPathArtifactRepository:
                         segment_points[index + 1],
                         tolerance=execution_input.geometric_tolerance_m,
                         distance_scaled_tolerance=True,
+                        occluder_triangles=occluder_triangles,
                     ):
                         raise ValueError(
                             'path Portal graph segment is no longer unoccluded'
@@ -6794,17 +7021,25 @@ class CadDeterministicPathArtifactRepository:
                         'path Portal crossing point no longer reproduces exactly'
                     )
 
-            model = self.snapshot_repository.r110_repository.get_model(
-                source.r110_compiled_source_sha256
-            )
+            model = model_by_sha.get(source.r110_compiled_source_sha256)
+            if model is None:
+                model = self.snapshot_repository.r110_repository.get_model(
+                    source.r110_compiled_source_sha256
+                )
+                if model is not None:
+                    model_by_sha[source.r110_compiled_source_sha256] = model
             if model is None:
                 raise ValueError('path artifact exact R110 source is missing')
             if source.directivity_dataset_sha256 is None:
                 raise ValueError('path artifact source DirectivityDataset is missing')
-            dataset = (
-                self.snapshot_repository.r110_repository.directivity_repository
-                .get_dataset_by_hash(source.directivity_dataset_sha256)
-            )
+            dataset = dataset_by_sha.get(source.directivity_dataset_sha256)
+            if dataset is None:
+                dataset = (
+                    self.snapshot_repository.r110_repository.directivity_repository
+                    .get_dataset_by_hash(source.directivity_dataset_sha256)
+                )
+                if dataset is not None:
+                    dataset_by_sha[source.directivity_dataset_sha256] = dataset
             if dataset is None:
                 raise ValueError('path artifact exact DirectivityDataset is missing')
             for band in path.bands:
@@ -6890,7 +7125,7 @@ class CadDeterministicPathArtifactRepository:
                     raise ValueError(
                         'deterministic path artifact id exists with different semantics'
                     )
-                return self._validate(persisted)
+                return persisted
             connection.execute(
                 """
                 INSERT INTO cad_deterministic_path_artifacts(
