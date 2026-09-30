@@ -319,6 +319,59 @@ class CaptureMissionPackage(BaseModel):
 # --- producers ---------------------------------------------------------------
 
 
+def _task_plan_projection(
+    project: HTDTProjectReference | HTDTLegacyProjectRef,
+    room_name: str | None,
+    purpose: MissionPurpose,
+    tasks: Sequence[MissionTask],
+) -> dict:
+    """Canonical content a ``plan_sha256`` binds (producers + decode share)."""
+
+    return {
+        'project': project.model_dump(mode='json'),
+        'room_name': room_name,
+        'purpose': purpose,
+        'tasks': [task.model_dump(mode='json') for task in tasks],
+    }
+
+
+def _mission_projection(
+    plan_sha256: str,
+    baseline: MissionBaseline,
+    issued_from: str,
+    supersedes_mission_id: str | None,
+) -> dict:
+    """Canonical content a ``mission_sha256`` binds."""
+
+    return {
+        'plan_sha256': plan_sha256,
+        'baseline': baseline.model_dump(mode='json'),
+        'issued_from': issued_from,
+        'supersedes_mission_id': supersedes_mission_id,
+    }
+
+
+def _package_projection(
+    mission_sha256: str,
+    dependencies: Sequence[MissionPackageDependency],
+) -> dict:
+    """Canonical content a ``package_sha256`` binds."""
+
+    return {
+        'mission_sha256': mission_sha256,
+        'dependencies': [
+            {
+                'kind': item.kind,
+                'role': item.role,
+                'schema': item.schema,
+                'schema_version': item.schema_version,
+                'payload_sha256': item.payload_sha256,
+            }
+            for item in dependencies
+        ],
+    }
+
+
 def _speaker_task(entity: SceneEntity, document_hash: str) -> MissionTask:
     dependencies = [
         MissionTaskDependencyRef(
@@ -487,15 +540,11 @@ def build_capture_task_plan(
     if len(set(task_ids)) != len(task_ids):
         raise CaptureMissionError('duplicate derived task identity')
 
-    projection = _canonical_json(
-        {
-            'project': project.model_dump(mode='json'),
-            'room_name': room_name,
-            'purpose': purpose,
-            'tasks': [task.model_dump(mode='json') for task in tasks],
-        }
-    )
-    plan_sha256 = sha256(projection.encode('utf-8')).hexdigest()
+    plan_sha256 = sha256(
+        _canonical_json(
+            _task_plan_projection(project, room_name, purpose, tasks)
+        ).encode('utf-8')
+    ).hexdigest()
     return HTDTCaptureTaskPlan(
         plan_id=_deterministic_uuid(
             'htdt.capture.task-plan.v1',
@@ -543,12 +592,12 @@ def build_mission(
     )
     mission_sha256 = sha256(
         _canonical_json(
-            {
-                'plan_sha256': plan.plan_sha256,
-                'baseline': baseline.model_dump(mode='json'),
-                'issued_from': issued_from,
-                'supersedes_mission_id': supersedes_mission_id,
-            }
+            _mission_projection(
+                plan.plan_sha256,
+                baseline,
+                issued_from,
+                supersedes_mission_id,
+            )
         ).encode('utf-8')
     ).hexdigest()
     return CaptureMission(
@@ -596,15 +645,13 @@ def build_repair_mission(
     tasks = tuple(
         task for task in parent.plan.tasks if task.task_id in unresolved
     )
-    projection = _canonical_json(
-        {
-            'project': project.model_dump(mode='json'),
-            'room_name': parent.plan.room_name,
-            'purpose': 'recapture',
-            'tasks': [task.model_dump(mode='json') for task in tasks],
-        }
-    )
-    plan_sha256 = sha256(projection.encode('utf-8')).hexdigest()
+    plan_sha256 = sha256(
+        _canonical_json(
+            _task_plan_projection(
+                project, parent.plan.room_name, 'recapture', tasks
+            )
+        ).encode('utf-8')
+    ).hexdigest()
     plan = HTDTCaptureTaskPlan(
         plan_id=_deterministic_uuid(
             'htdt.capture.task-plan.v1',
@@ -626,12 +673,12 @@ def build_repair_mission(
     )
     mission_sha256 = sha256(
         _canonical_json(
-            {
-                'plan_sha256': plan.plan_sha256,
-                'baseline': baseline.model_dump(mode='json'),
-                'issued_from': 'repair_request',
-                'supersedes_mission_id': parent.mission_id,
-            }
+            _mission_projection(
+                plan.plan_sha256,
+                baseline,
+                'repair_request',
+                parent.mission_id,
+            )
         ).encode('utf-8')
     ).hexdigest()
     return CaptureMission(
@@ -723,22 +770,11 @@ def build_mission_package(
     for kind, schema_name, schema_version, payload, role in extra_dependencies:
         _append(kind, schema_name, schema_version, payload, role)
 
-    projection = _canonical_json(
-        {
-            'mission_sha256': mission.mission_sha256,
-            'dependencies': [
-                {
-                    'kind': item.kind,
-                    'role': item.role,
-                    'schema': item.schema,
-                    'schema_version': item.schema_version,
-                    'payload_sha256': item.payload_sha256,
-                }
-                for item in dependencies
-            ],
-        }
-    )
-    package_sha256 = sha256(projection.encode('utf-8')).hexdigest()
+    package_sha256 = sha256(
+        _canonical_json(
+            _package_projection(mission.mission_sha256, dependencies)
+        ).encode('utf-8')
+    ).hexdigest()
     return CaptureMissionPackage(
         package_id=_deterministic_uuid(
             'htdt.capture.mission-package.v1',
@@ -766,28 +802,70 @@ def decode_mission_package(payload: bytes | str) -> CaptureMissionPackage:
         package = CaptureMissionPackage.model_validate_json(text)
     except ValueError as exc:
         raise CaptureMissionError(f'invalid mission package: {exc}') from exc
-    recomputed = sha256(
+    mission = package.mission
+    plan = mission.plan
+    if plan.plan_sha256 != sha256(
         _canonical_json(
-            {
-                'mission_sha256': package.mission.mission_sha256,
-                'dependencies': [
-                    {
-                        'kind': item.kind,
-                        'role': item.role,
-                        'schema': item.schema,
-                        'schema_version': item.schema_version,
-                        'payload_sha256': item.payload_sha256,
-                    }
-                    for item in package.dependencies
-                ],
-            }
+            _task_plan_projection(
+                plan.project, plan.room_name, plan.purpose, plan.tasks
+            )
         ).encode('utf-8')
-    ).hexdigest()
-    if package.package_sha256 != recomputed:
+    ).hexdigest():
+        raise CaptureMissionError(
+            'mission task plan does not reproduce its recorded hash'
+        )
+    if mission.mission_sha256 != sha256(
+        _canonical_json(
+            _mission_projection(
+                plan.plan_sha256,
+                mission.baseline,
+                mission.issued_from,
+                mission.supersedes_mission_id,
+            )
+        ).encode('utf-8')
+    ).hexdigest():
+        raise CaptureMissionError(
+            'mission does not reproduce its recorded hash'
+        )
+    if package.package_sha256 != sha256(
+        _canonical_json(
+            _package_projection(
+                mission.mission_sha256, package.dependencies
+            )
+        ).encode('utf-8')
+    ).hexdigest():
         raise CaptureMissionError(
             'mission package identity does not reproduce its recorded hash'
         )
+    if plan.plan_id != _deterministic_uuid(
+        'htdt.capture.task-plan.v1', plan.plan_sha256
+    ):
+        raise CaptureMissionError(
+            'mission task plan identity is not derived from its content hash'
+        )
+    if mission.mission_id != _deterministic_uuid(
+        'htdt.capture.mission.v1', mission.mission_sha256
+    ):
+        raise CaptureMissionError(
+            'mission identity is not derived from its content hash'
+        )
+    if package.package_id != _deterministic_uuid(
+        'htdt.capture.mission-package.v1', package.package_sha256
+    ):
+        raise CaptureMissionError(
+            'mission package identity is not derived from its content hash'
+        )
     for dependency in package.dependencies:
+        if dependency.dependency_id != _deterministic_uuid(
+            'htdt.capture.mission-dependency.v1',
+            mission.mission_sha256,
+            dependency.kind,
+            dependency.payload_sha256,
+        ):
+            raise CaptureMissionError(
+                'mission dependency identity is not derived from its '
+                'content hash'
+            )
         package.dependency_payload(dependency.dependency_id)
     return package
 
