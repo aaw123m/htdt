@@ -2901,7 +2901,7 @@ class WorkflowApplicationComposition:
                 if report.all_stopped:
                     return True, '実行中の予測を中止しました'
                 return True, '実行中の予測を中止しました · 停止が遅延している処理の結果は適用されません'
-            return workspace.controller.resolve_dirty_state(action)
+            return workspace.resolve_dirty_state(action)
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:

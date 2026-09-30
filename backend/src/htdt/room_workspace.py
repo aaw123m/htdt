@@ -6484,6 +6484,20 @@ class RoomWorkspace(QWidget):
         self._set_status("保存しました" if created else "変更はありません")
         return created
 
+    def resolve_dirty_state(
+        self, action: DirtyResolutionAction
+    ) -> tuple[bool, str | None]:
+        """Resolve dirty state through the controller, then re-render.
+
+        The controller mutates the working document without the workspace:
+        discard/recover rebind it and every action can flip ``is_dirty``, so
+        the viewport and the dirty badge only stay truthful after a refresh.
+        """
+        resolved, message = self.controller.resolve_dirty_state(action)
+        if resolved:
+            self._refresh()
+        return resolved, message
+
     def undo(self) -> bool:
         label = self.controller.undo_label
         changed = self.controller.undo()
