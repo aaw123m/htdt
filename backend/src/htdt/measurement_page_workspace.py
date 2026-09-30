@@ -64,7 +64,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import Direction3
 from .export_io import write_text_atomic
 from .ingress import read_file_bounded
-from .limits import MAX_NATIVE_REW_TEXT_FILE_BYTES
+from .limits import MAX_ATTACHMENT_BYTES, MAX_NATIVE_REW_TEXT_FILE_BYTES
 from .measurement_analysis import (
     DISPLAY_SMOOTHING_FRACTIONS,
     phase_trace,
@@ -666,7 +666,7 @@ class MeasurementPageWorkspace(QWidget):
             file_path = Path(path)
             raw = read_file_bounded(
                 file_path,
-                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                MAX_ATTACHMENT_BYTES,
                 label="ソース添付",
             )
             self.controller.attach_to_batch_item(
@@ -3341,7 +3341,7 @@ class MeasurementPageWorkspace(QWidget):
             file_path = Path(path)
             raw = read_file_bounded(
                 file_path,
-                MAX_NATIVE_REW_TEXT_FILE_BYTES,
+                MAX_ATTACHMENT_BYTES,
                 label="ソース添付",
             )
             self.controller.save_source_attachment(

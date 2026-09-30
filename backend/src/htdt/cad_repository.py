@@ -23,6 +23,7 @@ from .cad_schema import (
     connect_sqlite,
 )
 from .content_blobs import (
+    content_blob_exists,
     ensure_content_blob_store,
     read_content_blob,
     store_content_blob,
@@ -737,6 +738,14 @@ class SceneRepository:
         with closing(self._connect()) as connection:
             ensure_content_blob_store(connection)
             return read_content_blob(connection, payload_sha256)
+
+    def has_blob(self, payload_sha256: str) -> bool:
+        """Cheap presence probe — callers use it to report missing data
+        honestly without paying for a full verified read."""
+
+        with closing(self._connect()) as connection:
+            ensure_content_blob_store(connection)
+            return content_blob_exists(connection, payload_sha256)
 
     def save_view_state(
         self,

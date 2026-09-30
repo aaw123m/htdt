@@ -64,6 +64,10 @@ class UnderlayRenderItem:
     segments_domain: tuple[tuple[tuple[float, float, float], tuple[float, float, float]], ...]
     opacity: float
     elevation_m: float
+    # True when the record references a blob the store no longer carries —
+    # the underlay renders empty, so surfaces must label it missing rather
+    # than present it as a normal-but-blank underlay.
+    missing_source: bool = False
 
 
 @dataclass(frozen=True, slots=True)

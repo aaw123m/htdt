@@ -52,11 +52,12 @@ from . import __version__
 from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
 from .canonical_json import canonical_json, canonical_sha256
-from .ingress import IngressTooLargeError, read_file_bounded
+from .limits import MAX_NATIVE_BACKUP_EXPANDED_BYTES
 from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetError,
     ManagedAssetStore,
+    sha256_file,
 )
 from .native_row_integrity import verify_native_row_integrity
 from .project_library_repository import ProjectLibraryRepository
@@ -467,15 +468,17 @@ def export_project_bundle(
             )
 
         # Asset closure: every managed-asset registry row pulled in by the
-        # walk requires its managed file, hash/size-verified.
+        # walk requires its managed file. Entries carry only the declared
+        # identity — the bytes stream into the archive one file at a time
+        # during ``_write_bundle`` (hash/size-verified as they are written),
+        # so export memory stays constant regardless of project size.
         asset_rows = [
             row
             for registry in _ASSET_REGISTRY_TABLES
             for row in exported.get(registry, [])
         ]
         asset_entries: list[BundleAssetEntry] = []
-        asset_payloads: dict[str, bytes] = {}
-        assets_root = data_dir / MANAGED_ASSETS_DIRNAME
+        asset_files: list[tuple[str, int, Path]] = []
         for row_json in asset_rows:
             record = dict(zip(row_json['columns'], row_json['values']))
             digest = str(record['sha256'])
@@ -487,20 +490,6 @@ def export_project_bundle(
                     f'directory (integrity error, not an omission): {digest}'
                 )
             size = int(record['size_bytes'])
-            try:
-                raw = read_file_bounded(
-                    asset_path, size, label='managed asset'
-                )
-            except IngressTooLargeError as exc:
-                raise ProjectBundleError(
-                    'referenced managed asset failed hash/size verification '
-                    f'during export: {digest}'
-                ) from exc
-            if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
-                raise ProjectBundleError(
-                    'referenced managed asset failed hash/size verification '
-                    f'during export: {digest}'
-                )
             filename = str(record.get('filename') or '')
             asset_entries.append(
                 BundleAssetEntry(
@@ -512,7 +501,7 @@ def export_project_bundle(
                     ),
                 )
             )
-            asset_payloads[digest] = raw
+            asset_files.append((digest, size, asset_path))
 
         library = ProjectLibraryRepository(repository)
         project_entry = library.get_by_document_id(document_id)
@@ -564,7 +553,7 @@ def export_project_bundle(
             update={'manifest_sha256': manifest.identity_hash()}
         )
 
-    _write_bundle(destination, manifest, db_payloads, asset_payloads)
+    _write_bundle(destination, manifest, db_payloads, asset_files)
     return ProjectBundleExportResult(
         archive_path=str(destination),
         document_id=document_id,
@@ -580,7 +569,7 @@ def _write_bundle(
     destination: Path,
     manifest: ProjectBundleManifest,
     db_payloads: dict[str, bytes],
-    asset_payloads: dict[str, bytes],
+    asset_files: list[tuple[str, int, Path]],
 ) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temp_name = tempfile.mkstemp(
@@ -605,8 +594,28 @@ def _write_bundle(
             )
             for name, body in sorted(db_payloads.items()):
                 bundle.writestr(name, body)
-            for digest, raw in sorted(asset_payloads.items()):
-                bundle.writestr(f'assets/{digest}', raw)
+            for digest, size, asset_path in sorted(asset_files):
+                # Stream the file straight into the member, hashing the
+                # bytes actually written: multi-GB projects export in
+                # constant memory, and a mismatch aborts with the temp
+                # archive discarded — the destination never appears.
+                hasher = hashlib.sha256()
+                written = 0
+                with asset_path.open('rb') as handle, bundle.open(
+                    f'assets/{digest}', 'w'
+                ) as member:
+                    for chunk in iter(lambda: handle.read(1 << 20), b''):
+                        hasher.update(chunk)
+                        member.write(chunk)
+                        written += len(chunk)
+                if (
+                    written != size
+                    or hasher.hexdigest() != digest
+                ):
+                    raise ProjectBundleError(
+                        'referenced managed asset failed hash/size '
+                        f'verification during export: {digest}'
+                    )
         temp.replace(destination)
     finally:
         temp.unlink(missing_ok=True)
@@ -619,19 +628,23 @@ def _write_bundle(
 
 #: Bounds applied to external bundle archives before any member is
 #: decompressed (#758): caps on member count, per-member and total expanded
-#: size, and the compression ratio a member may claim.
+#: size. There is deliberately no compression-ratio check — a legitimate
+#: asset (silent audio, a sparse log) can compress past any ratio bound,
+#: while real decompression safety already comes from ``_read_member_bounded``
+#: capping *actual* output regardless of what the member header claims.
+#: The expanded bound matches the native-backup artifact class: bundles are
+#: the same operator-authored local-archive format, not an HTTP payload.
 _MAX_BUNDLE_MEMBERS = 4096
 _MAX_BUNDLE_MEMBER_BYTES = 1 << 28  # 256 MiB
-_MAX_BUNDLE_EXPANDED_BYTES = 1 << 30  # 1 GiB
-_MAX_BUNDLE_COMPRESSION_RATIO = 100
+_MAX_BUNDLE_EXPANDED_BYTES = MAX_NATIVE_BACKUP_EXPANDED_BYTES
 
 
 def _validate_bundle_members(archive: zipfile.ZipFile) -> set[str]:
     """Traversal-proof member validation: only manifest.json, db/*.jsonl
     and assets/<sha256> entries are read — names are never extracted to the
     filesystem directly, so path escape is impossible by construction.
-    Member count, expanded sizes and claimed compression ratios are bounded
-    before any decompression runs (``file_size`` is the archive's declared
+    Member count and declared expanded sizes are bounded before any
+    decompression runs (``file_size`` is the archive's declared
     uncompressed size; ``compress_size`` the stored size)."""
     names: set[str] = set()
     infos = archive.infolist()
@@ -654,13 +667,6 @@ def _validate_bundle_members(archive: zipfile.ZipFile) -> set[str]:
         if expanded_total > _MAX_BUNDLE_EXPANDED_BYTES:
             raise BundleManifestInvalidError(
                 'bundle expanded size exceeds the bound'
-            )
-        if (
-            info.file_size
-            > max(info.compress_size, 1024) * _MAX_BUNDLE_COMPRESSION_RATIO
-        ):
-            raise BundleManifestInvalidError(
-                f'bundle member claims an implausible compression ratio: {name}'
             )
         if name == 'manifest.json':
             names.add(name)
@@ -828,9 +834,34 @@ def import_project_bundle(
                         f'bundle contains unmanifested table payload: {member}'
                     )
 
-        # Verify every declared asset's hash and size before any write.
-        asset_bytes: dict[str, bytes] = {}
+        # Verify every declared asset's hash and size and install it before
+        # any database write — streamed one member at a time, so peak
+        # memory is a bounded read chunk, never the whole project.
+        # Content-addressed installs are idempotent and the worst partial
+        # state of a later rollback is an unreferenced orphan asset
+        # (reclaimable by #501 storage maintenance), never a committed row
+        # pointing at bytes that do not exist.
+        store = ManagedAssetStore(db_path.parent / MANAGED_ASSETS_DIRNAME)
         manifest_assets = {entry.sha256: entry for entry in manifest.assets}
+        # Asset rows must match the manifest entries exactly — the
+        # archive's database rows may not lie about what the asset bytes
+        # are. Proven before any install runs.
+        for registry in _ASSET_REGISTRY_TABLES:
+            for row in exported.get(registry, []):
+                record = dict(zip(row['columns'], row['values']))
+                digest = str(record['sha256'])
+                entry = manifest_assets.get(digest)
+                if (
+                    entry is None
+                    or int(record['size_bytes']) != entry.size_bytes
+                ):
+                    raise BundleManifestInvalidError(
+                        f'{registry} row disagrees with the manifest: '
+                        f'{digest}'
+                    )
+        installed_assets: set[str] = set()
+        imported_assets = 0
+        reused_assets = 0
         for member in members:
             if not member.startswith('assets/'):
                 continue
@@ -840,56 +871,54 @@ def import_project_bundle(
                 raise BundleManifestInvalidError(
                     f'bundle contains unmanifested asset: {digest}'
                 )
-            raw = _read_member_bounded(
-                archive, member, _MAX_BUNDLE_MEMBER_BYTES
-            )
-            if (
-                len(raw) != entry.size_bytes
-                or hashlib.sha256(raw).hexdigest() != digest
-            ):
+            target = store.asset_path(digest)
+            if target.exists():
+                # Content-addressed dedup: a stored file hashing to the
+                # digest already holds exactly the payload. Anything else
+                # under the name is tampering — refuse like a bad member.
+                if not target.is_file() or sha256_file(target) != digest:
+                    raise BundleManifestInvalidError(
+                        f'existing managed asset is corrupt: {digest}'
+                    )
+                reused_assets += 1
+                installed_assets.add(digest)
+                continue
+            try:
+                member_reader = archive.open(member, 'r')
+            except (
+                zipfile.BadZipFile,
+                OSError,
+                RuntimeError,
+                NotImplementedError,
+            ) as exc:
+                raise BundleManifestInvalidError(
+                    f'unreadable bundle member: {member}'
+                ) from exc
+            try:
+                with member_reader:
+                    store.install_stream(
+                        digest,
+                        member_reader,
+                        max_bytes=_MAX_BUNDLE_MEMBER_BYTES,
+                        expected_size=entry.size_bytes,
+                    )
+            except (
+                ManagedAssetError,
+                zipfile.BadZipFile,
+                OSError,
+                RuntimeError,
+                NotImplementedError,
+            ) as exc:
                 raise BundleManifestInvalidError(
                     f'asset payload hash/size mismatch: {digest}'
-                )
-            asset_bytes[digest] = raw
+                ) from exc
+            imported_assets += 1
+            installed_assets.add(digest)
         for digest in manifest_assets:
-            if digest not in asset_bytes:
+            if digest not in installed_assets:
                 raise BundleManifestInvalidError(
                     f'manifest declares missing asset payload: {digest}'
                 )
-
-    # Asset rows must match the manifest entries exactly — the archive's
-    # database rows may not lie about what the asset bytes are.
-    for registry in _ASSET_REGISTRY_TABLES:
-        for row in exported.get(registry, []):
-            record = dict(zip(row['columns'], row['values']))
-            digest = str(record['sha256'])
-            entry = manifest_assets.get(digest)
-            if (
-                entry is None
-                or int(record['size_bytes']) != entry.size_bytes
-            ):
-                raise BundleManifestInvalidError(
-                    f'{registry} row disagrees with the manifest: {digest}'
-                )
-
-    # Install managed assets before the database transaction publishes any
-    # references — content-addressed installs are idempotent and the worst
-    # partial state of a later rollback is an unreferenced orphan asset
-    # (reclaimable by #501 storage maintenance), never a committed row
-    # pointing at bytes that do not exist.
-    store = ManagedAssetStore(db_path.parent / MANAGED_ASSETS_DIRNAME)
-    imported_assets = 0
-    reused_assets = 0
-    for digest, raw in asset_bytes.items():
-        try:
-            existing = store.read_verified(digest)
-        except ManagedAssetError:
-            existing = None
-        if existing == raw:
-            reused_assets += 1
-            continue
-        store.ensure_installed(digest, raw)
-        imported_assets += 1
 
     source_document_id = manifest.root.document_id
     document_id = source_document_id
