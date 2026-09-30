@@ -129,12 +129,19 @@ def test_handoff_builds_review_and_deterministic_exports(
 
     preview = handoff_preview_text(handoff)
     assert saved.revision.revision_id in preview
-    assert 'AVAILABLE' in preview or 'UNKNOWN' in preview
+    assert '利用可能' in preview or '不明' in preview
     # The preview is the operator's last look before writing — it must
     # expose the actual package contents, not record counts.
     assert 'x=' in preview and 'y=' in preview
     assert 'speaker-fl' in preview or 'Front Left' in preview
     assert '== ' in preview
+    # Internal enum vocabulary renders in Japanese on this surface; ids
+    # and hashes stay verbatim.
+    assert '[スピーカー]' in preview
+    assert '[座席]' in preview
+    assert '  上面: ' in preview
+    assert '校正プラン' in preview
+    assert 'calibration_plan' not in preview
 
 
 def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:

@@ -40,11 +40,14 @@ from htdt.cad_hybrid_acoustic_result import (
     HybridDoubleCountExclusionPolicy,
     HybridFrequencyPartition,
     HybridObservableValidity,
+    LateEnergyDecay,
     build_hybrid_acoustic_result,
     build_hybrid_composition_spec,
     build_hybrid_stitching_policy,
     compose_hybrid_acoustic_result,
 )
+from htdt.cad_hybrid_late_energy import R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
+from htdt.cad_late_field_energy import LATE_FIELD_ARTIFACT_SCHEMA_REF
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import Direction3, Position3
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
@@ -93,6 +96,7 @@ def _snapshot(
     tag: str = 'a',
     *,
     receiver_ids: tuple[str, ...] = ('receiver-1',),
+    observables: tuple[str, ...] = ('complex_pressure', 'deterministic_paths'),
 ) -> AcousticSceneSnapshot:
     source = AcousticSceneSourceBinding(
         source_entity_id='source-1',
@@ -124,10 +128,7 @@ def _snapshot(
                 z_m=1.0,
             ),
             acoustic_reference_semantics='scene_acoustic_reference_position',
-            requested_output_capabilities=(
-                'complex_pressure',
-                'deterministic_paths',
-            ),
+            requested_output_capabilities=observables,
         )
         for index, receiver_id in enumerate(receiver_ids)
     )
@@ -145,17 +146,13 @@ def _snapshot(
         environment_ready=True,
         receiver_ready=True,
         requested_observable_ready=True,
-        observable_readiness=(
+        observable_readiness=tuple(
             ObservableReadiness(
-                observable='complex_pressure',
+                observable=observable,
                 state='READY',
                 reasons=(),
-            ),
-            ObservableReadiness(
-                observable='deterministic_paths',
-                state='READY',
-                reasons=(),
-            ),
+            )
+            for observable in observables
         ),
     )
     probe = AcousticSceneSnapshot.model_construct(
@@ -199,10 +196,7 @@ def _snapshot(
             minimum_hz=20.0,
             maximum_hz=500.0,
         ),
-        requested_observables=(
-            'complex_pressure',
-            'deterministic_paths',
-        ),
+        requested_observables=observables,
         readiness=readiness,
         unresolved_conditions=(),
     )
@@ -1688,3 +1682,177 @@ def test_pr254_legacy_typed_artifact_identity_remains_compatible() -> None:
     assert restored.hybrid_result_id == hybrid.hybrid_result_id
     assert 'composition_spec' not in restored.semantic_payload()
     assert 'composition_decision' not in restored.semantic_payload()
+
+
+def _late_pair(
+    snapshot: AcousticSceneSnapshot,
+    *,
+    domain: FrequencyDomain,
+    schema_ref: ExactExternalAuthorityRef,
+    tag: str = 'late',
+):
+    request = _request(
+        snapshot,
+        observable='late_energy_decay',
+        domain=domain,
+        tag=tag,
+    )
+    artifact_ref = _payload_ref(
+        'late-energy-decay-artifact',
+        'r160-late-energy-decay-1',
+        {'tag': tag},
+    )
+    result = _result(
+        request,
+        observable='late_energy_decay',
+        artifact_ref=artifact_ref,
+        schema_ref=schema_ref,
+        domain=domain,
+        tag=tag,
+    )
+    return request, result
+
+
+def test_late_component_binds_canonical_decay_encoding() -> None:
+    snapshot = _snapshot(observables=('late_energy_decay',))
+    domain = FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0)
+    request, result = _late_pair(
+        snapshot,
+        domain=domain,
+        schema_ref=R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF,
+    )
+    policy = build_hybrid_stitching_policy(mode='disjoint_by_observable')
+
+    hybrid = build_hybrid_acoustic_result(
+        snapshot=snapshot,
+        prediction_requests=(request,),
+        solver_results=(result,),
+        stitching_policy=policy,
+        external_payload_resolver=lambda ref: {},
+    )
+
+    assert hybrid.has_late_energy_decay()
+    assert hybrid.late_energy_decay.state == 'AVAILABLE'
+    assert hybrid.late_energy_decay.encoding_schema_ref == (
+        R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
+    )
+    assert hybrid.valid_frequency_domain_for('late_energy_decay') == domain
+
+
+def test_late_component_rejects_late_field_upper_bound_encoding() -> None:
+    # The R150 late-field artifact shares the 'late_energy_decay' observable
+    # name but encodes per-band energy upper bounds, not decay samples — it
+    # stays a resolvable solver-result row and must not fill the typed slot.
+    snapshot = _snapshot(observables=('late_energy_decay',))
+    domain = FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0)
+    request, result = _late_pair(
+        snapshot,
+        domain=domain,
+        schema_ref=LATE_FIELD_ARTIFACT_SCHEMA_REF,
+    )
+    policy = build_hybrid_stitching_policy(mode='disjoint_by_observable')
+
+    with pytest.raises(
+        ValueError,
+        match='canonical late-energy decay encoding',
+    ):
+        build_hybrid_acoustic_result(
+            snapshot=snapshot,
+            prediction_requests=(request,),
+            solver_results=(result,),
+            stitching_policy=policy,
+            external_payload_resolver=lambda ref: {},
+        )
+
+
+def test_late_component_rejects_foreign_encoding() -> None:
+    snapshot = _snapshot(observables=('late_energy_decay',))
+    domain = FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0)
+    request, result = _late_pair(
+        snapshot,
+        domain=domain,
+        schema_ref=_ref('late-energy-encoding-foreign'),
+    )
+    policy = build_hybrid_stitching_policy(mode='disjoint_by_observable')
+
+    with pytest.raises(
+        ValueError,
+        match='canonical late-energy decay encoding',
+    ):
+        build_hybrid_acoustic_result(
+            snapshot=snapshot,
+            prediction_requests=(request,),
+            solver_results=(result,),
+            stitching_policy=policy,
+            external_payload_resolver=lambda ref: {},
+        )
+
+
+def test_late_component_rejects_canonical_id_with_tampered_hash() -> None:
+    # Encoding validation compares the whole ref, not just the authority id.
+    snapshot = _snapshot(observables=('late_energy_decay',))
+    domain = FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0)
+    tampered = ExactExternalAuthorityRef(
+        authority_id=R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF.authority_id,
+        authority_version=(
+            R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF.authority_version
+        ),
+        semantic_hash_sha256=_hash('tampered-schema-hash'),
+    )
+    request, result = _late_pair(
+        snapshot,
+        domain=domain,
+        schema_ref=tampered,
+    )
+    policy = build_hybrid_stitching_policy(mode='disjoint_by_observable')
+
+    with pytest.raises(
+        ValueError,
+        match='canonical late-energy decay encoding',
+    ):
+        build_hybrid_acoustic_result(
+            snapshot=snapshot,
+            prediction_requests=(request,),
+            solver_results=(result,),
+            stitching_policy=policy,
+            external_payload_resolver=lambda ref: {},
+        )
+
+
+def test_available_late_decay_model_rejects_noncanonical_encoding() -> None:
+    # The component model itself is fail-closed: a hand-built AVAILABLE
+    # LateEnergyDecay cannot bind a non-canonical encoding schema.
+    domain = FrequencyDomain(minimum_hz=100.0, maximum_hz=300.0)
+    validity = HybridObservableValidity(
+        frequency_domain=domain,
+        observable_type='late_energy_decay',
+        source_observable='late_energy_decay',
+        phase_capability='NOT_APPLICABLE',
+        solver_result_id=f'acoustic-solver-result:{_hash("late-result")}',
+        solver_result_sha256=_hash('late-result'),
+        adapter_descriptor_id=f'acoustic-solver-adapter:{_hash("late-adapter")}',
+        adapter_descriptor_sha256=_hash('late-adapter'),
+        solver_implementation_ref=_ref('late-impl'),
+        solver_configuration_ref=_ref('late-conf'),
+        evidence_state='EXECUTED_UNVALIDATED',
+    )
+    with pytest.raises(
+        ValueError,
+        match='canonical',
+    ):
+        LateEnergyDecay(
+            state='AVAILABLE',
+            reason='foreign encoding must not promote',
+            artifact_authority=_ref('late-artifact'),
+            encoding_schema_ref=_ref('late-encoding-foreign'),
+            validity=validity,
+        )
+
+    bound = LateEnergyDecay(
+        state='AVAILABLE',
+        reason='canonical encoding promotes',
+        artifact_authority=_ref('late-artifact'),
+        encoding_schema_ref=R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF,
+        validity=validity,
+    )
+    assert bound.state == 'AVAILABLE'

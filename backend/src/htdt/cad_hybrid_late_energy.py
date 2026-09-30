@@ -35,7 +35,10 @@ bounded decay model and the R150 late-field contribution authority
 (``cad_late_field_energy``, ``LATE_FIELD_ARTIFACT_SCHEMA_REF`` — per-band
 energy upper bounds, not decay samples). Envelopes disambiguate the two
 encodings by ``encoding_schema_ref``; ``build_hybrid_acoustic_result`` fails
-closed when more than one ``late_energy_decay`` candidate is bound.
+closed when more than one ``late_energy_decay`` candidate is bound, and a
+bound candidate is promoted to ``LateEnergyDecay`` only when its encoding
+is :data:`R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF` — any other encoding fails
+closed rather than filling the decay slot with non-decay semantics.
 """
 
 from __future__ import annotations
