@@ -53,6 +53,16 @@ class SceneDocumentHeadIntegrityError(ValueError):
     """
 
 
+class SceneRevisionIntegrityError(ValueError):
+    """A persisted scene revision row is unreadable or fails integrity.
+
+    Scene revision payloads carry a stored content hash verified on every
+    read; a row whose payload cannot be parsed or whose hash does not
+    match must never hydrate into plausible-but-wrong scene data. Fail
+    closed and name the revision instead of surfacing a bare decode error.
+    """
+
+
 class AuthoringConstraintIntegrityError(ValueError):
     """The persisted authoring-constraint authority is unreadable.
 
@@ -1486,12 +1496,22 @@ class SceneRepository:
         *,
         read_blob,
     ) -> SceneRevision:
-        document = SceneDocument.model_validate(json.loads(row['payload_json']))
+        try:
+            document = SceneDocument.model_validate(
+                json.loads(row['payload_json'])
+            )
+        except ValueError as exc:
+            raise SceneRevisionIntegrityError(
+                'scene revision payload is unreadable: '
+                f"{row['revision_id']}"
+            ) from exc
         content_hash = scene_content_hash(document)
         if content_hash != row['content_hash']:
-            raise ValueError(f"scene revision hash mismatch: {row['revision_id']}")
+            raise SceneRevisionIntegrityError(
+                f"scene revision hash mismatch: {row['revision_id']}"
+            )
         if document.document_id != row['document_id']:
-            raise ValueError(
+            raise SceneRevisionIntegrityError(
                 f"scene revision document mismatch: {row['revision_id']}"
             )
         # Issue #653: rehydrate the in-memory mesh cache from the blob store;

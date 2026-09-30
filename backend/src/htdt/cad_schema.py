@@ -546,15 +546,37 @@ def _stored_version(connection: sqlite3.Connection) -> int:
     return version
 
 
+def _reject_empty_database_file(path: Path) -> None:
+    """An existing zero-byte database file is never a valid SQLite store.
+
+    A live HTDT database receives its first page inside the transaction
+    that creates it, so a file that exists but is empty is a torn create
+    or a truncation — evidence of data loss, not a legacy v0 database.
+    Seeding a fresh schema here would silently convert corrupted state
+    into an apparently-empty project.
+    """
+
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return
+    if size == 0:
+        raise NativeSchemaError(
+            f'native database file exists but is empty: {path}'
+        )
+
+
 def read_native_schema_version(path: Path) -> int:
     """Read the native DB schema without modifying the database.
 
-    Version 0 means a pre-versioning/legacy database or an empty database.
+    Version 0 means a pre-versioning/legacy database. An existing
+    zero-byte file is torn or truncated state and fails closed.
     """
 
     path = Path(path)
-    if not path.is_file() or path.stat().st_size == 0:
+    if not path.is_file():
         return 0
+    _reject_empty_database_file(path)
     try:
         with closing(
             sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True)
@@ -616,8 +638,9 @@ def check_native_schema_compatibility(path: Path) -> int:
         if cached is not None and cached[0] == signature:
             _COMPATIBLE_SCHEMA_SIGNATURES.move_to_end(str(path))
             return cached[1]
-    if not path.is_file() or path.stat().st_size == 0:
+    if not path.is_file():
         return 0
+    _reject_empty_database_file(path)
     try:
         with closing(
             sqlite3.connect(f'file:{path.as_posix()}?mode=ro', uri=True)
@@ -1181,6 +1204,7 @@ def ensure_native_schema(path: Path) -> int:
     from .native_backup import recover_interrupted_restore
 
     recover_interrupted_restore(path.parent)
+    _reject_empty_database_file(path)
     signature = _db_file_signature(path)
     if (
         signature is not None

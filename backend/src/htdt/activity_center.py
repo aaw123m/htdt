@@ -838,14 +838,33 @@ class ActivityCenter:
             raise
 
     @classmethod
-    def load_history(cls, path: Path) -> tuple[ApplicationOperation, ...]:
+    def _load_payload(cls, path: Path) -> dict | None:
+        """Read the persisted activity payload; corrupt files degrade to
+        ``None`` — diagnostics must never crash on a torn sidecar."""
+
         path = Path(path)
         if not path.exists():
-            return ()
-        payload = json.loads(path.read_text(encoding='utf-8'))
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError) as exc:
+            _LOGGER.warning(
+                'activity record unreadable, ignoring %s: %s', path, exc
+            )
+            return None
+        if not isinstance(payload, dict):
+            _LOGGER.warning('activity record is not an object: %s', path)
+            return None
         if payload.get('schema_version') != ACTIVITY_SCHEMA_VERSION:
+            return None
+        return payload
+
+    @classmethod
+    def load_history(cls, path: Path) -> tuple[ApplicationOperation, ...]:
+        payload = cls._load_payload(path)
+        if payload is None:
             return ()
-        return cls._load_operations(payload.get('operations', ()), path)
+        return cls._load_operations(payload.get('operations', ()), Path(path))
 
     @classmethod
     def load_active_operations(
@@ -858,14 +877,11 @@ class ActivityCenter:
         treated as resumable work.
         """
 
-        path = Path(path)
-        if not path.exists():
-            return ()
-        payload = json.loads(path.read_text(encoding='utf-8'))
-        if payload.get('schema_version') != ACTIVITY_SCHEMA_VERSION:
+        payload = cls._load_payload(path)
+        if payload is None:
             return ()
         return cls._load_operations(
-            payload.get('active_operations', ()), path
+            payload.get('active_operations', ()), Path(path)
         )
 
     @staticmethod
@@ -875,6 +891,8 @@ class ActivityCenter:
         """Validate rows individually: one corrupt or hand-edited row must
         not take down every other row of a diagnostics read.
         """
+        if not isinstance(items, list):
+            return ()
         operations: list[ApplicationOperation] = []
         for item in items:
             try:
