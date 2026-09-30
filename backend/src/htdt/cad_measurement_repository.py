@@ -110,6 +110,29 @@ def _unpack(blob: bytes | None) -> tuple[float, ...] | None:
     return tuple(payload)
 
 
+def _ir_semantic_payload(dataset: CadImpulseResponseDataset) -> dict:
+    """Semantic identity of an IR dataset for re-import dedup.
+
+    Everything the dataset seals (raw sha, declared interpretation,
+    processing) minus the fresh ``dataset_id`` and the provenance filename
+    recorded inside ``processing_json`` — the same bytes imported under a
+    different source name are still the same dataset.
+    """
+    payload = dataset.model_dump(mode='json', exclude={'dataset_id'})
+    processing_json = payload.get('processing_json')
+    if isinstance(processing_json, str):
+        try:
+            processing = json.loads(processing_json)
+        except ValueError:
+            processing = None
+        if isinstance(processing, dict):
+            processing.pop('filename', None)
+            payload['processing_json'] = json.dumps(
+                processing, sort_keys=True, separators=(',', ':')
+            )
+    return payload
+
+
 class CadMeasurementRepository:
     """Native measurement storage bound directly to immutable SceneRevision rows."""
 
@@ -509,6 +532,19 @@ class CadMeasurementRepository:
         target = self._asset_path(digest)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # An identical artifact already bound to this measurement is a
+            # safe dedup reuse — re-attaching the same (filename, kind,
+            # bytes, note) must not register an indistinguishable second
+            # row (``IS ?`` treats NULL notes as equal).
+            existing = connection.execute(
+                '''SELECT * FROM cad_measurement_attachments
+                   WHERE measurement_id=? AND kind=? AND filename=?
+                   AND sha256=? AND note IS ?
+                   ORDER BY seq ASC LIMIT 1''',
+                (measurement_id, kind, filename, digest, note),
+            ).fetchone()
+            if existing is not None:
+                return self._row_to_attachment(existing)
             connection.execute(
                 '''INSERT OR IGNORE INTO cad_measurement_assets(
                     sha256, filename, relative_path, size_bytes
@@ -1125,7 +1161,7 @@ class CadMeasurementRepository:
         *,
         raw_filename: str,
         raw_bytes: bytes,
-    ) -> None:
+    ) -> CadImpulseResponseDataset:
         """Persist one impulse-response dataset bound to an existing measurement.
 
         An IR is a separate immutable dataset on the same measurement record
@@ -1135,6 +1171,11 @@ class CadMeasurementRepository:
         pinned importer replay must reproduce the sample axis exactly, and
         the row is sealed with the dataset semantic hash plus the versioned
         IR transformation seal which reads re-verify.
+
+        Re-importing a semantically identical dataset (same raw and same
+        declared interpretation — every field but the fresh ``dataset_id``)
+        is an idempotent reuse returning the already-persisted row rather
+        than registering an indistinguishable duplicate.
         """
         record = self.get_measurement(dataset.measurement_id)
         if record is None:
@@ -1145,6 +1186,12 @@ class CadMeasurementRepository:
         digest = sha256(raw_bytes).hexdigest()
         if digest != dataset.source_sha256:
             raise ValueError('IR raw asset SHA-256 does not match dataset source_sha256')
+        new_payload = _ir_semantic_payload(dataset)
+        for existing_dataset in self.ir_datasets_for_measurement(
+            dataset.measurement_id
+        ):
+            if _ir_semantic_payload(existing_dataset) == new_payload:
+                return existing_dataset
         verify_imported_ir_dataset(dataset, raw_bytes)
         dataset_identity = dataset.dataset_sha256
         transformation_identity = ir_transformation_sha256(
@@ -1199,6 +1246,7 @@ class CadMeasurementRepository:
                 ),
             )
             connection.commit()
+        return dataset
 
     _IR_DATASET_SELECT = (
         'SELECT * FROM cad_impulse_responses'
