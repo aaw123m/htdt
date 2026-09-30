@@ -377,7 +377,7 @@ class ManagedAssetStore:
         target = self.asset_path(digest)
         if target.exists():
             if self.read_file(target) != raw_bytes:
-                raise ValueError(
+                raise ManagedAssetError(
                     'content-addressed managed asset hash collision'
                 )
         else:
@@ -395,7 +395,7 @@ class ManagedAssetStore:
         except FileNotFoundError:
             return None
         if sha256(raw).hexdigest() != digest:
-            raise ValueError(
+            raise ManagedAssetError(
                 'managed asset content does not match its content address'
             )
         return raw

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_document import EditStateError
 from .cad_scene import room_vertices
 from .cad_wall_models import WallOpening
 from .cad_walls import (
@@ -360,7 +361,7 @@ class RoomGeometryPanel(QFrame):
     def _run(self, operation, success: str) -> None:
         try:
             changed = bool(operation())
-        except (ValueError, WallTopologyError) as exc:
+        except (EditStateError, ValueError, WallTopologyError) as exc:
             self.geometry.workspace.mark_pending_editor_rejected()
             self.notice.setText(operation_error_message(exc))
             set_semantic_state(self.notice, SemanticState.ERROR)

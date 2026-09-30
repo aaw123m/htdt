@@ -8,6 +8,7 @@ import pyvista as pv
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from .cad_document import EditStateError
 from .cad_scene import RoomPrism, RoomVertex, make_polygon_room, room_vertices
 from .cad_wall_models import WallSegment, WallTopology
 from .cad_walls import (
@@ -445,7 +446,7 @@ class RoomGeometryInputController(QObject):
                 changed = self.set_selected_vertex_coordinates(
                     x_m=vertex.x_m + dx, y_m=vertex.y_m + dy
                 )
-            except (ValueError, WallTopologyError) as exc:
+            except (EditStateError, ValueError, WallTopologyError) as exc:
                 self.workspace._set_status(
                     f"頂点を移動できません: {operation_error_message(exc)}",
                     error=True,
@@ -645,7 +646,7 @@ class RoomGeometryInputController(QObject):
                     room,
                     make_wall_topology(room, thickness_m=thickness),
                 )
-        except (ValueError, WallTopologyError) as exc:
+        except (EditStateError, ValueError, WallTopologyError) as exc:
             self.workspace._set_status(f"部屋形状を確定できません: {operation_error_message(exc)}", error=True)
             return False
         self.mode = "edit"
@@ -676,7 +677,7 @@ class RoomGeometryInputController(QObject):
                 room_id=room.room_id,
             )
             changed = self._commit_room_preserving_topology(replacement)
-        except (ValueError, WallTopologyError) as exc:
+        except (EditStateError, ValueError, WallTopologyError) as exc:
             self.workspace._set_status(f"頂点移動を適用できません: {operation_error_message(exc)}", error=True)
             self.workspace.refresh()
             self._render_edit_handles()
@@ -694,10 +695,16 @@ class RoomGeometryInputController(QObject):
         if moved_room is None or moved_topology is None:
             self._render_edit_handles()
             return
-        changed = self.workspace.controller.replace_room_topology(
-            moved_room,
-            moved_topology,
-        )
+        try:
+            changed = self.workspace.controller.replace_room_topology(
+                moved_room,
+                moved_topology,
+            )
+        except (EditStateError, ValueError, WallTopologyError) as exc:
+            self.workspace._set_status(f"壁移動を適用できません: {operation_error_message(exc)}", error=True)
+            self.workspace.refresh()
+            self._render_edit_handles()
+            return
         if changed:
             self.selected_edge_index = edge_index
             self.workspace.refresh()
