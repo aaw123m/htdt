@@ -62,6 +62,48 @@ _DOMAIN_LABELS = {
     'missing': '欠損',
 }
 
+_LIFECYCLE_LABELS = {
+    'current': '現在',
+    'proposed': '提案済み',
+    'as_built': '竣工',
+    'measured': '実測',
+    'derived': '派生',
+    'hypothesis': '仮説',
+    'historical': '履歴',
+    'stale': '古い',
+    'invalid': '無効',
+    'unknown': '不明',
+}
+
+_NODE_TYPE_LABELS = {
+    'unknown': '不明',
+    'document': 'ドキュメント',
+    'scene_revision': 'シーンリビジョン',
+    'measurement': '測定',
+    'system_variant': 'システム提案',
+}
+
+_EVIDENCE_TYPE_LABELS = {
+    'measured': '実測',
+    'predicted': '予測',
+}
+
+
+def _node_label(node: AuthorityNode) -> str:
+    """Presentation label — the graph keeps diagnostic labels; the dialog
+    renders the localized form of the labels it emits."""
+    label = node.label
+    if node.node_type == 'document' and label.startswith('Document '):
+        return f'ドキュメント {label[len("Document "):]}'
+    if node.node_type == 'scene_revision' and label.startswith('SceneRevision '):
+        return f'シーンリビジョン {label[len("SceneRevision "):]}'
+    if node.node_type == 'measurement':
+        for evidence_type, evidence_label in _EVIDENCE_TYPE_LABELS.items():
+            suffix = f' ({evidence_type})'
+            if label.endswith(suffix):
+                return f'{label[:-len(suffix)]}（{evidence_label}）'
+    return label
+
 
 class AuthorityInspectorDialog(QDialog):
     """Inspect authority lineage for the current document."""
@@ -90,7 +132,9 @@ class AuthorityInspectorDialog(QDialog):
         for node in self._sorted_nodes():
             domain = _DOMAIN_LABELS.get(node.domain.value, node.domain.value)
             stale_mark = ' ⚠' if node.stale else ''
-            self.node_combo.addItem(f'[{domain}] {node.label}{stale_mark}', node.node_id)
+            self.node_combo.addItem(
+                f'[{domain}] {_node_label(node)}{stale_mark}', node.node_id
+            )
             self._node_ids.append(node.node_id)
         layout.addWidget(self.node_combo)
 
@@ -169,9 +213,18 @@ class AuthorityInspectorDialog(QDialog):
             self.hash_label.setText('-')
             self.created_label.setText('-')
             return
+        node = self._graph.node(node_id)
         summary = self._inspector.summary(node_id)
-        self.authority_class_label.setText(summary.authority_class)
-        self.lifecycle_label.setText(summary.lifecycle.value)
+        domain, _, node_type = summary.authority_class.partition(':')
+        self.authority_class_label.setText(
+            f"{_DOMAIN_LABELS.get(domain, domain)}"
+            f"・{_NODE_TYPE_LABELS.get(node_type, node_type)}"
+        )
+        self.lifecycle_label.setText(
+            _LIFECYCLE_LABELS.get(
+                summary.lifecycle.value, summary.lifecycle.value
+            )
+        )
         self.freshness_label.setText(
             _FRESHNESS_LABELS.get(summary.freshness, summary.freshness)
         )
@@ -182,14 +235,13 @@ class AuthorityInspectorDialog(QDialog):
         )
         self.hash_label.setText(summary.authority_hash or '-')
         self.created_label.setText(summary.created_at_utc or '-')
-        for node in self._graph.upstream(node_id):
-            QListWidgetItem(node.label, self.upstream_list)
-        for node in self._graph.downstream(node_id):
-            QListWidgetItem(node.label, self.downstream_list)
+        for upstream in self._graph.upstream(node_id):
+            QListWidgetItem(_node_label(upstream), self.upstream_list)
+        for downstream in self._graph.downstream(node_id):
+            QListWidgetItem(_node_label(downstream), self.downstream_list)
         reasons = self._inspector.why_stale(node_id)
         if reasons:
             self.why_stale_label.setText('古い理由: ' + ' / '.join(reasons))
-        node = self._graph.node(node_id)
         self.open_button.setEnabled(
             node is not None and node.deep_link is not None and self._on_deep_link is not None
         )

@@ -225,6 +225,30 @@ def normalize_workspace_context(workspace: WorkspaceId | str, context_id: str) -
     return WORKSPACE_CONTEXT_ALIASES.get(workspace_id, {}).get(context_id, context_id)
 
 
+def destination_label(destination: DestinationId) -> str:
+    """Japanese display label for a shell destination (raw id as fallback)."""
+    if isinstance(destination, WorkspaceId):
+        return CANONICAL_WORKSPACE_LABELS.get(destination, destination.value)
+    return APPLICATION_DESTINATION_LABELS.get(destination, destination.value)
+
+
+def workspace_context_label(
+    workspace: WorkspaceId | str, context_id: str
+) -> str:
+    """Japanese display label for a workspace context id.
+
+    A stale or foreign deep link can name a context the target workspace
+    does not expose — fall back across every workspace's contexts so the
+    message still names it in Japanese, then to the raw id.
+    """
+    canonical = normalize_workspace_context(workspace, context_id)
+    for contexts in CANONICAL_WORKSPACE_CONTEXTS.values():
+        for context in contexts:
+            if context.context_id == canonical:
+                return context.label
+    return context_id
+
+
 __all__ = [
     "APPLICATION_DESTINATION_LABELS",
     "ApplicationDestinationId",
@@ -237,8 +261,10 @@ __all__ = [
     "WorkspaceContext",
     "WorkspaceDeepLink",
     "WorkspaceId",
+    "destination_label",
     "destination_scope",
     "normalize_destination_id",
     "normalize_workspace_context",
     "normalize_workspace_id",
+    "workspace_context_label",
 ]

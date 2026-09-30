@@ -37,6 +37,7 @@ from .navigation_target import (
     NavigationResolver,
     NavigationTarget,
     NavigationTargetKind,
+    navigation_kind_label,
 )
 from .workflow_navigation import (
     CANONICAL_WORKSPACE_CONTEXTS,
@@ -47,10 +48,12 @@ from .workflow_navigation import (
     WorkspaceContext,
     WorkspaceDeepLink,
     WorkspaceId,
+    destination_label,
     destination_scope,
     normalize_destination_id,
     normalize_workspace_context,
     normalize_workspace_id,
+    workspace_context_label,
 )
 from .workspace_dirty_state import (
     DeactivationContext,
@@ -292,7 +295,10 @@ class WorkspaceRouter(QStackedWidget):
             return TargetFocusResult(focused=True)
         return TargetFocusResult(
             focused=False,
-            message=f"{target.kind.value}の個別フォーカスはこの画面では未対応です",
+            message=(
+                f"{navigation_kind_label(target.kind)}"
+                "の個別フォーカスはこの画面では未対応です"
+            ),
         )
 
     def can_dispose_all(self) -> tuple[bool, str | None]:
@@ -833,7 +839,7 @@ class WorkflowShellWindow(QMainWindow):
         destination = normalize_destination_id(workspace_id)
         if destination not in self._registrations:
             self.statusBar().showMessage(
-                f"未登録の画面です: {destination.value}"
+                f"未登録の画面です: {destination_label(destination)}"
             )
             return False
         previous = self.router.current_workspace_id
@@ -897,7 +903,8 @@ class WorkflowShellWindow(QMainWindow):
                 # A stale or foreign link must not crash the navigation —
                 # land on the workspace and say which section was missing.
                 self.statusBar().showMessage(
-                    f"対象のセクション {link.section} はこの画面にありません"
+                    f"対象のセクション {workspace_context_label(link.workspace, link.section)} "
+                    "はこの画面にありません"
                 )
 
         if resolution.status == "focused":
