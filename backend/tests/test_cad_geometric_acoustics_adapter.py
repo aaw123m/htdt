@@ -4,6 +4,7 @@ from hashlib import sha256
 import json
 from math import acos, degrees, isclose, sqrt
 from pathlib import Path
+import random
 
 import pytest
 
@@ -63,6 +64,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
+    _segment_blocked,
     build_deterministic_ga_configuration,
     build_deterministic_ga_result_envelope,
     compile_deterministic_ga_execution_input,
@@ -70,8 +72,11 @@ from htdt.cad_geometric_acoustics_adapter import (
 )
 from htdt.cad_geometric_acoustics_portal import (
     PORTAL_SIDE_SEMANTICS,
+    _point_on_triangle,
+    _ray_triangle_parameter,
     compile_portal_graph,
 )
+from htdt.occluder_grid_index import _IndexedOccluderRows
 from htdt.cad_r110_source import compile_r110_source_model
 from htdt.cad_r110_source_repository import CadR110SourceRepository
 from htdt.cad_repository import SceneRepository
@@ -3553,3 +3558,119 @@ def test_artifact_save_skips_revalidation_of_equal_persisted_semantics(
     finally:
         repository._validate = original_validate
     assert validations == [artifact]
+
+
+def _generated_occluder_rows(
+    rng: random.Random,
+    count: int,
+) -> list[tuple]:
+    rows = []
+    for index in range(count):
+        center = tuple(rng.uniform(0.0, 9.0) for _ in range(3))
+        extent = rng.uniform(0.05, 1.2)
+        rows.append(
+            (f'surface-{index % 9}',)
+            + tuple(
+                tuple(
+                    center[axis] + rng.uniform(-extent, extent)
+                    for axis in range(3)
+                )
+                for _ in range(3)
+            )
+        )
+    rows.append(
+        ('surface-edge', (0.0, 0.0, 0.0), (9.0, 0.0, 0.0), (0.0, 9.0, 0.0))
+    )
+    rows.append(
+        ('surface-degenerate', (3.0, 3.0, 3.0), (3.0, 3.0, 3.0), (3.0, 3.0, 3.0))
+    )
+    return rows
+
+
+def test_segment_blocked_uniform_grid_matches_brute_force() -> None:
+    """Indexed occluder rows must yield identical pass/block verdicts.
+
+    ``compiled`` is unused by ``_segment_blocked`` whenever explicit
+    occluder rows are provided, so ``None`` stands in here.
+    """
+    rng = random.Random(20240924)
+    rows = _generated_occluder_rows(rng, 400)
+    indexed = _IndexedOccluderRows(rows)
+    plain = tuple(rows)
+    ignored = frozenset({'surface-2', 'surface-5'})
+    mismatches = []
+    for _ in range(1500):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        for tolerance in (1.0e-9, 1.0e-6):
+            for scaled in (False, True):
+                expected = _segment_blocked(
+                    None,
+                    start,
+                    end,
+                    tolerance=tolerance,
+                    ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=scaled,
+                    occluder_triangles=plain,
+                )
+                actual = _segment_blocked(
+                    None,
+                    start,
+                    end,
+                    tolerance=tolerance,
+                    ignored_surface_ids=ignored,
+                    distance_scaled_tolerance=scaled,
+                    occluder_triangles=indexed,
+                )
+                if actual != expected:
+                    mismatches.append((start, end, tolerance, scaled))
+    assert mismatches == []
+
+
+def test_indexed_occluder_rows_bare_rows_cover_exact_hits() -> None:
+    """Bare (va, vb, vc) rows: grid candidates are a superset of exact hits.
+
+    The portal membership path indexes bare triangle rows and narrows
+    both segment (parity ray + crossing) and point (boundary) scans. The
+    index must never drop a row the exact tests would hit.
+    """
+    rng = random.Random(20240925)
+    rows = tuple(row[1:] for row in _generated_occluder_rows(rng, 400))
+    indexed = _IndexedOccluderRows(rows)
+    for _ in range(1500):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        for tolerance_m in (1.0e-9, 1.0e-6):
+            yielded = {
+                id(row)
+                for row in indexed._segment_candidates(start, end)
+            }
+            for triangle in rows:
+                if (
+                    _ray_triangle_parameter(
+                        start,
+                        end,
+                        triangle,
+                        tolerance_m=tolerance_m,
+                    )
+                    is not None
+                ):
+                    assert id(triangle) in yielded
+            point = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+            point_yielded = {
+                id(row)
+                for row in indexed._point_candidates(point, tolerance_m)
+            }
+            for triangle in rows:
+                if _point_on_triangle(
+                    point,
+                    triangle,
+                    tolerance_m=tolerance_m,
+                ):
+                    assert id(triangle) in point_yielded
+    short_candidates = list(
+        indexed._segment_candidates((4.5, 4.5, 4.5), (4.55, 4.5, 4.5))
+    )
+    candidate_ids = [id(row) for row in short_candidates]
+    assert len(set(candidate_ids)) == len(candidate_ids)
+    assert len(short_candidates) < len(rows)

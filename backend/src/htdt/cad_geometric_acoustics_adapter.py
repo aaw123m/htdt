@@ -62,6 +62,7 @@ from .r120_geometry_compiler import (
 )
 from .canonical_json import canonical_json as _canonical_json, canonical_sha256 as _semantic_hash
 from .clock import utc_now_iso as _utc_now
+from .occluder_grid_index import _IndexedOccluderRows
 
 
 DETERMINISTIC_GA_SCHEMA_VERSION = 1
@@ -2921,7 +2922,7 @@ def _occluder_triangles(
     ],
     ...,
 ]:
-    return tuple(
+    return _IndexedOccluderRows(
         (triangle.source_surface_id,) + _triangle_vertices(compiled, index)
         for index, triangle in enumerate(compiled.triangles)
     )
@@ -2945,8 +2946,13 @@ def _segment_blocked(
     ] | None = None,
 ) -> bool:
     if occluder_triangles is None:
-        occluder_triangles = _occluder_triangles(compiled)
-    for surface_id, vertex_a, vertex_b, vertex_c in occluder_triangles:
+        occluder_triangles = tuple(_occluder_triangles(compiled))
+    candidates = (
+        occluder_triangles._segment_candidates(start, end)
+        if isinstance(occluder_triangles, _IndexedOccluderRows)
+        else occluder_triangles
+    )
+    for surface_id, vertex_a, vertex_b, vertex_c in candidates:
         if surface_id in ignored_surface_ids:
             continue
         hit = _segment_triangle_intersection_parameter(
