@@ -1096,10 +1096,13 @@ class PffdtdPolyhedralCandidateWaveExecutor:
             authority.snapshot_id
         )
         request = self.base_executor.snapshot_repository.get_prediction_request(
-            authority.prediction_request_id
+            authority.prediction_request_id,
+            _validated_snapshot=snapshot,
         )
         dispatch = self.base_executor.dispatch_repository.get_dispatch(
-            authority.dispatch_binding_id
+            authority.dispatch_binding_id,
+            _validated_snapshot=snapshot,
+            _validated_request=request,
         )
         if snapshot is None or request is None or dispatch is None:
             raise CandidateWaveExecutionError(

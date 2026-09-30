@@ -584,3 +584,50 @@ def test_repository_persistence_revalidates_every_exact_authority(
     fx['material_box']['value'] = _material(supported=False)
     with pytest.raises(ValueError):
         repository.get(artifact.artifact_id)
+
+
+def test_persisted_late_field_read_loads_each_authority_once(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    configuration = _late_configuration()
+    artifact = _execute_late(fx, configuration)
+
+    deterministic_repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    deterministic_repository.save_execution_input(fx['execution_input'])
+
+    repository = CadLateFieldEnergyArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        late_field_configuration_resolver=lambda ref: (
+            configuration
+            if configuration.as_external_ref() == ref
+            else None
+        ),
+        geometry_authority_resolver=fx['geometry_resolver'],
+        material_resolver=fx['material_resolver'],
+    )
+    repository.save(artifact)
+
+    snapshot_loads: list[str] = []
+    original_get_snapshot = fx['snapshot_repository'].get_snapshot
+
+    def spy(snapshot_id):
+        snapshot_loads.append(snapshot_id)
+        return original_get_snapshot(snapshot_id)
+
+    fx['snapshot_repository'].get_snapshot = spy
+    try:
+        assert repository.get(artifact.artifact_id) == artifact
+    finally:
+        fx['snapshot_repository'].get_snapshot = original_get_snapshot
+    assert snapshot_loads == [artifact.snapshot_id]

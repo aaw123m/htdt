@@ -889,11 +889,22 @@ def region_membership_with_portal_caps(
     apertures: Sequence[GeometricPortalAperture],
     point: Sequence[float],
     tolerance_m: float,
+    shell_triangles: Sequence[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
 ) -> Literal['inside', 'outside', 'boundary', 'ambiguous']:
-    triangles = _region_shell_triangles(
-        compiled_geometry,
-        region,
-        apertures,
+    triangles = (
+        tuple(shell_triangles)
+        if shell_triangles is not None
+        else _region_shell_triangles(
+            compiled_geometry,
+            region,
+            apertures,
+        )
     )
     if not triangles:
         return 'ambiguous'
@@ -972,18 +983,35 @@ def region_segment_membership_with_portal_caps(
     start: Sequence[float],
     end: Sequence[float],
     tolerance_m: float,
+    shell_triangles: Sequence[
+        tuple[
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
 ) -> Literal['valid', 'invalid', 'ambiguous']:
     """Prove an open segment remains in one capped AcousticRegion shell."""
 
     segment_length = _norm(_vector(start, end))
     if segment_length <= tolerance_m:
         return 'invalid'
+    triangles = (
+        tuple(shell_triangles)
+        if shell_triangles is not None
+        else _region_shell_triangles(
+            compiled_geometry,
+            region,
+            apertures,
+        )
+    )
     start_membership = region_membership_with_portal_caps(
         compiled_geometry=compiled_geometry,
         region=region,
         apertures=apertures,
         point=start,
         tolerance_m=tolerance_m,
+        shell_triangles=triangles,
     )
     end_membership = region_membership_with_portal_caps(
         compiled_geometry=compiled_geometry,
@@ -991,6 +1019,7 @@ def region_segment_membership_with_portal_caps(
         apertures=apertures,
         point=end,
         tolerance_m=tolerance_m,
+        shell_triangles=triangles,
     )
     if start_membership == 'ambiguous' or end_membership == 'ambiguous':
         return 'ambiguous'
@@ -1011,16 +1040,11 @@ def region_segment_membership_with_portal_caps(
             apertures=apertures,
             point=midpoint,
             tolerance_m=tolerance_m,
+            shell_triangles=triangles,
         )
         != 'inside'
     ):
         return 'invalid'
-
-    triangles = _region_shell_triangles(
-        compiled_geometry,
-        region,
-        apertures,
-    )
     if any(
         _ray_triangle_parameter(
             start,

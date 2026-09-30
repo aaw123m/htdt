@@ -700,7 +700,8 @@ class CadAcousticTreatmentComparisonRepository:
                     )
                 for request_ref in candidate.prediction_requests:
                     request = self.snapshot_repository.get_prediction_request(
-                        request_ref.request_id
+                        request_ref.request_id,
+                        _validated_snapshot=snapshot,
                     )
                     if request is None:
                         raise ValueError(

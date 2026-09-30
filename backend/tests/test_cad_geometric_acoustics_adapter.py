@@ -3430,3 +3430,126 @@ def test_directivity_angles_accept_pitched_source_axes() -> None:
         _directivity_angles(
             Direction3(x=0.0, y=0.0, z=1.0), (0.0, 0.0, 1.0), tolerance=1e-9
         )
+
+
+def test_persisted_artifact_read_loads_each_authority_once(
+    tmp_path: Path,
+) -> None:
+    """Read-path replay reuses authorities validated earlier in the same call."""
+    fx = _specular_chain_fixture(
+        tmp_path / 'fx',
+        maximum_reflection_order=1,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    snapshot_loads: list[str] = []
+    request_loads: list[str] = []
+    dispatch_loads: list[str] = []
+    original_get_snapshot = fx['snapshot_repository'].get_snapshot
+    original_get_request = fx['snapshot_repository'].get_prediction_request
+    original_get_dispatch = fx['dispatch_repository'].get_dispatch
+
+    def spy(bucket, getter):
+        def wrapped(*args, **kwargs):
+            bucket.append(args[0])
+            return getter(*args, **kwargs)
+
+        return wrapped
+
+    fx['snapshot_repository'].get_snapshot = spy(
+        snapshot_loads, original_get_snapshot
+    )
+    fx['snapshot_repository'].get_prediction_request = spy(
+        request_loads, original_get_request
+    )
+    fx['dispatch_repository'].get_dispatch = spy(
+        dispatch_loads, original_get_dispatch
+    )
+    try:
+        assert repository.get(artifact.artifact_id) == artifact
+    finally:
+        fx['snapshot_repository'].get_snapshot = original_get_snapshot
+        fx['snapshot_repository'].get_prediction_request = original_get_request
+        fx['dispatch_repository'].get_dispatch = original_get_dispatch
+    assert snapshot_loads == [artifact.snapshot_id]
+    assert request_loads == [artifact.prediction_request_id]
+    assert dispatch_loads == [artifact.dispatch_binding_id]
+
+
+def test_prediction_request_reuses_validated_snapshot_and_falls_back(
+    tmp_path: Path,
+) -> None:
+    fx = _fixture(tmp_path)
+    snapshot_repository = fx['snapshot_repository']
+    snapshot = fx['snapshot']
+    request = fx['request']
+
+    loads: list[str] = []
+    original_get_snapshot = snapshot_repository.get_snapshot
+
+    def spy(snapshot_id):
+        loads.append(snapshot_id)
+        return original_get_snapshot(snapshot_id)
+
+    snapshot_repository.get_snapshot = spy
+    try:
+        assert snapshot_repository.get_prediction_request(
+            request.request_id,
+            _validated_snapshot=snapshot,
+        ) == request
+        assert loads == []
+
+        mismatched = snapshot.model_copy(update={'snapshot_id': 'stale-id'})
+        assert snapshot_repository.get_prediction_request(
+            request.request_id,
+            _validated_snapshot=mismatched,
+        ) == request
+        assert loads == [snapshot.snapshot_id]
+    finally:
+        snapshot_repository.get_snapshot = original_get_snapshot
+
+
+def test_artifact_save_skips_revalidation_of_equal_persisted_semantics(
+    tmp_path: Path,
+) -> None:
+    fx = _specular_chain_fixture(
+        tmp_path / 'fx',
+        maximum_reflection_order=1,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    artifact = _execute(fx)
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    validations = []
+    original_validate = repository._validate
+
+    def spy(candidate):
+        validations.append(candidate)
+        return original_validate(candidate)
+
+    repository._validate = spy
+    try:
+        assert repository.save(artifact) == artifact
+    finally:
+        repository._validate = original_validate
+    assert validations == [artifact]
