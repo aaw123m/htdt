@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import pytest
@@ -513,3 +513,45 @@ def test_supported_current_prediction_wins_over_unsupported_sibling_result() -> 
     assert view.summary == '最適化の準備ができています。'
     assert view.next_action is not None
     assert view.next_action.action_id == 'optimization.open_setup'
+
+
+def test_impact_notices_identify_predictions_by_prediction_id(monkeypatch) -> None:
+    """REV24-UXFLOW: #717 wrote ``result.result_id`` — CadPredictionResult
+    exposes ``prediction_id``; any project with a saved prediction crashed
+    on Overview once the head had a parent revision."""
+    parent = _revision()
+    head = replace(
+        parent,
+        revision_id='revision-head',
+        parent_revision_id=parent.revision_id,
+        content_hash='b' * 64,
+    )
+    prediction = SimpleNamespace(
+        status='completed',
+        prediction_id='pred-1',
+        scene_revision_id=parent.revision_id,
+        scene_content_hash=parent.content_hash,
+    )
+    service = _service(head, predictions=(prediction,))
+    service._impact_source = SimpleNamespace(
+        get=lambda revision_id: parent if revision_id == parent.revision_id else None
+    )
+
+    captured: dict = {}
+
+    def fake_report(**kwargs):
+        captured['report'] = kwargs
+        return SimpleNamespace(impacts=())
+
+    monkeypatch.setattr(
+        'htdt.overview_readiness.build_dependency_impact_report', fake_report
+    )
+
+    notices = service._impact_notices(
+        head, completed_predictions=(prediction,), measurements=()
+    )
+
+    assert notices == ()
+    artifacts = captured['report']['artifacts']
+    assert artifacts[0].artifact_kind == 'prediction'
+    assert artifacts[0].artifact_id == 'pred-1'

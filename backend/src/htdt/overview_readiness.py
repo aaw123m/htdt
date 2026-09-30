@@ -1123,7 +1123,7 @@ class OverviewReadinessService:
             artifacts.append(
                 WatchedArtifact(
                     artifact_kind='prediction',
-                    artifact_id=result.result_id,
+                    artifact_id=result.prediction_id,
                     bound_revision_id=result.scene_revision_id,
                     bound_content_hash=result.scene_content_hash,
                     watched_axes=frozenset(

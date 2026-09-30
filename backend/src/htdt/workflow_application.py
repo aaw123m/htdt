@@ -9,7 +9,7 @@ import sys
 from typing import Literal
 import weakref
 
-from PySide6.QtCore import QByteArray, QPointF, Qt, QTimer, Slot
+from PySide6.QtCore import QByteArray, QObject, QPointF, Qt, QTimer, Slot
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -457,6 +457,31 @@ def _is_kind(workspace: RoomWorkspace, entity_id: str, kind: str) -> bool:
         return False
 
 
+class _BundleJobCompletionRelay(QObject):
+    """UI-thread receiver for bundle-pool completions.
+
+    ``NativeWorker.completed`` emits inside ``NativeWorker.run`` on the
+    worker thread; PySide only queues delivery when the receiver has
+    QObject thread affinity. A bound method of this plain composition
+    would be invoked DIRECTLY on the worker thread — its Qt calls
+    (QMessageBox parenting, ``.exec()``, statusBar writes) then produced
+    ``QObject::setParent ... different thread`` warnings, ghosted modal
+    dialogs and deadlocked the app after export/import (REV24-UXFLOW).
+    """
+
+    def __init__(
+        self,
+        deliver: Callable[[object, object, object], None],
+        parent: QObject,
+    ) -> None:
+        super().__init__(parent)
+        self._deliver = deliver
+
+    @Slot(object, object, object)
+    def receive(self, key: object, result: object, error: object) -> None:
+        self._deliver(key, result, error)
+
+
 @dataclass(frozen=True, slots=True)
 class _NavigationProjectResolution:
     """Typed-target ``project_id`` resolved onto a document — or failed closed.
@@ -631,7 +656,15 @@ class WorkflowApplicationComposition:
         # ``_can_close_application``, and a close hook drains the pool.
         self._bundle_busy = False
         self._bundle_import_path: Path | None = None
+        # The status-bar line the in-flight bundle job posted; cleared on
+        # completion only while it is still the current message, so a
+        # finished job never keeps claiming it is running and a fresher
+        # notice is never wiped (#REV24-UXFLOW).
+        self._bundle_status_message: str | None = None
         self._bundle_pool = NativeWorkerPool(self.shell)
+        self._bundle_receiver = _BundleJobCompletionRelay(
+            self._bundle_job_completed, self.shell
+        )
         self.data_management_component = build_data_management_component(
             self.data_management_controller
         )
@@ -1044,6 +1077,9 @@ class WorkflowApplicationComposition:
             item.setData(Qt.ItemDataRole.UserRole, entry.project_id)
             listing.addItem(item)
         listing.setCurrentRow(0)
+        # Enter/Return or double-click on a row accepts the dialog — the
+        # picker's primary gesture, matching the command palette's list.
+        listing.itemActivated.connect(lambda *_item: dialog.accept())
         layout.addWidget(listing)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -1090,6 +1126,8 @@ class WorkflowApplicationComposition:
             item.setData(Qt.ItemDataRole.UserRole, item_id)
             listing.addItem(item)
         listing.setCurrentRow(min(selected_row, len(entries) - 1))
+        # Enter/Return or double-click on a row accepts the pick.
+        listing.itemActivated.connect(lambda *_item: dialog.accept())
         layout.addWidget(listing)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -1213,16 +1251,30 @@ class WorkflowApplicationComposition:
             composition = composition._spawned_compositions[-1]
         return composition
 
-    def _new_project(self) -> None:
-        name, ok = QInputDialog.getText(
-            self.shell, "新規プロジェクト", "プロジェクト名:"
-        )
-        if not ok:
-            return
-        if not name.strip():
-            QMessageBox.warning(
-                self.shell, "新規プロジェクト", "プロジェクト名を入力してください"
+    def _prompt_project_name(
+        self, title: str, label: str, *, text: str = ''
+    ) -> str | None:
+        """Prompt for a project name until a non-empty one or Cancel.
+
+        A blank name used to dead-end the flow on a warning box, forcing
+        the operator to reopen the dialog from the menu. Re-prompting
+        keeps the entered intent alive; Cancel still aborts.
+        """
+        while True:
+            name, ok = QInputDialog.getText(
+                self.shell, title, label, text=text
             )
+            if not ok:
+                return None
+            if name.strip():
+                return name.strip()
+            QMessageBox.warning(
+                self.shell, title, "プロジェクト名を入力してください"
+            )
+
+    def _new_project(self) -> None:
+        name = self._prompt_project_name("新規プロジェクト", "プロジェクト名:")
+        if name is None:
             return
         try:
             entry = self.project_library.create_project(name)
@@ -1250,18 +1302,12 @@ class WorkflowApplicationComposition:
             self._switch_to_project(entry)
 
     def _rename_project(self) -> None:
-        name, ok = QInputDialog.getText(
-            self.shell,
+        name = self._prompt_project_name(
             "プロジェクト名を変更",
             "新しいプロジェクト名:",
             text=self.project_entry.display_name,
         )
-        if not ok:
-            return
-        if not name.strip():
-            QMessageBox.warning(
-                self.shell, "プロジェクト名を変更", "プロジェクト名を入力してください"
-            )
+        if name is None:
             return
         try:
             self.project_entry = self.project_library.rename_project(
@@ -1340,18 +1386,12 @@ class WorkflowApplicationComposition:
         decision = self._project_snapshot_decision('複製')
         if decision is None:
             return
-        name, ok = QInputDialog.getText(
-            self.shell,
+        name = self._prompt_project_name(
             "プロジェクトを複製",
             "複製後のプロジェクト名:",
             text=f"{self.project_entry.display_name} のコピー",
         )
-        if not ok:
-            return
-        if not name.strip():
-            QMessageBox.warning(
-                self.shell, "プロジェクトを複製", "複製後のプロジェクト名を入力してください"
-            )
+        if name is None:
             return
         try:
             entry = self.project_library.duplicate_project(
@@ -1399,8 +1439,9 @@ class WorkflowApplicationComposition:
             return
         # Runs on the bundle worker pool — a large project's snapshot
         # + zip walk used to freeze the UI thread for tens of seconds
-        # (#REV19). Completion lands in ``_bundle_job_completed`` on the
-        # UI thread, which owns the wait cursor and the result dialog.
+        # (#REV19). Completion is relayed through ``_bundle_receiver`` so
+        # ``_bundle_job_completed`` runs on the UI thread, which owns the
+        # wait cursor and the result dialog.
         self._begin_bundle_job(
             "プロジェクトバンドルをエクスポートしています…"
         )
@@ -1411,7 +1452,7 @@ class WorkflowApplicationComposition:
                 self.document_id,
                 Path(selected),
             ),
-            self._bundle_job_completed,
+            self._bundle_receiver.receive,
         )
 
     def _import_project_bundle(self) -> None:
@@ -1430,7 +1471,7 @@ class WorkflowApplicationComposition:
             return
         # Offloaded like export (#REV19); the record-identity-conflict
         # retry question is asked in ``_bundle_job_completed`` on the UI
-        # thread after the first attempt fails.
+        # thread (via ``_bundle_receiver``) after the first attempt fails.
         self._bundle_import_path = Path(selected)
         self._begin_bundle_job(
             "プロジェクトバンドルをインポートしています…"
@@ -1440,7 +1481,7 @@ class WorkflowApplicationComposition:
             lambda _cancel_event: import_project_bundle(
                 self.repository, Path(selected)
             ),
-            self._bundle_job_completed,
+            self._bundle_receiver.receive,
         )
 
     def _archive_dialog(self, *, archived: bool) -> None:
@@ -2889,7 +2930,7 @@ class WorkflowApplicationComposition:
                 if report.all_stopped:
                     return True, '実行中の予測を中止しました'
                 return True, '実行中の予測を中止しました · 停止が遅延している処理の結果は適用されません'
-            return workspace.controller.resolve_dirty_state(action)
+            return workspace.resolve_dirty_state(action)
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:
@@ -3800,6 +3841,7 @@ class WorkflowApplicationComposition:
 
     def _begin_bundle_job(self, message: str) -> None:
         self._bundle_busy = True
+        self._bundle_status_message = message
         self.shell.statusBar().showMessage(message)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
@@ -3816,6 +3858,17 @@ class WorkflowApplicationComposition:
         task_key = str(key)
         self._bundle_busy = False
         QApplication.restoreOverrideCursor()
+        # The in-flight line must not outlive the job — without this the
+        # status bar kept claiming an export/import was still running after
+        # it finished. Only clear it while it is still displayed: a newer
+        # notice posted mid-job stays.
+        if (
+            self._bundle_status_message is not None
+            and self.shell.statusBar().currentMessage()
+            == self._bundle_status_message
+        ):
+            self.shell.statusBar().clearMessage()
+        self._bundle_status_message = None
         if error == WORKER_CANCELLED:
             self.shell.statusBar().showMessage(
                 "プロジェクトバンドル処理を中止しました"
@@ -3864,7 +3917,7 @@ class WorkflowApplicationComposition:
                             source,
                             import_as_copy=True,
                         ),
-                        self._bundle_job_completed,
+                        self._bundle_receiver.receive,
                     )
                 return
             if isinstance(error, Exception):

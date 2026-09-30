@@ -5,17 +5,26 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QDialog, QLabel
+from PySide6.QtCore import QEventLoop, Qt, QThread, QTimer
+from PySide6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QMessageBox,
+)
 
 from htdt import dirty_state_dialog
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_empty_scene
 from htdt.command_palette import CommandPalette, CommandShortcutBinder
 from htdt.navigation_target import NavigationTarget, NavigationTargetKind
+from htdt.native_worker import WORKER_CANCELLED
 from htdt.command_registry import (
     DATA_MUTATIONS_FROZEN_REASON,
     CommandAvailability,
@@ -484,3 +493,195 @@ def test_snapshot_decision_save_resolves_dirty_mounts(
     composition.shell.close()
     composition.shell.deleteLater()
     app.processEvents()
+
+
+# ---------------------------------------------------------------------
+# REV24-UXFLOW: status-bar truth + dialog affordance regressions.
+# These construct a WorkflowApplicationComposition — they must live in a
+# module without native_editor/room_workspace (PyVista) imports, which
+# crash xdist workers during composition construction.
+
+
+def test_bundle_completion_clears_busy_status(tmp_path: Path) -> None:
+    """A finished bundle job must not keep its 'running' status line."""
+    app = _app()
+    composition = _composition(tmp_path)
+    bar = composition.shell.statusBar()
+
+    composition._begin_bundle_job("プロジェクトバンドルをエクスポートしています…")
+    assert "エクスポートしています" in bar.currentMessage()
+
+    composition._bundle_job_completed(
+        "project.bundle.export", None, WORKER_CANCELLED
+    )
+    assert composition._bundle_status_message is None
+    assert "エクスポートしています" not in bar.currentMessage()
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_bundle_completion_keeps_fresher_status(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A notice posted while the job ran must survive its cleanup."""
+    app = _app()
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: QDialog.DialogCode.Accepted
+    )
+    composition = _composition(tmp_path)
+    bar = composition.shell.statusBar()
+
+    composition._begin_bundle_job("プロジェクトバンドルをエクスポートしています…")
+    bar.showMessage("別の通知")
+
+    result = SimpleNamespace(row_count=3, asset_count=2, manifest_sha256="abc")
+    composition._bundle_job_completed("project.bundle.export", result, None)
+
+    assert bar.currentMessage() == "別の通知"
+    assert composition._bundle_busy is False
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def _exec_activating_first_row(self: QDialog) -> int:
+    """Stand-in for QDialog.exec: fire the list's primary gesture."""
+    listing = self.findChild(QListWidget)
+    if listing is not None and listing.count():
+        listing.setCurrentRow(0)
+        listing.itemActivated.emit(listing.item(0))
+    return int(self.result())
+
+
+def test_pick_one_accepts_on_item_activation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Enter/double-click on a picker row accepts — same gesture as the
+    command palette list."""
+    app = _app()
+    composition = _composition(tmp_path)
+    monkeypatch.setattr(QDialog, "exec", _exec_activating_first_row)
+
+    picked = composition._pick_one(
+        "対象を選択", "対象:", (("Alpha", "id-a"), ("Beta", "id-b"))
+    )
+    assert picked == "id-a"
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_choose_project_accepts_on_item_activation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    monkeypatch.setattr(QDialog, "exec", _exec_activating_first_row)
+
+    entries = (
+        SimpleNamespace(project_id="p-1", display_name="リビング"),
+        SimpleNamespace(project_id="p-2", display_name="シアター"),
+    )
+    picked = composition._choose_project(entries, "開く", "対象:")
+    assert picked is entries[0]
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_prompt_project_name_reprompts_until_named(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Blank names re-prompt instead of dead-ending the flow."""
+    app = _app()
+    composition = _composition(tmp_path)
+    answers = iter([("", True), ("   ", True), ("  リビング  ", True)])
+    warnings: list[str] = []
+
+    monkeypatch.setattr(
+        QInputDialog, "getText", lambda *a, **k: next(answers)
+    )
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *a, **k: warnings.append(a[2])
+    )
+
+    assert (
+        composition._prompt_project_name("新規プロジェクト", "プロジェクト名:")
+        == "リビング"
+    )
+    assert warnings == ["プロジェクト名を入力してください"] * 2
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_prompt_project_name_cancel_aborts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    answers = iter([("", True), ("", False)])
+    monkeypatch.setattr(
+        QInputDialog, "getText", lambda *a, **k: next(answers)
+    )
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
+
+    assert (
+        composition._prompt_project_name("新規プロジェクト", "プロジェクト名:")
+        is None
+    )
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> None:
+    """REV24-UXFLOW: ``_bundle_job_completed`` is a bound method of the
+    plain (non-QObject) composition — connected directly to
+    ``worker.completed`` it ran ON the worker thread, so every Qt call in
+    the handler (QMessageBox parenting, ``.exec()``, statusBar writes) was
+    a cross-thread violation that ghosted modal dialogs and deadlocked
+    the app after export/import. The composition now relays the signal
+    through a QObject living on the UI thread."""
+    app = _app()
+    composition = _composition(tmp_path)
+    delivered_on: list[object] = []
+    loop = QEventLoop()
+
+    original = composition._bundle_job_completed
+
+    def spy(*args):
+        delivered_on.append(QThread.currentThread())
+        result = original(*args)
+        loop.quit()
+        return result
+
+    monkeypatch.setattr(composition._bundle_receiver, '_deliver', spy)
+    monkeypatch.setattr(
+        QMessageBox, 'exec', lambda self: QDialog.DialogCode.Accepted
+    )
+
+    composition._begin_bundle_job('エクスポート中…')
+    composition._bundle_pool.start(
+        'project.bundle.export',
+        lambda _cancel: SimpleNamespace(
+            row_count=1, asset_count=1, manifest_sha256='x'
+        ),
+        composition._bundle_receiver.receive,
+    )
+    QTimer.singleShot(10_000, loop.quit)
+    loop.exec()
+    try:
+        assert delivered_on == [app.thread()]
+        assert composition._bundle_busy is False
+    finally:
+        composition.shell.close()
+        composition.shell.deleteLater()
+        app.processEvents()
