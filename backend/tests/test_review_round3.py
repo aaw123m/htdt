@@ -187,7 +187,7 @@ def test_controller_destroyed_mid_operation_detaches_thread(tmp_path: Path) -> N
     started = Event()
     release = Event()
 
-    def blocked_job(_emit):
+    def blocked_job(_emit, _cancel_event, _commit_point):
         started.set()
         release.wait(10)
         return None

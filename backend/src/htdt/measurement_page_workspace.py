@@ -43,12 +43,9 @@ from PySide6.QtWidgets import (
 
 from . import file_dialog_memory
 from .analysis_export import (
-    AnalysisExportMeta,
     build_analysis_export,
-    comparison_metadata_entries,
-    comparison_side_series,
+    comparison_export_parts,
     render_analysis_csv,
-    series_from_comparison,
 )
 from .cad_display_labels import saved_label
 from .cad_measurement_models import (
@@ -4304,34 +4301,15 @@ class MeasurementPageWorkspace(QWidget):
             self.controller.document_id
         )
         current_revision_id = head.revision_id if head is not None else None
+        series, metadata = comparison_export_parts(
+            saved, current_scene_revision_id=current_revision_id
+        )
         export = build_analysis_export(
             document_id=self.controller.document_id,
             title=f'比較 {saved.comparison_id}',
             generated_at_utc=datetime.now(timezone.utc).isoformat(),
-            series=(
-                comparison_side_series(
-                    saved, 'a', current_scene_revision_id=current_revision_id
-                ),
-                comparison_side_series(
-                    saved, 'b', current_scene_revision_id=current_revision_id
-                ),
-                series_from_comparison(
-                    saved,
-                    current_scene_revision_id=current_revision_id,
-                ),
-            ),
-            metadata=comparison_metadata_entries(saved)
-            + (
-                AnalysisExportMeta(
-                    key=(
-                        f'comparison.{saved.comparison_id}'
-                        '.semantics_json'
-                    ),
-                    value=saved.semantics_json,
-                ),
-            )
-            if saved.semantics_json
-            else comparison_metadata_entries(saved),
+            series=series,
+            metadata=metadata,
         )
         selected, _selected_filter = file_dialog_memory.get_save_file_name(
             self,

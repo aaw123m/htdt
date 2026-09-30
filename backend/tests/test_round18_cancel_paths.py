@@ -288,6 +288,7 @@ class _BusyFakeController(QObject):
     storage_scan_completed = Signal(object)
     storage_gc_completed = Signal(object)
     operation_failed = Signal(object)
+    operation_cancelled = Signal(object)
 
     def __init__(self, data_dir: Path) -> None:
         super().__init__()
@@ -329,6 +330,9 @@ class _BusyFakeController(QObject):
 
     def revalidate(self):
         return SimpleNamespace(summary_ja=lambda: "stub")
+
+    def request_cancel(self):
+        return False
 
 
 def test_remount_while_busy_shows_progress_card(tmp_path) -> None:

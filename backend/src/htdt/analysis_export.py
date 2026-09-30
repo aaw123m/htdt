@@ -421,6 +421,48 @@ def comparison_side_series(
     )
 
 
+def comparison_export_parts(
+    comparison: CadMeasurementComparison,
+    *,
+    current_scene_revision_id: str | None = None,
+) -> tuple[tuple[AnalysisSeries, ...], tuple[AnalysisExportMeta, ...]]:
+    """Everything a comparison export needs to reproduce the workspace view.
+
+    The workspace renders three curves — side A levels, side B levels and
+    the A−B difference — plus the verdict metadata and the full semantics
+    payload, so a comparison exporter ships all of it, never just the
+    difference trace.
+    """
+
+    metadata: list[AnalysisExportMeta] = list(
+        comparison_metadata_entries(comparison)
+    )
+    if comparison.semantics_json:
+        metadata.append(
+            AnalysisExportMeta(
+                key=f'comparison.{comparison.comparison_id}.semantics_json',
+                value=comparison.semantics_json,
+            )
+        )
+    return (
+        (
+            comparison_side_series(
+                comparison, 'a',
+                current_scene_revision_id=current_scene_revision_id,
+            ),
+            comparison_side_series(
+                comparison, 'b',
+                current_scene_revision_id=current_scene_revision_id,
+            ),
+            series_from_comparison(
+                comparison,
+                current_scene_revision_id=current_scene_revision_id,
+            ),
+        ),
+        tuple(metadata),
+    )
+
+
 def _band_text(band: tuple[float, float] | None) -> str | None:
     if band is None:
         return None
@@ -539,6 +581,13 @@ def render_analysis_csv(bundle: AnalysisExportBundle) -> str:
     writer.writerow(csv_safe_row(('section', 'key', 'value')))
     writer.writerow(csv_safe_row(('export', 'export_id', bundle.export_id)))
     writer.writerow(csv_safe_row(('export', 'title', bundle.title)))
+    writer.writerow(csv_safe_row(('export', 'document_id', bundle.document_id)))
+    writer.writerow(
+        csv_safe_row(('export', 'schema_version', bundle.schema_version))
+    )
+    writer.writerow(
+        csv_safe_row(('export', 'authority_version', bundle.authority_version))
+    )
     writer.writerow(
         csv_safe_row(('export', 'generated_at_utc', bundle.generated_at_utc))
     )
@@ -556,6 +605,8 @@ def render_analysis_csv(bundle: AnalysisExportBundle) -> str:
                 'series_id',
                 'label',
                 'value_class',
+                'x_label',
+                'y_label',
                 'x',
                 'y',
                 'unit',
@@ -577,6 +628,8 @@ def render_analysis_csv(bundle: AnalysisExportBundle) -> str:
                         series.series_id,
                         series.label,
                         series.value_class,
+                        series.x_label,
+                        series.y_label,
                         _format_number(point.x),
                         _format_number(point.y),
                         series.unit,
@@ -810,6 +863,7 @@ __all__ = [
     'AnalysisSeriesPoint',
     'AnalysisValueClass',
     'build_analysis_export',
+    'comparison_export_parts',
     'comparison_side_series',
     'render_analysis_csv',
     'render_analysis_html',
