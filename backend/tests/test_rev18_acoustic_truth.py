@@ -30,7 +30,9 @@ from math import atan2, degrees, isfinite, log10, pi, sqrt
 
 import numpy as np
 import pytest
-import scipy.signal
+
+# scipy is a dev extra; skip the whole module cleanly where it is absent.
+scipy_signal = pytest.importorskip("scipy.signal")
 
 from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.acoustic_pffdtd_causal_boundary import (
@@ -221,7 +223,7 @@ def test_hilbert_envelope_matches_scipy_reference():
     rng = np.random.default_rng(5)
     n = 3000
     h = rng.standard_normal(n) * np.exp(-np.arange(n) / (0.04 * FS))
-    analytic = scipy.signal.hilbert(h)
+    analytic = scipy_signal.hilbert(h)
     ref = 10.0 * np.log10(np.abs(analytic) ** 2 / np.max(np.abs(analytic) ** 2))
     got = _hilbert_envelope_db(h)
     np.testing.assert_allclose(got, ref, atol=1e-10)
@@ -301,7 +303,7 @@ def test_spectrogram_matches_scipy_stft_on_identical_inputs():
     window_n = max(8, int(round(0.05 * FS)))
     hop = max(1, int(round(window_n * 0.5)))
     win = np.hanning(window_n)
-    freqs, times, zxx = scipy.signal.stft(
+    freqs, times, zxx = scipy_signal.stft(
         h,
         fs=FS,
         window=win,
@@ -496,8 +498,8 @@ def _iacc_reference(left, right, sample_rate, start_s, end_s, max_lag_s):
     r = np.asarray(right[i0:i1], dtype=np.float64)
     norm = math.sqrt(float(np.sum(l**2) * np.sum(r**2)))
     max_lag = int(round(max_lag_s * sample_rate))
-    corr = scipy.signal.correlate(l, r, mode="full")
-    lags = scipy.signal.correlation_lags(l.size, r.size, mode="full")
+    corr = scipy_signal.correlate(l, r, mode="full")
+    lags = scipy_signal.correlation_lags(l.size, r.size, mode="full")
     inside = np.abs(corr[np.abs(lags) <= max_lag] / norm)
     return float(np.max(inside))
 
