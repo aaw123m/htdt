@@ -20,6 +20,8 @@ from test_native_backup import _seed_data  # noqa: E402
 
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import SceneDocument
+from htdt.canonical_json import canonical_sha256
+from htdt.capture_connected_space import CONNECTED_DOC_DOMAIN
 from htdt.cad_search_repository import CadSearchRepository
 from htdt.capture_ingestion_transaction import (
     CaptureAuthorityRecord,
@@ -441,3 +443,212 @@ def test_unbound_ledger_payloads_are_still_parsed(tmp_path: Path) -> None:
         assert drifts[0].column == 'payload_json'
         with pytest.raises(NativeRowIntegrityError):
             verify_native_row_integrity(connection)
+
+
+def _insert(connection: sqlite3.Connection, table: str, row: dict) -> None:
+    columns = ', '.join(row)
+    placeholders = ', '.join('?' for _ in row)
+    connection.execute(
+        f'INSERT INTO {table}({columns}) VALUES ({placeholders})',
+        tuple(row.values()),
+    )
+
+
+def _convergence_rows() -> dict[str, dict]:
+    """One coherent row per convergence/migration-installed payload table."""
+
+    observation = {
+        'observation_id': 'obs-1',
+        'extended_search_id': 'xs-1',
+        'candidate_id': 'cand-1',
+        'objective_id': 'obj-1',
+        'observation_sha256': 'a' * 64,
+        'supersedes_observation_sha256': None,
+        'created_at_utc': '2026-01-01T00:00:00+00:00',
+    }
+    plan = {
+        'plan_id': 'plan-1',
+        'document_id': 'doc-1',
+        'extended_search_id': 'xs-1',
+        'validation_id': 'val-1',
+        'execution_scope': 'scope-1',
+        'selected_candidate_id': 'cand-1',
+        'adaptive_extended_sha256': 'b' * 64,
+        'created_at_utc': '2026-01-01T00:00:00+00:00',
+    }
+    roomplan_record = {
+        'kind': 'floorplan',
+        'source_evidence_id': 'ev-1',
+        'path': 'captures/r1/floorplan.json',
+        'payload_sha256': 'c' * 64,
+        'provenance_class': 'file',
+        'source_refs': [],
+        'roomplan_capture_metadata': None,
+    }
+    physical_model = {
+        'physical_space_model_id': 'psm-1',
+        'document_id': 'doc-1',
+        'revision': 1,
+        'parent_model_id': None,
+        'source_connected_document_id': 'capture-connected-space:abc',
+        'world_to_scene_authority_id': 'w2s-1',
+        'created_at_utc': '2026-01-01T00:00:00+00:00',
+        'reason': 'initial',
+    }
+    repair_bundle = {
+        'repaired_mesh': {
+            'repaired_mesh_id': 'rm-1',
+            'semantic_hash_sha256': 'd' * 64,
+        },
+        'source_raw_mesh': {'mesh_id': 'raw-1', 'provenance': 'capture'},
+        'repair_plan': {
+            'plan_id': 'rp-1',
+            'semantic_hash_sha256': 'e' * 64,
+        },
+        'post_repair_diagnostic': {
+            'diagnostic_id': 'diag-1',
+            'semantic_hash_sha256': 'f' * 64,
+        },
+        'raw_mesh_semantic_hash': '0' * 64,
+        'created_at_utc': '2026-01-01T00:00:00+00:00',
+    }
+    return {
+        'cad_adaptive_extended_observations': {
+            **observation,
+            'payload_json': json.dumps(observation, sort_keys=True),
+        },
+        'cad_adaptive_extended_plans': {
+            **plan,
+            'payload_json': json.dumps(plan, sort_keys=True),
+        },
+        'capture_roomplan_records': {
+            'ingestion_run_id': 'run-1',
+            'kind': roomplan_record['kind'],
+            'source_evidence_id': roomplan_record['source_evidence_id'],
+            'payload_json': json.dumps(roomplan_record, sort_keys=True),
+        },
+        'physical_space_models': {
+            **physical_model,
+            'payload_json': json.dumps(physical_model, sort_keys=True),
+        },
+        'cad_raw_mesh_repair_bundles': {
+            'repaired_mesh_id': 'rm-1',
+            'repaired_mesh_semantic_hash': 'd' * 64,
+            'raw_mesh_id': 'raw-1',
+            'raw_mesh_semantic_hash': '0' * 64,
+            'repair_plan_id': 'rp-1',
+            'repair_plan_semantic_hash': 'e' * 64,
+            'post_diagnostic_id': 'diag-1',
+            'post_diagnostic_semantic_hash': 'f' * 64,
+            'created_at_utc': '2026-01-01T00:00:00+00:00',
+            'payload_json': json.dumps(repair_bundle, sort_keys=True),
+        },
+    }
+
+
+def test_convergence_installed_table_drift_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """REV24: payload tables installed outside NATIVE_BASELINE_DDL are bound.
+
+    The completeness invariant used to derive its declared set from the
+    baseline DDL only, so these six tables escaped both registries — a
+    tampered duplicated column raised nothing.
+    """
+
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    rows = _convergence_rows()
+    with _connect(repository.path) as connection:
+        for table, row in rows.items():
+            _insert(connection, table, row)
+        connection.commit()
+        assert scan_native_row_integrity(connection) == ()
+
+    tampered = (
+        ('cad_adaptive_extended_observations', 'candidate_id', "'forged'"),
+        ('cad_adaptive_extended_plans', 'selected_candidate_id', "'forged'"),
+        ('capture_roomplan_records', 'source_evidence_id', "'forged'"),
+        ('physical_space_models', 'source_connected_document_id', "'x'"),
+        ('cad_raw_mesh_repair_bundles', 'raw_mesh_id', "'forged'"),
+    )
+    for table, column, value in tampered:
+        _tamper(repository.path, f'UPDATE {table} SET {column}={value}')
+    with _connect(repository.path) as connection:
+        drifts = scan_native_row_integrity(connection)
+        assert {
+            (drift.table, drift.column) for drift in drifts
+        } == {(table, column) for table, column, _v in tampered}
+        with pytest.raises(NativeRowIntegrityError):
+            verify_native_row_integrity(connection)
+
+
+def test_connected_space_document_identity_drift_fails_closed(
+    tmp_path: Path,
+) -> None:
+    """REV24: connected_document_id re-derives from the stored payload."""
+
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    payload = {'model': {'spaces': []}, 'schema': 'v1'}
+    document_id = 'capture-connected-space:' + canonical_sha256(
+        {'domain': CONNECTED_DOC_DOMAIN, 'payload': payload}
+    )
+    with _connect(repository.path) as connection:
+        _insert(
+            connection,
+            'capture_connected_space_documents',
+            {
+                'connected_document_id': document_id,
+                'lineage_digest': 'a' * 64,
+                'document_sha256': 'b' * 64,
+                'payload_json': json.dumps(payload, sort_keys=True),
+                'staged_at_utc': '2026-01-01T00:00:00+00:00',
+            },
+        )
+        connection.commit()
+        assert scan_native_row_integrity(connection) == ()
+
+    _tamper(
+        repository.path,
+        "UPDATE capture_connected_space_documents "
+        "SET connected_document_id='capture-connected-space:forged'",
+    )
+    with _connect(repository.path) as connection:
+        drifts = scan_native_row_integrity(connection)
+        assert [drift.column for drift in drifts] == ['connected_document_id']
+
+
+def test_scan_flags_unregistered_live_payload_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REV24: a declared payload table missing from registries is drift.
+
+    Row integrity must fail closed on coverage gaps the way it does on
+    column drift — a future canonical-payload table that lands without a
+    registry entry surfaces immediately instead of scanning nothing.
+    Foreign (non-declared) tables stay the authority audit's problem.
+    """
+
+    import htdt.native_row_integrity as integrity
+
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    with _connect(repository.path) as connection:
+        connection.execute(
+            'CREATE TABLE htdt_gap_probe(payload_json TEXT NOT NULL)'
+        )
+        connection.execute(
+            "INSERT INTO htdt_gap_probe(payload_json) VALUES ('{}')"
+        )
+        connection.commit()
+        # Foreign tables never declared in NATIVE_SCHEMA_TABLES are the
+        # audit's unclassified-table domain, not drift here.
+        assert scan_native_row_integrity(connection) == ()
+
+        monkeypatch.setattr(
+            integrity,
+            'NATIVE_SCHEMA_TABLES',
+            tuple(list(integrity.NATIVE_SCHEMA_TABLES) + ['htdt_gap_probe']),
+        )
+        drifts = scan_native_row_integrity(connection)
+        assert [
+            (drift.table, drift.column) for drift in drifts
+        ] == [('htdt_gap_probe', '<registry coverage>')]

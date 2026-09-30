@@ -2448,10 +2448,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'OPERATIONAL_METADATA',
         'sqlite autoincrement bookkeeping',
     ),
-    'htdt_storage_gc_pending': (
-        'pending blob-GC queue — transient operational state re-derivable '
-        'from the blob store'
-    ),
     'ci_marker': (
         'OPERATIONAL_METADATA',
         'scratch table the packaged-build CI pipeline writes into the live '
@@ -2494,30 +2490,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'OPERATIONAL_METADATA',
         'editor seating-layout payloads — UI convenience, not design '
         'authority',
-    ),
-    'capture_bundles': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion staging-bundle bookkeeping',
-    ),
-    'capture_revisions': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion revision bookkeeping',
-    ),
-    'capture_roomplan_records': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion room-plan bookkeeping',
-    ),
-    'capture_source_evidence': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion source-evidence bookkeeping',
-    ),
-    'capture_revision_conflicts': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion conflict bookkeeping',
-    ),
-    'capture_raw_visual_mesh_bindings': (
-        'OPERATIONAL_METADATA',
-        'capture ingestion raw-mesh binding bookkeeping',
     ),
     'capture_coordinate_authorities': (
         'STRUCTURAL_ONLY',
@@ -2591,19 +2563,7 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'speaker impedance payload authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
-    'cad_calibration_lifecycle_events': (
-        'OPERATIONAL_METADATA',
-        'append-only lifecycle event log — operational bookkeeping',
-    ),
     # ---- operational bookkeeping -------------------------------------
-    'cad_reconciliation_decisions': (
-        'OPERATIONAL_METADATA',
-        'append-only reconciliation decision log — operational bookkeeping',
-    ),
-    'cad_project_notes': (
-        'OPERATIONAL_METADATA',
-        'operator-entered free-text notes — no authority claims',
-    ),
     'capture_inbox_items': (
         'OPERATIONAL_METADATA',
         'capture inbox triage/disposition bookkeeping — operational '

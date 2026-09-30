@@ -65,3 +65,33 @@ def _isolate_default_data_dir() -> None:
 
 
 _isolate_default_data_dir()
+
+
+# Suite-wide Qt top-level leak guard: compositions and helper hosts are
+# never parented, so without this they linger until an arbitrary GC —
+# which segfaults offscreen xdist workers and lets one test's widgets
+# bleed into the next. Imported lazily so non-Qt runs stay cheap.
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _destroy_created_toplevels():
+    """Destroy top-level widgets each test creates.
+
+    ``deleteLater`` (not ``close``): teardown must not fire closeEvent —
+    tests legitimately swap collaborators for doubles that never modeled
+    the close contract, and destroying the widget is the goal anyway.
+    """
+    yield
+    from PySide6.QtWidgets import QApplication
+    from shiboken6 import isValid
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    for widget in app.topLevelWidgets():
+        if not isValid(widget) or widget.objectName().startswith("qt_"):
+            continue
+        widget.deleteLater()
+    app.sendPostedEvents()
+    app.processEvents()

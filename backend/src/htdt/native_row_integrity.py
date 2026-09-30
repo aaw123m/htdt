@@ -17,14 +17,18 @@ reconciled.
 
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+from pathlib import Path
 import re
 import sqlite3
+import tempfile
 from typing import Any, Callable, Iterable, Mapping
 
-from .cad_schema_ddl import NATIVE_BASELINE_DDL
+from .cad_schema_ddl import NATIVE_BASELINE_DDL, NATIVE_SCHEMA_TABLES
+from .canonical_json import canonical_sha256 as _canonical_sha256
 
 
 class NativeRowIntegrityError(ValueError):
@@ -158,6 +162,29 @@ def _capture_run_plan_sha(
             'plan_sha256',
             row.get('plan_sha256'),
             actual,
+        )
+
+
+def _connected_document_identity(
+    row: RowMapping, payload_text: str, payload: Mapping[str, Any],
+):
+    # connected_document_id re-derives from the stored payload — the
+    # canonical model dump is what the promotion path hashes (#763-style
+    # identity binding for the connected-space table). Deferred import:
+    # capture_connected_space does not load this module, but the domain
+    # constant stays owned there.
+    from .capture_connected_space import CONNECTED_DOC_DOMAIN
+
+    expected = 'capture-connected-space:' + _canonical_sha256(
+        {'domain': CONNECTED_DOC_DOMAIN, 'payload': payload}
+    )
+    if row.get('connected_document_id') != expected:
+        yield RowPayloadDrift(
+            'capture_connected_space_documents',
+            str(row.get('connected_document_id')),
+            'connected_document_id',
+            row.get('connected_document_id'),
+            expected,
         )
 
 
@@ -576,6 +603,295 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # Convergence/migration-installed canonical-payload tables — declared
+    # by domain schema convergence (v6 chain) or an inline migration step,
+    # so ``canonical_payload_tables`` (baseline DDL only) does not see
+    # them; ``installed_payload_tables`` covers them.
+    #
+    # Every stored column of the adaptive-extended rows is a payload
+    # duplicate — the repository read path already raises on any column
+    # that disagrees with the payload it parses.
+    'cad_adaptive_extended_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('extended_search_id', 'extended_search_id'),
+            _b('candidate_id', 'candidate_id'),
+            _b('objective_id', 'objective_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b(
+                'supersedes_observation_sha256',
+                'supersedes_observation_sha256',
+            ),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_adaptive_extended_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('document_id', 'document_id'),
+            _b('extended_search_id', 'extended_search_id'),
+            _b('validation_id', 'validation_id'),
+            _b('execution_scope', 'execution_scope'),
+            _b('selected_candidate_id', 'selected_candidate_id'),
+            _b('adaptive_extended_sha256', 'adaptive_extended_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    # kind/source_evidence_id are genuine payload duplicates; the
+    # ingestion_run_id column is run scope the record model does not
+    # carry (same convention as document_id on profile rows).
+    'capture_roomplan_records': (
+        'payload_json',
+        (
+            _b('kind', 'kind'),
+            _b('source_evidence_id', 'source_evidence_id'),
+        ),
+        (),
+    ),
+    # lineage_digest, document_sha256 (digest of the originally submitted
+    # bundle bytes) and staged_at_utc are storage-scope columns with no
+    # payload counterpart; the primary key re-derives from the payload.
+    'capture_connected_space_documents': (
+        'payload_json',
+        (),
+        (_connected_document_identity,),
+    ),
+    'physical_space_models': (
+        'payload_json',
+        (
+            _b('physical_space_model_id', 'physical_space_model_id'),
+            _b('document_id', 'document_id'),
+            _b('revision', 'revision'),
+            _b('parent_model_id', 'parent_model_id'),
+            _b('source_connected_document_id', 'source_connected_document_id'),
+            _b('world_to_scene_authority_id', 'world_to_scene_authority_id'),
+            _b('created_at_utc', 'created_at_utc'),
+            _b('reason', 'reason'),
+        ),
+        (),
+    ),
+    # Repair-bundle rows flatten nested bundle members for search. The
+    # persisted payload nests the same values (``source_raw_mesh`` is a
+    # compact reference in newer rows, an embedded mesh in legacy ones —
+    # both carry ``mesh_id``). ``raw_mesh_semantic_hash`` and
+    # ``created_at_utc`` are insert-only derivatives with no payload path.
+    'cad_raw_mesh_repair_bundles': (
+        'payload_json',
+        (
+            _b('repaired_mesh_id', 'repaired_mesh', 'repaired_mesh_id'),
+            _b(
+                'repaired_mesh_semantic_hash',
+                'repaired_mesh', 'semantic_hash_sha256',
+            ),
+            _b('raw_mesh_id', 'source_raw_mesh', 'mesh_id'),
+            _b('repair_plan_id', 'repair_plan', 'plan_id'),
+            _b(
+                'repair_plan_semantic_hash',
+                'repair_plan', 'semantic_hash_sha256',
+            ),
+            _b(
+                'post_diagnostic_id',
+                'post_repair_diagnostic', 'diagnostic_id',
+            ),
+            _b(
+                'post_diagnostic_semantic_hash',
+                'post_repair_diagnostic', 'semantic_hash_sha256',
+            ),
+        ),
+        (),
+    ),
+    # Calibration and measurement convergence families — several columns
+    # deliberately differ from the payload field name (noted per row).
+    'cad_calibration_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id'),
+            _b('system_variant_id', 'system_variant_id'),
+            _b('source_measurement_id', 'source_measurement_id'),
+            _b('source_dataset_id', 'source_dataset_id'),
+            # Row column keeps the short name; the payload field is
+            # measurement_quality_report_id.
+            _b('quality_report_id', 'measurement_quality_report_id'),
+            _b('plan_semantic_sha256', 'plan_semantic_sha256'),
+            _b('support_state', 'support_state'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_calibration_exports': (
+        'payload_json',
+        (
+            _b('export_id', 'export_id'),
+            _b('plan_id', 'calibration_plan_id'),
+            _b(
+                'exported_settings_semantic_sha256',
+                'exported_settings_semantic_sha256',
+            ),
+            _b('adapter_id', 'adapter_id'),
+            _b('adapter_version', 'adapter_version'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    # created_at_utc on this row is the *registration* timestamp written
+    # by save_verification_plan, not the contract's own created_at_utc —
+    # it has no payload counterpart and stays unbound.
+    'cad_calibration_verification_plans': (
+        'payload_json',
+        (
+            _b('verification_plan_id', 'verification_plan_id'),
+            _b('plan_id', 'calibration_plan_id'),
+            _b('export_id', 'exported_settings_id'),
+            _b(
+                'verification_semantic_sha256',
+                'verification_semantic_sha256',
+            ),
+        ),
+        (),
+    ),
+    'cad_calibration_verification_registrations': (
+        'payload_json',
+        (
+            _b('registration_id', 'registration_id'),
+            _b('registration_sha256', 'registration_sha256'),
+            _b('verification_plan_id', 'verification_plan_id'),
+            _b(
+                'verification_plan_semantic_sha256',
+                'verification_plan_semantic_sha256',
+            ),
+            _b('registered_at_utc', 'registered_at_utc'),
+        ),
+        (),
+    ),
+    # Column created_at_utc stores the completion's completed_at_utc.
+    'cad_calibration_verification_completions': (
+        'payload_json',
+        (
+            _b('completion_id', 'completion_id'),
+            _b('completion_sha256', 'completion_sha256'),
+            _b('verification_plan_id', 'verification_plan_id'),
+            _b('result', 'result'),
+            _b('created_at_utc', 'completed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_calibration_lifecycle_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('plan_id', 'calibration_plan_id'),
+            _b('state', 'state'),
+            _b('event_semantic_sha256', 'event_semantic_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_measurement_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('source_kind', 'source_kind'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    # profile_sha256 lives on the nested CadMeasurementQualityProfile.
+    'cad_measurement_quality_reports': (
+        'payload_json',
+        (
+            _b('report_id', 'report_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('dataset_id', 'dataset_id'),
+            _b('raw_asset_sha256', 'raw_asset_sha256'),
+            _b('report_sha256', 'report_sha256'),
+            _b('profile_sha256', 'profile', 'profile_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_measurement_lineage': (
+        'payload_json',
+        (
+            _b('lineage_id', 'lineage_id'),
+            _b('document_id', 'document_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b(
+                'supersedes_measurement_id',
+                'supersedes_measurement_id',
+            ),
+            _b('selected_measurement_id', 'selected_measurement_id'),
+            _b('lineage_sha256', 'lineage_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_dataset_level_references': (
+        'payload_json',
+        (
+            _b('level_reference_id', 'level_reference_id'),
+            _b('dataset_id', 'dataset_id'),
+            _b('level_reference_sha256', 'level_reference_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_measurement_dispositions': (
+        'payload_json',
+        (
+            _b('disposition_id', 'disposition_id'),
+            _b('document_id', 'document_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('disposition', 'disposition'),
+            _b('correction_id', 'correction_id'),
+            _b('disposition_sha256', 'disposition_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_measurement_corrections': (
+        'payload_json',
+        (
+            _b('correction_id', 'correction_id'),
+            _b('document_id', 'document_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('dataset_id', 'dataset_id'),
+            _b('dataset_sha256', 'dataset_sha256'),
+            _b('correction_sha256', 'correction_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    # Runner timestamps keep different names in the payload:
+    # started_at_utc -> started_at, created_at_utc -> created_at.
+    'cad_measurement_runner_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('started_at_utc', 'started_at'),
+        ),
+        (),
+    ),
+    'cad_measurement_runner_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('run_id', 'run_id'),
+            _b('cell_index', 'cell_index'),
+            _b('status', 'status'),
+            _b('created_at_utc', 'created_at'),
+        ),
+        (),
+    ),
 }
 
 
@@ -612,6 +928,65 @@ def canonical_payload_tables() -> dict[str, str]:
         )
         if match is not None
     }
+
+
+_LIVE_PAYLOAD_RE = re.compile(
+    r'\b(' + '|'.join(PAYLOAD_COLUMN_NAMES) + r')\b'
+)
+
+
+def _live_payload_tables(
+    connection: sqlite3.Connection,
+) -> dict[str, str]:
+    """``table -> canonical payload column`` from the live schema's DDL.
+
+    Ground truth for what the database actually contains: tables the
+    versioned migration chain installs outside ``NATIVE_BASELINE_DDL``
+    (domain schema convergence, inline migration steps) show up here even
+    though :func:`canonical_payload_tables` cannot parse them.
+    """
+
+    found: dict[str, str] = {}
+    for name, sql in connection.execute(
+        "SELECT name, sql FROM sqlite_master WHERE type='table'"
+    ):
+        if not sql:
+            continue
+        match = _LIVE_PAYLOAD_RE.search(sql)
+        if match is not None:
+            found[str(name)] = match.group(1)
+    return found
+
+
+_INSTALLED_PAYLOAD_TABLES: dict[str, str] | None = None
+
+
+def installed_payload_tables() -> dict[str, str]:
+    """Every canonical-payload table the migration authority installs.
+
+    ``canonical_payload_tables`` parses the baseline DDL only; the
+    versioned chain also installs payload tables through the domain
+    convergence functions (``capture_*``, ``cad_adaptive_extended_*``,
+    ``physical_space_models``) and inline migration steps
+    (``cad_raw_mesh_repair_bundles``). Running ``ensure_native_schema`` on
+    a scratch database enumerates the union without duplicating their
+    DDL. The result is cached — the installed set is constant per build.
+    """
+
+    global _INSTALLED_PAYLOAD_TABLES
+    if _INSTALLED_PAYLOAD_TABLES is None:
+        # Deferred: cad_schema pulls in native_backup, which imports this
+        # module at top level — the call site runs long after that.
+        from .cad_schema import connect_sqlite, ensure_native_schema
+
+        with tempfile.TemporaryDirectory(
+            prefix='htdt-integrity-schema-'
+        ) as scratch:
+            database = Path(scratch) / 'cad.sqlite3'
+            ensure_native_schema(database)
+            with closing(connect_sqlite(database)) as connection:
+                _INSTALLED_PAYLOAD_TABLES = _live_payload_tables(connection)
+    return _INSTALLED_PAYLOAD_TABLES
 
 
 # Audited tables whose duplicated columns are not bound yet — either
@@ -875,11 +1250,14 @@ def assert_row_integrity_registry_complete() -> None:
     """Raise when a canonical-payload table escapes both registries.
 
     The invariant: ``_ROW_BINDINGS ∪ _UNBOUND_PAYLOAD_TABLES`` covers
-    exactly the tables the versioned DDL declares with a canonical
-    payload column — no additions unaccounted for, no stale entries.
+    exactly the tables the migration authority installs with a canonical
+    payload column — no additions unaccounted for, no stale entries. The
+    declared set is the migrated schema itself, so tables installed by
+    domain convergence or inline migration DDL — not only the baseline —
+    are held to the same rule.
     """
 
-    declared = canonical_payload_tables()
+    declared = canonical_payload_tables() | installed_payload_tables()
     bound = set(_ROW_BINDINGS)
     unbound = set(_UNBOUND_PAYLOAD_TABLES)
     problems: list[str] = []
@@ -889,9 +1267,6 @@ def assert_row_integrity_registry_complete() -> None:
             'tables registered as both bound and unbound: '
             + ', '.join(sorted(overlap))
         )
-    # Bound tables may be declared by runtime schema-convergence
-    # functions rather than NATIVE_BASELINE_DDL (capture_* families), so
-    # membership in ``declared`` is required only of the unbound ledger.
     unknown_unbound = unbound - set(declared)
     if unknown_unbound:
         problems.append(
@@ -947,11 +1322,15 @@ def scan_native_row_integrity(
         # Ledger-declared tables waive duplicated-column checks, not
         # payload verification: every canonical payload row must still
         # parse as a JSON object or the row is reported as drift (#313).
+        # The payload column comes from the live schema so ledger entries
+        # for tables the baseline DDL does not declare (convergence- or
+        # migration-installed) are still scanned.
+        live = _live_payload_tables(connection)
         canonical = canonical_payload_tables()
         for table in _UNBOUND_PAYLOAD_TABLES:
             if table not in tables:
                 continue
-            payload_column = canonical.get(table)
+            payload_column = live.get(table) or canonical.get(table)
             if payload_column is None:
                 # Membership without a declared canonical column is the
                 # completeness invariant's problem, not the scan's.
@@ -963,6 +1342,27 @@ def scan_native_row_integrity(
                 drifts.extend(
                     _scan_row(table, payload_column, (), (), row)
                 )
+        # Registry completeness over the live schema: a declared htdt
+        # table carrying a canonical payload column that is in neither
+        # registry escapes row integrity entirely — the gap itself is
+        # drift, reported like any other (#763 invariant, extended past
+        # baseline-declared tables). Foreign tables (test probes, tool
+        # markers) stay the authority audit's problem — its
+        # unclassified-table path already fails closed on them.
+        for table in sorted(
+            set(live) & set(NATIVE_SCHEMA_TABLES)
+            - set(_ROW_BINDINGS)
+            - set(_UNBOUND_PAYLOAD_TABLES)
+        ):
+            drifts.append(
+                RowPayloadDrift(
+                    table,
+                    '*',
+                    '<registry coverage>',
+                    '<canonical-payload table in neither registry>',
+                    None,
+                )
+            )
     finally:
         connection.row_factory = previous_factory
     return tuple(drifts)

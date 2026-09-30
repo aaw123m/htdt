@@ -17,7 +17,6 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from shiboken6 import isValid
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAccessible, QShortcut
 from PySide6.QtWidgets import (
@@ -65,26 +64,6 @@ def _no_blocking_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(QMessageBox, "exec", _accept)
     for name in ("question", "information", "warning", "critical", "about"):
         monkeypatch.setattr(QMessageBox, name, staticmethod(_static))
-
-
-@pytest.fixture(autouse=True)
-def _destroy_created_toplevels():
-    """Destroy top-level widgets each test creates.
-
-    Compositions and helper hosts are never parented, so without this they
-    linger until an arbitrary GC — which segfaults offscreen xdist workers.
-    """
-    yield
-    app = QApplication.instance()
-    if app is None:
-        return
-    for widget in app.topLevelWidgets():
-        if not isValid(widget) or widget.objectName().startswith("qt_"):
-            continue
-        widget.close()
-        widget.deleteLater()
-    app.sendPostedEvents()
-    app.processEvents()
 
 
 def _app() -> QApplication:
