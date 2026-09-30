@@ -297,7 +297,7 @@ def test_project_menu_present_and_title_shows_project(tmp_path: Path) -> None:
         action.text()
         for action in composition.shell.menuBar().actions()
     ]
-    assert 'プロジェクト' in titles
+    assert 'プロジェクト(&P)' in titles
     assert composition.shell.windowTitle() == (
         f'Home Theater Digital Twin — '
         f'{composition.project_entry.display_name}'
