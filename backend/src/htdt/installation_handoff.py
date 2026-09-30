@@ -288,6 +288,79 @@ def _preview_number(value: float | None) -> str:
     return '—' if value is None else format(float(value), '.4g')
 
 
+# The preview is a Japanese operator-facing surface: internal enum
+# vocabulary renders through these labels (unknown values fall back to the
+# raw code); identifiers, ids and hashes stay verbatim.
+_PREVIEW_ENTITY_KIND_LABELS = {
+    'speaker': 'スピーカー',
+    'seat': '座席',
+    'screen': 'スクリーン',
+    'display': 'ディスプレイ',
+    'projector': 'プロジェクター',
+    'riser': 'ライザー',
+    'furniture': '家具',
+    'av_equipment': 'AV機器',
+    'measurement_point': '測定点',
+}
+
+_PREVIEW_VIEW_LABELS = {
+    'top': '上面',
+    'front': '正面',
+    'side': '側面',
+}
+
+_PREVIEW_LIFECYCLE_LABELS = {
+    'proposed': '提案済み',
+    'installed': '設置済み',
+}
+
+_PREVIEW_SETTINGS_SOURCE_LABELS = {
+    'requested': '要求',
+    'exported': '書き出し',
+}
+
+_PREVIEW_POLARITY_LABELS = {
+    'normal': '正',
+    'inverted': '反転',
+}
+
+_PREVIEW_STATUS_LABELS = {
+    'PASS': '合格',
+    'FAIL': '不合格',
+    'UNKNOWN': '不明',
+    'NOT_APPLICABLE': '対象外',
+    'AVAILABLE': '利用可能',
+    'OMITTED': '省略',
+}
+
+_PREVIEW_SECTION_LABELS = {
+    'projector_coordinates': 'プロジェクター座標',
+    'standards_profile': '規格プロファイル',
+    'calibration_plan': '校正プラン',
+    'treatment_plan': 'トリートメント計画',
+    'installation_datum': '設置基準',
+    'cable_runs': 'ケーブル配線',
+}
+
+_PREVIEW_REASON_CODE_LABELS = {
+    'domain_not_applicable': 'ドメイン対象外',
+    'explicit_not_applicable': '明示的対象外',
+    'missing_observation': '観測値なし',
+    'unit_mismatch': '単位不一致',
+    'missing_input_or_capability': '入力または能力なし',
+    'missing_evidence': '証跡なし',
+    'measurement_evidence_required': '実測証跡が必要',
+    'missing_observed_value': '観測値未設定',
+    'invalid_observed_value': '観測値が無効',
+    'comparison_pass': '比較合格',
+    'comparison_fail': '比較不合格',
+}
+
+
+def _preview_label(labels: dict[str, str], code: str) -> str:
+    return labels.get(code, code)
+
+
 def handoff_preview_text(handoff: InstallationHandoff) -> str:
     """A readable preview of exactly what the package will contain.
 
@@ -309,7 +382,9 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
         for entity in output.entities:
             role = f' role={entity.speaker_role}' if entity.speaker_role else ''
             lines.append(
-                f'  {entity.name} [{entity.entity_kind}]{role}: '
+                f'  {entity.name} '
+                f'[{_preview_label(_PREVIEW_ENTITY_KIND_LABELS, entity.entity_kind)}]'
+                f'{role}: '
                 f'x={entity.x_m:.3f} y={entity.y_m:.3f} z={entity.z_m:.3f} '
                 f'yaw={entity.body_yaw_deg:.1f}°'
             )
@@ -320,7 +395,7 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
     if output.dimensions:
         for sheet in output.dimensions:
             lines.append(
-                f'  {sheet.view}: '
+                f'  {_preview_label(_PREVIEW_VIEW_LABELS, sheet.view)}: '
                 f'{sheet.horizontal_axis} '
                 f'{_preview_number(sheet.horizontal_min_m)}–'
                 f'{_preview_number(sheet.horizontal_max_m)} m × '
@@ -338,7 +413,8 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
         for quantity in treatment.quantities:
             lines.append(
                 f'  {quantity.definition_id} '
-                f'v{quantity.definition_version} [{quantity.lifecycle}]: '
+                f'v{quantity.definition_version} '
+                f'[{_preview_label(_PREVIEW_LIFECYCLE_LABELS, quantity.lifecycle)}]: '
                 f'x{quantity.quantity} / '
                 f'{quantity.total_face_area_m2:.2f} m²'
             )
@@ -355,10 +431,12 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
             *calibration.exported_channels,
         ):
             lines.append(
-                f'  {item.settings_source} {item.channel_id}: '
+                f'  {_preview_label(_PREVIEW_SETTINGS_SOURCE_LABELS, item.settings_source)} '
+                f'{item.channel_id}: '
                 f'gain={_preview_number(item.gain_db)} dB '
                 f'delay={_preview_number(item.delay_s)} s '
-                f'polarity={item.polarity} → {item.physical_output_id}'
+                f'極性={_preview_label(_PREVIEW_POLARITY_LABELS, item.polarity)} → '
+                f'{item.physical_output_id}'
             )
         if not calibration.requested_channels and not calibration.exported_channels:
             lines.append('  （チャンネル設定なし）')
@@ -375,8 +453,9 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
         lines.append(f'  評価: {standards.evaluation_id}')
         for criterion in standards.criteria:
             lines.append(
-                f'  - {criterion.criterion_id}: {criterion.status} '
-                f'({criterion.reason_code})'
+                f'  - {criterion.criterion_id}: '
+                f'{_preview_label(_PREVIEW_STATUS_LABELS, criterion.status)} '
+                f'({_preview_label(_PREVIEW_REASON_CODE_LABELS, criterion.reason_code)})'
             )
         if not standards.criteria:
             lines.append('  （評価基準なし）')
@@ -386,16 +465,21 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
     lines.append('== セクション ==')
     for section in output.sections:
         lines.append(
-            f'  {section.section}: {section.status} — {section.reason}'
+            f'  {_preview_label(_PREVIEW_SECTION_LABELS, section.section)}: '
+            f'{_preview_label(_PREVIEW_STATUS_LABELS, section.status)} — '
+            f'{section.reason}'
         )
     if handoff.review.complete:
         lines.append('')
-        lines.append('すべてのセクションが AVAILABLE です。')
+        lines.append('すべてのセクションが利用可能です。')
     else:
         lines.append('')
         lines.append(
             '未解決のセクションがあります: '
-            + ', '.join(handoff.review.degraded)
+            + ', '.join(
+                _preview_label(_PREVIEW_SECTION_LABELS, name)
+                for name in handoff.review.degraded
+            )
         )
     return '\n'.join(lines)
 

@@ -15,6 +15,7 @@ from .cad_acoustic_solver_result import (
 )
 from .cad_equipment import FrequencyDomain
 from .cad_geometric_acoustics_adapter import DeterministicPathArtifact
+from .cad_hybrid_late_energy import R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
 from .cad_repository import SceneRepository
 from .cad_schema import (
     ensure_native_schema,
@@ -397,6 +398,14 @@ class LateEnergyDecay(BaseModel):
             if self.validity.phase_capability != 'NOT_APPLICABLE':
                 raise ValueError(
                     'LateEnergyDecay phase capability must be NOT_APPLICABLE'
+                )
+            if (
+                self.encoding_schema_ref
+                != R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF
+            ):
+                raise ValueError(
+                    'AVAILABLE LateEnergyDecay requires the canonical '
+                    'late-energy decay encoding schema'
                 )
         return self
 
@@ -1322,6 +1331,13 @@ def _late_component(
     artifact: AcousticSolverObservableArtifact,
     evidence_state: HybridEvidenceState,
 ) -> LateEnergyDecay:
+    if artifact.encoding_schema_ref != R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF:
+        raise ValueError(
+            'R160 LateEnergyDecay requires the canonical late-energy decay '
+            'encoding schema; solver artifact declares '
+            f'{artifact.encoding_schema_ref.authority_id}@'
+            f'{artifact.encoding_schema_ref.authority_version}'
+        )
     return LateEnergyDecay(
         state='AVAILABLE',
         reason='exact late-energy-decay solver artifact is referenced',
