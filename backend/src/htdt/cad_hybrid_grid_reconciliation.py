@@ -357,12 +357,13 @@ def build_hybrid_crossover_configuration_authority(
     )
 
 
-def reconcile_complex_series(
+def reconcile_complex_series_with_method(
     *,
     original_grid_hz: Sequence[float],
     values: Sequence[complex],
     output_grid_hz: Sequence[float],
-    authority: FrequencyGridReconciliationAuthority,
+    reconciliation_method: GridReconciliationMethod,
+    tolerance_hz: float,
     label: str,
 ) -> dict[float, complex]:
     grid = tuple(float(item) for item in original_grid_hz)
@@ -373,13 +374,14 @@ def reconcile_complex_series(
             HybridNumericalFailureCode.INVALID_GRID,
             f'{label} grid/value length mismatch',
         )
+    tolerance = float(tolerance_hz)
     result: dict[float, complex] = {}
     for frequency in output:
-        exact = _exact_index(grid, frequency, authority.tolerance_hz)
+        exact = _exact_index(grid, frequency, tolerance)
         if exact is not None:
             result[frequency] = samples[exact]
             continue
-        if authority.reconciliation_method == 'exact_bin_identity_v1':
+        if reconciliation_method == 'exact_bin_identity_v1':
             raise HybridNumericalCompositionError(
                 HybridNumericalFailureCode.INVALID_GRID,
                 f'{label} has no exact sample at {frequency} Hz',
@@ -398,3 +400,21 @@ def reconcile_complex_series(
             (1.0 - alpha) * z0.imag + alpha * z1.imag,
         )
     return result
+
+
+def reconcile_complex_series(
+    *,
+    original_grid_hz: Sequence[float],
+    values: Sequence[complex],
+    output_grid_hz: Sequence[float],
+    authority: FrequencyGridReconciliationAuthority,
+    label: str,
+) -> dict[float, complex]:
+    return reconcile_complex_series_with_method(
+        original_grid_hz=original_grid_hz,
+        values=values,
+        output_grid_hz=output_grid_hz,
+        reconciliation_method=authority.reconciliation_method,
+        tolerance_hz=authority.tolerance_hz,
+        label=label,
+    )

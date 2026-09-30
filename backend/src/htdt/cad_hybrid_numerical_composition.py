@@ -28,6 +28,7 @@ from .cad_hybrid_grid_reconciliation import (
     build_frequency_grid_reconciliation_authority,
     build_hybrid_crossover_configuration_authority,
     reconcile_complex_series,
+    reconcile_complex_series_with_method,
     validate_frequency_grid,
 )
 from .cad_repository import SceneRepository
@@ -1055,14 +1056,21 @@ def build_numerical_hybrid_composition_spec(
     )
 
 
-def aggregate_r150_complex_paths(
+def aggregate_ga_paths_on_grid(
     *,
-    spec: NumericalHybridCompositionSpec,
     responses: Sequence[DeterministicPathFrequencyResponseArtifact],
+    path_response_refs: tuple[ExactExternalAuthorityRef, ...],
+    source_entity_id: str,
+    receiver_id: str,
+    native_ga_grid_hz: tuple[float, ...],
+    output_grid_hz: tuple[float, ...],
+    grid_reconciliation_ref: ExactExternalAuthorityRef,
+    reconciliation_method: str,
+    tolerance_hz: float,
 ) -> AggregatedGaComplexResponse:
     response_tuple = tuple(responses)
     refs = tuple(sorted((_response_ref(item) for item in response_tuple), key=_ref_key))
-    if refs != spec.r150_response_refs:
+    if refs != tuple(path_response_refs):
         raise ValueError('R160 R150 response set is stale or incomplete')
 
     path_ids = tuple(item.deterministic_path_id for item in response_tuple)
@@ -1086,10 +1094,10 @@ def aggregate_r150_complex_paths(
         'path_response_refs': [
             item.model_dump(mode='json') for item in refs
         ],
-        'source_entity_id': spec.source_entity_id,
-        'receiver_id': spec.receiver_id,
-        'exact_frequency_grid_hz': list(spec.exact_frequency_grid_hz),
-        'grid_reconciliation_ref': spec.grid_reconciliation.as_external_ref().model_dump(
+        'source_entity_id': source_entity_id,
+        'receiver_id': receiver_id,
+        'exact_frequency_grid_hz': list(output_grid_hz),
+        'grid_reconciliation_ref': grid_reconciliation_ref.model_dump(
             mode='json'
         ),
         'quantity': TRANSFER_QUANTITY,
@@ -1106,7 +1114,7 @@ def aggregate_r150_complex_paths(
             'samples': [],
         }
     else:
-        native_grid = spec.grid_reconciliation.original_ga_frequency_grid_hz
+        native_grid = tuple(float(item) for item in native_ga_grid_hz)
         sums = {frequency: 0.0 + 0.0j for frequency in native_grid}
         for response in response_tuple:
             samples = {float(item.frequency_hz): item for item in response.samples}
@@ -1125,11 +1133,12 @@ def aggregate_r150_complex_paths(
                     sample.complex_real_pa_per_m3_s,
                     sample.complex_imag_pa_per_m3_s,
                 )
-        reconciled = reconcile_complex_series(
+        reconciled = reconcile_complex_series_with_method(
             original_grid_hz=native_grid,
             values=tuple(sums[frequency] for frequency in native_grid),
-            output_grid_hz=spec.exact_frequency_grid_hz,
-            authority=spec.grid_reconciliation,
+            output_grid_hz=output_grid_hz,
+            reconciliation_method=reconciliation_method,
+            tolerance_hz=float(tolerance_hz),
             label='R160 GA aggregate',
         )
         aggregate_samples = [
@@ -1140,7 +1149,7 @@ def aggregate_r150_complex_paths(
                 'magnitude_pa_per_m3_s': abs(reconciled[frequency]),
                 'phase_rad': _phase(reconciled[frequency]),
             }
-            for frequency in spec.exact_frequency_grid_hz
+            for frequency in output_grid_hz
         ]
         core = {
             **core_base,
@@ -1156,18 +1165,38 @@ def aggregate_r150_complex_paths(
     )
 
 
-def _normalized_wave_transfer(
+def aggregate_r150_complex_paths(
     *,
     spec: NumericalHybridCompositionSpec,
+    responses: Sequence[DeterministicPathFrequencyResponseArtifact],
+) -> AggregatedGaComplexResponse:
+    return aggregate_ga_paths_on_grid(
+        responses=responses,
+        path_response_refs=spec.r150_response_refs,
+        source_entity_id=spec.source_entity_id,
+        receiver_id=spec.receiver_id,
+        native_ga_grid_hz=spec.grid_reconciliation.original_ga_frequency_grid_hz,
+        output_grid_hz=spec.exact_frequency_grid_hz,
+        grid_reconciliation_ref=spec.grid_reconciliation.as_external_ref(),
+        reconciliation_method=spec.grid_reconciliation.reconciliation_method,
+        tolerance_hz=spec.grid_reconciliation.tolerance_hz,
+    )
+
+
+def compute_native_wave_transfer(
+    *,
+    receiver_id: str,
     payload: dict[str, Any],
     excitation: AcousticWaveExcitationAuthority,
-) -> dict[float, complex]:
+) -> tuple[tuple[float, ...], tuple[complex, ...]]:
+    """Exact normalized P/Q transfer on the artifact's own wave grid."""
+
     frequencies = tuple(float(item) for item in payload['frequency_axis_hz'])
     receiver_order = payload['receiver_identity_order']
     receiver_index = next(
         index
         for index, item in enumerate(receiver_order)
-        if item['receiver_id'] == spec.receiver_id
+        if item['receiver_id'] == receiver_id
     )
     pressure_real = payload['pressure_real_pa'][receiver_index]
     pressure_imag = payload['pressure_imag_pa'][receiver_index]
@@ -1200,6 +1229,20 @@ def _normalized_wave_transfer(
                 output_convention=COMMON_PHASOR_CONVENTION,
             )
         )
+    return frequencies, tuple(native)
+
+
+def _normalized_wave_transfer(
+    *,
+    spec: NumericalHybridCompositionSpec,
+    payload: dict[str, Any],
+    excitation: AcousticWaveExcitationAuthority,
+) -> dict[float, complex]:
+    frequencies, native = compute_native_wave_transfer(
+        receiver_id=spec.receiver_id,
+        payload=payload,
+        excitation=excitation,
+    )
     return reconcile_complex_series(
         original_grid_hz=frequencies,
         values=native,

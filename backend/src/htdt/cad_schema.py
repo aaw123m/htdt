@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 12
+NATIVE_SCHEMA_VERSION = 13
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1169,6 +1169,14 @@ def require_native_tables(
         )
 
 
+def _migrate_12_to_13(connection: sqlite3.Connection) -> None:
+    # Install the R160 union-band stitched response and bounded late-energy
+    # decay artifact tables (R160 residual): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1182,6 +1190,7 @@ _MIGRATIONS = {
     10: _migrate_9_to_10,
     11: _migrate_10_to_11,
     12: _migrate_11_to_12,
+    13: _migrate_12_to_13,
 }
 
 
