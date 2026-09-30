@@ -947,7 +947,10 @@ class RoomWorkspaceController:
         # Fuse the per-entity duplicates into the single Undo step this
         # method promises (#REVIEW14) — before the fix a group duplicate
         # pushed N commands and Undo restored them one at a time.
-        marker = self.working.history_index
+        # Epoch marker (not history_index): index moves backwards when the
+        # bounded history evicts, which would silently leave the batch
+        # unfused near the cap (#REV21).
+        marker = self.working.history_epoch
         new_ids: list[str] = []
         for entity_id in ids:
             source = self.document.entity(entity_id)
@@ -1707,7 +1710,7 @@ class RoomWorkspaceController:
             )
             # One Undo unit: entity propagation and the constraint-state
             # mutation commit together (#843).
-            index_before = self.working.history_index
+            epoch_before = self.working.history_epoch
             self.working.apply_entity_set_edit(
                 replaced_before=tuple(replaced_before),
                 replaced_after=tuple(replaced_after),
@@ -1717,9 +1720,11 @@ class RoomWorkspaceController:
                 apply_side=lambda: self._apply_constraint_state(new_state),
                 revert_side=lambda: self._apply_constraint_state(state),
             )
+            # Epoch (not index) counts pushes even when cap eviction moved
+            # the cursor backwards mid-op (#REV21).
             if (
                 merge_with_previous
-                and self.working.history_index == index_before + 1
+                and self.working.history_epoch == epoch_before + 1
             ):
                 self.working.merge_last(2)
         return tuple(notes)
@@ -6356,7 +6361,11 @@ class RoomWorkspace(QWidget):
         if revision is None or head is None:
             return
         diff = diff_scene_documents(revision.document, head.document)
-        lines = diff_summary_lines(diff, head.document)
+        # Removed entities only exist on the older side — resolve their names
+        # from it instead of showing raw ids.
+        lines = diff_summary_lines(
+            diff, head.document, fallback_document=revision.document
+        )
         labels = self.controller.revision_labels()
         prefix = (
             "過去版 → 現在の差分 ("
@@ -6368,6 +6377,9 @@ class RoomWorkspace(QWidget):
         if self.controller.working.has_preview:
             self._set_status("プレビュー中は復元できません", error=True)
             return
+        head_before = self.controller.repository.current_head(
+            self.controller.document_id
+        )
         try:
             revision = self.controller.restore_revision(str(revision_id))
         except EditStateError as exc:
@@ -6377,6 +6389,11 @@ class RoomWorkspace(QWidget):
         self._refresh(reset_camera=True)
         self._sync_history_panel()
         labels = self.controller.revision_labels()
+        if head_before is not None and revision.revision_id == head_before.revision_id:
+            # Content-identical restore dedupes to the existing head — no new
+            # revision was created, so don't claim one was.
+            self._set_status("その履歴版は現在の先頭版と同一内容です")
+            return
         self._set_status(
             "履歴版を新しい先頭版として復元しました: "
             f"{revision_display_label(revision, labels)}"
