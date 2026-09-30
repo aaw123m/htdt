@@ -235,6 +235,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_late_field_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, execution_id TEXT NOT NULL, execution_provenance_authority_id TEXT NOT NULL, execution_input_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, prediction_request_id TEXT NOT NULL, dispatch_binding_id TEXT NOT NULL, r120_compiled_geometry_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_layout_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, version TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, name TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(profile_id, version) )
     """
     ,
@@ -1087,6 +1091,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_joint_selection_spec_seq ON cad_joint_candidate_selections(spec_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_late_field_request_seq ON cad_late_field_artifacts( prediction_request_id, seq ASC )
     """
     ,
     """
@@ -2196,6 +2204,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_joint_candidate_selections',
     'cad_joint_candidates',
     'cad_joint_optimization_specs',
+    'cad_late_field_artifacts',
     'cad_layout_profiles',
     'cad_line_level_stages',
     'cad_listener_pose_selections',
