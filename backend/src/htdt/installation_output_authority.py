@@ -60,8 +60,10 @@ from .cad_measurement_quality import dataset_sha256, measurement_sha256
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_repository import SceneRepository, SceneRevision
+from .cad_signal_path_repository import CadSignalPathRepository
 from .cad_standards import (
     StandardsEvaluation,
+    StandardsEvaluationTarget,
     StandardsProfile,
     evaluate_standards_profile,
     validate_criterion_source_authority,
@@ -72,6 +74,7 @@ from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_video_geometry import (
     ProjectorSpecification,
     VideoGeometryEvaluation,
+    VideoGeometryTarget,
 )
 from .cad_video_geometry_repository import CadVideoGeometryRepository
 from .report import (
@@ -105,6 +108,28 @@ class InstallationCableRunRef(BaseModel):
     run_id: str = Field(min_length=1)
     version: str = Field(min_length=1)
     run_sha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+
+
+class InstallationSectionAuthorityPins(BaseModel):
+    """Latest persisted section authorities bound to one installation target.
+
+    Fields mirror the ``None``-means-none parameters of
+    :meth:`InstallationReportService.build_installation_output_from_authorities`:
+    each id is the exact pin to pass there, or ``None`` when no persisted
+    record is bound to the target — which resolves to an honest UNKNOWN
+    section rather than an implicit pick.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    video_geometry_evaluation_id: str | None = None
+    standards_evaluation_id: str | None = None
+    calibration_plan_id: str | None = None
+    calibration_export_id: str | None = None
+    calibration_verification_plan_id: str | None = None
+    #: Edge ids resolvable from the persisted signal-path store — presence
+    #: evidence for cable-run freshness, not a pinned section authority.
+    signal_path_edge_ids: tuple[str, ...] = ()
 
 
 # Installation evidence namespaces and the store each resolves against. The
@@ -165,6 +190,7 @@ class InstallationReportService:
         measurement_quality_repository: CadMeasurementQualityRepository | None = None,
         datum_repository: CadInstallationDatumRepository | None = None,
         cable_run_repository: CadCableRunRepository | None = None,
+        signal_path_repository: CadSignalPathRepository | None = None,
     ) -> None:
         repositories = (
             scene_repository,
@@ -177,6 +203,7 @@ class InstallationReportService:
             measurement_quality_repository,
             datum_repository,
             cable_run_repository,
+            signal_path_repository,
         )
         paths = {str(repository.path) for repository in repositories if repository is not None}
         if len(paths) != 1:
@@ -193,6 +220,7 @@ class InstallationReportService:
         self.measurement_quality_repository = measurement_quality_repository
         self.datum_repository = datum_repository
         self.cable_run_repository = cable_run_repository
+        self.signal_path_repository = signal_path_repository
 
     # -- repository fallbacks ------------------------------------------------
 
@@ -1500,6 +1528,98 @@ class InstallationReportService:
             if bound:
                 verification_plan_id = bound[-1].verification_plan_id
         return export_id, verification_plan_id
+
+    def latest_target_section_authority_ids(
+        self,
+        scene_revision_id: str,
+        system_variant_id: str | None = None,
+    ) -> InstallationSectionAuthorityPins:
+        """Latest persisted section authorities bound to the exact target.
+
+        Same discovery convention the treatment/datum/cable-run sections
+        already use: records are listed from their authoritative
+        repositories and the most recently persisted one whose recorded
+        target equals the resolved ``(SceneRevision, SystemVariant)`` —
+        the same five-field equality ``_require_target_binding``
+        enforces — becomes the pin. Records bound to another revision,
+        content hash, or variant are skipped rather than rejected, and a
+        section with no match stays ``None`` so the report degrades to an
+        honest UNKNOWN. A missing repository yields no candidates.
+        """
+
+        revision = self._resolve_revision(scene_revision_id)
+        variant = self._resolve_variant(revision, system_variant_id)
+
+        def bound_to_target(
+            target: (
+                VideoGeometryTarget
+                | StandardsEvaluationTarget
+                | CadCalibrationPlan
+            ),
+        ) -> bool:
+            return (
+                target.document_id == revision.document_id
+                and target.scene_revision_id == revision.revision_id
+                and target.scene_content_hash == revision.content_hash
+                and target.system_variant_id
+                == (None if variant is None else variant.variant_id)
+                and target.system_variant_sha256
+                == (None if variant is None else variant.variant_sha256)
+            )
+
+        video_geometry_evaluation_id = None
+        if self.video_geometry_repository is not None:
+            for evaluation in (
+                self.video_geometry_repository.list_evaluations_for_revision(
+                    revision.revision_id
+                )
+            ):
+                if bound_to_target(evaluation.target):
+                    video_geometry_evaluation_id = evaluation.evaluation_id
+
+        standards_evaluation_id = None
+        if self.standards_repository is not None:
+            for evaluation in (
+                self.standards_repository.list_evaluations_for_scene(
+                    revision.revision_id
+                )
+            ):
+                if bound_to_target(evaluation.target):
+                    standards_evaluation_id = evaluation.evaluation_id
+
+        calibration_plan_id = None
+        calibration_export_id = None
+        calibration_verification_plan_id = None
+        if self.calibration_repository is not None:
+            for plan in self.calibration_repository.list_plans(
+                revision.document_id
+            ):
+                if bound_to_target(plan):
+                    calibration_plan_id = plan.plan_id
+            if calibration_plan_id is not None:
+                (
+                    calibration_export_id,
+                    calibration_verification_plan_id,
+                ) = self.latest_calibration_authority_ids(calibration_plan_id)
+
+        signal_path_edge_ids: tuple[str, ...] = ()
+        if self.signal_path_repository is not None:
+            signal_path_edge_ids = tuple(
+                edge.edge_id
+                for path in self.signal_path_repository.list_paths(
+                    revision.document_id
+                )
+                for edge in path.edges
+            )
+
+        return InstallationSectionAuthorityPins(
+            video_geometry_evaluation_id=video_geometry_evaluation_id,
+            standards_evaluation_id=standards_evaluation_id,
+            calibration_plan_id=calibration_plan_id,
+            calibration_export_id=calibration_export_id,
+            calibration_verification_plan_id=calibration_verification_plan_id,
+            signal_path_edge_ids=signal_path_edge_ids,
+        )
 
     def verify_installation_output_replay(
         self,

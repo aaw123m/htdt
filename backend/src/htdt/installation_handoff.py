@@ -125,11 +125,27 @@ def build_installation_handoff(
     explicit selection (no implicit "current variant" fallback): the
     handoff only ever packages exactly what was chosen. The underlying
     service resolves every bound authority fail-closed.
+
+    Section authorities the operator does not name explicitly are
+    discovered the same way the treatment/datum/cable-run sections
+    already are: the latest persisted evaluation or plan bound to the
+    exact selected target becomes the pin, and a section with no match
+    stays UNKNOWN instead of claiming an unrelated record.
     """
 
+    pins = service.latest_target_section_authority_ids(
+        scene_revision_id,
+        system_variant_id or None,
+    )
     output = service.build_installation_output_from_authorities(
         scene_revision_id=scene_revision_id,
         system_variant_id=system_variant_id or None,
+        video_geometry_evaluation_id=pins.video_geometry_evaluation_id,
+        standards_evaluation_id=pins.standards_evaluation_id,
+        calibration_plan_id=pins.calibration_plan_id,
+        calibration_export_id=pins.calibration_export_id,
+        calibration_verification_plan_id=pins.calibration_verification_plan_id,
+        signal_path_edge_ids=pins.signal_path_edge_ids,
     )
     return InstallationHandoff(
         output=output,
