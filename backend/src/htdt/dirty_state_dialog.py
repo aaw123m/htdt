@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from .user_facing_error import operation_error_message
 from .workspace_dirty_state import (
     DeactivationContext,
     DirtyResolutionAction,
@@ -83,7 +84,7 @@ def _apply(
         QMessageBox.warning(
             parent,
             title,
-            f"処理を完了できませんでした · {error}",
+            f"処理を完了できませんでした · {operation_error_message(error)}",
         )
         return False
     if not resolved:

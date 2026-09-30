@@ -18,6 +18,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 import unicodedata
 
+from .availability_reasons import reason_help_topic_id
 from .command_registry import (
     CommandAvailability,
     CommandContext,
@@ -76,6 +77,9 @@ class PaletteResult:
     deep_link: WorkspaceDeepLink | None = None
     score: int = 0
     group: str | None = None
+    #: Help topic bound to the availability reason, for the 'Why?' affordance
+    #: on unavailable rows — None when the reason has no catalog binding.
+    help_topic_id: str | None = None
 
 
 def _normalized(value: str) -> str:
@@ -151,6 +155,11 @@ class CommandPaletteProvider(PaletteSearchProvider):
             command_id=definition.command_id,
             deep_link=definition.deep_link,
             score=item.score,
+            help_topic_id=(
+                reason_help_topic_id(item.availability.reason)
+                if item.availability.reason is not None
+                else None
+            ),
         )
 
     def search(
@@ -192,6 +201,11 @@ class CommandPaletteProvider(PaletteSearchProvider):
                     command_id=definition.command_id,
                     deep_link=definition.deep_link,
                     score=1.0,
+                    help_topic_id=(
+                        reason_help_topic_id(availability.reason)
+                        if availability.reason is not None
+                        else None
+                    ),
                 )
             )
         return tuple(results[:limit])

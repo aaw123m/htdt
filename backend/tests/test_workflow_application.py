@@ -9,7 +9,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
 from htdt import dirty_state_dialog
 from htdt.cad_repository import SceneRepository
@@ -44,8 +44,14 @@ def _palette_item(palette: CommandPalette, command_id: str):
 
 def test_backup_freeze_blocks_mutating_commands_via_shortcut_and_palette(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     app = _app()
+    # Activating a frozen command in the palette opens its bound 'why' help
+    # topic — a modal QDialog the offscreen run must auto-dismiss.
+    monkeypatch.setattr(
+        QDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+    )
     composition = _composition(tmp_path)
     registry = composition.registry
     lifecycle = composition.data_management_controller.lifecycle

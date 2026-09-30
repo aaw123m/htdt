@@ -607,6 +607,45 @@ _INBOX_PROMOTABILITY_LABELS = {
     "blocked": "昇格不可",
     "complete": "昇格完了",
 }
+_INBOX_CLASSIFICATION_LABELS = {
+    "exact_duplicate": "完全一致の重複",
+    "identity_digest_conflict": "同一性ダイジェストの競合",
+    "revision_variant": "リビジョンバリアント",
+    "fills_missing_predecessor": "欠落した先行リビジョンの補完",
+    "extends_known_head": "既知の先端の延長",
+    "continues_branch": "ブランチの継続",
+    "parallel_branch_head": "並行ブランチの先端",
+    "new_series": "新しい系列",
+}
+_INBOX_GATE_STATE_LABELS = {
+    "validated": "検証済",
+    "rejected": "却下",
+    "not_evaluated": "未評価",
+    "satisfied": "充足",
+    "unresolved": "未解決",
+    "not_required": "不要",
+    "pending": "保留中",
+    "resolved": "解決済",
+    "blocked": "ブロック",
+    "none": "なし",
+    "open": "未解決",
+}
+_INBOX_AUTHORITY_KIND_LABELS = {
+    "raw_visual_evidence": "生の視覚証拠",
+    "semantic_geometry": "意味ジオメトリ",
+    "annotations": "注釈",
+    "measurements": "測定",
+    "as_built_observations": "竣工観測",
+}
+_INBOX_UNASSIGNED_SCOPE = "capture-inbox-unassigned"
+
+
+def _inbox_scope_label(scope: str) -> str:
+    return "（未割り当て）" if scope == _INBOX_UNASSIGNED_SCOPE else scope
+
+
+def _classification_label(classification: str) -> str:
+    return _INBOX_CLASSIFICATION_LABELS.get(classification, classification)
 
 
 class CaptureInboxPage(QWidget):
@@ -739,24 +778,24 @@ class CaptureInboxPage(QWidget):
     def _populate_detail(self, inspection) -> None:
         item = inspection.item
         flags = (
-            "・".join(item.classification_flags)
+            "・".join(
+                _INBOX_CLASSIFICATION_LABELS.get(flag, flag)
+                for flag in item.classification_flags
+            )
             if item.classification_flags
-            else item.primary_classification
+            else _classification_label(item.primary_classification)
         )
-        scope = (
-            "（未割り当て）"
-            if item.scope == "capture-inbox-unassigned"
-            else item.scope
-        )
+        scope = _inbox_scope_label(item.scope)
         lines = [
             f"スコープ: {scope}",
             f"項目: {item.inbox_item_id.split(':', 1)[-1][:16]}…"
             f" / 系列 {item.capture_series_id} / リビジョン {item.capture_revision_id}",
-            f"分類: {item.primary_classification}（{flags}）",
+            f"分類: {_classification_label(item.primary_classification)}（{flags}）",
             f"到着: {item.arrival_source} ×{item.arrival_count}（{item.first_arrived_at_utc}）",
             "ゲート: "
             + " / ".join(
-                f"{_INBOX_GATE_LABELS[key]}={getattr(item, key)}"
+                f"{_INBOX_GATE_LABELS[key]}="
+                f"{_INBOX_GATE_STATE_LABELS.get(getattr(item, key), getattr(item, key))}"
                 + (
                     f"（{getattr(item, key[:-5] + '_detail')}）"
                     if getattr(item, key[:-5] + '_detail', '')
@@ -766,13 +805,33 @@ class CaptureInboxPage(QWidget):
             ),
             f"昇格可能性: {_INBOX_PROMOTABILITY_LABELS.get(inspection.promotability, inspection.promotability)}"
             + (
-                f"（昇格対象: {'・'.join(inspection.available_authority_kinds) or 'なし'}）"
+                "（昇格対象: "
+                + (
+                    "・".join(
+                        _INBOX_AUTHORITY_KIND_LABELS.get(kind, kind)
+                        for kind in inspection.available_authority_kinds
+                    )
+                    or "なし"
+                )
+                + "）"
             ),
             (
                 "昇格済: "
-                + ("・".join(inspection.promoted_authority_kinds) or "なし")
+                + (
+                    "・".join(
+                        _INBOX_AUTHORITY_KIND_LABELS.get(kind, kind)
+                        for kind in inspection.promoted_authority_kinds
+                    )
+                    or "なし"
+                )
                 + " / 不可: "
-                + ("・".join(inspection.blocked_authority_kinds) or "なし")
+                + (
+                    "・".join(
+                        _INBOX_AUTHORITY_KIND_LABELS.get(kind, kind)
+                        for kind in inspection.blocked_authority_kinds
+                    )
+                    or "なし"
+                )
             ),
             f"内容: 証拠{inspection.source_evidence_count} / "
             f"間取り{inspection.roomplan_record_count} / "
@@ -883,10 +942,12 @@ class CaptureInboxPage(QWidget):
             self.table.insertRow(row)
             for column, value in enumerate(
                 (
-                    item.scope,
+                    _inbox_scope_label(item.scope),
                     item.capture_series_id,
-                    item.primary_classification,
-                    item.disposition,
+                    _classification_label(item.primary_classification),
+                    _INBOX_DISPOSITION_LABELS.get(
+                        item.disposition, item.disposition
+                    ),
                     str(item.arrival_count),
                 )
             ):

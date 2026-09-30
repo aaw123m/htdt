@@ -229,6 +229,7 @@ class CommandPalette(QDialog):
         *,
         context_provider: Callable[[], CommandContext | None] | None = None,
         on_deep_link: Callable[[WorkspaceDeepLink], bool] | None = None,
+        on_help_topic: Callable[[str], bool] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -240,6 +241,7 @@ class CommandPalette(QDialog):
                 on_deep_link=on_deep_link,
             )
         self.context_provider = context_provider or (lambda: None)
+        self._on_help_topic = on_help_topic
         self.setWindowTitle('コマンド検索')
         self.setModal(False)
         self.resize(640, 460)
@@ -357,6 +359,12 @@ class CommandPalette(QDialog):
         detail_parts = [part for part in (result.subtitle,) if part]
         if not result.available and result.disabled_reason:
             detail_parts.insert(0, result.disabled_reason)
+        if (
+            not result.available
+            and result.help_topic_id is not None
+            and self._on_help_topic is not None
+        ):
+            detail_parts.append('Enterで「なぜ実行できないか」のヘルプを表示')
         self.detail_label.setText(' · '.join(detail_parts))
 
     def activate_current(self) -> None:
@@ -372,6 +380,11 @@ class CommandPalette(QDialog):
             self.detail_label.setText(
                 result.disabled_reason or '現在は実行できません'
             )
+            if (
+                result.help_topic_id is not None
+                and self._on_help_topic is not None
+            ):
+                self._on_help_topic(result.help_topic_id)
             return
         if self.service.activate(result):
             self.hide()
@@ -389,12 +402,14 @@ class CommandPaletteController(QObject):
         *,
         context_provider: Callable[[], CommandContext | None] | None = None,
         on_deep_link: Callable[[WorkspaceDeepLink], bool] | None = None,
+        on_help_topic: Callable[[str], bool] | None = None,
     ) -> None:
         super().__init__(window)
         self.palette = CommandPalette(
             service,
             context_provider=context_provider,
             on_deep_link=on_deep_link,
+            on_help_topic=on_help_topic,
             parent=window,
         )
         self.open_shortcut = QShortcut(QKeySequence('Ctrl+K'), window)

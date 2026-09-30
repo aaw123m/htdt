@@ -444,11 +444,13 @@ def _offer_post_update_revalidation(
                 diagnostics.logger.warning(
                     "post-update revalidation failed", exc_info=True
                 )
-                QMessageBox.warning(
+                from .user_facing_error import warn_user
+
+                warn_user(
                     None,
-                    "HTDT 再検証",
-                    "再検証を完了できませんでした。データは変更されていません。\n"
-                    f"詳細: {exc}",
+                    "再検証を完了できませんでした",
+                    exc,
+                    effect="データは変更されていません。",
                 )
     finally:
         if splash is not None:
