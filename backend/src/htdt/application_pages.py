@@ -299,6 +299,7 @@ class ProjectLibraryPage(QWidget):
             "アーカイブ済みのプロジェクトは開けず、削除は確認のうえ実行されます。",
         )
         self.table = QTableWidget(0, 5)
+        self.table.setAccessibleName("プロジェクト一覧")
         self.table.setHorizontalHeaderLabels(
             ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態")
         )
@@ -686,6 +687,7 @@ class CaptureInboxPage(QWidget):
         )
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
+        self.table.setAccessibleName("取り込み一覧")
         self.table.setHorizontalHeaderLabels(
             ("スコープ", "シリーズ", "分類", "状態", "到着数")
         )

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 
-from PySide6.QtCore import QObject, QRect, QSize, Qt
+from PySide6.QtCore import QObject, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFontMetrics, QKeySequence, QPalette, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
@@ -247,7 +247,9 @@ class CommandPalette(QDialog):
         self.resize(640, 460)
 
         layout = QVBoxLayout(self)
+        self._restore_focus_to: QWidget | None = None
         self.search_field = QLineEdit(self)
+        self.search_field.setAccessibleName('コマンド検索')
         self.search_field.setPlaceholderText('機能・項目・設定・ヘルプを検索…')
         self.search_field.setClearButtonEnabled(True)
         self.search_field.textChanged.connect(self.refresh_results)
@@ -272,10 +274,41 @@ class CommandPalette(QDialog):
         self.refresh_results('')
 
     def prepare_to_show(self) -> None:
+        # Focus goes to the search field while the palette is up; remember
+        # its owner so hideEvent can hand it back (#731 focus restore).
+        self._restore_focus_to = QApplication.focusWidget()
         self.search_field.clear()
         self.refresh_results('')
         self.search_field.setFocus(Qt.FocusReason.ShortcutFocusReason)
         self.search_field.selectAll()
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        super().hideEvent(event)
+        target = self._restore_focus_to
+        self._restore_focus_to = None
+        if target is None:
+            return
+        # Qt moves focus away from the hiding dialog after hideEvent, so a
+        # synchronous restore is immediately overwritten. Deferring past the
+        # event-loop turn lets Qt settle first, then hands focus back.
+        def restore() -> None:
+            try:
+                # isVisible covers workspace switches: a pre-palette owner
+                # in a now-hidden mount is skipped so navigation keeps
+                # focus control.
+                if target.isEnabled() and target.isVisible():
+                    # The palette was a top-level window: when it hides, the
+                    # platform may leave no active window, so setFocus alone
+                    # cannot take effect. Reactivate the target's own window
+                    # first (no-op when the shell already holds activation).
+                    window = target.window()
+                    if window is not None and not window.isActiveWindow():
+                        window.activateWindow()
+                    target.setFocus(Qt.FocusReason.OtherFocusReason)
+            except RuntimeError:
+                pass
+
+        QTimer.singleShot(0, restore)
 
     def _escape_pressed(self) -> None:
         if self.search_field.text():

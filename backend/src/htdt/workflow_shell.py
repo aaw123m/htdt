@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accessible_labels import wire_label_buddies
 from .ui_theme import (
     ControlSize,
     SurfaceRole,
@@ -395,6 +396,10 @@ class WorkspaceRouter(QStackedWidget):
             raise ValueError("workspace factory must return an unparented widget")
         self._mounts[workspace_id] = mount
         self.addWidget(mount.widget)
+        # Caption QLabel siblings created without a buddy leave their
+        # control's accessible name empty; wire them once per mount so
+        # every lazily built panel names its inputs to screen readers.
+        wire_label_buddies(mount.widget)
         return mount
 
 
@@ -467,6 +472,9 @@ class WorkflowRail(QFrame):
                 last_scope = registration.scope
             button = QPushButton(registration.label)
             button.setCheckable(True)
+            # Compact mode truncates the text to one glyph; the accessible
+            # name keeps the full destination label.
+            button.setAccessibleName(registration.label)
             button.setProperty("workspaceId", registration.workspace_id.value)
             set_control_size(button, ControlSize.STANDARD)
             button.clicked.connect(
@@ -482,6 +490,7 @@ class WorkflowRail(QFrame):
         self._outer_layout.addWidget(self._scroll, 1)
 
         self.settings_button = QPushButton("設定")
+        self.settings_button.setAccessibleName("設定")
         self.settings_button.setObjectName("workflowSettingsButton")
         set_control_size(self.settings_button, ControlSize.STANDARD)
         if on_settings is not None:
@@ -771,6 +780,10 @@ class WorkflowShellWindow(QMainWindow):
         QShortcut(QKeySequence("Alt+Right"), self, activated=self.navigation_forward)
         QShortcut(QKeySequence("F1"), self, activated=self.helpRequested.emit)
         self.context_bar.set_project_identity(None, None)
+        # Name the shell's own unlabeled inputs (rail scroll surface,
+        # context bar) through the same caption-buddy pass the router
+        # applies to every mount.
+        wire_label_buddies(self)
         if not self.navigate(initial_workspace):
             raise RuntimeError("initial workflow workspace could not be activated")
 
