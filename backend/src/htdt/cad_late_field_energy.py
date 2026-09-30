@@ -126,6 +126,7 @@ from .r120_geometry_compiler import (
 )
 from .canonical_json import canonical_sha256 as _semantic_hash
 from .clock import utc_now_iso as _utc_now
+from .occluder_grid_index import _IndexedOccluderRows
 
 
 LATE_FIELD_SCHEMA_VERSION = 1
@@ -997,7 +998,12 @@ def _segment_blocked_ignoring_triangles(
             (index,) + _triangle_vertices(compiled, index)
             for index in range(len(compiled.triangles))
         )
-    for index, vertex_a, vertex_b, vertex_c in occluder_records:
+    candidates = (
+        occluder_records._segment_candidates(start, end)
+        if isinstance(occluder_records, _IndexedOccluderRows)
+        else occluder_records
+    )
+    for index, vertex_a, vertex_b, vertex_c in candidates:
         if index in ignored_triangle_indices:
             continue
         hit = _segment_triangle_intersection_parameter(
@@ -1209,7 +1215,7 @@ def execute_late_field_energy(
     rejected: list[LateFieldRejectedCandidate] = []
 
     occluder_triangles = _occluder_triangles(compiled_geometry)
-    occluder_records = tuple(
+    occluder_records = _IndexedOccluderRows(
         (index,) + _triangle_vertices(compiled_geometry, index)
         for index in range(len(compiled_geometry.triangles))
     )

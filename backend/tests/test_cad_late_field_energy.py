@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from math import isclose, pi, sqrt
 from pathlib import Path
+import random
 
 import pytest
 
@@ -9,6 +10,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     CadDeterministicPathArtifactRepository,
     DeterministicGaUnsupportedError,
 )
+from htdt.occluder_grid_index import _IndexedOccluderRows
 from htdt.cad_late_field_energy import (
     LATE_ENERGY_DECAY_OBSERVABLE,
     LATE_FIELD_ARTIFACT_SCHEMA_REF,
@@ -19,6 +21,7 @@ from htdt.cad_late_field_energy import (
     DeclaredDiffractingEdge,
     HtdtLateFieldEnergyEngine,
     LateFieldConfiguration,
+    _segment_blocked_ignoring_triangles,
     build_late_field_configuration,
     build_late_field_result_envelope,
     execute_late_field_energy,
@@ -29,6 +32,7 @@ from htdt.clock import utc_now_iso
 
 from test_cad_geometric_acoustics_adapter import (  # noqa: E402  (shared fixtures)
     _fixture,
+    _generated_occluder_rows,
     _material,
     _portal_fixture,
 )
@@ -631,3 +635,37 @@ def test_persisted_late_field_read_loads_each_authority_once(
     finally:
         fx['snapshot_repository'].get_snapshot = original_get_snapshot
     assert snapshot_loads == [artifact.snapshot_id]
+
+
+def test_segment_blocked_ignoring_triangles_grid_matches_brute_force() -> None:
+    """Indexed occluder records must yield identical pass/block verdicts."""
+    rng = random.Random(20240924)
+    base_rows = _generated_occluder_rows(rng, 400)
+    records = tuple((index,) + row[1:] for index, row in enumerate(base_rows))
+    indexed = _IndexedOccluderRows(records)
+    plain = tuple(records)
+    ignored = frozenset({3, 97, 250, 399})
+    mismatches = []
+    for _ in range(1500):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        for tolerance in (1.0e-9, 1.0e-6):
+            expected = _segment_blocked_ignoring_triangles(
+                None,
+                start,
+                end,
+                tolerance=tolerance,
+                ignored_triangle_indices=ignored,
+                occluder_records=plain,
+            )
+            actual = _segment_blocked_ignoring_triangles(
+                None,
+                start,
+                end,
+                tolerance=tolerance,
+                ignored_triangle_indices=ignored,
+                occluder_records=indexed,
+            )
+            if actual != expected:
+                mismatches.append((start, end, tolerance))
+    assert mismatches == []

@@ -6,6 +6,7 @@ from typing import Literal, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .cad_scene import Direction3, Position3
+from .occluder_grid_index import _IndexedOccluderRows
 from .r120_geometry_compiler import (
     AcousticRegionAuthority,
     AcousticRegionDeclaration,
@@ -833,14 +834,17 @@ def _region_shell_triangles(
     ...,
 ]:
     surface_ids = set(region.boundary_surface_ids)
-    return tuple(
-        _triangle_points(compiled_geometry, index)
-        for index, triangle in enumerate(compiled_geometry.triangles)
-        if triangle.source_surface_id in surface_ids
-    ) + tuple(
-        triangle
-        for aperture in _incident_portal_apertures(region, apertures)
-        for triangle in _portal_cap_triangles(aperture)
+    return _IndexedOccluderRows(
+        tuple(
+            _triangle_points(compiled_geometry, index)
+            for index, triangle in enumerate(compiled_geometry.triangles)
+            if triangle.source_surface_id in surface_ids
+        )
+        + tuple(
+            triangle
+            for aperture in _incident_portal_apertures(region, apertures)
+            for triangle in _portal_cap_triangles(aperture)
+        )
     )
 
 
@@ -898,7 +902,7 @@ def region_membership_with_portal_caps(
     ] | None = None,
 ) -> Literal['inside', 'outside', 'boundary', 'ambiguous']:
     triangles = (
-        tuple(shell_triangles)
+        shell_triangles
         if shell_triangles is not None
         else _region_shell_triangles(
             compiled_geometry,
@@ -908,9 +912,14 @@ def region_membership_with_portal_caps(
     )
     if not triangles:
         return 'ambiguous'
+    boundary_candidates = (
+        triangles._point_candidates(point, tolerance_m)
+        if isinstance(triangles, _IndexedOccluderRows)
+        else triangles
+    )
     if any(
         _point_on_triangle(point, triangle, tolerance_m=tolerance_m)
-        for triangle in triangles
+        for triangle in boundary_candidates
     ):
         return 'boundary'
 
@@ -933,9 +942,14 @@ def region_membership_with_portal_caps(
             float(point[index]) + ray_length * direction[index]
             for index in range(3)
         )
+        candidates = (
+            triangles._segment_candidates(point, end)
+            if isinstance(triangles, _IndexedOccluderRows)
+            else triangles
+        )
         hits = sorted(
             hit
-            for triangle in triangles
+            for triangle in candidates
             if (
                 hit := _ray_triangle_parameter(
                     point,
@@ -997,7 +1011,7 @@ def region_segment_membership_with_portal_caps(
     if segment_length <= tolerance_m:
         return 'invalid'
     triangles = (
-        tuple(shell_triangles)
+        shell_triangles
         if shell_triangles is not None
         else _region_shell_triangles(
             compiled_geometry,
@@ -1045,6 +1059,11 @@ def region_segment_membership_with_portal_caps(
         != 'inside'
     ):
         return 'invalid'
+    crossing_candidates = (
+        triangles._segment_candidates(start, end)
+        if isinstance(triangles, _IndexedOccluderRows)
+        else triangles
+    )
     if any(
         _ray_triangle_parameter(
             start,
@@ -1053,7 +1072,7 @@ def region_segment_membership_with_portal_caps(
             tolerance_m=tolerance_m,
         )
         is not None
-        for triangle in triangles
+        for triangle in crossing_candidates
     ):
         return 'invalid'
     return 'valid'
