@@ -267,6 +267,24 @@ def _seed_solver_stack(connection, revision_id: str) -> None:
     )
     _insert(
         connection,
+        'INSERT INTO r150_path_frequency_response_artifacts (artifact_id, '
+        'semantic_sha256, payload_json) VALUES (?, ?, ?)',
+        'r150-path-frequency-response:' + SHA,
+        SHA,
+        _payload(
+            deterministic_path_artifact_id=(
+                f'deterministic-path-artifact:{SHA}'
+            ),
+            execution_input_ref={
+                'authority_id': f'deterministic-ga-execution-input:{SHA}',
+            },
+            quantity='complex_acoustic_pressure_per_volume_velocity',
+            capability='COMPLEX_SUPPORTED',
+            samples=[{'frequency_hz': 125.0}, {'frequency_hz': 250.0}],
+        ),
+    )
+    _insert(
+        connection,
         'INSERT INTO r160_stitched_hybrid_responses (artifact_id, '
         'semantic_sha256, composition_spec_id, payload_json) '
         'VALUES (?, ?, ?, ?)',
@@ -280,6 +298,24 @@ def _seed_solver_stack(connection, revision_id: str) -> None:
                 'algorithm_version': '1',
                 'stitch_state': 'GAP_PRESERVED',
             },
+        ),
+    )
+    _insert(
+        connection,
+        'INSERT INTO r160_numerical_hybrid_responses (artifact_id, '
+        'semantic_sha256, composition_spec_id, payload_json) '
+        'VALUES (?, ?, ?, ?)',
+        'r160-numerical-hybrid-response:' + SHA,
+        SHA,
+        'r160-numerical-composition-spec:' + SHA,
+        _payload(
+            exact_r130_result={'result_id': f'acoustic-solver-result:{SHA}'},
+            composition_spec={
+                'composition_spec_id': 'r160-numerical-composition-spec:' + SHA,
+            },
+            quantity='complex_acoustic_pressure_per_volume_velocity',
+            capability_state='COMPLEX_SUPPORTED',
+            samples=[{'frequency_hz': 125.0}],
         ),
     )
     _insert(
@@ -470,6 +506,8 @@ def test_ledger_resolves_full_solver_stack(tmp_path: Path) -> None:
         'late_field',
         'late_energy_decay',
         'stitched_response',
+        'numerical_hybrid_response',
+        'path_frequency_response',
         'hybrid_result',
         'stitching_policy',
         'prediction_provider',
@@ -507,6 +545,22 @@ def test_ledger_extracts_payload_fields(tmp_path: Path) -> None:
     assert stitched.produced_by == 'htdt.r160.band-stitch v1'
     assert stitched.capability == 'GAP_PRESERVED'
     assert stitched.provenance_ref == f'acoustic-solver-result:{SHA}'
+    numerical = by_kind['numerical_hybrid_response']
+    assert numerical.observables == (
+        'complex_acoustic_pressure_per_volume_velocity',
+    )
+    assert numerical.produced_by == 'r160-numerical-composition-spec:' + SHA
+    assert numerical.capability == 'COMPLEX_SUPPORTED'
+    assert numerical.provenance_ref == f'acoustic-solver-result:{SHA}'
+    assert numerical.item_count == 1
+    response = by_kind['path_frequency_response']
+    assert response.observables == (
+        'complex_acoustic_pressure_per_volume_velocity',
+    )
+    assert response.produced_by == f'deterministic-ga-execution-input:{SHA}'
+    assert response.capability == 'COMPLEX_SUPPORTED'
+    assert response.provenance_ref == f'deterministic-path-artifact:{SHA}'
+    assert response.item_count == 2
 
 
 def test_ledger_marks_orphaned_linkage(tmp_path: Path) -> None:
@@ -653,7 +707,11 @@ def test_dialog_detail_shows_honest_states(tmp_path: Path) -> None:
         )
     ledger = _ledger(repository)
     revisions = repository.list_revision_summaries('doc-test')
-    dialog = SolverOutputDiagnosticsDialog(ledger, revisions)
+    dialog = SolverOutputDiagnosticsDialog(
+        ledger,
+        revisions,
+        open_authority_graph=lambda parent, revision: None,
+    )
     try:
         combo = dialog.revision_combo
         # Orphaned row surfaces under the honest「未解決」bucket.
@@ -666,6 +724,36 @@ def test_dialog_detail_shows_honest_states(tmp_path: Path) -> None:
         assert '読み取り不可' in dialog.payload_state_label.text()
         assert 'リンク未解決' in dialog.summary_label.text()
         assert '読み取り不可' in dialog.summary_label.text()
+        # An orphaned row has no authority node to open on.
+        assert not dialog.authority_button.isEnabled()
+    finally:
+        dialog.close()
+        dialog.deleteLater()
+
+
+def test_dialog_opens_authority_graph_on_resolved_revision(
+    tmp_path: Path,
+) -> None:
+    _app()
+    repository, _, revision_id = _seed_repository(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_solver_stack(connection, revision_id)
+    ledger = _ledger(repository)
+    revisions = repository.list_revision_summaries('doc-test')
+    opened: list[tuple] = []
+    dialog = SolverOutputDiagnosticsDialog(
+        ledger,
+        revisions,
+        open_authority_graph=lambda parent, revision: opened.append(
+            (parent, revision)
+        ),
+    )
+    try:
+        assert not dialog.authority_button.isEnabled()
+        dialog.table.selectRow(0)
+        assert dialog.authority_button.isEnabled()
+        dialog.authority_button.click()
+        assert opened == [(dialog, revision_id)]
     finally:
         dialog.close()
         dialog.deleteLater()

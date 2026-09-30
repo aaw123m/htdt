@@ -165,6 +165,12 @@ _SPECS: tuple[_TableSpec, ...] = (
         'snapshot:snapshot_id',
     ),
     _TableSpec(
+        'r150_path_frequency_response_artifacts',
+        'path_frequency_response',
+        'artifact_id',
+        'payload_path_id',
+    ),
+    _TableSpec(
         'r160_late_energy_decay_artifacts',
         'late_energy_decay',
         'artifact_id',
@@ -173,6 +179,12 @@ _SPECS: tuple[_TableSpec, ...] = (
     _TableSpec(
         'r160_stitched_hybrid_responses',
         'stitched_response',
+        'artifact_id',
+        'payload_result_ref',
+    ),
+    _TableSpec(
+        'r160_numerical_hybrid_responses',
+        'numerical_hybrid_response',
         'artifact_id',
         'payload_result_ref',
     ),
@@ -287,6 +299,8 @@ def _observables(kind: str, payload: dict[str, Any]) -> tuple[str, ...]:
         return _strings(payload.get('path_scope'))
     if kind == 'late_energy_decay':
         return _strings(payload.get('quantity')) + ('late_energy_decay',)
+    if kind in ('path_frequency_response', 'numerical_hybrid_response'):
+        return _strings(payload.get('quantity'))
     if kind == 'hybrid_result':
         return _strings(_at(payload, 'composition_spec', 'observable'))
     if kind == 'prediction_provider':
@@ -317,6 +331,12 @@ def _produced_by(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str | 
         identity = _at(payload, 'stitch_plan', 'algorithm_identity')
         version = _at(payload, 'stitch_plan', 'algorithm_version')
         return f'{identity} v{version}' if isinstance(identity, str) else None
+    if kind == 'numerical_hybrid_response':
+        value = _at(payload, 'composition_spec', 'composition_spec_id')
+        return value if isinstance(value, str) else None
+    if kind == 'path_frequency_response':
+        value = _at(payload, 'execution_input_ref', 'authority_id')
+        return value if isinstance(value, str) else None
     if kind == 'late_energy_decay':
         value = payload.get('decay_model')
         return value if isinstance(value, str) else None
@@ -350,8 +370,11 @@ def _provenance_ref(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str
     if kind == 'late_energy_decay':
         value = _at(payload, 'deterministic_path_artifact_ref', 'authority_id')
         return value if isinstance(value, str) else None
-    if kind == 'stitched_response':
+    if kind in ('stitched_response', 'numerical_hybrid_response'):
         value = _at(payload, 'exact_r130_result', 'result_id')
+        return value if isinstance(value, str) else None
+    if kind == 'path_frequency_response':
+        value = payload.get('deterministic_path_artifact_id')
         return value if isinstance(value, str) else None
     if kind == 'hybrid_result':
         return _col('stitching_policy_id')
@@ -397,6 +420,12 @@ def _capability(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str | N
     if kind == 'stitched_response':
         value = _at(payload, 'stitch_plan', 'stitch_state')
         return value if isinstance(value, str) else None
+    if kind == 'numerical_hybrid_response':
+        value = payload.get('capability_state')
+        return value if isinstance(value, str) else None
+    if kind == 'path_frequency_response':
+        value = payload.get('capability')
+        return value if isinstance(value, str) else None
     if kind == 'stitching_policy':
         value = payload.get('mode')
         return value if isinstance(value, str) else None
@@ -419,6 +448,8 @@ _ITEM_LIST_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
     'late_field': (('path_contributions',),),
     'late_energy_decay': (('bands',),),
     'stitched_response': (('samples',), ('responses',)),
+    'numerical_hybrid_response': (('samples',),),
+    'path_frequency_response': (('samples',),),
     'hybrid_result': (('bands',), ('samples',)),
 }
 
@@ -505,6 +536,11 @@ def build_solver_output_ledger(
             ('exact_r130_result', 'result_id'),
             result_snap,
         ),
+        (
+            'r160_numerical_hybrid_responses',
+            ('exact_r130_result', 'result_id'),
+            result_snap,
+        ),
     ):
         if table not in known:
             continue
@@ -546,6 +582,12 @@ def build_solver_output_ledger(
         elif link == 'payload_result_ref':
             ref = _at(payload, 'exact_r130_result', 'result_id') if payload else None
             snapshot = result_snap.get(ref) if isinstance(ref, str) else None
+            value = snapshot_rev.get(snapshot) if snapshot else None
+            if value is not None:
+                revisions.add(value)
+        elif link == 'payload_path_id':
+            ref = payload.get('deterministic_path_artifact_id') if payload else None
+            snapshot = path_snap.get(ref) if isinstance(ref, str) else None
             value = snapshot_rev.get(snapshot) if snapshot else None
             if value is not None:
                 revisions.add(value)

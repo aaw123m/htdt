@@ -470,6 +470,12 @@ class AuthorityInspector:
 # Canonical-source adapters.
 
 
+def scene_revision_node_id(revision_id: str) -> str:
+    """Authority-graph node id for a scene revision — the id the solver
+    ledger's resolved revisions and deep links target."""
+    return f'room:scene_revision:{revision_id}'
+
+
 def scene_revision_authority_source(
     revisions: Iterable[Any],
     *,
@@ -523,7 +529,7 @@ def scene_revision_authority_source(
             lifecycle = AuthorityLifecycle.HISTORICAL
         contributions.append(
             AuthorityNode(
-                node_id=f'room:scene_revision:{rev.revision_id}',
+                node_id=scene_revision_node_id(rev.revision_id),
                 domain=AuthorityDomain.ROOM,
                 node_type='scene_revision',
                 label=f'SceneRevision {rev.revision_id}',
@@ -540,7 +546,7 @@ def scene_revision_authority_source(
         contributions.append(
             AuthorityEdge(
                 kind=AuthorityEdgeKind.BINDS_TO,
-                source=f'room:scene_revision:{rev.revision_id}',
+                source=scene_revision_node_id(rev.revision_id),
                 target=f'room:document:{doc_id}',
             )
         )
@@ -548,8 +554,8 @@ def scene_revision_authority_source(
             contributions.append(
                 AuthorityEdge(
                     kind=AuthorityEdgeKind.SUPERSEDES,
-                    source=f'room:scene_revision:{rev.revision_id}',
-                    target=f'room:scene_revision:{rev.parent_revision_id}',
+                    source=scene_revision_node_id(rev.revision_id),
+                    target=scene_revision_node_id(rev.parent_revision_id),
                 )
             )
     return StaticAuthoritySource(contributions)
@@ -608,7 +614,7 @@ def measurement_authority_source(
             AuthorityEdge(
                 kind=AuthorityEdgeKind.MEASURED_FOR,
                 source=node_id,
-                target=f'room:scene_revision:{record.scene_revision_id}',
+                target=scene_revision_node_id(record.scene_revision_id),
             )
         )
     return StaticAuthoritySource(contributions)
@@ -664,7 +670,7 @@ def system_variant_authority_source(
             AuthorityEdge(
                 kind=AuthorityEdgeKind.DERIVED_FROM,
                 source=node_id,
-                target=f'room:scene_revision:{variant.baseline_revision_id}',
+                target=scene_revision_node_id(variant.baseline_revision_id),
             )
         )
         if variant.parent_variant_id:
@@ -706,5 +712,6 @@ __all__ = [
     'build_authority_graph',
     'measurement_authority_source',
     'scene_revision_authority_source',
+    'scene_revision_node_id',
     'system_variant_authority_source',
 ]
