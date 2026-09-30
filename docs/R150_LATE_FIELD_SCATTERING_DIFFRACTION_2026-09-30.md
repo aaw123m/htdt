@@ -45,7 +45,8 @@ Every contribution carries `incident_distance_bound_m`, `emergent_distance_bound
 `late_energy_upper_bound_per_m2`, directivity evidence, material (scattering) or
 `diffracting_edge` record (diffraction), and `apex_clamped_to_segment_endpoint`.
 Identity hashes use the canonical pruned-None semantic-payload convention;
-contributions order canonically by kind -> source -> receiver -> interaction key.
+contributions order canonically by source -> receiver -> kind -> interaction
+key -> contribution id.
 
 ## Fail-closed decisions
 
