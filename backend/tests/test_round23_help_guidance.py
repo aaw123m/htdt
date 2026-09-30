@@ -228,6 +228,7 @@ def test_dirty_resolution_failure_maps_exception_text(qapp, msgboxes) -> None:
 
 def test_room_workspace_resolution_failure_maps_exception(tmp_path, qapp) -> None:
     workspace = _room_workspace(tmp_path)
+    workspace.controller.working.begin_move('speaker-fl')
     workspace.controller.working.commit_preview = Mock(
         side_effect=EditStateError('document replacement after state does not match')
     )
