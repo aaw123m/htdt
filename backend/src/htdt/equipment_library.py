@@ -769,6 +769,7 @@ class EquipmentLibraryDialog(QDialog):
             item = QListWidgetItem(_definition_label(definition))
             item.setData(Qt.ItemDataRole.UserRole, definition.semantic_sha256)
             self.definition_list.addItem(item)
+        self._selection_changed(self.definition_list.currentRow())
 
     def _selected_definition(self) -> EquipmentDefinition | None:
         item = self.definition_list.currentItem()
@@ -785,6 +786,8 @@ class EquipmentLibraryDialog(QDialog):
             self.preview_label.setText(
                 "\n".join(capability_preview(definition))
             )
+        else:
+            self.preview_label.clear()
 
     def _attach_source_file(self) -> None:
         selected, _filter = file_dialog_memory.get_open_file_name(

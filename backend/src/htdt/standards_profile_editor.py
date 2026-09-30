@@ -201,7 +201,7 @@ class StandardsProfileEditorDialog(QDialog):
         self.criteria_table.setHorizontalHeaderLabels(["基準ID", "ルール"])
         self.criteria_table.horizontalHeader().setStretchLastSection(True)
         self.criteria_table.itemSelectionChanged.connect(
-            lambda: self._load_criterion(self.criteria_table.currentRow())
+            self._criterion_selection_changed
         )
         layout.addWidget(self.criteria_table, 1)
 
@@ -260,6 +260,7 @@ class StandardsProfileEditorDialog(QDialog):
         self.add_criterion_button = QPushButton("基準を追加 / 更新")
         self.add_criterion_button.clicked.connect(self._apply_criterion)
         self.remove_criterion_button = QPushButton("基準を削除")
+        self.remove_criterion_button.setEnabled(False)
         self.remove_criterion_button.clicked.connect(self._remove_criterion)
         criterion_buttons.addWidget(self.add_criterion_button)
         criterion_buttons.addWidget(self.remove_criterion_button)
@@ -323,6 +324,11 @@ class StandardsProfileEditorDialog(QDialog):
             profile is not None and profile.profile_kind == "user_defined"
         )
 
+    def _criterion_selection_changed(self) -> None:
+        row = self.criteria_table.currentRow()
+        self.remove_criterion_button.setEnabled(0 <= row < len(self._criteria))
+        self._load_criterion(row)
+
     def _refresh_criteria_table(self) -> None:
         self.criteria_table.setRowCount(0)
         for criterion in self._criteria:
@@ -334,6 +340,7 @@ class StandardsProfileEditorDialog(QDialog):
             self.criteria_table.setItem(
                 row, 1, QTableWidgetItem(_criterion_row_text(criterion))
             )
+        self.remove_criterion_button.setEnabled(False)
 
     def _load_criterion(self, row: int) -> None:
         if row < 0 or row >= len(self._criteria):
