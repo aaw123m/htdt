@@ -648,8 +648,9 @@ def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> Non
     ``worker.completed`` it ran ON the worker thread, so every Qt call in
     the handler (QMessageBox parenting, ``.exec()``, statusBar writes) was
     a cross-thread violation that ghosted modal dialogs and deadlocked
-    the app after export/import. The composition now relays the signal
-    through a QObject living on the UI thread."""
+    the app after export/import. The pool now relays ``on_completed``
+    through its own queued slot, so any plain callable lands on the UI
+    thread."""
     app = _app()
     composition = _composition(tmp_path)
     delivered_on: list[object] = []
@@ -663,7 +664,7 @@ def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> Non
         loop.quit()
         return result
 
-    monkeypatch.setattr(composition._bundle_receiver, '_deliver', spy)
+    monkeypatch.setattr(composition, '_bundle_job_completed', spy)
     monkeypatch.setattr(
         QMessageBox, 'exec', lambda self: QDialog.DialogCode.Accepted
     )
@@ -674,7 +675,7 @@ def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> Non
         lambda _cancel: SimpleNamespace(
             row_count=1, asset_count=1, manifest_sha256='x'
         ),
-        composition._bundle_receiver.receive,
+        composition._bundle_job_completed,
     )
     QTimer.singleShot(10_000, loop.quit)
     loop.exec()

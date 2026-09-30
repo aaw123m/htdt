@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import weakref
 from math import sqrt
 from typing import Literal, Sequence
 
@@ -825,6 +826,46 @@ def _incident_portal_apertures(
     )
 
 
+#: Per-compiled-geometry ``source_surface_id`` -> triangle index map. Keyed
+#: by ``id()`` with a weakref purge: ``R120CompiledGeometry`` is a frozen,
+#: hash-validated model — hashing it per lookup would cost as much as the
+#: scan this index removes, so identity-keyed memoization is the bounded
+#: option. Concurrent solver threads may race a rebuild; the build is
+#: idempotent so a lost race only recomputes the same map.
+_COMPILED_SURFACE_TRIANGLE_INDICES: dict[
+    int,
+    tuple[
+        weakref.ReferenceType[R120CompiledGeometry],
+        dict[str, tuple[int, ...]],
+    ],
+] = {}
+
+
+def _surface_triangle_indices(
+    compiled_geometry: R120CompiledGeometry,
+) -> dict[str, tuple[int, ...]]:
+    key = id(compiled_geometry)
+    entry = _COMPILED_SURFACE_TRIANGLE_INDICES.get(key)
+    if entry is not None and entry[0]() is compiled_geometry:
+        return entry[1]
+    indices: dict[str, list[int]] = {}
+    for index, triangle in enumerate(compiled_geometry.triangles):
+        indices.setdefault(triangle.source_surface_id, []).append(index)
+    frozen = {
+        surface_id: tuple(rows) for surface_id, rows in indices.items()
+    }
+    _COMPILED_SURFACE_TRIANGLE_INDICES[key] = (
+        weakref.ref(
+            compiled_geometry,
+            lambda _dead, k=key: _COMPILED_SURFACE_TRIANGLE_INDICES.pop(
+                k, None
+            ),
+        ),
+        frozen,
+    )
+    return frozen
+
+
 def _region_shell_triangles(
     compiled_geometry: R120CompiledGeometry,
     region: AcousticRegionDeclaration,
@@ -834,11 +875,17 @@ def _region_shell_triangles(
     ...,
 ]:
     surface_ids = set(region.boundary_surface_ids)
+    by_surface = _surface_triangle_indices(compiled_geometry)
     return _IndexedOccluderRows(
         tuple(
             _triangle_points(compiled_geometry, index)
-            for index, triangle in enumerate(compiled_geometry.triangles)
-            if triangle.source_surface_id in surface_ids
+            # Sorted index merge keeps the compiled-triangle order the old
+            # per-region linear filter produced — rows are identical.
+            for index in sorted(
+                index
+                for surface_id in surface_ids
+                for index in by_surface.get(surface_id, ())
+            )
         )
         + tuple(
             triangle
