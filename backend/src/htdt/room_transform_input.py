@@ -485,7 +485,7 @@ class RoomEntityTransformController(QObject):
         if notes:
             self.workspace._set_status(" / ".join(notes))
         elif changed:
-            self.workspace._set_status("ナッジしました · 元に戻す で復元できます")
+            self.workspace._set_status("ナッジしました · 元に戻すで復元できます")
         return changed
 
     def _key_press(self, event: QKeyEvent) -> bool:

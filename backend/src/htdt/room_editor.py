@@ -168,10 +168,10 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_height.editingFinished.connect(self._numeric_room_height_edited)
         room_form.addRow('天井高', self.room_height)
 
-        room_form.addRow(QLabel('— AcousticTreatment —'))
+        room_form.addRow(QLabel('— 音響トリートメント —'))
         self.treatment_name_field = QLineEdit()
         self.treatment_name_field.setPlaceholderText('例: 60x120 吸音材')
-        room_form.addRow('treatment名', self.treatment_name_field)
+        room_form.addRow('トリートメント名', self.treatment_name_field)
         self.treatment_type_combo = QComboBox()
         self.treatment_type_combo.addItems(TREATMENT_TYPES)
         room_form.addRow('種類', self.treatment_type_combo)
@@ -217,11 +217,11 @@ class RoomEditorWindow(NativeEditorWindow):
         treatment_button = QPushButton('定義して配置')
         treatment_button.clicked.connect(self._create_and_place_treatment)
         room_form.addRow(treatment_button)
-        self.treatment_list_label = QLabel('treatmentなし')
+        self.treatment_list_label = QLabel('トリートメントなし')
         self.treatment_list_label.setWordWrap(True)
         room_form.addRow(self.treatment_list_label)
         self.treatment_compare_name = QLineEdit()
-        self.treatment_compare_name.setPlaceholderText('例: baseline vs A')
+        self.treatment_compare_name.setPlaceholderText('例: ベースライン vs A')
         room_form.addRow('比較', self.treatment_compare_name)
         compare_button = QPushButton('A/B比較を作成')
         compare_button.clicked.connect(self._create_treatment_comparison)
@@ -238,7 +238,7 @@ class RoomEditorWindow(NativeEditorWindow):
         """Refresh host-surface options and the placements list (#985)."""
         if self.treatment_surface_combo is not None:
             self.treatment_surface_combo.clear()
-            self.treatment_surface_combo.addItem('(surfaceなし)', None)
+            self.treatment_surface_combo.addItem('(面なし)', None)
             for surface_id in self.treatment_service.host_surface_options():
                 self.treatment_surface_combo.addItem(
                     surface_id, surface_id
@@ -247,7 +247,7 @@ class RoomEditorWindow(NativeEditorWindow):
             return
         placements = self.treatment_service.list_placements()
         if not placements:
-            self.treatment_list_label.setText('treatmentなし')
+            self.treatment_list_label.setText('トリートメントなし')
             return
         self.treatment_list_label.setText(
             '\n'.join(
@@ -283,10 +283,10 @@ class RoomEditorWindow(NativeEditorWindow):
                 ),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'treatmentを配置できません · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'トリートメントを配置できません · {operation_error_message(exc)}')
             return
         self.statusBar().showMessage(
-            f'treatment配置 · {placement.instance_id[-8:]}'
+            f'トリートメント配置 · {placement.instance_id[-8:]}'
         )
         self._refresh_treatments()
 
@@ -294,13 +294,13 @@ class RoomEditorWindow(NativeEditorWindow):
         """Named baseline + treatment design comparison (#985 §3)."""
         placements = self.treatment_service.list_placements()
         if not placements:
-            self.statusBar().showMessage('比較するtreatmentがありません')
+            self.statusBar().showMessage('比較するトリートメントがありません')
             return
         try:
             spec = self.treatment_service.create_comparison(
                 name=(
                     self.treatment_compare_name.text().strip()
-                    or 'ベースライン vs treatment'
+                    or 'ベースライン vs トリートメント'
                 ),
                 candidate_designs=(
                     (

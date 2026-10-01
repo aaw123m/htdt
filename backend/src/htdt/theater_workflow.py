@@ -71,7 +71,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
         source_id = self.recovery_candidate.source_revision_id
         source = self.repository.get(source_id) if source_id is not None else None
         if source is None:
-            self.statusBar().showMessage('復旧元 revision がないためドラフトを開けません')
+            self.statusBar().showMessage('復旧元リビジョンがないためドラフトを開けません')
             return
         self.working = TheaterWorkingDocument(
             self.recovery_candidate.document,
@@ -82,7 +82,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
         self.selected_id = self.view_state.selected_id
         self.recovery_candidate = None
         self._rebuild(reset_camera=True)
-        self.statusBar().showMessage(f'revision {source.revision_id[:8]} からドラフトを復旧しました · dirty')
+        self.statusBar().showMessage(f'リビジョン {source.revision_id[:8]} からドラフトを復旧しました · 未保存')
 
     def close_room_sketch(self) -> None:
         was_sketching = self.room_mode == 'sketch'

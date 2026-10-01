@@ -182,7 +182,7 @@ def processing_summary(dataset: CadFrequencyResponseDataset) -> str:
         keys = ', '.join(sorted(str(key) for key in processing))
         parts.append(f'処理履歴: {keys}')
     else:
-        parts.append('処理履歴: UNKNOWN')
+        parts.append('処理履歴: 不明')
     parts.append(f'レベル基準: {dataset.level_reference}')
     return ' · '.join(parts)
 

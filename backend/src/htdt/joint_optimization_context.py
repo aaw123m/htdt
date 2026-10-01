@@ -423,7 +423,7 @@ class JointOptimizationContext:
                         required_claim_ja=required_ja,
                         enabled=False,
                         decision='BLOCKED',
-                        reason_ja='対応するCalibrationPlanがありません。',
+                        reason_ja='対応する校正プランがありません。',
                         device_limit_note_ja=device_note,
                     )
                 )

@@ -677,7 +677,7 @@ class OverviewReadinessService:
                 OverviewNotice(
                     code='validation.recommendation_blocked',
                     severity='blocker',
-                    message='自動推薦はまだ利用できません。' + _validation_reason_ja(validation.gate_reasons),
+                    message='自動推奨はまだ利用できません。' + _validation_reason_ja(validation.gate_reasons),
                     action=validation_action,
                 )
             )
@@ -1082,7 +1082,7 @@ class OverviewReadinessService:
         'cost_evaluation': 'コスト評価',
         'measurement_plan': '測定計画',
         'measured_dataset': '測定データ',
-        'calibration_plan': '校正計画',
+        'calibration_plan': '校正プラン',
         'installation_report': '設置レポート',
         'optimization_run': '最適化検索',
         'design_comparison': '設計比較',
@@ -1274,7 +1274,7 @@ class OverviewReadinessService:
                 return '現在の部屋形状では予測できません。'
             return '次に予測を実行してください。'
         if validation_action is not None:
-            return '自動推薦の前に検証状態を確認してください。'
+            return '自動推奨の前に検証状態を確認してください。'
         if optimization_ready:
             return '最適化の準備ができています。'
         return '現在の状態を確認してください。'

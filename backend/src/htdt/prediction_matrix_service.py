@@ -101,7 +101,7 @@ class PredictionMatrixService:
         """
         revision = self.scene_repository.current_head(self.document_id)
         if revision is None:
-            raise ValueError("行列を作成するSceneRevisionがありません。")
+            raise ValueError("行列を作成するシーンリビジョンがありません。")
         if len(set(source_entity_ids)) != len(tuple(source_entity_ids)):
             raise ValueError('matrix sources must be unique')
         if len(set(receiver_ids)) != len(tuple(receiver_ids)):
@@ -116,11 +116,11 @@ class PredictionMatrixService:
             variant = self.variant_repository.get_variant(system_variant_id)
             if variant is None:
                 raise ValueError(
-                    f"選択したSystemVariantが存在しません: {system_variant_id}"
+                    f"選択したシステムバリアントが存在しません: {system_variant_id}"
                 )
             if variant.baseline_content_hash != revision.content_hash:
                 raise ValueError(
-                    'SystemVariantは現在のSceneRevisionと一致しません。'
+                    'システムバリアントは現在のシーンリビジョンと一致しません。'
                 )
 
         entity_ids = {
@@ -131,12 +131,12 @@ class PredictionMatrixService:
         for entity_id in source_entity_ids:
             if entity_id not in entity_ids:
                 raise ValueError(
-                    f"matrix source entityがシーンに存在しません: {entity_id}"
+                    f"行列ソースエンティティがシーンに存在しません: {entity_id}"
                 )
             provider = providers.get(entity_id)
             if provider is None:
                 raise ValueError(
-                    f"matrix sourceに実行providerが割り当てられていません: "
+                    f"行列ソースに実行プロバイダーが割り当てられていません: "
                     f"{entity_id}"
                 )
             bound_entity = (
@@ -144,13 +144,13 @@ class PredictionMatrixService:
             )
             if bound_entity != entity_id:
                 raise ValueError(
-                    f"providerのソースバインドは{bound_entity}を参照しています"
+                    f"プロバイダーのソースバインドは{bound_entity}を参照しています"
                     f"（要求: {entity_id}）"
                 )
             authority = provider.current_authority
             if authority.scene_content_hash != revision.content_hash:
                 raise ValueError(
-                    'providerのscene authorityが現在のSceneRevisionと'
+                    'プロバイダーのシーン権威が現在のシーンリビジョンと'
                     '一致しません。再実行してください。'
                 )
             pair = (
@@ -161,7 +161,7 @@ class PredictionMatrixService:
                 snapshot_ref = pair
             elif snapshot_ref != pair:
                 raise ValueError(
-                    'matrix providersは同一のacoustic scene snapshotを'
+                    '行列プロバイダーは同一の音響シーンスナップショットを'
                     '共有しなければなりません'
                 )
             sources.append(
@@ -188,7 +188,7 @@ class PredictionMatrixService:
             binding_sha = receiver_bindings.get(receiver_id)
             if binding_sha is None:
                 raise ValueError(
-                    f"matrix receiverにprovider receiver bindingがありません: "
+                    f"行列レシーバーにプロバイダーレシーバーバインドがありません: "
                     f"{receiver_id}"
                 )
             entity_id = next(
@@ -256,7 +256,7 @@ class PredictionMatrixService:
         spec = self.repository.get_spec(spec_id)
         if spec is None:
             raise ValueError(
-                f"matrix specが存在しません: {spec_id}"
+                f"行列仕様が存在しません: {spec_id}"
             )
         keyed: dict[str, LowBandPredictionProvider] = {}
         for source in spec.sources:
@@ -316,7 +316,7 @@ class PredictionMatrixService:
                     spec_name='Prediction Matrix',
                     source_labels=(),
                     receiver_labels=(),
-                    reason='保存済みmatrix specがありません。',
+                    reason='保存済み行列仕様がありません。',
                 )
         else:
             spec = self.repository.get_spec(spec_id)
@@ -326,7 +326,7 @@ class PredictionMatrixService:
                     spec_name='Prediction Matrix',
                     source_labels=(),
                     receiver_labels=(),
-                    reason=f'matrix specが存在しません: {spec_id}',
+                    reason=f'行列仕様が存在しません: {spec_id}',
                 )
         source_labels, receiver_labels = self._spec_labels(spec)
         result_set = self.repository.latest_result_set(spec.spec_id)

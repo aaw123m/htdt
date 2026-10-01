@@ -52,7 +52,7 @@ TransferCapabilityTier = Literal[
 _TRANSFER_PREFIX = 'screen-transfer:'
 
 TIER_LABELS: dict[str, str] = {
-    'UNKNOWN': '不明 (transfer特性なし)',
+    'UNKNOWN': '不明 (伝達特性なし)',
     'AT_CLAIM': 'AT主張 (測定データなしの透過フラグ)',
     'MAGNITUDE_NORMAL_INCIDENCE': '法線入射のみの振幅特性',
     'FREQUENCY_AND_ANGLE': '周波数+入射角依存の振幅特性',

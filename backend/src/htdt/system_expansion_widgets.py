@@ -187,12 +187,12 @@ class _ProposalSpeakerRow(QFrame):
         self.advanced_area = QWidget()
         advanced = QFormLayout(self.advanced_area)
         advanced.setContentsMargins(0, 0, 0, 0)
-        self.optional_check = QCheckBox("optional role として扱う")
-        self.aim_enabled = QCheckBox("aim yaw 範囲を探索")
+        self.optional_check = QCheckBox("オプションロールとして扱う")
+        self.aim_enabled = QCheckBox("照準ヨー範囲を探索")
         self.aim_min = _degree_field()
-        self.aim_min.setAccessibleName('aim yaw 最小 deg')
+        self.aim_min.setAccessibleName('照準ヨー最小 deg')
         self.aim_max = _degree_field()
-        self.aim_max.setAccessibleName('aim yaw 最大 deg')
+        self.aim_max.setAccessibleName('照準ヨー最大 deg')
         self.aim_min.setValue(-15.0)
         self.aim_max.setValue(15.0)
         self.aim_step = _degree_field(minimum=0.5, maximum=180.0)
@@ -200,10 +200,10 @@ class _ProposalSpeakerRow(QFrame):
         advanced.addRow(self.optional_check)
         advanced.addRow(self.aim_enabled)
         advanced.addRow(
-            "aim yaw 最小/最大 deg",
+            "照準ヨー最小/最大 deg",
             _field_pair(self.aim_min, self.aim_max),
         )
-        advanced.addRow("aim yaw 刻み deg", self.aim_step)
+        advanced.addRow("照準ヨー刻み deg", self.aim_step)
         self.advanced_area.hide()
         self.advanced_button.toggled.connect(self.advanced_area.setVisible)
         layout.addWidget(self.advanced_button)
@@ -470,7 +470,7 @@ class SystemExpansionRoomPanel(QFrame):
         author_layout.addWidget(author_title)
         author_note = QLabel(
             "1つの提案に複数の追加スピーカー・既存スピーカーの削除・機器変更と"
-            "左右連動ルールをまとめ、1つのSystemVariantとして配置候補を作成します。"
+            "左右連動ルールをまとめ、1つのシステムバリアントとして配置候補を作成します。"
             "内部IDやSHAの入力は不要です。"
         )
         author_note.setWordWrap(True)
@@ -495,6 +495,7 @@ class SystemExpansionRoomPanel(QFrame):
         speaker_header.setContentsMargins(0, 0, 0, 0)
         speaker_header.setSpacing(4)
         speaker_title = QLabel("追加スピーカー / チャンネル")
+        speaker_title.setWordWrap(True)
         speaker_header.addWidget(speaker_title, 1)
         self.add_speaker_button = QPushButton("＋ 行を追加")
         set_control_size(self.add_speaker_button, ControlSize.COMPACT)
@@ -553,7 +554,7 @@ class SystemExpansionRoomPanel(QFrame):
         create_row.setContentsMargins(0, 0, 0, 0)
         self.create_proposal_button = QPushButton("提案を作成")
         self.create_proposal_button.setToolTip(
-            "提案と配置候補を既存のO100B探索authorityで作成"
+            "提案と配置候補を既存のO100B探索権威で作成"
         )
         set_primary_action(self.create_proposal_button)
         self.create_proposal_button.clicked.connect(self._create_proposal)
@@ -921,7 +922,7 @@ class SystemExpansionRoomPanel(QFrame):
         self._refresh_link_rows()
         latest = self.service.scene_repository.current_head(self.service.document_id)
         if latest is None:
-            self.current_label.setText("現在構成: SceneRevisionがありません")
+            self.current_label.setText("現在構成: シーンリビジョンがありません")
         else:
             speakers = [
                 entity for entity in latest.document.entities
@@ -936,7 +937,7 @@ class SystemExpansionRoomPanel(QFrame):
                 )
                 for item in speakers
             ]
-            summary = " / ".join(roles) if roles else "speakerなし"
+            summary = " / ".join(roles) if roles else "スピーカーなし"
             self.current_label.setText(f"現在構成: {summary}")
         self.selector.refresh()
         current = self.selector.current_variant_id()
@@ -944,7 +945,7 @@ class SystemExpansionRoomPanel(QFrame):
             self._show_variant(current)
         else:
             self.entity_tree.clear()
-            self.lifecycle_label.setText("保存済みのSystemVariant提案がありません。")
+            self.lifecycle_label.setText("保存済みのシステムバリアント提案がありません。")
 
     def current_variant_id(self) -> str | None:
         return self.selector.current_variant_id()
@@ -1066,11 +1067,11 @@ class SystemExpansionOptimizePanel(QFrame):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        title = QLabel("SystemVariant 比較")
+        title = QLabel("システムバリアント比較")
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         note = QLabel(
-            "coverage / SPL・headroom / Standards / objectiveを独立表示します。"
+            "カバレッジ / SPL・ヘッドルーム / Standards / 目的関数を独立表示します。"
             "比較できない値は順位付けせず、理由を表示します。"
         )
         note.setWordWrap(True)
@@ -1086,10 +1087,10 @@ class SystemExpansionOptimizePanel(QFrame):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(
             [
-                "candidate",
+                "候補",
                 "状態",
-                "coverage",
-                "SPL/headroom",
+                "カバレッジ",
+                "SPL/ヘッドルーム",
                 "規格",
                 "比較",
                 "Pareto",
@@ -1135,7 +1136,7 @@ class SystemExpansionOptimizePanel(QFrame):
         self.tree.clear()
         if view is None:
             self.summary.setText(
-                "no eligible comparison: 保存済みTopologyComparisonEvaluationがありません。"
+                "適格比較なし: 保存済みトポロジー比較評価がありません。"
             )
             return
         text = view.name
@@ -1182,12 +1183,12 @@ class SystemExpansionOptimizePanel(QFrame):
             return
         variant_id = self.selector.current_variant_id()
         if variant_id is None:
-            self.advanced_label.setText("選択中のSystemVariantがありません。")
+            self.advanced_label.setText("選択中のシステムバリアントがありません。")
             return
         try:
             p = self.service.variant_presentation(variant_id).advanced
         except KeyError:
-            self.advanced_label.setText("provenanceを再解決できません。")
+            self.advanced_label.setText("出典を再解決できません。")
             return
         self.advanced_label.setText(
             "\n".join(
@@ -1233,7 +1234,7 @@ class SystemExpansionOptimizePanel(QFrame):
             return
         if error == WORKER_CANCELLED:
             self.summary.setText(
-                "評価を中止しました · 完了した候補の証跡は保持されています"
+                "評価を中止しました · 完了した候補の証拠は保持されています"
             )
             self.refresh()
             return
@@ -1250,7 +1251,7 @@ class SystemExpansionOptimizePanel(QFrame):
         )
         self.summary.setText(
             f"{execution.spec.name}: {evaluated}/"
-            f"{len(execution.candidates)} 候補の証跡を永続化しました。"
+            f"{len(execution.candidates)} 候補の証拠を永続化しました。"
         )
         self.refresh()
 
@@ -1288,7 +1289,7 @@ class SystemExpansionOptimizePanel(QFrame):
             return
         target = self.service.robustness_target(variant_id)
         if not target.available:
-            self.summary.setText(target.reason or "ばらつきevidenceを利用できません。")
+            self.summary.setText(target.reason or "ばらつき証拠を利用できません。")
             return
         self.robustnessRequested.emit(variant_id)
 
@@ -1304,7 +1305,7 @@ class SystemExpansionOptimizePanel(QFrame):
         change_text = "\n".join(preview.change_lines) or "差分なし"
         message = (
             f"{preview.name}\n\n{change_text}\n\n"
-            "baselineを上書きせず、新しいSceneRevisionを作成します。"
+            "ベースラインを上書きせず、新しいシーンリビジョンを作成します。"
             "この操作だけでは「設置済み」にはなりません。"
         )
         answer = QMessageBox.question(
@@ -1322,8 +1323,8 @@ class SystemExpansionOptimizePanel(QFrame):
             self.summary.setText(f"適用できません: {operation_error_message(exc)}")
             return
         self.summary.setText(
-            "提案を新しいSceneRevisionへ適用しました。"
-            "As-builtは実設置確認後に別途記録してください。"
+            "提案を新しいシーンリビジョンへ適用しました。"
+            "設置済みは実設置確認後に別途記録してください。"
         )
         self.applied.emit(application.applied_revision_id)
         self.selector.refresh()
@@ -1346,12 +1347,12 @@ class SystemExpansionRobustnessPanel(QFrame):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        title = QLabel("SystemVariant 提案のばらつき耐性")
+        title = QLabel("システムバリアント提案のばらつき耐性")
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         note = QLabel(
-            "O100Fの保存済みproposal robustness authorityを、この既存ばらつき耐性"
-            "workspace内で読み取り専用表示します。通常のO90 CadCandidateへ偽装しません。"
+            "O100Fの保存済み提案耐性権威を、この既存ばらつき耐性"
+            "ワークスペース内で読み取り専用表示します。通常のO90 CAD候補へ偽装しません。"
         )
         note.setWordWrap(True)
         set_typography_role(note, TypographyRole.SECONDARY)
@@ -1364,9 +1365,9 @@ class SystemExpansionRobustnessPanel(QFrame):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(
             [
-                "objective",
+                "目的関数",
                 "向き",
-                "nominal",
+                "ノミナル",
                 "評価サンプル内の不利側",
                 "局所感度",
                 "確率",
@@ -1398,19 +1399,19 @@ class SystemExpansionRobustnessPanel(QFrame):
         try:
             view = self.service.proposal_robustness_presentation(self._variant_id)
         except (KeyError, ValueError) as exc:
-            self.summary.setText(f"ばらつきauthorityを表示できません: {operation_error_message(exc)}")
+            self.summary.setText(f"ばらつき権威を表示できません: {operation_error_message(exc)}")
             self.advanced_label.clear()
             return
         if view is None:
             target = self.service.robustness_target(self._variant_id)
             self.summary.setText(
-                target.reason or "保存済みproposal robustness authorityがありません。"
+                target.reason or "保存済み提案耐性権威がありません。"
             )
             self.advanced_label.clear()
             return
 
         state = (
-            "現在のbaselineと一致"
+            "現在のベースラインと一致"
             if view.current
             else f"要再評価: {view.stale_reason}"
         )
@@ -1476,7 +1477,7 @@ class _MeasurementPlanDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("SystemVariant 測定計画")
+        self.setWindowTitle("システムバリアント測定計画")
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.point_combo = QComboBox()
@@ -1558,7 +1559,7 @@ class _MeasurementPlanDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "測定計画",
-                "repeatabilityを要求するtargetは2回以上の測定が必要です。",
+                "再現性を要求するターゲットは2回以上の測定が必要です。",
             )
             return
         super().accept()
@@ -1584,12 +1585,12 @@ class SystemExpansionMeasurementPanel(QFrame):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        title = QLabel("SystemVariant lifecycle / 実測")
+        title = QLabel("システムバリアントライフサイクル / 実測")
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         note = QLabel(
-            "generic N60 measurementの存在だけでは実測済みに昇格しません。"
-            "SystemVariant固有plan/campaign/completionとvalidationを区別します。"
+            "汎用N60測定の存在だけでは実測済みに昇格しません。"
+            "システムバリアント固有計画/キャンペーン/完了と検証を区別します。"
         )
         note.setWordWrap(True)
         set_typography_role(note, TypographyRole.SECONDARY)
@@ -1619,12 +1620,12 @@ class SystemExpansionMeasurementPanel(QFrame):
         actions.addStretch(1)
         layout.addLayout(actions)
 
-        self.targets_label = QLabel("事前登録済みtarget")
+        self.targets_label = QLabel("事前登録済みターゲット")
         set_typography_role(self.targets_label, TypographyRole.SECONDARY)
         layout.addWidget(self.targets_label)
         self.targets = QTreeWidget()
         self.targets.setHeaderLabels(
-            ["target", "測定点", "役割", "期待", "記録済み"]
+            ["ターゲット", "測定点", "役割", "期待", "記録済み"]
         )
         self.targets.setMinimumHeight(90)
         layout.addWidget(self.targets)
@@ -1643,7 +1644,7 @@ class SystemExpansionMeasurementPanel(QFrame):
         variant_id = self.selector.current_variant_id()
         if variant_id is None:
             self.lifecycle_badge.setText("")
-            self.state.setText("SystemVariant提案がありません。")
+            self.state.setText("システムバリアント提案がありません。")
             self.as_built_button.setEnabled(False)
             self.plan_button.setEnabled(False)
             self.campaign_button.setEnabled(False)
@@ -1800,8 +1801,8 @@ class SystemExpansionMeasurementPanel(QFrame):
         purpose, ok = QInputDialog.getText(
             self,
             "キャンペーンを事前登録",
-            "campaignの目的",
-            text="設置済みSystemVariantの実測キャンペーン",
+            "キャンペーンの目的",
+            text="設置済みシステムバリアントの実測キャンペーン",
         )
         if not ok:
             return

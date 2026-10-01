@@ -35,7 +35,7 @@ from .ui_theme import SemanticState, TypographyRole, set_semantic_state, set_typ
 
 
 _KIND_LABELS = {
-    'solver_adapter': 'ソルバーアダプタ',
+    'solver_adapter': 'ソルバーアダプター',
     'scene_snapshot': '音響シーンスナップショット',
     'compiled_geometry': 'コンパイル済みジオメトリ',
     'leak_portal': '漏洩ポータル診断',
@@ -51,9 +51,9 @@ _KIND_LABELS = {
     'numerical_hybrid_response': '数値ハイブリッド応答成果物',
     'hybrid_result': 'ハイブリッド音響結果',
     'stitching_policy': 'スティッチングポリシー',
-    'prediction_provider': 'ハイブリッド予測プロバイダ',
-    'provider_binding': 'プロバイダ束縛',
-    'provider_objective': 'プロバイダ評価接続',
+    'prediction_provider': 'ハイブリッド予測プロバイダー',
+    'provider_binding': 'プロバイダー束縛',
+    'provider_objective': 'プロバイダー評価接続',
     'boundary_overlay': '処理境界オーバーレイ',
     'boundary_composition': '処理境界構成',
 }
@@ -204,7 +204,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
         self.hash_label = QLabel('-')
         self.payload_state_label = QLabel('-')
         form_layout.addRow('成果物ID:', self.artifact_id_label)
-        form_layout.addRow('プロベナンス:', self.provenance_label)
+        form_layout.addRow('出典:', self.provenance_label)
         form_layout.addRow('能力:', self.capability_label)
         form_layout.addRow('ハッシュ:', self.hash_label)
         form_layout.addRow('状態:', self.payload_state_label)

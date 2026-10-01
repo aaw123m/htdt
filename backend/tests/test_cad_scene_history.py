@@ -121,7 +121,7 @@ def test_summary_lines_anchor_names_to_provided_document() -> None:
     diff = diff_scene_documents(before, after)
     lines = diff_summary_lines(diff, after)
     text = '\n'.join(lines)
-    assert 'MLP を追加' in text
+    assert 'MLPを追加' in text
     assert 'FL renamed: 名称を変更' in text
 
 
@@ -132,7 +132,7 @@ def test_summary_lines_removed_entity_uses_other_side_names() -> None:
     # Anchoring to the AFTER document: removed entity has no name there, so
     # the raw id is the label fallback.
     lines = diff_summary_lines(diff, after)
-    assert any('pt-1 を削除' in line for line in lines)
+    assert any('pt-1を削除' in line for line in lines)
 
 
 def test_summary_lines_empty_diff_reports_no_change() -> None:

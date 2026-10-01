@@ -399,7 +399,7 @@ def test_validation_gate_is_reported_without_recomputing_or_leaking_gate_ids() -
         item for item in view.blockers if item.code == 'validation.recommendation_blocked'
     )
     assert blocker.message == (
-        '自動推薦はまだ利用できません。目的指標の傾向が検証条件を満たしていません。'
+        '自動推奨はまだ利用できません。目的指標の傾向が検証条件を満たしていません。'
     )
     assert 'internal-objective-123' not in blocker.message
     assert view.optimization_ready is True

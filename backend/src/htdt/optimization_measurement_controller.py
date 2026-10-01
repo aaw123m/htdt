@@ -170,8 +170,8 @@ class MeasurementPlanControllerMixin:
             source_label = {
                 'rew_text': 'REWテキスト',
                 'rew_api': 'REW',
-                'unknown': '取込データ',
-            }.get(record.source_kind, '取込データ')
+                'unknown': '取り込みデータ',
+            }.get(record.source_kind, '取り込みデータ')
             role_label = record.channel_role or '役割未設定'
             item = QListWidgetItem(
                 f'実測 {visible_index} · {role_label} · {source_label}'
@@ -208,6 +208,6 @@ class MeasurementPlanControllerMixin:
         self.refresh_measurement_plans()
         self.refresh_validation_campaigns()
         self.statusBar().showMessage(
-            f'実測候補をcompletedにしました · measured evidence {len(completed.measurement_ids)}件'
+            f'実測候補を完了にしました · 実測証拠 {len(completed.measurement_ids)}件'
         )
 

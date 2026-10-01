@@ -85,7 +85,7 @@ class AdaptiveControllerMixin:
         spec = self._selected_search_spec()
         if record is None or spec is None:
             self.statusBar().showMessage(
-                'Adaptive PlannerにはSearchSpecとValidationRecordの選択が必要です'
+                'アダプティブプランナーには探索仕様と検証記録の選択が必要です'
             )
             return
         if (
@@ -98,12 +98,12 @@ class AdaptiveControllerMixin:
             )
         ):
             self.statusBar().showMessage(
-                'staleなSearchSpec/Scene/constraintからAdaptive Planを作成できません'
+                '古い探索仕様/シーン/制約からアダプティブ計画を作成できません'
             )
             return
         if record.search_spec_id != spec.search_spec_id:
             self.statusBar().showMessage(
-                '選択ValidationRecordは現在のSearchSpecに属していません'
+                '選択検証記録は現在の探索仕様に属していません'
             )
             return
 
@@ -123,7 +123,7 @@ class AdaptiveControllerMixin:
             else int(self.adaptive_proposal_limit_field.value())
         )
         validation_id = record.validation_id
-        self.statusBar().showMessage('Adaptive Planを計算しています…')
+        self.statusBar().showMessage('アダプティブ計画を計算しています…')
         self._refresh_adaptive_run_state()
         self._adaptive_pool.start(
             'adaptive:build',
@@ -143,23 +143,23 @@ class AdaptiveControllerMixin:
             return
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
-                'Adaptive Plan計算を中止しました'
+                'アダプティブ計画計算を中止しました'
             )
             return
         if error is not None:
             self.statusBar().showMessage(
-                f'Adaptive Planを作成できません · {operation_error_message(error)}'
+                f'アダプティブ計画を作成できません · {operation_error_message(error)}'
             )
             return
         plan = result
         self.refresh_adaptive_plans(select_plan_id=plan.plan_id)
         mode = (
-            'synthetic開発'
+            '合成開発'
             if plan.execution_scope == 'development_synthetic'
-            else 'owned-room本番'
+            else '実室本番'
         )
         self.statusBar().showMessage(
-            f'O70 Adaptive Planを保存しました · {mode} · '
+            f'O70 アダプティブ計画を保存しました · {mode} · '
             f'次候補 {plan.selected_candidate_id[:12]}'
         )
 
@@ -190,14 +190,14 @@ class AdaptiveControllerMixin:
             return
         tree.clear()
         if self.adaptive_detail_label is not None:
-            self.adaptive_detail_label.setText('Adaptive Plan未選択')
+            self.adaptive_detail_label.setText('アダプティブ計画未選択')
         spec_id = self.search_selected_spec_id
         if spec_id is None:
             return
         try:
             plans = self.adaptive_repository.list_for_search_spec(spec_id)
         except Exception as exc:
-            self.statusBar().showMessage(f'Adaptive Planを読めません · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'アダプティブ計画を読めません · {operation_error_message(exc)}')
             return
 
         selected_item: QTreeWidgetItem | None = None
@@ -260,15 +260,15 @@ class AdaptiveControllerMixin:
         item = tree.currentItem()
         payload = None if item is None else item.data(0, ROLE)
         if not isinstance(payload, dict):
-            label.setText('Adaptive Plan未選択')
+            label.setText('アダプティブ計画未選択')
             return
         plan_id = payload.get('plan_id')
         if not isinstance(plan_id, str):
-            label.setText('Adaptive Plan未選択')
+            label.setText('アダプティブ計画未選択')
             return
         plan = self.adaptive_repository.get(plan_id)
         if plan is None:
-            label.setText('Adaptive Planが見つかりません')
+            label.setText('アダプティブ計画が見つかりません')
             return
 
         lines = [
@@ -283,7 +283,7 @@ class AdaptiveControllerMixin:
         ]
         if plan.execution_scope == 'development_synthetic':
             lines.append(
-                'synthetic development only · production recommendationは開きません'
+                '合成開発のみ · 本番推奨は開きません'
             )
         candidate_id = payload.get('candidate_id')
         if isinstance(candidate_id, str):
@@ -318,8 +318,8 @@ class AdaptiveControllerMixin:
                             break
                     if not found:
                         self.statusBar().showMessage(
-                            'Adaptive候補は現在のcandidate page外です · '
-                            'pageを移動してpreview/applyしてください'
+                            'アダプティブ候補は現在の候補ページ外です · '
+                            'ページを移動してプレビュー/適用してください'
                         )
         label.setText('\n'.join(lines))
 

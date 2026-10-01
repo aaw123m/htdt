@@ -164,7 +164,7 @@ class FieldExplorerPanel(QWidget):
         layout = QVBoxLayout(self)
 
         identity = QLabel(
-            '音場エクスプローラ — 解析的な矩形ルームモード音場を表示します。\n'
+            '音場エクスプローラー — 解析的な矩形ルームモード音場を表示します。\n'
             'ソルバー検証済み・実測音場ではありません。'
         )
         identity.setWordWrap(True)
@@ -177,7 +177,7 @@ class FieldExplorerPanel(QWidget):
             self._session_combo_changed
         )
         session_row.addWidget(self.session_combo, 1)
-        self.session_reload_button = QPushButton('再読込')
+        self.session_reload_button = QPushButton('再読み込み')
         self.session_reload_button.clicked.connect(self.refresh_sessions)
         session_row.addWidget(self.session_reload_button)
         layout.addLayout(session_row)
@@ -356,7 +356,7 @@ class FieldExplorerPanel(QWidget):
             self._modes_result.scene_revision_id
         )
         if revision is None:
-            self.field_status_label.setText('予測元のSceneRevisionがありません')
+            self.field_status_label.setText('予測元のシーンリビジョンがありません')
             return
         try:
             session = build_mode_field_explorer_session(

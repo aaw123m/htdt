@@ -224,7 +224,7 @@ def route_capture_intent(
                     intent,
                     'user_action_required',
                     'キャプチャ記述子がバンドルを指定していません — '
-                    'バンドルを同じ場所に置くか受信箱からステージしてください',
+                    'バンドルを同じ場所に置くか受信ボックスからステージしてください',
                 )
             bundle_path = Path(descriptor.bundle_path)
             if not bundle_path.is_absolute():
@@ -295,7 +295,7 @@ def route_capture_intent(
         _LOGGER.info('capture inbox staging failed for %s: %s', bundle_path, exc)
         return _result(
             intent, 'failed',
-            f'キャプチャ受信箱へのステージに失敗: '
+            f'キャプチャ受信ボックスへのステージに失敗: '
             f'{operation_error_message(exc)}',
         )
 
@@ -306,7 +306,7 @@ def route_capture_intent(
         intent,
         outcome,
         f'キャプチャリビジョン {plan.bundle.capture_revision_id} を'
-        '受信箱レビュー用にステージしました — 証拠には昇格していません',
+        '受信ボックスレビュー用にステージしました — 証拠には昇格していません',
         inbox_item_id=staged.item.inbox_item_id,
     )
 
@@ -335,7 +335,7 @@ def route_backup_intent(
         intent,
         'preview_opened',
         f'バックアップ作成日時 {manifest.created_at_utc} '
-        f'(schema {staged_schema}, {len(manifest.files)} ファイル)',
+        f'(スキーマ {staged_schema}, {len(manifest.files)} ファイル)',
     )
 
 

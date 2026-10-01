@@ -63,7 +63,7 @@ class DeliverablesDialog(QDialog):
         self._on_command = on_command or (lambda command_id: None)
         self._on_navigate = on_navigate or (lambda link: None)
 
-        self.setWindowTitle('プロジェクト デリバラブル')
+        self.setWindowTitle('プロジェクトデリバラブル')
         self.resize(640, 520)
         layout = QVBoxLayout(self)
 

@@ -771,7 +771,7 @@ class WallEditorWindow(RoomEditorWindow):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description='HTDT native CAD N30b 壁・開口エディター')
+    parser = argparse.ArgumentParser(description='HTDT ネイティブ CAD N30b 壁・開口エディター')
     parser.add_argument('--data-dir', type=Path, default=default_data_dir())
     parser.add_argument('--document-id', default=F1_DOCUMENT_ID)
     args = parser.parse_args(argv)

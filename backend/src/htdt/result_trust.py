@@ -170,7 +170,7 @@ _SCOPE_LABELS: dict[ValidationScope, dict[PresentationLocale, str]] = {
         PresentationLocale.ENGLISH: 'unvalidated',
     },
     ValidationScope.SYNTHETIC_FIXTURE: {
-        PresentationLocale.JAPANESE: '合成fixture検証',
+        PresentationLocale.JAPANESE: '合成フィクスチャ検証',
         PresentationLocale.ENGLISH: 'synthetic fixture',
     },
     ValidationScope.SOFTWARE_VALIDATED: {
@@ -182,7 +182,7 @@ _SCOPE_LABELS: dict[ValidationScope, dict[PresentationLocale, str]] = {
         PresentationLocale.ENGLISH: 'owned-room validated',
     },
     ValidationScope.PRODUCTION_QUALIFIED: {
-        PresentationLocale.JAPANESE: 'production適格',
+        PresentationLocale.JAPANESE: '本番適格',
         PresentationLocale.ENGLISH: 'production qualified',
     },
 }

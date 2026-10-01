@@ -186,7 +186,7 @@ class AcousticTreatmentService:
     ) -> AcousticTreatmentPlacement:
         revision = self.scene_repository.current_head(self.document_id)
         if revision is None:
-            raise ValueError("配置先のSceneRevisionがありません。")
+            raise ValueError("配置先のシーンリビジョンがありません。")
         placement = build_treatment_placement(
             definition=definition,
             revision=revision,
@@ -273,7 +273,7 @@ class AcousticTreatmentService:
         """
         revision = self.scene_repository.current_head(self.document_id)
         if revision is None:
-            raise ValueError("比較を作成するSceneRevisionがありません。")
+            raise ValueError("比較を作成するシーンリビジョンがありません。")
         baseline = build_treatment_design_candidate(
             baseline=revision,
             label=baseline_label,
@@ -286,14 +286,14 @@ class AcousticTreatmentService:
                 placement = self.repository.latest_placement(instance_id)
                 if placement is None:
                     raise ValueError(
-                        f"treatment placementが存在しません: {instance_id}"
+                        f"トリートメント配置が存在しません: {instance_id}"
                     )
                 if (
                     placement.scene_revision_id != revision.revision_id
                     or placement.document_id != self.document_id
                 ):
                     raise ValueError(
-                        'treatment placementは現在のSceneRevisionと'
+                        'トリートメント配置は現在のシーンリビジョンと'
                         '一致しません。'
                     )
                 placements.append(placement)
@@ -354,13 +354,13 @@ class AcousticTreatmentService:
         spec = self.comparison_repository.get(comparison_id)
         if spec is None:
             raise ValueError(
-                f"treatment comparisonが存在しません: {comparison_id}"
+                f"トリートメント比較が存在しません: {comparison_id}"
             )
         labels = {candidate.label for candidate in spec.candidates}
         unknown = set(candidate_results) - labels
         if unknown:
             raise ValueError(
-                f"comparisonに存在しないcandidate label: {sorted(unknown)}"
+                f"比較に存在しない候補ラベル: {sorted(unknown)}"
             )
         by_label = {c.label: c for c in spec.candidates}
         outcomes: list[TreatmentCandidateOutcome] = []
@@ -386,8 +386,8 @@ class AcousticTreatmentService:
                         spec.baseline_scene_revision_id
                     ):
                         raise ValueError(
-                            f"candidate {label}: evaluated resultはcomparison"
-                            'のbaseline SceneRevisionと一致しません。'
+                            f"候補 {label}: 評価済み結果は比較"
+                            'のベースラインシーンリビジョンと一致しません。'
                         )
                     refs.append(
                         ExactExternalAuthorityRef(

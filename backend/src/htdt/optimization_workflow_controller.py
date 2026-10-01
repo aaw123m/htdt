@@ -81,9 +81,9 @@ _OBJECTIVE_LABELS = {
     "response.shape_rms_db": "応答形状 RMS",
     "pair.rms_difference_db": "ペア応答差 RMS",
     "pair.shape_rms_db": "ペア形状 RMS",
-    "seat.pairwise_rms_difference_max_db": "座席間差 最大",
+    "seat.pairwise_rms_difference_max_db": "座席間差最大",
     "seat.pairwise_rms_difference_rms_db": "座席間差 RMS",
-    "seat.pairwise_shape_max_db": "座席間形状差 最大",
+    "seat.pairwise_shape_max_db": "座席間形状差最大",
     "seat.pairwise_shape_rms_db": "座席間形状差 RMS",
     "movement.total_m": "総移動量",
     "movement.max_m": "最大移動量",
@@ -282,9 +282,9 @@ class OptimizationWorkflowController(
         if self.active_search_worker_count() or self.active_extended_worker_count():
             return False, "候補生成が完了またはキャンセルされるまで画面を切り替えられません"
         if self._rew_tasks:
-            return False, "REW読込が完了するまで画面を切り替えられません"
+            return False, "REW読み込みが完了するまで画面を切り替えられません"
         if self._adaptive_pool.active_count:
-            return False, "Adaptive Plan計算が完了またはキャンセルされるまで画面を切り替えられません"
+            return False, "アダプティブ計画計算が完了またはキャンセルされるまで画面を切り替えられません"
         return self.scene.before_deactivate()
 
     def dirty_state(self) -> WorkspaceDirtyState:
@@ -590,7 +590,7 @@ class OptimizationWorkflowController(
         if not isinstance(entity_id, str):
             raise ValueError("測定点を選択してください")
         if plan is None:
-            raise ValueError("Measurement Planを選択してください")
+            raise ValueError("測定計画を選択してください")
         revision = self.repository.get(plan.applied_scene_revision_id)
         if revision is None:
             raise ValueError("測定計画に対応する保存済みの部屋状態が見つかりません")
@@ -674,7 +674,7 @@ class OptimizationWorkflowController(
             return
         if error is not None:
             if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
-                self.statusChanged.emit(f"REW読込失敗 · {operation_error_message(error)}")
+                self.statusChanged.emit(f"REW読み込み失敗 · {operation_error_message(error)}")
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
@@ -806,7 +806,7 @@ class OptimizationWorkflowController(
         self.linked_remove_button = QPushButton("選択連動を削除")
         self.linked_remove_button.clicked.connect(self.remove_selected_linked_variable)
         self.search_linked_tree = QTreeWidget()
-        self.search_linked_tree.setAccessibleName('連動パラメータ')
+        self.search_linked_tree.setAccessibleName('連動パラメーター')
         self.search_linked_tree.setHeaderLabels(["マスター", "スレーブ", "関係", "鏡面x"])
         self.search_save_button = QPushButton("探索設定を保存")
         self.search_save_button.clicked.connect(self.save_search_spec)
@@ -887,7 +887,7 @@ class OptimizationWorkflowController(
         self.objective_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.pareto_refresh_button = QPushButton("Pareto集合を更新")
         self.pareto_refresh_button.clicked.connect(self.refresh_pareto_comparison)
-        self.pareto_summary_label = QLabel("比較指標が未読込です")
+        self.pareto_summary_label = QLabel("比較指標が未読み込みです")
         self.pareto_tree = QTreeWidget()
         self.pareto_tree.setAccessibleName('Pareto比較候補')
         self.pareto_tree.setHeaderLabels(["候補", "Pareto", "根拠", "指標"])
@@ -923,10 +923,10 @@ class OptimizationWorkflowController(
             state = QComboBox()
             state.addItem("未確認", "unverified")
             state.addItem("自動評価", "auto")
-            state.addItem("手動証跡", "manual")
+            state.addItem("手動証拠", "manual")
             self.campaign_applicability_state[code] = state
             detail = QLineEdit()
-            detail.setPlaceholderText("確認メモ / attestation ID")
+            detail.setPlaceholderText("確認メモ / 証明 ID")
             self.campaign_applicability_detail[code] = detail
 
         self.validation_refresh_button = QPushButton("保存済み検証を更新")
@@ -934,7 +934,7 @@ class OptimizationWorkflowController(
         self.validation_tree = QTreeWidget()
         self.validation_tree.setAccessibleName('保存済み検証')
         self.validation_tree.setHeaderLabels(
-            ["検証", "範囲", "残差", "傾向", "感度", "再現性", "推薦可否"]
+            ["検証", "範囲", "残差", "傾向", "感度", "再現性", "推奨可否"]
         )
         self.validation_tree.itemSelectionChanged.connect(self._validation_selected)
         self.validation_detail_label = QLabel("検証結果が未選択です")
@@ -957,7 +957,7 @@ class OptimizationWorkflowController(
         self.adaptive_cancel_button.setEnabled(False)
         self.adaptive_cancel_button.clicked.connect(self.cancel_adaptive_build)
         self.adaptive_tree = QTreeWidget()
-        self.adaptive_tree.setAccessibleName('Adaptive Plan')
+        self.adaptive_tree.setAccessibleName('アダプティブ計画')
         self.adaptive_tree.setHeaderLabels(["計画 / 候補", "範囲", "取得値", "補正指標"])
         self.adaptive_tree.itemSelectionChanged.connect(self._adaptive_selected)
         self.adaptive_detail_label = QLabel("次候補の計画が未選択です")
@@ -965,10 +965,10 @@ class OptimizationWorkflowController(
         self.extended_capability_combo = QComboBox()
         self.extended_capability_combo.setAccessibleName('拡張能力の検証結果')
         self.extended_parameter_combo = QComboBox()
-        self.extended_parameter_combo.addItem("音響の向き（yaw）", "aim_yaw_deg")
-        self.extended_parameter_combo.addItem("音響の向き（pitch）", "aim_pitch_deg")
+        self.extended_parameter_combo.addItem("音響照準（ヨー）", "aim_yaw_deg")
+        self.extended_parameter_combo.addItem("音響照準（ピッチ）", "aim_pitch_deg")
         self.extended_parameter_combo.addItem(
-            "筐体の向き（toe-in）", "body_yaw_deg"
+            "筐体ヨー（トーイン）", "body_yaw_deg"
         )
         self.extended_parameter_combo.currentIndexChanged.connect(
             self._seed_extended_aim_range
@@ -986,12 +986,12 @@ class OptimizationWorkflowController(
         self.extended_axis_tree = QTreeWidget()
         self.extended_axis_tree.setAccessibleName('拡張探索軸')
         self.extended_axis_tree.setHeaderLabels(
-            ["スピーカー", "パラメータ", "最小", "最大", "刻み"]
+            ["スピーカー", "パラメーター", "最小", "最大", "刻み"]
         )
         self.extended_spec_tree = QTreeWidget()
         self.extended_spec_tree.setAccessibleName('拡張探索設定')
         self.extended_spec_tree.setHeaderLabels(
-            ["拡張探索", "モデル", "パラメータ", "状態"]
+            ["拡張探索", "モデル", "パラメーター", "状態"]
         )
         self.extended_spec_tree.itemSelectionChanged.connect(
             self._extended_spec_selected
@@ -1006,7 +1006,7 @@ class OptimizationWorkflowController(
         self.extended_candidate_tree = QTreeWidget()
         self.extended_candidate_tree.setAccessibleName('拡張生成候補')
         self.extended_candidate_tree.setHeaderLabels(
-            ["候補", "元候補", "位置", "音響 yaw", "筐体 yaw"]
+            ["候補", "元候補", "位置", "音響ヨー", "筐体ヨー"]
         )
         self.extended_candidate_tree.setSortingEnabled(True)
         # 候補 column carries the canonical enumeration index as its sort

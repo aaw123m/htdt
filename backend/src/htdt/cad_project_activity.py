@@ -511,7 +511,7 @@ class CadProjectActivityService:
                             source_id=as_built.record_id,
                             source_sha256=as_built.record_sha256,
                             occurred_at_utc=as_built.confirmed_at_utc,
-                            title=f'バリアント「{variant.name}」を As-built として記録',
+                            title=f'バリアント「{variant.name}」を設置済みとして記録',
                             deep_link=_link(
                                 NavigationTargetKind.SCENE_REVISION,
                                 WorkspaceId.ROOM,
@@ -639,7 +639,7 @@ class CadProjectActivityService:
         for measurement in self.measurement_repository.list_measurements(document_id):
             detail = None
             if measurement.captured_at is not None:
-                detail = f'取得 {measurement.captured_at} / 取込 {measurement.imported_at}'
+                detail = f'取得 {measurement.captured_at} / 取り込み {measurement.imported_at}'
             yield _event(
                 document_id=document_id,
                 kind='measurement_imported',
@@ -669,7 +669,7 @@ class CadProjectActivityService:
                 source_id=plan.plan_id,
                 source_sha256=plan.plan_semantic_sha256,
                 occurred_at_utc=plan.created_at_utc,
-                title='キャリブレーション計画を作成',
+                title='校正プランを作成',
                 deep_link=_link(
                     NavigationTargetKind.CALIBRATION_PLAN,
                     WorkspaceId.MEASUREMENT,
@@ -685,7 +685,7 @@ class CadProjectActivityService:
                     source_id=export.export_id,
                     source_sha256=export.exported_settings_semantic_sha256,
                     occurred_at_utc=export.created_at_utc,
-                    title='キャリブレーション設定を出力',
+                    title='校正設定を出力',
                     deep_link=_link(
                         NavigationTargetKind.CALIBRATION_PLAN,
                         WorkspaceId.MEASUREMENT,
@@ -710,9 +710,9 @@ class CadProjectActivityService:
                     source_sha256=event.event_semantic_sha256,
                     occurred_at_utc=event.created_at_utc,
                     title={
-                        'user_applied': 'キャリブレーション設定を実機へ適用',
-                        'remeasured': 'キャリブレーション再測定を記録',
-                        'validated': 'キャリブレーションを検証済みに更新',
+                        'user_applied': '校正設定を実機へ適用',
+                        'remeasured': '校正再測定を記録',
+                        'validated': '校正を検証済みに更新',
                     }[event.state],
                     detail=event.note,
                     deep_link=_link(

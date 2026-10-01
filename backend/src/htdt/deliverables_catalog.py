@@ -334,7 +334,7 @@ class DeliverablesCatalogService:
                 None
                 if supported_calibrations
                 else (
-                    '校正プランはありますがUNSUPPORTEDのため書き出せません。'
+                    '校正プランはありますが未対応のため書き出せません。'
                     if unsupported_calibrations
                     else '校正プラン権威がまだありません。'
                 )
@@ -377,7 +377,7 @@ class DeliverablesCatalogService:
         capture_catalog = DeliverableEntry(
             deliverable_id='equipment.capture_catalog',
             category='interoperability',
-            title='Capture用機材カタログ',
+            title='キャプチャ用機材カタログ',
             availability='available',
             reason='アプリケーション共通の書き出し（プロジェクト非依存）。',
             source_authorities=('application_scope',),

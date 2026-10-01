@@ -275,19 +275,19 @@ class OptimizationWorkspaceWindow(
         panel = QWidget()
         layout = QVBoxLayout(panel)
 
-        self.search_binding_label = QLabel('保存済みSceneRevisionから探索仕様を作成します')
+        self.search_binding_label = QLabel('保存済みシーンリビジョンから探索仕様を作成します')
         self.search_binding_label.setWordWrap(True)
         layout.addWidget(self.search_binding_label)
 
         semantics = QLabel(
-            '候補はhard constraintを満たす幾何配置です。順位・推奨・音質評価ではありません。'
+            '候補はハード制約を満たす幾何配置です。順位・推奨・音質評価ではありません。'
         )
         semantics.setWordWrap(True)
         layout.addWidget(semantics)
 
         form = QFormLayout()
         self.search_name_field = QLineEdit()
-        self.search_name_field.setPlaceholderText('例: FL 前後 sweep')
+        self.search_name_field.setPlaceholderText('例: FL 前後スイープ')
         form.addRow('名前', self.search_name_field)
 
         self.search_entity_combo = QComboBox()
@@ -312,7 +312,7 @@ class OptimizationWorkspaceWindow(
         self.search_limit_field = QSpinBox()
         self.search_limit_field.setRange(1, 50_000)
         self.search_limit_field.setValue(10_000)
-        form.addRow('raw候補上限', self.search_limit_field)
+        form.addRow('未加工候補上限', self.search_limit_field)
         layout.addLayout(form)
 
         axis_actions = QHBoxLayout()
@@ -370,14 +370,14 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(linked_actions)
 
         self.search_linked_tree = QTreeWidget()
-        self.search_linked_tree.setAccessibleName('連動パラメータ')
+        self.search_linked_tree.setAccessibleName('連動パラメーター')
         self.search_linked_tree.setHeaderLabels(['マスター', 'スレーブ', '関係', '鏡面x'])
         self.search_linked_tree.setMinimumHeight(90)
         layout.addWidget(self.search_linked_tree)
 
         self.search_save_button = QPushButton('探索仕様を保存')
         self.search_save_button.setToolTip(
-            '現在の保存済みSceneRevisionとconstraint workspace hashへimmutable bindingします'
+            '現在の保存済みシーンリビジョンと制約ワークスペースハッシュへ不変バインドします'
         )
         self.search_save_button.clicked.connect(self.save_search_spec)
         layout.addWidget(self.search_save_button)
@@ -413,26 +413,26 @@ class OptimizationWorkspaceWindow(
 
         self.search_candidate_tree = QTreeWidget()
         self.search_candidate_tree.setAccessibleName('生成候補')
-        self.search_candidate_tree.setHeaderLabels(['候補', 'index', '位置'])
+        self.search_candidate_tree.setHeaderLabels(['候補', '番号', '位置'])
         self.search_candidate_tree.setMinimumHeight(180)
         self.search_candidate_tree.itemSelectionChanged.connect(self._search_candidate_selected)
         layout.addWidget(self.search_candidate_tree)
 
         candidate_actions = QHBoxLayout()
-        self.search_preview_button = QPushButton('候補をpreview')
+        self.search_preview_button = QPushButton('候補をプレビュー')
         self.search_preview_button.clicked.connect(self.preview_selected_candidate)
         candidate_actions.addWidget(self.search_preview_button)
-        self.search_clear_preview_button = QPushButton('preview解除')
+        self.search_clear_preview_button = QPushButton('プレビュー解除')
         self.search_clear_preview_button.clicked.connect(self.clear_candidate_preview)
         candidate_actions.addWidget(self.search_clear_preview_button)
         self.search_apply_button = QPushButton('候補を適用')
-        self.search_apply_button.setToolTip('明示適用だけがSceneを変更し、1回のUndoで全位置を戻します')
+        self.search_apply_button.setToolTip('明示適用だけがシーンを変更し、1回のアンドゥで全位置を戻します')
         self.search_apply_button.clicked.connect(self.apply_selected_candidate)
         candidate_actions.addWidget(self.search_apply_button)
         layout.addLayout(candidate_actions)
 
         self.measurement_plan_button = QPushButton('現在の保存版を実測候補として記録')
-        self.measurement_plan_button.setToolTip('候補適用後にSceneを保存してから、候補とその正確なSceneRevisionをimmutableに結びます')
+        self.measurement_plan_button.setToolTip('候補適用後にシーンを保存してから、候補とその正確なシーンリビジョンを不変に結びます')
         self.measurement_plan_button.clicked.connect(self.create_measurement_plan_for_selected_candidate)
         layout.addWidget(self.measurement_plan_button)
         self.measurement_plan_label = QLabel('実測候補未登録')
@@ -454,17 +454,17 @@ class OptimizationWorkspaceWindow(
 
         self.measurement_complete_button = QPushButton('選択したN60実測を候補へ関連付け')
         self.measurement_complete_button.setToolTip(
-            '候補適用時と完全一致するSceneRevision/content hashのmeasured evidenceだけを関連付けます'
+            '候補適用時と完全一致するシーンリビジョン/内容ハッシュの実測証拠だけを関連付けます'
         )
         self.measurement_complete_button.clicked.connect(self.complete_selected_measurement_plan)
         layout.addWidget(self.measurement_complete_button)
 
-        comparison_label = QLabel('Pareto比較 · objectiveは独立指標のまま保持します')
+        comparison_label = QLabel('Pareto比較 · 目的関数は独立指標のまま保持します')
         comparison_label.setWordWrap(True)
         layout.addWidget(comparison_label)
 
         self.objective_list = QListWidget()
-        self.objective_list.setAccessibleName('objective一覧')
+        self.objective_list.setAccessibleName('目的関数一覧')
         self.objective_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
         self.objective_list.setMinimumHeight(100)
         layout.addWidget(self.objective_list)
@@ -473,7 +473,7 @@ class OptimizationWorkspaceWindow(
         self.pareto_refresh_button.clicked.connect(self.refresh_pareto_comparison)
         layout.addWidget(self.pareto_refresh_button)
 
-        self.pareto_summary_label = QLabel('objective evaluation未読込')
+        self.pareto_summary_label = QLabel('目的関数評価未読み込み')
         self.pareto_summary_label.setWordWrap(True)
         layout.addWidget(self.pareto_summary_label)
 
@@ -485,23 +485,23 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.pareto_tree)
 
         campaign_label = QLabel(
-            '実室Validation Campaign · 測定前にcalibration/holdoutと閾値を固定'
+            '実室検証キャンペーン · 測定前に校正/ホールドアウトと閾値を固定'
         )
         campaign_label.setWordWrap(True)
         layout.addWidget(campaign_label)
 
         assignment_actions = QHBoxLayout()
-        campaign_calibration = QPushButton('選択候補→calibration')
+        campaign_calibration = QPushButton('選択候補→校正')
         campaign_calibration.clicked.connect(
             lambda: self.assign_selected_candidate_to_campaign('calibration')
         )
         assignment_actions.addWidget(campaign_calibration)
-        campaign_holdout = QPushButton('選択候補→holdout')
+        campaign_holdout = QPushButton('選択候補→ホールドアウト')
         campaign_holdout.clicked.connect(
             lambda: self.assign_selected_candidate_to_campaign('holdout')
         )
         assignment_actions.addWidget(campaign_holdout)
-        campaign_remove = QPushButton('campaignから外す')
+        campaign_remove = QPushButton('キャンペーンから外す')
         campaign_remove.clicked.connect(self.remove_selected_campaign_assignment)
         assignment_actions.addWidget(campaign_remove)
         layout.addLayout(assignment_actions)
@@ -521,20 +521,20 @@ class OptimizationWorkspaceWindow(
         self.campaign_low_field.setRange(1.0, 20000.0)
         self.campaign_low_field.setDecimals(1)
         self.campaign_low_field.setValue(20.0)
-        campaign_form.addRow('検証帯域 low Hz', self.campaign_low_field)
+        campaign_form.addRow('検証帯域下限 Hz', self.campaign_low_field)
 
         self.campaign_high_field = QDoubleSpinBox()
         self.campaign_high_field.setRange(1.0, 20000.0)
         self.campaign_high_field.setDecimals(1)
         self.campaign_high_field.setValue(160.0)
-        campaign_form.addRow('検証帯域 high Hz', self.campaign_high_field)
+        campaign_form.addRow('検証帯域上限 Hz', self.campaign_high_field)
 
         self.campaign_residual_field = QDoubleSpinBox()
         self.campaign_residual_field.setRange(0.0, 100.0)
         self.campaign_residual_field.setDecimals(2)
         self.campaign_residual_field.setValue(0.0)
         self.campaign_residual_field.setSpecialValueText('要設定')
-        campaign_form.addRow('holdout RMS上限 dB', self.campaign_residual_field)
+        campaign_form.addRow('ホールドアウト RMS上限 dB', self.campaign_residual_field)
 
         self.campaign_sensitivity_field = QDoubleSpinBox()
         self.campaign_sensitivity_field.setRange(0.0, 1000.0)
@@ -555,47 +555,47 @@ class OptimizationWorkspaceWindow(
         self.campaign_separation_field.setDecimals(2)
         self.campaign_separation_field.setValue(0.0)
         self.campaign_separation_field.setSpecialValueText('要設定')
-        campaign_form.addRow('候補差 / repeatability', self.campaign_separation_field)
+        campaign_form.addRow('候補差 / 再現性', self.campaign_separation_field)
         layout.addLayout(campaign_form)
 
-        campaign_save = QPushButton('Campaignを測定前にimmutable保存')
+        campaign_save = QPushButton('キャンペーンを測定前に不変保存')
         campaign_save.setToolTip(
-            'holdoutを実測結果から選び直せないよう、この時点の役割・target・閾値を固定します'
+            'ホールドアウトを実測結果から選び直せないよう、この時点の役割・ターゲット・閾値を固定します'
         )
         campaign_save.clicked.connect(self.save_validation_campaign)
         layout.addWidget(campaign_save)
 
         self.campaign_tree = QTreeWidget()
         self.campaign_tree.setAccessibleName('検証キャンペーン')
-        self.campaign_tree.setHeaderLabels(['campaign', 'model', '候補', 'readiness'])
+        self.campaign_tree.setHeaderLabels(['キャンペーン', 'モデル', '候補', '準備状況'])
         self.campaign_tree.setMinimumHeight(130)
         self.campaign_tree.itemSelectionChanged.connect(self._campaign_selected)
         layout.addWidget(self.campaign_tree)
 
         campaign_actions = QHBoxLayout()
-        campaign_refresh = QPushButton('readiness更新')
+        campaign_refresh = QPushButton('準備状況更新')
         campaign_refresh.clicked.connect(self.refresh_validation_campaigns)
         campaign_actions.addWidget(campaign_refresh)
-        campaign_materialize = QPushButton('O30 objective evidence生成')
+        campaign_materialize = QPushButton('O30 目的関数証拠生成')
         campaign_materialize.clicked.connect(self.materialize_selected_campaign_objectives)
         campaign_actions.addWidget(campaign_materialize)
-        campaign_rew_read = QPushButton('選択REW→Campaign実測')
+        campaign_rew_read = QPushButton('選択REW→キャンペーン実測')
         campaign_rew_read.setToolTip(
-            '選択中のCampaign・planned Measurement Plan・現在SceneRevisionが一致する場合だけ、'
-            'REW API測定をowned-room campaign evidenceとして読み込みます'
+            '選択中のキャンペーン・計画済みの測定計画・現在シーンリビジョンが一致する場合だけ、'
+            'REW API測定を実室キャンペーン証拠として読み込みます'
         )
         campaign_rew_read.clicked.connect(self.read_selected_rew_for_campaign_async)
         campaign_actions.addWidget(campaign_rew_read)
         layout.addLayout(campaign_actions)
 
-        self.campaign_detail_label = QLabel('Campaign未選択')
+        self.campaign_detail_label = QLabel('キャンペーン未選択')
         self.campaign_detail_label.setWordWrap(True)
         layout.addWidget(self.campaign_detail_label)
 
         applicability_label = QLabel(
             '適用条件 · 自動評価は保存済みの証拠権威から判定を再計算します。'
-            '手動証跡は登録済みattestation IDを根拠欄に入力します。'
-            '未確認はgateを開きません'
+            '手動証拠は登録済み証明 IDを根拠欄に入力します。'
+            '未確認はゲートを開きません'
         )
         applicability_label.setWordWrap(True)
         layout.addWidget(applicability_label)
@@ -609,19 +609,19 @@ class OptimizationWorkspaceWindow(
             state = QComboBox()
             state.addItem('未確認', 'unverified')
             state.addItem('自動評価', 'auto')
-            state.addItem('手動証跡', 'manual')
+            state.addItem('手動証拠', 'manual')
             self.campaign_applicability_state[code] = state
             applicability_form.addRow(f'{label_text} 判定', state)
 
             detail = QLineEdit()
-            detail.setPlaceholderText('確認メモ / attestation ID')
+            detail.setPlaceholderText('確認メモ / 証明 ID')
             self.campaign_applicability_detail[code] = detail
             applicability_form.addRow(f'{label_text} 根拠', detail)
         layout.addLayout(applicability_form)
 
-        campaign_build_validation = QPushButton('CampaignからValidationRecordを構築・保存')
+        campaign_build_validation = QPushButton('キャンペーンから検証記録を構築・保存')
         campaign_build_validation.setToolTip(
-            'readinessが揃ったcampaignだけをO60検証し、applicabilityを含むimmutable recordとして保存します'
+            '準備状況が揃ったキャンペーンだけをO60検証し、適用性を含む不変記録として保存します'
         )
         campaign_build_validation.clicked.connect(
             self.build_and_save_selected_campaign_validation
@@ -629,30 +629,30 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(campaign_build_validation)
 
         validation_label = QLabel(
-            'モデル検証 · residual / trend / sensitivity / repeatabilityを独立表示'
+            'モデル検証 · 残差 / 傾向 / 感度 / 再現性を独立表示'
         )
         validation_label.setWordWrap(True)
         layout.addWidget(validation_label)
 
-        self.validation_refresh_button = QPushButton('保存済みValidationRecordを更新')
+        self.validation_refresh_button = QPushButton('保存済み検証記録を更新')
         self.validation_refresh_button.clicked.connect(self.refresh_model_validations)
         layout.addWidget(self.validation_refresh_button)
 
         self.validation_tree = QTreeWidget()
         self.validation_tree.setAccessibleName('保存済み検証')
         self.validation_tree.setHeaderLabels([
-            'validation', 'scope', 'residual', 'trend', 'sensitivity', 'repeatability', 'gate'
+            '検証', '範囲', '残差', '傾向', '感度', '再現性', '推奨可否'
         ])
         self.validation_tree.setMinimumHeight(150)
         self.validation_tree.itemSelectionChanged.connect(self._validation_selected)
         layout.addWidget(self.validation_tree)
 
-        self.validation_detail_label = QLabel('ValidationRecord未選択')
+        self.validation_detail_label = QLabel('検証記録未選択')
         self.validation_detail_label.setWordWrap(True)
         layout.addWidget(self.validation_detail_label)
 
         adaptive_label = QLabel(
-            'Adaptive Planner · synthetic開発とowned-room本番を明示分離します'
+            'アダプティブプランナー · 合成開発と実室本番を明示分離します'
         )
         adaptive_label.setWordWrap(True)
         layout.addWidget(adaptive_label)
@@ -662,15 +662,15 @@ class OptimizationWorkspaceWindow(
         # #901: production owned-room first and only by default; the
         # synthetic development lane is developer-mode-only.
         self.adaptive_scope_combo.addItem(
-            '実部屋 production',
+            '実室本番',
             'production_owned_room',
         )
         if developer_mode_enabled():
             self.adaptive_scope_combo.addItem(
-                '合成 development',
+                '合成開発',
                 'development_synthetic',
             )
-        adaptive_form.addRow('実行scope', self.adaptive_scope_combo)
+        adaptive_form.addRow('実行スコープ', self.adaptive_scope_combo)
 
         self.adaptive_length_scale_field = QDoubleSpinBox()
         self.adaptive_length_scale_field.setRange(0.01, 20.0)
@@ -683,32 +683,32 @@ class OptimizationWorkspaceWindow(
         self.adaptive_proposal_limit_field = QSpinBox()
         self.adaptive_proposal_limit_field.setRange(1, 100)
         self.adaptive_proposal_limit_field.setValue(20)
-        adaptive_form.addRow('表示proposal上限', self.adaptive_proposal_limit_field)
+        adaptive_form.addRow('表示提案上限', self.adaptive_proposal_limit_field)
         layout.addLayout(adaptive_form)
 
-        self.adaptive_build_button = QPushButton('次の測定候補を計算・immutable保存')
+        self.adaptive_build_button = QPushButton('次の測定候補を計算・不変保存')
         self.adaptive_build_button.setToolTip(
-            'synthetic scopeは開発検証専用です。owned-room productionは'
-            'current campaign-backed eligible O60 ValidationRecordだけを受け付けます'
+            '合成スコープは開発検証専用です。実室本番は'
+            '現在のキャンペーン裏付け適格 O60 検証記録だけを受け付けます'
         )
         self.adaptive_build_button.clicked.connect(self.build_selected_adaptive_plan)
         layout.addWidget(self.adaptive_build_button)
 
         self.adaptive_tree = QTreeWidget()
-        self.adaptive_tree.setAccessibleName('Adaptive Plan')
+        self.adaptive_tree.setAccessibleName('アダプティブ計画')
         self.adaptive_tree.setHeaderLabels([
-            'プラン / 候補', 'スコープ', '獲得', '補正objective'
+            'プラン / 候補', 'スコープ', '獲得', '補正目的関数'
         ])
         self.adaptive_tree.setMinimumHeight(180)
         self.adaptive_tree.itemSelectionChanged.connect(self._adaptive_selected)
         layout.addWidget(self.adaptive_tree)
 
-        self.adaptive_detail_label = QLabel('Adaptive Plan未選択')
+        self.adaptive_detail_label = QLabel('アダプティブ計画未選択')
         self.adaptive_detail_label.setWordWrap(True)
         layout.addWidget(self.adaptive_detail_label)
 
         extended_label = QLabel(
-            'Extended Search · acoustic aim / physical cabinet toe-inは明示model capabilityがある場合だけ探索します'
+            '拡張探索 · 音響照準 / 物理キャビネットトーインは明示モデル能力がある場合だけ探索します'
         )
         extended_label.setWordWrap(True)
         layout.addWidget(extended_label)
@@ -718,19 +718,19 @@ class OptimizationWorkspaceWindow(
         self.extended_capability_combo.setAccessibleName('拡張能力の検証結果')
         self.extended_capability_combo.setMinimumContentsLength(24)
         capability_actions.addWidget(self.extended_capability_combo)
-        synthetic_capability = QPushButton('Synthetic capability作成')
+        synthetic_capability = QPushButton('合成能力作成')
         synthetic_capability.setToolTip(
-            'ソフトウェア受入専用のdirectional model capabilityです。'
-            'owned-room validationへ昇格しません'
+            'ソフトウェア受入専用の指向性モデル能力です。'
+            '実室検証へ昇格しません'
         )
         synthetic_capability.clicked.connect(
             self.create_synthetic_extended_capability
         )
         capability_actions.addWidget(synthetic_capability)
-        owned_capability = QPushButton('選択O60→本番capability')
+        owned_capability = QPushButton('選択O60→本番能力')
         owned_capability.setToolTip(
-            'owned-room eligible ValidationRecordがspeaker directionを扱うmodelの場合だけ保存できます。'
-            'REW Room Simulatorはdirectional aim/body yaw非対応なので拒否されます'
+            '実室適格検証記録がスピーカー方向を扱うモデルの場合だけ保存できます。'
+            'REW Room Simulatorは指向性照準/ボディヨー非対応なので拒否されます'
         )
         owned_capability.clicked.connect(
             self.create_owned_room_extended_capability
@@ -741,41 +741,41 @@ class OptimizationWorkspaceWindow(
         extended_form = QFormLayout()
         self.extended_parameter_combo = QComboBox()
         self.extended_parameter_combo.addItem(
-            '音響照準 yaw',
+            '音響照準ヨー',
             'aim_yaw_deg',
         )
         self.extended_parameter_combo.addItem(
-            '音響照準 pitch',
+            '音響照準ピッチ',
             'aim_pitch_deg',
         )
         self.extended_parameter_combo.addItem(
-            '物理キャビネット toe-in (ボディyaw)',
+            '物理キャビネットトーイン (ボディヨー)',
             'body_yaw_deg',
         )
         self.extended_parameter_combo.currentIndexChanged.connect(
             self._seed_extended_aim_range
         )
-        extended_form.addRow('parameter', self.extended_parameter_combo)
+        extended_form.addRow('パラメーター', self.extended_parameter_combo)
 
         self.extended_entity_combo = QComboBox()
         self.extended_entity_combo.currentIndexChanged.connect(
             self._seed_extended_aim_range
         )
-        extended_form.addRow('speaker', self.extended_entity_combo)
+        extended_form.addRow('スピーカー', self.extended_entity_combo)
 
         self.extended_min_field = QDoubleSpinBox()
         self.extended_min_field.setRange(-180.0, 180.0)
         self.extended_min_field.setDecimals(1)
         self.extended_min_field.setSingleStep(1.0)
         self.extended_min_field.setSuffix('°')
-        extended_form.addRow('yaw最小', self.extended_min_field)
+        extended_form.addRow('ヨー最小', self.extended_min_field)
 
         self.extended_max_field = QDoubleSpinBox()
         self.extended_max_field.setRange(-180.0, 180.0)
         self.extended_max_field.setDecimals(1)
         self.extended_max_field.setSingleStep(1.0)
         self.extended_max_field.setSuffix('°')
-        extended_form.addRow('yaw最大', self.extended_max_field)
+        extended_form.addRow('ヨー最大', self.extended_max_field)
 
         self.extended_step_field = QDoubleSpinBox()
         self.extended_step_field.setRange(0.1, 180.0)
@@ -783,19 +783,19 @@ class OptimizationWorkspaceWindow(
         self.extended_step_field.setSingleStep(1.0)
         self.extended_step_field.setValue(5.0)
         self.extended_step_field.setSuffix('°')
-        extended_form.addRow('yaw刻み', self.extended_step_field)
+        extended_form.addRow('ヨー刻み', self.extended_step_field)
 
         self.extended_limit_field = QSpinBox()
         self.extended_limit_field.setRange(1, 50_000)
         self.extended_limit_field.setValue(10_000)
-        extended_form.addRow('extended候補上限', self.extended_limit_field)
+        extended_form.addRow('拡張候補上限', self.extended_limit_field)
         layout.addLayout(extended_form)
 
         extended_axis_actions = QHBoxLayout()
-        add_extended_axis = QPushButton('extended軸を追加 / 更新')
+        add_extended_axis = QPushButton('拡張軸を追加 / 更新')
         add_extended_axis.clicked.connect(self.add_or_update_extended_axis)
         extended_axis_actions.addWidget(add_extended_axis)
-        remove_extended_axis = QPushButton('選択extended軸を削除')
+        remove_extended_axis = QPushButton('選択拡張軸を削除')
         remove_extended_axis.clicked.connect(self.remove_selected_extended_axis)
         extended_axis_actions.addWidget(remove_extended_axis)
         layout.addLayout(extended_axis_actions)
@@ -803,19 +803,19 @@ class OptimizationWorkspaceWindow(
         self.extended_axis_tree = QTreeWidget()
         self.extended_axis_tree.setAccessibleName('拡張探索軸')
         self.extended_axis_tree.setHeaderLabels([
-            'speaker', 'parameter', '最小', '最大', '刻み'
+            'スピーカー', 'パラメーター', '最小', '最大', '刻み'
         ])
         self.extended_axis_tree.setMinimumHeight(105)
         layout.addWidget(self.extended_axis_tree)
 
-        save_extended = QPushButton('Extended SearchSpecをimmutable保存')
+        save_extended = QPushButton('拡張探索仕様を不変保存')
         save_extended.clicked.connect(self.save_extended_search_spec)
         layout.addWidget(save_extended)
 
         self.extended_spec_tree = QTreeWidget()
         self.extended_spec_tree.setAccessibleName('拡張探索設定')
         self.extended_spec_tree.setHeaderLabels([
-            'extended', 'model', 'parameter', '状態'
+            '拡張探索', 'モデル', 'パラメーター', '状態'
         ])
         self.extended_spec_tree.setMinimumHeight(120)
         self.extended_spec_tree.itemSelectionChanged.connect(
@@ -824,7 +824,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.extended_spec_tree)
 
         extended_generation = QHBoxLayout()
-        self.extended_generate_button = QPushButton('extended候補を生成')
+        self.extended_generate_button = QPushButton('拡張候補を生成')
         self.extended_generate_button.clicked.connect(
             self.generate_extended_candidates_async
         )
@@ -837,22 +837,22 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(extended_generation)
 
         extended_paging = QHBoxLayout()
-        self.extended_prev_button = QPushButton('前のextended候補')
+        self.extended_prev_button = QPushButton('前の拡張候補')
         self.extended_prev_button.clicked.connect(self.previous_extended_page)
         extended_paging.addWidget(self.extended_prev_button)
-        self.extended_next_button = QPushButton('次のextended候補')
+        self.extended_next_button = QPushButton('次の拡張候補')
         self.extended_next_button.clicked.connect(self.next_extended_page)
         extended_paging.addWidget(self.extended_next_button)
         layout.addLayout(extended_paging)
 
-        self.extended_summary_label = QLabel('Extended候補未生成')
+        self.extended_summary_label = QLabel('拡張候補未生成')
         self.extended_summary_label.setWordWrap(True)
         layout.addWidget(self.extended_summary_label)
 
         self.extended_candidate_tree = QTreeWidget()
         self.extended_candidate_tree.setAccessibleName('拡張生成候補')
         self.extended_candidate_tree.setHeaderLabels([
-            '候補', 'ベース', '位置', '音響yaw', 'ボディyaw'
+            '候補', 'ベース', '位置', '音響ヨー', 'ボディヨー'
         ])
         self.extended_candidate_tree.setMinimumHeight(170)
         self.extended_candidate_tree.itemSelectionChanged.connect(
@@ -861,19 +861,19 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.extended_candidate_tree)
 
         extended_candidate_actions = QHBoxLayout()
-        self.extended_preview_button = QPushButton('extended候補をpreview')
+        self.extended_preview_button = QPushButton('拡張候補をプレビュー')
         self.extended_preview_button.clicked.connect(
             self.preview_selected_extended_candidate
         )
         extended_candidate_actions.addWidget(self.extended_preview_button)
-        self.extended_clear_preview_button = QPushButton('preview解除')
+        self.extended_clear_preview_button = QPushButton('プレビュー解除')
         self.extended_clear_preview_button.clicked.connect(
             self.clear_extended_preview
         )
         extended_candidate_actions.addWidget(self.extended_clear_preview_button)
-        self.extended_apply_button = QPushButton('extended候補を適用')
+        self.extended_apply_button = QPushButton('拡張候補を適用')
         self.extended_apply_button.setToolTip(
-            '位置・body orientation・aimを1 commandで適用し、1回のUndoで復元します'
+            '位置・ボディ姿勢・照準を1 コマンドで適用し、1回のアンドゥで復元します'
         )
         self.extended_apply_button.clicked.connect(
             self.apply_selected_extended_candidate
@@ -882,8 +882,8 @@ class OptimizationWorkspaceWindow(
         layout.addLayout(extended_candidate_actions)
 
         adaptive_extended_label = QLabel(
-            'Adaptive Extended · base XYZ + O80 parameterをscale正規化して'
-            '次のextended測定候補を選びます'
+            'アダプティブ拡張 · ベース XYZ + O80 パラメーターをスケール正規化して'
+            '次の拡張測定候補を選びます'
         )
         adaptive_extended_label.setWordWrap(True)
         layout.addWidget(adaptive_extended_label)
@@ -902,17 +902,17 @@ class OptimizationWorkspaceWindow(
         self.adaptive_extended_proposal_limit_field.setRange(1, 100)
         self.adaptive_extended_proposal_limit_field.setValue(20)
         adaptive_extended_form.addRow(
-            'extended proposal上限',
+            '拡張提案上限',
             self.adaptive_extended_proposal_limit_field,
         )
         layout.addLayout(adaptive_extended_form)
 
         self.adaptive_extended_build_button = QPushButton(
-            'Adaptive Extended候補を計算・immutable保存'
+            'アダプティブ拡張候補を計算・不変保存'
         )
         self.adaptive_extended_build_button.setToolTip(
-            '選択Extended SearchSpecにpersist済みobjective observationが必要です。'
-            'productionはcurrent owned-room O60 + owned-room capabilityを要求します'
+            '選択拡張探索仕様に保存済み目的関数観測が必要です。'
+            '本番は現在の実室 O60 + 実室能力を要求します'
         )
         self.adaptive_extended_build_button.clicked.connect(
             self.build_selected_adaptive_extended_plan
@@ -920,7 +920,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.adaptive_extended_build_button)
 
         self.adaptive_extended_tree = QTreeWidget()
-        self.adaptive_extended_tree.setAccessibleName('拡張 Adaptive Plan')
+        self.adaptive_extended_tree.setAccessibleName('拡張アダプティブ計画')
         self.adaptive_extended_tree.setHeaderLabels([
             'プラン / 候補', 'スコープ', '獲得', '特徴 / 指標'
         ])
@@ -931,7 +931,7 @@ class OptimizationWorkspaceWindow(
         layout.addWidget(self.adaptive_extended_tree)
 
         self.adaptive_extended_detail_label = QLabel(
-            'Adaptive Extended Plan未選択'
+            'アダプティブ拡張計画未選択'
         )
         self.adaptive_extended_detail_label.setWordWrap(True)
         layout.addWidget(self.adaptive_extended_detail_label)
@@ -962,8 +962,8 @@ class OptimizationWorkspaceWindow(
         ):
             self.pareto_tree.clear()
             if self.pareto_summary_label is not None:
-                self.pareto_summary_label.setText('staleなSearchSpecではPareto集合を更新できません')
-            self.statusBar().showMessage('Pareto比較を拒否しました · SearchSpec/Scene/constraint authorityがstaleです')
+                self.pareto_summary_label.setText('古い探索仕様ではPareto集合を更新できません')
+            self.statusBar().showMessage('Pareto比較を拒否しました · 探索仕様/シーン/制約権威が古いです')
             return
 
         # One shared authority memo for this refresh: the candidate listing,
@@ -978,7 +978,7 @@ class OptimizationWorkspaceWindow(
             self.objective_list.clear()
             self.pareto_tree.clear()
             if self.pareto_summary_label is not None:
-                self.pareto_summary_label.setText('この探索仕様にはobjective evaluationがありません')
+                self.pareto_summary_label.setText('この探索仕様には目的関数評価がありません')
             return
 
         available = tuple(metric.objective_id for metric in evaluations[0].vector.metrics)
@@ -988,13 +988,13 @@ class OptimizationWorkspaceWindow(
             metric_map = {metric.objective_id: metric for metric in evaluation.vector.metrics}
             if set(metric_map) != expected_ids:
                 self.pareto_tree.clear()
-                self.pareto_summary_label.setText('objective集合が候補間で一致しません · Pareto比較を中止')
-                self.statusBar().showMessage('Pareto比較を拒否しました · objective集合不一致')
+                self.pareto_summary_label.setText('目的関数集合が候補間で一致しません · Pareto比較を中止')
+                self.statusBar().showMessage('Pareto比較を拒否しました · 目的関数集合不一致')
                 return
             if any(metric_map[objective_id].unit != expected_units[objective_id] for objective_id in available):
                 self.pareto_tree.clear()
-                self.pareto_summary_label.setText('objective単位が候補間で一致しません · Pareto比較を中止')
-                self.statusBar().showMessage('Pareto比較を拒否しました · objective単位不一致')
+                self.pareto_summary_label.setText('目的関数単位が候補間で一致しません · Pareto比較を中止')
+                self.statusBar().showMessage('Pareto比較を拒否しました · 目的関数単位不一致')
                 return
 
         previous = {item.data(Qt.ItemDataRole.UserRole) for item in self.objective_list.selectedItems()}
@@ -1050,7 +1050,7 @@ class OptimizationWorkspaceWindow(
             item.setData(0, ROLE, evaluation.candidate_id)
             self.pareto_tree.addTopLevelItem(item)
         if self.pareto_summary_label is not None:
-            reused = ' · 既存snapshot' if existing is not None else ''
+            reused = ' · 既存スナップショット' if existing is not None else ''
             self.pareto_summary_label.setText(
                 f'{len(evaluations)}候補 · 非劣 {len(non_dominated)} · '
                 f'指標 {len(selected)} · {pareto_set.pareto_set_id[:8]}{reused}'
@@ -1076,7 +1076,7 @@ class OptimizationWorkspaceWindow(
                 break
         if not found:
             self.statusBar().showMessage(
-                'Pareto候補は現在のcandidate page外です · candidate pageを移動してからpreview/applyしてください'
+                'Pareto候補は現在の候補ページ外です · 候補ページを移動してからプレビュー/適用してください'
             )
 
     def _replace_constraint_set(self, constraints: tuple, *, message: str) -> bool:

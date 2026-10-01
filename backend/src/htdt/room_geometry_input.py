@@ -454,7 +454,7 @@ class RoomGeometryInputController(QObject):
                 event.accept()
                 return True
             if changed:
-                self.workspace._set_status("頂点を移動しました · 元に戻す で復元できます")
+                self.workspace._set_status("頂点を移動しました · 元に戻すで復元できます")
                 event.accept()
                 return True
             return False
@@ -685,7 +685,7 @@ class RoomGeometryInputController(QObject):
         self.workspace.refresh()
         self._render_edit_handles()
         if changed:
-            self.workspace._set_status("頂点を移動しました · 元に戻す で復元できます")
+            self.workspace._set_status("頂点を移動しました · 元に戻すで復元できます")
 
     def _commit_wall_drag(self) -> None:
         moved_room = self._wall_drag_preview_room

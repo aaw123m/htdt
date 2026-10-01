@@ -126,8 +126,8 @@ _CONTEXT_IDS = (
 
 _CELL_STATUS_LABELS = {
     "not_started": "未着手",
-    "staged": "取込済",
-    "assignment_incomplete": "割当未完了",
+    "staged": "取り込み済",
+    "assignment_incomplete": "割り当て未完了",
     "quality_pending": "品質確認待ち",
     "retake_required": "要再測定",
     "completed": "完了",
@@ -135,7 +135,7 @@ _CELL_STATUS_LABELS = {
 }
 _VARIANT_PURPOSE_LABELS = {
     "measurement": "測定",
-    "calibration": "キャリブレーション",
+    "calibration": "校正",
     "holdout": "ホールドアウト",
     "diagnostic": "診断",
     "validation": "検証",
@@ -197,7 +197,7 @@ def _check_label(check: str) -> str:
         "timing_reference": "タイミング基準",
         "polarity": "極性",
         "ir_window": "インパルス応答窓",
-        "calibration": "キャリブレーション",
+        "calibration": "校正",
         "repeatability": "繰り返し精度",
     }.get(check, check)
 
@@ -284,7 +284,7 @@ def _disposition_label(value: str | None) -> str:
         None: "有効",
         "active": "有効",
         "corrected": "訂正済み",
-        "misassigned": "誤割当",
+        "misassigned": "誤割り当て",
         "excluded_from_normal_use": "通常利用から除外",
         "test_only": "テスト測定",
         "duplicate_import": "重複取り込み",
@@ -1099,18 +1099,18 @@ class MeasurementPageWorkspace(QWidget):
         acquisition_form.addRow("マイク方向", self.mic_orientation_combo)
 
         self.mic_manufacturer_edit = QLineEdit(acquisition_card)
-        acquisition_form.addRow("マイク メーカー", self.mic_manufacturer_edit)
+        acquisition_form.addRow("マイクメーカー", self.mic_manufacturer_edit)
         self.mic_model_edit = QLineEdit(acquisition_card)
-        acquisition_form.addRow("マイク モデル", self.mic_model_edit)
+        acquisition_form.addRow("マイクモデル", self.mic_model_edit)
         self.mic_serial_edit = QLineEdit(acquisition_card)
-        acquisition_form.addRow("マイク シリアル", self.mic_serial_edit)
+        acquisition_form.addRow("マイクシリアル", self.mic_serial_edit)
         self.mic_sample_rate_edit = QLineEdit(acquisition_card)
         self.mic_sample_rate_edit.setPlaceholderText("例: 48000")
-        acquisition_form.addRow("マイク サンプルレート", self.mic_sample_rate_edit)
+        acquisition_form.addRow("マイクサンプルレート", self.mic_sample_rate_edit)
         self.mic_cal_file_edit = QLineEdit(acquisition_card)
         acquisition_form.addRow("校正ファイル名", self.mic_cal_file_edit)
         self.mic_cal_sha_edit = QLineEdit(acquisition_card)
-        self.mic_cal_sha_edit.setPlaceholderText("SHA-256（64桁hex）")
+        self.mic_cal_sha_edit.setPlaceholderText("SHA-256（64桁16進数）")
         acquisition_form.addRow("校正ファイルSHA-256", self.mic_cal_sha_edit)
 
         self.output_device_edit = QLineEdit(acquisition_card)
@@ -1972,7 +1972,7 @@ class MeasurementPageWorkspace(QWidget):
         self.campaign_purpose_combo = QComboBox(plan_card)
         for value, label in (
             ('measurement', "測定"),
-            ('calibration', "キャリブレーション"),
+            ('calibration', "校正"),
             ('holdout', "ホールドアウト"),
             ('diagnostic', "診断"),
         ):
@@ -2020,7 +2020,7 @@ class MeasurementPageWorkspace(QWidget):
 
         variant_card, variant_layout = _card("登録済みの詳細計画", host)
         variant_hint = QLabel(
-            "SystemVariant/検証ワークフローが登録した測定計画を、"
+            "システムバリアント/検証ワークフローが登録した測定計画を、"
             "そのまま実行用セルとして開きます（新しい全×全計画は作りません）。",
             variant_card,
         )
@@ -2750,7 +2750,7 @@ class MeasurementPageWorkspace(QWidget):
         for label, value in (
             ("有効に戻す", "active"),
             ("通常利用から除外", "excluded_from_normal_use"),
-            ("誤割当として記録", "misassigned"),
+            ("誤割り当てとして記録", "misassigned"),
             ("テスト測定として記録", "test_only"),
             ("重複取り込みとして記録", "duplicate_import"),
         ):
@@ -3267,7 +3267,7 @@ class MeasurementPageWorkspace(QWidget):
                     self._spatial_viewport.render_proposed_entities(
                         context.bound_revision.document.entities,
                         selected_id=context.effective_entity_id,
-                        label="測定時の配置 ghost · current Sceneは変更しません",
+                        label="測定時の配置ゴースト · 現在シーンは変更しません",
                     )
                 else:
                     self._spatial_viewport.render_document(
@@ -3415,7 +3415,7 @@ class MeasurementPageWorkspace(QWidget):
         band_row.addWidget(self.compare_low)
         band_row.addWidget(QLabel("–", band_widget))
         self.compare_high = QDoubleSpinBox(band_widget)
-        self.compare_high.setAccessibleName("比較帯域 上限")
+        self.compare_high.setAccessibleName("比較帯域上限")
         self.compare_high.setRange(1.0, 100000.0)
         self.compare_high.setValue(20000.0)
         self.compare_high.setSuffix(" Hz")
@@ -3437,12 +3437,12 @@ class MeasurementPageWorkspace(QWidget):
         self.ref_band_check = QCheckBox("参照帯域でレベル合わせ", setup_card)
         ref_row.addWidget(self.ref_band_check)
         self.ref_low = QDoubleSpinBox(setup_card)
-        self.ref_low.setAccessibleName("レベル参照帯域 下限")
+        self.ref_low.setAccessibleName("レベル参照帯域下限")
         self.ref_low.setRange(1.0, 100000.0)
         self.ref_low.setValue(20.0)
         self.ref_low.setSuffix(" Hz")
         self.ref_high = QDoubleSpinBox(setup_card)
-        self.ref_high.setAccessibleName("レベル参照帯域 上限")
+        self.ref_high.setAccessibleName("レベル参照帯域上限")
         self.ref_high.setRange(1.0, 100000.0)
         self.ref_high.setValue(120.0)
         self.ref_high.setSuffix(" Hz")
@@ -3460,7 +3460,7 @@ class MeasurementPageWorkspace(QWidget):
         self.excluded_low.setValue(45.0)
         self.excluded_low.setSuffix(" Hz")
         self.excluded_high = QDoubleSpinBox(setup_card)
-        self.excluded_high.setAccessibleName("除外帯域 上限")
+        self.excluded_high.setAccessibleName("除外帯域上限")
         self.excluded_high.setRange(1.0, 100000.0)
         self.excluded_high.setValue(65.0)
         self.excluded_high.setSuffix(" Hz")
@@ -3658,7 +3658,7 @@ class MeasurementPageWorkspace(QWidget):
         self._onboarding_context_id: str | None = None
         self._onboarding_steps: tuple[InstrumentStep, ...] = ()
         page, _host, layout = _page(
-            "機器の準備（キャリブレーション）",
+            "機器の準備（校正）",
             "計測機器の校正・向き・SPL準備とREWキャンペーン設定を順に確認します。"
             "項目をダブルクリックすると対象のページに移動します。",
         )
@@ -3672,7 +3672,7 @@ class MeasurementPageWorkspace(QWidget):
             "・サンプルレート: 48 kHz\n"
             "・絶対SPL: UMIK-1単体では相対レベルのみ — 音響校正器・REW SPLセッション・"
             "基準メーター転送のいずれかのレベル校正記録が必要\n"
-            "・REW: 「REW -api」で起動し、入力デバイスはJavaでUMIK-1を選択、"
+            "・REW: 「REW -API」で起動し、入力デバイスはJavaでUMIK-1を選択、"
             "校正ファイルを適用してからキャンペーンを計測",
             guide_card,
         )
@@ -3696,6 +3696,12 @@ class MeasurementPageWorkspace(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers
         )
         self.onboarding_table.verticalHeader().setVisible(False)
+        self.onboarding_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents
+        )
+        self.onboarding_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.ResizeToContents
+        )
         self.onboarding_table.horizontalHeader().setSectionResizeMode(
             2, QHeaderView.ResizeMode.Stretch
         )
@@ -3780,7 +3786,7 @@ class MeasurementPageWorkspace(QWidget):
         high = float(self.excluded_high.value())
         if not (low > 0.0 and high > low):
             self._set_notice(
-                "除外帯域は 下限 < 上限 で指定してください。",
+                "除外帯域は下限 < 上限で指定してください。",
                 SemanticState.WARNING,
             )
             return
@@ -4187,7 +4193,7 @@ class MeasurementPageWorkspace(QWidget):
             high = float(self.ref_high.value())
             if not (low > 0.0 and high > low):
                 self._set_notice(
-                    "参照帯域は 下限 < 上限 で指定してください。",
+                    "参照帯域は下限 < 上限で指定してください。",
                     SemanticState.WARNING,
                 )
                 return

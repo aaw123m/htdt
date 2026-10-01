@@ -69,8 +69,8 @@ _STALE_REASON_LABELS: dict[str, str] = {
     'scene_revision_changed': '部屋リビジョン変更',
     'scene_content_changed': '部屋内容変更',
     'base_system_variant_changed': '基準バリアント変更',
-    'base_calibration_plan_missing': '基準CalibrationPlanなし',
-    'base_calibration_plan_changed': '基準CalibrationPlan変更',
+    'base_calibration_plan_missing': '基準校正プランなし',
+    'base_calibration_plan_changed': '基準校正プラン変更',
     'assessment_failed': '状態判定失敗',
 }
 
@@ -185,7 +185,7 @@ class JointOptimizationPanel(QWidget):
         baseline = self._baseline
         if baseline is None:
             self.baseline_label.setText(
-                'ベースライン未解決: 現在のSceneRevision・SystemVariant・'
+                'ベースライン未解決: 現在のシーンリビジョン・システムバリアント・'
                 '物理探索設定が必要です。'
             )
             self._build_dsp_rows(())
@@ -381,7 +381,7 @@ class JointOptimizationPanel(QWidget):
             missing.append('O30目標評価')
         detail = ''
         if missing:
-            detail = ' · 不足authority: ' + ' / '.join(missing)
+            detail = ' · 不足権威: ' + ' / '.join(missing)
         self.preflight_label.setText(
             '候補数の見積もり: 物理 '
             f'{estimate.physical_candidate_count} × DSP '
@@ -396,7 +396,7 @@ class JointOptimizationPanel(QWidget):
         self.create_button.setToolTip(
             '仕様を保存します。'
             if not missing
-            else '作成に不足しているauthority: ' + ' / '.join(missing)
+            else '作成に不足している権威: ' + ' / '.join(missing)
         )
 
     def _create_spec(self) -> None:

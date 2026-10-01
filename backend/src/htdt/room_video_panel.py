@@ -124,14 +124,14 @@ class ProjectorSpecDialog(QDialog):
         form.addRow("出典タイトル", self.doc_title)
         form.addRow("参照", self.reference)
         form.addRow("出典引用", self.citation)
-        form.addRow("スロー比 最小", self.throw_min)
-        form.addRow("スロー比 最大", self.throw_max)
+        form.addRow("スロー比最小", self.throw_min)
+        form.addRow("スロー比最大", self.throw_max)
         form.addRow("水平レンズシフト", self.shift_h_enabled)
-        form.addRow("水平シフト 最小", self.shift_h_min)
-        form.addRow("水平シフト 最大", self.shift_h_max)
+        form.addRow("水平シフト最小", self.shift_h_min)
+        form.addRow("水平シフト最大", self.shift_h_max)
         form.addRow("垂直レンズシフト", self.shift_v_enabled)
-        form.addRow("垂直シフト 最小", self.shift_v_min)
-        form.addRow("垂直シフト 最大", self.shift_v_max)
+        form.addRow("垂直シフト最小", self.shift_v_min)
+        form.addRow("垂直シフト最大", self.shift_v_max)
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -215,8 +215,8 @@ class ScreenTransferDialog(QDialog):
         self.freq_max.setRange(1.0, 24000.0)
         self.freq_max.setValue(8000.0)
         self.freq_max.setSuffix(' Hz')
-        form.addRow("有効周波数 最小", self.freq_min)
-        form.addRow("有効周波数 最大", self.freq_max)
+        form.addRow("有効周波数最小", self.freq_min)
+        form.addRow("有効周波数最大", self.freq_max)
         self.condition = QLineEdit()
         self.condition.setPlaceholderText("測定条件（例: 法線入射, free-field）")
         form.addRow("測定条件", self.condition)
@@ -234,7 +234,7 @@ class ScreenTransferDialog(QDialog):
         layout.addLayout(form)
         hint = QLabel(
             "tierに見合わない係数は保存されません — 測定されていない透過特性は"
-            "UNKNOWN/AT_CLAIMとして正直に記録されます。"
+            "不明/AT_CLAIMとして正直に記録されます。"
         )
         hint.setWordWrap(True)
         set_typography_role(hint, TypographyRole.SECONDARY)
@@ -275,7 +275,7 @@ class ScreenTransferDialog(QDialog):
                 self,
                 "スクリーン伝達権威",
                 "このティアにはサンプル行が必要です "
-                "— 未測定なら UNKNOWN / AT_CLAIM を選択してください",
+                "— 未測定なら不明 / AT_CLAIM を選択してください",
             )
             self.samples.setFocus()
             return
@@ -283,7 +283,7 @@ class ScreenTransferDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "スクリーン伝達権威",
-                "UNKNOWN / AT_CLAIM ティアにサンプルは保存できません "
+                "不明 / AT_CLAIM ティアにサンプルは保存できません "
                 "— 測定データに見合うティアを選択してください",
             )
             return
@@ -362,15 +362,15 @@ class DisplaySpecDialog(QDialog):
         form.addRow("筐体幅", self.chassis_width)
         form.addRow("筐体奥行", self.chassis_depth)
         form.addRow("筐体高さ", self.chassis_height)
-        form.addRow("有効画域 幅", self.active_width)
-        form.addRow("有効画域 高さ", self.active_height)
+        form.addRow("有効画域幅", self.active_width)
+        form.addRow("有効画域高さ", self.active_height)
         form.addRow("出典", self.source_name)
         form.addRow("参照", self.source_reference)
         layout.addLayout(form)
         hint = QLabel(
-            "ユーザー定義の仕様は user_defined 証跡として記録されます — "
+            "ユーザー定義の仕様は user_defined 証拠として記録されます — "
             "メーカー/モデル名は入力できず、輝度・リフレッシュ等の能力は"
-            "測定値がない限り未評価（UNKNOWN）のままです。"
+            "測定値がない限り未評価（不明）のままです。"
         )
         hint.setWordWrap(True)
         set_typography_role(hint, TypographyRole.SECONDARY)
@@ -520,9 +520,9 @@ class RoomVideoPanel(QWidget):
         self.frame_clearance.setSingleStep(0.01)
         self.frame_clearance.setSuffix(' m')
         self.transfer_combo = QComboBox()
-        self.transfer_combo.addItem("不明（transfer権威なし）", None)
+        self.transfer_combo.addItem("不明（伝達権威なし）", None)
         self.transfer_combo.setToolTip(
-            "スクリーンの音響透過/反射権威 (#541) — ATフラグではなく versioned authority"
+            "スクリーンの音響透過/反射権威 (#541) — ATフラグではなく版管理権威"
         )
         self.transfer_save_button = QPushButton("登録…")
         self.transfer_save_button.setToolTip(
@@ -562,7 +562,7 @@ class RoomVideoPanel(QWidget):
         display_spec_row.addWidget(self.display_spec_combo, stretch=1)
         self.new_display_spec_button = QPushButton("登録…")
         self.new_display_spec_button.setToolTip(
-            "ディスプレイ仕様権威を新規登録します（ユーザー定義証跡）"
+            "ディスプレイ仕様権威を新規登録します（ユーザー定義証拠）"
         )
         display_spec_row.addWidget(self.new_display_spec_button)
         display_layout.addLayout(display_spec_row)
@@ -599,8 +599,8 @@ class RoomVideoPanel(QWidget):
         self.display_mounting = QComboBox()
         for value, label in _DISPLAY_MOUNTING_ITEMS:
             self.display_mounting.addItem(label, value)
-        display_form.addRow("有効画域 幅", self.display_width)
-        display_form.addRow("有効画域 高さ", self.display_height)
+        display_form.addRow("有効画域幅", self.display_width)
+        display_form.addRow("有効画域高さ", self.display_height)
         display_form.addRow("中心オフセット X", self.display_offset_x)
         display_form.addRow("中心オフセット Z", self.display_offset_z)
         display_form.addRow("フレーム余白", self.display_frame_clearance)
@@ -990,7 +990,7 @@ class RoomVideoPanel(QWidget):
         items, selected_id = screen_transfers
         self.transfer_combo.blockSignals(True)
         self.transfer_combo.clear()
-        self.transfer_combo.addItem("不明（transfer権威なし）", None)
+        self.transfer_combo.addItem("不明（伝達権威なし）", None)
         for label, transfer_id in items:
             self.transfer_combo.addItem(label, transfer_id)
         index = self.transfer_combo.findData(selected_id)

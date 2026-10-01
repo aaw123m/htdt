@@ -793,7 +793,7 @@ def _plan_coverage(
         if not selected:
             return _LanePlan(
                 state='unsupported',
-                reason='指定された DirectivityDataset が機器にバインドされていません',
+                reason='指定された指向性データセットが機器にバインドされていません',
             )
         dataset = selected[0]
     elif len(datasets) == 1:
@@ -802,7 +802,7 @@ def _plan_coverage(
         return _LanePlan(
             state='unsupported',
             reason=(
-                'DirectivityDataset が一意に決まりません '
+                '指向性データセットが一意に決まりません '
                 f'({len(datasets)}件)'
             ),
         )

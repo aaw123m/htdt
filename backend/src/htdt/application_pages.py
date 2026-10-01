@@ -220,7 +220,7 @@ _DELETION_BLOCKER_LINES = {
         '残っています — 先に中止または退役させてください'
     ),
     'pending_inbox_items': (
-        'このプロジェクトのキャプチャ受信箱に未処理の項目が {count} 件'
+        'このプロジェクトのキャプチャ受信ボックスに未処理の項目が {count} 件'
         'あります'
     ),
     'unknown_project': 'プロジェクトが見つかりません',
@@ -259,11 +259,11 @@ def _deletion_plan_lines(plan: ProjectDeletionPlan) -> list[str]:
     )
     if plan.pending_mission_count:
         lines.append(
-            f"未処理のCaptureミッション: {plan.pending_mission_count} 件"
+            f"未処理のキャプチャミッション: {plan.pending_mission_count} 件"
         )
     if plan.pending_inbox_item_count:
         lines.append(
-            f"未処理のInbox項目: {plan.pending_inbox_item_count} 件"
+            f"未処理の受信ボックス項目: {plan.pending_inbox_item_count} 件"
         )
     return lines
 
@@ -683,7 +683,7 @@ class CaptureInboxPage(QWidget):
         layout = _page_layout(
             self,
             "取り込み",
-            "取得済みのCapture配送です。項目を選ぶと内容と判断材料を確認できます。",
+            "取得済みのキャプチャ配送です。項目を選ぶと内容と判断材料を確認できます。",
         )
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
@@ -1334,7 +1334,7 @@ class SupportPage(QWidget):
         )
         for label_text in (
             f"バージョン: {version_string()}",
-            f"データフォルダ: {data_dir}",
+            f"データフォルダー: {data_dir}",
             f"診断ログ: {diagnostics_dir(data_dir)}",
         ):
             label = QLabel(label_text)

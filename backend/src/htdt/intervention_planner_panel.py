@@ -71,9 +71,9 @@ _COVERAGE_LABELS: dict[str, str] = {
 }
 _FAMILY_LABELS: dict[str, str] = {
     'geometry': '配置',
-    'calibration': 'キャリブレーション',
+    'calibration': '校正',
     'treatment': '吸音・処理',
-    'topology': 'トポロジ',
+    'topology': 'トポロジー',
 }
 # Where each generated-authority kind is executed when it cannot be
 # materialized by the SystemVariant lifecycle on this page.
@@ -157,14 +157,14 @@ class InterventionPlannerPanel(QFrame):
         create_layout.addWidget(title)
         create_layout.addWidget(
             _secondary(
-                "問題領域(finding)を宣言して介入スタディを発行します。"
-                "族(family)は現在の能力で裏付けがあるものだけ選択できます。"
+                "課題領域を宣言して介入スタディを発行します。"
+                "族は現在の能力で裏付けがあるものだけ選択できます。"
             )
         )
         form = QFormLayout()
         self.finding_detail_field = QLineEdit()
         self.finding_detail_field.setPlaceholderText(
-            "例: 中域の着座席でレベルが落ちる"
+            "例: 中域の座席でレベルが落ちる"
         )
         form.addRow("課題", self.finding_detail_field)
         self.observable_combo = QComboBox()
@@ -178,7 +178,7 @@ class InterventionPlannerPanel(QFrame):
         self.band_low_field.setRange(1.0, 20000.0)
         self.band_low_field.setValue(80.0)
         self.band_high_field = QDoubleSpinBox()
-        self.band_high_field.setAccessibleName('帯域 上限 Hz')
+        self.band_high_field.setAccessibleName('帯域上限 Hz')
         self.band_high_field.setRange(2.0, 22000.0)
         self.band_high_field.setValue(160.0)
         band_row.addWidget(self.band_low_field)
@@ -250,7 +250,7 @@ class InterventionPlannerPanel(QFrame):
         alt_layout.addWidget(
             _secondary(
                 "各行は独立した観測量です。勝者スコアは算出しません。"
-                "選択すると差分・指標・authorityをそのまま確認できます"
+                "選択すると差分・指標・権威をそのまま確認できます"
                 "(プレビューはシーンを変更しません)。"
             )
         )
@@ -323,14 +323,14 @@ class InterventionPlannerPanel(QFrame):
         checks['calibration'].setEnabled(calibration_ready)
         if not calibration_ready:
             reasons.append(
-                "キャリブレーション: 測定能力に裏付けられたDSP変数がありません"
+                "校正: 測定能力に裏付けられたDSP変数がありません"
             )
 
         definitions = self.treatment_repository.list_definitions()
         checks['treatment'].setEnabled(bool(definitions))
         if not definitions:
             reasons.append(
-                "吸音・処理: 治療定義(capability authority)が未登録です"
+                "吸音・処理: トリートメント定義(能力権威)が未登録です"
             )
         self.family_reason_label.setText("\n".join(reasons))
 
@@ -419,8 +419,8 @@ class InterventionPlannerPanel(QFrame):
             f"差分: {alternative.semantic_diff.summary}",
             f"変更対象: {', '.join(alternative.semantic_diff.changed_entity_ids) or '—'}",
             f"DSP: {', '.join(alternative.semantic_diff.dsp_parameters) or '—'}",
-            f"治療要素: {', '.join(alternative.semantic_diff.treatment_item_ids) or '—'}",
-            f"トポロジ: {', '.join(alternative.semantic_diff.topology_changes) or '—'}",
+            f"トリートメント要素: {', '.join(alternative.semantic_diff.treatment_item_ids) or '—'}",
+            f"トポロジー: {', '.join(alternative.semantic_diff.topology_changes) or '—'}",
             "",
             "指標 (目的 / ガードレール):",
         ]
@@ -453,15 +453,15 @@ class InterventionPlannerPanel(QFrame):
             lines.append("ガードレール回帰: " + ", ".join(alternative.regressions))
         lines.append("")
         if alternative.generated_authorities:
-            lines.append("適用authority:")
+            lines.append("適用権威:")
             lines.extend(
                 f"  {ref.authority_kind}: {ref.authority_id[:32]}"
                 for ref in alternative.generated_authorities
             )
         else:
-            lines.append("適用authority: なし — 直接適用できません")
+            lines.append("適用権威: なし — 直接適用できません")
         if alternative.evidence_authorities:
-            lines.append("証拠authority:")
+            lines.append("証拠権威:")
             lines.extend(
                 f"  {ref.authority_kind}: {ref.authority_id[:32]}"
                 for ref in alternative.evidence_authorities
@@ -502,13 +502,13 @@ class InterventionPlannerPanel(QFrame):
                 detail=detail,
             )
         except ValueError as exc:
-            self._on_status(f"findingが無効です: {operation_error_message(exc)}")
+            self._on_status(f"課題領域が無効です: {operation_error_message(exc)}")
             return
         treatment_authority: tuple[str | None, str | None] = (None, None)
         if 'treatment' in families:
             definitions = self.treatment_repository.list_definitions()
             if not definitions:
-                self._on_status("治療capability authorityが解決できません。")
+                self._on_status("トリートメント能力権威が解決できません。")
                 return
             capability = definitions[-1]
             treatment_authority = (
@@ -539,7 +539,7 @@ class InterventionPlannerPanel(QFrame):
             return
         self._on_status(
             f"介入スタディ {spec.spec_id[:24]} を作成しました。"
-            "介入案は評価authorityから登録されます。"
+            "介入案は評価権威から登録されます。"
         )
         self.refresh()
 
@@ -550,7 +550,7 @@ class InterventionPlannerPanel(QFrame):
             return
         if not alternative.generated_authorities:
             self._on_status(
-                "この介入案はtypedなproposal authorityを持たないため"
+                "この介入案は型付き提案権威を持たないため"
                 "適用できません。"
             )
             return
@@ -569,7 +569,7 @@ class InterventionPlannerPanel(QFrame):
         destination = _APPLY_HANDOFFS.get(first.authority_kind)
         if destination is None:
             self._on_status(
-                f"authority '{first.authority_kind}' の適用先が未対応です。"
+                f"権威 '{first.authority_kind}' の適用先が未対応です。"
             )
             return
         if self._on_navigate is not None and self._on_navigate(
@@ -579,7 +579,7 @@ class InterventionPlannerPanel(QFrame):
             )
         ):
             self._on_status(
-                "typed proposal authorityを持つワークスペースで適用を続けます。"
+                "型付き提案権威を持つワークスペースで適用を続けます。"
             )
         else:
             self._on_status("適用先ワークスペースへ移動できませんでした。")
@@ -595,7 +595,7 @@ class InterventionPlannerPanel(QFrame):
             f"{alternative.semantic_diff.summary}\n\n"
             f"{preview.name}\n"
             + ("\n".join(preview.change_lines) or "差分なし")
-            + "\n\nbaselineを上書きせず、新しいSceneRevisionを作成します。"
+            + "\n\nベースラインを上書きせず、新しいシーンリビジョンを作成します。"
             "この操作だけでは「設置済み」にはなりません。"
         )
         answer = QMessageBox.question(
@@ -613,7 +613,7 @@ class InterventionPlannerPanel(QFrame):
             self._on_status(f"適用できません: {operation_error_message(exc)}")
             return
         self._on_status(
-            "介入案を新しいSceneRevisionへ適用しました。"
+            "介入案を新しいシーンリビジョンへ適用しました。"
             "検証は測定ワークスペースで実施してください。"
         )
         self.applied.emit(application.applied_revision_id)
@@ -627,7 +627,7 @@ class InterventionPlannerPanel(QFrame):
             )
         ):
             return
-        self._on_status("測定workspaceへ移動できませんでした。")
+        self._on_status("測定ワークスペースへ移動できませんでした。")
 
 
 __all__ = [

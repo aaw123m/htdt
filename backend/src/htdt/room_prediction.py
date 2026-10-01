@@ -279,7 +279,7 @@ class RoomPredictionController(QObject):
                     if pose is not None:
                         label += f" · 姿勢:{pose.label}"
                     else:
-                        label += ' · 座席基準点(pose未選択)'
+                        label += ' · 座席基準点(姿勢未選択)'
                 options.append((entity.entity_id, label))
             elif (
                 include_source_receivers
@@ -308,29 +308,29 @@ class RoomPredictionController(QObject):
     ) -> SceneRevision:
         working = self.room_controller.working
         if working.source_revision_id is None:
-            raise ValueError("保存済みSceneRevisionが必要です")
+            raise ValueError("保存済みシーンリビジョンが必要です")
         if working.has_preview:
             raise ValueError("編集中の操作を確定またはキャンセルしてください")
         if working.is_dirty:
             raise ValueError("予測の前に現在の配置を保存してください")
         revision = self.scene_repository.get(working.source_revision_id)
         if revision is None:
-            raise ValueError("現在のSceneRevisionを読み込めません")
+            raise ValueError("現在のシーンリビジョンを読み込めません")
         if revision.content_hash != scene_content_hash(working.committed_document):
-            raise ValueError("現在のSceneRevisionと編集状態が一致しません")
+            raise ValueError("現在のシーンリビジョンと編集状態が一致しません")
         document = revision.document
         if system_variant is not None:
             if system_variant.baseline_revision_id != revision.revision_id:
                 raise ValueError(
-                    "選択したSystemVariantは現在のSceneRevisionを基にしていません"
+                    "選択したシステムバリアントは現在のシーンリビジョンを基にしていません"
                 )
             if system_variant.document_id != revision.document_id:
                 raise ValueError(
-                    "選択したSystemVariantは別のドキュメントに属します"
+                    "選択したシステムバリアントは別のドキュメントに属します"
                 )
             if system_variant.baseline_content_hash != revision.content_hash:
                 raise ValueError(
-                    "選択したSystemVariantのベース内容が一致しません"
+                    "選択したシステムバリアントのベース内容が一致しません"
                 )
             document = materialize_system_variant(revision, system_variant)
         entity = document.entity(receiver_entity_id)
@@ -361,7 +361,7 @@ class RoomPredictionController(QObject):
             return None
         variant = self._variant_repository.get_variant(system_variant_id)
         if variant is None:
-            raise ValueError("選択したSystemVariantが存在しません")
+            raise ValueError("選択したシステムバリアントが存在しません")
         return variant
 
     def environment_profiles(self) -> tuple[AcousticEnvironmentProfile, ...]:
@@ -610,8 +610,8 @@ class RoomPredictionController(QObject):
         variant = self._resolve_prediction_variant(system_variant_id)
         if variant is not None:
             raise ValueError(
-                'provider lane はベースのSceneRevisionに固定されています '
-                '(提案variantにはprovider evidenceがありません)'
+                'プロバイダーレーンはベースのシーンリビジョンに固定されています '
+                '(提案バリアントにはプロバイダー証拠がありません)'
             )
         revision = self._saved_target(
             receiver_entity_id,
@@ -630,7 +630,7 @@ class RoomPredictionController(QObject):
         option = options.get(model_key)
         if option is None or option.state != 'READY' or not option.runnable:
             raise ValueError(
-                '選択したprediction laneはこのSceneRevisionでは実行できません'
+                '選択した予測レーンはこのシーンリビジョンでは実行できません'
             )
         provider = (
             None
@@ -638,7 +638,7 @@ class RoomPredictionController(QObject):
             else self._provider_by_id(option.provider_id)
         )
         if provider is None:
-            raise ValueError('provider authorityが見つかりません')
+            raise ValueError('プロバイダー権威が見つかりません')
         identity = provider_response_request_identity(
             provider,
             revision,
@@ -723,7 +723,7 @@ class RoomPredictionController(QObject):
             and operating_state.scene_revision_id != revision.revision_id
         ):
             raise ValueError(
-                '選択した部屋状態は現在のSceneRevisionに固定されていません '
+                '選択した部屋状態は現在のシーンリビジョンに固定されていません '
                 '(現在のシーン用の状態を選択してください)'
             )
         identity = rectangular_geometry_request_identity(
@@ -850,7 +850,7 @@ class RoomPredictionController(QObject):
                 self.stateChanged.emit(
                     RoomPredictionRunState(
                         True,
-                        "登録済みprovider出力を参照しています…",
+                        "登録済みプロバイダー出力を参照しています…",
                     )
                 )
                 self._pool.start(
@@ -1018,7 +1018,7 @@ class RoomPredictionController(QObject):
                     final_state = RoomPredictionRunState(
                         False,
                         (
-                            "現在の部屋形状は矩形幾何modelの対象外です"
+                            "現在の部屋形状は矩形幾何モデルの対象外です"
                             if compatibility == "unsupported"
                             else "予測を保存しました"
                         ),
@@ -1108,11 +1108,11 @@ class RoomPredictionController(QObject):
         authority = provider.base_current_authority
         reasons: list[str] = []
         if authority.scene_revision_id != revision.revision_id:
-            reasons.append('providerの基となったSceneRevisionではありません')
+            reasons.append('プロバイダーの基となったシーンリビジョンではありません')
         elif authority.scene_content_hash != revision.content_hash:
-            reasons.append('Scene内容がprovider作成後に変更されました')
+            reasons.append('シーン内容がプロバイダー作成後に変更されました')
         if authority.document_id != revision.document_id:
-            reasons.append('providerが別のドキュメントに属します')
+            reasons.append('プロバイダーが別のドキュメントに属します')
         domain = provider.valid_frequency_domain
         evidence = ProviderEvidence(
             provider_id=provider.provider_id,
@@ -1275,7 +1275,7 @@ class RoomPredictionPanel(QWidget):
         "UNKNOWN": "不明",
     }
     _APPROXIMATION_LABELS = {
-        "exact_for_model_geometry": "対象geometryに対してexact",
+        "exact_for_model_geometry": "対象ジオメトリに対して厳密",
         "rectangular_approximation": "矩形近似",
         "unsupported": "対象外",
     }
@@ -1306,7 +1306,7 @@ class RoomPredictionPanel(QWidget):
         layout.addWidget(title)
 
         description = QLabel(
-            "予測モデル/providerのcapabilityに応じて利用可能なlaneを表示します。"
+            "予測モデル/プロバイダーの能力に応じて利用可能なレーンを表示します。"
             "実測FRやSPL音場ではありません。"
         )
         description.setWordWrap(True)
@@ -1350,12 +1350,12 @@ class RoomPredictionPanel(QWidget):
             "診断: 音源を受音点として使う"
         )
         self.source_receiver.setToolTip(
-            "診断/authoring専用モードです — speakerの音響基準点はリスニング位置ではありません"
+            "診断/オーサリング専用モードです — スピーカーの音響基準点はリスニング位置ではありません"
         )
         self.source_receiver.toggled.connect(lambda _checked: self.refresh())
         form.addRow("", self.source_receiver)
         diagnostic_note = QLabel(
-            "speakerの音響基準点はリスニング位置ではありません。"
+            "スピーカーの音響基準点はリスニング位置ではありません。"
         )
         diagnostic_note.setWordWrap(True)
         set_typography_role(diagnostic_note, TypographyRole.SECONDARY)
@@ -1476,7 +1476,7 @@ class RoomPredictionPanel(QWidget):
             first = results[0]
             current = self.controller.result_is_current(first)
             compatibility = {
-                "exact_for_model_geometry": "矩形model対応",
+                "exact_for_model_geometry": "矩形モデル対応",
                 "rectangular_approximation": "近似",
                 "unsupported": "非対応",
             }.get(first.geometry_compatibility, first.geometry_compatibility)
@@ -1526,11 +1526,11 @@ class RoomPredictionPanel(QWidget):
         if option.detail:
             parts.append(option.detail)
         if option.evidence_label:
-            parts.append(f"evidence: {option.evidence_label}")
+            parts.append(f"証拠: {option.evidence_label}")
         if option.stale_state is not None:
             parts.append(f"鮮度: {option.stale_state}")
         if option.solver_label:
-            parts.append(f"solver: {option.solver_label}")
+            parts.append(f"ソルバー: {option.solver_label}")
         parts.extend(option.reasons)
         self.option_state.setText("\n".join(parts))
         if receiver is None or not option.runnable:
@@ -1658,7 +1658,7 @@ class RoomPredictionPanel(QWidget):
             set_semantic_state(self.reliability, None)
             self.findings.clear()
             self.finding_detail.setText(
-                "予測runを選択すると、所見・信頼性・次の一手を表示します"
+                "予測実行を選択すると、所見・信頼性・次の一手を表示します"
             )
             self.next_steps.setText("")
             self.advanced.setText("")
@@ -1668,7 +1668,7 @@ class RoomPredictionPanel(QWidget):
         reliability = interpretation.reliability
         reliability_lines = [
             reliability.freshness_detail,
-            f"evidence: {reliability.evidence_label}",
+            f"証拠: {reliability.evidence_label}",
             f"評価帯域: {self._band_text(interpretation)}",
             (
                 "近似: "
@@ -1683,7 +1683,7 @@ class RoomPredictionPanel(QWidget):
             stale = reliability.provider_stale_state
             reasons = ", ".join(reliability.provider_stale_reasons)
             reliability_lines.append(
-                f"provider鮮度: {stale}" + (f" ({reasons})" if reasons else "")
+                f"プロバイダー鮮度: {stale}" + (f" ({reasons})" if reasons else "")
             )
         self.reliability.setText("\n".join(reliability_lines))
         set_semantic_state(
@@ -1735,7 +1735,7 @@ class RoomPredictionPanel(QWidget):
                 if link.kind == "reflection_path":
                     parts.append("3D: 対象の反射経路を強調表示します。")
                 elif link.kind == "source":
-                    parts.append("3D: speaker位置をマークします。")
+                    parts.append("3D: スピーカー位置をマークします。")
                 else:
                     parts.append("3D: 受音点位置をマークします。")
             if finding.authorities:
@@ -1802,7 +1802,7 @@ class EnvironmentProfileDialog(QDialog):
         layout.addLayout(form)
 
         hint = QLabel(
-            "音速/温度は必ず出典kindとセットで保存されます。"
+            "音速/温度は必ず出典種別とセットで保存されます。"
             "「不明」は値を捏造せず、予測をブロックします。"
         )
         hint.setWordWrap(True)

@@ -471,7 +471,7 @@ def make_equal_spacing_constraint(
         entity_ids=entity_ids,
         axis=axis,  # type: ignore[arg-type]
         created_at_utc=datetime.now(timezone.utc).isoformat(),
-        label=label or f'{axis.upper()}方向 等間隔',
+        label=label or f'{axis.upper()}方向等間隔',
     )
 
 

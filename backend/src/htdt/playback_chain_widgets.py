@@ -268,7 +268,7 @@ class PlaybackChainService:
                 shared_supply_evidence=shared_supply_evidence,
                 condition_description=(
                     f"{simultaneous_channel_count}ch 同時"
-                    + (" (共有電源エビデンスあり)" if shared_supply_evidence else "")
+                    + (" (共有電源証拠あり)" if shared_supply_evidence else "")
                 ),
             ),
             missing_unsupported_fields=tuple(missing),
@@ -515,7 +515,7 @@ class PlaybackChainDialog(QDialog):
         self.amp_channels.setDecimals(0)
         self.amp_channels.setValue(1)
         form.addRow("同時チャンネル数", self.amp_channels)
-        self.amp_shared_supply = QCheckBox("共有電源エビデンスあり")
+        self.amp_shared_supply = QCheckBox("共有電源証拠あり")
         form.addRow("", self.amp_shared_supply)
         self.amp_source_name = QLineEdit()
         form.addRow("出典名（必須）", self.amp_source_name)
@@ -654,7 +654,7 @@ class PlaybackChainDialog(QDialog):
         tab = QWidget()
         form = QFormLayout(tab)
         self.variant_combo = QComboBox()
-        form.addRow("SystemVariant 提案", self.variant_combo)
+        form.addRow("システムバリアント提案", self.variant_combo)
         self.entity_combo = QComboBox()
         form.addRow("音源エンティティ", self.entity_combo)
         self.role_edit = QLineEdit()
@@ -742,7 +742,7 @@ class PlaybackChainDialog(QDialog):
     def _evaluate(self) -> None:
         if self.variant_combo.currentData() is None:
             QMessageBox.warning(
-                self, "再生チェーン", "SystemVariant 提案を選択してください"
+                self, "再生チェーン", "システムバリアント提案を選択してください"
             )
             return
         if self.entity_combo.currentData() is None:

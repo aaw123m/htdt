@@ -107,7 +107,7 @@ _PORT_TYPES: tuple[tuple[str, str], ...] = (
     ("リア", "rear"),
     ("サイド", "side"),
     ("ダウン", "down"),
-    ("パッシブラジエータ", "passive_radiator"),
+    ("パッシブラジエーター", "passive_radiator"),
     ("その他", "other"),
 )
 
@@ -125,11 +125,11 @@ def capability_preview(definition: EquipmentDefinition) -> tuple[str, ...]:
     lines: list[str] = []
     tier = definition.directivity.tier
     if tier == "unknown":
-        lines.append("指向性: 不明 — 指向性依存の目的は UNKNOWN/UNAVAILABLE になります")
+        lines.append("指向性: 不明 — 指向性依存の目的は不明/利用不可になります")
     else:
         lines.append(f"指向性: {tier} ({definition.directivity.data_format})")
     if definition.sensitivity is None:
-        lines.append("感度/SPL参照: 未入力 — SPL系の目的は UNKNOWN になります")
+        lines.append("感度/SPL参照: 未入力 — SPL系の目的は不明になります")
     else:
         lines.append(
             f"感度: {definition.sensitivity.level_db_spl} dB SPL "
@@ -138,7 +138,7 @@ def capability_preview(definition: EquipmentDefinition) -> tuple[str, ...]:
             f"{definition.sensitivity.distance_m} m)"
         )
     if definition.spl_capability is None:
-        lines.append("最大SPL能力: 未入力 — ヘッドルーム評価は UNKNOWN になります")
+        lines.append("最大SPL能力: 未入力 — ヘッドルーム評価は不明になります")
     else:
         capability = definition.spl_capability
         lines.append(
@@ -149,7 +149,7 @@ def capability_preview(definition: EquipmentDefinition) -> tuple[str, ...]:
             )
         )
     if not definition.mounting.mounting_modes:
-        lines.append("設置モード: 未宣言 — 設置コンテキスト評価は UNKNOWN")
+        lines.append("設置モード: 未宣言 — 設置コンテキスト評価は不明")
     else:
         lines.append(
             "設置モード: " + ", ".join(definition.mounting.mounting_modes)
@@ -295,7 +295,7 @@ def _capability_from_source(
             coherent_phase=capability == "complex",
             phase_reference=metadata.get("phase_reference"),
         )
-    raise ValueError(f"未対応のインポートアダプタです: {adapter_id}")
+    raise ValueError(f"未対応のインポートアダプターです: {adapter_id}")
 
 
 class EquipmentLibraryService:
@@ -874,7 +874,7 @@ class EquipmentLibraryDialog(QDialog):
         adapters = self.service.supported_directivity_adapters()
         if not adapters:
             QMessageBox.information(
-                self, "指向性インポート", "対応するインポートアダプタがありません"
+                self, "指向性インポート", "対応するインポートアダプターがありません"
             )
             return
         selected, _filter = file_dialog_memory.get_open_file_name(

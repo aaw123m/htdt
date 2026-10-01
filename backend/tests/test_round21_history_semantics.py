@@ -407,7 +407,7 @@ def test_diff_reports_kind_and_binding_and_zone_fields() -> None:
     diff = diff_scene_documents(before, after)
     assert diff.entity_changes[0].fields == ('semantic_bindings',)
     lines = diff_summary_lines(diff, after)
-    assert '機能割当' in lines[0]
+    assert '機能割り当て' in lines[0]
 
 
 def test_diff_removed_entity_resolves_name_from_older_side() -> None:
@@ -419,9 +419,9 @@ def test_diff_removed_entity_resolves_name_from_older_side() -> None:
     after = SceneDocument(document_id='doc', room=None, entities=())
     diff = diff_scene_documents(before, after)
     lines = diff_summary_lines(diff, after, fallback_document=before)
-    assert '撤去した棚 を削除' in lines
+    assert '撤去した棚を削除' in lines
     # Without the fallback document the raw id remains the honest last resort.
-    assert 'gone-1 を削除' in diff_summary_lines(diff, after)
+    assert 'gone-1を削除' in diff_summary_lines(diff, after)
 
 
 def test_diff_schema_only_changes_stay_empty_by_design() -> None:

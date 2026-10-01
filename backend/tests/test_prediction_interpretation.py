@@ -209,7 +209,7 @@ def test_interpretation_makes_band_and_validation_explicit(tmp_path) -> None:
     assert reliability.evidence_state == "unvalidated"
     assert reliability.approximation_state == "exact_for_model_geometry"
     assert any(
-        band.label == "room mode候補" and band.maximum_hz == 300.0
+        band.label == "室モード候補" and band.maximum_hz == 300.0
         for band in reliability.valid_bands
     )
 
@@ -224,7 +224,7 @@ def test_interpretation_makes_band_and_validation_explicit(tmp_path) -> None:
         for item in interpretation.findings
         if item.kind == "validation"
     ]
-    assert any("validation は未完了" in item.title for item in validation)
+    assert any("検証は未完了" in item.title for item in validation)
 
     capabilities = {item.observable: item for item in reliability.capabilities}
     assert capabilities["room_mode_frequencies"].state == "READY"
@@ -259,8 +259,8 @@ def test_interpretation_actions_are_neutral_hypotheses(tmp_path) -> None:
     for forbidden in ("最適", "推奨", "best", "recommended"):
         assert forbidden not in combined
     labels = {action.label for action in interpretation.next_actions}
-    assert "seat候補を比較" in labels
-    assert "speaker位置を比較" in labels
+    assert "座席候補を比較" in labels
+    assert "スピーカー位置を比較" in labels
     assert "この反射面を確認" in labels
     assert "材料を設定" in labels
     assert "実測で検証" in labels
@@ -397,8 +397,8 @@ def test_interpretation_consumes_provider_path(tmp_path) -> None:
     titles = [item.title for item in interpretation.findings]
     assert any("40–80 Hz" in title for title in titles)
     assert any("80 Hz より上" in title for title in titles)
-    assert any("STALE" in title for title in titles)
-    assert any("candidate" in title for title in titles)
+    assert any("古い" in title for title in titles)
+    assert any("候補" in title for title in titles)
     reliability = interpretation.reliability
     assert reliability.evidence_state == "candidate"
     assert reliability.provider_stale_state == "STALE"
@@ -430,7 +430,7 @@ def test_interpretation_accepts_prebuilt_provider_evidence(tmp_path) -> None:
     )
     assert interpretation.reliability.evidence_state == "validated"
     assert any(
-        "validated" in item.title for item in interpretation.findings
+        "検証済み" in item.title for item in interpretation.findings
     )
 
 
@@ -515,7 +515,7 @@ def test_panel_explains_findings_and_emits_spatial_link(tmp_path) -> None:
     assert panel.findings.count() > 0
     reliability_text = panel.reliability.text()
     assert "現在の条件に一致" in reliability_text
-    assert "validation" in reliability_text
+    assert "証拠" in reliability_text
     assert "300" in reliability_text  # evaluated band is explicit
     assert "未評価" in reliability_text  # unsupported capability is explicit
     assert "htdt.rectangular_geometry" not in reliability_text

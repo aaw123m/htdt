@@ -263,7 +263,7 @@ def test_candidate_filter_folds_half_width_query() -> None:
 
     from htdt.optimization_search_controller import _candidate_matches_filter
 
-    item = QTreeWidgetItem(['候補 1', '番号 1', 'スピーカー 構成'])
+    item = QTreeWidgetItem(['候補 1', '番号 1', 'スピーカー構成'])
     assert _candidate_matches_filter(item, '１')
     assert _candidate_matches_filter(item, 'ｽﾋﾟｰｶｰ')
     assert not _candidate_matches_filter(item, '２')

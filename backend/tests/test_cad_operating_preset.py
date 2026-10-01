@@ -538,7 +538,7 @@ def test_summary_is_human_readable_japanese(tmp_path: Path) -> None:
                 kind='calibration_plan',
                 ref_id='plan-1',
                 ref_sha256='a' * 64,
-                label='初回キャリブレーション',
+                label='初回校正',
             ),
             PresetComponentRef(
                 kind='room_operating_state',
@@ -550,7 +550,7 @@ def test_summary_is_human_readable_japanese(tmp_path: Path) -> None:
     summary = operating_mode_summary(preset)
     assert summary.preset_id == preset.preset_id
     assert any('オブジェクトオーディオ' in line for line in summary.lines)
-    assert any('初回キャリブレーション' in line for line in summary.lines)
+    assert any('初回校正' in line for line in summary.lines)
     assert any('部屋の状態' in item for item in summary.unknowns)
 
 

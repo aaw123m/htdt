@@ -93,8 +93,8 @@ _BINDING_STATE_LABELS: dict[str, str] = {
     'semantic_geometry_missing': 'セマンティックジオメトリなし',
     'surface_removed': '面が削除済み',
     'surface_authority_mismatch': '面権威不一致',
-    'stale_scene_revision': 'STALE (リビジョン更新)',
-    'stale_semantic_geometry': 'STALE (ジオメトリ更新)',
+    'stale_scene_revision': '古い (リビジョン更新)',
+    'stale_semantic_geometry': '古い (ジオメトリ更新)',
 }
 
 
@@ -141,7 +141,7 @@ class MaterialDialog(QDialog):
         form.addRow('出典', self.provenance)
         layout.addLayout(form)
         hint = QLabel(
-            'waveとgeometricのcapabilityは別々の権威です — '
+            '波動と幾何の能力は別々の権威です — '
             '吸音バンドからインピーダンスは推定されません (その逆も同じ)。'
         )
         hint.setWordWrap(True)
@@ -354,7 +354,7 @@ class SurfaceMaterialPanel(QWidget):
         set_typography_role(self.material_detail, TypographyRole.SECONDARY)
         layout.addWidget(self.material_detail)
 
-        surfaces_header = QLabel('面ごとの割当')
+        surfaces_header = QLabel('面ごとの割り当て')
         set_typography_role(surfaces_header, TypographyRole.SECTION_TITLE)
         layout.addWidget(surfaces_header)
         self.surface_tree = QTreeWidget()
@@ -428,7 +428,7 @@ class SurfaceMaterialPanel(QWidget):
             )
             item.setData(0, _SURFACE_ROLE, surface.surface_id)
             combo = QComboBox()
-            combo.addItem('未割当 (UNKNOWN)', None)
+            combo.addItem('未割当 (不明)', None)
             for index in range(self.materials.count()):
                 combo.addItem(
                     self.materials.itemText(index),
@@ -499,7 +499,7 @@ class SurfaceMaterialPanel(QWidget):
             ]
             if any(len(parts) != 3 for parts in impedance_rows):
                 raise ValueError(
-                    'インピーダンス行は 周波数,抵抗,リアクタンス の3列です'
+                    'インピーダンス行は周波数,抵抗,リアクタンスの3列です'
                 )
             impedance = tuple(
                 SpecificImpedancePoint(
@@ -516,7 +516,7 @@ class SurfaceMaterialPanel(QWidget):
             ]
             if any(not 2 <= len(parts) <= 3 for parts in band_rows):
                 raise ValueError(
-                    'バンド行は 中心周波数,吸収率,散乱率 （散乱率は省略可）です'
+                    'バンド行は中心周波数,吸収率,散乱率 （散乱率は省略可）です'
                 )
             bands = tuple(
                 GeometricAcousticBand(
@@ -607,7 +607,7 @@ class RoomTreatmentPanel(QWidget):
         form.addRow('カバー幅 (m)', self.place_width)
         form.addRow('カバー高 (m)', self.place_height)
         layout.addLayout(form)
-        self.place_button = QPushButton('proposedとして配置')
+        self.place_button = QPushButton('提案として配置')
         self.place_button.clicked.connect(self._place)
         layout.addWidget(self.place_button)
 
@@ -615,7 +615,7 @@ class RoomTreatmentPanel(QWidget):
         self.placements.setAccessibleName('配置一覧')
         self.placements.setHeaderLabels(('配置', '状態'))
         layout.addWidget(self.placements, stretch=1)
-        self.install_button = QPushButton('選択配置を installed にする')
+        self.install_button = QPushButton('選択配置を設置済みにする')
         self.install_button.clicked.connect(self._install_selected)
         layout.addWidget(self.install_button)
 
@@ -824,7 +824,7 @@ class RoomTreatmentPanel(QWidget):
             self.status.setText(f'配置失敗: {operation_error_message(exc)}')
             return
         self.refresh()
-        self.status.setText('proposed として配置しました')
+        self.status.setText('提案として配置しました')
 
     def _install_selected(self) -> None:
         item = self.placements.currentItem()
@@ -847,7 +847,7 @@ class RoomTreatmentPanel(QWidget):
             self.status.setText(f'install失敗: {operation_error_message(exc)}')
             return
         self.refresh()
-        self.status.setText('配置を installed にしました')
+        self.status.setText('配置を設置済みにしました')
 
     def _record_comparison(self) -> None:
         revision = self._revision()
@@ -862,7 +862,7 @@ class RoomTreatmentPanel(QWidget):
         try:
             baseline = build_treatment_design_candidate(
                 baseline=revision,
-                label='無処理 (baseline)',
+                label='無処理 (ベースライン)',
                 role='no_treatment',
             )
             candidates = [baseline]

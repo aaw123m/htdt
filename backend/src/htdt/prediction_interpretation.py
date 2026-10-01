@@ -56,9 +56,9 @@ _SURFACE_LABELS = {
     'ceiling_zH': '天井',
 }
 _MODE_CLASS_LABELS = {
-    'axial': '軸方向(axial)',
-    'tangential': '接線(tangential)',
-    'oblique': '斜め(oblique)',
+    'axial': '軸方向',
+    'tangential': '接線',
+    'oblique': '斜め',
 }
 _OBSERVABLE_LABELS = {
     'frequency_response_magnitude': '周波数応答・振幅',
@@ -70,7 +70,7 @@ _OBSERVABLE_LABELS = {
     'c80': '明瞭度 C80',
     'arrival_timing': '到達時間',
     'spatial_pressure_field': '音場分布',
-    'broadband_hybrid': '広帯域 hybrid',
+    'broadband_hybrid': '広帯域ハイブリッド',
 }
 _ASSUMPTION_LABELS = {
     'rectangular_room': '矩形部屋の仮定',
@@ -80,19 +80,19 @@ _ASSUMPTION_LABELS = {
     ),
     'specular_first_order_reflection_geometry': '鏡面一次反射の幾何のみ',
     'reflection_amplitude_and_phase_not_modelled': '反射の振幅/位相は未評価',
-    'speaker_directivity_not_modelled': 'speaker指向性は未評価',
+    'speaker_directivity_not_modelled': 'スピーカー指向性は未評価',
     'candidate_frequencies_are_not_measured_diagnoses': '候補周波数は実測診断ではない',
 }
 _EVIDENCE_STATE_LABELS = {
-    'unvalidated': '実室 validation 未完了',
-    'candidate': 'candidate · 実室 validation 未完了',
-    'validated': 'validated',
-    'production': 'production 採用済み',
+    'unvalidated': '実室検証未完了',
+    'candidate': '候補 · 実室検証未完了',
+    'validated': '検証済み',
+    'production': '本番採用済み',
 }
 _EVIDENCE_SCOPE_LABELS = {
     'unvalidated': '未検証',
-    'synthetic_fixture': 'synthetic fixture evidence',
-    'owned_room': '実室 evidence',
+    'synthetic_fixture': '合成フィクスチャの証拠',
+    'owned_room': '実室証拠',
 }
 
 
@@ -466,9 +466,9 @@ def interpret_prediction_results(
                 finding_id='warning:input-snapshot',
                 kind='warning',
                 tone='limitation',
-                title='入力snapshotを解釈できませんでした',
+                title='入力スナップショットを解釈できませんでした',
                 detail=(
-                    '保存された入力snapshotがcanonical model requestの形式ではないため、'
+                    '保存された入力スナップショットが正規モデルリクエストの形式ではないため、'
                     '空間リンクなしで結果だけを表示します。'
                 ),
                 authorities=run_refs,
@@ -485,7 +485,7 @@ def interpret_prediction_results(
                 title='現在の部屋形状はこのモデルの対象外です',
                 detail=(
                     '矩形幾何モデルは軸平行の矩形部屋だけを評価します。'
-                    'このrunにはモード候補も反射経路候補も含まれません。'
+                    'この実行にはモード候補も反射経路候補も含まれません。'
                 ),
                 spatial=_receiver_link(receiver_entity_id, receiver_position),
                 authorities=run_refs,
@@ -500,7 +500,7 @@ def interpret_prediction_results(
                 title='結果は矩形近似に基づきます',
                 detail=(
                     '実際の部屋形状を矩形に近似した入力に対する候補です。'
-                    'exact authorityではありません。'
+                    '厳密な権威ではありません。'
                 ),
                 spatial=_receiver_link(receiver_entity_id, receiver_position),
                 authorities=run_refs,
@@ -536,9 +536,9 @@ def interpret_prediction_results(
                         finding_id=f'warning:{warning}',
                         kind='warning',
                         tone='attention',
-                        title=f'speaker {label} の音響基準点が部屋の外です',
+                        title=f'スピーカー {label} の音響基準点が部屋の外です',
                         detail=(
-                            'このspeakerの反射経路は計算されませんでした。'
+                            'このスピーカーの反射経路は計算されませんでした。'
                             '音響基準点の位置を確認してください。'
                         ),
                         spatial=PredictionSpatialLink(
@@ -563,9 +563,9 @@ def interpret_prediction_results(
                         finding_id=f'warning:{warning}',
                         kind='warning',
                         tone='attention',
-                        title=f'speaker {label} の音響基準点が未設定です',
+                        title=f'スピーカー {label} の音響基準点が未設定です',
                         detail=(
-                            '音響基準点がないため、このspeakerの一次反射経路候補は'
+                            '音響基準点がないため、このスピーカーの一次反射経路候補は'
                             '計算されませんでした。'
                         ),
                         spatial=PredictionSpatialLink(
@@ -582,7 +582,7 @@ def interpret_prediction_results(
                     kind='warning',
                     tone='attention',
                     title=warning,
-                    detail='modelが記録した警告です。',
+                    detail='モデルが記録した警告です。',
                     spatial=_receiver_link(receiver_entity_id, receiver_position),
                     authorities=_result_authorities(result),
                 )
@@ -645,7 +645,7 @@ def interpret_prediction_results(
                     kind='coverage',
                     tone='limitation',
                     title=(
-                        f'room mode候補は {float(max_mode_hz):.0f} Hz まで列挙 '
+                        f'室モード候補は {float(max_mode_hz):.0f} Hz まで列挙 '
                         f'({len(modes)} 件) · それ以上は未評価'
                     ),
                     detail=(
@@ -663,7 +663,7 @@ def interpret_prediction_results(
                 finding_id='coverage:modes-empty',
                 kind='coverage',
                 tone='info',
-                title='評価帯域内にroom mode候補はありません',
+                title='評価帯域内に室モード候補はありません',
                 detail=(
                     'モデルの列挙条件内ではモード候補が見つかりませんでした。'
                     '帯域上限を上げると候補が現れる場合があります。'
@@ -694,13 +694,13 @@ def interpret_prediction_results(
             )
             detail_parts = [
                 (
-                    f'{receiver_label} へ direct より '
+                    f'{receiver_label} へ直接音より '
                     f'+{reflection.excess_delay_ms:.2f} ms 遅れて到達する'
                     '幾何経路候補です。'
                 )
             ]
             if index == earliest_index:
-                detail_parts.append('このrunで最も早く到達する反射経路候補です。')
+                detail_parts.append('この実行で最も早く到達する反射経路候補です。')
             if reflection.first_destructive_hz is not None:
                 detail_parts.append(
                     '経路差から約 '
@@ -756,10 +756,10 @@ def interpret_prediction_results(
             finding_id='validation:geometry',
             kind='validation',
             tone='limitation',
-            title='この結果は幾何学的候補で、実室 validation は未完了です',
+            title='この結果は幾何学的候補で、実室検証は未完了です',
             detail=(
-                'room mode周波数と一次反射経路は幾何入力からの候補であり、'
-                '実測・実室との照合 evidence はありません。'
+                '室モード周波数と一次反射経路は幾何入力からの候補であり、'
+                '実測・実室との照合証拠はありません。'
             ),
             spatial=_receiver_link(receiver_entity_id, receiver_position),
             authorities=run_refs,
@@ -784,10 +784,10 @@ def interpret_prediction_results(
                     kind='coverage',
                     tone='info',
                     title=(
-                        f'{low_hz:.0f}–{high_hz:.0f} Hz に wave prediction の'
+                        f'{low_hz:.0f}–{high_hz:.0f} Hz に波動予測の'
                         '結果があります'
                     ),
-                    detail='providerの有効帯域内の評価結果です。',
+                    detail='プロバイダーの有効帯域内の評価結果です。',
                     authorities=evidence.authority_refs,
                 )
             )
@@ -797,7 +797,7 @@ def interpret_prediction_results(
                     kind='coverage',
                     tone='limitation',
                     title=(
-                        f'{high_hz:.0f} Hz より上はこの provider の有効帯域外です'
+                        f'{high_hz:.0f} Hz より上はこのプロバイダーの有効帯域外です'
                     ),
                     detail='有効帯域外の周波数は評価されていません。',
                     authorities=evidence.authority_refs,
@@ -812,10 +812,10 @@ def interpret_prediction_results(
                     finding_id='validation:provider',
                     kind='validation',
                     tone='limitation',
-                    title='provider 結果は candidate · 実室 validation 未完了です',
+                    title='プロバイダー結果は候補 · 実室検証未完了です',
                     detail=(
-                        'solver/provider の結果は candidate 状態で、'
-                        '実室での照合 evidence はまだありません。'
+                        'ソルバー/プロバイダーの結果は候補状態で、'
+                        '実室での照合証拠はまだありません。'
                     ),
                     authorities=evidence.authority_refs,
                 )
@@ -826,8 +826,8 @@ def interpret_prediction_results(
                     finding_id='validation:provider',
                     kind='validation',
                     tone='info',
-                    title=f'provider 結果は validated です ({scope_label})',
-                    detail='検証 evidence が記録されています。',
+                    title=f'プロバイダー結果は検証済みです ({scope_label})',
+                    detail='検証証拠が記録されています。',
                     authorities=evidence.authority_refs,
                 )
             )
@@ -837,8 +837,8 @@ def interpret_prediction_results(
                     finding_id='validation:provider',
                     kind='validation',
                     tone='info',
-                    title=f'provider 結果は production 採用済みです ({scope_label})',
-                    detail='実室 evidence に基づく production 採用が記録されています。',
+                    title=f'プロバイダー結果は本番採用済みです ({scope_label})',
+                    detail='実室証拠に基づく本番採用が記録されています。',
                     authorities=evidence.authority_refs,
                 )
             )
@@ -848,7 +848,7 @@ def interpret_prediction_results(
                     finding_id='coverage:provider-stale',
                     kind='coverage',
                     tone='limitation',
-                    title='provider 結果は現在の条件に対して STALE です',
+                    title='プロバイダー結果は現在の条件に対して古いです',
                     detail='理由: ' + (', '.join(evidence.stale_reasons) or '不明'),
                     authorities=evidence.authority_refs,
                 )
@@ -859,10 +859,10 @@ def interpret_prediction_results(
                     finding_id='coverage:provider-freshness',
                     kind='coverage',
                     tone='limitation',
-                    title='provider 結果の鮮度は未評価です',
+                    title='プロバイダー結果の鮮度は未評価です',
                     detail=(
-                        '現在条件との比較 resolution が提供されていないため、'
-                        'CURRENT/STALE の判定はできません。'
+                        '現在条件との比較解決が提供されていないため、'
+                        '現在/古いの判定はできません。'
                     ),
                     authorities=evidence.authority_refs,
                 )
@@ -892,12 +892,12 @@ def interpret_prediction_results(
             observable=observable,
             label=label,
             state='UNKNOWN',
-            reason='このmodelの能力情報は保存されていません',
+            reason='このモデルの能力情報は保存されていません',
         )
 
     supported = compatibility != 'unsupported'
     if modes_result is None:
-        mode_state, mode_reason = 'UNKNOWN', 'geometry_modes result なし'
+        mode_state, mode_reason = 'UNKNOWN', 'geometry_modes 結果なし'
     elif not supported:
         mode_state, mode_reason = 'UNSUPPORTED', '部屋形状がモデルの対象外'
     else:
@@ -905,7 +905,7 @@ def interpret_prediction_results(
     if reflections_result is None:
         reflection_state, reflection_reason = (
             'UNKNOWN',
-            'geometry_reflections result なし',
+            'geometry_reflections 結果なし',
         )
     elif not supported:
         reflection_state, reflection_reason = (
@@ -919,14 +919,14 @@ def interpret_prediction_results(
     else:
         field_state, field_reason = (
             'UNSUPPORTED',
-            'このrunに scalar_field result はありません',
+            'この実行に scalar_field 結果はありません',
         )
     if snapshot_available and 'materials' not in snapshot:
         material_state = 'UNSUPPORTED'
-        material_reason = 'このmodelの入力に材料/境界条件は含まれません'
+        material_reason = 'このモデルの入力に材料/境界条件は含まれません'
     elif not snapshot_available:
         material_state = 'UNKNOWN'
-        material_reason = '入力snapshotを解釈できません'
+        material_reason = '入力スナップショットを解釈できません'
     else:
         material_state = 'READY'
         material_reason = None
@@ -934,7 +934,7 @@ def interpret_prediction_results(
     capabilities: list[PredictionCapabilityItem] = [
         PredictionCapabilityItem(
             observable='room_mode_frequencies',
-            label='room mode 周波数候補',
+            label='室モード周波数候補',
             state=mode_state,
             reason=mode_reason,
         ),
@@ -973,7 +973,7 @@ def interpret_prediction_results(
         ),
         _assumption_capability(
             'speaker_directivity',
-            'speaker指向性',
+            'スピーカー指向性',
             'speaker_directivity_not_modelled',
         ),
         PredictionCapabilityItem(
@@ -986,7 +986,7 @@ def interpret_prediction_results(
             observable='measurement_validation',
             label='実測照合',
             state='UNSUPPORTED',
-            reason='実測・実室との照合 authority がありません',
+            reason='実測・実室との照合権威がありません',
         ),
     ]
     if evidence is not None:
@@ -996,7 +996,7 @@ def interpret_prediction_results(
     if max_mode_hz is not None:
         valid_bands.append(
             PredictionValidBand(
-                label='room mode候補',
+                label='室モード候補',
                 minimum_hz=0.0,
                 maximum_hz=float(max_mode_hz),
             )
@@ -1066,9 +1066,9 @@ def interpret_prediction_results(
         next_actions.append(
             PredictionNextAction(
                 action_id='compare-seat',
-                label='seat候補を比較',
+                label='座席候補を比較',
                 detail=(
-                    '受音点を変えた予測を別runとして保存し、'
+                    '受音点を変えた予測を別実行として保存し、'
                     'モード候補の変化を比較できます。'
                 ),
                 related_finding_id=mode_finding.finding_id,
@@ -1079,9 +1079,9 @@ def interpret_prediction_results(
         next_actions.append(
             PredictionNextAction(
                 action_id='compare-speaker',
-                label='speaker位置を比較',
+                label='スピーカー位置を比較',
                 detail=(
-                    'speaker配置を変えた予測を別runとして保存し、'
+                    'スピーカー配置を変えた予測を別実行として保存し、'
                     '反射経路・モード候補を比較できます。'
                 ),
                 related_finding_id=(
@@ -1098,7 +1098,7 @@ def interpret_prediction_results(
                 action_id='check-reflection-surface',
                 label='この反射面を確認',
                 detail=(
-                    '候補経路の面を 3D overlay で確認できます。'
+                    '候補経路の面を 3D オーバーレイで確認できます。'
                     '面の処理は効果未評価の仮説です。'
                 ),
                 related_finding_id=reflection_findings[0].finding_id,
@@ -1107,9 +1107,9 @@ def interpret_prediction_results(
         next_actions.append(
             PredictionNextAction(
                 action_id='create-treatment',
-                label='Treatment案を作成',
+                label='トリートメント案を作成',
                 detail=(
-                    '候補経路の面への Treatment を検討する下準備です。'
+                    '候補経路の面へのトリートメントを検討する下準備です。'
                     '吸音効果はこのモデルでは評価されていません。'
                 ),
                 related_finding_id=reflection_findings[0].finding_id,

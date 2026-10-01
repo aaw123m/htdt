@@ -55,7 +55,7 @@ TIER_LABELS: dict[str, str] = {
     'RELATIVE_ON_AXIS_MAGNITUDE': '相対オン軸振幅 (dB, 基準なし)',
     'ABSOLUTE_FREE_FIELD_SPL': '絶対自由場SPL応答',
     'COMPLEX_RESPONSE': '複素応答 (振幅+位相)',
-    'EXACT_VOLUME_VELOCITY': '厳密体積速度 (wave励起用)',
+    'EXACT_VOLUME_VELOCITY': '厳密体積速度 (波動励起用)',
     'ANALYTIC_RESPONSE': '解析モデル応答',
 }
 
