@@ -357,6 +357,7 @@ class WorkspaceRouter(QStackedWidget):
         from PySide6.QtCore import QCoreApplication, QEvent
         from PySide6.QtWidgets import QApplication
         from shiboken6 import delete as _shiboken_delete
+        from shiboken6 import isValid
 
         mounts = tuple(self._mounts.values())
         self._mounts.clear()
@@ -382,6 +383,9 @@ class WorkspaceRouter(QStackedWidget):
         app = QApplication.instance()
         if app is not None:
             for widget in app.topLevelWidgets():
+                if not isValid(widget):
+                    # Died as a child of an already-deleted popup.
+                    continue
                 if (
                     widget.parentWidget() is None
                     and widget.windowType() == Qt.WindowType.Popup

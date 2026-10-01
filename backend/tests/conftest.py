@@ -86,6 +86,7 @@ def _destroy_created_toplevels():
     (``native_worker``/``data_management``) and drained at session finish.
     """
     yield
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
     from shiboken6 import delete as _shiboken_delete
@@ -94,23 +95,31 @@ def _destroy_created_toplevels():
     if app is None:
         return
 
+    # Stop orphaned worker machinery first: a detached-but-running thread
+    # keeps emitting (finished/metacall posts land on stray receivers),
+    # and every arrival reposts a stray's queued DeferredDelete behind
+    # it — strays then outlive the drain and die inside whichever test
+    # next pumps events, mid-test in a foreign context (the AV/abort
+    # class). Only detached threads are touched — live pools/controllers
+    # may belong to fixtures shared across tests.
+    from htdt import data_management, native_worker
+
+    native_worker.cancel_detached_threads()
+    data_management.cancel_detached_op_threads()
+
     def _stray(widget) -> bool:
         return isValid(widget) and not widget.objectName().startswith("qt_")
 
-    # Queued deletes are reposted behind any events the receiver still
-    # has pending (queued metacalls, timers, menus): a deleteLater'd
-    # widget with pending events survives every flush as a stray and is
-    # later destroyed inside whichever code path next pumps events —
-    # mid-test in a foreign context, the access-violation crash class.
-    # So strays are destroyed here, split by kind: non-window top-levels
-    # (unparented Qt.Popup plot menus, tooltip frames — the bulk of the
-    # stray population) are deleted synchronously, which removes their
-    # posted events and cannot be reposted; windows (shells, dialogs)
-    # still take deleteLater — their ~ cascade includes platform-window
-    # and child-machinery teardown that can fault outside an event-loop
-    # context — and the pump passes below deliver those deletes before
-    # the test's objects are torn down.
-    for _ in range(4):
+    # Strays are destroyed here, split by kind: unparented Qt.Popup
+    # top-levels (plot menus, tooltip frames — the bulk of the stray
+    # population) are deleted synchronously, which removes their posted
+    # events and cannot be reposted; windows, dialogs and reparented
+    # mount widgets still take deleteLater — their ~ cascade includes
+    # platform-window, child-machinery and render-context teardown that
+    # can fault outside an event-loop context — and the pump passes
+    # below deliver those deletes before the test's objects are torn
+    # down.
+    for _ in range(6):
         strays = [
             widget for widget in app.topLevelWidgets() if _stray(widget)
         ]
@@ -118,7 +127,12 @@ def _destroy_created_toplevels():
             if not isValid(widget):
                 # Died mid-pass as a child of an already-deleted stray.
                 continue
-            if widget.isWindow():
+            if widget.windowType() != Qt.WindowType.Popup:
+                # Delivered ~ is safe, but a queued DeferredDelete is
+                # reposted behind every event the receiver still has
+                # pending — drain its queue first so the delete cannot
+                # be reposted into the next test's pump.
+                app.removePostedEvents(widget)
                 widget.deleteLater()
                 continue
             try:

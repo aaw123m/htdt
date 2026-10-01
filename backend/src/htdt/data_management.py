@@ -776,6 +776,23 @@ def drain_operation_threads(
     return still_running
 
 
+def cancel_detached_op_threads() -> None:
+    """Cooperative stop request on already-detached op threads — no wait.
+
+    Per-test teardown counterpart of ``native_worker.cancel_detached_threads``:
+    detached threads are orphaned by definition, so cancelling cannot disturb
+    live controllers; starving their ``finished``/metacall emissions lets the
+    widget drain converge instead of reposting stray DeferredDeletes.
+    """
+    for thread, worker in list(_LINGERING_OP_THREADS.items()):
+        try:
+            worker.request_cancel()
+            thread.requestInterruption()
+            thread.quit()
+        except RuntimeError:
+            continue
+
+
 def _drain_operation_threads_at_exit() -> None:
     """atexit hook: shrink the window where an op thread outlives teardown.
 

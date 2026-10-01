@@ -151,6 +151,24 @@ def drain_worker_threads(
     return still_running
 
 
+def cancel_detached_threads() -> None:
+    """Cooperative stop request on already-detached threads — no wait.
+
+    Per-test teardown path: threads here are orphaned by definition (their
+    owner died), so cancelling cannot disturb live fixtures. A detached
+    thread that keeps running emits ``finished``/metacall posts which
+    repost a stray widget's queued DeferredDelete behind each arrival —
+    starving those emissions is what lets the widget drain converge.
+    """
+    for thread, worker in list(_LINGERING_THREADS.items()):
+        try:
+            worker.cancel()
+            thread.requestInterruption()
+            thread.quit()
+        except RuntimeError:
+            continue
+
+
 def _drain_worker_threads_at_exit() -> None:
     """atexit hook: shrink the window where a detached thread outlives teardown.
 
