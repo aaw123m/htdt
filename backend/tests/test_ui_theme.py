@@ -14,6 +14,76 @@ from htdt.ui_theme import (
 )
 
 
+def _wcag_contrast_ratio(foreground: str, background: str) -> float:
+    """WCAG 2.x relative-luminance contrast ratio for two sRGB hex colors."""
+
+    def channel(value: float) -> float:
+        return (
+            value / 12.92
+            if value <= 0.03928
+            else ((value + 0.055) / 1.055) ** 2.4
+        )
+
+    def luminance(hex_color: str) -> float:
+        value = hex_color.lstrip('#')
+        red, green, blue = (
+            int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)
+        )
+        return (
+            0.2126 * channel(red)
+            + 0.7152 * channel(green)
+            + 0.0722 * channel(blue)
+        )
+
+    lighter, darker = sorted(
+        (luminance(foreground), luminance(background)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+_CONTENT_SURFACES = ('canvas', 'base', 'raised', 'overlay', 'modal')
+
+
+def test_meaning_bearing_tokens_meet_wcag_aa_contrast() -> None:
+    """Text/semantic tokens carry meaning: ≥4.5:1 on every content surface.
+
+    ``text.disabled`` is intentionally exempt (WCAG AA does not apply to
+    disabled controls); separator/border surfaces are not text backgrounds.
+    """
+    surfaces = DARK_THEME.surfaces
+    content_surfaces = tuple(
+        getattr(surfaces, name) for name in _CONTENT_SURFACES
+    )
+    text = DARK_THEME.text
+    semantic = DARK_THEME.semantic
+    meaning_bearing = (
+        text.primary,
+        text.secondary,
+        text.muted,
+        semantic.success,
+        semantic.warning,
+        semantic.error,
+        semantic.stale,
+        semantic.unsupported,
+    )
+    for foreground in meaning_bearing:
+        for surface in content_surfaces:
+            assert _wcag_contrast_ratio(foreground.hex, surface.hex) >= 4.5, (
+                f'{foreground.hex} on {surface.hex} = '
+                f'{_wcag_contrast_ratio(foreground.hex, surface.hex):.2f}'
+            )
+
+    # Primary action: canvas text on the accent fills.
+    accent = DARK_THEME.accent
+    for fill in (accent.primary, accent.hover, accent.pressed):
+        assert _wcag_contrast_ratio(surfaces.canvas.hex, fill.hex) >= 4.5
+    # Selected items: primary text on the selection fill.
+    assert (
+        _wcag_contrast_ratio(text.primary.hex, accent.selection_fill.hex)
+        >= 4.5
+    )
+
+
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 

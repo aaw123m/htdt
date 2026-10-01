@@ -205,7 +205,7 @@ SURFACES = SurfaceTokens(
 TEXT = TextTokens(
     primary=ColorToken('#F2F5F8'),
     secondary=ColorToken('#B5C0CC'),
-    muted=ColorToken('#8793A0'),
+    muted=ColorToken('#93A0AD'),
     disabled=ColorToken('#5D6874'),
 )
 
@@ -220,7 +220,7 @@ ACCENT = AccentTokens(
 SEMANTIC = SemanticTokens(
     success=ColorToken('#68B98A'),
     warning=ColorToken('#E1B15A'),
-    error=ColorToken('#E47B7B'),
+    error=ColorToken('#E58383'),
     stale=ColorToken('#B09BC6'),
     unsupported=ColorToken('#98A2AD'),
 )
