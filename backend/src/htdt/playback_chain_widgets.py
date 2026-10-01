@@ -455,6 +455,7 @@ class PlaybackChainDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self.tabs = QTabWidget()
+        self.tabs.setAccessibleName("再生チェーン設定")
         layout.addWidget(self.tabs, 1)
 
         self._build_amplifier_tab()

@@ -552,6 +552,10 @@ class RoomViewport3D(QFrame):
         # pyvistaqt, so nothing relied on the idle re-render.
         self.plotter = QtInteractor(self, auto_update=False)
         self.interactor = self.plotter.interactor
+        self.interactor.setAccessibleName('部屋3Dビュー')
+        self.interactor.setAccessibleDescription(
+            '部屋の形状と配置されたオブジェクトを表示する3Dビューポート'
+        )
         layout.addWidget(self.interactor)
 
         self._actor_entity_ids: dict[int, str] = {}

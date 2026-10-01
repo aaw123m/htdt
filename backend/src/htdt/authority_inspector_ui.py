@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accessible_labels import wire_label_buddies
 from .authority_graph import (
     AuthorityGraph,
     AuthorityInspector,
@@ -187,6 +188,7 @@ class AuthorityInspectorDialog(QDialog):
             self.node_combo.setCurrentIndex(self._node_ids.index(initial_node_id))
         else:
             self._refresh_summary(0)
+        wire_label_buddies(self)
 
     def _sorted_nodes(self) -> list[AuthorityNode]:
         return sorted(

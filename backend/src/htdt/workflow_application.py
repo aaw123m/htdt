@@ -1156,6 +1156,9 @@ class WorkflowApplicationComposition:
         # Enter/Return or double-click on a row accepts the pick.
         listing.itemActivated.connect(lambda *_item: dialog.accept())
         layout.addWidget(listing)
+        # The prompt is the list's caption; buddy it so the control's
+        # accessible name is the question being asked.
+        wire_label_buddies(dialog)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel,
@@ -3513,6 +3516,7 @@ class WorkflowApplicationComposition:
         preview_layout = QVBoxLayout(preview)
         preview_text = QPlainTextEdit(preview)
         preview_text.setReadOnly(True)
+        preview_text.setAccessibleName("設置ハンドオフ内容プレビュー")
         preview_text.setPlainText(handoff_preview_text(handoff))
         preview_layout.addWidget(preview_text)
         preview_buttons = QDialogButtonBox(

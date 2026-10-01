@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accessible_labels import announce_status, wire_label_buddies
 from .capture_receiver import ReceiverPairing, ReceiverPairingPayload
 from .capture_receiver_controller import CaptureReceiverController
 from .user_facing_error import operation_error_message
@@ -136,6 +137,13 @@ class PairingDialog(QDialog):
         layout.addWidget(buttons)
 
         self._refresh_pairings()
+        wire_label_buddies(self)
+
+    def _set_status(self, message: str) -> None:
+        # The status line updates asynchronously on pairing actions —
+        # announce it or screen readers never hear the outcome.
+        self.status_label.setText(message)
+        announce_status(self, message)
 
     # -- offer ---------------------------------------------------------------
 
@@ -166,7 +174,7 @@ class PairingDialog(QDialog):
         )
         pixmap = _qr_pixmap(qr_text)
         self.qr_label.setPixmap(pixmap)
-        self.status_label.setText(
+        self._set_status(
             f"Capture アプリでスキャンしてください。"
             f"期限: {payload.expires_at or '—'} · "
             f"確認コードをアプリ側と照合して「確認」を押します。"
@@ -175,32 +183,32 @@ class PairingDialog(QDialog):
 
     def _confirm(self) -> None:
         if self._pairing is None:
-            self.status_label.setText("先にQRコードを発行してください。")
+            self._set_status("先にQRコードを発行してください。")
             return
         expected = self._pairing.confirmation_code
         entered = self.confirm_code_edit.text().strip()
         if expected:
             if not entered:
-                self.status_label.setText("確認コードを入力してください。")
+                self._set_status("確認コードを入力してください。")
                 return
             if expected != entered:
-                self.status_label.setText("確認コードが一致しません。")
+                self._set_status("確認コードが一致しません。")
                 return
         try:
             pairing = self._controller.service.confirm_pairing(
                 self._pairing.pairing_id
             )
         except Exception as exc:
-            self.status_label.setText(f"確認できませんでした · {operation_error_message(exc)}")
+            self._set_status(f"確認できませんでした · {operation_error_message(exc)}")
             return
         self._pairing = pairing
-        self.status_label.setText("ペアリングを確定しました。")
+        self._set_status("ペアリングを確定しました。")
         self._refresh_pairings()
 
     def _revoke_selected(self) -> None:
         item = self.pairing_list.currentItem()
         if item is None:
-            self.status_label.setText("解除するデバイスを選択してください。")
+            self._set_status("解除するデバイスを選択してください。")
             return
         pairing_id = item.data(Qt.ItemDataRole.UserRole)
         box = QMessageBox(self)
@@ -219,9 +227,9 @@ class PairingDialog(QDialog):
         try:
             self._controller.service.revoke_pairing(pairing_id)
         except Exception as exc:
-            self.status_label.setText(f"解除できませんでした · {operation_error_message(exc)}")
+            self._set_status(f"解除できませんでした · {operation_error_message(exc)}")
             return
-        self.status_label.setText("デバイスのペアリングを解除しました。")
+        self._set_status("デバイスのペアリングを解除しました。")
         self._refresh_pairings()
 
     def _refresh_pairings(self) -> None:

@@ -45,6 +45,7 @@ from .cad_scene import (
 )
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
 from .room_viewport import _entity_mesh as _scene_entity_mesh
+from .accessible_labels import wire_status_announcements
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .user_facing_error import operation_error_message, warn_user
 
@@ -104,6 +105,10 @@ class NativeEditorWindow(QMainWindow):
         self.setWindowTitle('Home Theater Digital Twin — N20b エディター')
 
         self.viewport = QtInteractor(self)
+        self.viewport.interactor.setAccessibleName('シーン3Dビュー')
+        self.viewport.interactor.setAccessibleDescription(
+            'シーンのオブジェクトを表示する3Dビューポート'
+        )
         self.setCentralWidget(self.viewport.interactor)
         self.scene_picker = vtkCellPicker()
         self.scene_picker.PickFromListOn()
@@ -114,6 +119,7 @@ class NativeEditorWindow(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setAccessibleName('シーンツリー')
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._tree_selected)
         left = QDockWidget('シーン', self)
@@ -175,6 +181,7 @@ class NativeEditorWindow(QMainWindow):
         # the document dirty with no '未保存' hint anywhere.
         self._dirty_indicator = QLabel()
         self.statusBar().addPermanentWidget(self._dirty_indicator)
+        wire_status_announcements(self)
 
         self.transform_group = QActionGroup(self)
         self.transform_group.setExclusive(True)

@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .accessible_labels import wire_label_buddies
 from .export_io import write_text_atomic
 from .user_facing_error import warn_user
 from .cad_standards import (
@@ -198,6 +199,7 @@ class StandardsProfileEditorDialog(QDialog):
         layout.addLayout(name_row)
 
         self.criteria_table = QTableWidget(0, 2)
+        self.criteria_table.setAccessibleName("基準一覧")
         self.criteria_table.setHorizontalHeaderLabels(["基準ID", "ルール"])
         self.criteria_table.horizontalHeader().setStretchLastSection(True)
         self.criteria_table.itemSelectionChanged.connect(
@@ -289,6 +291,7 @@ class StandardsProfileEditorDialog(QDialog):
         layout.addWidget(self.box)
 
         self.refresh_profiles()
+        wire_label_buddies(self)
 
     def refresh_profiles(self) -> None:
         current = self.profile_combo.currentData()
