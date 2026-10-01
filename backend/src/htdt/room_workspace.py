@@ -1800,7 +1800,13 @@ class RoomWorkspaceController:
                 digest = underlay.render_blob_sha256
                 seen_digests.add(digest)
                 if digest in image_cache:
-                    image = image_cache[digest]
+                    # A cached raster still must not outlive its blob: a
+                    # deleted render blob renders empty (missing_source
+                    # flags it), never the last-good pixels.
+                    if self.repository.has_blob(digest):
+                        image = image_cache[digest]
+                    else:
+                        del image_cache[digest]
                 else:
                     data = self.repository.read_blob(digest)
                     if data:

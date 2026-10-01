@@ -162,6 +162,26 @@ def _room_wireframe(document: SceneDocument) -> pv.PolyData | None:
     return mesh
 
 
+def _underlay_item_key(item: UnderlayRenderItem) -> tuple:
+    """Content key for one frozen underlay item.
+
+    Covers every field the rendered assets derive from plus the decoded
+    image's identity — upstream memoizes decodes per blob sha256, so a
+    stable array object means identical bytes (and a same-address new
+    array can only come from the same content-addressed bytes anyway).
+    """
+
+    return (
+        item.underlay_id,
+        item.quad_domain,
+        item.segments_domain,
+        item.opacity,
+        item.elevation_m,
+        item.missing_source,
+        id(item.image),
+    )
+
+
 def _room_floor_mesh(document: SceneDocument) -> pv.PolyData | None:
     room = document.room
     if room is None:
@@ -725,11 +745,17 @@ class RoomViewport3D(QFrame):
             self._hidden_ids,
             self._locked_ids,
             overlays,
-            # The extras tuples are reassigned wholesale, so identity is a
-            # staleness-safe key; the mutable SectionPlaneState needs a
-            # content key instead (in-place edits keep the same id).
-            id(self._underlay_items),
-            id(self._guide_items),
+            # Content keys, not id(): a same-length replacement tuple can
+            # land on the freed previous tuple's address (observed on
+            # underlay field edits via _refresh_underlay_ui's double sync),
+            # which would skip the rebuild and never repaint the change.
+            # Underlay items can't compare elementwise (np.ndarray image),
+            # so they use the same content key as the render cache; guide
+            # items are plain frozen float tuples and compare directly.
+            tuple(
+                _underlay_item_key(item) for item in self._underlay_items
+            ),
+            self._guide_items,
             None if self._section is None else self._section.model_dump_json(),
         )
         if not reset_camera and signature == self._last_render_signature:
@@ -1366,15 +1392,7 @@ class RoomViewport3D(QFrame):
             cache = self._underlay_render_cache = {}
         alive: set[tuple] = set()
         for item in self._underlay_items:
-            key = (
-                item.underlay_id,
-                item.quad_domain,
-                item.segments_domain,
-                item.opacity,
-                item.elevation_m,
-                item.missing_source,
-                id(item.image),
-            )
+            key = _underlay_item_key(item)
             alive.add(key)
             assets = cache.get(key)
             if assets is None:

@@ -200,3 +200,83 @@ def test_entity_render_meshes_memoizes_by_content(_app) -> None:
     )
     third = entity_render_meshes(moved)
     assert third[0] is not first[0]
+
+
+def test_same_length_underlay_replacement_rebuilds(_app) -> None:
+    """Underlay field edits must repaint even when the items tuple id collides.
+
+    ``set_aux_render_state`` swaps the items tuple wholesale; a same-length
+    replacement can land on the freed previous tuple's address, so an
+    ``id()`` render signature would skip the rebuild and stale pixels
+    would persist (observed on opacity/calibration edits). The signature
+    must key on item content instead.
+    """
+    import numpy as np
+
+    from htdt.room_viewport import UnderlayRenderItem
+
+    viewport, plotter = _viewport()
+    document = _document()
+    overlays = RoomOverlayState()
+    image = np.zeros((8, 8, 4), dtype=np.uint8)
+    quad = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (1.0, 1.0, 0.0), (0.0, 1.0, 0.0))
+
+    def item(opacity: float) -> UnderlayRenderItem:
+        return UnderlayRenderItem(
+            underlay_id="u-1",
+            name="floor",
+            quad_domain=quad,
+            image=image,
+            segments_domain=(),
+            opacity=opacity,
+            elevation_m=0.0,
+        )
+
+    viewport.set_aux_render_state(underlays=(item(0.6),))
+    viewport.render_document(document, selected_id=None, overlays=overlays)
+    clears_after_first = plotter.clears
+
+    # Same-length replacement with different content — the id() of the new
+    # tuple may reuse the freed slot; content keys must still differ.
+    viewport.set_aux_render_state(underlays=(item(0.25),))
+    viewport.render_document(document, selected_id=None, overlays=overlays)
+
+    assert plotter.clears == clears_after_first + 1
+
+
+def test_underlay_item_key_tracks_content(_app) -> None:
+    """The cache/signature key distinguishes every rendered field."""
+    import numpy as np
+
+    from htdt.room_viewport import UnderlayRenderItem, _underlay_item_key
+
+    image = np.zeros((4, 4, 4), dtype=np.uint8)
+    base = UnderlayRenderItem(
+        underlay_id="u-1",
+        name="floor",
+        quad_domain=((0.0, 0.0, 0.0),) * 4,
+        image=image,
+        segments_domain=(),
+        opacity=0.6,
+        elevation_m=0.0,
+    )
+    assert _underlay_item_key(base) == _underlay_item_key(
+        UnderlayRenderItem(
+            underlay_id="u-1",
+            name="floor",
+            quad_domain=((0.0, 0.0, 0.0),) * 4,
+            image=image,
+            segments_domain=(),
+            opacity=0.6,
+            elevation_m=0.0,
+        )
+    )
+    import dataclasses
+
+    for field, value in (
+        ("opacity", 0.25),
+        ("elevation_m", 0.1),
+        ("missing_source", True),
+    ):
+        changed = dataclasses.replace(base, **{field: value})
+        assert _underlay_item_key(changed) != _underlay_item_key(base)
