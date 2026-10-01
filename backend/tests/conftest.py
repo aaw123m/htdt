@@ -80,7 +80,10 @@ def _destroy_created_toplevels():
 
     ``deleteLater`` (not ``close``): teardown must not fire closeEvent —
     tests legitimately swap collaborators for doubles that never modeled
-    the close contract, and destroying the widget is the goal anyway.
+    the close contract, and a dirty shell's closeEvent can open a modal
+    resolve dialog, which hangs forever offscreen. Destroying the widget
+    is the goal anyway; orphaned worker threads are cancelled on detach
+    (``native_worker``/``data_management``) and drained at session finish.
     """
     yield
     from PySide6.QtWidgets import QApplication
@@ -92,6 +95,41 @@ def _destroy_created_toplevels():
     for widget in app.topLevelWidgets():
         if not isValid(widget) or widget.objectName().startswith("qt_"):
             continue
-        widget.deleteLater()
+        try:
+            widget.deleteLater()
+        except RuntimeError:
+            # C++ side already gone between the isValid check and the call.
+            continue
+    app.sendPostedEvents()
+    app.processEvents()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Drain Qt worker machinery before the worker process exits.
+
+    Runs per xdist worker: deferred deletes are pumped and leaked Python
+    wrappers collected so ``destroyed`` handlers fire now (detaching any
+    running threads into the module maps), then both drain helpers give
+    the detached work a bounded cooperative stop. Threads left running
+    past this point are torn down by ``~QThread`` during interpreter
+    exit — terminated mid-operation, the nondeterministic ``worker 'gwN'
+    crashed`` signature; the drain shrinks that window.
+    """
+    import gc
+
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    for _ in range(2):
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+        gc.collect()
+    from htdt import data_management, native_worker
+
+    native_worker.drain_worker_threads()
+    data_management.drain_operation_threads()
     app.sendPostedEvents()
     app.processEvents()

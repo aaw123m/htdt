@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import atexit
+import time
+import weakref
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -721,10 +724,72 @@ class _OperationWorker(QObject):
 #: deleteLater`` chain once the job returns.
 _LINGERING_OP_THREADS: dict[QThread, '_OperationWorker'] = {}
 
+#: Every live controller, weakly — process/test teardown drains operations
+#: whose controller was destroyed without orderly close hooks (e.g. a shell
+#: deleted while hidden, where ``close()`` never fires close hooks).
+_LIVE_CONTROLLERS: "weakref.WeakSet[DataManagementController]" = (
+    weakref.WeakSet()
+)
+
 
 def lingering_op_thread_count() -> int:
     """Operation threads currently detached after their controller died."""
     return len(_LINGERING_OP_THREADS)
+
+
+def drain_operation_threads(
+    timeout_ms: int = 1800,
+) -> int:
+    """Best-effort cooperative stop of every running and detached op thread.
+
+    Shared teardown path for pytest session finish and interpreter exit —
+    the counterpart of ``native_worker.drain_worker_threads``. Each live
+    controller's active operation and each already-detached thread is
+    cancel-requested, interrupted, asked to quit and waited on inside one
+    shared budget. Returns the number of threads still running afterwards
+    — a remainder is unkillable by design (``QThread.terminate`` corrupts
+    the GIL/SQLite/native state) and is left detached rather than
+    force-killed.
+    """
+    deadline = time.monotonic() + max(0, int(timeout_ms)) / 1000.0
+    threads: list[tuple[QThread, _OperationWorker]] = []
+    for controller in list(_LIVE_CONTROLLERS):
+        active = controller._active
+        if active is not None:
+            threads.append((active.thread, active.worker))
+    threads.extend(list(_LINGERING_OP_THREADS.items()))
+    for thread, worker in threads:
+        try:
+            worker.request_cancel()
+            thread.requestInterruption()
+            thread.quit()
+        except RuntimeError:
+            continue
+    still_running = 0
+    for thread, _worker in threads:
+        remaining_ms = max(0, round((deadline - time.monotonic()) * 1000))
+        try:
+            if not thread.isFinished() and not thread.wait(remaining_ms):
+                still_running += 1
+        except RuntimeError:
+            continue
+    return still_running
+
+
+def _drain_operation_threads_at_exit() -> None:
+    """atexit hook: shrink the window where an op thread outlives teardown.
+
+    Same interpreter-exit hazard as ``native_worker``: a running QThread
+    destroyed by process teardown is terminated mid-operation — the
+    nondeterministic xdist worker-crash signature.
+    """
+    try:
+        drain_operation_threads()
+    except Exception:
+        pass
+
+
+atexit.register(_drain_operation_threads_at_exit)
 
 
 class DataManagementController(QObject):
@@ -756,6 +821,7 @@ class DataManagementController(QObject):
         activity_center: ActivityCenter | None = None,
     ) -> None:
         super().__init__(parent)
+        _LIVE_CONTROLLERS.add(self)
         self.backend = backend
         self.lifecycle = lifecycle
         # When wired, every operation is mirrored into the application
@@ -1372,6 +1438,11 @@ class DataManagementController(QObject):
             return
         self._active = None
         thread = active.thread
+        # A dying controller cancels first: an owner destroyed without its
+        # close hooks would otherwise abandon the job with the cooperative
+        # flag unset, churning to natural completion through process
+        # teardown — the xdist worker-crash class. Event.set is thread-safe.
+        active.worker.request_cancel()
         # Pin the worker first: the record must never hold the last Python
         # reference while the thread may still be running.
         _LINGERING_OP_THREADS[thread] = active.worker
