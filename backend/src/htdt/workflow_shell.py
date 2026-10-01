@@ -395,24 +395,49 @@ class WorkspaceRouter(QStackedWidget):
                     widget.deleteLater()
         for mount in mounts:
             mount.widget.deleteLater()
-        # Drain each receiver's queue in posted order so its delete lands
-        # last: Qt posts a DeferredDelete only on the first deleteLater()
+        # Each doomed receiver's delete is delivered by a DeferredDelete-
+        # TYPED send: on this Qt build neither processEvents nor an
+        # unfiltered sendPostedEvents dispatches DeferredDelete events —
+        # a queued delete otherwise sits undelivered until some unrelated
+        # typed flush runs it in a foreign context, mid-switch or
+        # mid-test — the xdist worker-crash class (verified empirically).
+        # Qt posts a DeferredDelete only on the first deleteLater()
         # (deleteLaterCalled stays set), so removing that posted event
         # would make every later deleteLater a silent no-op and the
-        # receiver immortal — and a queued delete that reposts behind
-        # still-pending events dies inside whichever code path next
-        # pumps events, mid-switch or mid-test in a foreign context.
-        # Objects queued for deletion before this call (finished worker
-        # threads, timers) still deliver normally.
+        # receiver immortal. The doomed set is restricted to objects with
+        # no live QObject parent — parented top-levels (combobox dropdown
+        # containers, submenus) are deleted by their owner through a raw
+        # pointer the child's ~ never clears, so an early standalone ~
+        # double-frees them the moment the owner dies. Ordering is
+        # popups, then owners (widgets that still own children — their ~
+        # walks satellite top-levels held by raw pointer, which must be
+        # alive), then leaf windows (childless — their ~ is self-
+        # contained and safe on dead collaborators). The global sweep
+        # then covers deletes posted during the cascade (finished worker
+        # threads, timers, freed children).
         doomed = (
-            [w for w in app.topLevelWidgets() if isValid(w)]
+            [
+                w
+                for w in app.topLevelWidgets()
+                if isValid(w)
+                and (w.parent() is None or not isValid(w.parent()))
+            ]
             if app is not None
             else []
+        )
+        doomed.sort(
+            key=lambda w: (
+                w.windowType() != Qt.WindowType.Popup,
+                not w.children(),
+            )
         )
         for _ in range(4):
             for widget in doomed:
                 if isValid(widget):
                     app.sendPostedEvents(widget)
+            for widget in doomed:
+                if isValid(widget):
+                    app.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
             QCoreApplication.sendPostedEvents(
                 None, QEvent.Type.DeferredDelete
             )

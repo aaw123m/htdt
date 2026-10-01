@@ -60,11 +60,17 @@ def _pump_until(predicate, timeout_s: float = 5.0) -> bool:
 
 
 def _destroy(obj: object) -> None:
-    """Deliver a deleteLater synchronously so ``destroyed`` handlers fire."""
+    """Deliver a deleteLater synchronously so ``destroyed`` handlers fire.
+
+    The flush is scoped to this receiver: ``sendPostedEvents(None, ...)``
+    would deliver every DeferredDelete queued in the process — including
+    foreign strays left by earlier tests on the same xdist worker — and a
+    stray ``~`` inside this pump is exactly the worker-crash class under
+    test.
+    """
     app = QApplication.instance() or QApplication([])
     obj.deleteLater()
-    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    app.processEvents()
+    app.sendPostedEvents(obj, QEvent.Type.DeferredDelete)
 
 
 def _seed_data(data_dir: Path) -> None:
@@ -233,32 +239,24 @@ def test_drain_operation_threads_stops_live_controller_op(
     _destroy(controller)
 
 
-def test_deferred_delete_repost_drains_in_bounded_loop(app) -> None:
-    """A widget with pending events survives ONE deferred-delete flush:
-    Qt reposts the delete behind the pending events, and the stray is then
-    destroyed inside whichever code path next pumps events — a mid-test
-    destructor in an unrelated context. The shared teardowns therefore
-    loop ``sendPostedEvents`` + ``processEvents`` until the batch is gone.
+def test_deferred_delete_needs_typed_delivery(app) -> None:
+    """On this Qt build neither ``processEvents`` nor an unfiltered
+    ``sendPostedEvents`` dispatches DeferredDelete: a queued delete
+    survives ordinary pumps indefinitely, accumulating queued-but-alive
+    strays that a later typed flush delivers all at once — mid-test in a
+    foreign context, the worker-crash class. The shared teardown
+    therefore uses DeferredDelete-typed sends per receiver.
     """
-    from PySide6.QtCore import QCoreApplication
     from PySide6.QtWidgets import QWidget
     from shiboken6 import isValid
 
     widget = QWidget()
     widget.show()
-    # A pending posted event forces Qt to repost this widget's
-    # DeferredDelete behind it, so one flush is not enough.
-    QCoreApplication.postEvent(widget, QEvent(QEvent.Type.User))
     widget.deleteLater()
 
-    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    # isValid may still be True here: the delete reposts behind the user
-    # event — the exact stray the bounded loop exists to cover.
+    app.sendPostedEvents()
+    app.processEvents()
+    assert isValid(widget)  # unfiltered delivery never lands the delete
 
-    for _ in range(4):
-        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-        app.processEvents()
-        if not isValid(widget):
-            break
-
-    assert not isValid(widget)
+    app.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
+    assert not isValid(widget)  # typed delivery always does

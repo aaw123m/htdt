@@ -86,7 +86,7 @@ def _destroy_created_toplevels():
     (``native_worker``/``data_management``) and drained at session finish.
     """
     yield
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QEvent
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
 
@@ -95,12 +95,9 @@ def _destroy_created_toplevels():
         return
 
     # Stop orphaned worker machinery first: a detached-but-running thread
-    # keeps emitting (finished/metacall posts land on stray receivers),
-    # and every arrival reposts a stray's queued DeferredDelete behind
-    # it — strays then outlive the drain and die inside whichever test
-    # next pumps events, mid-test in a foreign context (the AV/abort
-    # class). Only detached threads are touched — live pools/controllers
-    # may belong to fixtures shared across tests.
+    # keeps emitting (finished/metacall posts land on stray receivers).
+    # Only detached threads are touched — live pools/controllers may
+    # belong to fixtures shared across tests.
     from htdt import data_management, native_worker
 
     native_worker.cancel_detached_threads()
@@ -109,30 +106,58 @@ def _destroy_created_toplevels():
     def _stray(widget) -> bool:
         return isValid(widget) and not widget.objectName().startswith("qt_")
 
-    # Strays are destroyed in dependency order: a popup's ~ walks its
+    def _killable(widget) -> bool:
+        """True only when no live ancestor destroys the stray itself.
+
+        Some top-level strays are private QObject children of a still-
+        live widget — a combobox dropdown's QFrame popup lives under its
+        QComboBox, a submenu under its parent menu. ``~QComboBox`` does
+        ``delete container`` on a raw pointer the child's own ~ never
+        clears, so delivering the child's DD early double-frees it the
+        moment the owner's ~ runs — the abort observed in this drain.
+        Parented strays are left to die inside their owner's cascade;
+        only unparented ones (or children of already-dead parents) are
+        destroyed here.
+        """
+        parent = widget.parent()
+        return parent is None or not isValid(parent)
+
+    # Strays are destroyed in dependency order. A popup's ~ walks its
     # logical owner (a ViewBox, a mount's action group) even though it
     # is unparented — popups go first so their ~ is delivered while the
-    # windows owning those collaborators are still alive. Per stray the
-    # queue is DRAINED, never removed: Qt posts a DeferredDelete only on
-    # the first deleteLater() — the object's deleteLaterCalled flag stays
-    # set — so destroying that posted event (removePostedEvents) makes
-    # every later deleteLater a silent no-op and the widget immortal.
-    # Delivering the receiver's whole queue instead lets the DD finally
-    # land last; reposts behind fresh arrivals are retried next pass.
-    # Synchronous delete() was tried and rejected: a stray ~ can fault
-    # on collaborators that died earlier, in or out of an event pump.
+    # windows owning those collaborators are still alive. Windows that
+    # still own children come next: their ~ cascade touches satellite
+    # top-levels they spawned (a workspace's pages each own an
+    # unparented render/overlay window held by raw pointer, not QObject
+    # parenting) — an owner dying on a dead satellite aborts inside
+    # ~QObject. Parentless leaf widgets (no QObject children) go last:
+    # their ~ is self-contained, safe on dead collaborators. Delivery must
+    # be DeferredDelete-TYPED per receiver: on this Qt build neither
+    # processEvents nor an unfiltered sendPostedEvents dispatches
+    # DeferredDelete events — the DD sits queued forever (verified
+    # empirically), accumulating a backlog of queued-but-alive strays
+    # that some later typed flush delivers all at once, mid-test in a
+    # foreign context — the xdist worker-crash class. removePostedEvents
+    # is equally fatal: Qt posts a DD only on the first deleteLater()
+    # (deleteLaterCalled stays set), so destroying the posted event makes
+    # every later deleteLater a silent no-op. Synchronous delete() was
+    # tried and rejected too: a stray ~ can fault on collaborators that
+    # died earlier. The global typed sweep at the end of each pass picks
+    # up queued DDs for non-top-level objects (finished-thread self-DDs,
+    # child objects) that topLevelWidgets never lists.
     for _ in range(8):
         strays = sorted(
-            (w for w in app.topLevelWidgets() if _stray(w)),
-            key=lambda w: w.windowType() != Qt.WindowType.Popup,
+            (w for w in app.topLevelWidgets() if _stray(w) and _killable(w)),
+            key=lambda w: (
+                w.windowType() != Qt.WindowType.Popup,
+                not w.children(),
+            ),
         )
         for widget in strays:
             if isValid(widget):
                 widget.deleteLater()
-        for widget in strays:
-            if isValid(widget):
-                app.sendPostedEvents(widget)
-        app.sendPostedEvents()
+                app.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         app.processEvents()
         if not any(_stray(widget) for widget in app.topLevelWidgets()):
             break
