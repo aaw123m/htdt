@@ -28,9 +28,9 @@ from .cad_standards import (
     StandardsProfile,
     evaluate_standards_profile,
     explicit_hard_constraint_gate,
-    reevaluate_standards_profile,
 )
 from .cad_standards_authorities import builtin_standards_source_authorities
+from .cad_standards_layout_observation import derive_layout_observations
 from .cad_standards_profiles import builtin_standards_profiles
 from .cad_standards_repository import CadStandardsRepository
 from .cad_system_variant import materialize_system_variant
@@ -203,44 +203,71 @@ class StandardsWorkspaceModel:
         *,
         variant_id: str | None,
     ) -> StandardsEvaluation:
-        target = self.target_view(variant_id).target
-        history = self.history_for_target(target)
-        exact = [
-            item
-            for item in history
-            if item.profile_id == profile.profile_id
-            and item.profile_version == profile.version
-            and item.profile_semantic_hash == profile.profile_semantic_hash
-        ]
-        if exact:
-            return exact[-1]
+        view = self.target_view(variant_id)
+        target = view.target
+        revision = self.scene_repository.get(target.scene_revision_id)
+        if revision is None:
+            raise ValueError("保存済みの部屋状態がありません")
+        variant = None
+        document = revision.document
+        if variant_id is not None:
+            variant = self.variant_repository.get_variant(variant_id)
+            if variant is None or variant.document_id != self.document_id:
+                raise KeyError(variant_id)
+            document = materialize_system_variant(revision, variant)
 
+        # Layout-derivable quantities are recomputed against the exact target
+        # every run; retained manual observations for criteria this lane does
+        # not derive carry forward unchanged.
+        derived = derive_layout_observations(
+            repository=self.repository,
+            profile=profile,
+            target=target,
+            document=document,
+            observed_at_utc=_utc_now(),
+        )
+        derived_ids = {item.criterion_id for item in derived}
+
+        history = self.history_for_target(target)
         prior = [
             item
             for item in history
             if item.profile_id == profile.profile_id
         ]
-        if prior:
-            previous = prior[-1]
-            allowed_ids = {criterion.criterion_id for criterion in profile.criteria}
-            observations = tuple(
+        allowed_ids = {criterion.criterion_id for criterion in profile.criteria}
+        carried = (
+            tuple(
                 item
-                for item in previous.observations
+                for item in prior[-1].observations
                 if item.criterion_id in allowed_ids
+                and item.criterion_id not in derived_ids
             )
-            evaluation = reevaluate_standards_profile(
-                previous=previous,
-                profile=profile,
-                observations=observations,
-                created_at_utc=_utc_now(),
+            if prior
+            else ()
+        )
+        observations = tuple(
+            sorted(
+                derived + carried,
+                key=lambda item: item.criterion_id,
             )
-        else:
-            evaluation = evaluate_standards_profile(
-                profile=profile,
-                target=target,
-                observations=(),
-                created_at_utc=_utc_now(),
-            )
+        )
+        matching = [
+            item
+            for item in prior
+            if item.profile_version == profile.version
+            and item.profile_semantic_hash == profile.profile_semantic_hash
+            and item.observations == observations
+        ]
+        if matching:
+            return matching[-1]
+
+        evaluation = evaluate_standards_profile(
+            profile=profile,
+            target=target,
+            observations=observations,
+            created_at_utc=_utc_now(),
+            reevaluation_of_id=prior[-1].evaluation_id if prior else None,
+        )
         return self.repository.save_evaluation(evaluation)
 
     @staticmethod

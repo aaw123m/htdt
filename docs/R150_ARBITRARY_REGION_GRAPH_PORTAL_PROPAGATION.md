@@ -2,6 +2,8 @@
 
 Status: **software vertical slice implemented; focused R150 authority workflow passes. R150 remains incomplete and no production GA solver is selected.**
 
+> Snapshot record as of 2026-09-20 (PR #270). PR #432 (2026-09-30) later added multi-Portal cross-region reflected paths, so the "reflection before/after/across Portal: not implemented" non-claims below no longer describe current main. [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) is the canonical current state.
+
 Issue: #101  
 Draft PR: #270  
 Base main: `a8491db973c6fcefc66e259903ca668936f63a2e`  

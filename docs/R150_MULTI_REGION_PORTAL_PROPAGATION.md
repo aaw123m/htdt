@@ -2,6 +2,8 @@
 
 Status: **implemented as a bounded deterministic two-region / one-Portal direct-propagation slice. R150 remains incomplete and no production GA solver is selected.**
 
+> Snapshot record as of 2026-09-20 (PR #265). PR #432 (2026-09-30) later added multi-Portal cross-region reflected paths, so the "maximum Portal crossings: 1" and "reflection-before/after-Portal: not implemented" bounds below no longer describe current main. [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) is the canonical current state.
+
 Issue: #101  
 PR: #265  
 Adapter authority: `htdt.r150.deterministic-path@1`  

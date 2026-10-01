@@ -68,6 +68,20 @@ fails closed. The built-in `standards_manual_observation` kind resolves against
 through `CadStandardsRepository(evidence_resolvers=...)`. A kind without a
 registered resolver is never evidence.
 
+`cad_standards_layout_observation.py` is the declared scene-layout derivation
+provider: for each criterion whose quantity is honestly computable from the
+exact evaluation target's geometry — seat `acoustic_reference_position`,
+speaker channel roles, room footprint — it derives the value, retains it as a
+`StandardsObservationAuthority` (`predicted` basis, `scene-layout-derivation-v1`
+method, exact SceneRevision/SystemVariant/entity binding), and feeds the
+evaluator an explicit `CriterionObservation`. It currently derives the RP22
+P1 listener-boundary distance, the four Dolby 5.1.2 role azimuths, the P5
+adjacent-surround horizontal angle (azimuth-consecutive pairs), and the P9
+same-side adjacent upper vertical angle. Quantities without an honest layout
+source — recommended-zone membership, upfiring rendering mode, wide/AURO
+layer membership, and every SPL/headroom input — are never derived and stay
+`UNKNOWN`.
+
 The built-in authorities live in `backend/src/htdt/cad_standards_authorities.py`;
 the built-in profiles in `cad_standards_profiles.py` derive their citation text,
 quantity, unit, and rule directly from the retained extraction records so a
@@ -310,6 +324,6 @@ Issue #170 does not implement:
 - Windows owned-PC visual/first-use acceptance (UX160);
 - private/commercial document content that is not available in the cited public source;
 - inferred DTS:X tolerances or silent repair of ambiguous/inconsistent source data;
-- physical geometry/measurement derivation engines for every criterion. Those providers
-  must declare their own input/evidence capability before a criterion can move from
-  `UNKNOWN`.
+- physical geometry/measurement derivation engines beyond the scene-layout
+  lane above. Providers must declare their own input/evidence capability
+  before a criterion can move from `UNKNOWN`.

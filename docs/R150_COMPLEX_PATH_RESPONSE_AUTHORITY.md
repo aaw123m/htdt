@@ -2,6 +2,8 @@
 
 Status: **software vertical slice implemented; per-path physically normalized complex response authority is available. R160 numerical composition remains intentionally unimplemented.**
 
+> Snapshot record as of 2026-09-20 (PR #276). PR #287 (frequency-grid reconciliation) and PR #433 (union-band numerical stitching, 2026-09-30) later implemented R160 composition, so "R160 numerical composition remains intentionally unimplemented" no longer describes current main. [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) is the canonical current state.
+
 Issue: #101  
 Draft PR: #276  
 Base main at task start: `49901a6b46ad889bd06b34e4482a5b6121545d1d`  

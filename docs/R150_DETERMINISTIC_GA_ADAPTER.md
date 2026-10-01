@@ -2,6 +2,8 @@
 
 Status: **implemented as a bounded deterministic execution foundation for exact shoebox direct/first-order and general-planar single-region direct/first-/second-order specular geometry; R150 is not complete and no production GA solver is selected.**
 
+> Snapshot record as of 2026-09-20 (PR #245/#253/#258). PR #430 (2026-09-30) later added bounded late-field scattering/diffraction path energy and PR #432 added multi-Portal cross-region reflected paths, so the "late reverberation / diffuse tail", "directional scattering transport", and "diffraction" non-claims below no longer describe current main. [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) is the canonical current state.
+
 Issue: #101  
 Adapter authority: `htdt.r150.deterministic-path@1`  
 Shoebox reference candidate: pyroomacoustics 0.10.1 image-source model  
