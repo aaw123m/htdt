@@ -31,8 +31,8 @@ Primary implementation:
 
 | Kind | Resolution | Per-band bound |
 | --- | --- | --- |
-| `surface_scattering` | compiled triangle patch per region-boundary surface; occluded patch fails closed | `D * patch_area / (4*pi*d1_min^2) * (1-alpha)*s / (4*pi*d2_min^2)` over vertex-minimum distances |
-| `edge_diffraction` (`wedge`) | declared edge resolving to exactly 2 incident non-coplanar triangles on 1 surface | `D * kappa / (4*pi*d1^2 * 4*pi*d2^2)`, endpoint-minimum distances, `kappa` = configured `diffraction_energy_bound_factor` |
+| `surface_scattering` | compiled triangle patch per region-boundary surface; occluded patch fails closed | `D * patch_area / (4*pi*d1_min^2) * (1-alpha)*s / (2*pi*d2_min^2)` over vertex-minimum distances (re-emission into the interior half-space, 2*pi sr) |
+| `edge_diffraction` (`wedge`) | declared edge resolving to exactly 2 incident non-coplanar triangles on 1 surface | `D * kappa / (4*pi*d1^2 * 2*(pi-sigma)*d2^2)`, endpoint-minimum distances, `kappa` = configured `diffraction_energy_bound_factor`, `sigma` the incident-face normal separation |
 | `aperture_diffraction` (`aperture_rim`) | declared edge resolving to exactly 2 incident non-coplanar triangles on 2 distinct surfaces (e.g. a floor/wall junction rim) | same bound; separation angle recorded |
 
 Because compiled GA-ready geometry is watertight, a free single-incidence edge
