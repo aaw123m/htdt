@@ -82,6 +82,44 @@ class _UniformOccluderGrid:
                         minimum[axis] = coordinate
                     if coordinate > maximum[axis]:
                         maximum[axis] = coordinate
+        # Prepared per-row geometry for the exact intersection tests: the
+        # edge/normal quantities Möller–Trumbore and point-in-triangle derive
+        # per row, computed once here with the identical float operations so
+        # every later verdict is bit-identical to recomputing per query.
+        prepared: list[tuple] = []
+        for row in rows:
+            vertex_a, vertex_b, vertex_c = row[-3:]
+            edge1 = (
+                float(vertex_b[0]) - float(vertex_a[0]),
+                float(vertex_b[1]) - float(vertex_a[1]),
+                float(vertex_b[2]) - float(vertex_a[2]),
+            )
+            edge2 = (
+                float(vertex_c[0]) - float(vertex_a[0]),
+                float(vertex_c[1]) - float(vertex_a[1]),
+                float(vertex_c[2]) - float(vertex_a[2]),
+            )
+            edge1_sq = sum(component * component for component in edge1)
+            edge2_sq = sum(component * component for component in edge2)
+            normal = (
+                edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                edge1[0] * edge2[1] - edge1[1] * edge2[0],
+            )
+            normal_sq = sum(component * component for component in normal)
+            prepared.append(
+                (
+                    edge1,
+                    edge2,
+                    sqrt(edge1_sq),
+                    sqrt(edge2_sq),
+                    edge1_sq,
+                    edge2_sq,
+                    normal,
+                    sqrt(normal_sq),
+                )
+            )
+        self._prepared = tuple(prepared)
         diagonal = sqrt(
             sum((maximum[axis] - minimum[axis]) ** 2 for axis in range(3))
         )
@@ -136,11 +174,11 @@ class _UniformOccluderGrid:
             for axis in range(3)
         )
 
-    def candidates(
+    def _segment_row_indices(
         self,
         start: Sequence[float],
         end: Sequence[float],
-    ) -> Iterator[tuple]:
+    ) -> Iterator[int]:
         if not self._rows:
             return
         origin = self._origin
@@ -200,7 +238,6 @@ class _UniformOccluderGrid:
         seen: set[int] = set()
         dim_x, dim_y = self._dims[0], self._dims[1]
         cells = self._cells
-        rows = self._rows
         while True:
             bucket = cells.get(
                 cell[0] + dim_x * (cell[1] + dim_y * cell[2])
@@ -209,7 +246,7 @@ class _UniformOccluderGrid:
                 for row_index in bucket:
                     if row_index not in seen:
                         seen.add(row_index)
-                        yield rows[row_index]
+                        yield row_index
             if t_next[0] <= t_next[1] and t_next[0] <= t_next[2]:
                 axis = 0
             elif t_next[1] <= t_next[2]:
@@ -221,12 +258,12 @@ class _UniformOccluderGrid:
             cell[axis] += step_sign[axis]
             t_next[axis] += t_delta[axis]
 
-    def point_candidates(
+    def _point_row_indices(
         self,
         point: Sequence[float],
         radius: float,
-    ) -> Iterator[tuple]:
-        """Yield rows stored in cells overlapped by ``point ± radius``.
+    ) -> Iterator[int]:
+        """Yield row indices stored in cells overlapped by ``point ± radius``.
 
         A point–triangle hit at geometric tolerance ``radius`` keeps the
         point within ``pad_i + radius`` of the row's bounding box, so the
@@ -243,7 +280,6 @@ class _UniformOccluderGrid:
         seen: set[int] = set()
         dim_x, dim_y = self._dims[0], self._dims[1]
         cells = self._cells
-        rows = self._rows
         for ix in range(low[0], high[0] + 1):
             for iy in range(low[1], high[1] + 1):
                 for iz in range(low[2], high[2] + 1):
@@ -252,7 +288,55 @@ class _UniformOccluderGrid:
                         for row_index in bucket:
                             if row_index not in seen:
                                 seen.add(row_index)
-                                yield rows[row_index]
+                                yield row_index
+
+    def candidates(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+    ) -> Iterator[tuple]:
+        rows = self._rows
+        for row_index in self._segment_row_indices(start, end):
+            yield rows[row_index]
+
+    def point_candidates(
+        self,
+        point: Sequence[float],
+        radius: float,
+    ) -> Iterator[tuple]:
+        rows = self._rows
+        for row_index in self._point_row_indices(point, radius):
+            yield rows[row_index]
+
+    def prepared_candidates(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+    ) -> Iterator[tuple[tuple, tuple]]:
+        """Yield ``(row, prepared)`` pairs for the segment's candidate cells.
+
+        ``prepared`` is
+        ``(edge1, edge2, edge1_length, edge2_length, edge1_sq, edge2_sq,
+        normal, normal_length)`` — the per-row quantities the exact
+        intersection tests derive, computed once at index build with the
+        identical float operations (verdicts are bit-identical to deriving
+        them per query).
+        """
+        rows = self._rows
+        prepared = self._prepared
+        for row_index in self._segment_row_indices(start, end):
+            yield rows[row_index], prepared[row_index]
+
+    def prepared_point_candidates(
+        self,
+        point: Sequence[float],
+        radius: float,
+    ) -> Iterator[tuple[tuple, tuple]]:
+        """``prepared_candidates`` for the point query cells."""
+        rows = self._rows
+        prepared = self._prepared
+        for row_index in self._point_row_indices(point, radius):
+            yield rows[row_index], prepared[row_index]
 
 
 class _IndexedOccluderRows(tuple):
@@ -289,3 +373,17 @@ class _IndexedOccluderRows(tuple):
         radius: float,
     ) -> Iterator[tuple]:
         return self._grid().point_candidates(point, radius)
+
+    def _segment_prepared_candidates(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+    ) -> Iterator[tuple[tuple, tuple]]:
+        return self._grid().prepared_candidates(start, end)
+
+    def _point_prepared_candidates(
+        self,
+        point: Sequence[float],
+        radius: float,
+    ) -> Iterator[tuple[tuple, tuple]]:
+        return self._grid().prepared_point_candidates(point, radius)

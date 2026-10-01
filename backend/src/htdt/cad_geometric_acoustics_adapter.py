@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
+from functools import lru_cache
 from importlib.metadata import version as distribution_version
 from math import acos, atan2, degrees, isfinite, sqrt
 from pathlib import Path
@@ -290,7 +291,11 @@ def _unit(value: Sequence[float]) -> tuple[float, float, float]:
     length = _norm(value)
     if length <= 0.0:
         raise ValueError('zero-length direction is not permitted')
-    return tuple(float(item) / length for item in value)  # type: ignore[return-value]
+    return (
+        float(value[0]) / length,
+        float(value[1]) / length,
+        float(value[2]) / length,
+    )
 
 
 def _direction(value: Sequence[float]) -> Direction3:
@@ -775,7 +780,7 @@ class DeterministicGaExecutionInput(BaseModel):
 
 
 class SourceDirectivityContribution(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     dataset_id: str
     dataset_version: str
@@ -797,7 +802,7 @@ BoundaryIncidenceEvaluation = Literal[
 
 
 class BoundaryMaterialContribution(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     source_surface_id: str
     material_authority: ExactExternalAuthorityRef
@@ -834,7 +839,7 @@ class BoundaryMaterialContribution(BaseModel):
 
 
 class DeterministicPathBandQuantity(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     band_definition: Literal['exact_center_frequency_sample'] = (
         'exact_center_frequency_sample'
@@ -856,7 +861,7 @@ class DeterministicPathBandQuantity(BaseModel):
 class DeterministicPathInteraction(BaseModel):
     """Version-compatible typed reflection/Portal interaction sequence entry."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     kind: Literal['reflection', 'portal_crossing']
     point: Position3
@@ -902,7 +907,7 @@ class DeterministicPathInteraction(BaseModel):
 class PortalRegionSegmentEvidence(BaseModel):
     """Persisted proof result for one direct segment inside one AcousticRegion."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     segment_index: int = Field(ge=0)
     region_id: str = Field(min_length=1)
@@ -913,7 +918,7 @@ class PortalRegionSegmentEvidence(BaseModel):
 
 
 class DeterministicAcousticPath(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     path_id: str = Field(pattern=r'^deterministic-acoustic-path:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
@@ -1114,7 +1119,7 @@ class DeterministicAcousticPath(BaseModel):
 
 
 class RejectedPathCandidate(BaseModel):
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     source_entity_id: str
     receiver_id: str
@@ -1127,7 +1132,7 @@ class RejectedPathCandidate(BaseModel):
 class DeterministicPathArtifact(BaseModel):
     """Immutable phase-free direct/first-/second-order specular path artifact."""
 
-    model_config = ConfigDict(frozen=True, extra='forbid')
+    model_config = ConfigDict(frozen=True, extra='forbid', revalidate_instances='never')
 
     schema_version: Literal[1] = DETERMINISTIC_GA_SCHEMA_VERSION
     authority_version: Literal['r150-deterministic-ga-1'] = (
@@ -2911,6 +2916,109 @@ def _segment_triangle_intersection_parameter(
         return None
     return t
 
+
+def _segment_triangle_intersection_prepared(
+    start: Sequence[float],
+    direction: tuple[float, float, float],
+    segment_length: float,
+    vertex_a: Sequence[float],
+    prepared: tuple,
+    *,
+    tolerance: float,
+    distance_scaled_tolerance: bool,
+) -> float | None:
+    """``_segment_triangle_intersection_parameter`` over precomputed geometry.
+
+    ``direction``/``segment_length`` are the per-segment invariants and
+    ``prepared`` carries the per-triangle quantities the index derived once
+    (same float operations), so the result is bit-identical to calling
+    ``_segment_triangle_intersection_parameter`` on the raw vertices.
+    """
+    edge1, edge2, edge1_length, edge2_length, _e1sq, _e2sq, _normal, _nlen = (
+        prepared
+    )
+    pvec = _cross(direction, edge2)
+    determinant = _dot(edge1, pvec)
+
+    if distance_scaled_tolerance:
+        if (
+            segment_length <= tolerance
+            or edge1_length <= tolerance
+            or edge2_length <= tolerance
+        ):
+            return None
+        geometry_scale = max(segment_length, edge1_length, edge2_length)
+        relative_tolerance = min(0.25, tolerance / geometry_scale)
+        endpoint_parameter_tolerance = min(0.25, tolerance / segment_length)
+        determinant_scale = segment_length * edge1_length * edge2_length
+        if abs(determinant) <= determinant_scale * relative_tolerance:
+            return None
+    else:
+        relative_tolerance = tolerance
+        endpoint_parameter_tolerance = tolerance
+        if abs(determinant) <= tolerance:
+            return None
+
+    inv_det = 1.0 / determinant
+    tvec = _vector(vertex_a, start)
+    u = _dot(tvec, pvec) * inv_det
+    if u < -relative_tolerance or u > 1.0 + relative_tolerance:
+        return None
+    qvec = _cross(tvec, edge1)
+    v = _dot(direction, qvec) * inv_det
+    if v < -relative_tolerance or u + v > 1.0 + relative_tolerance:
+        return None
+    t = _dot(edge2, qvec) * inv_det
+    if (
+        t <= endpoint_parameter_tolerance
+        or t >= 1.0 - endpoint_parameter_tolerance
+    ):
+        return None
+    return t
+
+
+def _point_on_triangle_surface_prepared(
+    point: Sequence[float],
+    vertex_a: Sequence[float],
+    prepared: tuple,
+    *,
+    tolerance: float,
+) -> bool:
+    """``_point_on_triangle_surface`` over precomputed edge/normal geometry."""
+    _e1, _e2, _l1, _l2, _s1, _s2, normal, normal_length = prepared
+    if normal_length <= tolerance * tolerance:
+        return False
+    plane_distance = abs(_dot(_vector(vertex_a, point), normal)) / normal_length
+    return plane_distance <= tolerance and _point_in_triangle_prepared(
+        point,
+        vertex_a,
+        prepared,
+        tolerance=tolerance,
+    )
+
+
+def _point_in_triangle_prepared(
+    point: Sequence[float],
+    vertex_a: Sequence[float],
+    prepared: tuple,
+    *,
+    tolerance: float,
+) -> bool:
+    """``_point_in_triangle`` over precomputed edges and self-dot products."""
+    edge1, edge2, _l1, _l2, dot11, dot00, _normal, _nlen = prepared
+    v2 = _vector(vertex_a, point)
+    dot01 = _dot(edge2, edge1)
+    dot02 = _dot(edge2, v2)
+    dot12 = _dot(edge1, v2)
+    denominator = dot00 * dot11 - dot01 * dot01
+    if abs(denominator) <= tolerance:
+        return False
+    inverse = 1.0 / denominator
+    u = (dot11 * dot02 - dot01 * dot12) * inverse
+    v = (dot00 * dot12 - dot01 * dot02) * inverse
+    return u >= -tolerance and v >= -tolerance and u + v <= 1.0 + tolerance
+
+
 def _occluder_triangles(
     compiled: R120CompiledGeometry,
 ) -> tuple[
@@ -2947,12 +3055,30 @@ def _segment_blocked(
 ) -> bool:
     if occluder_triangles is None:
         occluder_triangles = tuple(_occluder_triangles(compiled))
-    candidates = (
-        occluder_triangles._segment_candidates(start, end)
-        if isinstance(occluder_triangles, _IndexedOccluderRows)
-        else occluder_triangles
-    )
-    for surface_id, vertex_a, vertex_b, vertex_c in candidates:
+    if isinstance(occluder_triangles, _IndexedOccluderRows):
+        direction = _vector(start, end)
+        segment_length = (
+            _norm(direction) if distance_scaled_tolerance else 0.0
+        )
+        for row, prepared in occluder_triangles._segment_prepared_candidates(
+            start,
+            end,
+        ):
+            if row[0] in ignored_surface_ids:
+                continue
+            hit = _segment_triangle_intersection_prepared(
+                start,
+                direction,
+                segment_length,
+                row[1],
+                prepared,
+                tolerance=tolerance,
+                distance_scaled_tolerance=distance_scaled_tolerance,
+            )
+            if hit is not None:
+                return True
+        return False
+    for surface_id, vertex_a, vertex_b, vertex_c in occluder_triangles:
         if surface_id in ignored_surface_ids:
             continue
         hit = _segment_triangle_intersection_parameter(
@@ -3100,7 +3226,35 @@ def _point_has_other_surface_contact(
     point: Sequence[float],
     *,
     tolerance: float,
+    occluder_triangles: Sequence[
+        tuple[
+            str,
+            tuple[float, float, float],
+            tuple[float, float, float],
+            tuple[float, float, float],
+        ]
+    ] | None = None,
 ) -> bool:
+    if isinstance(occluder_triangles, _IndexedOccluderRows):
+        # The occluder rows carry exactly the same (surface, triangle) pairs
+        # as ``surface_mapping`` (both enumerate ``compiled.triangles``), so
+        # the grid's point query yields a strict superset of the candidates
+        # the linear scan below would test — the exact per-triangle test
+        # decides each verdict identically.
+        for row, prepared in occluder_triangles._point_prepared_candidates(
+            point,
+            tolerance,
+        ):
+            if row[0] == surface_id:
+                continue
+            if _point_on_triangle_surface_prepared(
+                point,
+                row[1],
+                prepared,
+                tolerance=tolerance,
+            ):
+                return True
+        return False
     return any(
         mapping.source_surface_id != surface_id
         and any(
@@ -3296,13 +3450,24 @@ def _second_order_reflection_points(
     return first_point, second_point
 
 
-def _directivity_angles(
-    source_axis: Direction3,
-    departure_direction: Sequence[float],
-    *,
+@lru_cache(maxsize=512)
+def _equatorial_frame(
+    axis_x: float,
+    axis_y: float,
+    axis_z: float,
     tolerance: float,
-) -> tuple[float, float]:
-    forward = _unit((source_axis.x, source_axis.y, source_axis.z))
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+]:
+    """Source equatorial frame (forward, left, up) for a directivity axis.
+
+    The frame depends only on the axis and tolerance — one source reuses it
+    across every path and band evaluated in an execution. Pure function of
+    its float arguments, so the content-keyed memo is exact.
+    """
+    forward = _unit((axis_x, axis_y, axis_z))
     forward_horizontal = sqrt(forward[0] ** 2 + forward[1] ** 2)
     if forward_horizontal <= tolerance:
         raise ValueError(
@@ -3316,6 +3481,21 @@ def _directivity_angles(
     # instead of being silently dropped. For a horizontal axis this reduces
     # to world +Z and to the previous horizontal-axis convention exactly.
     up = _unit(_cross(forward, left))
+    return forward, left, up
+
+
+def _directivity_angles(
+    source_axis: Direction3,
+    departure_direction: Sequence[float],
+    *,
+    tolerance: float,
+) -> tuple[float, float]:
+    forward, left, up = _equatorial_frame(
+        float(source_axis.x),
+        float(source_axis.y),
+        float(source_axis.z),
+        tolerance,
+    )
     direction = _unit(departure_direction)
     forward_component = _dot(direction, forward)
     left_component = _dot(direction, left)
@@ -3496,6 +3676,17 @@ def _prune_band_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+@lru_cache(maxsize=512)
+def _frozen_model_json_payload(model: BaseModel) -> dict[str, Any]:
+    """JSON-mode ``model_dump`` of a frozen model, memoized by content.
+
+    Frozen models hash by field values, so the cache is content-keyed and
+    deterministic. Callers must treat the returned dict as read-only — it
+    feeds only ``core`` digests (canonical_json reads, never mutates).
+    """
+    return model.model_dump(mode='json')
+
+
 def _make_path(
     *,
     path_type: PathType,
@@ -3515,6 +3706,9 @@ def _make_path(
     region_segment_evidence: Sequence[PortalRegionSegmentEvidence] | None = None,
     execution_input_semantic_sha256: str | None = None,
 ) -> DeterministicAcousticPath:
+    point_models = tuple(_rounded_position(point, decimals) for point in points)
+    departure_model = _rounded_direction(departure, decimals)
+    arrival_model = _rounded_direction(arrival, decimals)
     core: dict[str, Any] = {
         'source_entity_id': source.source_entity_id,
         'receiver_id': receiver.receiver_id,
@@ -3522,22 +3716,24 @@ def _make_path(
         'path_type': path_type,
         'ordered_interaction_surface_ids': list(surface_ids),
         'ordered_interaction_points': [
-            _rounded_position(point, decimals).model_dump(mode='json')
-            for point in points
+            {'x_m': item.x_m, 'y_m': item.y_m, 'z_m': item.z_m}
+            for item in point_models
         ],
         'geometric_path_length_m': _round_float(length_m, decimals),
         'propagation_delay_s': _round_float(
             length_m / sound_speed_m_s,
             decimals,
         ),
-        'departure_direction': _rounded_direction(
-            departure,
-            decimals,
-        ).model_dump(mode='json'),
-        'arrival_direction': _rounded_direction(
-            arrival,
-            decimals,
-        ).model_dump(mode='json'),
+        'departure_direction': {
+            'x': departure_model.x,
+            'y': departure_model.y,
+            'z': departure_model.z,
+        },
+        'arrival_direction': {
+            'x': arrival_model.x,
+            'y': arrival_model.y,
+            'z': arrival_model.z,
+        },
         'direction_semantics': (
             'world_propagation_direction_source_out_and_receiver_in'
         ),
@@ -3547,8 +3743,8 @@ def _make_path(
         ],
         'adapter_id': DETERMINISTIC_GA_ADAPTER_ID,
         'adapter_version': DETERMINISTIC_GA_ADAPTER_VERSION,
-        'solver_implementation_ref': solver_implementation_ref.model_dump(
-            mode='json'
+        'solver_implementation_ref': _frozen_model_json_payload(
+            solver_implementation_ref
         ),
     }
     if typed_interactions is not None:
@@ -3570,10 +3766,24 @@ def _make_path(
     if execution_input_semantic_sha256 is not None:
         core['execution_input_semantic_sha256'] = execution_input_semantic_sha256
     digest = _semantic_hash(core)
+    # The constructor receives the already-validated model instances
+    # (revalidate_instances='never' skips re-running their validators);
+    # ``core`` stays the JSON-dict payload the semantic digest is computed
+    # over, unchanged.
+    init_payload: dict[str, Any] = dict(core)
+    init_payload['ordered_interaction_points'] = point_models
+    init_payload['departure_direction'] = departure_model
+    init_payload['arrival_direction'] = arrival_model
+    init_payload['solver_implementation_ref'] = solver_implementation_ref
+    init_payload['bands'] = tuple(bands)
+    if typed_interactions is not None:
+        init_payload['ordered_interactions'] = tuple(typed_interactions)
+    if region_segment_evidence is not None:
+        init_payload['region_segment_evidence'] = tuple(region_segment_evidence)
     return DeterministicAcousticPath(
         path_id=f'deterministic-acoustic-path:{digest}',
         semantic_sha256=digest,
-        **core,
+        **init_payload,
     )
 
 
@@ -3713,6 +3923,7 @@ def _append_single_portal_first_order_reflections(
         if _point_has_other_surface_contact(
             compiled_geometry, surface_id, reflection,
             tolerance=execution_input.geometric_tolerance_m,
+            occluder_triangles=occluder_triangles,
         ):
             rejected.append(
                 RejectedPathCandidate(
@@ -4400,6 +4611,7 @@ def _append_portal_graph_reflections(
             plane.source_surface_id,
             reflection,
             tolerance=execution_input.geometric_tolerance_m,
+            occluder_triangles=occluder_triangles,
         ):
             return (
                 'UNSUPPORTED_GEOMETRY',
@@ -4507,11 +4719,13 @@ def _append_portal_graph_reflections(
             first_plane.source_surface_id,
             first_point,
             tolerance=execution_input.geometric_tolerance_m,
+            occluder_triangles=occluder_triangles,
         ) or _point_has_other_surface_contact(
             compiled_geometry,
             second_plane.source_surface_id,
             second_point,
             tolerance=execution_input.geometric_tolerance_m,
+            occluder_triangles=occluder_triangles,
         ):
             return (
                 'UNSUPPORTED_GEOMETRY',
@@ -5904,11 +6118,13 @@ def execute_deterministic_ga(
                             first_plane.source_surface_id,
                             first_point,
                             tolerance=execution_input.geometric_tolerance_m,
+                            occluder_triangles=occluder_triangles,
                         ) or _point_has_other_surface_contact(
                             compiled_geometry,
                             second_plane.source_surface_id,
                             second_point,
                             tolerance=execution_input.geometric_tolerance_m,
+                            occluder_triangles=occluder_triangles,
                         ):
                             rejected.append(
                                 RejectedPathCandidate(
@@ -6280,10 +6496,23 @@ def execute_deterministic_ga(
         ],
     }
     digest = _semantic_hash(core)
+    # Construct the artifact over the already-validated model instances
+    # (revalidate_instances='never' skips re-running each path's nested
+    # validation); ``core`` remains the dict payload the digest hashes.
+    init_payload: dict[str, Any] = dict(core)
+    init_payload['solver_implementation_ref'] = (
+        execution_input.solver_implementation_ref
+    )
+    init_payload['solver_configuration_ref'] = (
+        execution_input.solver_configuration_ref
+    )
+    init_payload['frequency_domain'] = execution_input.frequency_domain
+    init_payload['paths'] = tuple(paths)
+    init_payload['rejected_candidates'] = tuple(rejected)
     return DeterministicPathArtifact(
         artifact_id=f'deterministic-path-artifact:{digest}',
         semantic_sha256=digest,
-        **core,
+        **init_payload,
     )
 
 

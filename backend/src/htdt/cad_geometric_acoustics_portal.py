@@ -57,7 +57,11 @@ def _unit(value: Sequence[float]) -> tuple[float, float, float]:
     length = _norm(value)
     if length <= 0.0:
         raise ValueError('zero-length portal direction is invalid')
-    return tuple(float(item) / length for item in value)  # type: ignore[return-value]
+    return (
+        float(value[0]) / length,
+        float(value[1]) / length,
+        float(value[2]) / length,
+    )
 
 
 def _position(value: Sequence[float]) -> Position3:
@@ -770,6 +774,34 @@ def _point_on_triangle(
     return u >= -scaled and v >= -scaled and w >= -scaled
 
 
+def _point_on_triangle_prepared(
+    point: Sequence[float],
+    vertex_a: Sequence[float],
+    prepared: tuple,
+    *,
+    tolerance_m: float,
+) -> bool:
+    """``_point_on_triangle`` over precomputed edges/normal (bit-identical)."""
+    edge1, edge2, edge1_length, edge2_length, d00, d11, normal, normal_length = prepared
+    if normal_length <= tolerance_m * tolerance_m:
+        return False
+    signed = _dot(_vector(vertex_a, point), normal) / normal_length
+    if abs(signed) > tolerance_m:
+        return False
+    v2 = _vector(vertex_a, point)
+    d01 = _dot(edge1, edge2)
+    d20 = _dot(v2, edge1)
+    d21 = _dot(v2, edge2)
+    denom = d00 * d11 - d01 * d01
+    if abs(denom) <= tolerance_m * tolerance_m:
+        return False
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    u = 1.0 - v - w
+    scaled = min(0.25, tolerance_m / max(edge1_length, edge2_length, tolerance_m))
+    return u >= -scaled and v >= -scaled and w >= -scaled
+
+
 def _ray_triangle_parameter(
     start: Sequence[float],
     end: Sequence[float],
@@ -797,6 +829,39 @@ def _ray_triangle_parameter(
         return None
     t = _dot(edge2, qvec) * inv
     endpoint = min(0.25, tolerance_m / max(_norm(direction), tolerance_m))
+    if t <= endpoint or t >= 1.0 - endpoint:
+        return None
+    return t
+
+
+def _ray_triangle_parameter_prepared(
+    start: Sequence[float],
+    direction: tuple[float, float, float],
+    direction_length: float,
+    vertex_a: Sequence[float],
+    prepared: tuple,
+    *,
+    tolerance_m: float,
+) -> float | None:
+    """``_ray_triangle_parameter`` over precomputed row geometry (bit-identical)."""
+    edge1, edge2, edge1_length, edge2_length, _e1sq, _e2sq, _normal, _nlen = prepared
+    pvec = _cross(direction, edge2)
+    determinant = _dot(edge1, pvec)
+    scale = max(direction_length * edge1_length * edge2_length, tolerance_m)
+    relative = min(0.25, tolerance_m / max(direction_length, edge1_length, edge2_length, tolerance_m))
+    if abs(determinant) <= scale * relative:
+        return None
+    inv = 1.0 / determinant
+    tvec = _vector(vertex_a, start)
+    u = _dot(tvec, pvec) * inv
+    if u < -relative or u > 1.0 + relative:
+        return None
+    qvec = _cross(tvec, edge1)
+    v = _dot(direction, qvec) * inv
+    if v < -relative or u + v > 1.0 + relative:
+        return None
+    t = _dot(edge2, qvec) * inv
+    endpoint = min(0.25, tolerance_m / max(direction_length, tolerance_m))
     if t <= endpoint or t >= 1.0 - endpoint:
         return None
     return t
@@ -959,14 +1024,23 @@ def region_membership_with_portal_caps(
     )
     if not triangles:
         return 'ambiguous'
-    boundary_candidates = (
-        triangles._point_candidates(point, tolerance_m)
-        if isinstance(triangles, _IndexedOccluderRows)
-        else triangles
-    )
-    if any(
+    if isinstance(triangles, _IndexedOccluderRows):
+        if any(
+            _point_on_triangle_prepared(
+                point,
+                row[-3],
+                prepared,
+                tolerance_m=tolerance_m,
+            )
+            for row, prepared in triangles._point_prepared_candidates(
+                point,
+                tolerance_m,
+            )
+        ):
+            return 'boundary'
+    elif any(
         _point_on_triangle(point, triangle, tolerance_m=tolerance_m)
-        for triangle in boundary_candidates
+        for triangle in triangles
     ):
         return 'boundary'
 
@@ -989,24 +1063,41 @@ def region_membership_with_portal_caps(
             float(point[index]) + ray_length * direction[index]
             for index in range(3)
         )
-        candidates = (
-            triangles._segment_candidates(point, end)
-            if isinstance(triangles, _IndexedOccluderRows)
-            else triangles
-        )
-        hits = sorted(
-            hit
-            for triangle in candidates
-            if (
-                hit := _ray_triangle_parameter(
+        if isinstance(triangles, _IndexedOccluderRows):
+            ray_direction = _vector(point, end)
+            ray_direction_length = _norm(ray_direction)
+            hits = sorted(
+                hit
+                for row, prepared in triangles._segment_prepared_candidates(
                     point,
                     end,
-                    triangle,
-                    tolerance_m=tolerance_m,
                 )
+                if (
+                    hit := _ray_triangle_parameter_prepared(
+                        point,
+                        ray_direction,
+                        ray_direction_length,
+                        row[-3],
+                        prepared,
+                        tolerance_m=tolerance_m,
+                    )
+                )
+                is not None
             )
-            is not None
-        )
+        else:
+            hits = sorted(
+                hit
+                for triangle in triangles
+                if (
+                    hit := _ray_triangle_parameter(
+                        point,
+                        end,
+                        triangle,
+                        tolerance_m=tolerance_m,
+                    )
+                )
+                is not None
+            )
         distinct: list[float] = []
         for hit in hits:
             if not distinct or abs(hit - distinct[-1]) > t_tolerance:
@@ -1106,11 +1197,26 @@ def region_segment_membership_with_portal_caps(
         != 'inside'
     ):
         return 'invalid'
-    crossing_candidates = (
-        triangles._segment_candidates(start, end)
-        if isinstance(triangles, _IndexedOccluderRows)
-        else triangles
-    )
+    if isinstance(triangles, _IndexedOccluderRows):
+        segment_direction = _vector(start, end)
+        segment_length = _norm(segment_direction)
+        if any(
+            _ray_triangle_parameter_prepared(
+                start,
+                segment_direction,
+                segment_length,
+                row[-3],
+                prepared,
+                tolerance_m=tolerance_m,
+            )
+            is not None
+            for row, prepared in triangles._segment_prepared_candidates(
+                start,
+                end,
+            )
+        ):
+            return 'invalid'
+        return 'valid'
     if any(
         _ray_triangle_parameter(
             start,
@@ -1119,7 +1225,7 @@ def region_segment_membership_with_portal_caps(
             tolerance_m=tolerance_m,
         )
         is not None
-        for triangle in crossing_candidates
+        for triangle in triangles
     ):
         return 'invalid'
     return 'valid'

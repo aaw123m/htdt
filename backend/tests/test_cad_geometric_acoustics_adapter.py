@@ -64,7 +64,15 @@ from htdt.cad_geometric_acoustics_adapter import (
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
+    _point_in_triangle,
+    _point_in_triangle_prepared,
+    _point_on_triangle_surface,
+    _point_on_triangle_surface_prepared,
     _segment_blocked,
+    _segment_triangle_intersection_parameter,
+    _segment_triangle_intersection_prepared,
+    _norm,
+    _vector,
     build_deterministic_ga_configuration,
     build_deterministic_ga_result_envelope,
     compile_deterministic_ga_execution_input,
@@ -73,7 +81,9 @@ from htdt.cad_geometric_acoustics_adapter import (
 from htdt.cad_geometric_acoustics_portal import (
     PORTAL_SIDE_SEMANTICS,
     _point_on_triangle,
+    _point_on_triangle_prepared,
     _ray_triangle_parameter,
+    _ray_triangle_parameter_prepared,
     compile_portal_graph,
 )
 from htdt.occluder_grid_index import _IndexedOccluderRows
@@ -3674,3 +3684,144 @@ def test_indexed_occluder_rows_bare_rows_cover_exact_hits() -> None:
     candidate_ids = [id(row) for row in short_candidates]
     assert len(set(candidate_ids)) == len(candidate_ids)
     assert len(short_candidates) < len(rows)
+
+
+def test_prepared_intersection_is_bit_identical() -> None:
+    """Prepared per-row geometry must reproduce the raw test exactly.
+
+    The occluder index precomputes edges/norms once per row; the prepared
+    intersection helpers consume them. Both sides implement the same float
+    operation sequence, so the returned parameter ``t`` must be bitwise
+    identical — not merely within tolerance — to keep semantic digests
+    byte-stable.
+    """
+    rng = random.Random(20261001)
+    rows = _generated_occluder_rows(rng, 300)
+    indexed = _IndexedOccluderRows(rows)
+    grid = indexed._grid()
+    mismatches: list[tuple] = []
+    for _ in range(1500):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        direction = _vector(start, end)
+        segment_length = _norm(direction)
+        for row, prepared in grid.prepared_candidates(start, end):
+            vertex_a, vertex_b, vertex_c = row[-3:]
+            for scaled in (False, True):
+                expected = _segment_triangle_intersection_parameter(
+                    start,
+                    end,
+                    (vertex_a, vertex_b, vertex_c),
+                    tolerance=1.0e-9,
+                    distance_scaled_tolerance=scaled,
+                )
+                actual = _segment_triangle_intersection_prepared(
+                    start,
+                    direction,
+                    segment_length,
+                    vertex_a,
+                    prepared,
+                    tolerance=1.0e-9,
+                    distance_scaled_tolerance=scaled,
+                )
+                if actual != expected:
+                    mismatches.append((start, end, row, scaled, expected, actual))
+    assert mismatches == []
+
+
+def test_prepared_point_tests_are_bit_identical() -> None:
+    """Point-on-triangle prepared variants match the raw helpers exactly."""
+    rng = random.Random(20261002)
+    rows = _generated_occluder_rows(rng, 300)
+    bare = tuple(row[1:] for row in rows)
+    indexed = _IndexedOccluderRows(bare)
+    grid = indexed._grid()
+    mismatches: list[tuple] = []
+    for _ in range(1500):
+        point = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        for row, prepared in grid.prepared_point_candidates(point, 1.0e-6):
+            vertex_a, vertex_b, vertex_c = row
+            triangle = (vertex_a, vertex_b, vertex_c)
+            expected = _point_on_triangle_surface(
+                point, triangle, tolerance=1.0e-6
+            )
+            actual = _point_on_triangle_surface_prepared(
+                point, vertex_a, prepared, tolerance=1.0e-6
+            )
+            if actual != expected:
+                mismatches.append((point, row, expected, actual))
+            expected_in = _point_in_triangle(
+                point, triangle, tolerance=1.0e-6
+            )
+            actual_in = _point_in_triangle_prepared(
+                point, vertex_a, prepared, tolerance=1.0e-6
+            )
+            if actual_in != expected_in:
+                mismatches.append((point, row, expected_in, actual_in))
+            expected_portal = _point_on_triangle(
+                point, triangle, tolerance_m=1.0e-6
+            )
+            actual_portal = _point_on_triangle_prepared(
+                point, vertex_a, prepared, tolerance_m=1.0e-6
+            )
+            if actual_portal != expected_portal:
+                mismatches.append((point, row, expected_portal, actual_portal))
+    assert mismatches == []
+
+
+def test_prepared_ray_parameter_is_bit_identical() -> None:
+    """Portal ray parameter prepared variant reproduces the raw helper."""
+    rng = random.Random(20261003)
+    rows = tuple(row[1:] for row in _generated_occluder_rows(rng, 300))
+    indexed = _IndexedOccluderRows(rows)
+    grid = indexed._grid()
+    mismatches: list[tuple] = []
+    for _ in range(1500):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        direction = _vector(start, end)
+        direction_length = _norm(direction)
+        for row, prepared in grid.prepared_candidates(start, end):
+            vertex_a, vertex_b, vertex_c = row
+            expected = _ray_triangle_parameter(
+                start,
+                end,
+                (vertex_a, vertex_b, vertex_c),
+                tolerance_m=1.0e-9,
+            )
+            actual = _ray_triangle_parameter_prepared(
+                start,
+                direction,
+                direction_length,
+                vertex_a,
+                prepared,
+                tolerance_m=1.0e-9,
+            )
+            if actual != expected:
+                mismatches.append((start, end, row, expected, actual))
+    assert mismatches == []
+
+
+def test_prepared_candidates_yield_same_rows() -> None:
+    """Prepared iterators enumerate exactly the rows the plain ones do."""
+    rng = random.Random(20261004)
+    rows = _generated_occluder_rows(rng, 200)
+    indexed = _IndexedOccluderRows(rows)
+    grid = indexed._grid()
+    for _ in range(300):
+        start = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        end = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        plain_ids = [id(row) for row in grid.candidates(start, end)]
+        prepared_ids = [
+            id(row) for row, _prepared in grid.prepared_candidates(start, end)
+        ]
+        assert prepared_ids == plain_ids
+        point = tuple(rng.uniform(-1.0, 10.0) for _ in range(3))
+        plain_point_ids = [
+            id(row) for row in grid.point_candidates(point, 0.5)
+        ]
+        prepared_point_ids = [
+            id(row)
+            for row, _prepared in grid.prepared_point_candidates(point, 0.5)
+        ]
+        assert prepared_point_ids == plain_point_ids

@@ -607,6 +607,12 @@ class RoomViewport3D(QFrame):
         self._actor_proposed_entity_ids: dict[int, str] = {}
         self._actor_underlay_ids: dict[int, str] = {}
         self._underlay_items: tuple[UnderlayRenderItem, ...] = ()
+        # Content-keyed memo of the (quad, texture, line mesh) each frozen
+        # underlay item renders as; scene rebuilds that only change entities
+        # must not re-upload identical rasters. Keys cover every field the
+        # assets derive from plus the decoded image's identity (upstream
+        # memoizes decodes per blob sha, so a stable array means same bytes).
+        self._underlay_render_cache: dict[tuple, tuple] = {}
         self._guide_items: tuple[GuideRenderItem, ...] = ()
         self._section: SectionPlaneState | None = None
         self._standard_view: str = CUSTOM_VIEW
@@ -1312,21 +1318,73 @@ class RoomViewport3D(QFrame):
             return None
         return clipped
 
+    @staticmethod
+    def _build_underlay_assets(
+        item: UnderlayRenderItem,
+    ) -> tuple[pv.PolyData | None, pv.Texture | None, pv.PolyData | None]:
+        """Build the (quad, texture, line mesh) a frozen underlay item renders
+        as — memoized per item content in ``_render_underlays``."""
+        quad: pv.PolyData | None = None
+        texture: pv.Texture | None = None
+        if item.quad_domain is not None and item.image is not None:
+            points = np.asarray(
+                [(x, -y, z) for x, y, z in item.quad_domain],
+                dtype=float,
+            )
+            quad = pv.PolyData(points, [4, 0, 1, 2, 3])
+            quad.active_texture_coordinates = np.asarray(
+                [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                dtype=float,
+            )
+            texture = pv.Texture(item.image)
+        line_mesh: pv.PolyData | None = None
+        if item.segments_domain:
+            segment_count = len(item.segments_domain)
+            points = np.asarray(
+                [
+                    (x, -y, z)
+                    for segment in item.segments_domain
+                    for (x, y, z) in segment
+                ],
+                dtype=float,
+            )
+            lines = np.asarray(
+                [
+                    value
+                    for index in range(segment_count)
+                    for value in (2, 2 * index, 2 * index + 1)
+                ],
+                dtype=np.int64,
+            )
+            line_mesh = pv.PolyData(points)
+            line_mesh.lines = lines
+        return quad, texture, line_mesh
+
     def _render_underlays(self) -> None:
+        cache = getattr(self, "_underlay_render_cache", None)
+        if cache is None:
+            cache = self._underlay_render_cache = {}
+        alive: set[tuple] = set()
         for item in self._underlay_items:
-            if item.quad_domain is not None and item.image is not None:
-                points = np.asarray(
-                    [(x, -y, z) for x, y, z in item.quad_domain],
-                    dtype=float,
-                )
-                quad = pv.PolyData(points, [4, 0, 1, 2, 3])
-                quad.active_texture_coordinates = np.asarray(
-                    [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
-                    dtype=float,
-                )
+            key = (
+                item.underlay_id,
+                item.quad_domain,
+                item.segments_domain,
+                item.opacity,
+                item.elevation_m,
+                item.missing_source,
+                id(item.image),
+            )
+            alive.add(key)
+            assets = cache.get(key)
+            if assets is None:
+                assets = self._build_underlay_assets(item)
+                cache[key] = assets
+            quad, texture, line_mesh = assets
+            if quad is not None and texture is not None:
                 actor = self.plotter.add_mesh(
                     quad,
-                    texture=pv.Texture(item.image),
+                    texture=texture,
                     opacity=item.opacity,
                     lighting=False,
                     pickable=True,
@@ -1335,28 +1393,9 @@ class RoomViewport3D(QFrame):
                     render=False,
                 )
                 self._actor_underlay_ids[id(actor)] = item.underlay_id
-            if item.segments_domain:
-                segment_count = len(item.segments_domain)
-                points = np.asarray(
-                    [
-                        (x, -y, z)
-                        for segment in item.segments_domain
-                        for (x, y, z) in segment
-                    ],
-                    dtype=float,
-                )
-                lines = np.asarray(
-                    [
-                        value
-                        for index in range(segment_count)
-                        for value in (2, 2 * index, 2 * index + 1)
-                    ],
-                    dtype=np.int64,
-                )
-                mesh = pv.PolyData(points)
-                mesh.lines = lines
+            if line_mesh is not None:
                 actor = self.plotter.add_mesh(
-                    mesh,
+                    line_mesh,
                     color=DARK_THEME.scientific.primary_trace.hex,
                     line_width=1,
                     opacity=min(1.0, item.opacity + 0.2),
@@ -1365,6 +1404,9 @@ class RoomViewport3D(QFrame):
                     render=False,
                 )
                 self._actor_underlay_ids[id(actor)] = item.underlay_id
+        for key in tuple(cache):
+            if key not in alive:
+                del cache[key]
 
     def _render_guides(self) -> None:
         for index, guide in enumerate(self._guide_items):

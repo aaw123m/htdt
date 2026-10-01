@@ -112,6 +112,7 @@ from .cad_geometric_acoustics_adapter import (
     _rounded_position,
     _segment_blocked,
     _segment_triangle_intersection_parameter,
+    _segment_triangle_intersection_prepared,
     _triangle_vertices,
     _validate_supported_topology,
     _cross,
@@ -1011,12 +1012,28 @@ def _segment_blocked_ignoring_triangles(
             (index,) + _triangle_vertices(compiled, index)
             for index in range(len(compiled.triangles))
         )
-    candidates = (
-        occluder_records._segment_candidates(start, end)
-        if isinstance(occluder_records, _IndexedOccluderRows)
-        else occluder_records
-    )
-    for index, vertex_a, vertex_b, vertex_c in candidates:
+    if isinstance(occluder_records, _IndexedOccluderRows):
+        direction = _vector(start, end)
+        segment_length = _norm(direction)
+        for row, prepared in occluder_records._segment_prepared_candidates(
+            start,
+            end,
+        ):
+            if row[0] in ignored_triangle_indices:
+                continue
+            hit = _segment_triangle_intersection_prepared(
+                start,
+                direction,
+                segment_length,
+                row[1],
+                prepared,
+                tolerance=tolerance,
+                distance_scaled_tolerance=True,
+            )
+            if hit is not None:
+                return True
+        return False
+    for index, vertex_a, vertex_b, vertex_c in occluder_records:
         if index in ignored_triangle_indices:
             continue
         hit = _segment_triangle_intersection_parameter(

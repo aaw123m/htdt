@@ -448,6 +448,9 @@ class RoomWorkspaceController:
             )
         )
         self._underlay_calibration: dict | None = None
+        # Decoded underlay rasters memoized by content blob digest so
+        # refreshes don't re-hit the store and re-decode the same bytes.
+        self._underlay_image_cache: dict = {}
         self._constraint_state = None  # AuthoringConstraintSet, lazy
         self._last_constraint_notes: tuple[str, ...] = ()
         # Labels of constraints broken inside a delete command — reported once
@@ -1785,17 +1788,28 @@ class RoomWorkspaceController:
         """Resolve persisted underlays + blob bytes into render items."""
 
         items: list[UnderlayRenderItem] = []
+        image_cache = getattr(self, "_underlay_image_cache", None)
+        if image_cache is None:
+            image_cache = self._underlay_image_cache = {}
+        seen_digests: set[str] = set()
         for underlay in self.underlays():
             if not underlay.visible:
                 continue
             image = None
             if underlay.render_blob_sha256:
-                data = self.repository.read_blob(underlay.render_blob_sha256)
-                if data:
-                    try:
-                        image = decode_image_bytes(data)
-                    except UnderlayImportError:
-                        image = None
+                digest = underlay.render_blob_sha256
+                seen_digests.add(digest)
+                if digest in image_cache:
+                    image = image_cache[digest]
+                else:
+                    data = self.repository.read_blob(digest)
+                    if data:
+                        try:
+                            image = decode_image_bytes(data)
+                        except UnderlayImportError:
+                            image = None
+                    if image is not None:
+                        image_cache[digest] = image
             items.append(
                 UnderlayRenderItem(
                     underlay_id=underlay.underlay_id,
@@ -1808,6 +1822,9 @@ class RoomWorkspaceController:
                     missing_source=self.underlay_missing_source(underlay),
                 )
             )
+        for digest in tuple(image_cache):
+            if digest not in seen_digests:
+                del image_cache[digest]
         return tuple(items)
 
     def underlay_missing_source(self, underlay: FloorPlanUnderlay) -> bool:
