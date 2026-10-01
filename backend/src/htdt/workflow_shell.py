@@ -354,6 +354,10 @@ class WorkspaceRouter(QStackedWidget):
         return False, reason
 
     def dispose_mounts(self) -> None:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+        from shiboken6 import isValid
+
         mounts = tuple(self._mounts.values())
         self._mounts.clear()
         self._current_workspace_id = None
@@ -364,32 +368,80 @@ class WorkspaceRouter(QStackedWidget):
                 mount.widget.close()
             self.removeWidget(mount.widget)
             mount.widget.setParent(None)
-            mount.widget.deleteLater()
-        # A disposed mount keeps receiving posted events while its own
-        # teardown (close handlers, child menus, plotters) unwinds, and Qt
-        # reposts the pending DeferredDelete behind them — the mounts then
-        # survive as hidden top-level widgets (~45 top-levels and several
-        # MB per project switch). Flushing deferred deletes guarantees the
-        # mounts are really destroyed before the next project mounts.
-        from PySide6.QtCore import QCoreApplication, QEvent
-        from PySide6.QtWidgets import QApplication
-
         # Mount-owned popups (plot context menus, ViewBoxMenu, tooltip
         # frames) are not QObject children of the mount tree, so the
-        # mounts' deleteLater never reaches them: ~26 hidden unparented
-        # Qt.Popup top-levels accumulated per heavy-mount dispose. They are
-        # transient by definition, so queue them alongside the mounts;
-        # application-level top-levels (dialogs, the command palette) are
-        # parented and unaffected.
+        # mounts' destruction never reaches them: ~26 hidden unparented
+        # Qt.Popup top-levels accumulated per heavy-mount dispose. Queue
+        # their deletes BEFORE the mounts': a popup's ~ walks its logical
+        # owner (a ViewBox, an action group) even though it is unparented,
+        # so it must be delivered while the owning mount is still alive —
+        # FIFO posted-event order makes the drain destroy popups first.
+        # Each receiver's pending queue is also drained: a queued
+        # DeferredDelete reposts behind each still-pending event, which is
+        # how strays survived single flushes and died inside whichever
+        # code path next pumped events — mid-switch or mid-test in a
+        # foreign context. Application-level top-levels (dialogs, the
+        # command palette) are parented and unaffected.
         app = QApplication.instance()
         if app is not None:
             for widget in app.topLevelWidgets():
+                if not isValid(widget):
+                    # Died as a child of an already-deleted popup.
+                    continue
                 if (
                     widget.parentWidget() is None
                     and widget.windowType() == Qt.WindowType.Popup
                 ):
                     widget.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        for mount in mounts:
+            mount.widget.deleteLater()
+        # Each doomed receiver's delete is delivered by a DeferredDelete-
+        # TYPED send: on this Qt build neither processEvents nor an
+        # unfiltered sendPostedEvents dispatches DeferredDelete events —
+        # a queued delete otherwise sits undelivered until some unrelated
+        # typed flush runs it in a foreign context, mid-switch or
+        # mid-test — the xdist worker-crash class (verified empirically).
+        # Qt posts a DeferredDelete only on the first deleteLater()
+        # (deleteLaterCalled stays set), so removing that posted event
+        # would make every later deleteLater a silent no-op and the
+        # receiver immortal. The doomed set is restricted to objects with
+        # no live QObject parent — parented top-levels (combobox dropdown
+        # containers, submenus) are deleted by their owner through a raw
+        # pointer the child's ~ never clears, so an early standalone ~
+        # double-frees them the moment the owner dies. Ordering is
+        # popups, then owners (widgets that still own children — their ~
+        # walks satellite top-levels held by raw pointer, which must be
+        # alive), then leaf windows (childless — their ~ is self-
+        # contained and safe on dead collaborators). The global sweep
+        # then covers deletes posted during the cascade (finished worker
+        # threads, timers, freed children).
+        doomed = (
+            [
+                w
+                for w in app.topLevelWidgets()
+                if isValid(w)
+                and (w.parent() is None or not isValid(w.parent()))
+            ]
+            if app is not None
+            else []
+        )
+        doomed.sort(
+            key=lambda w: (
+                w.windowType() != Qt.WindowType.Popup,
+                not w.children(),
+            )
+        )
+        for _ in range(4):
+            for widget in doomed:
+                if isValid(widget):
+                    app.sendPostedEvents(widget)
+            for widget in doomed:
+                if isValid(widget):
+                    app.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
+            QCoreApplication.sendPostedEvents(
+                None, QEvent.Type.DeferredDelete
+            )
+            QCoreApplication.processEvents()
 
     def shutdown(self) -> None:
         self.dispose_mounts()

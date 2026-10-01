@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import atexit
 import time
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import Event
@@ -96,6 +98,11 @@ class WorkerShutdownReport:
 # fallback and is therefore deliberate rather than accidental.
 _LINGERING_THREADS: dict[QThread, NativeWorker] = {}
 
+#: Every live pool, weakly — process/test teardown drains tasks whose owner
+#: was destroyed without its orderly shutdown hooks (e.g. a shell deleted
+#: while hidden, where ``close()`` never fires close hooks).
+_LIVE_POOLS: "weakref.WeakSet[NativeWorkerPool]" = weakref.WeakSet()
+
 
 def lingering_thread_count() -> int:
     """Worker threads currently detached after a shutdown timeout."""
@@ -104,6 +111,80 @@ def lingering_thread_count() -> int:
 
 def _release_lingering(thread: QThread) -> None:
     _LINGERING_THREADS.pop(thread, None)
+
+
+def drain_worker_threads(
+    timeout_ms: int = DEFAULT_WORKER_SHUTDOWN_TIMEOUT_MS,
+) -> int:
+    """Best-effort cooperative stop of every pool task and detached thread.
+
+    Shared teardown path for pytest session finish and interpreter exit:
+    every live pool gets ``stop_all`` (cancel → interrupt → quit → bounded
+    wait → detach), then each already-detached thread is cancelled and
+    waited on inside the same budget. Returns the number of threads still
+    running afterwards — a remainder is unkillable by design
+    (``QThread.terminate`` corrupts the GIL/SQLite/native state) and is
+    left detached rather than force-killed.
+    """
+    deadline = time.monotonic() + max(0, int(timeout_ms)) / 1000.0
+    for pool in list(_LIVE_POOLS):
+        remaining_ms = max(0, round((deadline - time.monotonic()) * 1000))
+        try:
+            pool.stop_all(remaining_ms)
+        except RuntimeError:
+            continue
+    for thread, worker in list(_LINGERING_THREADS.items()):
+        try:
+            worker.cancel()
+            thread.requestInterruption()
+            thread.quit()
+        except RuntimeError:
+            continue
+    still_running = 0
+    for thread in list(_LINGERING_THREADS):
+        remaining_ms = max(0, round((deadline - time.monotonic()) * 1000))
+        try:
+            if not thread.isFinished() and not thread.wait(remaining_ms):
+                still_running += 1
+        except RuntimeError:
+            continue
+    return still_running
+
+
+def cancel_detached_threads() -> None:
+    """Cooperative stop request on already-detached threads — no wait.
+
+    Per-test teardown path: threads here are orphaned by definition (their
+    owner died), so cancelling cannot disturb live fixtures. A detached
+    thread that keeps running emits ``finished``/metacall posts which
+    repost a stray widget's queued DeferredDelete behind each arrival —
+    starving those emissions is what lets the widget drain converge.
+    """
+    for thread, worker in list(_LINGERING_THREADS.items()):
+        try:
+            worker.cancel()
+            thread.requestInterruption()
+            thread.quit()
+        except RuntimeError:
+            continue
+
+
+def _drain_worker_threads_at_exit() -> None:
+    """atexit hook: shrink the window where a detached thread outlives teardown.
+
+    An interpreter exiting with a worker QThread still running lets
+    ``~QThread`` terminate that thread mid-operation — a nondeterministic
+    abort seen as ``worker 'gwN' crashed`` under xdist. Draining here
+    gives cooperative jobs their last chance to unwind while Python is
+    still fully alive.
+    """
+    try:
+        drain_worker_threads()
+    except Exception:
+        pass
+
+
+atexit.register(_drain_worker_threads_at_exit)
 
 
 class _WorkerCompletionRelay(QObject):
@@ -181,6 +262,7 @@ class NativeWorkerPool(QObject):
             ],
         ] = {}
         self._relays: dict[str, _WorkerCompletionRelay] = {}
+        _LIVE_POOLS.add(self)
         self._shutdown_requested = False
         self._last_shutdown_report = WorkerShutdownReport()
         # destroy() must go through a plain callable: PySide6 silently never
@@ -414,8 +496,17 @@ class NativeWorkerPool(QObject):
 
     @Slot()
     def _detach_all(self) -> None:
-        """Keep worker threads alive if the pool dies without shutdown()."""
+        """Keep worker threads alive if the pool dies without shutdown().
+
+        A dying pool cancels first: an owner destroyed without its orderly
+        shutdown hooks (a hidden shell whose ``close()`` never fired close
+        hooks) would otherwise abandon work with the cooperative flag
+        unset, leaving jobs like backup scans churning to natural
+        completion through process teardown — the xdist worker-crash
+        class. Cancellation is flag-only and thread-safe here.
+        """
         try:
+            self.cancel_all()
             for key in tuple(self._tasks):
                 self._detach(key)
         except RuntimeError:
