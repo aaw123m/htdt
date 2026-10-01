@@ -5,10 +5,13 @@ slot. This module derives the observable's bounded decay-model artifact
 from exact late-field inputs:
 
 - ``DeterministicPathArtifact`` — the exact R150 path set. At each recorded
-  specular reflection, ``scattering`` of the arriving energy leaves the
-  specular channel into the late field; ``absorption`` is lost;
+  specular reflection, ``(1 - absorption) * scattering`` of the arriving
+  energy leaves the specular channel into the late field — the exact
+  complement of the specular factor ``(1 - absorption) * (1 - scattering)``
+  declared by the deterministic authority; ``absorption`` is lost;
   ``specular_energy_factor`` continues. Per band, per path, the injected
-  late energy is ``E0 * sum_k( prod_{j<k} specular_j * scattering_k )``
+  late energy is
+  ``E0 * sum_k( prod_{j<k} specular_j * (1 - absorption_k) * scattering_k )``
   with ``E0 = spreading_factor_per_m2 * source_directivity.energy_factor``.
 - ``LateFieldInputAuthority`` — per-surface late-field capability
   declarations. Every surface any evaluated path reflects on must declare
@@ -79,7 +82,7 @@ from .canonical_json import canonical_json as _canonical_json, canonical_sha256 
 
 R160_LATE_FIELD_INPUT_VERSION = 'r160-late-field-input-1'
 R160_LATE_DECAY_LAW_VERSION = 'r160-late-energy-decay-law-1'
-R160_LATE_ENERGY_ARTIFACT_VERSION = 'r160-late-energy-decay-1'
+R160_LATE_ENERGY_ARTIFACT_VERSION = 'r160-late-energy-decay-2'
 
 LateFieldSurfaceCapabilityKind = Literal[
     'scattering_modeled',
@@ -429,7 +432,7 @@ class LateEnergyDecayArtifact(BaseModel):
 
     schema_version: Literal[1] = 1
     authority_version: Literal[
-        'r160-late-energy-decay-1'
+        'r160-late-energy-decay-2'
     ] = R160_LATE_ENERGY_ARTIFACT_VERSION
     artifact_id: str = Field(
         pattern=r'^r160-late-energy-decay:[0-9a-f]{64}$'
@@ -743,7 +746,15 @@ def solve_late_energy_decay(
                 arriving = e0
                 late = 0.0
                 for material in materials:
-                    late += arriving * float(material.scattering)
+                    # The scattered fraction of the *reflected* energy leaves
+                    # the specular channel: (1 - absorption) * scattering.
+                    # Using scattering alone would count the absorbed share
+                    # twice and create energy (specular + late + absorbed > E0).
+                    late += (
+                        arriving
+                        * (1.0 - float(material.absorption))
+                        * float(material.scattering)
+                    )
                     arriving *= float(material.specular_energy_factor)
                 if not isclose(
                     arriving,
