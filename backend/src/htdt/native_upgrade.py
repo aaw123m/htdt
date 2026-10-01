@@ -773,7 +773,12 @@ def execute_native_upgrade(
 
     # Resolve an interrupted managed-data restore before measuring or
     # snapshotting so the upgrade never builds a recovery generation over a
-    # mid-swap directory.
+    # mid-swap directory. Recovery swaps replace and unlink sqlite files;
+    # a caller's live repository must not hold pooled read handles on them
+    # (WinError 32 on Windows) — release first, same as restore_backup().
+    from .cad_repository import release_read_handles_under
+
+    release_read_handles_under(data_dir)
     try:
         recover_interrupted_restore(data_dir)
     except Exception as exc:

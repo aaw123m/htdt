@@ -526,3 +526,25 @@ def test_quarantine_retry_event_journals_declared_stale_authorities(
 
     assert event.outcome == 'completed'
     assert event.stale_authority_count == len(declared)
+
+
+def test_upgrade_recovers_pending_restore_under_live_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live repository's pooled read handle must not wedge the
+    interrupted-restore recovery ``execute_native_upgrade`` runs before
+    snapshotting — the same WinError 32 class restore guards against."""
+    from test_native_backup import _crash_restore
+
+    data_dir, repository, first, _second, _digest, _raw = _crash_restore(
+        tmp_path, monkeypatch, boundary='before_swap'
+    )
+    # Re-arm the pooled read handle restore released before the swap.
+    assert repository.get(first.revision_id) is not None
+    _stamp_schema_version(data_dir, NATIVE_SCHEMA_VERSION - 1)
+
+    event = execute_native_upgrade(data_dir)
+
+    assert event.outcome == 'completed'
+    assert read_native_schema_version(_database(data_dir)) == NATIVE_SCHEMA_VERSION
+    repository.close()

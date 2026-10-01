@@ -329,3 +329,55 @@ def test_relocated_project_ids_unchanged(tmp_path: Path) -> None:
 
     repository = SceneRepository(destination / DATABASE_NAME)
     assert repository.current_head('doc-preserved') == head_before
+
+
+def test_execute_releases_pooled_read_handles_on_source(tmp_path: Path) -> None:
+    """A live repository's pooled read handle inside the source tree must
+    not wedge the cutover's source rename (WinError 32 on Windows) — the
+    documented caller-quiesce contract cannot see in-process handles."""
+    source = tmp_path / 'source'
+    repository = SceneRepository(source / DATABASE_NAME)
+    repository.save(make_empty_scene('doc-1'), parent_revision_id=None)
+    assert repository.latest('doc-1') is not None  # arm the pooled read conn
+    destination = tmp_path / 'dest'
+
+    _, parked = execute_data_relocation(
+        source, destination, bootstrap_path=tmp_path / 'boot.json'
+    )
+
+    assert (destination / DATABASE_NAME).is_file()
+    assert (parked / DATABASE_NAME).is_file()
+    repository.close()
+
+
+def test_recovery_releases_pooled_read_handles_on_journal_dirs(
+    tmp_path: Path,
+) -> None:
+    """Settling a stale journal renames the source directory; a pooled
+    read handle inside it must not wedge recovery either."""
+    source = tmp_path / 'source'
+    repository = SceneRepository(source / DATABASE_NAME)
+    repository.save(make_empty_scene('doc-1'), parent_revision_id=None)
+    assert repository.latest('doc-1') is not None
+    destination = tmp_path / 'dest'
+    parked = tmp_path / 'source.relocated-x'
+    bootstrap = tmp_path / 'boot.json'
+    shutil.copytree(source, destination)
+    _write_journal(
+        _journal(
+            source,
+            destination,
+            tmp_path / 'gone-staged',
+            parked,
+            'DESTINATION_PROMOTED',
+        ),
+        bootstrap,
+    )
+
+    recover_interrupted_relocation(bootstrap_path=bootstrap)
+
+    assert not source.exists()
+    assert (parked / DATABASE_NAME).is_file()
+    config = load_bootstrap_config(bootstrap)
+    assert config is not None and Path(config.data_dir) == destination
+    repository.close()

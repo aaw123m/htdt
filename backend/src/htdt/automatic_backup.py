@@ -351,19 +351,25 @@ class AutomaticBackupScheduler:
         always, plus the newest generation of each UTC day while that day
         has no already-retained representative, up to
         ``keep_daily_generations`` distinct days. ``protected`` paths are
-        never removed regardless of their embedded stamp.
+        never removed regardless of their embedded stamp and never count
+        toward ``keep_generations``.
         """
 
         automatic = [
             record for record in self.generation_records() if record.is_automatic
         ]
-        keep: set[Path] = {
-            record.path for record in automatic[: self.policy.keep_generations]
-        }
+        protected_paths = {Path(path) for path in protected}
         # A generation just written under a skewed clock can embed a stamp
-        # older than the kept window — ordering by filename must never let
-        # a run delete the archive it just wrote.
-        keep.update(protected)
+        # older than the kept window — it is always retained and never
+        # counts toward keep_generations, so ordering by filename can
+        # never let a run delete the archive it just wrote.
+        window = [
+            record for record in automatic if record.path not in protected_paths
+        ]
+        keep: set[Path] = {
+            record.path for record in window[: self.policy.keep_generations]
+        }
+        keep.update(protected_paths)
         day_seen: set[str] = set()
         day_kept = 0
         for record in automatic:

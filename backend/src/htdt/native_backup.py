@@ -1685,9 +1685,22 @@ def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
         candidates = sorted(parent.iterdir())
     except OSError:
         return events
-    for candidate in candidates:
-        if not candidate.is_dir() or not candidate.name.startswith(prefix):
-            continue
+    rollback_dirs = [
+        candidate
+        for candidate in candidates
+        if candidate.is_dir() and candidate.name.startswith(prefix)
+    ]
+    if rollback_dirs:
+        # The recovery swaps below replace and unlink sqlite files under
+        # the data root; a live pooled read connection on them fails with
+        # WinError 32 on Windows (the same class restore_backup guards
+        # against). Gated on a real pending swap so callers on the hot
+        # open path — every ensure_native_schema — never pay for it.
+        # Deferred import, same reason as in restore_backup().
+        from .cad_repository import release_read_handles_under
+
+        release_read_handles_under(data_dir)
+    for candidate in rollback_dirs:
         events.append(_recover_rollback_dir(data_dir, candidate))
     if events:
         _fsync_directory(parent)

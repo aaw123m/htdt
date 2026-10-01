@@ -1063,3 +1063,49 @@ def test_successful_restore_leaves_no_journal_or_rollback_artifacts(tmp_path: Pa
 
     _assert_no_restore_artifacts(data_dir)
     assert not list(tmp_path.glob('**/restore-journal.json'))
+
+
+def test_create_backup_recovers_pending_swap_under_live_repository(
+    tmp_path: Path, monkeypatch
+):
+    """A pooled read connection on the live database must not wedge the
+    interrupted-restore recovery ``create_backup`` runs before archiving
+    (the same WinError 32 class restore guards against)."""
+    data_dir, repository, first, _second, digest, raw = _crash_restore(
+        tmp_path, monkeypatch, boundary='before_swap'
+    )
+    # Re-arm the pooled read handle restore released before the swap —
+    # any read since then re-pooled a connection on the live file.
+    assert repository.get(first.revision_id) is not None
+
+    destination = tmp_path / 'recovered.htdt-backup'
+    create_backup(data_dir, destination)
+
+    validate_backup(destination)
+    # The pending swap completed first: live is the restored baseline.
+    _assert_live_state(
+        data_dir, first.document_id, first.revision_id, digest, raw
+    )
+    _assert_no_restore_artifacts(data_dir)
+    repository.close()
+
+
+def test_repository_open_recovers_pending_swap_under_live_repository(
+    tmp_path: Path, monkeypatch
+):
+    """SceneRepository construction resolves a pending restore swap even
+    while another live repository still holds a pooled read connection."""
+    data_dir, repository, first, _second, digest, raw = _crash_restore(
+        tmp_path, monkeypatch, boundary='before_swap'
+    )
+    assert repository.get(first.revision_id) is not None
+
+    reopened = SceneRepository(data_dir / 'cad-scenes.sqlite3')
+
+    latest = reopened.latest(first.document_id)
+    assert latest is not None
+    assert latest.revision_id == first.revision_id
+    assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
+    _assert_no_restore_artifacts(data_dir)
+    repository.close()
+    reopened.close()

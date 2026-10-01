@@ -687,6 +687,15 @@ def _recover_journal_locked(
     parked = Path(journal.parked_dir)
     events: list[RelocationRecoveryEvent] = []
 
+    # The renames below move whole directories containing the live
+    # database; a pooled read connection inside any of them fails the
+    # rename with WinError 32 on Windows (the same class restore guards
+    # against). Releasing is safe — reads re-open lazily.
+    from .cad_repository import release_read_handles_under
+
+    for swap_root in (source, destination, staged, parked):
+        release_read_handles_under(swap_root)
+
     if journal.phase == 'COMPLETED':
         journal_path.unlink(missing_ok=True)
         return events
@@ -863,6 +872,10 @@ def execute_data_relocation(
         try:
             # Resolve any interrupted restore before copying so the moved
             # tree is the resolved generation, not a mid-swap artifact.
+            # Deferred import keeps cad_repository out of this module's
+            # import-time dependency graph.
+            from .cad_repository import release_read_handles_under
+
             recover_interrupted_restore(source_dir)
 
             database = source_dir / DATABASE_NAME
@@ -971,7 +984,10 @@ def execute_data_relocation(
             # least one complete root live at every instant: promote the
             # verified staged copy first, then park the source, then move
             # the bootstrap pointer last so a crash never exposes a root
-            # the locator does not describe.
+            # the locator does not describe. Pooled read connections are
+            # in-process handles the instance lock cannot see — release
+            # them as well or the source rename fails with WinError 32.
+            release_read_handles_under(source_dir)
             guard.release()
             destination_dir.parent.mkdir(parents=True, exist_ok=True)
             os.replace(staged, destination_dir)
