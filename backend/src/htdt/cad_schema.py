@@ -470,9 +470,11 @@ class NativeSchemaError(RuntimeError):
     """Native CAD database schema is incompatible or cannot be adopted safely."""
 
 
-def connect_sqlite(path: Path) -> sqlite3.Connection:
+def connect_sqlite(
+    path: Path, *, check_same_thread: bool = True
+) -> sqlite3.Connection:
     """Open ``path`` with the shared row factory and FK enforcement on."""
-    connection = sqlite3.connect(path)
+    connection = sqlite3.connect(path, check_same_thread=check_same_thread)
     connection.row_factory = sqlite3.Row
     connection.execute('PRAGMA foreign_keys=ON')
     return connection

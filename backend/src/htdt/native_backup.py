@@ -1712,6 +1712,16 @@ def restore_backup(
     boundary the activity registry enforces (#REV19/D2).
     """
 
+    # The journaled swaps below (and any interrupted-swap recovery) replace
+    # and unlink sqlite files under the data root; a live pooled read
+    # connection on them makes that fail with WinError 32 on Windows.
+    # Releasing first is safe — the repositories re-open on their next
+    # read. Deferred import keeps the backup authority independent of the
+    # native_backup import inside ensure_native_schema().
+    from .cad_repository import release_read_handles_under
+
+    release_read_handles_under(Path(data_dir))
+
     recover_interrupted_restore(Path(data_dir))
     return _restore_backup(
         data_dir,

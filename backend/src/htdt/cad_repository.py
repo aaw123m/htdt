@@ -11,6 +11,7 @@ from pathlib import Path
 import sqlite3
 import threading
 from typing import Any
+import weakref
 from uuid import uuid4
 
 from .cad_body_mesh import (
@@ -42,7 +43,8 @@ class _SharedReadConnection:
     context-manager exit commits — both are harmless on a connection that
     only ever runs SELECTs (python's sqlite3 opens an implicit transaction
     only on writes). Keeping it open avoids the per-call ``sqlite3.connect``
-    cost; it is stored per-thread because connections are not thread-safe.
+    cost; it is used from a single thread, though a repository may close it
+    from another thread when a file-swap layer needs the handle released.
     """
 
     def __init__(self, inner: sqlite3.Connection) -> None:
@@ -65,6 +67,34 @@ class _SharedReadConnection:
             self._inner.close()
         except Exception:
             pass
+
+
+# File-swap layers (backup restore, managed-data relocation) cannot
+# replace or unlink a sqlite file while ANY connection holds it — on
+# Windows the os.replace/unlink fails with WinError 32. Every live
+# repository registers here so those layers can force pooled read
+# handles closed before mutating the managed tree.
+_LIVE_REPOSITORIES: weakref.WeakSet = weakref.WeakSet()
+
+
+def release_read_handles_under(data_dir: Path) -> int:
+    """Close every live repository's pooled read connections under ``data_dir``.
+
+    Reads re-open lazily on the next call, so this is safe to run from a
+    restore/relocation worker for connections another thread created.
+    Returns the number of repositories released.
+    """
+    root = Path(data_dir).resolve()
+    released = 0
+    for repository in list(_LIVE_REPOSITORIES):
+        try:
+            repository_path = repository.path.resolve()
+        except Exception:
+            continue
+        if repository_path == root or root in repository_path.parents:
+            repository.close()
+            released += 1
+    return released
 
 
 # Editor view state is disposable UI convenience state (selection, hidden and
@@ -332,30 +362,46 @@ class SceneRepository:
         # transaction (python's sqlite3 only auto-begins on writes), so the
         # `, connection:` commit on exit is a no-op on these. Writes keep
         # _connect() — a fresh BEGIN IMMEDIATE boundary each time.
-        self._thread_reads = threading.local()
+        # The table is keyed by thread ident (not held on the thread) and
+        # connections opt out of same-thread checking so close() — and
+        # release_read_handles_under — can release them from a restore or
+        # relocation worker when the swap needs the file handles back.
+        self._read_connections: dict[int, _SharedReadConnection] = {}
+        self._read_connections_lock = threading.Lock()
+        _LIVE_REPOSITORIES.add(self)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
 
     def _read(self) -> sqlite3.Connection:
-        connection = getattr(self._thread_reads, 'connection', None)
-        if connection is None:
-            connection = _SharedReadConnection(connect_sqlite(self.path))
-            self._thread_reads.connection = connection
+        ident = threading.get_ident()
+        with self._read_connections_lock:
+            connection = self._read_connections.get(ident)
+            if connection is None:
+                connection = _SharedReadConnection(
+                    connect_sqlite(self.path, check_same_thread=False)
+                )
+                self._read_connections[ident] = connection
         return connection
 
     def close(self) -> None:
-        """Release the calling thread's shared read connection, if any.
+        """Release every pooled read connection this repository holds.
 
-        Owners that audit a throwaway database clone or otherwise need the
-        file handle back before object teardown call this explicitly —
-        Windows refuses to unlink a sqlite file while a connection holds it.
+        Owners that audit a throwaway database clone — and file-swap layers
+        such as native backup restore — call this to get the file handles
+        back before replacing or unlinking the database; Windows refuses
+        either while a connection holds the file. It may be called from
+        any thread and reads re-open lazily on next use.
         """
-        connection = getattr(self._thread_reads, 'connection', None)
-        if connection is not None:
-            connection._inner.close()
-            self._thread_reads.connection = None
+        with self._read_connections_lock:
+            connections = list(self._read_connections.values())
+            self._read_connections.clear()
+        for connection in connections:
+            try:
+                connection._inner.close()
+            except Exception:
+                pass
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

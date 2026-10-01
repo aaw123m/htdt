@@ -10,7 +10,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_repository import SceneRepository, SceneRevision, _SharedReadConnection
+from .cad_repository import (
+    SceneRepository,
+    SceneRevision,
+    _LIVE_REPOSITORIES,
+    _SharedReadConnection,
+)
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
 from .cad_schema import require_native_tables, connect_sqlite
@@ -93,25 +98,39 @@ class CadSystemVariantRepository:
             tuple[str, str, str],
             tuple[SceneDocument, str],
         ] = OrderedDict()
-        self._thread_reads = threading.local()
+        self._read_connections: dict[int, _SharedReadConnection] = {}
+        self._read_connections_lock = threading.Lock()
+        _LIVE_REPOSITORIES.add(self)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
 
     def _read(self) -> sqlite3.Connection:
-        connection = getattr(self._thread_reads, 'connection', None)
-        if connection is None:
-            connection = _SharedReadConnection(connect_sqlite(self.path))
-            self._thread_reads.connection = connection
+        ident = threading.get_ident()
+        with self._read_connections_lock:
+            connection = self._read_connections.get(ident)
+            if connection is None:
+                connection = _SharedReadConnection(
+                    connect_sqlite(self.path, check_same_thread=False)
+                )
+                self._read_connections[ident] = connection
         return connection
 
     def close(self) -> None:
-        """Release the calling thread's shared read connection, if any."""
-        connection = getattr(self._thread_reads, 'connection', None)
-        if connection is not None:
-            connection._inner.close()
-            self._thread_reads.connection = None
+        """Release every pooled read connection this repository holds.
+
+        Callable from any thread so a file-swap layer can reclaim the
+        handles; reads re-open lazily on next use.
+        """
+        with self._read_connections_lock:
+            connections = list(self._read_connections.values())
+            self._read_connections.clear()
+        for connection in connections:
+            try:
+                connection._inner.close()
+            except Exception:
+                pass
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
