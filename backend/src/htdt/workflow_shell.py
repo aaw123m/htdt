@@ -356,7 +356,6 @@ class WorkspaceRouter(QStackedWidget):
     def dispose_mounts(self) -> None:
         from PySide6.QtCore import QCoreApplication, QEvent
         from PySide6.QtWidgets import QApplication
-        from shiboken6 import delete as _shiboken_delete
         from shiboken6 import isValid
 
         mounts = tuple(self._mounts.values())
@@ -369,17 +368,20 @@ class WorkspaceRouter(QStackedWidget):
                 mount.widget.close()
             self.removeWidget(mount.widget)
             mount.widget.setParent(None)
-            mount.widget.deleteLater()
         # Mount-owned popups (plot context menus, ViewBoxMenu, tooltip
         # frames) are not QObject children of the mount tree, so the
         # mounts' destruction never reaches them: ~26 hidden unparented
-        # Qt.Popup top-levels accumulated per heavy-mount dispose. They are
-        # transient by definition, so destroy them alongside the mounts —
-        # synchronously: a queued delete reposts behind the receiver's
-        # pending events and the stray then dies inside whichever code
-        # path next pumps events, mid-switch or mid-test in a foreign
-        # context. Application-level top-levels (dialogs, the command
-        # palette) are parented and unaffected.
+        # Qt.Popup top-levels accumulated per heavy-mount dispose. Queue
+        # their deletes BEFORE the mounts': a popup's ~ walks its logical
+        # owner (a ViewBox, an action group) even though it is unparented,
+        # so it must be delivered while the owning mount is still alive —
+        # FIFO posted-event order makes the drain destroy popups first.
+        # Each receiver's pending queue is also drained: a queued
+        # DeferredDelete reposts behind each still-pending event, which is
+        # how strays survived single flushes and died inside whichever
+        # code path next pumped events — mid-switch or mid-test in a
+        # foreign context. Application-level top-levels (dialogs, the
+        # command palette) are parented and unaffected.
         app = QApplication.instance()
         if app is not None:
             for widget in app.topLevelWidgets():
@@ -390,10 +392,11 @@ class WorkspaceRouter(QStackedWidget):
                     widget.parentWidget() is None
                     and widget.windowType() == Qt.WindowType.Popup
                 ):
-                    try:
-                        _shiboken_delete(widget)
-                    except RuntimeError:
-                        continue
+                    app.removePostedEvents(widget)
+                    widget.deleteLater()
+        for mount in mounts:
+            app.removePostedEvents(mount.widget)
+            mount.widget.deleteLater()
         # Objects queued for deletion before this call (finished worker
         # threads, timers) still deliver normally — a few passes deliver
         # any delete that was reposted behind pending events so it cannot

@@ -89,7 +89,6 @@ def _destroy_created_toplevels():
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
-    from shiboken6 import delete as _shiboken_delete
 
     app = QApplication.instance()
     if app is None:
@@ -110,40 +109,33 @@ def _destroy_created_toplevels():
     def _stray(widget) -> bool:
         return isValid(widget) and not widget.objectName().startswith("qt_")
 
-    # Strays are destroyed here, split by kind — in dependency order.
-    # A popup's ~ walks its logical owner (a ViewBox, a mount's action
-    # group) even though it is unparented, so popups die FIRST, while
-    # the windows owning those collaborators are still alive; they are
-    # deleted synchronously, which removes their posted events and
-    # cannot be reposted. Windows, dialogs and reparented mount widgets
-    # still take deleteLater — their ~ cascade includes platform-window,
-    # child-machinery and render-context teardown that can fault outside
-    # an event-loop context — after draining each receiver's pending
-    # queue so the delete cannot be reposted past the drain.
+    # Strays are destroyed in dependency order: a popup's ~ walks its
+    # logical owner (a ViewBox, a mount's action group) even though it
+    # is unparented — deleteLater it FIRST so its ~ is delivered by the
+    # pass-end pump while the windows owning those collaborators are
+    # still alive, then deleteLater windows/dialogs/mount widgets. Every
+    # stray's pending queue is drained first: a queued DeferredDelete is
+    # reposted behind each still-pending event, which is how strays
+    # survived single flushes to die inside whichever test next pumped
+    # events — mid-test in a foreign context, the AV/abort class.
+    # Synchronous delete() was tried and rejected: a stray ~ can fault
+    # on collaborators that died earlier, in or out of an event pump.
     for _ in range(6):
         strays = [
             widget for widget in app.topLevelWidgets() if _stray(widget)
         ]
         for widget in strays:
-            if not isValid(widget) or (
-                widget.windowType() != Qt.WindowType.Popup
-            ):
-                continue
-            try:
-                _shiboken_delete(widget)
-            except RuntimeError:
-                # C++ side already gone between the isValid check and
-                # the call.
-                continue
-        for widget in strays:
-            if not isValid(widget) or (
+            if isValid(widget) and (
                 widget.windowType() == Qt.WindowType.Popup
             ):
-                # Dead already, dead as a child of a deleted stray, or
-                # handled in the popup phase above.
-                continue
-            app.removePostedEvents(widget)
-            widget.deleteLater()
+                app.removePostedEvents(widget)
+                widget.deleteLater()
+        for widget in strays:
+            if isValid(widget) and (
+                widget.windowType() != Qt.WindowType.Popup
+            ):
+                app.removePostedEvents(widget)
+                widget.deleteLater()
         app.sendPostedEvents()
         app.processEvents()
         if not any(_stray(widget) for widget in app.topLevelWidgets()):
