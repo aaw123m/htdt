@@ -86,7 +86,7 @@ def _destroy_created_toplevels():
     (``native_worker``/``data_management``) and drained at session finish.
     """
     yield
-    from PySide6.QtCore import Qt, QEvent, QCoreApplication
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
 
