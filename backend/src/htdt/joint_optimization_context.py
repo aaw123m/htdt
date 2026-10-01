@@ -19,6 +19,7 @@ from typing import Literal, Sequence
 
 from .cad_calibration import CadCalibrationPlan
 from .cad_calibration_repository import CadCalibrationRepository
+from .cad_display_labels import measurement_reason_label
 from .cad_extended_search_repository import CadExtendedSearchRepository
 from .cad_joint_execution import (
     JointExecutionResult,
@@ -451,7 +452,14 @@ class JointOptimizationContext:
                 ),
             )
             enabled = capability.decision == 'ALLOWED'
-            reason = '' if enabled else '；'.join(capability.reasons)
+            reason = (
+                ''
+                if enabled
+                else '；'.join(
+                    measurement_reason_label(item)
+                    for item in capability.reasons
+                )
+            )
             options.append(
                 DspVariableOption(
                     parameter=parameter,

@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
+from .cad_display_labels import measurement_claim_label
 from .cad_intervention_study import (
     InterventionAlternative,
     InterventionFamily,
@@ -349,7 +350,7 @@ class InterventionPlannerPanel(QFrame):
             )
             item = QTreeWidgetItem(
                 [
-                    spec.finding.observable,
+                    measurement_claim_label(spec.finding.observable),
                     ", ".join(
                         _FAMILY_LABELS.get(family, family)
                         for family in spec.allowed_families
@@ -439,7 +440,9 @@ class InterventionPlannerPanel(QFrame):
             axis = ' / '.join(
                 part
                 for part in (
-                    metric.observable,
+                    measurement_claim_label(metric.observable)
+                    if metric.observable
+                    else None,
                     f"{metric.band_hz[0]:g}-{metric.band_hz[1]:g} Hz"
                     if metric.band_hz
                     else None,

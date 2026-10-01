@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import measurement_claim_label
 from .cad_scene import is_unassigned_speaker_role
 from .cad_topology_search import PlacementAngleAxis
 from .native_worker import (
@@ -1455,16 +1456,23 @@ class SystemExpansionRobustnessPanel(QFrame):
         self.advanced_label.setVisible(checked)
 
 
-# Human labels for the existing MeasurementCapabilityClaim authority.
-_MEASUREMENT_OBSERVABLES: tuple[tuple[str, str], ...] = (
-    ("magnitude_response", "magnitude応答"),
-    ("phase_response", "phase応答"),
-    ("arrival_time", "到達時間"),
-    ("decay", "減衰"),
-    ("common_timing", "共通タイミング"),
-    ("calibrated_response", "校正済み応答"),
-    ("repeatability", "再現性"),
-    ("polarity", "極性"),
+# Human labels for the existing MeasurementCapabilityClaim authority —
+# resolved through the shared display-label map so the mix never drifts.
+_MEASUREMENT_OBSERVABLES: tuple[tuple[str, str], ...] = tuple(
+    (
+        value,
+        measurement_claim_label(value),
+    )
+    for value in (
+        "magnitude_response",
+        "phase_response",
+        "arrival_time",
+        "decay",
+        "common_timing",
+        "calibrated_response",
+        "repeatability",
+        "polarity",
+    )
 )
 
 

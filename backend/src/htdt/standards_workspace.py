@@ -66,8 +66,11 @@ _REASON_JA = {
     "domain_not_applicable": "この対象には適用されません",
     "explicit_not_applicable": "対象外として明示されています",
     "unit_mismatch": "単位が一致しません",
-    "comparison_passed": "基準を満たしています",
-    "comparison_failed": "基準を満たしていません",
+    "missing_evidence": "証拠がありません",
+    "missing_observed_value": "観測値が設定されていません",
+    "invalid_observed_value": "観測値が無効です",
+    "comparison_pass": "基準を満たしています",
+    "comparison_fail": "基準を満たしていません",
 }
 
 

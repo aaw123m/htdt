@@ -48,7 +48,7 @@ Semantic state:
 |---|---|---|
 | `semantic.success` | `#68B98A` | 完了/有効 |
 | `semantic.warning` | `#E1B15A` | 注意/要対応 |
-| `semantic.error` | `#E47B7B` | error/failure |
+| `semantic.error` | `#E58383` | error/failure |
 | `semantic.stale` | `#B09BC6` | 要再計算/履歴 |
 | `semantic.unsupported` | `#98A2AD` | unsupported/capability unavailable |
 

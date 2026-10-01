@@ -209,7 +209,7 @@ def test_alternative_apply_requires_typed_authority(tmp_path) -> None:
     panel._apply_selected()
 
     assert service.applied_ids == []
-    assert any("authority" in text for text in statuses)
+    assert any("提案権威" in text for text in statuses)
 
 
 def test_variant_apply_runs_canonical_lifecycle(

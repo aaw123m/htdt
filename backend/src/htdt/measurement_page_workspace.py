@@ -47,7 +47,12 @@ from .analysis_export import (
     comparison_export_parts,
     render_analysis_csv,
 )
-from .cad_display_labels import saved_label
+from .cad_display_labels import (
+    acquisition_source_kind_label,
+    measurement_claim_label,
+    measurement_reason_label,
+    saved_label,
+)
 from .cad_measurement_models import (
     MEASUREMENT_ATTACHMENT_KINDS,
     CadMeasurementComparison,
@@ -202,6 +207,14 @@ def _check_label(check: str) -> str:
     }.get(check, check)
 
 
+def _retake_reason_label(reason: str) -> str:
+    """JA gloss for one stored ``retake_reasons`` entry (``check: reason``)."""
+    check, separator, detail = reason.partition(': ')
+    if separator:
+        return f"{_check_label(check)}: {measurement_reason_label(detail)}"
+    return measurement_reason_label(reason)
+
+
 def _check_status_label(status: str) -> str:
     """PASS/FAIL/UNKNOWN/NOT_EVALUATED — missing evidence never shows as PASS."""
     return {
@@ -214,16 +227,7 @@ def _check_status_label(status: str) -> str:
 
 def _claim_label(claim: str) -> str:
     """User-facing label for one downstream capability claim."""
-    return {
-        "magnitude_response": "振幅応答",
-        "phase_response": "位相応答",
-        "common_timing": "共通タイミング",
-        "arrival_time": "到達時刻",
-        "decay": "減衰特性",
-        "calibrated_response": "校正済み応答",
-        "repeatability": "繰り返し精度",
-        "polarity": "極性",
-    }.get(claim, claim)
+    return measurement_claim_label(claim)
 
 
 def _report_state_label(state: str) -> str:
@@ -1358,7 +1362,8 @@ class MeasurementPageWorkspace(QWidget):
             )
         for context in contexts:
             self.acquisition_preset_combo.addItem(
-                f"{context.source_kind} · {context.created_at_utc}",
+                f"{acquisition_source_kind_label(context.source_kind)} "
+                f"· {context.created_at_utc}",
                 context.acquisition_context_id,
             )
 
@@ -2960,7 +2965,7 @@ class MeasurementPageWorkspace(QWidget):
         if row.quality_checks:
             check_lines = "\n".join(
                 f"{_check_label(item.check)}: {_check_status_label(item.status)}"
-                f" — {item.reason}"
+                f" — {measurement_reason_label(item.reason)}"
                 for item in row.quality_checks
             )
             self.quality_checks_label.setText(f"チェック:\n{check_lines}")
@@ -2971,7 +2976,7 @@ class MeasurementPageWorkspace(QWidget):
         if row.capabilities:
             capability_lines = "\n".join(
                 f"{_claim_label(item.claim)}: {_capability_decision_label(item)}"
-                f" — {' / '.join(item.reasons)}"
+                f" — {' / '.join(measurement_reason_label(r) for r in item.reasons)}"
                 for item in row.capabilities
             )
             self.quality_capabilities_label.setText(
@@ -2992,7 +2997,13 @@ class MeasurementPageWorkspace(QWidget):
         guidance = row.retake_guidance
         if guidance is not None:
             if row.retake_reasons:
-                retake_lines.append("理由: " + " / ".join(row.retake_reasons))
+                retake_lines.append(
+                    "理由: "
+                    + " / ".join(
+                        _retake_reason_label(reason)
+                        for reason in row.retake_reasons
+                    )
+                )
             if guidance.missing_evidence:
                 retake_lines.append(
                     "不足している証拠: "
