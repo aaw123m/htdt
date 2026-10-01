@@ -26,7 +26,13 @@ from htdt.cad_display_units import display_length_policy
 from htdt.cad_input import CAD_SHORTCUT_COMMAND_IDS
 from htdt.cad_measure import build_distance_result, MeasureEndpoint
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, Position3, make_f1_scene, room_vertices
+from htdt.cad_scene import (
+    F1_DOCUMENT_ID,
+    Position3,
+    domain_to_render,
+    make_f1_scene,
+    room_vertices,
+)
 from htdt.command_palette import CommandShortcutBinder
 from htdt.command_registry import CommandRegistry, register_default_commands
 from htdt.room_geometry_input import RoomGeometryInputController
@@ -109,6 +115,19 @@ def _workspace(tmp_path, viewport_cls=FakeRoomViewport):
         viewport_factory=lambda parent: viewport_cls(parent),
     )
     return app, workspace
+
+
+class MeasureViewport(FakeRoomViewport):
+    """Viewport double that applies the real overlay's Position3 contract."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.measure_calls: list[tuple] = []
+
+    def render_measure_overlay(self, result, *, draft_endpoints=()) -> None:
+        for position in draft_endpoints:
+            domain_to_render(position)
+        self.measure_calls.append((result, tuple(draft_endpoints)))
 
 
 def _key(key, modifiers=Qt.KeyboardModifier.NoModifier) -> QKeyEvent:
@@ -480,6 +499,32 @@ def test_underlay_click_feeds_measure_free_point_when_not_calibrating(tmp_path) 
     point = workspace.measure_controller._endpoints[0]
     assert point.position.x_m == pytest.approx(1.0)
     assert point.position.y_m == pytest.approx(2.0)
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_workspace_render_feeds_positions_to_draft_measure_overlay(tmp_path) -> None:
+    """Refresh during an in-progress measure must not crash the overlay.
+
+    ``render_measure_overlay`` consumes ``Position3`` draft endpoints; the
+    workspace render path used to forward ``MeasureEndpoint`` records, which
+    ``domain_to_render`` cannot map — every refresh after the first pick
+    raised AttributeError.
+    """
+    app, workspace = _workspace(tmp_path, viewport_cls=MeasureViewport)
+    workspace.measure_controller.begin()
+    workspace.measure_controller.pick_free_point(QPointF(3.0, 4.0))
+    assert len(workspace.measure_controller._endpoints) == 1
+
+    seen = [
+        endpoint
+        for _result, endpoints in workspace.viewport.measure_calls
+        for endpoint in endpoints
+    ]
+    assert seen
+    assert all(isinstance(endpoint, Position3) for endpoint in seen)
 
     workspace.close()
     workspace.deleteLater()

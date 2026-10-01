@@ -7014,7 +7014,10 @@ class RoomWorkspace(QWidget):
             if callable(render_measure):
                 render_measure(
                     self.measure_controller.result,
-                    draft_endpoints=self.measure_controller.endpoints,
+                    draft_endpoints=tuple(
+                        endpoint.position
+                        for endpoint in self.measure_controller.endpoints
+                    ),
                 )
             render_video = getattr(self.viewport, "render_video_overlay", None)
             if callable(render_video):
