@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from math import hypot, isfinite, radians, tan
@@ -515,6 +516,50 @@ def semantic_entity_meshes(entity: SceneEntity) -> tuple[pv.PolyData, ...]:
     return tuple(meshes)
 
 
+# Entity meshes are pure functions of the immutable SceneEntity, and a
+# workspace refresh re-renders the whole document several times per
+# navigation plus once per interactive edit. Memoizing by content hash means
+# only the entities that actually changed get rebuilt; the cap bounds memory
+# for pathological scenes (each entry is a handful of small PolyData).
+_ENTITY_MESH_CACHE_LIMIT = 2048
+_entity_mesh_cache: OrderedDict[
+    tuple[str, str],
+    tuple[pv.PolyData, tuple[pv.PolyData, ...], pv.PolyData | None],
+] = OrderedDict()
+
+
+def entity_render_meshes(
+    entity: SceneEntity,
+) -> tuple[pv.PolyData, tuple[pv.PolyData, ...], pv.PolyData | None]:
+    """(body mesh, semantic glyphs, non-box envelope wireframe) for ``entity``.
+
+    Callers may clip/section the returned meshes but must not mutate them —
+    the same objects are shared across viewports and repeat renders.
+    """
+
+    # model_dump_json rather than hash(): SemanticCapabilityBinding carries a
+    # dict field, which makes the model unhashable.
+    key = (entity.entity_id, entity.model_dump_json())
+    cached = _entity_mesh_cache.pop(key, None)
+    if cached is not None:
+        _entity_mesh_cache[key] = cached
+        return cached
+    body = _entity_mesh(entity)
+    glyphs = semantic_entity_meshes(entity)
+    envelope = (
+        _entity_envelope_mesh(entity)
+        if entity.size_m is not None
+        and entity.body_geometry is not None
+        and entity.body_geometry.kind != 'box'
+        else None
+    )
+    entry = (body, glyphs, envelope)
+    _entity_mesh_cache[key] = entry
+    while len(_entity_mesh_cache) > _ENTITY_MESH_CACHE_LIMIT:
+        _entity_mesh_cache.popitem(last=False)
+    return entry
+
+
 class RoomViewport3D(QFrame):
     """Dark, scene-authority-neutral viewport for the UX120 Room workspace.
 
@@ -599,6 +644,10 @@ class RoomViewport3D(QFrame):
         # one draw of the final state instead of one full pass each.
         self._defer_render_depth = 0
         self._render_pending = False
+        # Signature of the inputs the last render_document consumed; repeated
+        # refreshes with identical inputs skip the whole scene rebuild and
+        # only re-present the current actors.
+        self._last_render_signature: tuple | None = None
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
         self.interactor.installEventFilter(self)
@@ -660,6 +709,31 @@ class RoomViewport3D(QFrame):
         self._hidden_ids = frozenset(hidden_ids)
         self._locked_ids = frozenset(locked_ids)
         self._overlays = overlays
+        signature = (
+            # The document object itself, not id(): keeping the reference
+            # prevents its address being reused by a different document,
+            # and frozen-model equality catches any replacement.
+            document,
+            selected_id,
+            selected_set,
+            self._hidden_ids,
+            self._locked_ids,
+            overlays,
+            # The extras tuples are reassigned wholesale, so identity is a
+            # staleness-safe key; the mutable SectionPlaneState needs a
+            # content key instead (in-place edits keep the same id).
+            id(self._underlay_items),
+            id(self._guide_items),
+            None if self._section is None else self._section.model_dump_json(),
+        )
+        if not reset_camera and signature == self._last_render_signature:
+            # Identical scene inputs — keep every render_document-owned actor
+            # and drop only the overlay namespaces the compositing callers
+            # re-populate right after this method returns (or, when their
+            # state went away, correctly do not).
+            self._remove_overlay_actors()
+            self._render()
+            return
         self._actor_entity_ids.clear()
         self._actor_proposed_entity_ids.clear()
         self._actor_underlay_ids.clear()
@@ -741,7 +815,8 @@ class RoomViewport3D(QFrame):
                 and selected_set
                 and not is_selected
             )
-            mesh = self._apply_section(_entity_mesh(entity))
+            body_mesh, glyphs, envelope_mesh = entity_render_meshes(entity)
+            mesh = self._apply_section(body_mesh)
             if mesh is None:
                 continue
             category = _entity_category(entity)
@@ -771,7 +846,7 @@ class RoomViewport3D(QFrame):
             # Semantic glyph proxies read as the entity's type at a glance;
             # they are render-only, pick back to the entity, and dim with it.
             glyph_opacity = (0.55 if is_locked else 0.98) if not focused_out else 0.12
-            for index, glyph in enumerate(semantic_entity_meshes(entity)):
+            for index, glyph in enumerate(glyphs):
                 glyph = self._apply_section(glyph)
                 if glyph is None:
                     continue
@@ -791,15 +866,11 @@ class RoomViewport3D(QFrame):
                 )
                 self._actor_entity_ids[id(glyph_actor)] = entity.entity_id
                 self._marquee_actors.append((entity.entity_id, glyph_actor))
-            if (
-                entity.size_m is not None
-                and entity.body_geometry is not None
-                and entity.body_geometry.kind != 'box'
-            ):
+            if envelope_mesh is not None:
                 # The bounding envelope stays visible as a separate wireframe
                 # authority whenever an entity opts into richer body geometry.
                 self.plotter.add_mesh(
-                    _entity_envelope_mesh(entity),
+                    envelope_mesh,
                     color=DARK_THEME.viewport.geometry_edge.hex,
                     style="wireframe",
                     line_width=1,
@@ -869,7 +940,37 @@ class RoomViewport3D(QFrame):
         )
         if reset_camera:
             self.fit_scene()
+        self._last_render_signature = signature
         self._render()
+
+    #: Named-actor prefixes owned by the compositing overlay renderers
+    #: (measure/constraint/video/proposal/prediction/history/search-domain/
+    #: snap-feedback), which run after render_document inside one deferred
+    #: render block. A signature-skipped render_document drops exactly these
+    #: actors — the overlays re-add their current set right after — while
+    #: keeping the expensive entity/grid/shell/selection scene.
+    _OVERLAY_ACTOR_PREFIXES = (
+        'proposal-',
+        'prediction-',
+        'measure-',
+        'measurement-',
+        'constraint-',
+        'video-',
+        'history-ghost-',
+        'search-domain-',
+        'snap-feedback-',
+    )
+
+    def _remove_overlay_actors(self) -> None:
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if not actors:
+            return
+        for name in tuple(actors):
+            if isinstance(name, str) and name.startswith(
+                self._OVERLAY_ACTOR_PREFIXES
+            ):
+                self.plotter.remove_actor(name)
 
     def _render_category_legend(self, categories: set[str]) -> None:
         """Small category key — appears only when two or more categories show.
@@ -956,8 +1057,9 @@ class RoomViewport3D(QFrame):
             # Ghosts stay wireframe — the proposed/current grammar is unchanged;
             # only the fill color now carries the entity category (#572).
             ghost_color = _category_color(_entity_category(entity))
+            ghost_mesh, ghost_glyphs, _env = entity_render_meshes(entity)
             actor = self.plotter.add_mesh(
-                _entity_mesh(entity),
+                ghost_mesh,
                 color=ghost_color,
                 style="wireframe",
                 line_width=4 if entity.entity_id == selected_id else 2,
@@ -967,7 +1069,7 @@ class RoomViewport3D(QFrame):
                 render=False,
             )
             self._actor_proposed_entity_ids[id(actor)] = entity.entity_id
-            for index, glyph in enumerate(semantic_entity_meshes(entity)):
+            for index, glyph in enumerate(ghost_glyphs):
                 glyph_actor = self.plotter.add_mesh(
                     glyph,
                     color=ghost_color,
@@ -2279,8 +2381,9 @@ class RoomViewport3D(QFrame):
         """Ghost a historical revision over the current scene — read-only (#485)."""
 
         for entity in document.entities:
+            ghost_mesh, _glyphs, _env = entity_render_meshes(entity)
             self.plotter.add_mesh(
-                _entity_mesh(entity),
+                ghost_mesh,
                 color='slategray',
                 style='wireframe',
                 line_width=2,

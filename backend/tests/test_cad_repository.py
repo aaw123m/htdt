@@ -912,3 +912,20 @@ def test_new_geometry_must_still_bind_to_the_parent(tmp_path: Path) -> None:
             _geometry_document('geo-doc', forged),
             parent_revision_id=first.revision_id,
         )
+
+
+def test_get_memoizes_revisions_but_never_misses(tmp_path: Path) -> None:
+    """REV25-UIPERF: repeated ``get`` re-fetches the row every call but
+    memoizes deserialization, returning the same immutable revision."""
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = repository.save(
+        make_f1_scene(), parent_revision_id=None
+    ).revision
+
+    first = repository.get(revision.revision_id)
+    second = repository.get(revision.revision_id)
+    assert first is second
+
+    # A miss is intentionally not memoized: a revision first requested
+    # before its writer commits must resolve once it exists.
+    assert repository.get('revision-not-written') is None

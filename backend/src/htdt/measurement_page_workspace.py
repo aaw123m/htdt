@@ -513,6 +513,11 @@ class MeasurementPageWorkspace(QWidget):
     def set_context(self, context_id: str) -> None:
         if context_id not in _CONTEXT_IDS:
             raise ValueError(f"unknown measurement context: {context_id}")
+        if context_id == self.current_context_id:
+            # The shell re-issues the route context on every activation even
+            # when it did not change; a same-context no-op keeps activate()'s
+            # own refresh as the single reload instead of doubling it.
+            return
         self.current_context_id = context_id
         self.pages.setCurrentIndex(_CONTEXT_IDS.index(context_id))
         self.refresh()

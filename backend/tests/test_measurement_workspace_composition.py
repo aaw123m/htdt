@@ -239,3 +239,29 @@ def test_comparison_band_presets(tmp_path: Path) -> None:
         workspace.close()
         workspace.deleteLater()
         app.processEvents()
+
+
+def test_set_context_same_context_does_not_refresh(tmp_path: Path) -> None:
+    """REV25-UIPERF: the shell re-issues the route context on every
+    activation; a same-context set_context must not trigger a full refresh."""
+    app = _app()
+    _, workspace = _workspace(tmp_path)
+    try:
+        calls = []
+        original_refresh = workspace.refresh
+
+        def _counted() -> None:
+            calls.append(1)
+            original_refresh()
+
+        workspace.refresh = _counted
+        workspace.set_context("import")  # initial context — unchanged
+        assert not calls
+        workspace.set_context("quality")
+        assert len(calls) == 1
+        workspace.set_context("quality")  # repeated — still no extra refresh
+        assert len(calls) == 1
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()

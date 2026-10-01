@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 import sqlite3
+import threading
 from typing import Any
 from uuid import uuid4
 
@@ -31,6 +33,39 @@ from .content_blobs import (
 
 
 _LOGGER = logging.getLogger('htdt.native')
+
+
+class _SharedReadConnection:
+    """Long-lived read connection proxy whose ``close()`` is a no-op.
+
+    Read paths hold it through ``with closing(self._read())`` and the sqlite
+    context-manager exit commits — both are harmless on a connection that
+    only ever runs SELECTs (python's sqlite3 opens an implicit transaction
+    only on writes). Keeping it open avoids the per-call ``sqlite3.connect``
+    cost; it is stored per-thread because connections are not thread-safe.
+    """
+
+    def __init__(self, inner: sqlite3.Connection) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def __enter__(self):
+        return self._inner.__enter__()
+
+    def __exit__(self, exc_type, exc, tb):
+        return self._inner.__exit__(exc_type, exc, tb)
+
+    def close(self) -> None:
+        pass
+
+    def __del__(self) -> None:
+        try:
+            self._inner.close()
+        except Exception:
+            pass
+
 
 # Editor view state is disposable UI convenience state (selection, hidden and
 # locked ids), not project truth. Read validation bounds each persisted id list
@@ -283,10 +318,44 @@ class SceneRepository:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         ensure_native_schema(self.path)
+        # Bounded parse memo for get(): the row is re-fetched on every call
+        # so deletes and writes stay observable — only the deserialization
+        # (row bytes -> SceneRevision) is memoized, keyed by the full row
+        # content. Immutable append-only rows make that a pure function, and
+        # list surfaces re-hydrate the same rows per row. LRU past the cap.
+        self._revision_cache: OrderedDict[
+            str, tuple[tuple, SceneRevision]
+        ] = OrderedDict()
+        # Per-thread shared read connections: sqlite3.connect() costs ~2-4ms
+        # per open on Windows (file open + page cache init), and the hot
+        # read paths below open one per call. Reads never hold a
+        # transaction (python's sqlite3 only auto-begins on writes), so the
+        # `, connection:` commit on exit is a no-op on these. Writes keep
+        # _connect() — a fresh BEGIN IMMEDIATE boundary each time.
+        self._thread_reads = threading.local()
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
+
+    def _read(self) -> sqlite3.Connection:
+        connection = getattr(self._thread_reads, 'connection', None)
+        if connection is None:
+            connection = _SharedReadConnection(connect_sqlite(self.path))
+            self._thread_reads.connection = connection
+        return connection
+
+    def close(self) -> None:
+        """Release the calling thread's shared read connection, if any.
+
+        Owners that audit a throwaway database clone or otherwise need the
+        file handle back before object teardown call this explicitly —
+        Windows refuses to unlink a sqlite file while a connection holds it.
+        """
+        connection = getattr(self._thread_reads, 'connection', None)
+        if connection is not None:
+            connection._inner.close()
+            self._thread_reads.connection = None
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
@@ -312,7 +381,7 @@ class SceneRepository:
         Detached lineage written by ``save_detached_revision`` never appears
         here regardless of insertion order.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = self._head_revision_row(connection, document_id)
             if row is None:
                 return None
@@ -335,7 +404,7 @@ class SceneRepository:
         newer than the head. Product code must consume :meth:`current_head`;
         this exists for rare chronology/diagnostic queries.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM scene_revisions WHERE document_id=? ORDER BY seq DESC LIMIT 1',
                 (document_id,),
@@ -377,15 +446,18 @@ class SceneRepository:
             'head authority is corrupt'
         )
 
+    #: Upper bound on the per-instance revision memo in ``get``.
+    _REVISION_CACHE_LIMIT = 1024
+
     def get(self, revision_id: str) -> SceneRevision | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM scene_revisions WHERE revision_id=?',
                 (revision_id,),
             ).fetchone()
-            if row is None:
-                return None
-            return self._row_to_revision(row, read_blob=self.read_blob)
+        if row is None:
+            return None
+        return self._row_to_revision(row, read_blob=self.read_blob)
 
     def save(
         self,
@@ -694,7 +766,7 @@ class SceneRepository:
         )
 
     def recovery(self, document_id: str) -> RecoverySnapshot | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM scene_recovery_snapshots WHERE document_id=?',
                 (document_id,),
@@ -840,7 +912,7 @@ class SceneRepository:
         the underlying SceneRevision stays untouched. Authoritative stores such
         as ``scene_revisions`` keep failing closed on corruption.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM editor_view_states WHERE document_id=?',
                 (document_id,),
@@ -899,7 +971,7 @@ class SceneRepository:
         the mainline chain. Head state is resolved by callers through
         ``current_head`` — this query is deliberately lineage-exhaustive.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM scene_revisions WHERE document_id=? ORDER BY seq ASC',
                 (document_id,),
@@ -918,7 +990,7 @@ class SceneRepository:
         revision list — the same lineage-exhaustive row set
         :meth:`list_revisions` returns, minus the decode.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT revision_id, document_id, parent_revision_id, '
                 'created_at_utc, content_hash, detached, detached_reason, '
@@ -997,7 +1069,7 @@ class SceneRepository:
             )
 
     def revision_labels(self, document_id: str) -> dict[str, RevisionLabel]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             self._ensure_revision_labels(connection)
             rows = connection.execute(
                 'SELECT * FROM scene_revision_labels WHERE document_id=?',
@@ -1278,7 +1350,7 @@ class SceneRepository:
         Unlike disposable editor payloads, a corrupt constraint head must
         stay retained and visible as an integrity problem (#843).
         """
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection:
             return connection.execute(
                 'SELECT payload_json, updated_at_utc '
                 'FROM authoring_constraint_sets WHERE document_id=?',
@@ -1323,7 +1395,7 @@ class SceneRepository:
                 created_at_utc=row['updated_at_utc'],
                 constraint_revision_sha256='',
             )
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection:
             revision_row = connection.execute(
                 'SELECT * FROM authoring_constraint_revisions '
                 'WHERE constraint_revision_id=? AND document_id=?',
@@ -1441,7 +1513,7 @@ class SceneRepository:
         self, document_id: str
     ) -> tuple[AuthoringConstraintRevision, ...]:
         """The full immutable constraint lineage, newest first (#843)."""
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection:
             rows = connection.execute(
                 'SELECT * FROM authoring_constraint_revisions '
                 'WHERE document_id=? '
@@ -1459,7 +1531,7 @@ class SceneRepository:
         before that scene's commit still governs (constraints carry forward
         until the next constraint edit).
         """
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection:
             scene_row = connection.execute(
                 'SELECT created_at_utc FROM scene_revisions '
                 'WHERE revision_id=? AND document_id=?',
@@ -1499,12 +1571,22 @@ class SceneRepository:
             connection.commit()
         return deleted > 0
 
-    @staticmethod
     def _row_to_revision(
+        self,
         row: sqlite3.Row,
         *,
         read_blob,
     ) -> SceneRevision:
+        # Parse memo keyed by the full row content: every caller still
+        # re-SELECTs rows per read (deletes and writes stay observable);
+        # only the deserialization of an identical row is reused. Blob
+        # references are row columns, so identical rows resolve identical
+        # content-addressed blobs regardless of the read_blob callable.
+        key = tuple(row)
+        cached = self._revision_cache.pop(row['revision_id'], None)
+        if cached is not None and cached[0] == key:
+            self._revision_cache[row['revision_id']] = cached
+            return cached[1]
         try:
             document = SceneDocument.model_validate(
                 json.loads(row['payload_json'])
@@ -1527,7 +1609,7 @@ class SceneRepository:
         # the persisted payload only carries the compact reference. A missing
         # or corrupt blob fails closed rather than rendering silently.
         document = resolve_document_mesh_bodies(document, read_blob)
-        return SceneRevision(
+        revision = SceneRevision(
             revision_id=row['revision_id'],
             document_id=row['document_id'],
             parent_revision_id=row['parent_revision_id'],
@@ -1537,3 +1619,7 @@ class SceneRepository:
             detached=bool(row['detached']),
             detached_reason=row['detached_reason'],
         )
+        self._revision_cache[revision.revision_id] = (key, revision)
+        while len(self._revision_cache) > self._REVISION_CACHE_LIMIT:
+            self._revision_cache.popitem(last=False)
+        return revision
