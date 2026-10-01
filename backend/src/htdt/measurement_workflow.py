@@ -531,7 +531,7 @@ _RUNNER_ROLE_TOKENS = {
 }
 _RUNNER_PURPOSE_LABELS = {
     'measurement': '測定',
-    'calibration': 'キャリブレーション',
+    'calibration': '校正',
     'holdout': 'ホールドアウト',
     'diagnostic': '診断',
 }
@@ -1991,7 +1991,7 @@ class MeasurementWorkflowController:
             or revision.content_hash != variant_plan.as_built_content_hash
         ):
             raise MeasurementWorkflowError(
-                "測定計画が参照するAs-builtリビジョンを確認できません"
+                "測定計画が参照する設置済みリビジョンを確認できません"
             )
         cells: list[RunnerCellSpec] = []
         for target in variant_plan.targets:

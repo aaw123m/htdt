@@ -420,7 +420,7 @@ def newer_schema_dialog_copy_ja(
 
     reason = (
         'このデータはより新しいHTDTデータ形式'
-        f'（schema v{exc.stored_schema_version}）で作成または更新されています。'
+        f'（スキーマ v{exc.stored_schema_version}）で作成または更新されています。'
         if exc.stored_schema_version is not None
         else 'このデータはこのビルドより新しいHTDTデータ形式で作成または更新されています。'
     )

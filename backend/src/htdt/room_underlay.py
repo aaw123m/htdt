@@ -212,7 +212,7 @@ def calibrate_two_point(
     true distance in meters. Never derives scale from DPI metadata."""
 
     if distance_m <= 0.0:
-        raise UnderlayImportError('キャリブレーション距離は正の値が必要です')
+        raise UnderlayImportError('校正距離は正の値が必要です')
     source_distance = hypot(point_b[0] - point_a[0], point_b[1] - point_a[1])
     if source_distance <= 1e-9:
         raise UnderlayImportError('2点が近すぎます。離れた2点を選んでください')

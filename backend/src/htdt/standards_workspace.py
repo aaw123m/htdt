@@ -150,9 +150,9 @@ class StandardsWorkspaceModel:
                 raise KeyError(variant_id)
             revision = self.scene_repository.get(variant.baseline_revision_id)
             if revision is None:
-                raise ValueError("SystemVariantの基準SceneRevisionがありません")
+                raise ValueError("システムバリアントの基準シーンリビジョンがありません")
             if revision.content_hash != variant.baseline_content_hash:
-                raise ValueError("SystemVariantの基準SceneRevisionが一致しません")
+                raise ValueError("システムバリアントの基準シーンリビジョンが一致しません")
             document = materialize_system_variant(revision, variant)
             label = variant.name
         target = StandardsEvaluationTarget(
@@ -333,7 +333,7 @@ class StandardsCriterionPanel(QFrame):
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         note = QLabel(
-            "基準は項目ごとの証拠です。総合点や自動推薦には使いません。"
+            "基準は項目ごとの証拠です。総合点や自動推奨には使いません。"
         )
         note.setWordWrap(True)
         set_typography_role(note, TypographyRole.SECONDARY)
@@ -406,7 +406,7 @@ class StandardsCriterionPanel(QFrame):
         self.gate_label.setWordWrap(True)
         layout.addWidget(self.gate_label)
 
-        self.advanced_button = QPushButton("詳細 / provenance")
+        self.advanced_button = QPushButton("詳細 / 出典")
         self.advanced_button.clicked.connect(self.show_advanced)
         set_control_size(self.advanced_button, ControlSize.COMPACT)
         layout.addWidget(self.advanced_button)
@@ -659,7 +659,7 @@ class StandardsCriterionPanel(QFrame):
 
     def show_advanced(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("StandardsProfile 詳細 / provenance")
+        dialog.setWindowTitle("規格プロファイル詳細 / 出典")
         dialog.resize(720, 520)
         layout = QVBoxLayout(dialog)
         label = QLabel(self.advanced_text())

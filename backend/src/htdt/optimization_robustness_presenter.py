@@ -19,8 +19,8 @@ _AXIS_LABELS = {
     'listener_x_m': '座席 X位置',
     'listener_y_m': '座席 Y位置',
     'listener_z_m': '座席 Z位置',
-    'aim_yaw_deg': '音響 aim 左右',
-    'aim_pitch_deg': '音響 aim 上下',
+    'aim_yaw_deg': '音響照準左右',
+    'aim_pitch_deg': '音響照準上下',
     'body_yaw_deg': '筐体向き',
 }
 
@@ -31,9 +31,9 @@ _OBJECTIVE_LABELS = {
     'response.shape_rms_db': '応答形状 RMS',
     'pair.rms_difference_db': 'ペア応答差 RMS',
     'pair.shape_rms_db': 'ペア形状 RMS',
-    'seat.pairwise_rms_difference_max_db': '座席間差 最大',
+    'seat.pairwise_rms_difference_max_db': '座席間差最大',
     'seat.pairwise_rms_difference_rms_db': '座席間差 RMS',
-    'seat.pairwise_shape_max_db': '座席間形状差 最大',
+    'seat.pairwise_shape_max_db': '座席間形状差最大',
     'seat.pairwise_shape_rms_db': '座席間形状差 RMS',
     'movement.total_m': '総移動量',
     'movement.max_m': '最大移動量',

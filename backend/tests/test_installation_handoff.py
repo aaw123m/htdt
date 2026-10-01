@@ -142,6 +142,10 @@ def test_handoff_builds_review_and_deterministic_exports(
     assert '  上面: ' in preview
     assert '校正プラン' in preview
     assert 'calibration_plan' not in preview
+    # Section verdict reasons render in Japanese on this surface too —
+    # the stored reason strings stay English domain prose.
+    assert 'authority is bound' not in preview
+    assert '結び付けられていません' in preview
 
 
 def test_handoff_package_writes_deterministic_files(tmp_path: Path) -> None:

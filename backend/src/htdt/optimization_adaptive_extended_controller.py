@@ -18,18 +18,18 @@ class AdaptiveExtendedControllerMixin:
         base_spec = self._selected_search_spec()
         if validation is None or extended_spec is None or base_spec is None:
             self.statusBar().showMessage(
-                'Adaptive ExtendedにはSearchSpec / Extended SearchSpec / '
-                'ValidationRecordの選択が必要です'
+                'アダプティブ拡張には探索仕様 / 拡張探索仕様 / '
+                '検証記録の選択が必要です'
             )
             return
         if extended_spec.base_search_spec_id != base_spec.search_spec_id:
             self.statusBar().showMessage(
-                '選択Extended SearchSpecは現在のbase SearchSpecに属していません'
+                '選択拡張探索仕様は現在のベース探索仕様に属していません'
             )
             return
         if validation.search_spec_id != base_spec.search_spec_id:
             self.statusBar().showMessage(
-                '選択ValidationRecordは現在のbase SearchSpecに属していません'
+                '選択検証記録は現在のベース探索仕様に属していません'
             )
             return
 
@@ -50,7 +50,7 @@ class AdaptiveExtendedControllerMixin:
         )
         extended_search_id = extended_spec.extended_search_id
         validation_id = validation.validation_id
-        self.statusBar().showMessage('Adaptive Extended Planを計算しています…')
+        self.statusBar().showMessage('アダプティブ拡張計画を計算しています…')
         self._refresh_adaptive_run_state()
         self._adaptive_pool.start(
             'adaptive_extended:build',
@@ -71,24 +71,24 @@ class AdaptiveExtendedControllerMixin:
             return
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
-                'Adaptive Extended Plan計算を中止しました'
+                'アダプティブ拡張計画計算を中止しました'
             )
             return
         if error is not None:
             self.statusBar().showMessage(
-                f'Adaptive Extended Planを作成できません · '
+                f'アダプティブ拡張計画を作成できません · '
                 f'{operation_error_message(error)}'
             )
             return
         plan = result
         self.refresh_adaptive_extended_plans(select_plan_id=plan.plan_id)
         mode = (
-            'synthetic開発'
+            '合成開発'
             if plan.execution_scope == 'development_synthetic'
-            else 'owned-room本番'
+            else '実室本番'
         )
         self.statusBar().showMessage(
-            f'O80A Adaptive Extended Planを保存しました · {mode} · '
+            f'O80A アダプティブ拡張計画を保存しました · {mode} · '
             f'次候補 {plan.selected_candidate_id[:12]}'
         )
 
@@ -106,7 +106,7 @@ class AdaptiveExtendedControllerMixin:
         tree.clear()
         if self.adaptive_extended_detail_label is not None:
             self.adaptive_extended_detail_label.setText(
-                'Adaptive Extended Plan未選択'
+                'アダプティブ拡張計画未選択'
             )
         extended_search_id = self.extended_selected_spec_id
         if extended_search_id is None:
@@ -117,7 +117,7 @@ class AdaptiveExtendedControllerMixin:
             )
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Adaptive Extended Planを読めません · {operation_error_message(exc)}'
+                f'アダプティブ拡張計画を読めません · {operation_error_message(exc)}'
             )
             return
 
@@ -185,15 +185,15 @@ class AdaptiveExtendedControllerMixin:
         item = tree.currentItem()
         payload = None if item is None else item.data(0, ROLE)
         if not isinstance(payload, dict):
-            label.setText('Adaptive Extended Plan未選択')
+            label.setText('アダプティブ拡張計画未選択')
             return
         plan_id = payload.get('plan_id')
         if not isinstance(plan_id, str):
-            label.setText('Adaptive Extended Plan未選択')
+            label.setText('アダプティブ拡張計画未選択')
             return
         plan = self.adaptive_extended_repository.get_plan(plan_id)
         if plan is None:
-            label.setText('Adaptive Extended Planが見つかりません')
+            label.setText('アダプティブ拡張計画が見つかりません')
             return
 
         feature_text = ', '.join(
@@ -214,7 +214,7 @@ class AdaptiveExtendedControllerMixin:
         ]
         if plan.execution_scope == 'development_synthetic':
             lines.append(
-                'synthetic development only · production recommendationは開きません'
+                '合成開発のみ · 本番推奨は開きません'
             )
         candidate_id = payload.get('candidate_id')
         if isinstance(candidate_id, str):

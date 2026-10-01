@@ -172,7 +172,7 @@ class StandardsProfileEditorDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.service = service
-        self.setWindowTitle("基準プロファイル ライブラリ / エディタ")
+        self.setWindowTitle("基準プロファイルライブラリ / エディタ")
         self.resize(820, 560)
         self._criteria: list[CriterionDefinition] = []
         self._base_profile: StandardsProfile | None = None

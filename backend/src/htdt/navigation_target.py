@@ -223,7 +223,7 @@ _NAVIGATION_KIND_LABELS: dict[NavigationTargetKind, str] = {
     NavigationTargetKind.OPTIMIZATION_CANDIDATE: "最適化候補",
     NavigationTargetKind.OPTIMIZATION_COMPARISON: "最適化比較",
     NavigationTargetKind.COMMISSIONING_EVALUATION: "コミッショニング評価",
-    NavigationTargetKind.CAPTURE_DELIVERY: "Capture配送",
+    NavigationTargetKind.CAPTURE_DELIVERY: "キャプチャ配送",
     NavigationTargetKind.CAPTURE_INBOX_ITEM: "取り込み項目",
     NavigationTargetKind.EQUIPMENT_DEFINITION: "機材定義",
     NavigationTargetKind.INSTALLED_EQUIPMENT_INSTANCE: "設置済み機材",

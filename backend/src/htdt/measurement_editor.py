@@ -142,17 +142,17 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         form.addRow('証拠種別', self.evidence_combo)
 
         self.channel_role_field = QLineEdit('unknown')
-        self.channel_role_field.setPlaceholderText('例: front_left / center / unknown')
+        self.channel_role_field.setPlaceholderText('例: front_left / center / 不明')
         form.addRow('入力役割', self.channel_role_field)
         layout.addLayout(form)
 
         import_row = QHBoxLayout()
-        text_button = QPushButton('REWテキスト取込')
-        text_button.setToolTip('選択中の音響基準点と、現在の保存済みSceneRevisionへ固定して取り込みます')
+        text_button = QPushButton('REWテキスト取り込み')
+        text_button.setToolTip('選択中の音響基準点と、現在の保存済みシーンリビジョンへ固定して取り込みます')
         text_button.clicked.connect(self.import_rew_text_dialog)
         import_row.addWidget(text_button)
         refresh_button = QPushButton('REW一覧更新')
-        refresh_button.setToolTip('localhostのREW測定一覧をGUI thread外で読み取ります')
+        refresh_button.setToolTip('localhostのREW測定一覧をGUI スレッド外で読み取ります')
         refresh_button.clicked.connect(self.refresh_rew_list_async)
         import_row.addWidget(refresh_button)
         layout.addLayout(import_row)
@@ -161,21 +161,21 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.rew_combo = QComboBox()
         self.rew_combo.setMinimumContentsLength(18)
         rew_row.addWidget(self.rew_combo, 1)
-        read_button = QPushButton('選択REWを読込')
+        read_button = QPushButton('選択REWを読み込み')
         read_button.clicked.connect(self.read_selected_rew_async)
         rew_row.addWidget(read_button)
         # Honest affordance (round10 cancel audit): the REW HTTP read cannot
         # be interrupted mid-call — cancelling marks the job so its late
         # result is discarded, it does not abort the request.
-        cancel_button = QPushButton('読込の待機をやめる')
+        cancel_button = QPushButton('読み込みの待機をやめる')
         cancel_button.setToolTip(
-            '実行中のREW読込を中断せず、結果が届いても適用しないようにします'
+            '実行中のREW読み込みを中断せず、結果が届いても適用しないようにします'
         )
         cancel_button.clicked.connect(self.cancel_rew_read)
         rew_row.addWidget(cancel_button)
         layout.addLayout(rew_row)
 
-        self.measurement_detail_label = QLabel('測定を選択すると provenance / point / revision を表示します')
+        self.measurement_detail_label = QLabel('測定を選択すると出典 / ポイント / リビジョンを表示します')
         self.measurement_detail_label.setWordWrap(True)
         layout.addWidget(self.measurement_detail_label)
 
@@ -205,7 +205,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         layout.addLayout(compare_form)
 
         compare_button = QPushButton('A/B比較を保存')
-        compare_button.setToolTip('dataset A/Bと各測定時SceneRevisionを固定して比較結果を保存します')
+        compare_button.setToolTip('データセット A/Bと各測定時シーンリビジョンを固定して比較結果を保存します')
         compare_button.clicked.connect(self.compare_selected_measurements)
         layout.addWidget(compare_button)
         self.measurement_compare_label = QLabel('比較未実行')
@@ -305,7 +305,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         preview = self.target_service.preview(pattern)
         self.statusBar().showMessage(
             f'パターン作成 · {len(preview.positions)}点 '
-            f'(anchor {pattern.anchor_revision_id[:8]}) — 実体化で確定'
+            f'(アンカー {pattern.anchor_revision_id[:8]}) — 実体化で確定'
         )
         self._refresh_target_patterns()
 
@@ -372,12 +372,12 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
 
     def _saved_measurement_target(self) -> tuple[SceneRevision, str]:
         if self.working is None or self.working.source_revision_id is None:
-            raise ValueError('保存済みSceneRevisionが必要です')
+            raise ValueError('保存済みシーンリビジョンが必要です')
         if self.working.is_dirty:
-            raise ValueError('測定取込の前に現在の配置を保存してください')
+            raise ValueError('測定取り込みの前に現在の配置を保存してください')
         revision = self.repository.get(self.working.source_revision_id)
         if revision is None:
-            raise ValueError('現在のSceneRevisionを読み込めません')
+            raise ValueError('現在のシーンリビジョンを読み込めません')
         entity_id = self.selected_id
         if entity_id is None:
             raise ValueError('測定点または音響基準点を持つ物体を選択してください')
@@ -413,7 +413,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             )
             self.import_rew_text_bytes(raw, file_path.name)
         except Exception as exc:
-            self.statusBar().showMessage(f'REWテキスト取込失敗 · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'REWテキスト取り込み失敗 · {operation_error_message(exc)}')
 
     def import_rew_text_bytes(self, raw: bytes, filename: str) -> CadMeasurementRecord:
         revision, entity_id = self._saved_measurement_target()
@@ -429,7 +429,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.measurement_selected_id = record.measurement_id
         self._refresh_measurement_list()
         self._rebuild()
-        self.statusBar().showMessage(f'測定を保存しました · revision {record.scene_revision_id[:8]}')
+        self.statusBar().showMessage(f'測定を保存しました · リビジョン {record.scene_revision_id[:8]}')
         return record
 
     def _refresh_measurement_list(self) -> None:
@@ -489,7 +489,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         record = self._selected_measurement()
         if record is None:
             self.measurement_scene_label.setText('保存済み測定を選択してください')
-            self.measurement_detail_label.setText('測定を選択すると provenance / point / revision を表示します')
+            self.measurement_detail_label.setText('測定を選択すると出典 / ポイント / リビジョンを表示します')
             return
         current_hash = None if self.working is None else scene_content_hash(self.working.committed_document)
         historical = current_hash != record.scene_content_hash
@@ -562,7 +562,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 render=False,
             )
             actor.SetPickable(False)
-        ghost_label = 'Synthetic配置' if measurement_is_synthetic(record) else '測定時配置'
+        ghost_label = '合成配置' if measurement_is_synthetic(record) else '測定時配置'
         self.viewport.add_text(
             f'{ghost_label} · {record.scene_revision_id[:8]}',
             position='upper_left',
@@ -582,7 +582,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         dataset_a = self.measurement_repository.get_dataset(str(dataset_a_id))
         dataset_b = self.measurement_repository.get_dataset(str(dataset_b_id))
         if dataset_a is None or dataset_b is None:
-            self.statusBar().showMessage('比較datasetを読み込めません')
+            self.statusBar().showMessage('比較データセットを読み込めません')
             return
         low = 20.0 if self.compare_low_field is None else float(self.compare_low_field.value())
         high = 20000.0 if self.compare_high_field is None else float(self.compare_high_field.value())
@@ -604,7 +604,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
                 f'比較 {saved.comparison_id[:8]} · A {saved.scene_revision_a_id[:8]} / B {saved.scene_revision_b_id[:8]}\n'
                 f'有効点 {saved.valid_points} · RMS差 {rms} · {saved.algorithm_version}'
             )
-        self.statusBar().showMessage('A/B比較をdataset / revision固定で保存しました')
+        self.statusBar().showMessage('A/B比較をデータセット / リビジョン固定で保存しました')
 
     def _plot_comparison(
         self,
@@ -724,7 +724,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             else f' · キャンペーン {validation_campaign_id[:8]}'
         )
         self.statusBar().showMessage(
-            f'REW読込中 · revision {token.scene_revision_id[:8]}{scope_message}'
+            f'REW読み込み中 · リビジョン {token.scene_revision_id[:8]}{scope_message}'
         )
 
     def cancel_rew_read(self) -> None:
@@ -738,7 +738,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             # and a finishing read reports WORKER_CANCELLED instead of a
             # successful result that must be discarded downstream (#REV18).
             self._rew_pool.cancel(token_id)
-            self.statusBar().showMessage('REW読込の待機をやめました · 遅延結果は適用しません')
+            self.statusBar().showMessage('REW読み込みの待機をやめました · 遅延結果は適用しません')
         self._current_rew_token_id = None
 
     @property
@@ -785,20 +785,20 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             return
         if error is not None:
             if error != WORKER_CANCELLED and not self.rew_job_guard.is_cancelled(token):
-                self.statusBar().showMessage(f'REW読込失敗 · {operation_error_message(error)}')
+                self.statusBar().showMessage(f'REW読み込み失敗 · {operation_error_message(error)}')
             return
         if self.rew_job_guard.is_cancelled(token):
             # The operator cancelled this read — the discard reason is the
             # cancel itself, not a revision/constraint change (#REV18).
-            self.statusBar().showMessage('REW読込はキャンセルされました · 遅延結果は適用しません')
+            self.statusBar().showMessage('REW読み込みはキャンセルされました · 遅延結果は適用しません')
             return
         context = self._current_job_apply_context()
         if context is None or not self.rew_job_guard.can_apply(token, context):
-            self.statusBar().showMessage('REW遅延結果は現在の配置へ適用しません · revision/document/制約が変更されています')
+            self.statusBar().showMessage('REW遅延結果は現在の配置へ適用しません · リビジョン/ドキュメント/制約が変更されています')
             return
         revision = self.repository.get(token.scene_revision_id)
         if revision is None:
-            self.statusBar().showMessage('REW結果のsource revisionが見つかりません')
+            self.statusBar().showMessage('REW結果のソースリビジョンが見つかりません')
             return
         evidence, channel_role, validation_scope, validation_campaign_id = self._rew_semantics.get(
             token.job_id,
@@ -821,7 +821,7 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.measurement_selected_id = record.measurement_id
         self._refresh_measurement_list()
         self._rebuild()
-        self.statusBar().showMessage(f'REW測定を保存しました · revision {record.scene_revision_id[:8]}')
+        self.statusBar().showMessage(f'REW測定を保存しました · リビジョン {record.scene_revision_id[:8]}')
 
     def _constraint_workspace_hash(self) -> str | None:
         """Digest of the constraint workspace a delayed REW read is bound to.

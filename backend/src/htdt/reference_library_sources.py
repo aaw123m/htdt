@@ -142,7 +142,7 @@ def _tactile_entry(reference) -> LibraryEntry:
         family=LibraryFamily.EQUIPMENT,
         scope=LibraryScope.BUILTIN,
         display_name=f'{reference.manufacturer} {reference.model}',
-        description='タクタイルアクチュエータ・リファレンス',
+        description='タクタイルアクチュエーター・リファレンス',
         version='tactile-reference-1',
         authority_hash=reference.semantic_sha256,
         capability_summary='tactile-actuator',
@@ -161,7 +161,7 @@ def _screen_entries() -> Iterable[LibraryEntry]:
             family=LibraryFamily.MATERIAL,
             scope=LibraryScope.BUILTIN,
             display_name=model,
-            description='投影スクリーン音響エビデンス',
+            description='投影スクリーン音響証拠',
             version=registry.authority_version,
             authority_hash=canonical_sha256(
                 [record.semantic_sha256 for record in records]

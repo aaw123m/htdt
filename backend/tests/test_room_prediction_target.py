@@ -317,7 +317,7 @@ def test_variant_baseline_mismatch_and_unpersisted_fail_closed(
         created_at_utc=NOW,
     )
     variant_repository.save_variant(other)
-    with pytest.raises(ValueError, match='現在のSceneRevisionを基にしていません'):
+    with pytest.raises(ValueError, match='現在のシーンリビジョンを基にしていません'):
         prediction.prepare_run(
             RECEIVER, system_variant_id=other.variant_id
         )

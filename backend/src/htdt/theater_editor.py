@@ -310,7 +310,7 @@ class TheaterEditorWindow(CadEditorWindow):
         if entity.kind == 'speaker':
             role = entity.speaker_role
             flags.append(
-                '役割 未設定' if is_unassigned_speaker_role(role) else f'役割 {role}'
+                '役割未設定' if is_unassigned_speaker_role(role) else f'役割 {role}'
             )
             flags.append('向き未設定' if entity.aim_xyz is None else '向き設定済み')
         suffix = f" · {' · '.join(flags)}" if flags else ''

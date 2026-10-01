@@ -62,13 +62,13 @@ DEFAULT_ANGLE_DELTA_DEG = 2.0
 _AXIS_PARAMETER_LABELS: dict[str, str] = {
     'speaker_x_m': 'スピーカー X位置',
     'speaker_y_m': 'スピーカー Y位置',
-    'speaker_z_m': 'スピーカー 高さ',
+    'speaker_z_m': 'スピーカー高さ',
     'listener_x_m': 'リスナー X位置',
     'listener_y_m': 'リスナー Y位置',
-    'listener_z_m': 'リスナー 高さ',
-    'aim_yaw_deg': '音響の向き (yaw)',
-    'aim_pitch_deg': '音響の向き (pitch)',
-    'body_yaw_deg': '筐体の向き (toe-in)',
+    'listener_z_m': 'リスナー高さ',
+    'aim_yaw_deg': '音響照準 (ヨー)',
+    'aim_pitch_deg': '音響照準 (ピッチ)',
+    'body_yaw_deg': '筐体ヨー (トーイン)',
 }
 
 
@@ -173,7 +173,7 @@ class RobustnessAuthoringContext:
         """
         revision = self.scene_repository.get(search_spec.scene_revision_id)
         if revision is None:
-            raise ValueError('SearchSpecのソースリビジョンが存在しません')
+            raise ValueError('探索仕様のソースリビジョンが存在しません')
         candidate, _set_sha = self._resolve_candidate(search_spec, candidate_id)
         document = _candidate_document(revision, candidate)
         extended = self._extended_spec_for(search_spec)
@@ -238,7 +238,7 @@ class RobustnessAuthoringContext:
     ) -> RobustnessSpec:
         revision = self.scene_repository.get(search_spec.scene_revision_id)
         if revision is None:
-            raise ValueError('SearchSpecのソースリビジョンが存在しません')
+            raise ValueError('探索仕様のソースリビジョンが存在しません')
         candidate, set_sha = self._resolve_candidate(
             search_spec, candidate_id, cancelled=cancelled
         )
@@ -274,15 +274,15 @@ class RobustnessAuthoringContext:
         """
         revision = self.scene_repository.get(spec.scene_revision_id)
         if revision is None:
-            raise ValueError('RobustnessSpecのソースリビジョンが存在しません')
+            raise ValueError('耐性仕様のソースリビジョンが存在しません')
         search_spec = self.search_repository.get(spec.search_spec_id)
         if search_spec is None:
-            raise ValueError('RobustnessSpecのSearchSpecが存在しません')
+            raise ValueError('耐性仕様の探索仕様が存在しません')
         nominal = self.objective_repository.get_evaluation(
             spec.nominal_objective_evaluation_id
         )
         if nominal is None:
-            raise ValueError('RobustnessSpecのnominal O30評価が存在しません')
+            raise ValueError('耐性仕様のノミナル O30評価が存在しません')
         constraint_set = CadConstraintSet.model_validate(
             json.loads(search_spec.constraint_snapshot_json)
         )
@@ -335,7 +335,7 @@ class RobustnessAuthoringContext:
                 if candidate.candidate_id == candidate_id:
                     return candidate, page.candidate_set_sha256
         raise ValueError(
-            '選択候補はSearchSpecの実行可能候補集合にありません: '
+            '選択候補は探索仕様の実行可能候補集合にありません: '
             f'{candidate_id}'
         )
 

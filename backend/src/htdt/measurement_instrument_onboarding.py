@@ -293,7 +293,7 @@ def evaluate_instrument_onboarding(
             key='rew_campaign',
             title='REWキャンペーン',
             status='action',
-            detail='測定プランがありません — 「キャンペーン」でREW計測プランを作成してください（REWは -api 起動・入力はJava・UMIK-1選択・校正ファイル適用）',
+            detail='測定プランがありません — 「キャンペーン」でREW計測プランを作成してください（REWは -API 起動・入力はJava・UMIK-1選択・校正ファイル適用）',
             link='campaign',
         ))
 

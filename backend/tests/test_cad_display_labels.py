@@ -126,8 +126,8 @@ def test_named_or_saved_label_prefers_the_human_name() -> None:
 
 def test_revision_display_label_prefers_user_label_then_generated() -> None:
     revision = _RevisionStub('rev-abc123def456', '2026-09-24T18:42:00+00:00')
-    labels = {'rev-abc123def456': _LabelStub('部屋 確定版')}
-    assert revision_display_label(revision, labels) == '部屋 確定版'
+    labels = {'rev-abc123def456': _LabelStub('部屋確定版')}
+    assert revision_display_label(revision, labels) == '部屋確定版'
     assert revision_display_label(revision, {}) == '2026年9月24日 18:42 UTC の保存'
     assert revision_display_label(revision, None) == '2026年9月24日 18:42 UTC の保存'
     empty_label = {'rev-abc123def456': _LabelStub('')}

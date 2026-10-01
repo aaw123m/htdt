@@ -106,7 +106,7 @@ class ExtendedSearchControllerMixin:
                     heading = (
                         f'yaw {yaw:.1f}°'
                         if yaw is not None
-                        else 'yaw未定義 (垂直照準)'
+                        else 'ヨー未定義 (垂直照準)'
                     )
                     combo.addItem(
                         f'{entity.name} · {heading} · pitch {pitch:.1f}°',
@@ -205,7 +205,7 @@ class ExtendedSearchControllerMixin:
                             + parameter
                         ).encode('utf-8')
                     ).hexdigest(),
-                    detail='宣言済み合成フィクスチャ証拠; 実部屋検証ではない',
+                    detail='宣言済み合成フィクスチャ証拠; 実室検証ではない',
                     created_at_utc=datetime.now(timezone.utc).isoformat(),
                 )
                 for parameter in ('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg')
@@ -227,7 +227,7 @@ class ExtendedSearchControllerMixin:
                 evidence_scope='synthetic_fixture',
                 supported_parameters=('aim_yaw_deg', 'aim_pitch_deg', 'body_yaw_deg'),
                 parameter_evidence=evidence,
-                detail='音響照準 (yaw/pitch) と物理ボディyawのソフトウェア受理; 実部屋証拠ではない',
+                detail='音響照準 (ヨー/ピッチ) と物理ボディヨーのソフトウェア受理; 実室証拠ではない',
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
             existing = next(
@@ -243,21 +243,21 @@ class ExtendedSearchControllerMixin:
                 self.extended_repository.save_capability(capability)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Synthetic extended capabilityを保存できません · {operation_error_message(exc)}'
+                f'合成拡張能力を保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
             select_capability_id=capability.capability_id
         )
         self.statusBar().showMessage(
-            'Synthetic acoustic-aim/body-yaw capabilityを保存しました · 開発受入専用です'
+            '合成音響照準/ボディヨー能力を保存しました · 開発受入専用です'
         )
 
     def create_owned_room_extended_capability(self) -> None:
         record = self._selected_validation_record()
         if record is None:
             self.statusBar().showMessage(
-                'owned-room capabilityにはValidationRecordを選択してください'
+                '実室能力には検証記録を選択してください'
             )
             return
         # #384: an owned-room capability needs exact per-parameter evidence —
@@ -281,7 +281,7 @@ class ExtendedSearchControllerMixin:
             parameters = tuple(parameters)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended parameter evidenceを読み込めません · {operation_error_message(exc)}'
+                f'拡張パラメーター証拠を読み込めません · {operation_error_message(exc)}'
             )
             return
         evidence = []
@@ -304,9 +304,9 @@ class ExtendedSearchControllerMixin:
                 evidence.append(match)
         if missing:
             self.statusBar().showMessage(
-                'owned-room directional evidenceが未登録です · '
+                '実室指向性証拠が未登録です · '
                 + ', '.join(missing)
-                + ' — O90E eligible decision由来のparameter evidenceが必要です'
+                + ' — O90E 適格判定由来のパラメーター証拠が必要です'
             )
             return
         try:
@@ -316,7 +316,7 @@ class ExtendedSearchControllerMixin:
                 evidence_scope='owned_room',
                 supported_parameters=parameters,
                 parameter_evidence=tuple(evidence),
-                detail='実部屋検証済み方向照準 (yaw/pitch)/ボディyaw能力',
+                detail='実室検証済み指向性照準 (ヨー/ピッチ)/ボディヨー能力',
                 validation=record,
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
@@ -334,14 +334,14 @@ class ExtendedSearchControllerMixin:
                 capability = existing
         except Exception as exc:
             self.statusBar().showMessage(
-                f'owned-room extended capabilityを保存できません · {operation_error_message(exc)}'
+                f'実室拡張能力を保存できません · {operation_error_message(exc)}'
             )
             return
         self._refresh_extended_capabilities(
             select_capability_id=capability.capability_id
         )
         self.statusBar().showMessage(
-            f'owned-room extended capabilityを保存しました · '
+            f'実室拡張能力を保存しました · '
             f'{capability.capability_id[:8]}'
         )
 
@@ -358,7 +358,7 @@ class ExtendedSearchControllerMixin:
         parameter = self.extended_parameter_combo.currentData()
         if not isinstance(entity_id, str) or not isinstance(parameter, str):
             self.statusBar().showMessage(
-                'extended軸へ追加するexplicit-aim speaker/parameterを選択してください'
+                '拡張軸へ追加する明示照準スピーカー/パラメーターを選択してください'
             )
             return
         try:
@@ -370,13 +370,13 @@ class ExtendedSearchControllerMixin:
                 step=float(self.extended_step_field.value()),
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'extended軸が不正です · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'拡張軸が不正です · {operation_error_message(exc)}')
             return
         key = (entity_id, parameter)
         self.extended_axes[key] = axis
         self._refresh_extended_axis_tree()
         self.statusBar().showMessage(
-            f'extended軸を追加/更新しました · {entity_id} · {parameter}'
+            f'拡張軸を追加/更新しました · {entity_id} · {parameter}'
         )
 
     def remove_selected_extended_axis(self) -> None:
@@ -394,7 +394,7 @@ class ExtendedSearchControllerMixin:
         self.extended_axes.pop(key, None)
         self._refresh_extended_axis_tree()
         self.statusBar().showMessage(
-            f'extended軸を削除しました · {key[0]} · {key[1]}'
+            f'拡張軸を削除しました · {key[0]} · {key[1]}'
         )
 
     def _refresh_extended_axis_tree(self) -> None:
@@ -441,7 +441,7 @@ class ExtendedSearchControllerMixin:
             or self.working is None
         ):
             self.statusBar().showMessage(
-                'base SearchSpec候補とmodel capabilityを先に準備してください'
+                'ベース探索仕様候補とモデル能力を先に準備してください'
             )
             return
         if (
@@ -454,7 +454,7 @@ class ExtendedSearchControllerMixin:
             )
         ):
             self.statusBar().showMessage(
-                'currentなbase SearchSpec候補だけをExtended Searchへ使えます'
+                '現在のベース探索仕様候補だけを拡張探索へ使えます'
             )
             return
         if self.extended_entity_combo is None:
@@ -462,12 +462,12 @@ class ExtendedSearchControllerMixin:
         entity_id = self.extended_entity_combo.currentData()
         if not isinstance(entity_id, str):
             self.statusBar().showMessage(
-                'explicit aimを持つspeakerを選択してください'
+                '明示照準を持つスピーカーを選択してください'
             )
             return
         if not self.extended_axes:
             self.statusBar().showMessage(
-                '1つ以上のextended軸を追加してからExtended SearchSpecを保存してください'
+                '1つ以上の拡張軸を追加してから拡張探索仕様を保存してください'
             )
             return
         try:
@@ -495,7 +495,7 @@ class ExtendedSearchControllerMixin:
             self.extended_repository.save_spec(spec)
         except Exception as exc:
             self.statusBar().showMessage(
-                f'Extended SearchSpecを保存できません · {operation_error_message(exc)}'
+                f'拡張探索仕様を保存できません · {operation_error_message(exc)}'
             )
             return
 
@@ -506,7 +506,7 @@ class ExtendedSearchControllerMixin:
         self._refresh_extended_specs()
         self._remove_extended_overlays()
         self.statusBar().showMessage(
-            f'Extended SearchSpecを保存しました · {spec.extended_search_id[:8]}'
+            f'拡張探索仕様を保存しました · {spec.extended_search_id[:8]}'
         )
 
     def _refresh_extended_specs(self) -> None:
@@ -675,7 +675,7 @@ class ExtendedSearchControllerMixin:
         spec = self._selected_extended_spec()
         if base is None or spec is None or self.working is None:
             self.statusBar().showMessage(
-                '生成するExtended SearchSpecを選択してください'
+                '生成する拡張探索仕様を選択してください'
             )
             return
         if (
@@ -688,7 +688,7 @@ class ExtendedSearchControllerMixin:
             )
         ):
             self.statusBar().showMessage(
-                'staleなbase SearchSpecからextended候補を生成できません'
+                '古いベース探索仕様から拡張候補を生成できません'
             )
             return
 
@@ -702,7 +702,7 @@ class ExtendedSearchControllerMixin:
         self._refresh_search_binding_state()
         self._refresh_extended_binding_state()
         self.statusBar().showMessage(
-            f'Extended候補生成中… {spec.extended_search_id[:8]} · '
+            f'拡張候補生成中… {spec.extended_search_id[:8]} · '
             f'オフセット {page_offset}'
         )
         self._start_extended_task(
@@ -736,7 +736,7 @@ class ExtendedSearchControllerMixin:
             return
         self._extended_pool.cancel(key)
         self.statusBar().showMessage(
-            'Extended候補生成をキャンセルしています…'
+            '拡張候補生成をキャンセルしています…'
         )
 
     @Slot(object, object, object)
@@ -758,25 +758,25 @@ class ExtendedSearchControllerMixin:
 
         if error == WORKER_CANCELLED:
             self.statusBar().showMessage(
-                'Extended候補生成をキャンセルしました'
+                '拡張候補生成をキャンセルしました'
             )
             self._refresh_extended_binding_state()
             return
         if error is not None:
             self.statusBar().showMessage(
-                f'Extended候補生成に失敗しました · {operation_error_message(error)}'
+                f'拡張候補生成に失敗しました · {operation_error_message(error)}'
             )
             self._refresh_extended_binding_state()
             return
         if not isinstance(result, CadExtendedCandidateSetPage):
             self.statusBar().showMessage(
-                'Extended候補生成結果を拒否しました · contract mismatch'
+                '拡張候補生成結果を拒否しました · 契約不一致'
             )
             self._refresh_extended_binding_state()
             return
         if authority is None:
             self.statusBar().showMessage(
-                'Extended候補生成結果を破棄しました · authority missing'
+                '拡張候補生成結果を破棄しました · 権威欠落'
             )
             return
         base_id, extended_id = authority
@@ -796,7 +796,7 @@ class ExtendedSearchControllerMixin:
             or self.extended_selected_spec_id != extended_id
         ):
             self.statusBar().showMessage(
-                '古いExtended候補生成結果を破棄しました · authorityが変更されています'
+                '古い拡張候補生成結果を破棄しました · 権威が変更されています'
             )
             self._refresh_extended_binding_state()
             return
@@ -831,7 +831,7 @@ class ExtendedSearchControllerMixin:
                 f'集合 {result.candidate_set_sha256[:8]}'
             )
         self.statusBar().showMessage(
-            f'Extended候補を生成しました · '
+            f'拡張候補を生成しました · '
             f'{result.feasible_candidate_count}件'
         )
 
@@ -944,7 +944,7 @@ class ExtendedSearchControllerMixin:
         self._refresh_extended_binding_state()
         self._render_extended_overlay()
         self.statusBar().showMessage(
-            'extended候補プレビュー · Scene/Undo履歴は変更していません'
+            '拡張候補プレビュー · シーン/アンドゥ履歴は変更していません'
         )
 
     def clear_extended_preview(self) -> None:
@@ -953,7 +953,7 @@ class ExtendedSearchControllerMixin:
         self.extended_preview_candidate_id = None
         self._refresh_extended_binding_state()
         self._render_extended_overlay()
-        self.statusBar().showMessage('extendedプレビューを解除しました')
+        self.statusBar().showMessage('拡張プレビューを解除しました')
 
     def apply_selected_extended_candidate(self) -> None:
         base = self._selected_search_spec()
@@ -977,13 +977,13 @@ class ExtendedSearchControllerMixin:
             )
         except Exception as exc:
             self.statusBar().showMessage(
-                f'extended候補を適用できません · {operation_error_message(exc)}'
+                f'拡張候補を適用できません · {operation_error_message(exc)}'
             )
             self._refresh_extended_binding_state()
             return
         if not changed:
             self.statusBar().showMessage(
-                'extended候補は現在の配置/body/aimと同一です'
+                '拡張候補は現在の配置/ボディ/照準と同一です'
             )
             return
 
@@ -1007,8 +1007,8 @@ class ExtendedSearchControllerMixin:
         self._refresh_search_specs()
         self._refresh_extended_specs()
         self.statusBar().showMessage(
-            '位置+body orientation+acoustic aimを1 commandで適用しました · '
-            'Undoでまとめて復元できます'
+            '位置+ボディ姿勢+音響照準を1 コマンドで適用しました · '
+            'アンドゥでまとめて復元できます'
         )
 
     def _remove_extended_overlays(self) -> None:
@@ -1117,7 +1117,7 @@ class ExtendedSearchControllerMixin:
                 label_name = 'extended-preview-label'
                 self._extended_actor_names.add(label_name)
                 self.viewport.add_text(
-                    'acoustic aim preview · Scene未変更',
+                    '音響照準プレビュー · シーン未変更',
                     position='upper_left',
                     font_size=9,
                     name=label_name,

@@ -156,7 +156,7 @@ _ANCHOR_ITEMS: tuple[tuple[str, str], ...] = (
 _SURFACE_CLASS_ITEMS: tuple[tuple[str, SemanticSurfaceClass | None], ...] = (
     ('部屋の境界面（壁・床・天井）', 'room_boundary'),
     ('オブジェクト表面', 'object_surface'),
-    ('割り当てない（unknown のまま）', None),
+    ('割り当てない（不明のまま）', None),
 )
 
 # Bounded repair operations offered to the operator, in application order.
@@ -197,13 +197,13 @@ _SEVERITY_LABELS = {
 }
 
 _CATEGORY_LABELS = {
-    'topology': 'トポロジ',
+    'topology': 'トポロジー',
     'surface_quality': '面品質',
     'acoustic_model': '音響モデル',
 }
 
 _COMPILER_READINESS_LABELS = {
-    'ready_for_r120_geometry_compiler_contract': 'R120ジオメトリコンパイラ契約に対応可',
+    'ready_for_r120_geometry_compiler_contract': 'R120ジオメトリコンパイラー契約に対応可',
     'blocked_by_geometry': 'ブロック: ジオメトリ未解決',
     'blocked_by_surface_semantics': 'ブロック: 面の意味分類が未割当',
 }

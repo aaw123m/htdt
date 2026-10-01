@@ -69,7 +69,7 @@ class SeatPriorityPanel(QWidget):
 
         preset = QPushButton('MLP優先プリセット（全座席必須）')
         preset.setToolTip(
-            '先頭座席を MLP 重み3、その他を補助座席 重み1 に設定します。'
+            '先頭座席を MLP 重み3、その他を補助座席重み1 に設定します。'
             'すべての座席は必須のままです'
         )
         preset.clicked.connect(self._apply_mlp_preset)
@@ -151,7 +151,7 @@ class SeatPriorityPanel(QWidget):
             )
             item.setToolTip(
                 0,
-                'バインド revision '
+                'バインドリビジョン '
                 f"{profile.scene_revision_id[:12]} · "
                 f"正規化 {profile.weight_normalization} "
                 f"({profile.normalization_version})",

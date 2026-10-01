@@ -116,7 +116,7 @@ class QtDataManagementDialogProvider:
     def choose_relocation_destination(self, parent: QWidget) -> Path | None:
         selected = file_dialog_memory.get_existing_directory(
             parent,
-            "データの移動先フォルダを選択",
+            "データの移動先フォルダーを選択",
             'data.relocate',
             default_dir=str(Path.home()),
         )
@@ -140,7 +140,7 @@ def _default_relocate_confirmation(
         f"移動量: {_format_bytes(plan.total_bytes)}"
         f"（DB {_format_bytes(plan.database_bytes)} / "
         f"アセット {plan.asset_count} 件 {_format_bytes(plan.asset_bytes)}）\n"
-        "元の場所は移動後も退避フォルダとして残ります。"
+        "元の場所は移動後も退避フォルダーとして残ります。"
         "完了後はHTDTの再起動が必要です。移動を開始しますか？"
     )
     box.setStandardButtons(
@@ -281,7 +281,7 @@ class BackupMetadataView(QFrame):
         for key, label in (
             ("created_at", "作成日時"),
             ("application_version", "HTDTバージョン"),
-            ("schema_version", "バックアップschema"),
+            ("schema_version", "バックアップスキーマ"),
             ("native_schema", "DBスキーマ"),
             ("archive_size", "アーカイブ"),
             ("database_size", "データベース"),
@@ -328,8 +328,8 @@ class BackupMetadataView(QFrame):
         status_lines: list[str] = []
         if validated:
             status_lines.append(
-                "復元前検証: manifest / SHA-256 / SQLite整合性 / 外部キー / "
-                f"DB schema互換性（v{metadata.native_schema_version}） / "
+                "復元前検証: マニフェスト / SHA-256 / SQLite整合性 / 外部キー / "
+                f"DB スキーマ互換性（v{metadata.native_schema_version}） / "
                 "測定アセットを検証済み"
             )
         # Round 14: a degraded archive must never present as clean — the
@@ -464,7 +464,7 @@ class DataManagementWidget(QWidget):
         migration_actions.addWidget(self.migration_export_button)
 
         self.migration_import_button = QPushButton(
-            "以前のPCの移行ファイルを読み込む",
+            "旧PCの移行ファイルを読み込む",
             migration_card,
         )
         self.migration_import_button.setObjectName("dataManagementMigrationImportButton")
@@ -486,7 +486,7 @@ class DataManagementWidget(QWidget):
         operations_layout.addWidget(operations_title)
 
         operations_text = QLabel(
-            "バックアップ作成後は同じnative authorityで検証されます。"
+            "バックアップ作成後は同じネイティブ権威で検証されます。"
             "復元はファイル選択直後には実行されず、先に検証結果と内容を表示します。",
             operations_card,
         )
@@ -506,7 +506,7 @@ class DataManagementWidget(QWidget):
         relocation_layout.addWidget(relocation_title)
 
         relocation_text = QLabel(
-            "HTDTが管理するデータベースと測定アセットを別のドライブやフォルダへ"
+            "HTDTが管理するデータベースと測定アセットを別のドライブやフォルダーへ"
             "移動します。コピーと検証が完了するまで元の場所は変更されません。",
             relocation_card,
         )
@@ -515,7 +515,7 @@ class DataManagementWidget(QWidget):
         relocation_layout.addWidget(relocation_text)
 
         self.relocate_button = QPushButton(
-            "移動先フォルダを選択", relocation_card
+            "移動先フォルダーを選択", relocation_card
         )
         self.relocate_button.setObjectName("dataManagementRelocateButton")
         set_control_size(self.relocate_button, ControlSize.STANDARD)
@@ -717,7 +717,7 @@ class DataManagementWidget(QWidget):
         storage_layout.setContentsMargins(18, 16, 18, 16)
         storage_layout.setSpacing(12)
 
-        storage_title = QLabel("ストレージとエビデンス管理", storage_card)
+        storage_title = QLabel("ストレージと証拠管理", storage_card)
         set_typography_role(storage_title, TypographyRole.SECTION_TITLE)
         storage_layout.addWidget(storage_title)
 
@@ -1270,7 +1270,7 @@ class DataManagementWidget(QWidget):
     def _choose_backup_policy_dir(self) -> None:
         selected = file_dialog_memory.get_existing_directory(
             self,
-            "自動バックアップの保存先フォルダを選択",
+            "自動バックアップの保存先フォルダーを選択",
             'backup.policy_dir',
             default_dir=str(
                 backups_dir(

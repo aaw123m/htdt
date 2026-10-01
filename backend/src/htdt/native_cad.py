@@ -348,7 +348,7 @@ def _choose_recovery_action(
             None,
             "HTDT 診断",
             f"診断は次に保存されています:\n{diagnostics.log_path}\n\n"
-            "サポート用バンドルは サポート > 診断パッケージ を"
+            "サポート用バンドルはサポート > 診断パッケージを"
             "使ってください。",
         )
         # Diagnostics consulted first, then a guarded launch — unchanged
@@ -504,7 +504,7 @@ def _packaged_application_icon() -> Path | None:
 #: raw exception dump (which lives in the Details expander / log).
 _LAUNCH_CLASS_REASON_JA = {
     'renderer_initialization':
-        '描画エンジン（GPU/ドライバ）の初期化に失敗しました',
+        '描画エンジン（GPU/ドライバー）の初期化に失敗しました',
     'schema_incompatibility': 'データ形式がこのビルドと互換性がありません',
     'migration_failure': 'データ移行を完了できませんでした',
     'preference_state': 'アプリケーション設定の読み込みに失敗しました',
@@ -713,7 +713,7 @@ def _route_launch_intent(
             window,
             "HTDT キャプチャ",
             f"{describe_launch_intent(intent)}を"
-            f"{'レビュー用にキャプチャ受信箱へステージしました' if outcome == 'staged_for_review' else 'すでにステージ済みです'}"
+            f"{'レビュー用にキャプチャ受信ボックスへステージしました' if outcome == 'staged_for_review' else 'すでにステージ済みです'}"
             " — 証拠には昇格していません。",
         )
     elif outcome == 'preview_opened':
@@ -1333,7 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--safe-mode",
         action="store_true",
-        help="確認なしでセーフモードで起動（連携・保存済みレイアウト・自動オープンintentなし）",
+        help="確認なしでセーフモードで起動（連携・保存済みレイアウト・自動オープンインテントなし）",
     )
     # Accepted for compatibility: the workflow shell is the default launch
     # path since UX160, so the old opt-in flag no longer has an effect.
@@ -1443,7 +1443,7 @@ def main(argv: list[str] | None = None) -> int:
             title="HTDTのデータディレクトリを開けません",
             reason=_launch_reason_ja(exc),
             recovery=(
-                "保存先のドライブやフォルダを確認してからHTDTを起動し直して"
+                "保存先のドライブやフォルダーを確認してからHTDTを起動し直して"
                 "ください。データを移動した場合は --data-dir で新しい場所を"
                 "指定してください。"
             ),
@@ -1474,7 +1474,7 @@ def main(argv: list[str] | None = None) -> int:
             title="HTDTのデータディレクトリを開けません",
             reason=_launch_reason_ja(exc),
             recovery=(
-                "保存先のドライブやフォルダを確認してからHTDTを起動し直して"
+                "保存先のドライブやフォルダーを確認してからHTDTを起動し直して"
                 "ください。データを移動した場合は --data-dir で新しい場所を"
                 "指定してください。"
             ),
@@ -1609,7 +1609,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"extended={result.extended_search_id} "
                 f"adaptive-extended={result.adaptive_extended_plan_id}"
             )
-            print("合成デモは開発専用で、実部屋の推奨機能は解放しません")
+            print("合成デモは開発専用で、実室の推奨機能は解放しません")
             return 0
         if args.migrate_legacy_data:
             from .cad_repository import SceneRepository

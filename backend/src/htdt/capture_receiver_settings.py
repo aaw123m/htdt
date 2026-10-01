@@ -93,7 +93,7 @@ class PairingDialog(QDialog):
         )
         if project_ref is None:
             self.scope_combo.removeItem(0)
-        offer_form.addRow("取込先", self.scope_combo)
+        offer_form.addRow("取り込み先", self.scope_combo)
         layout.addLayout(offer_form)
 
         offer_row = QHBoxLayout()
@@ -270,7 +270,7 @@ class CaptureReceiverPanel(QWidget):
         layout = QVBoxLayout(self)
         intro = QLabel(
             "HTDT Capture アプリからの測定パッケージをこのPCで受け取ります。"
-            "受け取ったデータは取込前に必ず受信ボックスに入ります。",
+            "受け取ったデータは取り込み前に必ず受信ボックスに入ります。",
             self,
         )
         intro.setWordWrap(True)

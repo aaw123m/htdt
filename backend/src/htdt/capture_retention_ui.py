@@ -66,18 +66,18 @@ def _plan_summary_lines(plan: CapturePurgePlan) -> list[str]:
     lines = [
         f"結果: {_plan_status_label(plan)}",
         "削除対象: "
-        f"エビデンス {len(plan.deletable_source_evidence_ids)} 件 / "
+        f"証拠 {len(plan.deletable_source_evidence_ids)} 件 / "
         f"メッシュバインディング {len(plan.deletable_mesh_binding_ids)} 件 / "
         f"権威レコード {len(plan.deletable_authority_record_ids)} 件 / "
         f"座標権威 {len(plan.deletable_coordinate_authority_ids)} 件 / "
         f"ルームプラン {plan.roomplan_record_count} 件",
         "共有のため保持: "
-        f"エビデンス {len(plan.retained_source_evidence_ids)} 件 / "
+        f"証拠 {len(plan.retained_source_evidence_ids)} 件 / "
         f"バインディング {len(plan.retained_mesh_binding_ids)} 件 / "
         f"権威 {len(plan.retained_authority_record_ids)} 件 / "
         f"座標 {len(plan.retained_coordinate_authority_ids)} 件",
         f"回収可能: {_format_bytes(plan.reclaimable_bytes)}"
-        f"（コンテンツ blob {len(plan.reclaimed_blob_sha256)} 件）",
+        f"（コンテンツブロブ {len(plan.reclaimed_blob_sha256)} 件）",
     ]
     if plan.blocking_dependents:
         lines.append("削除を妨げている参照:")
@@ -193,9 +193,9 @@ class RetentionPolicyWidget(QWidget):
             self.inventory_label.setText(
                 f"キャプチャ: リビジョン {inventory.capture_revision_count} 件 / "
                 f"取り込み {inventory.ingestion_run_count} 回 / "
-                f"エビデンス {inventory.source_evidence_count} 件 "
+                f"証拠 {inventory.source_evidence_count} 件 "
                 f"({_format_bytes(inventory.source_payload_bytes)}) / "
-                f"コンテンツ blob {inventory.content_blob_count} 件 "
+                f"コンテンツブロブ {inventory.content_blob_count} 件 "
                 f"({_format_bytes(inventory.content_blob_bytes)})"
             )
 
@@ -303,7 +303,7 @@ class RetentionPolicyWidget(QWidget):
         self.refresh()
         self.plan_label.setText(
             "削除しました: "
-            f"エビデンス {len(plan.deletable_source_evidence_ids)} 件 / "
+            f"証拠 {len(plan.deletable_source_evidence_ids)} 件 / "
             f"{_format_bytes(plan.reclaimable_bytes)} を回収"
         )
         set_semantic_state(self.plan_label, SemanticState.SUCCESS)

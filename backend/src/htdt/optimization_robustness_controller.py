@@ -36,7 +36,7 @@ class RobustnessControllerMixin:
                 '候補',
                 '指標',
                 '方向',
-                'Nominal',
+                'ノミナル',
                 '評価サンプル内の不利側最大値',
                 '感度',
                 '評価状況',
@@ -63,7 +63,7 @@ class RobustnessControllerMixin:
         self.robustness_probability_label.setWordWrap(True)
         self.robustness_detail_label = QLabel('ばらつき評価が未選択です')
         self.robustness_detail_label.setWordWrap(True)
-        self.robustness_advanced_label = QLabel('内部authority情報は未選択です')
+        self.robustness_advanced_label = QLabel('内部権威情報は未選択です')
         self.robustness_advanced_label.setWordWrap(True)
         self._robustness_presentations = ()
         self._robustness_row_payload: dict[int, tuple[object, object]] = {}
@@ -205,7 +205,7 @@ class RobustnessControllerMixin:
         label_name = 'robust-overlay-label'
         self._robustness_actor_names.add(label_name)
         self.robustness_viewport.add_text(
-            'ばらつき範囲 / aim · 太線marker=制約外評価点 · Scene未変更',
+            'ばらつき範囲 / 照準 · 太線マーカー=制約外評価点 · シーン未変更',
             position='upper_right',
             font_size=9,
             name=label_name,
@@ -235,7 +235,7 @@ class RobustnessControllerMixin:
         search_spec = self.search_repository.get(search_spec_id)
         if search_spec is None:
             self.robustness_summary_label.setText(
-                '選択した探索設定を再解決できません。再読込してください。'
+                '選択した探索設定を再解決できません。再読み込みしてください。'
             )
             return
 
@@ -312,7 +312,7 @@ class RobustnessControllerMixin:
         if not presentations:
             self.robustness_summary_label.setText(
                 'この探索設定には保存済みのばらつき評価がありません。'
-                ' 既存O90実行workflowで評価を作成してください。'
+                ' 既存O90実行ワークフローで評価を作成してください。'
             )
             return
 
@@ -416,7 +416,7 @@ class RobustnessControllerMixin:
         )
         if eligibility.eligible:
             self.robustness_summary_label.setText(
-                '候補間の比較条件が一致しています。Nominal・ばらつき・制約・評価完全性を独立して比較できます。'
+                '候補間の比較条件が一致しています。ノミナル・ばらつき・制約・評価完全性を独立して比較できます。'
             )
         else:
             self.robustness_summary_label.setText(
@@ -446,7 +446,7 @@ class RobustnessControllerMixin:
         selected = self.robustness_tree.selectedItems()
         if not selected:
             self.robustness_detail_label.setText('ばらつき評価が未選択です')
-            self.robustness_advanced_label.setText('内部authority情報は未選択です')
+            self.robustness_advanced_label.setText('内部権威情報は未選択です')
             return
         payload = self._robustness_row_payload.get(id(selected[0]))
         if payload is None:

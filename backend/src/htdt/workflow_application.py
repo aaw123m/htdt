@@ -1803,7 +1803,7 @@ class WorkflowApplicationComposition:
         """A paired Capture device staged a delivery into the Inbox (#926)."""
         staging_ref = getattr(record, 'staging_ref', None) or '受信ボックス'
         self.shell.statusBar().showMessage(
-            f'Capture デバイスから受信しました → {staging_ref}'
+            f'キャプチャデバイスから受信しました → {staging_ref}'
             '（受信ボックスで確認）',
             15000,
         )
@@ -3424,7 +3424,7 @@ class WorkflowApplicationComposition:
 
         selected, _filter = file_dialog_memory.get_save_file_name(
             self.shell,
-            "Capture用機材カタログの保存先",
+            "キャプチャ用機材カタログの保存先",
             'equipment.export_capture_catalog',
             "HTDT機材カタログ (*.json)",
             suggested_name="htdt-equipment-catalog.json",
@@ -3443,7 +3443,7 @@ class WorkflowApplicationComposition:
             )
             return
         box = QMessageBox(self.shell)
-        box.setWindowTitle("Capture用機材カタログを書き出しました")
+        box.setWindowTitle("キャプチャ用機材カタログを書き出しました")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(f"{result.definition_count} 件の機材定義を書き出しました。")
         box.setDetailedText(f"カタログSHA-256: {result.snapshot_sha256}")
@@ -3512,7 +3512,7 @@ class WorkflowApplicationComposition:
             )
             return
         preview = QDialog(self.shell)
-        preview.setWindowTitle("設置ハンドオフ プレビュー")
+        preview.setWindowTitle("設置ハンドオフプレビュー")
         preview_layout = QVBoxLayout(preview)
         preview_text = QPlainTextEdit(preview)
         preview_text.setReadOnly(True)
@@ -3532,7 +3532,7 @@ class WorkflowApplicationComposition:
             return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
-            "ハンドオフの保存先フォルダ",
+            "ハンドオフの保存先フォルダー",
             'project.export_handoff',
             default_dir=self._default_export_dir(),
         )
@@ -3640,7 +3640,7 @@ class WorkflowApplicationComposition:
             QMessageBox.warning(
                 self.shell,
                 "校正設定の書き出し",
-                "校正プランはありますがUNSUPPORTEDのため書き出せません:\n"
+                "校正プランはありますが未対応のため書き出せません:\n"
                 + "\n".join(f"・{reason}" for reason in reasons),
             )
             return
@@ -3671,7 +3671,7 @@ class WorkflowApplicationComposition:
             return
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
-            "校正設定の保存先フォルダ",
+            "校正設定の保存先フォルダー",
             'calibration.export_settings',
             default_dir=self._default_export_dir(),
         )
@@ -3864,7 +3864,7 @@ class WorkflowApplicationComposition:
         )
         directory = file_dialog_memory.get_existing_directory(
             self.shell,
-            "解析エクスポートの保存先フォルダ",
+            "解析エクスポートの保存先フォルダー",
             'project.export_analysis',
             default_dir=self._default_export_dir(),
         )

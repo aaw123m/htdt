@@ -26,7 +26,7 @@ ENTITY_FIELD_LABELS: dict[str, str] = {
     'speaker_role': 'スピーカーロール',
     'aim_xyz': '指向',
     'body_geometry': '形状',
-    'semantic_bindings': '機能割当',
+    'semantic_bindings': '機能割り当て',
     'operational_zones': '運用クリアランス',
 }
 
@@ -190,9 +190,9 @@ def diff_summary_lines(
     if diff.entity_order_changed:
         lines.append('オブジェクトの順序を変更')
     for entity_id in diff.added_entity_ids:
-        lines.append(f'{_label(entity_id)} を追加')
+        lines.append(f'{_label(entity_id)}を追加')
     for entity_id in diff.removed_entity_ids:
-        lines.append(f'{_label(entity_id)} を削除')
+        lines.append(f'{_label(entity_id)}を削除')
     for change in diff.entity_changes:
         field_labels = '、'.join(
             ENTITY_FIELD_LABELS.get(field, field) for field in change.fields

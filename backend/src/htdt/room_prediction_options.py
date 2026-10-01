@@ -69,10 +69,10 @@ class RoomPredictionModelOption:
 
 
 _EVIDENCE_LABELS = {
-    ('candidate', 'unvalidated'): '開発用(candidate・未検証)',
-    ('validated', 'synthetic_fixture'): 'fixture検証済み(開発用)',
-    ('validated', 'owned_room'): '実部屋検証済み',
-    ('production', 'owned_room'): 'production採用済み',
+    ('candidate', 'unvalidated'): '開発用(候補・未検証)',
+    ('validated', 'synthetic_fixture'): 'フィクスチャ検証済み(開発用)',
+    ('validated', 'owned_room'): '実室検証済み',
+    ('production', 'owned_room'): '本番採用済み',
 }
 
 _SOURCE_KIND_LABELS = {
@@ -110,11 +110,11 @@ def _provider_resolution(
     authority = provider.current_authority
     reasons: list[str] = []
     if authority.scene_revision_id != revision.revision_id:
-        reasons.append('providerの基となったSceneRevisionではありません')
+        reasons.append('プロバイダーの基となったシーンリビジョンではありません')
     elif authority.scene_content_hash != revision.content_hash:
-        reasons.append('Scene内容がprovider作成後に変更されました')
+        reasons.append('シーン内容がプロバイダー作成後に変更されました')
     if authority.document_id != revision.document_id:
-        reasons.append('providerが別のドキュメントに属します')
+        reasons.append('プロバイダーが別のドキュメントに属します')
     return PredictionProviderResolution(
         provider_ref=provider.ref(),
         stale_state='STALE' if reasons else 'CURRENT',
@@ -195,12 +195,12 @@ def _rectangular_option(
         operating_state.scene_revision_id != revision.revision_id
         or operating_state.document_id != revision.document_id
     ):
-        reasons.append('選択した部屋状態は現在のSceneRevision用ではありません')
+        reasons.append('選択した部屋状態は現在のシーンリビジョン用ではありません')
     if listener_pose is not None:
         detail_bits = [
             f'姿勢:{listener_pose.label} '
             f'({listener_pose.posture_kind}) · '
-            'point受音点は向きを使いません',
+            'ポイント受音点は向きを使いません',
             f'モード上限 {max_mode_hz:g} Hz · 一次反射+モード近似',
         ]
     else:
@@ -260,21 +260,21 @@ def _provider_option(
         None,
     )
     if response is None:
-        reasons.append('選択した受音点はこのproviderの受音点集合に含まれません')
+        reasons.append('選択した受音点はこのプロバイダーの受音点集合に含まれません')
     capability = provider.capability(_PRODUCT_OBSERVABLE)
     if capability.state != 'READY':
         reasons.append(
-            capability.reason or '周波数応答observableがprovider外です'
+            capability.reason or '周波数応答観測量がプロバイダー外です'
         )
     domain = provider.valid_frequency_domain
     if float(max_mode_hz) > float(domain.maximum_hz):
         reasons.append(
-            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'要求帯域 (~{max_mode_hz:g} Hz) がプロバイダー有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) を超えます'
         )
     if float(max_mode_hz) < float(domain.minimum_hz):
         reasons.append(
-            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'要求帯域 (~{max_mode_hz:g} Hz) がプロバイダー有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) の下限を下回ります'
         )
     state: PredictionOptionState = 'BLOCKED' if reasons else 'READY'
@@ -284,7 +284,7 @@ def _provider_option(
     )
     return RoomPredictionModelOption(
         model_key=provider_model_key(provider.provider_id),
-        label='低域wave prediction',
+        label='低域波動予測',
         state=state,
         reasons=tuple(reasons),
         detail=band,
@@ -310,11 +310,11 @@ def _hybrid_option(
     authority = provider.base_current_authority
     reasons: list[str] = []
     if authority.scene_revision_id != revision.revision_id:
-        reasons.append('providerの基となったSceneRevisionではありません')
+        reasons.append('プロバイダーの基となったシーンリビジョンではありません')
     elif authority.scene_content_hash != revision.content_hash:
-        reasons.append('Scene内容がprovider作成後に変更されました')
+        reasons.append('シーン内容がプロバイダー作成後に変更されました')
     if authority.document_id != revision.document_id:
-        reasons.append('providerが別のドキュメントに属します')
+        reasons.append('プロバイダーが別のドキュメントに属します')
     stale_state: Literal['CURRENT', 'STALE'] = (
         'STALE' if reasons else 'CURRENT'
     )
@@ -322,21 +322,21 @@ def _hybrid_option(
         provider.receiver_identity.receiver_binding.entity_id
         != receiver_entity_id
     ):
-        reasons.append('選択した受音点はこのproviderの受音点集合に含まれません')
+        reasons.append('選択した受音点はこのプロバイダーの受音点集合に含まれません')
     capability = provider.capability(_PRODUCT_OBSERVABLE)
     if capability.state != 'READY':
         reasons.append(
-            capability.reason or '周波数応答observableがprovider外です'
+            capability.reason or '周波数応答観測量がプロバイダー外です'
         )
     domain = provider.valid_frequency_domain
     if float(max_mode_hz) > float(domain.maximum_hz):
         reasons.append(
-            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'要求帯域 (~{max_mode_hz:g} Hz) がプロバイダー有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) を超えます'
         )
     if float(max_mode_hz) < float(domain.minimum_hz):
         reasons.append(
-            f'要求帯域 (~{max_mode_hz:g} Hz) がprovider有効帯域 '
+            f'要求帯域 (~{max_mode_hz:g} Hz) がプロバイダー有効帯域 '
             f'({domain.minimum_hz:g}–{domain.maximum_hz:g} Hz) の下限を下回ります'
         )
     state: PredictionOptionState = 'BLOCKED' if reasons else 'READY'
@@ -416,13 +416,13 @@ def resolve_room_prediction_options(
         options.append(
             RoomPredictionModelOption(
                 model_key='low-band-wave',
-                label='低域wave prediction',
+                label='低域波動予測',
                 state='UNSUPPORTED',
                 reasons=(
-                    'このドキュメントには低域prediction providerが登録されていません '
-                    '(R170A provider authorityが必要です)',
+                    'このドキュメントには低域予測プロバイダーが登録されていません '
+                    '(R170A プロバイダー権威が必要です)',
                 ),
-                detail='wave lane capabilityは登録済みproviderで有効になります',
+                detail='波動レーン能力は登録済みプロバイダーで有効になります',
             )
         )
     if include_hybrid_placeholder and not hybrid_providers:
@@ -432,10 +432,10 @@ def resolve_room_prediction_options(
                 label='hybrid prediction',
                 state='UNSUPPORTED',
                 reasons=(
-                    'このドキュメントにはhybrid prediction providerが登録されていません '
-                    '(R170B provider authorityが必要です)',
+                    'このドキュメントにはハイブリッド予測プロバイダーが登録されていません '
+                    '(R170B プロバイダー権威が必要です)',
                 ),
-                detail='hybrid lane capabilityは登録済みproviderで有効になります',
+                detail='ハイブリッドレーン能力は登録済みプロバイダーで有効になります',
             )
         )
     return tuple(options)

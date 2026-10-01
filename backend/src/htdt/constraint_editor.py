@@ -96,7 +96,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
             button.clicked.connect(callback)
             layout.addWidget(button)
 
-        self.constraint_detail_label = QLabel('違反理由を選択すると、対象と actual / required を表示します')
+        self.constraint_detail_label = QLabel('違反理由を選択すると、対象と実値 / 要求値を表示します')
         self.constraint_detail_label.setWordWrap(True)
         layout.addWidget(self.constraint_detail_label)
         layout.addStretch(1)
@@ -376,7 +376,7 @@ class ConstraintEditorWindow(TheaterWorkflowWindow):
 
     def _result_detail_text(self, result: CadConstraintResult | None) -> str:
         if result is None:
-            return '違反理由を選択すると、対象と actual / required を表示します'
+            return '違反理由を選択すると、対象と実値 / 要求値を表示します'
         actual = '—' if result.actual_m is None else f'{result.actual_m:.3f} m'
         entities = ', '.join(result.entity_ids) if result.entity_ids else '—'
         lines = [

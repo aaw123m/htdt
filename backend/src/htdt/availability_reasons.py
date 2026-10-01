@@ -226,7 +226,7 @@ AVAILABILITY_REASONS: dict[str, AvailabilityReasonSpec] = {
         ),
         _spec(
             'project.save.unavailable_or_busy',
-            '保存する変更がないか、候補生成・REW読込・編集操作が実行中です',
+            '保存する変更がないか、候補生成・REW読み込み・編集操作が実行中です',
             'Nothing to save, or candidate generation/REW import/editing is running',
             help_topic_id='workflow.data_recovery',
         ),

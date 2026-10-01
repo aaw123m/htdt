@@ -83,7 +83,7 @@ _GATE_LABELS = {
     "pass": "合格",
     "fail": "不合格",
     "insufficient": "不足",
-    "eligible": "推薦可",
+    "eligible": "推奨可",
     "disabled": "無効",
 }
 _SCOPE_LABELS = {
@@ -480,7 +480,7 @@ class ValidationControllerMixin:
             elif state == 'manual':
                 if not detail:
                     self.statusBar().showMessage(
-                        f'{code}の手動証跡には登録済みattestation IDを入力してください'
+                        f'{code}の手動証拠には登録済み証明 IDを入力してください'
                     )
                     return
                 requests.append(CadValidationApplicabilitySpec(
@@ -502,7 +502,7 @@ class ValidationControllerMixin:
         self.refresh_model_validations()
         self.refresh_validation_campaigns(select_campaign_id=campaign.campaign_id)
         self.statusBar().showMessage(
-            f'検証結果を保存しました · 推薦可否 {_gate_label(record.recommendation_gate)}'
+            f'検証結果を保存しました · 推奨可否 {_gate_label(record.recommendation_gate)}'
         )
 
     def read_selected_rew_for_campaign_async(self) -> None:
@@ -515,7 +515,7 @@ class ValidationControllerMixin:
             self.statusBar().showMessage('検証候補の実測計画を選択してください')
             return
         if plan.status != 'planned':
-            self.statusBar().showMessage('REW読込には測定待ちの実測計画が必要です')
+            self.statusBar().showMessage('REW読み込みには測定待ちの実測計画が必要です')
             return
         if (
             plan.search_spec_id != campaign.search_spec_id
@@ -547,7 +547,7 @@ class ValidationControllerMixin:
                 evidence_type_override='measured',
             )
         except Exception as exc:
-            self.statusBar().showMessage(f'検証用REW読込を開始できません · {operation_error_message(exc)}')
+            self.statusBar().showMessage(f'検証用REW読み込みを開始できません · {operation_error_message(exc)}')
             return
 
 
@@ -654,7 +654,7 @@ class ValidationControllerMixin:
                 f'{"合格" if check.passed else "不合格"} · '
                 f'{applicability_authority_summary(check)}{note}'
             )
-        lines.append(f'推薦可否: {_gate_label(record.recommendation_gate)}')
+        lines.append(f'推奨可否: {_gate_label(record.recommendation_gate)}')
         if record.gate_reasons:
             lines.extend(f'停止理由: {reason}' for reason in record.gate_reasons)
         label.setText('\n'.join(lines))

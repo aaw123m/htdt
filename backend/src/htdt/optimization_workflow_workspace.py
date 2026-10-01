@@ -453,7 +453,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             )
         ):
             self._set_status(
-                "測定workspaceへ移動できませんでした。"
+                "測定ワークスペースへ移動できませんでした。"
             )
 
     def _show_system_variant_robustness(self, variant_id: str) -> None:
@@ -479,7 +479,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         self.system_expansion_compare_panel.refresh()
         self.system_expansion_measurement_panel.refresh()
         self._set_status(
-            "SystemVariantを新しいSceneRevisionへ適用しました。設置済み/実測済みへの自動昇格は行いません。"
+            "システムバリアントを新しいシーンリビジョンへ適用しました。設置済み/実測済みへの自動昇格は行いません。"
         )
 
     def refresh_from_authorities(self) -> None:
@@ -608,7 +608,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         search_card, search = _card(
             "位置の探索範囲",
-            "候補はhard constraintを満たす幾何配置です。ここでは順位や推薦を決めません。",
+            "候補はハード制約を満たす幾何配置です。ここでは順位や推奨を決めません。",
         )
         # #1090: task-first authoring — presets + the visual preview are the
         # primary surface; the low-level numeric axis form and the linked
@@ -735,7 +735,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         extended_form = QFormLayout()
         extended_form.addRow(
-            "パラメータ",
+            "パラメーター",
             _required(self.extended_parameter_combo, "extended_parameter_combo"),
         )
         extended_form.addRow(
@@ -768,8 +768,8 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         layout.addWidget(
             _advanced_block(
-                "詳細: 向き・toe-inを探索",
-                "向き探索が利用可能な場合だけ、音響の向きや筐体の向きを追加探索します。"
+                "詳細: 向き・トーインを探索",
+                "向き探索が利用可能な場合だけ、音響照準や筐体ヨーを追加探索します。"
                 " 合成データと実室データの区分は既存の検証ルールを維持します。",
                 extended_content,
             )
@@ -799,8 +799,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(
             _heading(
                 "介入プランナー",
-                "課題領域(finding)から介入スタディを作成し、介入案を独立した"
-                "観測量で比較します。適用はtypedなproposal authority経由のみ。"
+                "課題領域から介入スタディを作成し、介入案を独立した"
+                "観測量で比較します。適用は型付き提案権威経由のみ。"
                 "確認済みの効果は測定ワークスペースの検証で確定します。",
             )
         )
@@ -825,7 +825,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(
             _heading(
                 "候補",
-                "候補を生成して3Dで確認します。プレビューでは保存データを変更せず、明示的に適用した操作だけが編集履歴に入ります。",
+                "候補を生成して3Dで確認します。プレビューでは保存データを変更せず、明示的に適用した操作だけがアンドゥ履歴に入ります。",
             )
         )
 
@@ -965,7 +965,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(
             _heading(
                 "比較",
-                "候補ごとの指標を独立して比較します。総合点や新しい推薦順位は作りません。",
+                "候補ごとの指標を独立して比較します。総合点や新しい推奨順位は作りません。",
             )
         )
 
@@ -1000,7 +1000,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         pareto_card, pareto = _card(
             "Pareto比較",
-            "「非劣」は複数指標で他候補に支配されないことを示し、音質の総合順位や自動推薦ではありません。",
+            "「非劣」は複数指標で他候補に支配されないことを示し、音質の総合順位や自動推奨ではありません。",
         )
         pareto.addWidget(_required(self.pareto_tree, "pareto_tree"), 1)
 
@@ -1018,7 +1018,7 @@ class OptimizationWorkflowWorkspace(QWidget):
             _heading(
                 "ばらつき耐性",
                 "保存済みばらつき評価の基準値・感度・評価サンプル内の不利側・制約・評価完全性を並べて確認します。"
-                " 総合点や自動推薦は作りません。",
+                " 総合点や自動推奨は作りません。",
             )
         )
 
@@ -1051,8 +1051,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(self.system_expansion_robustness_panel)
 
         overlay_card, overlay = _card(
-            "3D ばらつき範囲 / aim",
-            "選択候補の位置 tolerance と acoustic aim / cabinet yaw の宣言範囲を、"
+            "3D ばらつき範囲 / 照準",
+            "選択候補の位置許容差と音響照準 / キャビネットヨーの宣言範囲を、"
             "保存済みばらつき条件から読み取り専用で表示します。部屋状態は変更しません。",
         )
         viewport_widget.setMinimumHeight(300)
@@ -1108,8 +1108,8 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         evidence_card, evidence = _card(
             "確率・制約・評価完全性",
-            "bounded intervalを確率分布として扱いません。p95や制約違反確率は、"
-            "backendに明示的な確率モデルがある場合だけ表示します。",
+            "有界区間を確率分布として扱いません。p95や制約違反確率は、"
+            "バックエンドに明示的な確率モデルがある場合だけ表示します。",
         )
         probability = _required(
             self.robustness_probability_label,
@@ -1136,8 +1136,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         advanced_layout.addWidget(advanced)
         layout.addWidget(
             _advanced_block(
-                "詳細: authority / model / fidelity",
-                "UUID・SHA・solver/provider等の内部情報は通常表示から分離します。",
+                "詳細: 権威 / モデル / 忠実度",
+                "UUID・SHA・ソルバー/プロバイダー等の内部情報は通常表示から分離します。",
                 advanced_content,
             )
         )
@@ -1211,11 +1211,11 @@ class OptimizationWorkflowWorkspace(QWidget):
             _required(self.campaign_model_version_field, "campaign_model_version_field"),
         )
         campaign_form.addRow(
-            "検証帯域 下限",
+            "検証帯域下限",
             _required(self.campaign_low_field, "campaign_low_field"),
         )
         campaign_form.addRow(
-            "検証帯域 上限",
+            "検証帯域上限",
             _required(self.campaign_high_field, "campaign_high_field"),
         )
         campaign_form.addRow(
@@ -1296,7 +1296,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         validation_card, validation = _card(
             "保存済み検証",
-            "残差 / 傾向 / 感度 / 再現性 / 適用条件と既存の推薦可否をそのまま表示します。",
+            "残差 / 傾向 / 感度 / 再現性 / 適用条件と既存の推奨可否をそのまま表示します。",
         )
         validation.addWidget(
             _required(self.validation_refresh_button, "validation_refresh_button")
@@ -1382,7 +1382,7 @@ class OptimizationWorkflowWorkspace(QWidget):
         layout.addWidget(
             _advanced_block(
                 "詳細: 次の測定候補",
-                "既存の次候補探索ロジックを使います。合成データでの開発検証は本番推薦を解放せず、"
+                "既存の次候補探索ロジックを使います。合成データでの開発検証は本番推奨を解放せず、"
                 " 本番利用には現在の検証条件に基づく適格な実室データが必要です。",
                 adaptive_content,
             )

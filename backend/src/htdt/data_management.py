@@ -98,7 +98,7 @@ _OPERATION_TITLES: dict[DataOperationKind, str] = {
     DataOperationKind.CREATE_BACKUP: 'バックアップの作成',
     DataOperationKind.VALIDATE_RESTORE: 'バックアップの検証',
     DataOperationKind.RESTORE: 'バックアップからの復元',
-    DataOperationKind.RELOCATE: 'データフォルダの移動',
+    DataOperationKind.RELOCATE: 'データフォルダーの移動',
     DataOperationKind.SCAN_STORAGE: 'ストレージのスキャン',
     DataOperationKind.GC_STORAGE: '未参照アセットの削除',
 }
@@ -218,7 +218,7 @@ def _result_summary(kind: DataOperationKind, result: object) -> str:
         )
     if isinstance(result, RelocationResult):
         return (
-            f'データフォルダを {result.destination_dir} に移動しました'
+            f'データフォルダーを {result.destination_dir} に移動しました'
             f'（退避先: {result.parked_dir}）'
         )
     if isinstance(result, StorageGcResult):

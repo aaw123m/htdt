@@ -85,7 +85,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
 
         identity_label = QLabel(
             'モデル: htdt.rectangular_geometry / rect-room-geometry-1\n'
-            'room mode周波数と一次反射の幾何候補のみ。実測FR・SPL音場ではありません。'
+            '室モード周波数と一次反射の幾何候補のみ。実測FR・SPL音場ではありません。'
         )
         identity_label.setWordWrap(True)
         layout.addWidget(identity_label)
@@ -100,7 +100,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_max_mode_field.setDecimals(1)
         self.prediction_max_mode_field.setValue(300.0)
         self.prediction_max_mode_field.setSuffix(' Hz')
-        form.addRow('mode上限', self.prediction_max_mode_field)
+        form.addRow('モード上限', self.prediction_max_mode_field)
 
         self.prediction_sound_speed_field = QDoubleSpinBox()
         self.prediction_sound_speed_field.setRange(250.0, 400.0)
@@ -113,7 +113,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         action_row = QHBoxLayout()
         self.prediction_run_button = QPushButton('矩形幾何予測を実行')
         self.prediction_run_button.setToolTip(
-            '保存済みSceneRevisionとmodel input hashへ固定してGUI thread外で計算します'
+            '保存済みシーンリビジョンとモデル入力ハッシュへ固定してGUI スレッド外で計算します'
         )
         self.prediction_run_button.clicked.connect(self.run_rectangular_geometry_prediction_async)
         action_row.addWidget(self.prediction_run_button)
@@ -123,15 +123,15 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         action_row.addWidget(self.prediction_cancel_button)
         layout.addLayout(action_row)
 
-        self.prediction_reflection_checkbox = QCheckBox('一次反射pathを3D表示')
+        self.prediction_reflection_checkbox = QCheckBox('一次反射パスを3D表示')
         self.prediction_reflection_checkbox.setChecked(True)
         self.prediction_reflection_checkbox.toggled.connect(lambda _checked: self._rebuild())
         layout.addWidget(self.prediction_reflection_checkbox)
 
-        self.prediction_scalar_button = QPushButton('音場 heatmap / slice / volume')
+        self.prediction_scalar_button = QPushButton('音場ヒートマップ / スライス / ボリューム')
         self.prediction_scalar_button.setEnabled(False)
         self.prediction_scalar_button.setToolTip(
-            'exact矩形modelのmode resultを持つrun選択時に有効になります'
+            '厳密矩形モデルのモード結果を持つ実行選択時に有効になります'
         )
         self.prediction_scalar_button.clicked.connect(self._open_field_explorer)
         layout.addWidget(self.prediction_scalar_button)
@@ -143,12 +143,12 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         layout.addWidget(self.prediction_tree)
 
         self.prediction_detail_label = QLabel(
-            '予測resultを選択すると model / assumptions / compatibility / stale状態を表示します'
+            '予測結果を選択するとモデル / 仮定 / 互換性 / 古い状態を表示します'
         )
         self.prediction_detail_label.setWordWrap(True)
         layout.addWidget(self.prediction_detail_label)
 
-        self.matrix_status_label = QLabel('matrixなし')
+        self.matrix_status_label = QLabel('行列なし')
         self.matrix_status_label.setWordWrap(True)
         layout.addWidget(self.matrix_status_label)
         self.matrix_table = QTableWidget()
@@ -157,7 +157,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             QTableWidget.EditTrigger.NoEditTriggers
         )
         layout.addWidget(self.matrix_table)
-        matrix_refresh_button = QPushButton('行列を再読込')
+        matrix_refresh_button = QPushButton('行列を再読み込み')
         matrix_refresh_button.clicked.connect(self.refresh_matrix_dock)
         layout.addWidget(matrix_refresh_button)
         self.refresh_matrix_dock()
@@ -181,7 +181,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             self.matrix_table.setColumnCount(0)
             if self.matrix_status_label is not None:
                 self.matrix_status_label.setText(
-                    f"matrixなし · {presentation.reason or ''}"
+                    f"行列なし · {presentation.reason or ''}"
                 )
             return
         sources = presentation.source_labels
@@ -239,12 +239,12 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
 
     def _saved_prediction_target(self) -> tuple[SceneRevision, str]:
         if self.working is None or self.working.source_revision_id is None:
-            raise ValueError('保存済みSceneRevisionが必要です')
+            raise ValueError('保存済みシーンリビジョンが必要です')
         if self.working.is_dirty:
             raise ValueError('予測の前に現在の配置を保存してください')
         revision = self.repository.get(self.working.source_revision_id)
         if revision is None:
-            raise ValueError('現在のSceneRevisionを読み込めません')
+            raise ValueError('現在のシーンリビジョンを読み込めません')
 
         receiver_id = None
         if self.prediction_receiver_combo is not None:
@@ -331,7 +331,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         if self.prediction_run_button is not None:
             self.prediction_run_button.setEnabled(False)
         self.statusBar().showMessage(
-            f'予測中… revision {revision.revision_id[:8]} · input {identity.input_hash[:8]}'
+            f'予測中… リビジョン {revision.revision_id[:8]} · 入力 {identity.input_hash[:8]}'
         )
         self._start_prediction_task(
             token.job_id,
@@ -359,7 +359,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self._current_prediction_token_id = None
         if self.prediction_run_button is not None:
             self.prediction_run_button.setEnabled(True)
-        self.statusBar().showMessage('予測をキャンセルしました · 遅延結果は現在sceneへ適用しません')
+        self.statusBar().showMessage('予測をキャンセルしました · 遅延結果は現在シーンへ適用しません')
 
     def _start_prediction_task(self, key: str, operation: Callable[[Event], object]) -> None:
         if self._disposed:
@@ -413,7 +413,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             return
         context = self._current_prediction_context()
         if context is None or not self.prediction_job_guard.can_apply(token, context):
-            self.statusBar().showMessage('古い予測結果を破棄しました · scene/constraintが変更されています')
+            self.statusBar().showMessage('古い予測結果を破棄しました · シーン/制約が変更されています')
             return
 
         try:
@@ -429,10 +429,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self._rebuild()
         compatibility = result[0].geometry_compatibility
         if compatibility == 'unsupported':
-            self.statusBar().showMessage('矩形幾何modelは現在の部屋形状を非対応として記録しました')
+            self.statusBar().showMessage('矩形幾何モデルは現在の部屋形状を非対応として記録しました')
         else:
             self.statusBar().showMessage(
-                f'予測を保存しました · revision {result[0].scene_revision_id[:8]} · run {result[0].run_id[:8]}'
+                f'予測を保存しました · リビジョン {result[0].scene_revision_id[:8]} · 実行 {result[0].run_id[:8]}'
             )
 
     def _selected_prediction_results(self) -> tuple[CadPredictionResult, ...]:
@@ -458,7 +458,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             run_results = tuple(item for item in results if item.run_id == run_id)
             first = run_results[0]
             compatibility = {
-                'exact_for_model_geometry': '矩形model exact',
+                'exact_for_model_geometry': '矩形モデル厳密',
                 'rectangular_approximation': '矩形近似',
                 'unsupported': '非対応',
             }.get(first.geometry_compatibility, first.geometry_compatibility)
@@ -473,7 +473,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                 (item for item in run_results if item.result_kind == 'geometry_reflections'), None
             )
             if modes is not None:
-                mode_group = QTreeWidgetItem([f'room mode候補 · {len(modes.modes)}件', '予測幾何'])
+                mode_group = QTreeWidgetItem([f'室モード候補 · {len(modes.modes)}件', '予測幾何'])
                 mode_group.setData(0, ROLE, run_id)
                 top.addChild(mode_group)
                 for mode in modes.modes[:20]:
@@ -511,7 +511,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self._render_prediction_overlay()
 
     def _create_field_explorer_dock(self) -> None:
-        dock = QDockWidget('音場Explorer', self)
+        dock = QDockWidget('音場エクスプローラー', self)
         dock.setObjectName('field_explorer_dock')
         self.field_explorer_panel = FieldExplorerPanel(
             self.repository,
@@ -566,13 +566,13 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         if not results:
             self.prediction_summary_label.setText('保存済み予測なし')
             self.prediction_detail_label.setText(
-                '予測resultを選択すると model / assumptions / compatibility / stale状態を表示します'
+                '予測結果を選択するとモデル / 仮定 / 互換性 / 古い状態を表示します'
             )
             return
         first = results[0]
         current_hash = None if self.working is None else scene_content_hash(self.working.committed_document)
         historical = current_hash != first.scene_content_hash
-        state = '過去入力の予測 · 現在sceneには重ねない' if historical else '現在sceneと入力版が一致'
+        state = '過去入力の予測 · 現在シーンには重ねない' if historical else '現在シーンと入力版が一致'
         if self.prediction_scalar_button is not None:
             self.prediction_scalar_button.setEnabled(
                 self._explorable_prediction_results() is not None

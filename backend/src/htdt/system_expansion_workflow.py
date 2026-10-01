@@ -729,7 +729,7 @@ class SystemExpansionWorkflowService:
                 variant_id,
                 "unplanned",
                 "未計画",
-                "設置済み記録がないためSystemVariant測定計画は作成できません。",
+                "設置済み記録がないためシステムバリアント測定計画は作成できません。",
                 False,
                 False,
                 "検証保留",
@@ -739,7 +739,7 @@ class SystemExpansionWorkflowService:
                 variant_id,
                 "unplanned",
                 "未計画",
-                "SystemVariant固有の測定計画はまだありません。",
+                "システムバリアント固有の測定計画はまだありません。",
                 False,
                 False,
                 "検証保留",
@@ -749,7 +749,7 @@ class SystemExpansionWorkflowService:
                 variant_id,
                 "planned",
                 "測定計画あり",
-                "測定計画はありますがcampaignは事前登録されていません。",
+                "測定計画はありますがキャンペーンは事前登録されていません。",
                 False,
                 False,
                 "検証保留",
@@ -792,7 +792,7 @@ class SystemExpansionWorkflowService:
                 variant_id,
                 "evidence_incomplete",
                 "実測根拠不足",
-                "キャンペーン完了が参照する実測authorityを再解決できません。",
+                "キャンペーン完了が参照する実測権威を再解決できません。",
                 False,
                 False,
                 "検証保留",
@@ -811,7 +811,7 @@ class SystemExpansionWorkflowService:
             variant_id,
             "validation_pending",
             "実測済み・未検証",
-            "SystemVariant campaign実測は完了しています。O60/R180 validationは別gateです。",
+            "システムバリアントキャンペーン実測は完了しています。O60/R180 検証は別ゲートです。",
             True,
             False,
             "検証保留",
@@ -1441,7 +1441,7 @@ class SystemExpansionWorkflowService:
             advanced=advanced,
             stale=stale,
             stale_reason=(
-                "baseline SceneRevisionが現在のrevisionではありません。再評価してください。"
+                "ベースラインシーンリビジョンが現在のリビジョンではありません。再評価してください。"
                 if stale
                 else None
             ),
@@ -1451,7 +1451,7 @@ class SystemExpansionWorkflowService:
         variant = self.variant(variant_id)
         baseline = self.scene_repository.get(variant.baseline_revision_id)
         if baseline is None:
-            raise ValueError("proposal baseline SceneRevisionがありません")
+            raise ValueError("提案ベースラインシーンリビジョンがありません")
         scene = materialize_system_variant(baseline, variant)
         proposed_ids = {item.entity_id for item in proposed_ghosts(variant)}
         return tuple(
@@ -1485,7 +1485,7 @@ class SystemExpansionWorkflowService:
             change_lines=tuple(lines),
             stale=stale,
             stale_reason=(
-                "提案のbaselineが最新SceneRevisionと一致しません。"
+                "提案のベースラインが最新シーンリビジョンと一致しません。"
                 if stale
                 else None
             ),
@@ -1548,7 +1548,7 @@ class SystemExpansionWorkflowService:
             return AsBuiltPreview(
                 variant_id,
                 False,
-                'この提案はまだSceneRevisionへ適用されていません。'
+                'この提案はまだシーンリビジョンへ適用されていません。'
                 '先に「この提案を適用」を実行してください。',
                 None,
                 None,
@@ -1584,7 +1584,7 @@ class SystemExpansionWorkflowService:
             return AsBuiltPreview(
                 variant_id,
                 False,
-                '現在の保存状態はこのproposalのapplied SceneRevisionの'
+                '現在の保存状態はこの提案の適用済みシーンリビジョンの'
                 '子孫ではありません。適用した構成へ戻してから記録してください。',
                 application.applied_revision_id,
                 head.revision_id,
@@ -1611,12 +1611,12 @@ class SystemExpansionWorkflowService:
                 continue
             if actual.kind != proposed.kind:
                 blocking.append(
-                    f'{proposed.name}: 提案kind {proposed.kind} と実物体kind '
+                    f'{proposed.name}: 提案種別 {proposed.kind} と実物体種別 '
                     f'{actual.kind} が一致しません。'
                 )
             if actual.kind == 'speaker' and actual.speaker_role != proposed.speaker_role:
                 blocking.append(
-                    f'{proposed.name}: 提案role {proposed.speaker_role} と実物体 '
+                    f'{proposed.name}: 提案ロール {proposed.speaker_role} と実物体 '
                     f'{actual.speaker_role} が一致しません。'
                 )
             moved = actual.position != proposed.position or (
@@ -1732,7 +1732,7 @@ class SystemExpansionWorkflowService:
         if as_built is None:
             return MeasurementPlanOptions(
                 False,
-                '設置済み記録がないためSystemVariant測定計画は作成できません。',
+                '設置済み記録がないためシステムバリアント測定計画は作成できません。',
                 (),
                 (),
             )
@@ -1740,7 +1740,7 @@ class SystemExpansionWorkflowService:
         if revision is None:
             return MeasurementPlanOptions(
                 False,
-                '設置済みSceneRevisionを再解決できません。',
+                '設置済みシーンリビジョンを再解決できません。',
                 (),
                 (),
             )
@@ -1794,11 +1794,11 @@ class SystemExpansionWorkflowService:
         as_built = self._as_built(variant_id)
         if as_built is None:
             raise ValueError(
-                '設置済み記録がないためSystemVariant測定計画は作成できません。'
+                '設置済み記録がないためシステムバリアント測定計画は作成できません。'
             )
         revision = self.scene_repository.get(as_built.as_built_revision_id)
         if revision is None:
-            raise ValueError('設置済みSceneRevisionを再解決できません。')
+            raise ValueError('設置済みシーンリビジョンを再解決できません。')
         try:
             point = revision.document.entity(measurement_point_entity_id)
         except KeyError as exc:
@@ -1811,7 +1811,7 @@ class SystemExpansionWorkflowService:
             raise ValueError('測定対象の音源を1つ以上選択してください。')
         if repeatability_required and expected_measurement_count < 2:
             raise ValueError(
-                'repeatabilityを要求するtargetは2回以上の測定が必要です。'
+                '再現性を要求するターゲットは2回以上の測定が必要です。'
             )
         for entity_id in sources:
             try:
@@ -1819,7 +1819,7 @@ class SystemExpansionWorkflowService:
             except KeyError as exc:
                 raise ValueError('選択した音源は設置済み状態に存在しません。') from exc
             if source.kind != 'speaker':
-                raise ValueError('測定対象の音源はspeakerである必要があります。')
+                raise ValueError('測定対象の音源はスピーカーである必要があります。')
         target = SystemVariantMeasurementTarget(
             target_id=_short_semantic_id(
                 'variant-measurement-target',
@@ -1877,11 +1877,11 @@ class SystemExpansionWorkflowService:
             plans = tuple(plan for plan in plans if plan.plan_id in wanted)
         if not plans:
             raise ValueError(
-                'campaignを事前登録するSystemVariant測定計画がありません。'
+                'キャンペーンを事前登録するシステムバリアント測定計画がありません。'
             )
         text = purpose.strip()
         if not text:
-            raise ValueError('campaignの目的を入力してください。')
+            raise ValueError('キャンペーンの目的を入力してください。')
         campaign = build_system_variant_measurement_campaign(
             plans=plans,
             purpose=text,
@@ -1972,7 +1972,7 @@ class SystemExpansionWorkflowService:
         aggregate = value.aggregates.useful_coverage_fraction
         if aggregate.state != "available":
             return aggregate.reason or "利用不可"
-        return f"有効coverage {aggregate.value:.3f}"
+        return f"有効カバレッジ {aggregate.value:.3f}"
 
     def _spl_headroom_summary(self, bundle) -> str:
         parts: list[str] = []
@@ -1987,14 +1987,14 @@ class SystemExpansionWorkflowService:
                 sha_attr="evaluation_sha256",
             )
             if direct is None:
-                parts.append("direct SPL参照不可")
+                parts.append("直接音SPL参照不可")
             else:
                 aggregates = direct.aggregates
                 parts.append(
                     "SPL " + self._scalar_text(aggregates.worst_seat_direct_level)
                 )
                 parts.append(
-                    "連続headroom "
+                    "連続ヘッドルーム "
                     + self._scalar_text(aggregates.worst_seat_continuous_headroom)
                 )
                 parts.append(
@@ -2012,7 +2012,7 @@ class SystemExpansionWorkflowService:
                 sha_attr="evaluation_sha256",
             )
             if amp is None:
-                parts.append("amp headroom参照不可")
+                parts.append("アンプヘッドルーム参照不可")
             else:
                 parts.append(
                     "amp margin "
@@ -2189,7 +2189,7 @@ class SystemExpansionWorkflowService:
             variants=tuple(views),
             authority_stale=stale,
             stale_reason=(
-                "比較authorityは現在のSceneRevisionに対してstaleです。再評価してください。"
+                "比較権威は現在のシーンリビジョンに対して古いです。再評価してください。"
                 if stale
                 else None
             ),
@@ -2298,14 +2298,14 @@ class SystemExpansionWorkflowService:
         """
         baseline = self.scene_repository.current_head(self.document_id)
         if baseline is None:
-            raise ValueError("比較対象となる現在のSceneRevisionがありません。")
+            raise ValueError("比較対象となる現在のシーンリビジョンがありません。")
 
         candidates: list[SystemVariant] = []
         for variant_id in variant_ids:
             variant = self.variant_repository.get_variant(variant_id)
             if variant is None:
                 raise ValueError(
-                    f"選択したSystemVariantが存在しません: {variant_id}"
+                    f"選択したシステムバリアントが存在しません: {variant_id}"
                 )
             candidates.append(variant)
         if not candidates and not include_current:
@@ -2343,7 +2343,7 @@ class SystemExpansionWorkflowService:
             profile = standards.get_profile(standards_profile_id)
             if profile is None:
                 raise ValueError(
-                    f"選択したStandardsProfileが存在しません: "
+                    f"選択した規格プロファイルが存在しません: "
                     f"{standards_profile_id}"
                 )
         else:
@@ -2395,7 +2395,7 @@ class SystemExpansionWorkflowService:
             standards_repository=standards,
             equipment_repository=self.equipment_repository,
             baseline=baseline,
-            name=name or 'SystemVariant 比較',
+            name=name or 'システムバリアント比較',
             standards_profile=profile,
             candidates=candidates,
             policy=ComparisonEvaluationPolicy(
@@ -2441,7 +2441,7 @@ class SystemExpansionWorkflowService:
                 False,
                 payload.get("robustness_spec_id"),
                 topology_candidate_id,
-                "ばらつきauthorityのSystemVariant hashがstaleです。",
+                "ばらつき権威のシステムバリアントハッシュが古いです。",
             )
         return RobustnessNavigationTarget(
             variant_id,
@@ -2482,14 +2482,14 @@ class SystemExpansionWorkflowService:
             or spec.candidate_variant_id != variant.variant_id
             or spec.candidate_variant_sha256 != variant.variant_sha256
         ):
-            raise ValueError("提案のばらつきauthorityが選択SystemVariantと一致しません。")
+            raise ValueError("提案のばらつき権威が選択システムバリアントと一致しません。")
         baseline = self.scene_repository.get(spec.scene_revision_id)
         if (
             baseline is None
             or baseline.document_id != self.document_id
             or baseline.content_hash != spec.scene_content_hash
         ):
-            raise ValueError("提案のばらつきauthorityのbaselineを再解決できません。")
+            raise ValueError("提案のばらつき権威のベースラインを再解決できません。")
 
         samples = tuple(
             ProposalPerturbationSample.model_validate_json(item)
@@ -2515,7 +2515,7 @@ class SystemExpansionWorkflowService:
                 or sample.robustness_spec_sha256 != spec.robustness_spec_sha256
                 or sample.candidate_id != variant.variant_id
             ):
-                raise ValueError("提案のばらつきsample authorityが一致しません。")
+                raise ValueError("提案のばらつきサンプル権威が一致しません。")
         sample_ids = {item.sample_id for item in samples}
         for evaluation in evaluations:
             if (
@@ -2524,7 +2524,7 @@ class SystemExpansionWorkflowService:
                 or evaluation.candidate_id != variant.variant_id
                 or not set(evaluation.sample_ids).issubset(sample_ids)
             ):
-                raise ValueError("提案のばらつきevaluation authorityが一致しません。")
+                raise ValueError("提案のばらつき評価権威が一致しません。")
 
         latest = self.scene_repository.current_head(self.document_id)
         current = bool(
@@ -2592,9 +2592,9 @@ class SystemExpansionWorkflowService:
             )
 
         sampling_label = (
-            "多次元 bounded sampling"
+            "多次元有界サンプリング"
             if isinstance(spec, ProposalMultidimensionalRobustnessSpec)
-            else "局所 ± sensitivity"
+            else "局所 ± 感度"
         )
         return ProposalRobustnessPresentation(
             variant_id=variant.variant_id,
@@ -2603,7 +2603,7 @@ class SystemExpansionWorkflowService:
             stale_reason=(
                 None
                 if current
-                else "baseline SceneRevisionが現在状態と一致しないため再評価が必要です。"
+                else "ベースラインシーンリビジョンが現在状態と一致しないため再評価が必要です。"
             ),
             sampling_label=sampling_label,
             sample_count=len(samples),

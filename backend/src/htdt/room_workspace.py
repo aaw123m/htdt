@@ -2181,7 +2181,7 @@ class RoomWorkspaceController:
         source_id = recovery.source_revision_id
         source = self.repository.get(source_id) if source_id is not None else None
         if source is None:
-            raise EditStateError("復旧元のrevisionが見つかりません")
+            raise EditStateError("復旧元のリビジョンが見つかりません")
         self.working = TheaterWorkingDocument(
             recovery.document,
             source_revision_id=source.revision_id,
@@ -4727,7 +4727,7 @@ class RoomWorkspace(QWidget):
         armed = self.controller.underlay_calibration_underlay_id
         if armed is not None:
             self._set_status(
-                '下図キャリブレーション中: 図面上の既知の2点をクリックしてください'
+                '下図校正中: 図面上の既知の2点をクリックしてください'
                 ' (Escで中止)'
             )
 
@@ -4989,7 +4989,7 @@ class RoomWorkspace(QWidget):
                 self,
                 "ペア複製",
                 f"ミラーしたスピーカーの役割を「{proposed}」にしますか？\n"
-                "(いいえ を選ぶと元の役割のまま複製します)",
+                "(いいえを選ぶと元の役割のまま複製します)",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
@@ -5286,7 +5286,7 @@ class RoomWorkspace(QWidget):
                 self,
                 "座席レイアウト",
                 f"{summary}\n\nレイアウト外となった座席が{len(diff.removed)}件あります。"
-                "削除しますか？（いいえを選ぶと座席は残ります — 証跡を持つ座席は削除されません）",
+                "削除しますか？（いいえを選ぶと座席は残ります — 証拠を持つ座席は削除されません）",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -6009,7 +6009,7 @@ class RoomWorkspace(QWidget):
                 x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value())
             ),
             head_radius_m=float(widgets['head_r'].spin.value()),
-            provenance='Room映像パネルで作成 (UX120)',
+            provenance='部屋映像パネルで作成 (UX120)',
         )
         self.listener_pose_repository.save_pose(pose)
         self.listener_pose_repository.select_pose(
@@ -7129,7 +7129,7 @@ class SeatingLayoutDialog(QDialog):
         form.addRow("千鳥配置", self.stagger_field)
 
         self.aisle_field = QLineEdit()
-        self.aisle_field.setPlaceholderText("例: 2:0.9; 5:0.9 (座席番号の後に 幅m)")
+        self.aisle_field.setPlaceholderText("例: 2:0.9; 5:0.9 (座席番号の後に幅m)")
         if existing and existing.aisles:
             self.aisle_field.setText(
                 "; ".join(

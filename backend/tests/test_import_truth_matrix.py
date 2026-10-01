@@ -1268,7 +1268,7 @@ def test_read_file_bounded_size_cap(tmp_path: Path) -> None:
 
 def test_read_file_bounded_unicode_and_long_paths(tmp_path: Path) -> None:
     # JP + emoji + spaces in the filename
-    name = '計測 データ 🔊.txt'
+    name = '計測データ 🔊.txt'
     target = tmp_path / name
     target.write_bytes(b'data')
     assert read_file_bounded(target, 1024) == b'data'

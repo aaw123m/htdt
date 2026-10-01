@@ -529,7 +529,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Measured',
         },
         gloss={
-            PresentationLocale.JAPANESE: '計測エビデンスが存在する。検証済みとは限らない。',
+            PresentationLocale.JAPANESE: '計測証拠が存在する。検証済みとは限らない。',
             PresentationLocale.ENGLISH: 'Backed by measurement evidence; not necessarily validated.',
         },
     ),
@@ -551,7 +551,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Staged',
         },
         gloss={
-            PresentationLocale.JAPANESE: '取り込み済みだが未昇格のCaptureデータ。',
+            PresentationLocale.JAPANESE: '取り込み済みだが未昇格のキャプチャデータ。',
             PresentationLocale.ENGLISH: 'Imported capture data not yet promoted.',
         },
     ),
@@ -562,7 +562,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Promoted',
         },
         gloss={
-            PresentationLocale.JAPANESE: 'プロジェクトauthorityへ昇格したCaptureデータ。',
+            PresentationLocale.JAPANESE: 'プロジェクト権威へ昇格したキャプチャデータ。',
             PresentationLocale.ENGLISH: 'Capture data promoted into project authority.',
         },
     ),
@@ -595,7 +595,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Inferred',
         },
         gloss={
-            PresentationLocale.JAPANESE: '他のauthorityから推定された値。',
+            PresentationLocale.JAPANESE: '他の権威から推定された値。',
             PresentationLocale.ENGLISH: 'A value inferred from other authorities.',
         },
     ),
@@ -606,7 +606,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Unverified',
         },
         gloss={
-            PresentationLocale.JAPANESE: '検証エビデンスがまだ無い状態。',
+            PresentationLocale.JAPANESE: '検証証拠がまだ無い状態。',
             PresentationLocale.ENGLISH: 'No validation evidence exists yet.',
         },
     ),
@@ -617,7 +617,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Stale',
         },
         gloss={
-            PresentationLocale.JAPANESE: '依存authorityが変わり現行ではない。無効とは限らない。',
+            PresentationLocale.JAPANESE: '依存権威が変わり現行ではない。無効とは限らない。',
             PresentationLocale.ENGLISH: 'Not current because a dependency changed; not necessarily invalid.',
         },
     ),
@@ -628,7 +628,7 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
             PresentationLocale.ENGLISH: 'Historical',
         },
         gloss={
-            PresentationLocale.JAPANESE: '過去のrevisionに対する有効な記録。',
+            PresentationLocale.JAPANESE: '過去のリビジョンに対する有効な記録。',
             PresentationLocale.ENGLISH: 'A record still valid for a past revision.',
         },
     ),

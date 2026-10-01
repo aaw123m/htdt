@@ -152,7 +152,7 @@ class MeasurementTargetService:
     ) -> tuple[MaterializedPatternPoint, ...]:
         pattern = self.repository.get_pattern(pattern_id)
         if pattern is None:
-            raise ValueError(f"target patternが存在しません: {pattern_id}")
+            raise ValueError(f"ターゲットパターンが存在しません: {pattern_id}")
         _result, points = materialize_target_pattern(
             self.scene_repository,
             self.repository,
@@ -165,7 +165,7 @@ class MeasurementTargetService:
         """New pattern version on the current head; history never moves."""
         pattern = self.repository.get_pattern(pattern_id)
         if pattern is None:
-            raise ValueError(f"target patternが存在しません: {pattern_id}")
+            raise ValueError(f"ターゲットパターンが存在しません: {pattern_id}")
         rebased = rebase_target_pattern(
             self.scene_repository,
             pattern,

@@ -279,7 +279,7 @@ def _derive_requirements(
             'prediction.hybrid_evidence',
             CommissioningStage.MEASUREMENT,
             'required',
-            'ハイブリッド予測用の測定エビデンスを揃える',
+            'ハイブリッド予測用の測定証拠を揃える',
         ))
     requirements.append((
         'readiness.summary',
@@ -378,11 +378,11 @@ def _requirement_status(
             link = notice.action.target if notice.action else None
             return (
                 'pending',
-                'ハイブリッド予測には測定エビデンスが必要です。'
+                'ハイブリッド予測には測定証拠が必要です。'
                 'まず測定データを登録してください。',
                 link or WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
             )
-        return 'satisfied', 'ハイブリッド予測に必要な測定エビデンスは揃っています', None
+        return 'satisfied', 'ハイブリッド予測に必要な測定証拠は揃っています', None
     if requirement_id == 'readiness.summary':
         if view.blockers:
             return (

@@ -875,7 +875,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             command_id='measurements.import_rew',
             display_name='REW読み込み',
             contexts=frozenset({CommandContext.MEASUREMENT}),
-            keywords=('REWを読み込む', 'import REW', '測定取込', '測定読み込み'),
+            keywords=('REWを読み込む', 'import REW', '測定取り込み', '測定読み込み'),
             deep_link=WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
         ),
         CommandDefinition(
@@ -894,7 +894,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
         ),
         CommandDefinition(
             command_id='equipment.export_capture_catalog',
-            display_name='Capture用機材カタログを書き出す',
+            display_name='キャプチャ用機材カタログを書き出す',
             contexts=frozenset({CommandContext.GLOBAL}),
             keywords=(
                 'export equipment catalog',
@@ -921,7 +921,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
         ),
         CommandDefinition(
             command_id='project.deliverables',
-            display_name='プロジェクト デリバラブルセンター',
+            display_name='プロジェクトデリバラブルセンター',
             contexts=frozenset({CommandContext.GLOBAL}),
             keywords=(
                 'deliverables',
@@ -955,7 +955,7 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
                 'biquad',
                 'peq',
                 '校正設定',
-                'フィルタ書き出し',
+                'フィルター書き出し',
                 'generic biquad',
             ),
             # export_settings persists the export snapshot + 'exported'

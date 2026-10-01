@@ -348,12 +348,39 @@ _PREVIEW_REASON_CODE_LABELS = {
     'missing_observation': '観測値なし',
     'unit_mismatch': '単位不一致',
     'missing_input_or_capability': '入力または能力なし',
-    'missing_evidence': '証跡なし',
-    'measurement_evidence_required': '実測証跡が必要',
+    'missing_evidence': '証拠なし',
+    'measurement_evidence_required': '実測証拠が必要',
     'missing_observed_value': '観測値未設定',
     'invalid_observed_value': '観測値が無効',
     'comparison_pass': '比較合格',
     'comparison_fail': '比較不合格',
+}
+
+_PREVIEW_SECTION_REASON_LABELS = {
+    'exact ProjectorSpecification and VideoGeometryEvaluation are bound':
+        '正確なProjectorSpecificationとVideoGeometryEvaluationが結び付けられています',
+    'no exact projector/video geometry authority is bound':
+        '正確なプロジェクター/映像ジオメトリ権威が結び付けられていません',
+    'exact StandardsProfile and StandardsEvaluation are bound':
+        '正確なStandardsProfileとStandardsEvaluationが結び付けられています',
+    'no exact StandardsProfile/StandardsEvaluation authority is bound':
+        '正確なStandardsProfile/StandardsEvaluation権威が結び付けられていません',
+    'exact CalibrationPlan authority is bound':
+        '正確なCalibrationPlan権威が結び付けられています',
+    'no exact CalibrationPlan authority is bound':
+        '正確なCalibrationPlan権威が結び付けられていません',
+    'exact AcousticTreatment definition/placement/surface authority is bound':
+        '正確なAcousticTreatment定義/配置/面権威が結び付けられています',
+    'no exact AcousticTreatment placement authority is bound':
+        '正確なAcousticTreatment配置権威が結び付けられていません',
+    'exact InstallationDatum authority is bound':
+        '正確なInstallationDatum権威が結び付けられています',
+    'no usable InstallationDatum authority is bound':
+        '利用可能なInstallationDatum権威が結び付けられていません',
+    'exact CableRun authority is bound':
+        '正確なCableRun権威が結び付けられています',
+    'no usable CableRun authority is bound':
+        '利用可能なCableRun権威が結び付けられていません',
 }
 
 
@@ -443,7 +470,7 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
     else:
         lines.append('  校正情報: 未解決')
     lines.append('')
-    lines.append('== 規格証跡 ==')
+    lines.append('== 規格証拠 ==')
     standards = output.standards
     if standards is not None and standards.status == 'AVAILABLE':
         lines.append(
@@ -467,7 +494,7 @@ def handoff_preview_text(handoff: InstallationHandoff) -> str:
         lines.append(
             f'  {_preview_label(_PREVIEW_SECTION_LABELS, section.section)}: '
             f'{_preview_label(_PREVIEW_STATUS_LABELS, section.status)} — '
-            f'{section.reason}'
+            f'{_preview_label(_PREVIEW_SECTION_REASON_LABELS, section.reason)}'
         )
     if handoff.review.complete:
         lines.append('')

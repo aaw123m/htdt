@@ -227,7 +227,7 @@ def test_comparison_presents_blocked_reason_direction_and_no_overall_score(
     eligibility = SimpleNamespace(
         variant_id=variant.variant_id,
         state="BLOCKED",
-        issues=(SimpleNamespace(detail="directivity dataなし"),),
+        issues=(SimpleNamespace(detail="指向性データなし"),),
     )
     evaluation = SimpleNamespace(
         eligibility=(eligibility,),
@@ -244,7 +244,7 @@ def test_comparison_presents_blocked_reason_direction_and_no_overall_score(
     item = view.variants[0]
     assert item.name == "proposed 5.0.2 A"
     assert item.eligibility_label == "比較不可"
-    assert item.blocked_reason == "directivity dataなし"
+    assert item.blocked_reason == "指向性データなし"
     assert item.coverage == "データなし"
     assert item.objectives[0].direction_label == "大きいほど優先"
     assert not hasattr(item, "overall_score")
@@ -301,9 +301,9 @@ def test_comparison_authority_summaries_keep_real_values_and_unavailable_reasons
         direct_level_evaluation=ref,
         amplifier_headroom_evaluation=ref,
     )
-    assert service._coverage_summary(ref) == "有効coverage 0.750"
+    assert service._coverage_summary(ref) == "有効カバレッジ 0.750"
     assert "SPL 82 dB SPL" in service._spl_headroom_summary(bundle)
-    assert "連続headroom 3.2 dB" in service._spl_headroom_summary(bundle)
+    assert "連続ヘッドルーム 3.2 dB" in service._spl_headroom_summary(bundle)
     assert "amp margin 2.5 dB" in service._spl_headroom_summary(bundle)
     assert service._standards_summary(ref) == "PASS 2 / UNKNOWN 1"
 
@@ -313,7 +313,7 @@ def test_comparison_authority_summaries_keep_real_values_and_unavailable_reasons
                 state="unsupported",
                 value=None,
                 unit="ratio",
-                reason="directivity dataなし",
+                reason="指向性データなし",
             )
         )
     )
@@ -322,7 +322,7 @@ def test_comparison_authority_summaries_keep_real_values_and_unavailable_reasons
         "_exact_authority",
         lambda **_kwargs: unsupported,
     )
-    assert service._coverage_summary(ref) == "directivity dataなし"
+    assert service._coverage_summary(ref) == "指向性データなし"
 
 
 def test_apply_uses_existing_application_authority_and_creates_revision(
@@ -1126,7 +1126,7 @@ def test_measurement_plan_requires_variant_specific_targets(
             source_entity_ids=("sl",),
             channel_role="SL",
         )
-    with pytest.raises(ValueError, match="speaker"):
+    with pytest.raises(ValueError, match="スピーカー"):
         service.create_measurement_plan(
             variant.variant_id,
             measurement_point_entity_id="mlp",

@@ -946,7 +946,7 @@ class RoomViewport3D(QFrame):
         entities: tuple[SceneEntity, ...],
         *,
         selected_id: str | None = None,
-        label: str = "提案 ghost · 未設置 / current Sceneは変更しません",
+        label: str = "提案ゴースト · 未設置 / 現在シーンは変更しません",
     ) -> None:
         """Overlay proposal ghosts without changing current SceneDocument truth."""
         self._actor_proposed_entity_ids.clear()

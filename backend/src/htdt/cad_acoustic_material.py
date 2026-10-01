@@ -48,11 +48,11 @@ _MATERIAL_PREFIX = 'acoustic-material:'
 WAVE_MODEL_LABELS: dict[str, str] = {
     'rigid': '剛性（完全反射）',
     'specific_impedance_table': '比インピーダンス表',
-    'unsupported': 'wave物理なし（非対応）',
+    'unsupported': '波動物理なし（非対応）',
 }
 GEOMETRIC_MODEL_LABELS: dict[str, str] = {
     'banded': 'バンド吸音/散乱',
-    'unsupported': 'geometric物理なし（非対応）',
+    'unsupported': '幾何物理なし（非対応）',
 }
 SURFACE_CLASS_LABELS: dict[str, str] = {
     'room_boundary': '部屋境界（壁・床・天井）',

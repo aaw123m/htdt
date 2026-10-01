@@ -466,12 +466,12 @@ def build_help_registry() -> HelpRegistry:
             'concept.lifecycle_states',
             '現在・提案・設置済み・実測済み',
             'Current vs Proposed vs As-built vs Measured',
-            'authorityのライフサイクル状態の違い。',
+            '権威のライフサイクル状態の違い。',
             'The difference between lifecycle states of an authority.',
             keywords=('current', 'proposed', 'as-built', 'measured', '現在', '提案', '設置済み', '実測'),
             related_topics=('concept.scene_vs_revision', 'concept.evidence_vs_assumption'),
             ja_sections=(
-                ('意味', '現在は設計の現行状態、提案は代替案、設置済みは実際の構成、実測済みは計測エビデンスがある状態です。実測済みは検証済みを意味しません。'),
+                ('意味', '現在は設計の現行状態、提案は代替案、設置済みは実際の構成、実測済みは計測証拠がある状態です。実測済みは検証済みを意味しません。'),
             ),
             en_sections=(
                 ('Meaning', 'Current is the live design, Proposed is an alternative, As-built is the installed configuration, Measured has measurement evidence. Measured does not imply validated.'),
@@ -479,14 +479,14 @@ def build_help_registry() -> HelpRegistry:
         ),
         _topic(
             'concept.evidence_vs_assumption',
-            'エビデンスと仮定',
+            '証拠と仮定',
             'Evidence vs assumption',
-            'UNKNOWN・仮定・推定・未検証の扱い。暗黙補完は行いません。',
+            '不明・仮定・推定・未検証の扱い。暗黙補完は行いません。',
             'How UNKNOWN, assumed, inferred and unverified are treated; nothing is silently filled in.',
             keywords=('evidence', 'assumption', 'UNKNOWN', '不明', '仮定', '推定', '未検証', '証拠'),
             related_topics=('concept.lifecycle_states', 'trouble.unknown_value'),
             ja_sections=(
-                ('原則', 'UNKNOWNは0や推定値で補完されません。仮定・推定は出所が明示されます。'),
+                ('原則', '不明は0や推定値で補完されません。仮定・推定は出所が明示されます。'),
             ),
             en_sections=(
                 ('Principle', 'UNKNOWN is never filled with 0 or a guess; assumptions and inferences carry their provenance.'),
@@ -494,14 +494,14 @@ def build_help_registry() -> HelpRegistry:
         ),
         _topic(
             'concept.staged_vs_promoted',
-            'Captureのステージと昇格',
+            'キャプチャのステージと昇格',
             'Capture staged vs promoted',
-            'Capture受信データは検証されるまでステージ状態です。',
+            'キャプチャ受信データは検証されるまでステージ状態です。',
             'Received capture data stays staged until validated and promoted.',
             keywords=('capture', 'staged', 'promoted', 'ステージ', '昇格', 'RoomPlan'),
             related_topics=('trouble.capture_staged',),
             ja_sections=(
-                ('ステージ', '受信直後のCaptureはステージに留まり、検証・昇格で初めてプロジェクトauthorityになります。'),
+                ('ステージ', '受信直後のキャプチャはステージに留まり、検証・昇格で初めてプロジェクト権威になります。'),
             ),
             en_sections=(
                 ('Staged', 'A fresh capture stays staged; only validation and promotion turn it into project authority.'),
@@ -531,7 +531,7 @@ def build_help_registry() -> HelpRegistry:
             keywords=('project', 'identity', 'プロジェクト', '表示名', '名前'),
             related_topics=('start.getting_started', 'concept.reusable_vs_project'),
             ja_sections=(
-                ('識別', '同じ表示名でもauthorityが異なれば別物です。衝突時に表示名で上書きしません。'),
+                ('識別', '同じ表示名でも権威が異なれば別物です。衝突時に表示名で上書きしません。'),
             ),
             en_sections=(
                 ('Identity', 'Identical display names do not mean the same authority; nothing is overwritten by name.'),
@@ -557,7 +557,7 @@ def build_help_registry() -> HelpRegistry:
             'workflow.room_cad',
             '部屋 / CAD編集',
             'Room / CAD editing',
-            '3D CADでの選択・移動・スナップ・数値編集・Undo/Redo。',
+            '3D CADでの選択・移動・スナップ・数値編集・アンドゥ/リドゥ。',
             'Selection, gizmo, snapping, numeric edit and Undo/Redo in the 3D CAD editor.',
             keywords=('room', 'cad', '部屋', '3D', 'スナップ', 'gizmo', '壁', 'opening'),
             deep_links=(WorkspaceDeepLink(WorkspaceId.ROOM),),
@@ -581,7 +581,7 @@ def build_help_registry() -> HelpRegistry:
                 'speaker.role_duplicate',
             ),
             ja_sections=(
-                ('基本操作', 'ビューポートでオブジェクトを選択し、gizmoや数値入力で配置します。'),
+                ('基本操作', 'ビューポートでオブジェクトを選択し、ギズモや数値入力で配置します。'),
             ),
             en_sections=(
                 ('Basics', 'Select objects in the viewport and place them with the gizmo or numeric fields.'),
@@ -614,7 +614,7 @@ def build_help_registry() -> HelpRegistry:
             'concept.acquisition_context',
             '取得コンテキスト',
             'AcquisitionContext',
-            '測定の機器・設定・条件を束ねたauthority。',
+            '測定の機器・設定・条件を束ねた権威。',
             'The authority bundling instrument, settings and conditions of a measurement.',
             keywords=('acquisition', 'context', '取得', 'コンテキスト', 'REW', 'mic', 'calibration'),
             related_topics=('workflow.measurements',),
@@ -629,7 +629,7 @@ def build_help_registry() -> HelpRegistry:
             'workflow.prediction_optimize',
             '予測と最適化',
             'Prediction and optimization',
-            '予測の前提、capability限界、Pareto、そしてstaleになる理由。',
+            '予測の前提、能力限界、Pareto、そして古いになる理由。',
             'Prediction prerequisites, capability limits, Pareto and why results go stale.',
             keywords=('prediction', 'optimize', 'Pareto', '予測', '最適化', '候補', 'solver'),
             deep_links=(WorkspaceDeepLink(WorkspaceId.OPTIMIZATION),),
@@ -640,7 +640,7 @@ def build_help_registry() -> HelpRegistry:
                 'validation.recommendation_blocked',
             ),
             ja_sections=(
-                ('前提', '予測には機器のsource model等の入力authorityが必要です。結果はリビジョンに紐づきます。'),
+                ('前提', '予測には機器のソースモデル等の入力権威が必要です。結果はリビジョンに紐づきます。'),
             ),
             en_sections=(
                 ('Prerequisites', 'Prediction needs input authorities such as the speaker source model; results bind to a revision.'),
@@ -650,7 +650,7 @@ def build_help_registry() -> HelpRegistry:
             'workflow.data_recovery',
             '保存・復元・バックアップ',
             'Save, recovery and backup',
-            '保存とrecovery draft、バックアップ、プロジェクトエクスポートの違い。',
+            '保存とリカバリードラフト、バックアップ、プロジェクトエクスポートの違い。',
             'The difference between save, recovery drafts, backups and project export.',
             keywords=('save', 'backup', 'restore', 'export', '保存', 'バックアップ', '復元', 'エクスポート'),
             related_commands=('project.save',),
@@ -672,6 +672,7 @@ def build_help_registry() -> HelpRegistry:
             'Why prediction is unavailable',
             '保存済み配置や受音点など、予測実行の前提が揃っていない場合を説明します。',
             'Explains unmet prediction prerequisites such as a saved layout or a receiver point.',
+
             keywords=('unavailable', 'prediction', '利用不可', '予測', 'why', 'なぜ'),
             reason_codes=(
                 'prediction.run.running',
@@ -684,7 +685,7 @@ def build_help_registry() -> HelpRegistry:
             deep_links=(WorkspaceDeepLink(WorkspaceId.ROOM, section='placement'),),
             related_topics=('workflow.prediction_optimize', 'concept.evidence_vs_assumption'),
             ja_sections=(
-                ('原因', '予測は入力authorityが揃わないと実行できません。欠落している項目を確認してください。'),
+                ('原因', '予測は入力権威が揃わないと実行できません。欠落している項目を確認してください。'),
             ),
             en_sections=(
                 ('Cause', 'Prediction cannot run until required input authorities exist. Check the listed gaps.'),
@@ -692,14 +693,14 @@ def build_help_registry() -> HelpRegistry:
         ),
         _topic(
             'trouble.unknown_value',
-            '値がUNKNOWNの理由',
+            '値が不明の理由',
             'Why a value is UNKNOWN',
-            'UNKNOWNは欠落を明示する状態であり、0や推定値の代替ではありません。',
+            '不明は欠落を明示する状態であり、0や推定値の代替ではありません。',
             'UNKNOWN explicitly marks absence; it is not a stand-in for 0 or a guess.',
             keywords=('UNKNOWN', '不明', 'missing', 'なし'),
             related_topics=('concept.evidence_vs_assumption',),
             ja_sections=(
-                ('意味', '測定・推定・既定値が存在しないためUNKNOWNと表示されます。'),
+                ('意味', '測定・推定・既定値が存在しないため不明と表示されます。'),
             ),
             en_sections=(
                 ('Meaning', 'No measurement, inference or default exists, so the value is shown as UNKNOWN.'),
@@ -707,14 +708,14 @@ def build_help_registry() -> HelpRegistry:
         ),
         _topic(
             'trouble.capture_staged',
-            'Captureがステージのままの理由',
+            'キャプチャがステージのままの理由',
             'Why a capture is only staged',
-            'ステージは未検証の保留状態。昇格すると初めてauthorityになります。',
+            'ステージは未検証の保留状態。昇格すると初めて権威になります。',
             'Staged means held for verification; promotion is what creates authority.',
             keywords=('capture', 'staged', 'ステージ', '昇格'),
             related_topics=('concept.staged_vs_promoted',),
             ja_sections=(
-                ('昇格', '内容を検証し昇格させると、プロジェクトauthorityとして利用できます。'),
+                ('昇格', '内容を検証し昇格させると、プロジェクト権威として利用できます。'),
             ),
             en_sections=(
                 ('Promotion', 'Verify and promote the capture to use it as project authority.'),
@@ -724,12 +725,12 @@ def build_help_registry() -> HelpRegistry:
             'trouble.revisions_incomparable',
             'リビジョンを空間比較できない理由',
             'Why revisions cannot be spatially compared',
-            '比較は同一Digital Twin上のexact authority比較に限られます。',
+            '比較は同一Digital Twin上の厳密な権威比較に限られます。',
             'Comparison is limited to exact authorities on the same digital twin.',
             keywords=('compare', 'revision', '比較', 'リビジョン'),
             related_topics=('concept.scene_vs_revision',),
             ja_sections=(
-                ('制限', '別プロジェクトや座標系の異なるrevision同士は空間的に比較できません。'),
+                ('制限', '別プロジェクトや座標系の異なるリビジョン同士は空間的に比較できません。'),
             ),
             en_sections=(
                 ('Limit', 'Revisions from different projects or coordinate spaces cannot be compared spatially.'),
@@ -767,9 +768,9 @@ def build_help_registry() -> HelpRegistry:
         ),
         _topic(
             'trouble.stale_result',
-            '結果がstaleになる理由',
+            '結果が古いになる理由',
             'Why results become stale',
-            '依存するscene・機器・測定が変わると結果は「古い」になります。',
+            '依存するシーン・機器・測定が変わると結果は「古い」になります。',
             'Results become stale when their scene, equipment or measurement dependencies change.',
             keywords=('stale', '古い', 'invalidated', '再評価'),
             reason_codes=(
@@ -780,7 +781,7 @@ def build_help_registry() -> HelpRegistry:
             ),
             related_topics=('concept.stale_historical', 'workflow.prediction_optimize'),
             ja_sections=(
-                ('再評価', 'staleな結果は旧リビジョンの証拠として残ります。現行値は再実行で得られます。'),
+                ('再評価', '古い結果は旧リビジョンの証拠として残ります。現行値は再実行で得られます。'),
             ),
             en_sections=(
                 ('Re-evaluate', 'A stale result stays valid for its old revision; re-run to get the current value.'),
