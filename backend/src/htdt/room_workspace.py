@@ -12,6 +12,7 @@ from uuid import uuid4
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -6558,7 +6559,15 @@ class RoomWorkspace(QWidget):
             self.delete_selection()
             return
         if tool_id == "view-menu":
-            self.view_menu.popup(QCursor.pos())
+            focus = QApplication.focusWidget()
+            if focus is not None and self.tools.isAncestorOf(focus):
+                # Keyboard activation: anchor the menu to the focused tool
+                # button — QCursor.pos() opens it wherever the pointer sits.
+                self.view_menu.popup(
+                    focus.mapToGlobal(focus.rect().bottomLeft())
+                )
+            else:
+                self.view_menu.popup(QCursor.pos())
             return
         if tool_id == "draw-room" and self.geometry_input is not None:
             self.geometry_input.start_sketch()

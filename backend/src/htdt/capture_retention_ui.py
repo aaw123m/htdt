@@ -150,6 +150,7 @@ class RetentionPolicyWidget(QWidget):
         picker_row.setSpacing(10)
         self.revision_combo = QComboBox(card)
         self.revision_combo.setObjectName("captureRetentionRevisionCombo")
+        self.revision_combo.setAccessibleName("対象キャプチャリビジョン")
         self.revision_combo.currentIndexChanged.connect(
             self._on_selection_changed
         )

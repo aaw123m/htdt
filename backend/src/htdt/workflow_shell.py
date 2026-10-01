@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .accessible_labels import wire_label_buddies
+from .accessible_labels import (
+    wire_label_buddies,
+    wire_status_announcements,
+)
 from .ui_theme import (
     ControlSize,
     SurfaceRole,
@@ -790,6 +793,9 @@ class WorkflowShellWindow(QMainWindow):
         # context bar) through the same caption-buddy pass the router
         # applies to every mount.
         wire_label_buddies(self)
+        # Every showMessage() call site becomes a live-region
+        # announcement via the status bar's messageChanged signal.
+        wire_status_announcements(self)
         if not self.navigate(initial_workspace):
             raise RuntimeError("initial workflow workspace could not be activated")
 

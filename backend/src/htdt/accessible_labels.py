@@ -11,7 +11,7 @@ accessible name and gives the label a focus proxy.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QAccessible
+from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -22,8 +22,10 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
+    QMainWindow,
     QPlainTextEdit,
     QScrollArea,
+    QStatusBar,
     QTabWidget,
     QTextEdit,
     QToolBox,
@@ -230,3 +232,42 @@ def wire_label_buddies(root: QWidget) -> int:
             _apply_caption(label, target)
             wired += 1
     return wired
+
+
+def announce_status(
+    target: QWidget,
+    message: str,
+    *,
+    assertive: bool = False,
+) -> None:
+    """Announce ``message`` to assistive technology as a live-region update.
+
+    Status text rendered in a QLabel or QStatusBar is invisible to screen
+    readers until it is announced through an accessible event; call this
+    wherever the visible text updates. ``assertive`` interrupts the
+    reader's current speech — keep the default polite mode for routine
+    progress and status updates.
+    """
+
+    if not message:
+        return
+    event = QAccessibleAnnouncementEvent(target, message)
+    event.setPoliteness(
+        QAccessible.AnnouncementPoliteness.Assertive
+        if assertive
+        else QAccessible.AnnouncementPoliteness.Polite
+    )
+    QAccessible.updateAccessibility(event)
+
+
+def wire_status_announcements(window: QMainWindow) -> QStatusBar:
+    """Announce every status-bar message as a polite live-region update.
+
+    QStatusBar text changes are not announced on their own; routing
+    ``messageChanged`` through an announcement event makes every existing
+    showMessage() call site audible without touching each one.
+    """
+
+    bar = window.statusBar()
+    bar.messageChanged.connect(lambda text: announce_status(bar, text))
+    return bar

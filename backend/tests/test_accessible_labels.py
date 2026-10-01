@@ -365,3 +365,334 @@ def test_workspace_save_fallback_saves_dirty_room(tmp_path: Path) -> None:
     app.processEvents()
     assert composition.registry.execute("project.save")
     assert not controller.is_dirty
+
+
+# --- round-25 depth pass --------------------------------------------------
+#
+# REV25-A11Y2: standalone dialogs were never swept by wire_label_buddies,
+# status-bar/status-label updates never reached screen readers, the VTK
+# viewports were anonymous focus targets, and the Room context strip's
+# view menu opened at the mouse cursor even when activated by keyboard.
+
+
+def _names(widgets) -> str:
+    return ", ".join(
+        f"{type(w).__name__}#{w.objectName() or '?'}" for w in widgets
+    )
+
+
+def test_standalone_dialogs_have_no_unnamed_controls(tmp_path: Path) -> None:
+    """Sweep every standalone dialog: caption-wired controls + named views."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from htdt.authority_graph import (
+        AuthorityDomain,
+        AuthorityLifecycle,
+        AuthorityNode,
+        StaticAuthoritySource,
+        build_authority_graph,
+    )
+    from htdt.authority_inspector_ui import AuthorityInspectorDialog
+    from htdt.cad_scene import make_empty_scene
+    from htdt.capture_receiver_settings import PairingDialog
+    from htdt.capture_retention_ui import RetentionPolicyWidget
+    from htdt.commissioning_wizard import CommissioningWizard
+    from htdt.equipment_library import EquipmentLibraryDialog
+    from htdt.geometry_import_dialog import GeometryImportDialog
+    from htdt.playback_chain_widgets import PlaybackChainDialog
+    from htdt.solver_output_diagnostics_ui import (
+        SolverOutputDiagnosticsDialog,
+    )
+    from htdt.solver_output_ledger import SolverOutputLedger
+    from htdt.standards_profile_editor import StandardsProfileEditorDialog
+
+    _app()
+    repository = SceneRepository(tmp_path / "cad.sqlite3")
+    repository.save(make_empty_scene("doc-1"), parent_revision_id=None)
+
+    pairing_service = Mock()
+    pairing_service.list_pairings.return_value = []
+    pairing_controller = SimpleNamespace(service=pairing_service)
+
+    retention_service = Mock()
+    retention_service.inventory.return_value = SimpleNamespace(
+        capture_revision_count=0,
+        ingestion_run_count=0,
+        source_evidence_count=0,
+        source_payload_bytes=0,
+        content_blob_count=0,
+        content_blob_bytes=0,
+    )
+    retention_service.list_capture_revisions.return_value = []
+
+    playback_service = Mock()
+    playback_service.amplifier_capabilities.return_value = []
+    playback_service.speaker_loads.return_value = []
+    playback_service.variants.return_value = []
+    playback_service.speaker_entities.return_value = []
+    playback_service.source_equipment_choices.return_value = []
+
+    equipment_service = Mock()
+    equipment_service.definitions.return_value = []
+    equipment_service.supported_directivity_adapters.return_value = []
+
+    standards_service = Mock()
+    standards_service.profiles.return_value = []
+
+    node = AuthorityNode(
+        node_id="room:scene_revision:rev-1",
+        domain=AuthorityDomain.ROOM,
+        node_type="scene_revision",
+        label="SceneRevision rev-1",
+        lifecycle=AuthorityLifecycle.CURRENT,
+    )
+    graph = build_authority_graph([StaticAuthoritySource([node])])
+
+    obj = tmp_path / "triangle.obj"
+    obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+
+    dialogs = {
+        "solver diagnostics": SolverOutputDiagnosticsDialog(
+            SolverOutputLedger(document_id="doc-1", entries=()), ()
+        ),
+        "authority inspector": AuthorityInspectorDialog(graph),
+        "equipment library": EquipmentLibraryDialog(equipment_service),
+        "standards editor": StandardsProfileEditorDialog(standards_service),
+        "commissioning wizard": CommissioningWizard(repository, "doc-1"),
+        "pairing": PairingDialog(pairing_controller, "doc-1"),
+        "capture retention": RetentionPolicyWidget(retention_service),
+        "geometry import": GeometryImportDialog(obj),
+        "playback chain": PlaybackChainDialog(playback_service),
+    }
+    leftovers = {
+        name: list(_unnamed_controls(dialog))
+        for name, dialog in dialogs.items()
+    }
+    leftovers = {name: found for name, found in leftovers.items() if found}
+    assert leftovers == {}, {
+        name: _names(found) for name, found in leftovers.items()
+    }
+
+
+def _announcement_sink(monkeypatch: pytest.MonkeyPatch):
+    """Capture QAccessible.updateAccessibility events instead of sending."""
+
+    from PySide6.QtGui import QAccessible, QAccessibleAnnouncementEvent
+
+    events: list[QAccessibleAnnouncementEvent] = []
+    monkeypatch.setattr(
+        QAccessible, "updateAccessibility", lambda event: events.append(event)
+    )
+    return events, QAccessibleAnnouncementEvent
+
+
+def test_status_bar_message_is_announced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every showMessage() call site is a live region via messageChanged."""
+    from PySide6.QtGui import QAccessible
+
+    events, announcement = _announcement_sink(monkeypatch)
+    composition = _composition(tmp_path)
+    composition.shell.statusBar().showMessage("保存しました")
+
+    announcements = [
+        event for event in events if isinstance(event, announcement)
+    ]
+    assert [event.message() for event in announcements] == ["保存しました"]
+    assert all(
+        event.politeness() == QAccessible.AnnouncementPoliteness.Polite
+        for event in announcements
+    )
+
+
+def test_status_bar_clear_announces_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """clearMessage() must not announce an empty string."""
+
+    events, _announcement = _announcement_sink(monkeypatch)
+    composition = _composition(tmp_path)
+    composition.shell.statusBar().clearMessage()
+    assert events == []
+
+
+def test_native_editor_announces_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The N20b shell has its own status bar — wired the same way."""
+    from htdt.native_editor import NativeEditorWindow
+
+    events, announcement = _announcement_sink(monkeypatch)
+    repository = SceneRepository(tmp_path / "cad.sqlite3")
+    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
+    events.clear()  # construction announces its own load status first
+    window.statusBar().showMessage("スナップ: 頂点")
+    assert [
+        event.message()
+        for event in events
+        if isinstance(event, announcement)
+    ] == ["スナップ: 頂点"]
+
+
+def test_native_editor_surfaces_are_named(tmp_path: Path) -> None:
+    from htdt.native_editor import NativeEditorWindow
+
+    _app()
+    repository = SceneRepository(tmp_path / "cad.sqlite3")
+    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
+    assert window.tree.accessibleName() == "シーンツリー"
+    assert window.viewport.interactor.accessibleName() == "シーン3Dビュー"
+
+
+def test_room_viewport_interactor_is_named(tmp_path: Path) -> None:
+    app = _app()
+    composition = _composition(tmp_path)
+    composition.shell.navigate(WorkspaceId.ROOM)
+    app.processEvents()
+    mounts = dict(composition.shell.router.mounts())
+    room = mounts[WorkspaceId.ROOM].widget
+    assert room.viewport.interactor.accessibleName() == "部屋3Dビュー"
+
+
+def test_pick_one_list_takes_prompt_as_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ad-hoc picker buddies its prompt label onto the list."""
+    from PySide6.QtWidgets import QListWidget
+
+    _app()
+    composition = _composition(tmp_path)
+    seen: dict[str, QDialog] = {}
+    monkeypatch.setattr(
+        QDialog,
+        "exec",
+        lambda self: seen.setdefault("dialog", self)
+        and QDialog.DialogCode.Accepted,
+    )
+    composition._pick_one("選択", "対象を選択してください", [("項目A", "id-a")])
+    listing = seen["dialog"].findChild(QListWidget)
+    assert listing is not None
+    assert resolved_accessible_name(listing) == "対象を選択してください"
+
+
+def test_handoff_preview_text_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The installation-handoff preview names its read-only editor."""
+    from unittest.mock import Mock
+
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    from htdt.cad_scene import make_empty_scene
+
+    _app()
+    repository = SceneRepository(tmp_path / "data" / "cad-scenes.sqlite3")
+    repository.save(make_empty_scene("document-1"), parent_revision_id=None)
+    composition = WorkflowApplicationComposition(repository, "document-1")
+    monkeypatch.setattr(
+        "htdt.workflow_application.build_installation_handoff",
+        lambda *args, **kwargs: Mock(),
+    )
+    monkeypatch.setattr(
+        "htdt.workflow_application.handoff_preview_text",
+        lambda handoff: "本文",
+    )
+    # An accepted preview proceeds to the OS directory picker — cut it off
+    # after capture; the dialog itself is what this test inspects.
+    monkeypatch.setattr(
+        "htdt.workflow_application.file_dialog_memory.get_existing_directory",
+        lambda *args, **kwargs: "",
+    )
+    # The two _pick_one dialogs precede the preview; the preview is the
+    # last dialog exec'd.
+    opened: list[QDialog] = []
+    monkeypatch.setattr(
+        QDialog,
+        "exec",
+        lambda self: opened.append(self) or QDialog.DialogCode.Accepted,
+    )
+    composition._export_installation_handoff()
+    preview = opened[-1]
+    preview_text = preview.findChild(QPlainTextEdit)
+    assert preview_text is not None
+    assert preview_text.accessibleName() == "設置ハンドオフ内容プレビュー"
+
+
+def test_wizard_page_switch_announces_title(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wizard page changes are spoken — the page swap is silent otherwise."""
+    from htdt.cad_scene import make_empty_scene
+    from htdt.commissioning_wizard import CommissioningWizard
+
+    events, announcement = _announcement_sink(monkeypatch)
+    repository = SceneRepository(tmp_path / "cad.sqlite3")
+    repository.save(make_empty_scene("doc-1"), parent_revision_id=None)
+    wizard = CommissioningWizard(repository, "doc-1")
+    events.clear()
+    wizard._show_page(1)
+    announcements = [
+        event.message()
+        for event in events
+        if isinstance(event, announcement)
+    ]
+    assert announcements == ["初期設定 — 部屋"]
+
+
+def test_pairing_status_changes_announce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Async pairing outcomes reach screen readers, not just the label."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from htdt.capture_receiver_settings import PairingDialog
+
+    events, announcement = _announcement_sink(monkeypatch)
+    service = Mock()
+    service.list_pairings.return_value = []
+    dialog = PairingDialog(SimpleNamespace(service=service), "doc-1")
+    events.clear()
+    dialog._set_status("確認コードが一致しません。")
+    assert [
+        event.message()
+        for event in events
+        if isinstance(event, announcement)
+    ] == ["確認コードが一致しません。"]
+
+
+def test_view_menu_pops_under_focused_tool_button(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keyboard activation of ビュー anchors the menu to the button."""
+    from PySide6.QtWidgets import QMenu
+
+    app = _app()
+    composition = _composition(tmp_path)
+    shell = composition.shell
+    shell.show()
+    QApplication.setActiveWindow(shell)
+    shell.navigate(WorkspaceId.ROOM)
+    app.processEvents()
+    mounts = dict(shell.router.mounts())
+    room = mounts[WorkspaceId.ROOM].widget
+
+    room.tools.set_context("objects")
+    view_button = next(
+        button
+        for button in room.tools.findChildren(QPushButton)
+        if button.text() == "ビュー"
+    )
+    view_button.setFocus()
+    app.processEvents()
+
+    popped: list = []
+    monkeypatch.setattr(
+        QMenu, "popup", lambda self, pos, *args: popped.append(pos)
+    )
+    room._tool_requested("view-menu")
+    assert popped
+    expected = view_button.mapToGlobal(view_button.rect().bottomLeft())
+    assert popped[0] == expected

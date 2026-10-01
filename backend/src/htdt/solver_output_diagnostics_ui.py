@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accessible_labels import wire_label_buddies
 from .cad_display_labels import revision_display_label
 from .solver_output_ledger import SolverArtifactEntry, SolverOutputLedger
 from .ui_theme import SemanticState, TypographyRole, set_semantic_state, set_typography_role
@@ -176,6 +177,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
 
         self.table = QTableWidget(0, 5, self)
         self.table.setObjectName('solverArtifactTable')
+        self.table.setAccessibleName('ソルバー成果物')
         self.table.setHorizontalHeaderLabels(
             ('種別', '観測量・スコープ', '生成元', '検証', '記録時刻')
         )
@@ -220,6 +222,7 @@ class SolverOutputDiagnosticsDialog(QDialog):
         self.revision_combo.currentIndexChanged.connect(self._refresh_table)
         self.table.itemSelectionChanged.connect(self._refresh_detail)
         self._refresh_table(0)
+        wire_label_buddies(self)
 
     def _selected_filter(self) -> str | None:
         return self.revision_combo.currentData()

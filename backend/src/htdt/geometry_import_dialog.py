@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+from .accessible_labels import wire_label_buddies
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
 from .mesh_import_authority import format_declared_source_unit
@@ -350,6 +351,7 @@ class GeometryImportDialog(QDialog):
         self.buttons.accepted.connect(self._accept)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
+        wire_label_buddies(self)
 
     # --- declaration group ---------------------------------------------------
 
@@ -425,6 +427,7 @@ class GeometryImportDialog(QDialog):
         layout.addWidget(self.diagnostic_summary)
 
         self.issues_table = QTableWidget(0, 5)
+        self.issues_table.setAccessibleName('検査結果一覧')
         self.issues_table.setHorizontalHeaderLabels(
             ('深刻度', '分類', '検査', '件数', '推奨対処')
         )

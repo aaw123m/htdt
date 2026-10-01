@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .accessible_labels import wire_label_buddies
 from .clock import utc_now_iso as _utc_now
 from .cad_directivity import (
     NORMALIZED_JSON_ADAPTER_ID,
@@ -762,6 +763,7 @@ class EquipmentLibraryDialog(QDialog):
         layout.addWidget(self.box)
 
         self.refresh_definitions()
+        wire_label_buddies(self)
 
     def refresh_definitions(self) -> None:
         self.definition_list.clear()

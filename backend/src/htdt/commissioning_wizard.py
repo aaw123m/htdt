@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .accessible_labels import announce_status, wire_label_buddies
 from .cad_project_template import ProjectTemplate
 from .cad_scene import make_empty_scene
 from .commissioning_plan import (
@@ -145,6 +146,7 @@ class CommissioningWizard(QDialog):
         )
         self._update_save_enabled()
         self._show_page(0)
+        wire_label_buddies(self)
 
     # -- pages -----------------------------------------------------------
 
@@ -259,6 +261,9 @@ class CommissioningWizard(QDialog):
         page.show()
         titles = ('プロジェクト', '部屋', 'システム', '測定', '準備状況')
         self.title.setText(f'初期設定 — {titles[self._page_index]}')
+        # Page switches replace the whole body; announce the new page or
+        # screen-reader users get no signal the wizard advanced.
+        announce_status(self, self.title.text())
         self.back_button.setEnabled(self._page_index > 0)
         self.next_button.setEnabled(self._page_index < len(self._pages) - 1)
         if self._page_index == len(self._pages) - 1:
