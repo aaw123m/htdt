@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal, Sequence
 
 from .cad_acoustic_environment import AcousticEnvironmentProfile
+from .cad_display_labels import solver_reason_label
 from .cad_listener_pose import (
     ListenerPoseAuthority,
     resolve_listener_receiver,
@@ -78,6 +79,7 @@ _EVIDENCE_LABELS = {
 _SOURCE_KIND_LABELS = {
     'nominal_assumption': '標準仮定',
     'derived_from_temperature': '温度導出',
+    'derived_from_air_state': '空気状態導出',
     'manual_measured': '手動測定',
     'unknown': '不明',
 }
@@ -264,7 +266,9 @@ def _provider_option(
     capability = provider.capability(_PRODUCT_OBSERVABLE)
     if capability.state != 'READY':
         reasons.append(
-            capability.reason or '周波数応答観測量がプロバイダー外です'
+            solver_reason_label(capability.reason)
+            if capability.reason
+            else '周波数応答観測量がプロバイダー外です'
         )
     domain = provider.valid_frequency_domain
     if float(max_mode_hz) > float(domain.maximum_hz):
@@ -326,7 +330,9 @@ def _hybrid_option(
     capability = provider.capability(_PRODUCT_OBSERVABLE)
     if capability.state != 'READY':
         reasons.append(
-            capability.reason or '周波数応答観測量がプロバイダー外です'
+            solver_reason_label(capability.reason)
+            if capability.reason
+            else '周波数応答観測量がプロバイダー外です'
         )
     domain = provider.valid_frequency_domain
     if float(max_mode_hz) > float(domain.maximum_hz):
@@ -346,7 +352,7 @@ def _hybrid_option(
     )
     return RoomPredictionModelOption(
         model_key=hybrid_model_key(provider.provider_id),
-        label='hybrid prediction',
+        label='ハイブリッド予測',
         state=state,
         reasons=tuple(reasons),
         detail=band,
@@ -429,7 +435,7 @@ def resolve_room_prediction_options(
         options.append(
             RoomPredictionModelOption(
                 model_key=HYBRID_MODEL_KEY,
-                label='hybrid prediction',
+                label='ハイブリッド予測',
                 state='UNSUPPORTED',
                 reasons=(
                     'このドキュメントにはハイブリッド予測プロバイダーが登録されていません '

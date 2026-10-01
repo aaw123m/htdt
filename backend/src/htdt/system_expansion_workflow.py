@@ -112,6 +112,11 @@ from .cad_topology_search import (
 )
 from .cad_topology_search_repository import CadTopologySearchRepository
 from .cad_topology_space import build_topology_search_spec
+from .cad_display_labels import (
+    entity_kind_label,
+    objective_state_label,
+    solver_reason_label,
+)
 from .optimization_robustness import RobustnessEvaluation
 from .clock import utc_now_iso as _utc_now
 
@@ -1611,8 +1616,9 @@ class SystemExpansionWorkflowService:
                 continue
             if actual.kind != proposed.kind:
                 blocking.append(
-                    f'{proposed.name}: 提案種別 {proposed.kind} と実物体種別 '
-                    f'{actual.kind} が一致しません。'
+                    f'{proposed.name}: 提案種別 '
+                    f'{entity_kind_label(proposed.kind)} と実物体種別 '
+                    f'{entity_kind_label(actual.kind)} が一致しません。'
                 )
             if actual.kind == 'speaker' and actual.speaker_role != proposed.speaker_role:
                 blocking.append(
@@ -1954,7 +1960,9 @@ class SystemExpansionWorkflowService:
     def _scalar_text(value) -> str:
         if value.state == "available" and value.value is not None:
             return f"{value.value:.4g} {value.unit}"
-        return value.reason or "利用不可"
+        if value.reason:
+            return solver_reason_label(value.reason)
+        return "利用不可"
 
     def _coverage_summary(self, ref) -> str:
         if ref is None:
@@ -1971,7 +1979,9 @@ class SystemExpansionWorkflowService:
             return "参照不可・再評価が必要"
         aggregate = value.aggregates.useful_coverage_fraction
         if aggregate.state != "available":
-            return aggregate.reason or "利用不可"
+            if aggregate.reason:
+                return solver_reason_label(aggregate.reason)
+            return "利用不可"
         return f"有効カバレッジ {aggregate.value:.3f}"
 
     def _spl_headroom_summary(self, bundle) -> str:
@@ -1998,7 +2008,7 @@ class SystemExpansionWorkflowService:
                     + self._scalar_text(aggregates.worst_seat_continuous_headroom)
                 )
                 parts.append(
-                    "peak headroom "
+                    "ピークヘッドルーム "
                     + self._scalar_text(aggregates.worst_seat_peak_headroom)
                 )
         amp_ref = bundle.amplifier_headroom_evaluation
@@ -2015,7 +2025,7 @@ class SystemExpansionWorkflowService:
                 parts.append("アンプヘッドルーム参照不可")
             else:
                 parts.append(
-                    "amp margin "
+                    "アンプ余量 "
                     + self._scalar_text(amp.amplifier_constrained_target_margin)
                 )
         return " / ".join(parts) if parts else "データなし"
@@ -2037,9 +2047,9 @@ class SystemExpansionWorkflowService:
         for result in value.results:
             counts[result.status] = counts.get(result.status, 0) + 1
         ordered = (
-            ("PASS", "PASS"),
-            ("FAIL", "FAIL"),
-            ("UNKNOWN", "UNKNOWN"),
+            ("PASS", "合格"),
+            ("FAIL", "不合格"),
+            ("UNKNOWN", "不明"),
             ("NOT_APPLICABLE", "対象外"),
         )
         summary = [
@@ -2112,7 +2122,9 @@ class SystemExpansionWorkflowService:
             elif eligibility is None:
                 blocked = "比較eligibilityを再解決できません。"
             elif issues:
-                blocked = " / ".join(item.detail for item in issues)
+                blocked = " / ".join(
+                    solver_reason_label(item.detail) for item in issues
+                )
             objectives: list[ObjectivePresentation] = []
             if bundle is not None:
                 for metric in bundle.objective_vector.metrics:
@@ -2125,7 +2137,10 @@ class SystemExpansionWorkflowService:
                     else:
                         value_text = "利用不可"
                         eligible_metric = False
-                        reason = f"{metric.objective_id}: {metric.state}"
+                        reason = (
+                            f"{metric.objective_id}: "
+                            f"{objective_state_label(metric.state)}"
+                        )
                     objectives.append(
                         ObjectivePresentation(
                             metric.objective_id,

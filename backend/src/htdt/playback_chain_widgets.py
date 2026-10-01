@@ -30,6 +30,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import (
+    limiter_state_label,
+    objective_state_label,
+    solver_reason_label,
+)
 from .cad_amplifier_headroom import (
     AmplifierChannelCountCondition,
     AmplifierLoadDomain,
@@ -98,7 +103,9 @@ def _load_label(load: SpeakerElectricalLoadAuthority) -> str:
 def _scalar_text(result, unit_fallback: str = "") -> str:
     if result.state == "available":
         return f"{result.value:.2f} {result.unit or unit_fallback}"
-    return f"{result.state}: {result.reason}"
+    state = objective_state_label(result.state)
+    reason = solver_reason_label(result.reason) if result.reason else ""
+    return f"{state}: {reason}" if reason else state
 
 
 def evaluation_summary(evaluation: PlaybackChainEvaluation) -> str:
@@ -114,12 +121,15 @@ def evaluation_summary(evaluation: PlaybackChainEvaluation) -> str:
         f"スピーカー {_scalar_text(evaluation.peak_speaker_spl_ceiling)}",
         "ターゲット余裕（アンプ制約）: "
         + _scalar_text(evaluation.amplifier_constrained_target_margin),
-        f"連続リミッター: {evaluation.continuous_limiter}",
-        f"ピークリミッター: {evaluation.peak_limiter}",
+        f"連続リミッター: {limiter_state_label(evaluation.continuous_limiter)}",
+        f"ピークリミッター: {limiter_state_label(evaluation.peak_limiter)}",
     ]
     if evaluation.support_reasons:
         lines.append("根拠:")
-        lines.extend(f"- {reason}" for reason in evaluation.support_reasons)
+        lines.extend(
+            f"- {solver_reason_label(reason)}"
+            for reason in evaluation.support_reasons
+        )
     return "\n".join(lines)
 
 

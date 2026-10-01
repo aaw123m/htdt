@@ -55,6 +55,7 @@ from .cad_project_activity_repository import CadProjectActivityNoteRepository
 from .cad_system_variant_lifecycle import CadSystemVariantLifecycleRepository
 from .commissioning_plan import CommissioningPlanRepository
 from .cad_display_labels import (
+    calibration_reason_label,
     revision_display_label,
     variant_display_label,
 )
@@ -3641,7 +3642,10 @@ class WorkflowApplicationComposition:
                 self.shell,
                 "校正設定の書き出し",
                 "校正プランはありますが未対応のため書き出せません:\n"
-                + "\n".join(f"・{reason}" for reason in reasons),
+                + "\n".join(
+                    f"・{calibration_reason_label(reason)}"
+                    for reason in reasons
+                ),
             )
             return
         plan_id = self._pick_one(

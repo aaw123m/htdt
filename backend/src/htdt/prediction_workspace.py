@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import solver_reason_label, state_token_label
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult, canonical_prediction_json
 from .cad_prediction_repository import CadPredictionRepository
@@ -201,8 +202,12 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                     (source.matrix_source_id, receiver.matrix_receiver_id)
                 )
                 text = '' if cell is None else (
-                    cell.state
-                    + (f'·{cell.blocked_reason}' if cell.blocked_reason else '')
+                    state_token_label(cell.state)
+                    + (
+                        f'·{solver_reason_label(cell.blocked_reason)}'
+                        if cell.blocked_reason
+                        else ''
+                    )
                 )
                 self.matrix_table.setItem(
                     row, column, QTableWidgetItem(text)
@@ -212,10 +217,12 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             if presentation.run_state is not None:
                 parts.append(
                     f"実行 {presentation.run_attempt}: "
-                    f"{presentation.run_state}"
+                    f"{state_token_label(presentation.run_state)}"
                 )
             if presentation.currency_state is not None:
-                parts.append(f'鮮度 {presentation.currency_state}')
+                parts.append(
+                    f'鮮度 {state_token_label(presentation.currency_state)}'
+                )
             self.matrix_status_label.setText(' · '.join(parts))
 
     def _constraint_workspace_hash(self) -> str:

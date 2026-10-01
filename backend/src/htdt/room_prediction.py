@@ -30,6 +30,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import (
+    environment_source_kind_label,
+    state_token_label,
+)
 from .cad_acoustic_environment import (
     AcousticEnvironmentProfile,
     CadAcousticEnvironmentRepository,
@@ -1522,13 +1526,13 @@ class RoomPredictionPanel(QWidget):
         if option is None:
             self.option_state.setText("")
             return
-        parts = [f"{option.label}: {option.state}"]
+        parts = [f"{option.label}: {state_token_label(option.state)}"]
         if option.detail:
             parts.append(option.detail)
         if option.evidence_label:
             parts.append(f"証拠: {option.evidence_label}")
         if option.stale_state is not None:
-            parts.append(f"鮮度: {option.stale_state}")
+            parts.append(f"鮮度: {state_token_label(option.stale_state)}")
         if option.solver_label:
             parts.append(f"ソルバー: {option.solver_label}")
         parts.extend(option.reasons)
@@ -1575,7 +1579,7 @@ class RoomPredictionPanel(QWidget):
                 label = (
                     option.label
                     if option.state == 'READY'
-                    else f"{option.label} ({option.state})"
+                    else f"{option.label} ({state_token_label(option.state)})"
                 )
                 self.model.addItem(label, option.model_key)
         if previous is not None:
@@ -1608,7 +1612,8 @@ class RoomPredictionPanel(QWidget):
                 else f"{profile.sound_speed_m_s:g} m/s"
             )
             self.environment.addItem(
-                f"{profile.label} · {speed} ({profile.sound_speed_source_kind})",
+                f"{profile.label} · {speed} "
+                f"({environment_source_kind_label(profile.sound_speed_source_kind)})",
                 profile.authority_id,
             )
         if current is not None:
@@ -1680,7 +1685,7 @@ class RoomPredictionPanel(QWidget):
             f"能力: {self._capability_text(interpretation)}",
         ]
         if reliability.provider_stale_state is not None:
-            stale = reliability.provider_stale_state
+            stale = state_token_label(reliability.provider_stale_state)
             reasons = ", ".join(reliability.provider_stale_reasons)
             reliability_lines.append(
                 f"プロバイダー鮮度: {stale}" + (f" ({reasons})" if reasons else "")

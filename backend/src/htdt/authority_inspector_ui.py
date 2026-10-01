@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from .accessible_labels import wire_label_buddies
+from .cad_display_labels import why_stale_reason_label
 from .authority_graph import (
     AuthorityGraph,
     AuthorityInspector,
@@ -250,7 +251,12 @@ class AuthorityInspectorDialog(QDialog):
             QListWidgetItem(_node_label(downstream), self.downstream_list)
         reasons = self._inspector.why_stale(node_id)
         if reasons:
-            self.why_stale_label.setText('古い理由: ' + ' / '.join(reasons))
+            self.why_stale_label.setText(
+                '古い理由: '
+                + ' / '.join(
+                    why_stale_reason_label(reason) for reason in reasons
+                )
+            )
         self.open_button.setEnabled(
             node is not None and node.deep_link is not None and self._on_deep_link is not None
         )

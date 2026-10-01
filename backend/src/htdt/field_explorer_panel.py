@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_labels import mode_class_label
 from .cad_field_explorer import (
     FieldExplorerSession,
     build_mode_field_explorer_session,
@@ -336,7 +337,7 @@ class FieldExplorerPanel(QWidget):
         for mode in modes.modes:
             self.mode_combo.addItem(
                 f'({mode.n_x},{mode.n_y},{mode.n_z}) · '
-                f'{mode.frequency_hz:.1f} Hz · {mode.mode_class}',
+                f'{mode.frequency_hz:.1f} Hz · {mode_class_label(mode.mode_class)}',
                 (mode.n_x, mode.n_y, mode.n_z),
             )
         self.field_status_label.setText(

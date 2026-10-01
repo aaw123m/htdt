@@ -304,8 +304,8 @@ def test_comparison_authority_summaries_keep_real_values_and_unavailable_reasons
     assert service._coverage_summary(ref) == "有効カバレッジ 0.750"
     assert "SPL 82 dB SPL" in service._spl_headroom_summary(bundle)
     assert "連続ヘッドルーム 3.2 dB" in service._spl_headroom_summary(bundle)
-    assert "amp margin 2.5 dB" in service._spl_headroom_summary(bundle)
-    assert service._standards_summary(ref) == "PASS 2 / UNKNOWN 1"
+    assert "アンプ余量 2.5 dB" in service._spl_headroom_summary(bundle)
+    assert service._standards_summary(ref) == "合格 2 / 不明 1"
 
     unsupported = SimpleNamespace(
         aggregates=SimpleNamespace(
