@@ -169,7 +169,7 @@ def test_equipment_library_create_and_version(app, repositories):
     definition = _definition(service)
     assert definition.directivity.tier == "unknown"
     assert definition in service.definitions()
-    assert "UNKNOWN" in "\n".join(capability_preview(definition))
+    assert "不明" in "\n".join(capability_preview(definition))
 
     v2 = service.create_next_version(
         definition,

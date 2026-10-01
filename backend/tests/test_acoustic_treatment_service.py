@@ -160,7 +160,7 @@ def test_outcome_rejects_foreign_labels_and_empty_refs(tmp_path):
         name='compare',
         candidate_designs=(('A', (placement.instance_id,)),),
     )
-    with pytest.raises(ValueError, match='candidate label'):
+    with pytest.raises(ValueError, match='候補ラベル'):
         service.bind_comparison_outcome(
             comparison.comparison_id,
             candidate_results={'ghost': (_result_ref('x'),)},

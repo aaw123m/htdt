@@ -59,7 +59,7 @@ def test_dry_run_shows_plan_and_arms_purge(qapp, seeded) -> None:
         widget._run_dry_run()
         text = widget.plan_label.text()
         assert "削除可能" in text
-        assert "エビデンス 7 件" in text
+        assert "証拠 7 件" in text
         assert widget.plan_label.isVisibleTo(widget)
         assert widget.purge_button.isEnabled()
         # Still nothing deleted.
