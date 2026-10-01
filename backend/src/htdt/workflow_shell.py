@@ -389,7 +389,21 @@ class WorkspaceRouter(QStackedWidget):
                     and widget.windowType() == Qt.WindowType.Popup
                 ):
                     widget.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        # Queued deletes are reposted behind any events the receiver still
+        # has pending (queued metacalls, timers, menus), so a single flush
+        # leaves strays — destroyed later inside whichever code path next
+        # pumps events, mid-test or mid-switch in an unrelated context.
+        # Pump until the mounts are really gone; bounded so a pathological
+        # reposter cannot spin the caller forever.
+        from shiboken6 import isValid
+
+        for _ in range(4):
+            QCoreApplication.sendPostedEvents(
+                None, QEvent.Type.DeferredDelete
+            )
+            QCoreApplication.processEvents()
+            if all(not isValid(mount.widget) for mount in mounts):
+                break
 
     def shutdown(self) -> None:
         self.dispose_mounts()

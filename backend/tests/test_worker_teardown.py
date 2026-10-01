@@ -231,3 +231,34 @@ def test_drain_operation_threads_stops_live_controller_op(
     assert still_running == 0
     assert _pump_until(lambda: not controller.is_busy)
     _destroy(controller)
+
+
+def test_deferred_delete_repost_drains_in_bounded_loop(app) -> None:
+    """A widget with pending events survives ONE deferred-delete flush:
+    Qt reposts the delete behind the pending events, and the stray is then
+    destroyed inside whichever code path next pumps events — a mid-test
+    destructor in an unrelated context. The shared teardowns therefore
+    loop ``sendPostedEvents`` + ``processEvents`` until the batch is gone.
+    """
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtWidgets import QWidget
+    from shiboken6 import isValid
+
+    widget = QWidget()
+    widget.show()
+    # A pending posted event forces Qt to repost this widget's
+    # DeferredDelete behind it, so one flush is not enough.
+    QCoreApplication.postEvent(widget, QEvent(QEvent.Type.User))
+    widget.deleteLater()
+
+    app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    # isValid may still be True here: the delete reposts behind the user
+    # event — the exact stray the bounded loop exists to cover.
+
+    for _ in range(4):
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        app.processEvents()
+        if not isValid(widget):
+            break
+
+    assert not isValid(widget)

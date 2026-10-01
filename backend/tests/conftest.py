@@ -92,16 +92,28 @@ def _destroy_created_toplevels():
     app = QApplication.instance()
     if app is None:
         return
-    for widget in app.topLevelWidgets():
-        if not isValid(widget) or widget.objectName().startswith("qt_"):
-            continue
-        try:
-            widget.deleteLater()
-        except RuntimeError:
-            # C++ side already gone between the isValid check and the call.
-            continue
-    app.sendPostedEvents()
-    app.processEvents()
+
+    def _stray(widget) -> bool:
+        return isValid(widget) and not widget.objectName().startswith("qt_")
+
+    # Queued deletes are reposted behind any events the receiver still has
+    # pending (queued metacalls, timers, menus), so one flush leaves
+    # strays — destroyed later inside whichever code path next pumps
+    # events, mid-test in an unrelated context. Pump until the batch is
+    # actually gone; bounded so a pathological reposter cannot spin.
+    for _ in range(5):
+        for widget in app.topLevelWidgets():
+            if not _stray(widget):
+                continue
+            try:
+                widget.deleteLater()
+            except RuntimeError:
+                # C++ side already gone between the isValid check and the call.
+                continue
+        app.sendPostedEvents()
+        app.processEvents()
+        if not any(_stray(widget) for widget in app.topLevelWidgets()):
+            break
 
 
 def pytest_sessionfinish(session, exitstatus):
