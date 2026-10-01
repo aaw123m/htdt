@@ -88,6 +88,7 @@ def _destroy_created_toplevels():
     yield
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
+    from shiboken6 import delete as _shiboken_delete
 
     app = QApplication.instance()
     if app is None:
@@ -96,19 +97,35 @@ def _destroy_created_toplevels():
     def _stray(widget) -> bool:
         return isValid(widget) and not widget.objectName().startswith("qt_")
 
-    # Queued deletes are reposted behind any events the receiver still has
-    # pending (queued metacalls, timers, menus), so one flush leaves
-    # strays — destroyed later inside whichever code path next pumps
-    # events, mid-test in an unrelated context. Pump until the batch is
-    # actually gone; bounded so a pathological reposter cannot spin.
-    for _ in range(5):
-        for widget in app.topLevelWidgets():
-            if not _stray(widget):
+    # Queued deletes are reposted behind any events the receiver still
+    # has pending (queued metacalls, timers, menus): a deleteLater'd
+    # widget with pending events survives every flush as a stray and is
+    # later destroyed inside whichever code path next pumps events —
+    # mid-test in a foreign context, the access-violation crash class.
+    # So strays are destroyed here, split by kind: non-window top-levels
+    # (unparented Qt.Popup plot menus, tooltip frames — the bulk of the
+    # stray population) are deleted synchronously, which removes their
+    # posted events and cannot be reposted; windows (shells, dialogs)
+    # still take deleteLater — their ~ cascade includes platform-window
+    # and child-machinery teardown that can fault outside an event-loop
+    # context — and the pump passes below deliver those deletes before
+    # the test's objects are torn down.
+    for _ in range(4):
+        strays = [
+            widget for widget in app.topLevelWidgets() if _stray(widget)
+        ]
+        for widget in strays:
+            if not isValid(widget):
+                # Died mid-pass as a child of an already-deleted stray.
+                continue
+            if widget.isWindow():
+                widget.deleteLater()
                 continue
             try:
-                widget.deleteLater()
+                _shiboken_delete(widget)
             except RuntimeError:
-                # C++ side already gone between the isValid check and the call.
+                # C++ side already gone between the isValid check and
+                # the call.
                 continue
         app.sendPostedEvents()
         app.processEvents()
