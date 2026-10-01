@@ -476,10 +476,25 @@ def build_solver_output_ledger(
     instead of fabricating fields.
     """
     modes = audit_table_modes()
+    # One sqlite_master probe for every spec table (the per-table SELECT 1
+    # used to run 21 round-trips), then one row fetch + one payload parse per
+    # row — the linkage maps below and the entry loop share the same lists
+    # instead of re-querying ten of the tables and re-decoding the r160
+    # payloads.
+    existing_tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
     known = {
         spec.table: spec
         for spec in _SPECS
-        if _table_exists(connection, spec.table)
+        if spec.table in existing_tables
+    }
+    rows_by_table: dict[str, list[tuple[sqlite3.Row, dict[str, Any] | None]]] = {
+        table: [(row, _payload(row)) for row in _rows(connection, table)]
+        for table in known
     }
 
     document_revisions = {
@@ -491,35 +506,29 @@ def build_solver_output_ledger(
     }
 
     snapshot_rev: dict[str, str] = {}
-    if 'cad_acoustic_scene_snapshots' in known:
-        for row in _rows(connection, 'cad_acoustic_scene_snapshots'):
-            snapshot_rev[row['snapshot_id']] = row['scene_revision_id']
+    for row, _p in rows_by_table.get('cad_acoustic_scene_snapshots', ()):
+        snapshot_rev[row['snapshot_id']] = row['scene_revision_id']
     compiled_rev: dict[str, str] = {}
-    if 'cad_r120_compiled_geometry' in known:
-        for row in _rows(connection, 'cad_r120_compiled_geometry'):
-            compiled_rev[row['compiled_geometry_id']] = row['scene_revision_id']
+    for row, _p in rows_by_table.get('cad_r120_compiled_geometry', ()):
+        compiled_rev[row['compiled_geometry_id']] = row['scene_revision_id']
     path_snap: dict[str, str] = {}
-    if 'cad_deterministic_path_artifacts' in known:
-        for row in _rows(connection, 'cad_deterministic_path_artifacts'):
-            path_snap[row['artifact_id']] = row['snapshot_id']
+    for row, _p in rows_by_table.get('cad_deterministic_path_artifacts', ()):
+        path_snap[row['artifact_id']] = row['snapshot_id']
     result_snap: dict[str, str] = {}
-    if 'cad_acoustic_solver_results' in known:
-        for row in _rows(connection, 'cad_acoustic_solver_results'):
-            result_snap[row['result_id']] = row['acoustic_scene_snapshot_id']
+    for row, _p in rows_by_table.get('cad_acoustic_solver_results', ()):
+        result_snap[row['result_id']] = row['acoustic_scene_snapshot_id']
     adapter_rev: dict[str, set[str]] = {}
-    if 'cad_acoustic_solver_dispatch_bindings' in known:
-        for row in _rows(connection, 'cad_acoustic_solver_dispatch_bindings'):
-            revision = snapshot_rev.get(row['acoustic_scene_snapshot_id'])
-            if revision is not None:
-                adapter_rev.setdefault(row['adapter_descriptor_id'], set()).add(
-                    revision
-                )
-    policy_rev: dict[str, set[str]] = {}
-    if 'cad_hybrid_acoustic_results' in known:
-        for row in _rows(connection, 'cad_hybrid_acoustic_results'):
-            policy_rev.setdefault(row['stitching_policy_id'], set()).add(
-                row['scene_revision_id']
+    for row, _p in rows_by_table.get('cad_acoustic_solver_dispatch_bindings', ()):
+        revision = snapshot_rev.get(row['acoustic_scene_snapshot_id'])
+        if revision is not None:
+            adapter_rev.setdefault(row['adapter_descriptor_id'], set()).add(
+                revision
             )
+    policy_rev: dict[str, set[str]] = {}
+    for row, _p in rows_by_table.get('cad_hybrid_acoustic_results', ()):
+        policy_rev.setdefault(row['stitching_policy_id'], set()).add(
+            row['scene_revision_id']
+        )
 
     # r160 artifacts resolve through their payload's declared refs:
     # decay artifacts pin a deterministic path artifact, stitched responses
@@ -542,10 +551,7 @@ def build_solver_output_ledger(
             result_snap,
         ),
     ):
-        if table not in known:
-            continue
-        for row in _rows(connection, table):
-            payload = _payload(row)
+        for row, payload in rows_by_table.get(table, ()):
             ref = _at(payload, *ref_path) if payload is not None else None
             snapshot = lookup.get(ref) if isinstance(ref, str) else None
             revision = snapshot_rev.get(snapshot) if snapshot is not None else None
@@ -553,10 +559,9 @@ def build_solver_output_ledger(
                 r160_rev.setdefault(row['artifact_id'], set()).add(revision)
 
     provider_rev: dict[str, set[str]] = {}
-    if 'cad_hybrid_prediction_providers' in known:
-        for row in _rows(connection, 'cad_hybrid_prediction_providers'):
-            for revision in r160_rev.get(row['r160_artifact_id'], ()):
-                provider_rev.setdefault(row['provider_id'], set()).add(revision)
+    for row, _p in rows_by_table.get('cad_hybrid_prediction_providers', ()):
+        for revision in r160_rev.get(row['r160_artifact_id'], ()):
+            provider_rev.setdefault(row['provider_id'], set()).add(revision)
 
     def _resolve(spec: _TableSpec, row: sqlite3.Row, payload) -> tuple[str, ...]:
         revisions: set[str] = set()
@@ -612,8 +617,7 @@ def build_solver_output_ledger(
             if modes.get(spec.table) in ('replay_canonical', 'evidence_bytes')
             else 'unbound'
         )
-        for row in _rows(connection, spec.table):
-            payload = _payload(row)
+        for row, payload in rows_by_table[spec.table]:
             revisions = _resolve(spec, row, payload)
             entries.append(
                 SolverArtifactEntry(

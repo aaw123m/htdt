@@ -1199,3 +1199,34 @@ def test_application_read_rejects_unreproduced_applied_revision(
         ValueError, match='does not reproduce the applied SceneRevision'
     ):
         variant_repository.get_application(application.application_id)
+
+
+def test_get_variant_memoizes_authority_replay(tmp_path: Path) -> None:
+    """REV25-UIPERF: repeated reads reuse the deterministic authority replay
+    (baseline materialization + content hash); every liveness/consistency
+    probe still runs per read — covered by the fail-closed tamper tests."""
+    scene_repository, baseline = _baseline(tmp_path)
+    repository = CadSystemVariantRepository(scene_repository)
+    variant = build_system_variant(
+        baseline=baseline,
+        name='Proposed 5.0.2',
+        role_bindings=_roles('FL', 'C', 'FR', 'TFL', 'TFR', 'SL', 'SR'),
+        proposed_entities=(
+            _proposal('sl', 'SL', 0.6),
+            _proposal('sr', 'SR', 5.4),
+        ),
+        created_at_utc=NOW,
+    )
+    repository.save_variant(variant)
+
+    assert repository.get_variant(variant.variant_id) == variant
+
+    baseline_revision = scene_repository.get(baseline.revision_id)
+    proposed_first, hash_first = repository._materialized_proposed(
+        baseline_revision, variant
+    )
+    proposed_second, hash_second = repository._materialized_proposed(
+        baseline_revision, variant
+    )
+    assert proposed_first is proposed_second
+    assert hash_first == hash_second

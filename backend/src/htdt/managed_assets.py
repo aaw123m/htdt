@@ -19,6 +19,7 @@ content-addressed digest. Any gap fails closed with ``ManagedAssetError``.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable
 from hashlib import sha256
 import os
@@ -200,12 +201,42 @@ def read_managed_asset_verified(
             target, MAX_ATTACHMENT_BYTES, label='managed asset'
         )
     )
+    stat = None
+    try:
+        stat = asset_path.stat()
+    except OSError:
+        stat = None
+    key = (
+        str(asset_path),
+        digest,
+        size_bytes,
+        stat.st_size if stat is not None else -1,
+        stat.st_mtime_ns if stat is not None else -1,
+    )
+    cached = _VERIFIED_ASSET_BYTES.pop(key, None)
+    if cached is not None:
+        # Verified bytes bound to the on-disk signature (path + digest +
+        # size + mtime_ns): any write/replace/corruption of the file changes
+        # size or mtime_ns and misses, so the byte-level re-verify still
+        # runs against every observed change. Same signature memo contract
+        # as cad_schema's schema-ensure signatures.
+        _VERIFIED_ASSET_BYTES[key] = cached
+        return asset_path, cached
     raw = reader(asset_path)
     if len(raw) != size_bytes or sha256(raw).hexdigest() != digest:
         raise ManagedAssetError(
             f'measurement asset SHA-256 mismatch: {relative_path}'
         )
+    _VERIFIED_ASSET_BYTES[key] = raw
+    while len(_VERIFIED_ASSET_BYTES) > _VERIFIED_ASSET_CACHE_LIMIT:
+        _VERIFIED_ASSET_BYTES.popitem(last=False)
     return asset_path, raw
+
+
+# Verified-asset bytes memo keyed by (path, digest, size_bytes, mtime_ns).
+# Bounded so long sessions do not accumulate every asset ever read.
+_VERIFIED_ASSET_BYTES: OrderedDict[tuple, bytes] = OrderedDict()
+_VERIFIED_ASSET_CACHE_LIMIT = 512
 
 
 # The shared managed asset directory next to the native CAD database. The

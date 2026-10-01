@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from contextlib import closing
 from pathlib import Path
+import threading
 import sqlite3
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_repository import SceneRepository, SceneRevision
+from .cad_repository import SceneRepository, SceneRevision, _SharedReadConnection
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
 from .cad_schema import require_native_tables, connect_sqlite
@@ -82,10 +84,34 @@ class CadSystemVariantRepository:
     def __init__(self, scene_repository: SceneRepository) -> None:
         self.scene_repository = scene_repository
         self.path = Path(scene_repository.path)
+        # Bounded memo for the deterministic authority replay: keyed by the
+        # variant's content address and the baseline revision it binds, so
+        # every read still re-fetches the variant row and re-runs every
+        # liveness/consistency probe — only the pure
+        # materialize/hash computation is reused. LRU past the cap.
+        self._proposed_cache: OrderedDict[
+            tuple[str, str, str],
+            tuple[SceneDocument, str],
+        ] = OrderedDict()
+        self._thread_reads = threading.local()
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
+
+    def _read(self) -> sqlite3.Connection:
+        connection = getattr(self._thread_reads, 'connection', None)
+        if connection is None:
+            connection = _SharedReadConnection(connect_sqlite(self.path))
+            self._thread_reads.connection = connection
+        return connection
+
+    def close(self) -> None:
+        """Release the calling thread's shared read connection, if any."""
+        connection = getattr(self._thread_reads, 'connection', None)
+        if connection is not None:
+            connection._inner.close()
+            self._thread_reads.connection = None
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
@@ -97,7 +123,7 @@ class CadSystemVariantRepository:
     ) -> None:
         if not variant.equipment_bindings:
             return
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             table = connection.execute(
                 """
                 SELECT 1
@@ -151,7 +177,7 @@ class CadSystemVariantRepository:
             or baseline.content_hash != variant.baseline_content_hash
         ):
             raise ValueError('SystemVariant baseline authority mismatch')
-        proposed = materialize_system_variant(baseline, variant)
+        proposed, _proposed_hash = self._materialized_proposed(baseline, variant)
 
         if variant.parent_variant_id is not None:
             if (
@@ -192,12 +218,42 @@ class CadSystemVariantRepository:
         self._require_variant_authority(variant, lineage)
         return variant
 
+    #: Upper bound on the per-instance materialization memo.
+    _PROPOSED_CACHE_LIMIT = 512
+
+    def _materialized_proposed(
+        self,
+        baseline: SceneRevision,
+        variant: SystemVariant,
+    ) -> tuple[SceneDocument, str]:
+        """Replay ``variant`` over ``baseline``, memoized by content address.
+
+        Both inputs are content-addressed and immutable, so the proposed
+        scene and its content hash are a pure function of them; callers
+        still perform every liveness/consistency check before reaching here.
+        """
+        key = (
+            variant.variant_sha256,
+            baseline.revision_id,
+            baseline.content_hash,
+        )
+        cached = self._proposed_cache.pop(key, None)
+        if cached is not None:
+            self._proposed_cache[key] = cached
+            return cached
+        proposed = materialize_system_variant(baseline, variant)
+        entry = (proposed, scene_content_hash(proposed))
+        self._proposed_cache[key] = entry
+        while len(self._proposed_cache) > self._PROPOSED_CACHE_LIMIT:
+            self._proposed_cache.popitem(last=False)
+        return entry
+
     def _get_variant(
         self,
         variant_id: str,
         lineage: frozenset[str],
     ) -> SystemVariant | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_system_variants WHERE variant_id=?',
                 (variant_id,),
@@ -266,8 +322,7 @@ class CadSystemVariantRepository:
             raise ValueError(
                 'SystemVariant application applied SceneRevision mismatch'
             )
-        proposed = materialize_system_variant(baseline, variant)
-        proposed_hash = scene_content_hash(proposed)
+        proposed, proposed_hash = self._materialized_proposed(baseline, variant)
         if proposed_hash == baseline.content_hash:
             raise ValueError(
                 'SystemVariant application must not reproduce its baseline'
@@ -339,7 +394,7 @@ class CadSystemVariantRepository:
         still goes through ``_validated_variant``.
         """
 
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_system_variants '
                 'WHERE document_id=? AND variant_sha256=?',
@@ -350,7 +405,7 @@ class CadSystemVariantRepository:
         return self._validated_variant(row, frozenset())
 
     def list_variants(self, document_id: str) -> tuple[SystemVariant, ...]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_system_variants '
                 'WHERE document_id=? ORDER BY seq ASC',
@@ -362,7 +417,7 @@ class CadSystemVariantRepository:
         )
 
     def get_application(self, application_id: str) -> SystemVariantApplication | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_system_variant_applications '
                 'WHERE application_id=?',
@@ -371,7 +426,7 @@ class CadSystemVariantRepository:
         return None if row is None else self._validated_application(row)
 
     def application_for_variant(self, variant_id: str) -> SystemVariantApplication | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_system_variant_applications '
                 'WHERE variant_id=?',
@@ -380,7 +435,7 @@ class CadSystemVariantRepository:
         return None if row is None else self._validated_application(row)
 
     def application_for_revision(self, revision_id: str) -> SystemVariantApplication | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_system_variant_applications '
                 'WHERE applied_revision_id=?',
@@ -407,8 +462,7 @@ class CadSystemVariantRepository:
         baseline = self.scene_repository.get(variant.baseline_revision_id)
         if baseline is None:
             raise ValueError('SystemVariant baseline SceneRevision does not exist')
-        proposed = materialize_system_variant(baseline, variant)
-        proposed_hash = scene_content_hash(proposed)
+        proposed, proposed_hash = self._materialized_proposed(baseline, variant)
         if proposed_hash == baseline.content_hash:
             raise ValueError('cannot apply a no-op SystemVariant as a new SceneRevision')
 

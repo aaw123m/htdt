@@ -206,6 +206,19 @@ class _RepositoryChain:
         self._repos[name] = repo
         return repo
 
+    def close(self) -> None:
+        """Release file handles held by the built repositories.
+
+        The audit runs on a throwaway clone that callers unlink right after
+        return; a repository whose read path keeps a pooled connection
+        would hold the file open past the clone's lifetime on Windows.
+        """
+        for repo in self._repos.values():
+            close = getattr(repo, 'close', None)
+            if callable(close):
+                close()
+        self._repos.clear()
+
     def _build(self, name: str) -> Any:  # noqa: C901
         if name == 'scene':
             from .cad_repository import SceneRepository
@@ -3962,6 +3975,7 @@ def audit_native_authority_graph(
                 (f'structural:{table}', 'structural_only', count)
             )
     finally:
+        chain.close()
         connection.close()
 
     return AuthorityAuditReport(
