@@ -81,7 +81,7 @@ def test_broken_command_reference_detected() -> None:
 
 def test_reason_code_lookup() -> None:
     registry = build_help_registry()
-    topic = registry.topic_for_reason('prediction.unavailable.source_model_missing')
+    topic = registry.topic_for_reason('prediction.run.receiver_required')
     assert topic is not None and topic.topic_id == 'trouble.prediction_unavailable'
     assert registry.topic_for_reason('no.such.code') is None
 
@@ -94,7 +94,7 @@ def test_duplicate_reason_binding_fails() -> None:
             PresentationLocale.JAPANESE: LocalizedTopicContent(title='t', summary='s'),
             PresentationLocale.ENGLISH: LocalizedTopicContent(title='t', summary='s'),
         },
-        reason_codes=('value.unknown',),
+        reason_codes=('command.blocked.data_mutation_frozen',),
     )
     with pytest.raises(ValueError):
         HelpRegistry([*(base.require(t) for t in base.topic_ids()), other])

@@ -216,7 +216,7 @@ _NAVIGATION_KIND_LABELS: dict[NavigationTargetKind, str] = {
     NavigationTargetKind.PROJECT: "プロジェクト",
     NavigationTargetKind.SCENE_ENTITY: "シーンオブジェクト",
     NavigationTargetKind.SCENE_REVISION: "シーンリビジョン",
-    NavigationTargetKind.SYSTEM_VARIANT: "システム提案",
+    NavigationTargetKind.SYSTEM_VARIANT: "システムバリアント",
     NavigationTargetKind.MEASUREMENT: "測定",
     NavigationTargetKind.MEASUREMENT_CAMPAIGN: "測定キャンペーン",
     NavigationTargetKind.PREDICTION_RESULT: "予測結果",

@@ -112,123 +112,135 @@ AVAILABILITY_REASONS: dict[str, AvailabilityReasonSpec] = {
             'command.blocked.editing_not_available',
             '編集できる状態ではありません',
             'Editing is not available right now',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.edit_in_progress',
             '編集中の操作を確定またはキャンセルしてください',
             'Commit or cancel the in-progress edit first',
-        ),
-        _spec(
-            'command.blocked.nothing_to_save',
-            '保存できる変更がないか、編集中の操作があります',
-            'No changes to save, or an edit is in progress',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.nothing_to_undo',
             '元に戻せる操作はありません',
             'There is nothing to undo',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.nothing_to_redo',
             'やり直せる操作はありません',
             'There is nothing to redo',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.clipboard_empty',
             '先にコピーしてください',
             'Copy something first',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.nothing_to_cancel',
             'キャンセルする操作はありません',
             'There is nothing to cancel',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.nothing_to_commit',
             '確定する操作はありません',
             'There is nothing to commit',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'command.blocked.isolation_inactive',
             '分離中ではありません',
             'No isolation is currently active',
+            help_topic_id='trouble.command_unavailable',
         ),
         # --- Room / selection prerequisites --------------------------------
         _spec(
             'command.blocked.room_required',
             '先に部屋を作成してください',
             'Create a room first',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'command.blocked.selection_required',
             '項目を選択してください',
             'Select an item first',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'command.blocked.min_selection',
             '{required}つ以上の項目を選択してください',
             'Select at least {required} items',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'command.blocked.speaker_required',
             'スピーカーを選択してください',
             'Select a speaker first',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'command.blocked.underlay_required',
             '下図をインポートしてください',
             'Import an underlay first',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'room.edit.requires_editable_selection',
             '編集できる項目を選択してください',
             'Select an editable item first',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'room.view.requires_selection',
             '表示する項目を選択してください',
             'Select an item to display',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'room.transform.requires_active_transform',
             '移動または回転を開始してから軸を指定してください',
             'Start a move or rotate before choosing an axis',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'room.draw.blocked_while_editing',
             '部屋の編集中または復旧確認中は新しい作図を開始できません',
             'Cannot start a new sketch while the room is being edited or recovered',
+            help_topic_id='workflow.room_cad',
         ),
         _spec(
             'room.add_speaker.requires_finished_room',
             '部屋を作成し、部屋・壁編集を完了してから追加してください',
             'Create a room and finish room/wall editing before adding speakers',
+            help_topic_id='workflow.room_cad',
         ),
         # --- Save / undo-redo ------------------------------------------------
         _spec(
             'project.save.nothing_to_save',
             '保存する変更がありません',
             'There is nothing to save',
-        ),
-        _spec(
-            'project.save.unavailable_or_editing',
-            '保存できる変更がないか、編集中の操作があります',
-            'No changes can be saved, or an edit is in progress',
+            help_topic_id='workflow.data_recovery',
         ),
         _spec(
             'project.save.unavailable_or_busy',
             '保存する変更がないか、候補生成・REW読込・編集操作が実行中です',
             'Nothing to save, or candidate generation/REW import/editing is running',
+            help_topic_id='workflow.data_recovery',
         ),
         _spec(
             'edit.undo.unavailable_or_busy',
             '元に戻せる操作がないか、処理が実行中です',
             'Nothing to undo, or an operation is running',
+            help_topic_id='trouble.command_unavailable',
         ),
         _spec(
             'edit.redo.unavailable_or_busy',
             'やり直せる操作がないか、処理が実行中です',
             'Nothing to redo, or an operation is running',
+            help_topic_id='trouble.command_unavailable',
         ),
         # --- Prediction ----------------------------------------------------
         _spec(
@@ -249,46 +261,19 @@ AVAILABILITY_REASONS: dict[str, AvailabilityReasonSpec] = {
             'Select a receiver point first',
             help_topic_id='trouble.prediction_unavailable',
         ),
-        _spec(
-            'prediction.run.requires_saved_scene_and_receiver',
-            '保存済みSceneと受音点を用意してから予測を実行してください',
-            'Provide a saved scene and a receiver point before running a prediction',
-            help_topic_id='trouble.prediction_unavailable',
-        ),
-        _spec(
-            'prediction.run.workspace_unbound',
-            '予測ワークスペースが接続されていません',
-            'The prediction workspace is not connected',
-            help_topic_id='trouble.command_unavailable',
-        ),
         # --- Measurement import ---------------------------------------------
         _spec(
             'measurement.import.requires_saved_scene',
             '部屋を保存してからREWを読み込んでください',
             'Save the room before importing REW data',
-        ),
-        _spec(
-            'measurement.import.requires_saved_scene_and_point',
-            '保存済みSceneと測定点を用意してからREWを読み込んでください',
-            'Provide a saved scene and a measurement point before importing REW data',
-        ),
-        _spec(
-            'measurement.import.workspace_unbound',
-            '測定ワークスペースが接続されていません',
-            'The measurement workspace is not connected',
-            help_topic_id='trouble.command_unavailable',
+            help_topic_id='workflow.measurements',
         ),
         # --- Optimization ----------------------------------------------------
         _spec(
             'optimization.compare.requires_spec_selection',
             '比較する探索仕様を選択してください',
             'Select a search spec to compare',
-        ),
-        _spec(
-            'optimization.compare.workspace_unbound',
-            '候補比較ワークスペースが接続されていません',
-            'The candidate-compare workspace is not connected',
-            help_topic_id='trouble.command_unavailable',
+            help_topic_id='workflow.prediction_optimize',
         ),
     )
 }

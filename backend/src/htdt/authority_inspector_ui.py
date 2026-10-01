@@ -34,7 +34,14 @@ from .authority_graph import (
     AuthorityInspector,
     AuthorityNode,
 )
+from .localization import PresentationLocale, TermId, term_text
 from .ui_theme import SemanticState, set_semantic_state
+
+
+#: Canonical facet/authority wording lives in HTDT_TERMINOLOGY (#624);
+#: JA renderings below resolve through term_text so badges never drift.
+def _canonical(term: TermId) -> str:
+    return term_text(term, PresentationLocale.JAPANESE)
 
 
 _FRESHNESS_LABELS = {
@@ -64,24 +71,24 @@ _DOMAIN_LABELS = {
 }
 
 _LIFECYCLE_LABELS = {
-    'current': '現在',
-    'proposed': '提案済み',
-    'as_built': '竣工',
-    'measured': '実測',
+    'current': _canonical(TermId.CURRENT_SYSTEM),
+    'proposed': _canonical(TermId.PROPOSED_SYSTEM),
+    'as_built': _canonical(TermId.AS_BUILT),
+    'measured': _canonical(TermId.MEASURED),
     'derived': '派生',
     'hypothesis': '仮説',
-    'historical': '履歴',
-    'stale': '古い',
+    'historical': _canonical(TermId.HISTORICAL),
+    'stale': _canonical(TermId.STALE),
     'invalid': '無効',
-    'unknown': '不明',
+    'unknown': _canonical(TermId.UNKNOWN),
 }
 
 _NODE_TYPE_LABELS = {
-    'unknown': '不明',
+    'unknown': _canonical(TermId.UNKNOWN),
     'document': 'ドキュメント',
-    'scene_revision': 'シーンリビジョン',
+    'scene_revision': _canonical(TermId.SCENE_REVISION),
     'measurement': '測定',
-    'system_variant': 'システム提案',
+    'system_variant': _canonical(TermId.SYSTEM_VARIANT),
 }
 
 _EVIDENCE_TYPE_LABELS = {
