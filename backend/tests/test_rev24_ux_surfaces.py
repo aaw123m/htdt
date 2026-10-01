@@ -291,7 +291,7 @@ def test_authority_inspector_renders_japanese_summary() -> None:
         dialog._node_ids.index("measurement:measurement:m-1")
     )
     assert dialog.authority_class_label.text() == "測定・測定"
-    assert dialog.lifecycle_label.text() == "実測"
+    assert dialog.lifecycle_label.text() == "実測済み"
 
     dialog.close()
     dialog.deleteLater()

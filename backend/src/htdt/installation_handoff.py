@@ -310,7 +310,7 @@ _PREVIEW_VIEW_LABELS = {
 }
 
 _PREVIEW_LIFECYCLE_LABELS = {
-    'proposed': '提案済み',
+    'proposed': '提案',
     'installed': '設置済み',
 }
 

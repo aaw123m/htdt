@@ -1691,7 +1691,7 @@ class WorkflowApplicationComposition:
                     PaletteNavigationItem(
                         item_id=variant.variant_id,
                         title=variant_display_label(variant),
-                        subtitle='システム提案 · 最適化',
+                        subtitle='システムバリアント · 最適化',
                         keywords=(
                             variant.variant_id,
                             variant.name,

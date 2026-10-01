@@ -182,3 +182,37 @@ def test_registry_unbound_context_reason_is_cataloged() -> None:
     assert availability.reason.code == (
         'command.blocked.navigation_handler_unavailable'
     )
+
+
+def test_every_catalog_reason_code_resolves_to_a_help_topic() -> None:
+    """Palette 'why' affordance: every emitted catalog code binds a topic.
+
+    REV25-DOCSHELP — a disabled palette row must never dead-end on the
+    reason text alone, and the two resolution paths (catalog
+    ``help_topic_id`` and the registry's ``topic_for_reason`` index)
+    must agree on the same topic.
+    """
+    registry = build_help_registry()
+    for code, spec in AVAILABILITY_REASONS.items():
+        assert spec.help_topic_id is not None, code
+        topic = registry.require(spec.help_topic_id)
+        via_index = registry.topic_for_reason(code)
+        assert via_index is topic, code
+
+
+def test_emitted_domain_reason_codes_resolve_to_topics() -> None:
+    """Domain reason vocabularies outside the catalog (overview readiness
+    notices, dependency-impact notices, activity-center statuses) resolve
+    through ``topic_for_reason`` too."""
+    from htdt.overview_readiness import _NOTICE_AREA
+
+    registry = build_help_registry()
+    emitted_codes = (
+        *_NOTICE_AREA,
+        'impact.stale',
+        'impact.uncertain',
+        'result_stale',
+        'completed_for_historical_input',
+    )
+    for code in emitted_codes:
+        assert registry.topic_for_reason(code) is not None, code

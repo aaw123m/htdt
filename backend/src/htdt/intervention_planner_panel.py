@@ -62,7 +62,7 @@ _EVIDENCE_LABELS: dict[str, str] = {
     'exploratory': '探索的',
     'predicted_unvalidated': '予測(未検証)',
     'predicted_validated': '予測(検証済)',
-    'measured_verified': '実測済',
+    'measured_verified': '実測済み(検証済)',
 }
 _COVERAGE_LABELS: dict[str, str] = {
     'complete': '完全',

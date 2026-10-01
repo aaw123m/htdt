@@ -119,10 +119,12 @@ python -m htdt.native_cad --backup "D:\Backups\home-theater.htdt-backup"
 python -m htdt.native_cad --restore "D:\Backups\home-theater.htdt-backup"
 ```
 
-関連するmaintenance option（`--backup` / `--restore` / `--automatic-backup` / `--seed-synthetic-demo` / `--migrate-legacy-data` は相互排他です）:
+関連するmaintenance option（`--backup` / `--restore` / `--automatic-backup` / `--seed-synthetic-demo` / `--migrate-legacy-data` / `--revalidate` は相互排他です）:
 
 - `--automatic-backup`: 期限の来た自動バックアップを1回実行して終了（スケジュールタスク用）
 - `--migrate-legacy-data`: 廃止されたbrowser store（`htdt.sqlite3`）をnative projectへ移行して終了。移行対象がなければ `{"state":"nothing_to_migrate"}` を返します
+- `--revalidate`: update後に要検証となった記録を現在のbuildで再検証（再導出できる記録を再署名）して終了
+- `--backup-allow-stale`: 要再検証の記録をmanifestに明記したうえでbackupを許可（`--backup` と併用）
 - `--seed-synthetic-demo`: 合成 O10-O80 開発demoをseedして終了（後述）
 
 backupはlive SQLite fileの単純copyではなくSQLite backup APIでconsistent snapshotを作り、N60 measurement raw assetsもSHA-256で検証してarchiveへ含めます。restoreはarchive traversal、manifest/hash、SQLite integrity/foreign key、asset hashを全検証してからstagingし、現在dataをpre-restore backupへ退避して置換します。
@@ -228,6 +230,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 | [ROOM_GEOMETRY.md](docs/ROOM_GEOMETRY.md) | polygon room geometry contract |
 | [PLACEMENT_CONSTRAINTS.md](docs/PLACEMENT_CONSTRAINTS.md) | placement hard constraints |
 | [REW_API.md](docs/REW_API.md) | REW API契約 |
+| [SUPPORT_AND_EXPORTS.md](docs/SUPPORT_AND_EXPORTS.md) | サポート画面の診断・診断パッケージ・設置ハンドオフ等の書き出し面 |
 
 ## 開発運用
 
