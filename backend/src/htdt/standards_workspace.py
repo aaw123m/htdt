@@ -805,6 +805,14 @@ class StandardsVariantComparisonPanel(QFrame):
             ["配置制約 / 基準", "必要条件"]
             + [target.label for target in self._targets]
         )
+        header = self.matrix.header()
+        for index in range(self.matrix.columnCount()):
+            header.setSectionResizeMode(
+                index,
+                QHeaderView.ResizeMode.ResizeToContents
+                if index < 2
+                else QHeaderView.ResizeMode.Stretch,
+            )
         for criterion in profile.criteria:
             item = QTreeWidgetItem()
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
