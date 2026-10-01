@@ -18,8 +18,11 @@ Bounded capability contract (fail closed, never silently degraded):
   specular authority. The geometric bound treats the whole surface patch as a
   single energy-domain re-emission centroid, overestimates the intercepted
   solid angle by ``patch_area / (4*pi*d_min**2)`` with ``d_min`` the minimum
-  source-to-patch-vertex distance, and re-emits isotropically bounded by
-  ``1 / (4*pi*d2_min**2)``. The result is a conservative energy upper bound,
+  source-to-patch-vertex distance, and re-emits isotropically into the
+  interior half-space bounded by ``1 / (2*pi*d2_min**2)`` — a planar patch
+  cannot emit through its own surface, so a full-sphere ``1/(4*pi*d2**2)``
+  normalization would understate the emergent bound by up to a factor of
+  two. The result is a conservative energy upper bound,
   not a point estimate, and it is labeled so
   (``energy_semantics='upper_bound_not_point_estimate'``).
 - **edge_diffraction / aperture_diffraction**: only edges *explicitly declared*
@@ -37,7 +40,14 @@ Bounded capability contract (fail closed, never silently degraded):
   ``EDGE_REQUIRES_HIGHER_ORDER_DIFFRACTION`` rather than approximated.
   The diffracted energy is bounded by a caller-declared
   ``diffraction_energy_bound_factor`` — a conservative amplitude-scaling bound,
-  not a UTD/BTD coefficient model.
+  not a UTD/BTD coefficient model. The apex re-emission is bounded
+  isotropically over the smallest air-side dihedral the edge can open into:
+  the two incident faces block ``2*w_material`` steradians with
+  ``w_material = pi +/- sigma`` (``sigma`` the incident-face normal
+  separation), so the emergent factor is ``1 / (2*(pi - sigma)*d2_bound**2)``
+  — the tightest reachable domain — rather than a full-sphere
+  ``1/(4*pi*d2**2)``, which would understate the bound wherever the wedge
+  blocks emission.
 - **Unsupported**: the multi-region Portal policy, non-banded materials,
   edges that do not resolve exactly, higher-order diffraction, directional
   scattering kernels, and any coherent-phase claim (the late-field authority is
@@ -64,7 +74,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import closing
-from math import acos, degrees, pi, sqrt
+from math import acos, degrees, pi, radians, sqrt
 from pathlib import Path
 from typing import Any, Literal, Sequence
 import sqlite3
@@ -135,7 +145,7 @@ from .occluder_grid_index import _IndexedOccluderRows
 LATE_FIELD_SCHEMA_VERSION = 1
 LATE_FIELD_AUTHORITY_VERSION = 'r150-late-field-energy-1'
 LATE_FIELD_ADAPTER_ID = 'htdt.r150.late-field-energy'
-LATE_FIELD_ADAPTER_VERSION = '1'
+LATE_FIELD_ADAPTER_VERSION = '2'
 
 LATE_FIELD_ENGINE_ID = 'htdt.r150.late_field_energy_bound'
 LATE_FIELD_ENGINE_VERSION = '1'
@@ -511,7 +521,7 @@ class LateEnergyPathContribution(BaseModel):
     ] = 'world_propagation_direction_source_out_and_receiver_in'
     bands: tuple[LateEnergyBandQuantity, ...] = Field(min_length=1)
     adapter_id: Literal['htdt.r150.late-field-energy'] = LATE_FIELD_ADAPTER_ID
-    adapter_version: Literal['1'] = LATE_FIELD_ADAPTER_VERSION
+    adapter_version: Literal['2'] = LATE_FIELD_ADAPTER_VERSION
     late_field_implementation_ref: ExactExternalAuthorityRef
     energy_semantics: Literal['upper_bound_not_point_estimate'] = (
         'upper_bound_not_point_estimate'
@@ -1576,7 +1586,10 @@ def _evaluate_scattering_candidate(
             * patch_area
             / (4.0 * pi * d1_min * d1_min)
         )
-        emergent = 1.0 / (4.0 * pi * d2_min * d2_min)
+        # A boundary patch re-emits only into the interior half-space:
+        # 2*pi steradians. Full-sphere normalization would understate the
+        # declared upper bound by up to a factor of two.
+        emergent = 1.0 / (2.0 * pi * d2_min * d2_min)
         bound = intercepted * redirected * emergent
         bands.append(
             LateEnergyBandQuantity(
@@ -1754,9 +1767,17 @@ def _evaluate_diffraction_candidate(
             float(directionality.energy_factor)
             / (4.0 * pi * d1_bound * d1_bound)
         )
-        emergent = 1.0 / (
-            4.0 * pi * d2_bound * d2_bound
+        # The apex re-emits into the air-side dihedral, never the full
+        # sphere. The air domain is 4*pi - 2*w_material steradians and the
+        # incident-face normal separation sigma leaves w_material =
+        # pi +/- sigma, so the smallest reachable domain — the one that
+        # keeps the bound bounding in every configuration — is
+        # 2*(pi - sigma). Sigma is clamped below 180 degrees so degenerate
+        # near-antiparallel faces stay finite instead of dividing by zero.
+        separation = radians(
+            min(179.0, float(edge.wedge_face_separation_angle_deg))
         )
+        emergent = 1.0 / (2.0 * (pi - separation) * d2_bound * d2_bound)
         bound = incident * bound_factor * emergent
         bands.append(
             LateEnergyBandQuantity(

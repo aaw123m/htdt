@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import isclose, pi, sqrt
+from math import isclose, pi, radians, sqrt
 from pathlib import Path
 import random
 
@@ -114,7 +114,9 @@ def test_surface_scattering_emits_bounded_contributions_with_analytic_bounds(
     centroid = floor.interaction_point
     assert (centroid.x_m, centroid.y_m, centroid.z_m) == (2.0, 1.5, 0.0)
 
-    # Analytic bound: D*A/(4*pi*d1_min^2) * (1-a)*s * 1/(4*pi*d2_min^2)
+    # Analytic bound: D*A/(4*pi*d1_min^2) * (1-a)*s * 1/(2*pi*d2_min^2)
+    # (interior half-space re-emission — a boundary patch cannot emit
+    # through its own surface).
     # floor patch area 12 m2, d1_min = d2_min = sqrt(3) m.
     assert len(floor.bands) == 2
     band = next(item for item in floor.bands if item.center_hz == 500.0)
@@ -130,7 +132,7 @@ def test_surface_scattering_emits_bounded_contributions_with_analytic_bounds(
         * 12.0
         / (4.0 * pi * 3.0)
         * 0.08
-        / (4.0 * pi * 3.0)
+        / (2.0 * pi * 3.0)
     )
     assert isclose(
         band.late_energy_upper_bound_per_m2,
@@ -282,12 +284,15 @@ def test_wedge_diffraction_resolves_apex_and_rejects_occluded_edges(
     )
     assert isclose(band.incident_distance_bound_m, d1, abs_tol=1e-9)
     assert isclose(band.emergent_distance_bound_m, d2, abs_tol=1e-9)
+    # The apex re-emits into the smallest air-side dihedral the edge can
+    # open into, 2*(pi - sigma) steradians — never the full 4*pi sphere.
+    sigma_rad = radians(edge.wedge_face_separation_angle_deg)
     assert isclose(
         band.late_energy_upper_bound_per_m2,
         band.source_directivity.energy_factor
         * 0.1
         / (4.0 * pi * d1 * d1)
-        / (4.0 * pi * d2 * d2),
+        / (2.0 * (pi - sigma_rad) * d2 * d2),
         rel_tol=1e-9,
     )
 

@@ -751,20 +751,119 @@ def test_late_energy_supported_bounded_decay() -> None:
     assert artifact.late_field_start_s == 0.01
     assert len(artifact.bands) == 2
     band = artifact.bands[0]
-    # E0=1.0; single reflection scattering=0.2 -> injected 0.2 per band.
-    assert band.injected_late_energy_per_m2 == pytest.approx(0.2)
+    # E0=1.0; single reflection -> injected (1-absorption)*scattering =
+    # 0.9*0.2 = 0.18 per band. The scattered fraction of the reflected
+    # energy leaves the specular channel; absorbed energy cannot scatter.
+    assert band.injected_late_energy_per_m2 == pytest.approx(0.18)
     assert band.specular_path_energy_per_m2 == pytest.approx(0.72 + 1.0)
     assert band.diffraction_declared_energy_per_m2 == 0.0
     assert [item.time_s for item in band.samples] == [0.01, 0.05, 0.1]
-    assert band.samples[0].late_energy_per_m2 == pytest.approx(0.2)
+    assert band.samples[0].late_energy_per_m2 == pytest.approx(0.18)
     assert band.samples[1].late_energy_per_m2 == pytest.approx(
-        0.2 * exp(-(0.05 - 0.01) / 0.5)
+        0.18 * exp(-(0.05 - 0.01) / 0.5)
     )
     assert len(artifact.path_contributions) == 2
     observable = artifact.as_solver_observable(
         _ref('late-energy-encoding')
     )
     assert observable.observable == 'late_energy_decay'
+
+
+def test_late_energy_injection_conserves_reflection_energy() -> None:
+    # Physics regression: the injected late energy per reflection is the
+    # scattered fraction of the *reflected* energy, (1-alpha)*s — the exact
+    # complement of the specular factor (1-alpha)*(1-s). Injecting s alone
+    # counted the absorbed share twice and created energy per bounce.
+    bands_hz = (500.0, 1000.0)
+    paths = (
+        _path(
+            path_type='specular_reflection',
+            surface_ids=('surface:wall-1', 'surface:wall-2'),
+            bands_hz=bands_hz,
+            delay_s=0.01,
+            material_scattering=0.2,
+        ),
+    )
+    placeholder = DeterministicPathArtifact.model_construct(
+        schema_version=1,
+        authority_version='r150-deterministic-ga-1',
+        artifact_id=f'deterministic-path-artifact:{"0" * 64}',
+        semantic_sha256='0' * 64,
+        execution_id=f'r150-ga-execution:{_hash("execution2")}',
+        execution_input_id='r150-ga-execution-input:test2',
+        execution_input_sha256=_hash('execution-input2'),
+        snapshot_id='snapshot:r160-late',
+        snapshot_sha256=_hash('snapshot'),
+        prediction_request_id='request:r160-late',
+        prediction_request_sha256=_hash('request'),
+        dispatch_binding_id='dispatch:r160-late',
+        dispatch_binding_sha256=_hash('dispatch'),
+        adapter_descriptor_id='adapter:r160-late',
+        adapter_descriptor_sha256=_hash('adapter'),
+        solver_implementation_ref=_ref('ga-solver'),
+        solver_configuration_ref=_ref('ga-config'),
+        r120_compiled_geometry_id='r120-compiled-geometry:r160-late',
+        r120_compiled_geometry_sha256=_hash('geometry'),
+        topology_identity_sha256=_hash('topology'),
+        engine_id='htdt.r150.test-engine',
+        engine_version='1',
+        candidate_source_commit=None,
+        numeric_comparison_tolerance_m=1.0e-6,
+        identity_decimal_places=9,
+        frequency_domain=_domain(bands_hz),
+        path_scope='direct_and_first_order_specular',
+        paths=paths,
+        rejected_candidates=(),
+    )
+    core = placeholder.semantic_payload()
+    digest = _digest(core)
+    path_artifact = DeterministicPathArtifact(
+        artifact_id=f'deterministic-path-artifact:{digest}',
+        semantic_sha256=digest,
+        **core,
+    )
+    evidences = {}
+    capabilities = []
+    for surface_id in ('surface:wall-1', 'surface:wall-2'):
+        evidence = _scattering_evidence(surface_id, bands_hz)
+        evidences[evidence.evidence_id] = evidence
+        capabilities.append(
+            LateFieldSurfaceCapability(
+                surface_id=surface_id,
+                capability='scattering_modeled',
+                evidence_ref=surface_scattering_evidence_ref(evidence),
+                detail='synthetic modeled scattering',
+            )
+        )
+    late_input = build_late_field_input_authority(
+        path_artifact=path_artifact,
+        source_entity_id='source-1',
+        receiver_id='receiver-1',
+        surface_capabilities=tuple(capabilities),
+    )
+    artifact = solve_late_energy_decay(
+        path_artifact=path_artifact,
+        late_field_input=late_input,
+        decay_law=_decay_law(bands_hz),
+        scattering_evidence=evidences,
+    )
+    assert artifact.capability_state == 'SUPPORTED'
+    band = artifact.bands[0]
+    # E0=1.0, alpha=0.1, s=0.2 per bounce:
+    #   late_1 = (1-a)*s          = 0.18
+    #   late_2 = spec_1*(1-a)*s   = 0.72*0.18 = 0.1296
+    #   spec_end = 0.72*0.72      = 0.5184
+    assert band.injected_late_energy_per_m2 == pytest.approx(
+        0.18 + 0.72 * 0.18
+    )
+    assert band.specular_path_energy_per_m2 == pytest.approx(0.5184)
+    # Conservation: specular arrival + injected late + absorbed = E0.
+    absorbed = 0.1 + 0.72 * 0.1
+    assert (
+        band.specular_path_energy_per_m2
+        + band.injected_late_energy_per_m2
+        + absorbed
+    ) == pytest.approx(1.0)
 
 
 def test_late_energy_missing_surface_capability_fails_closed() -> None:

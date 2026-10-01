@@ -1699,7 +1699,7 @@ def _late_pair(
     )
     artifact_ref = _payload_ref(
         'late-energy-decay-artifact',
-        'r160-late-energy-decay-1',
+        'r160-late-energy-decay-2',
         {'tag': tag},
     )
     result = _result(
