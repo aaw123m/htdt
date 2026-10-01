@@ -392,16 +392,27 @@ class WorkspaceRouter(QStackedWidget):
                     widget.parentWidget() is None
                     and widget.windowType() == Qt.WindowType.Popup
                 ):
-                    app.removePostedEvents(widget)
                     widget.deleteLater()
         for mount in mounts:
-            app.removePostedEvents(mount.widget)
             mount.widget.deleteLater()
+        # Drain each receiver's queue in posted order so its delete lands
+        # last: Qt posts a DeferredDelete only on the first deleteLater()
+        # (deleteLaterCalled stays set), so removing that posted event
+        # would make every later deleteLater a silent no-op and the
+        # receiver immortal — and a queued delete that reposts behind
+        # still-pending events dies inside whichever code path next
+        # pumps events, mid-switch or mid-test in a foreign context.
         # Objects queued for deletion before this call (finished worker
-        # threads, timers) still deliver normally — a few passes deliver
-        # any delete that was reposted behind pending events so it cannot
-        # survive into the next mount/test.
+        # threads, timers) still deliver normally.
+        doomed = (
+            [w for w in app.topLevelWidgets() if isValid(w)]
+            if app is not None
+            else []
+        )
         for _ in range(4):
+            for widget in doomed:
+                if isValid(widget):
+                    app.sendPostedEvents(widget)
             QCoreApplication.sendPostedEvents(
                 None, QEvent.Type.DeferredDelete
             )

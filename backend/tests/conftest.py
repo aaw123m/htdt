@@ -86,7 +86,7 @@ def _destroy_created_toplevels():
     (``native_worker``/``data_management``) and drained at session finish.
     """
     yield
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import Qt, QEvent, QCoreApplication
     from PySide6.QtWidgets import QApplication
     from shiboken6 import isValid
 
@@ -111,31 +111,27 @@ def _destroy_created_toplevels():
 
     # Strays are destroyed in dependency order: a popup's ~ walks its
     # logical owner (a ViewBox, a mount's action group) even though it
-    # is unparented — deleteLater it FIRST so its ~ is delivered by the
-    # pass-end pump while the windows owning those collaborators are
-    # still alive, then deleteLater windows/dialogs/mount widgets. Every
-    # stray's pending queue is drained first: a queued DeferredDelete is
-    # reposted behind each still-pending event, which is how strays
-    # survived single flushes to die inside whichever test next pumped
-    # events — mid-test in a foreign context, the AV/abort class.
+    # is unparented — popups go first so their ~ is delivered while the
+    # windows owning those collaborators are still alive. Per stray the
+    # queue is DRAINED, never removed: Qt posts a DeferredDelete only on
+    # the first deleteLater() — the object's deleteLaterCalled flag stays
+    # set — so destroying that posted event (removePostedEvents) makes
+    # every later deleteLater a silent no-op and the widget immortal.
+    # Delivering the receiver's whole queue instead lets the DD finally
+    # land last; reposts behind fresh arrivals are retried next pass.
     # Synchronous delete() was tried and rejected: a stray ~ can fault
     # on collaborators that died earlier, in or out of an event pump.
-    for _ in range(6):
-        strays = [
-            widget for widget in app.topLevelWidgets() if _stray(widget)
-        ]
+    for _ in range(8):
+        strays = sorted(
+            (w for w in app.topLevelWidgets() if _stray(w)),
+            key=lambda w: w.windowType() != Qt.WindowType.Popup,
+        )
         for widget in strays:
-            if isValid(widget) and (
-                widget.windowType() == Qt.WindowType.Popup
-            ):
-                app.removePostedEvents(widget)
+            if isValid(widget):
                 widget.deleteLater()
         for widget in strays:
-            if isValid(widget) and (
-                widget.windowType() != Qt.WindowType.Popup
-            ):
-                app.removePostedEvents(widget)
-                widget.deleteLater()
+            if isValid(widget):
+                app.sendPostedEvents(widget)
         app.sendPostedEvents()
         app.processEvents()
         if not any(_stray(widget) for widget in app.topLevelWidgets()):

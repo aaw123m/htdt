@@ -17,6 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QEvent, QCoreApplication
 from PySide6.QtWidgets import QApplication, QMessageBox
+from shiboken6 import isValid as _qt_is_valid
 
 from htdt.cad_repository import SceneRepository
 from htdt.project_library import ProjectLibraryError
@@ -85,7 +86,7 @@ def test_dead_shell_is_released_after_respawn(tmp_path: Path) -> None:
     app = _app()
     composition = _composition(tmp_path)
     dead_shell = composition.shell
-    top_before = len(app.topLevelWidgets())
+    top_before = app.topLevelWidgets()
 
     _open_project(composition, 'doc-2')
     app.processEvents()
@@ -101,7 +102,19 @@ def test_dead_shell_is_released_after_respawn(tmp_path: Path) -> None:
     except RuntimeError:
         pass
     assert dead_shell.workflow_application is composition
-    assert len(app.topLevelWidgets()) <= top_before
+    # Release is checked by identity: a shown shell's menubar materializes
+    # one Qt-internal extension QMenu on first layout, so a raw count of
+    # top-levels would need slack for the respawned shell's own widgets.
+    # Every pre-switch top-level must instead be gone or C++-dead.
+    survivors = app.topLevelWidgets()
+    leaked = [
+        widget for widget in top_before
+        if _qt_is_valid(widget) and widget in survivors
+    ]
+    assert [
+        f"{type(w).__name__}:{w.objectName() or hex(id(w))}"
+        for w in leaked
+    ] == []
 
 
 def test_preference_commit_after_switch_never_touches_dead_observers(
