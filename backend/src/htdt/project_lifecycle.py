@@ -308,7 +308,7 @@ class ProjectLibrary:
         if existing is not None:
             return self._row_to_record(existing)
         record = (
-            project_id or uuid4().hex,
+            project_id or str(uuid4()),
             document_id,
             display_name or document_id,
             cloned_from_project_id,
