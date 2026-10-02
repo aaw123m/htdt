@@ -2,6 +2,7 @@ from contextlib import closing
 import logging
 from pathlib import Path
 import sqlite3
+import threading
 
 import pytest
 
@@ -953,3 +954,41 @@ def test_get_memoizes_revisions_but_never_misses(tmp_path: Path) -> None:
     # A miss is intentionally not memoized: a revision first requested
     # before its writer commits must resolve once it exists.
     assert repository.get('revision-not-written') is None
+
+
+def test_close_while_other_threads_read_is_safe(tmp_path: Path) -> None:
+    """``close()`` frees pooled read handles: without serialization a
+    reader thread inside ``execute``/``fetch`` uses freed memory
+    (interpreter access violation on Windows). A released slot lazily
+    re-opens so reads keep working after close."""
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = repository.save(
+        make_f1_scene(), parent_revision_id=None
+    ).revision
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                got = repository.get(revision.revision_id)
+                assert got is not None
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+                return
+
+    readers = [threading.Thread(target=reader) for _ in range(4)]
+    for thread in readers:
+        thread.start()
+    try:
+        for _ in range(50):
+            repository.close()
+    finally:
+        stop.set()
+        for thread in readers:
+            thread.join(30)
+    assert errors == []
+
+    # The pool slot was released; a subsequent read re-opens lazily.
+    assert repository.get(revision.revision_id) is not None
+    repository.close()

@@ -112,7 +112,7 @@ class CadSystemVariantRepository:
             connection = self._read_connections.get(ident)
             if connection is None:
                 connection = _SharedReadConnection(
-                    connect_sqlite(self.path, check_same_thread=False)
+                    lambda: connect_sqlite(self.path, check_same_thread=False)
                 )
                 self._read_connections[ident] = connection
         return connection
@@ -127,10 +127,7 @@ class CadSystemVariantRepository:
             connections = list(self._read_connections.values())
             self._read_connections.clear()
         for connection in connections:
-            try:
-                connection._inner.close()
-            except Exception:
-                pass
+            connection._close_for_release()
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:

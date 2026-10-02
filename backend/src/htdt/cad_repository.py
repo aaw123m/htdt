@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Any
+from typing import Any, Callable
 import weakref
 from uuid import uuid4
 
@@ -45,22 +45,59 @@ class _SharedReadConnection:
     only on writes). Keeping it open avoids the per-call ``sqlite3.connect``
     cost; it is used from a single thread, though a repository may close it
     from another thread when a file-swap layer needs the handle released.
+
+    ``_borrow_lock`` serializes each ``with`` borrow against a cross-thread
+    release: sqlite frees are not safe while another thread is inside
+    ``execute``/``fetch`` on the same handle (use-after-free, observed as an
+    interpreter access violation), so a release waits for the in-flight
+    borrow to unwind instead of closing mid-read. A proxy already handed
+    out when its slot is released re-opens lazily on next use — the pool
+    slot was cleared, so the reopened handle is a one-off for that borrow.
     """
 
-    def __init__(self, inner: sqlite3.Connection) -> None:
-        self._inner = inner
+    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
+        self._connect_factory = connect
+        self._inner = connect()
+        self._borrow_lock = threading.RLock()
+        self._closed = False
 
     def __getattr__(self, name):
+        if self._closed:
+            with self._borrow_lock:
+                if self._closed:
+                    self._inner = self._connect_factory()
+                    self._closed = False
         return getattr(self._inner, name)
 
     def __enter__(self):
-        return self._inner.__enter__()
+        self._borrow_lock.acquire()
+        try:
+            if self._closed:
+                self._inner = self._connect_factory()
+                self._closed = False
+            self._inner.__enter__()
+        except BaseException:
+            self._borrow_lock.release()
+            raise
+        return self._inner
 
     def __exit__(self, exc_type, exc, tb):
-        return self._inner.__exit__(exc_type, exc, tb)
+        try:
+            return self._inner.__exit__(exc_type, exc, tb)
+        finally:
+            self._borrow_lock.release()
 
     def close(self) -> None:
         pass
+
+    def _close_for_release(self) -> None:
+        """Close the inner handle once any in-flight borrow unwinds."""
+        with self._borrow_lock:
+            self._closed = True
+            try:
+                self._inner.close()
+            except Exception:
+                pass
 
     def __del__(self) -> None:
         try:
@@ -380,7 +417,7 @@ class SceneRepository:
             connection = self._read_connections.get(ident)
             if connection is None:
                 connection = _SharedReadConnection(
-                    connect_sqlite(self.path, check_same_thread=False)
+                    lambda: connect_sqlite(self.path, check_same_thread=False)
                 )
                 self._read_connections[ident] = connection
         return connection
@@ -398,10 +435,7 @@ class SceneRepository:
             connections = list(self._read_connections.values())
             self._read_connections.clear()
         for connection in connections:
-            try:
-                connection._inner.close()
-            except Exception:
-                pass
+            connection._close_for_release()
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
@@ -1416,7 +1450,7 @@ class SceneRepository:
         Unlike disposable editor payloads, a corrupt constraint head must
         stay retained and visible as an integrity problem (#843).
         """
-        with closing(self._read()) as connection:
+        with closing(self._read()) as connection, connection:
             return connection.execute(
                 'SELECT payload_json, updated_at_utc '
                 'FROM authoring_constraint_sets WHERE document_id=?',
@@ -1461,7 +1495,7 @@ class SceneRepository:
                 created_at_utc=row['updated_at_utc'],
                 constraint_revision_sha256='',
             )
-        with closing(self._read()) as connection:
+        with closing(self._read()) as connection, connection:
             revision_row = connection.execute(
                 'SELECT * FROM authoring_constraint_revisions '
                 'WHERE constraint_revision_id=? AND document_id=?',
@@ -1579,7 +1613,7 @@ class SceneRepository:
         self, document_id: str
     ) -> tuple[AuthoringConstraintRevision, ...]:
         """The full immutable constraint lineage, newest first (#843)."""
-        with closing(self._read()) as connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM authoring_constraint_revisions '
                 'WHERE document_id=? '
@@ -1597,7 +1631,7 @@ class SceneRepository:
         before that scene's commit still governs (constraints carry forward
         until the next constraint edit).
         """
-        with closing(self._read()) as connection:
+        with closing(self._read()) as connection, connection:
             scene_row = connection.execute(
                 'SELECT created_at_utc FROM scene_revisions '
                 'WHERE revision_id=? AND document_id=?',

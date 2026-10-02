@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import ssl
 import tempfile
+import threading
 import urllib.request
 import uuid
 
@@ -277,6 +278,62 @@ class TestDeliveries:
         assert first[0] == 200 and second[0] == 200
         assert second[1]['ingestion_outcome'] == 'already_staged'
         assert second[1]['staging_ref'] == first[1]['staging_ref']
+
+    def test_concurrent_same_delivery_replays_receipt(self, tmp_path):
+        # Two simultaneous deliveries of one key both pass the dedup
+        # read: the ledger must still record a single acceptance, the
+        # listener must fire exactly once, and the loser must see the
+        # same 'already_staged' replay receipt a sequential re-delivery
+        # gets.
+        _i, _b, reader, service, pairing = self._active(tmp_path)
+        fired: list[str] = []
+        service._delivery_listener = lambda record: fired.append(
+            record.outcome
+        )
+        plan, payloads = _plan_and_payloads()
+        archive = b'archive-race'
+        reader.register(archive, plan, payloads)
+        headers = _delivery_headers(archive, delivery_id='race-1')
+
+        pre = threading.Barrier(2)
+        post = threading.Barrier(2)
+        real_stage = service.inbox_repository.stage
+
+        def gated_stage(*args, **kwargs):
+            pre.wait(30)
+            result = real_stage(*args, **kwargs)
+            post.wait(30)
+            return result
+
+        service.inbox_repository.stage = gated_stage
+        try:
+            results: list = [None, None]
+
+            def deliver(index: int) -> None:
+                results[index] = service.handle_delivery(
+                    pairing.pairing_token, headers, archive
+                )
+
+            threads = [
+                threading.Thread(target=deliver, args=(i,)) for i in (0, 1)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(60)
+        finally:
+            service.inbox_repository.stage = real_stage
+
+        assert all(r is not None for r in results)
+        assert [r[0] for r in results] == [200, 200]
+        assert sorted(r[1]['ingestion_outcome'] for r in results) == [
+            'accepted',
+            'already_staged',
+        ]
+        assert results[0][1]['staging_ref'] == results[1][1]['staging_ref']
+        assert fired == ['accepted']
+        stored = service._get_delivery(f'{pairing.pairing_id}:race-1')
+        assert stored is not None and stored.outcome == 'accepted'
 
     def test_digest_header_mismatch_rejected(self, tmp_path):
         _i, _b, _r, service, pairing = self._active(tmp_path)

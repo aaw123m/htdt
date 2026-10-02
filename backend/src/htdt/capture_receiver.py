@@ -854,7 +854,17 @@ class CaptureReceiverService:
             detail='',
             delivery_key=delivery_key,
         )
-        if record.outcome == 'accepted' and self._delivery_listener is not None:
+        # A racer whose stage() call lost the dedup gets the same replay
+        # receipt a sequential re-delivery would, and only the stager
+        # announces the acceptance — the stored row is canonical either
+        # way (see _record_delivery's 'already_staged' upgrade).
+        if not staged.created and record.outcome == 'accepted':
+            record = record.model_copy(update={'outcome': 'already_staged'})
+        if (
+            staged.created
+            and record.outcome == 'accepted'
+            and self._delivery_listener is not None
+        ):
             try:
                 self._delivery_listener(record)
             except Exception:
@@ -951,6 +961,24 @@ class CaptureReceiverService:
                             detail,
                             key,
                         ),
+                    )
+                    updated = connection.execute(
+                        'SELECT * FROM capture_receiver_deliveries '
+                        'WHERE delivery_key=?',
+                        (key,),
+                    ).fetchone()
+                    return self._delivery_from_row(updated)
+                if stored.outcome == 'already_staged' and outcome == 'accepted':
+                    # Two concurrent deliveries of one key both passed the
+                    # dedup read: the loser recorded 'already_staged'
+                    # first, and this call is the stager whose verdict is
+                    # canonical. Rewrite the row to 'accepted' so the
+                    # ledger shows the delivery was accepted once, not
+                    # only ever deduplicated.
+                    connection.execute(
+                        'UPDATE capture_receiver_deliveries '
+                        'SET outcome=? WHERE delivery_key=?',
+                        ('accepted', key),
                     )
                     updated = connection.execute(
                         'SELECT * FROM capture_receiver_deliveries '
