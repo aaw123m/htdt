@@ -1259,6 +1259,17 @@ def _swap_legacy_archive_members(
                 raise RestoreRecoveryError(
                     f'staged legacy archive member is missing: {entry.path}'
                 )
+            # Record the fresh install: a rollback cannot restore a
+            # pre-restore byte stream that never existed, so it removes
+            # the member instead — and only members carrying this marker.
+            marker = (
+                rollback_root
+                / 'legacy-archive'
+                / '.installed'
+                / entry.path
+            )
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.touch()
             live_member.parent.mkdir(parents=True, exist_ok=True)
             _replace_durable(staged_member, live_member)
         if _sha256_file(live_member) != entry.sha256:
@@ -1361,6 +1372,57 @@ def _complete_restore_swap(
     _fsync_directory(data_dir)
 
 
+def _rollback_legacy_archive_members(data_dir: Path, rollback_root: Path) -> None:
+    """Reverse the legacy-archive half of a swap that is being rolled back.
+
+    The rollback mirror records exactly what the swap touched: evacuated
+    pre-restore bytes return to their canonical slots (the post-swap
+    generation parks under ``.superseded`` so nothing is destroyed) and
+    members installed fresh — marked under ``.installed`` — are removed
+    again (#759). Live members the swap never engaged (identical content,
+    or generations absent from the manifest) stay untouched: parking
+    them would erase pre-restore authority wholesale.
+    """
+
+    legacy_rollback = rollback_root / 'legacy-archive'
+    if not legacy_rollback.is_dir():
+        return
+    # Fresh installs are removed first: a member the swap evacuated and
+    # then re-landed carries both a marker and a parked copy, and the
+    # parked pre-restore bytes must win over the removal.
+    installed_root = legacy_rollback / '.installed'
+    if installed_root.is_dir():
+        for marker in sorted(installed_root.rglob('*')):
+            if marker.is_dir():
+                continue
+            relative = marker.relative_to(installed_root)
+            live_member = data_dir.joinpath(*relative.parts)
+            _remove_path_quiet(live_member)
+            parent = live_member.parent
+            while (
+                parent != data_dir
+                and parent.is_dir()
+                and not any(parent.iterdir())
+            ):
+                _remove_path_quiet(parent)
+                parent = parent.parent
+    for parked in sorted(legacy_rollback.rglob('*')):
+        relative_parts = parked.relative_to(legacy_rollback).parts
+        if (
+            parked.is_dir()
+            or '.superseded' in relative_parts
+            or relative_parts[0] == '.installed'
+        ):
+            continue
+        live_member = data_dir.joinpath(*relative_parts)
+        if live_member.exists():
+            evacuate_root = parked.parent / '.superseded'
+            evacuate_root.mkdir(parents=True, exist_ok=True)
+            _evacuate_into(live_member, evacuate_root)
+        live_member.parent.mkdir(parents=True, exist_ok=True)
+        _replace_durable(parked, live_member)
+
+
 def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
     """Restore the pre-swap live generation preserved in the rollback dir."""
     live_database = data_dir / DATABASE_NAME
@@ -1384,23 +1446,9 @@ def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
         if live_aux.exists():
             evacuated_live.mkdir(exist_ok=True)
             _evacuate_into(live_aux, evacuated_live)
-    # Legacy-archive members: park the current live files, then bring back
-    # the pre-restore generation preserved under the rollback mirror.
-    legacy_rollback = rollback_root / 'legacy-archive'
-    for member in _legacy_archive_members(data_dir):
-        evacuate_root = (
-            legacy_rollback / PurePosixPath(member).parent / '.superseded'
-        )
-        evacuate_root.mkdir(parents=True, exist_ok=True)
-        _evacuate_into(_safe_data_path(data_dir, member), evacuate_root)
-    if legacy_rollback.is_dir():
-        for parked in sorted(legacy_rollback.rglob('*')):
-            if parked.is_dir() or '.superseded' in parked.parts:
-                continue
-            relative = parked.relative_to(legacy_rollback)
-            live_member = data_dir.joinpath(*relative.parts)
-            live_member.parent.mkdir(parents=True, exist_ok=True)
-            _replace_durable(parked, live_member)
+    # Legacy-archive members: evacuated pre-restore bytes come back live
+    # and swap-installed members are removed again (#759).
+    _rollback_legacy_archive_members(data_dir, rollback_root)
     if rollback_database.exists():
         _replace_durable(rollback_database, live_database)
     if rollback_assets.exists():
@@ -1920,6 +1968,10 @@ def _restore_backup(
             rollback_error: Exception | None = None
             try:
                 _remove_managed_data(data_dir)
+                # The legacy archive swap ran inside the try as well; its
+                # evacuated pre-restore bytes must come back live or the
+                # retired-authority record is silently erased (#759).
+                _rollback_legacy_archive_members(data_dir, rollback_root)
                 if moved_database and (rollback_root / DATABASE_NAME).exists():
                     _replace_durable(rollback_root / DATABASE_NAME, data_dir / DATABASE_NAME)
                 if moved_assets and (rollback_root / MEASUREMENT_ASSETS_NAME).exists():

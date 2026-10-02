@@ -294,6 +294,57 @@ def test_failed_restore_leaves_current_native_data_unchanged(tmp_path: Path):
     assert reopened.latest(first.document_id).revision_id == second.revision_id
 
 
+def test_failed_restore_rollback_restores_legacy_archive_members(
+    tmp_path: Path, monkeypatch
+):
+    """#759: the inline swap-failure rollback must reverse the legacy
+    archive swap exactly — evacuated pre-restore generations come back
+    live, members the swap never touched stay, and members it installed
+    fresh are removed again instead of being deleted with the rollback
+    directory or left as post-restore residue."""
+    data_dir = tmp_path / 'data'
+    repository, first, digest, raw = _seed_data(data_dir)
+    legacy_db = data_dir / 'htdt.migrated.sqlite3'
+    legacy_db.write_bytes(b'pre-backup-legacy-db')
+    legacy_assets = data_dir / 'htdt.migrated.assets'
+    legacy_assets.mkdir()
+    (legacy_assets / 'a.bin').write_bytes(b'pre-backup-legacy-asset')
+    baseline = tmp_path / 'baseline.htdt-backup'
+    create_backup(data_dir, baseline)
+
+    second = _mutate_scene(repository, first.revision_id)
+    # Diverge the live legacy generation so the swap really evacuates it,
+    # add a generation the backup does not carry (the swap never engages
+    # it), and delete the assets generation so the swap installs it fresh.
+    legacy_db.write_bytes(b'post-backup-legacy-db')
+    extra_gen = data_dir / 'htdt.migrated.sqlite3.1'
+    extra_gen.write_bytes(b'untracked-legacy-generation')
+    shutil.rmtree(legacy_assets)
+
+    original_swap = native_backup._swap_legacy_archive_members
+
+    def swap_then_fail(*args, **kwargs):
+        original_swap(*args, **kwargs)
+        raise RuntimeError('forced post-swap failure')
+
+    monkeypatch.setattr(
+        native_backup, '_swap_legacy_archive_members', swap_then_fail
+    )
+
+    with pytest.raises(RuntimeError, match='forced post-swap failure'):
+        restore_backup(data_dir, baseline)
+
+    # Evacuated pre-restore bytes are live again, the untouched extra
+    # generation survived, and the fresh install was removed again.
+    assert legacy_db.read_bytes() == b'post-backup-legacy-db'
+    assert extra_gen.read_bytes() == b'untracked-legacy-generation'
+    assert not legacy_assets.exists()
+    _assert_live_state(
+        data_dir, first.document_id, second.revision_id, digest, raw
+    )
+    _assert_no_restore_artifacts(data_dir)
+
+
 def test_restore_refuses_versioned_database_that_cannot_complete_migration(
     tmp_path: Path,
 ):
