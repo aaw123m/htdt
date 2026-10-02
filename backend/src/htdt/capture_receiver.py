@@ -454,6 +454,13 @@ class CaptureReceiverService:
         key_path = self._data_dir / 'receiver-key.pem'
         try:
             if cert_path.exists() and key_path.exists():
+                # Bound both credentials before the SSL parser sees their paths.
+                read_file_bounded(
+                    cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
+                )
+                read_file_bounded(
+                    key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
+                )
                 # A torn pair (interrupted promote, manual splice) passes
                 # the exists-guard but cannot load; regenerate it so every
                 # caller sees a consistent credential.
