@@ -327,7 +327,7 @@ def _row_identity_values(row: sqlite3.Row) -> set[str]:
             elif key.endswith('_json'):
                 try:
                     _collect(json.loads(value))
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, RecursionError):
                     continue
     return values
 
@@ -763,13 +763,20 @@ def import_project_bundle(
         ) from exc
     with archive:
         members = _validate_bundle_members(archive)
-        manifest = ProjectBundleManifest.model_validate(
-            json.loads(
-                _read_member_bounded(
-                    archive, 'manifest.json', _MAX_BUNDLE_MEMBER_BYTES
+        try:
+            manifest = ProjectBundleManifest.model_validate(
+                json.loads(
+                    _read_member_bounded(
+                        archive, 'manifest.json', _MAX_BUNDLE_MEMBER_BYTES
+                    )
                 )
             )
-        )
+        except (ValueError, RecursionError) as exc:
+            if isinstance(exc, ProjectBundleError):
+                raise
+            raise BundleManifestInvalidError(
+                'bundle manifest is not valid JSON'
+            ) from exc
         if manifest.schema != BUNDLE_SCHEMA:
             raise BundleManifestInvalidError(
                 f'unsupported bundle schema: {manifest.schema}'
@@ -805,7 +812,7 @@ def import_project_bundle(
                     for line in body.splitlines()
                     if line
                 ]
-            except ValueError as exc:
+            except (ValueError, RecursionError) as exc:
                 raise BundleManifestInvalidError(
                     'table payload is not valid JSONL: '
                     f'{summary.table}'
@@ -1201,7 +1208,7 @@ def _apply_value_map(
             try:
                 parsed = json.loads(value)
                 reparsed = json.loads(remapped)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, RecursionError):
                 pass
             recomputed: list[tuple[str, str, str]] = []
             for hash_column in hash_columns:

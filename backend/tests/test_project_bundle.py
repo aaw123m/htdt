@@ -202,6 +202,60 @@ def test_import_rejects_tampered_manifest(tmp_path):
         )
 
 
+def test_import_rejects_deeply_nested_manifest(tmp_path):
+    archive, _result = _export(tmp_path)
+    forged = tmp_path / 'forged.htdtproject'
+    deep = ('[' * 5000 + '1' + ']' * 5000).encode()
+    with ZipFile(archive) as source, ZipFile(forged, 'w') as dest:
+        for name in source.namelist():
+            body = deep if name == 'manifest.json' else source.read(name)
+            dest.writestr(name, body)
+
+    with pytest.raises(BundleManifestInvalidError, match='not valid JSON'):
+        import_project_bundle(
+            SceneRepository(tmp_path / 't' / 'cad-scenes.sqlite3'), forged
+        )
+
+
+def test_import_rejects_deeply_nested_table_payload(tmp_path):
+    archive, _result = _export(tmp_path)
+    forged = tmp_path / 'forged.htdtproject'
+    deep = ('[' * 5000 + '1' + ']' * 5000).encode()
+    target_member = next(
+        n
+        for n in ZipFile(archive).namelist()
+        if n.startswith('db/') and n != 'db/manifest.json'
+    )
+    with ZipFile(archive) as source, ZipFile(forged, 'w') as dest:
+        for name in source.namelist():
+            body = source.read(name)
+            if name == target_member:
+                body = deep + b'\n'
+            if name == 'manifest.json':
+                manifest = ProjectBundleManifest.model_validate(
+                    json.loads(body)
+                )
+                tables = tuple(
+                    summary.model_copy(
+                        update={'rows_sha256': sha256(deep + b'\n').hexdigest()}
+                    )
+                    if f'db/{summary.table}.jsonl' == target_member
+                    else summary
+                    for summary in manifest.tables
+                )
+                manifest = manifest.model_copy(update={'tables': tables})
+                manifest = manifest.model_copy(
+                    update={'manifest_sha256': manifest.identity_hash()}
+                )
+                body = json.dumps(manifest.model_dump(mode='json')).encode()
+            dest.writestr(name, body)
+
+    with pytest.raises(BundleManifestInvalidError, match='not valid JSONL'):
+        import_project_bundle(
+            SceneRepository(tmp_path / 't' / 'cad-scenes.sqlite3'), forged
+        )
+
+
 def test_import_rejects_tampered_asset(tmp_path):
     archive, _result = _export(tmp_path)
     forged = tmp_path / 'forged.htdtproject'
