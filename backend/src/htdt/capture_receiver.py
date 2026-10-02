@@ -541,7 +541,8 @@ class CaptureReceiverService:
                 ),
             )
         pairing = self.get_pairing(pairing_id)
-        assert pairing is not None
+        if pairing is None:
+            raise CaptureReceiverError('pairing offer vanished after insert')
         return pairing, payload
 
     def confirm_pairing(self, pairing_id: str) -> ReceiverPairing:
@@ -571,7 +572,8 @@ class CaptureReceiverService:
                 (_utc_now(), pairing_id),
             )
         pairing = self.get_pairing(pairing_id)
-        assert pairing is not None
+        if pairing is None:
+            raise CaptureReceiverError('pairing vanished after confirmation')
         return pairing
 
     def revoke_pairing(self, pairing_id: str) -> None:

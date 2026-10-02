@@ -348,7 +348,10 @@ def surface_impedance(
             impedance = zc * (impedance + 1j * zc * t) / (
                 zc + 1j * impedance * t
             )
-    assert impedance is not None
+    if impedance is None:
+        raise ValueError(
+            'layer stack produced no impedance: empty construction'
+        )
     return impedance
 
 

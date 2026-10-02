@@ -14,6 +14,7 @@ Display names are presentation only and are never used as identity.
 from __future__ import annotations
 
 from contextlib import closing
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import sqlite3
@@ -242,8 +243,26 @@ class ProjectLibraryRepository:
         row = self._get_row(project_id)
         if row['archived']:
             raise ProjectArchivedError(f'project is archived: {project_id}')
-        now = _utc_now()
         with closing(self._connect()) as connection, connection:
+            now = _utc_now()
+            # The wall clock is not a sequence: rapid opens inside one tick
+            # share a stamp, and a stale or slewed clock can even write an
+            # earlier one — recency then silently re-orders on the rowid
+            # tiebreak. Floor the stamp at previous-max + 1us so every open
+            # lands strictly after every earlier open.
+            latest = connection.execute(
+                'SELECT MAX(last_opened_at_utc) FROM htdt_project_documents'
+            ).fetchone()[0]
+            if latest is not None:
+                try:
+                    latest_dt = datetime.fromisoformat(latest)
+                    now_dt = datetime.fromisoformat(now)
+                except ValueError:
+                    latest_dt = now_dt = None
+                if latest_dt is not None and now_dt <= latest_dt:
+                    now = (latest_dt + timedelta(microseconds=1)).isoformat(
+                        timespec='microseconds'
+                    )
             connection.execute(
                 'UPDATE htdt_project_documents SET last_opened_at_utc=?, '
                 'updated_at_utc=? WHERE project_id=?',
@@ -374,5 +393,8 @@ class ProjectLibraryRepository:
                 ),
             )
         clone = self.get_by_document_id(result.document_id)
-        assert clone is not None
+        if clone is None:
+            raise ProjectLibraryError(
+                'project clone import produced no library entry'
+            )
         return clone

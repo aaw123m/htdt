@@ -407,7 +407,11 @@ class CadJointOptimizationRepository:
         key = ('spec', row['spec_id'])
         if _authority is not None and key in _authority:
             resolved = _authority[key]
-            assert isinstance(resolved, tuple)
+            if not isinstance(resolved, tuple):
+                raise RuntimeError(
+                    'joint-optimization authority cache entry is not a '
+                    'resolved tuple'
+                )
             return resolved
         spec = JointOptimizationSpec.model_validate_json(row['payload_json'])
         if (
@@ -744,7 +748,11 @@ class CadJointOptimizationRepository:
         if authorities is not None:
             cached = authorities.get(('candidate', candidate_id))
             if cached is not None:
-                assert isinstance(cached, JointCandidate)
+                if not isinstance(cached, JointCandidate):
+                    raise RuntimeError(
+                        'joint-optimization authority cache entry is not a '
+                        'JointCandidate'
+                    )
                 return cached
         with closing(self._connect()) as connection, connection:
             row = connection.execute(

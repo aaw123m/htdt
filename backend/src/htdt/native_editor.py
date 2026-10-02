@@ -166,15 +166,18 @@ class NativeEditorWindow(QMainWindow):
         right.setWidget(inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
 
-        toolbar = QToolBar('編集', self)
-        self.addToolBar(toolbar)
+        # One toolbar per group: a lone toolbar wider than the window collapses
+        # its tail into a '>>' overflow, while several narrower toolbars wrap
+        # onto extra rows and stay visible.
+        edit_toolbar = QToolBar('編集', self)
+        self.addToolBar(edit_toolbar)
         self.save_action = self._action('保存', QKeySequence.StandardKey.Save, self.save)
         self.undo_action = self._action('元に戻す', QKeySequence.StandardKey.Undo, self.undo)
         self.redo_action = self._action('やり直す', QKeySequence.StandardKey.Redo, self.redo)
         self.delete_action = self._action('削除', None, self.delete_selected)
         self.delete_action.setShortcut(QKeySequence('Delete'))
-        toolbar.addActions((self.save_action, self.undo_action, self.redo_action, self.delete_action))
-        toolbar.addSeparator()
+        edit_toolbar.addActions((self.save_action, self.undo_action, self.redo_action, self.delete_action))
+        edit_toolbar.addSeparator()
 
         # Persistent dirty badge in the status bar's permanent zone: a
         # transient showMessage got clobbered by the next notice, leaving
@@ -194,7 +197,7 @@ class NativeEditorWindow(QMainWindow):
         self.transform_group.addAction(self.move_action)
         self.transform_group.addAction(self.rotate_action)
         self.move_action.setChecked(True)
-        toolbar.addActions((self.move_action, self.rotate_action))
+        edit_toolbar.addActions((self.move_action, self.rotate_action))
 
         self.object_snap_action = self._action('オブジェクトスナップ', None, self._object_snap_toggled)
         self.object_snap_action.setCheckable(True)
@@ -203,7 +206,9 @@ class NativeEditorWindow(QMainWindow):
         self.grid_snap_action.setCheckable(True)
         self.angle_snap_action = self._action('角度スナップ', None, self._angle_snap_toggled)
         self.angle_snap_action.setCheckable(True)
-        toolbar.addActions((self.object_snap_action, self.grid_snap_action, self.angle_snap_action))
+        snap_toolbar = QToolBar('スナップ', self)
+        self.addToolBar(snap_toolbar)
+        snap_toolbar.addActions((self.object_snap_action, self.grid_snap_action, self.angle_snap_action))
 
         self.grid_step_field = QDoubleSpinBox()
         self.grid_step_field.setRange(0.001, 10.0)
@@ -212,7 +217,7 @@ class NativeEditorWindow(QMainWindow):
         self.grid_step_field.setValue(self.view_state.grid_step_m)
         self.grid_step_field.setSuffix(' m グリッド')
         self.grid_step_field.valueChanged.connect(self._grid_step_changed)
-        toolbar.addWidget(self.grid_step_field)
+        snap_toolbar.addWidget(self.grid_step_field)
 
         self.angle_step_field = QDoubleSpinBox()
         self.angle_step_field.setRange(0.1, 180.0)
@@ -221,21 +226,17 @@ class NativeEditorWindow(QMainWindow):
         self.angle_step_field.setValue(self.view_state.angle_step_deg)
         self.angle_step_field.setSuffix('° 角度')
         self.angle_step_field.valueChanged.connect(self._angle_step_changed)
-        toolbar.addWidget(self.angle_step_field)
-        toolbar.addSeparator()
+        snap_toolbar.addWidget(self.angle_step_field)
 
         self.hide_action = self._action('非表示', None, self._toggle_hidden)
         self.hide_action.setCheckable(True)
         self.lock_action = self._action('ロック', None, self._toggle_locked)
         self.lock_action.setCheckable(True)
         self.show_all_action = self._action('すべて表示', None, self.show_all)
-        toolbar.addActions((self.hide_action, self.lock_action, self.show_all_action))
-        toolbar.addSeparator()
-
-        self.recover_action = self._action('下書きを復旧', None, self.recover_draft)
-        self.discard_recovery_action = self._action('復旧データを破棄', None, self.discard_recovery)
-        toolbar.addActions((self.recover_action, self.discard_recovery_action))
-        toolbar.addSeparator()
+        view_toolbar = QToolBar('表示', self)
+        self.addToolBar(view_toolbar)
+        view_toolbar.addActions((self.hide_action, self.lock_action, self.show_all_action))
+        view_toolbar.addSeparator()
 
         for label, callback in (
             ('上面', self._top),
@@ -244,7 +245,13 @@ class NativeEditorWindow(QMainWindow):
             ('透視', self._perspective),
             ('全体表示', self._fit),
         ):
-            toolbar.addAction(self._action(label, None, callback))
+            view_toolbar.addAction(self._action(label, None, callback))
+
+        recovery_toolbar = QToolBar('復旧', self)
+        self.addToolBar(recovery_toolbar)
+        self.recover_action = self._action('下書きを復旧', None, self.recover_draft)
+        self.discard_recovery_action = self._action('復旧データを破棄', None, self.discard_recovery)
+        recovery_toolbar.addActions((self.recover_action, self.discard_recovery_action))
 
         self._load_or_seed()
         app = QApplication.instance()

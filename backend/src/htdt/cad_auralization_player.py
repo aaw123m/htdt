@@ -117,7 +117,8 @@ class ComparisonSession(BaseModel):
     def active_source(self) -> ListeningSource:
         if self.active == 'a':
             return self.source_a
-        assert self.source_b is not None
+        if self.source_b is None:
+            raise ValueError('active source B is not configured')
         return self.source_b
 
 

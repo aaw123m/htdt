@@ -1088,7 +1088,10 @@ class MeasurementWorkflowController:
         except KeyError as exc:
             raise MeasurementWorkflowError(str(exc)) from exc
         position = acoustic_reference_position(point)
-        assert position is not None
+        if position is None:
+            raise MeasurementWorkflowError(
+                'measurement point has no acoustic reference position'
+            )
         result = self.scene_repository.save(
             new_document,
             parent_revision_id=revision.revision_id,

@@ -196,7 +196,10 @@ class CadObjectiveRepository:
                 scans[search_spec.search_spec_sha256] = scan
         candidate = scan.members.get(candidate_id)
         if candidate is not None:
-            assert scan.candidate_set_sha256 is not None
+            if scan.candidate_set_sha256 is None:
+                raise RuntimeError(
+                    'objective scan members lack a candidate set hash'
+                )
             return candidate, scan.candidate_set_sha256
         if scan.error is not None:
             raise scan.error

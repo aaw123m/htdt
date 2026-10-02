@@ -85,7 +85,8 @@ class ResourceQuantity(BaseModel):
                 f'{label} is UNAVAILABLE for this executor',
                 state='REJECT',
             )
-        assert self.value is not None
+        if self.value is None:
+            raise RuntimeError(f'{label} is KNOWN but carries no value')
         return self.value
 
 
@@ -1280,7 +1281,10 @@ class BoundedR140Executor:
             # or a mid-commit fault rolls back all three, so no committed
             # result row can survive as an orphan. A publication failure is
             # then recorded as an independent FAILED attempt.
-            assert result is not None and cache_entry is not None
+            if result is None or cache_entry is None:
+                raise RuntimeError(
+                    'SUCCEEDED execution produced no result or cache entry'
+                )
             try:
                 return self.runtime_repository.commit_success(
                     result=result,
