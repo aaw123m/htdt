@@ -109,6 +109,7 @@ class TheaterEditorWindow(CadEditorWindow):
     def _create_object_toolbar(self) -> None:
         toolbar = QToolBar('オブジェクト', self)
         self.addToolBar(toolbar)
+        self.addToolBarBreak()
         self.duplicate_action = QAction('複製', self)
         self.duplicate_action.setShortcut(QKeySequence('Ctrl+D'))
         self.duplicate_action.setToolTip('選択オブジェクトを少しずらして複製')

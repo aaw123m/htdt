@@ -115,6 +115,7 @@ class WallEditorWindow(RoomEditorWindow):
 
         toolbar = QToolBar('壁', self)
         self.addToolBar(toolbar)
+        self.addToolBarBreak()
         self.start_wall_action = QAction('壁を編集', self)
         self.start_wall_action.triggered.connect(self.start_wall_edit)
         self.finish_wall_action = QAction('壁編集を終了', self)

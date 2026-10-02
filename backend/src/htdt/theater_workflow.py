@@ -21,6 +21,7 @@ class TheaterWorkflowWindow(TheaterEditorWindow):
 
         toolbar = QToolBar('音響', self)
         self.addToolBar(toolbar)
+        self.addToolBarBreak()
         self.aim_action = QAction('座席へ向ける', self)
         self.aim_action.setToolTip(
             '座席または測定点を選択し、スピーカーの音響軸をその基準点へ向けます。'

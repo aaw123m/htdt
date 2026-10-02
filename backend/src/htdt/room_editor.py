@@ -101,6 +101,7 @@ class RoomEditorWindow(NativeEditorWindow):
 
         room_toolbar = QToolBar('部屋', self)
         self.addToolBar(room_toolbar)
+        self.addToolBarBreak()
         self.draw_room_action = QAction('部屋を作図', self)
         self.draw_room_action.triggered.connect(self.start_room_sketch)
         self.edit_room_action = QAction('部屋を編集', self)

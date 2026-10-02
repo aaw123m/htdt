@@ -166,11 +166,13 @@ class NativeEditorWindow(QMainWindow):
         right.setWidget(inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, right)
 
-        # One toolbar per group: a lone toolbar wider than the window collapses
-        # its tail into a '>>' overflow, while several narrower toolbars wrap
-        # onto extra rows and stay visible.
+        # One toolbar per group, each on its own row: a toolbar wider than
+        # the window collapses its tail into a '>>' overflow, and Qt packs
+        # same-row toolbars by shrinking them rather than wrapping them, so
+        # explicit breaks are the only way to keep every action visible.
         edit_toolbar = QToolBar('編集', self)
         self.addToolBar(edit_toolbar)
+        self.addToolBarBreak()
         self.save_action = self._action('保存', QKeySequence.StandardKey.Save, self.save)
         self.undo_action = self._action('元に戻す', QKeySequence.StandardKey.Undo, self.undo)
         self.redo_action = self._action('やり直す', QKeySequence.StandardKey.Redo, self.redo)
@@ -208,6 +210,7 @@ class NativeEditorWindow(QMainWindow):
         self.angle_snap_action.setCheckable(True)
         snap_toolbar = QToolBar('スナップ', self)
         self.addToolBar(snap_toolbar)
+        self.addToolBarBreak()
         snap_toolbar.addActions((self.object_snap_action, self.grid_snap_action, self.angle_snap_action))
 
         self.grid_step_field = QDoubleSpinBox()
@@ -235,6 +238,7 @@ class NativeEditorWindow(QMainWindow):
         self.show_all_action = self._action('すべて表示', None, self.show_all)
         view_toolbar = QToolBar('表示', self)
         self.addToolBar(view_toolbar)
+        self.addToolBarBreak()
         view_toolbar.addActions((self.hide_action, self.lock_action, self.show_all_action))
         view_toolbar.addSeparator()
 
@@ -249,6 +253,7 @@ class NativeEditorWindow(QMainWindow):
 
         recovery_toolbar = QToolBar('復旧', self)
         self.addToolBar(recovery_toolbar)
+        self.addToolBarBreak()
         self.recover_action = self._action('下書きを復旧', None, self.recover_draft)
         self.discard_recovery_action = self._action('復旧データを破棄', None, self.discard_recovery)
         recovery_toolbar.addActions((self.recover_action, self.discard_recovery_action))
