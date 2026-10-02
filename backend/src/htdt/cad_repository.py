@@ -898,11 +898,31 @@ class SceneRepository:
         ):
             snap_json = json.dumps(
                 {
-                    'object_snap_enabled': bool(object_snap_enabled),
-                    'grid_snap_enabled': bool(grid_snap_enabled),
-                    'grid_step_m': float(grid_step_m),
-                    'angle_snap_enabled': bool(angle_snap_enabled),
-                    'angle_step_deg': float(angle_step_deg),
+                    'object_snap_enabled': (
+                        bool(object_snap_enabled)
+                        if object_snap_enabled is not None
+                        else True
+                    ),
+                    'grid_snap_enabled': (
+                        bool(grid_snap_enabled)
+                        if grid_snap_enabled is not None
+                        else False
+                    ),
+                    'grid_step_m': (
+                        float(grid_step_m)
+                        if grid_step_m is not None
+                        else 0.05
+                    ),
+                    'angle_snap_enabled': (
+                        bool(angle_snap_enabled)
+                        if angle_snap_enabled is not None
+                        else False
+                    ),
+                    'angle_step_deg': (
+                        float(angle_step_deg)
+                        if angle_step_deg is not None
+                        else 15.0
+                    ),
                 },
                 separators=(',', ':'),
                 allow_nan=False,

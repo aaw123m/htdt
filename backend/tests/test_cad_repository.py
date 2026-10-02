@@ -517,6 +517,30 @@ def test_editor_view_state_round_trip_is_not_part_of_scene_revision(tmp_path: Pa
     assert repository.latest(first.document_id).content_hash == first.content_hash
 
 
+def test_save_view_state_accepts_partial_snap_update(tmp_path: Path) -> None:
+    """Snap fields are independently optional: a caller supplying only some
+    of them still persists a complete snap record — the omitted fields take
+    the same defaults the read side applies to a missing snap_json."""
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    first = repository.save(make_f1_scene(), parent_revision_id=None).revision
+
+    repository.save_view_state(
+        first.document_id,
+        selected_id=None,
+        hidden_ids=set(),
+        locked_ids=set(),
+        grid_snap_enabled=True,
+    )
+    state = repository.view_state(first.document_id)
+
+    assert state is not None
+    assert state.grid_snap_enabled is True
+    assert state.object_snap_enabled is True
+    assert state.grid_step_m == 0.05
+    assert state.angle_snap_enabled is False
+    assert state.angle_step_deg == 15.0
+
+
 def test_legacy_view_state_schema_migrates_primary_selection(tmp_path: Path) -> None:
     path = tmp_path / 'legacy.sqlite3'
     with sqlite3.connect(path) as connection:
