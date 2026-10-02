@@ -111,6 +111,26 @@ verifies that exact closure when packaging, so keep the lock current
 rather than assuming a locally-green change ships an identical
 dependency set.
 
+## Manual build workflow
+
+`.github/workflows/build-windows-artifacts.yml` is a `workflow_dispatch`-only
+packaging pipeline (no PR CI — test verification stays local). It runs the
+exact same scripts a maintainer runs locally — `build-native.ps1` then
+`build-installer.ps1` — on a `windows-latest` runner with CPython 3.12 x64
+and Inno Setup, and publishes to the run's artifacts:
+
+- `HTDT-Setup-<display_version>.exe` + `.manifest.json` (from
+  `build-installer.ps1`, unchanged);
+- `HTDT-portable-<display_version>.zip` + `.manifest.json` — the raw
+  PyInstaller onedir tree for no-install use, with a manifest in the same
+  `htdt-release-manifest/1` schema carrying the zip SHA-256.
+
+The `publish_release` + `release_tag` inputs additionally create a GitHub
+Release and attach everything in `dist-installer/`.
+
+Every `uses:` entry must stay pinned to a full commit SHA —
+`test_workflow_actions_are_sha_pinned` fails on floating tags.
+
 ## Test verification
 
 - `backend/tests/test_release_identity.py` fails if `pyproject.toml` stops
