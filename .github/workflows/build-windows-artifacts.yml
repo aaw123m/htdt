@@ -1,0 +1,139 @@
+name: build-windows-artifacts
+
+# Manual packaging pipeline. Produces the same artifacts a local maintainer
+# produces with scripts/build-native.ps1 + scripts/build-installer.ps1:
+#   - HTDT-Setup-<display_version>.exe      (Inno Setup installer)
+#   - HTDT-Setup-<display_version>.manifest.json
+#   - HTDT-portable-<display_version>.zip   (portable onedir package)
+#   - HTDT-portable-<display_version>.manifest.json
+#
+# Test verification stays local per repo convention (no PR CI): dispatch this
+# only on revisions whose scoped tests are already green. Action SHAs are
+# pinned — backend/tests/test_dependency_lock.py fails on floating tags.
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Create a GitHub Release and attach the artifacts'
+        required: false
+        type: boolean
+        default: false
+      release_tag:
+        description: 'Tag for the release (e.g. v0.2.0). Required when publish_release is enabled.'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write # needed only for the optional gh release step
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      DISPLAY_VERSION: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up CPython 3.12 (x64)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build native package (PyInstaller onedir)
+        shell: pwsh
+        run: .\scripts\build-native.ps1 -PythonExe python
+
+      - name: Resolve display version
+        shell: pwsh
+        run: |
+          $BuildInfo = Get-Content "dist-native\HTDT\_internal\htdt_build\build_info.json" -Raw | ConvertFrom-Json
+          $Display = [string]$BuildInfo.version
+          if ($BuildInfo.commit_sha) {
+            $Display = "$Display+g$($BuildInfo.commit_sha.Substring(0, [Math]::Min(8, $BuildInfo.commit_sha.Length)))"
+            if ($BuildInfo.dirty) { $Display = "$Display.dirty" }
+          }
+          "DISPLAY_VERSION=$Display" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Display version: $Display"
+
+      - name: Create portable zip + manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $OutDir = "dist-installer"
+          New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+          $ZipPath = Join-Path $OutDir "HTDT-portable-$env:DISPLAY_VERSION.zip"
+          Compress-Archive -Path "dist-native\HTDT\*" -DestinationPath $ZipPath -Force
+          if (-not (Test-Path $ZipPath)) { throw "Portable zip missing: $ZipPath" }
+
+          $BuildInfo = Get-Content "dist-native\HTDT\_internal\htdt_build\build_info.json" -Raw | ConvertFrom-Json
+          $Manifest = [ordered]@{
+            schema              = "htdt-release-manifest/1"
+            application_version = [string]$BuildInfo.version
+            display_version     = $env:DISPLAY_VERSION
+            commit_sha          = $BuildInfo.commit_sha
+            dirty               = [bool]$BuildInfo.dirty
+            build_id            = $BuildInfo.build_id
+            portable            = [ordered]@{
+              file   = Split-Path -Leaf $ZipPath
+              sha256 = (Get-FileHash -Algorithm SHA256 $ZipPath).Hash.ToLowerInvariant()
+            }
+            lock_file           = [ordered]@{
+              path   = "backend/requirements-n05-windows.lock"
+              sha256 = $BuildInfo.lock_sha256
+            }
+            toolchain           = [ordered]@{
+              python = $BuildInfo.python_version
+              pip    = $BuildInfo.pip_version
+            }
+            github              = [ordered]@{
+              workflow   = $env:GITHUB_WORKFLOW
+              run_id     = $env:GITHUB_RUN_ID
+              run_number = $env:GITHUB_RUN_NUMBER
+              ref        = $env:GITHUB_REF
+              sha        = $env:GITHUB_SHA
+            }
+            generated_at_utc    = (Get-Date).ToUniversalTime().ToString("o")
+          }
+          $ManifestPath = Join-Path $OutDir "HTDT-portable-$env:DISPLAY_VERSION.manifest.json"
+          $Manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $ManifestPath -Encoding utf8
+          Write-Host "Built portable package: $ZipPath"
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: .\scripts\build-installer.ps1 -PackageDir "dist-native\HTDT" -OutputDir "dist-installer"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: htdt-windows-${{ env.DISPLAY_VERSION }}
+          path: dist-installer/*
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish GitHub Release
+        if: inputs.publish_release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:RELEASE_TAG) { throw "release_tag input is required when publish_release is enabled" }
+          $Files = Get-ChildItem "dist-installer" -File | ForEach-Object { $_.FullName }
+          if (-not $Files) { throw "No artifacts in dist-installer to attach" }
+          gh release create $env:RELEASE_TAG $Files `
+            --title "HTDT $env:DISPLAY_VERSION" `
+            --notes "Windows installer and portable package for HTDT $env:DISPLAY_VERSION (commit $($env:GITHUB_SHA)). Provenance: see the *.manifest.json files attached alongside the binaries." `
+            --verify-tag
