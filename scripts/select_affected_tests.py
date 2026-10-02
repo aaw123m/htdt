@@ -144,11 +144,16 @@ def _select(changed: list[str], tests_dir: Path) -> dict:
             else:
                 # Single-token modules ("main", "database", ...): substring
                 # matching would pull in unrelated stems like "maintenance",
-                # so require a word boundary instead.
+                # so require a word boundary instead — the token may sit at
+                # the start, end, or middle of the stem, just never glued to
+                # another token.
                 hits = [
                     f
                     for f, stem in test_stems.items()
-                    if stem == mod or stem.startswith(mod + "_") or stem.endswith("_" + mod)
+                    if stem == mod
+                    or stem.startswith(mod + "_")
+                    or stem.endswith("_" + mod)
+                    or ("_" + mod + "_") in stem
                 ]
             # Widen with a shared leading token prefix (kept to >= 2 tokens so
             # a "cad"-only prefix never selects half the suite):

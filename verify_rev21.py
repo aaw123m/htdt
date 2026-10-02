@@ -9,12 +9,10 @@ from pathlib import Path
 sys.path.insert(0, 'backend/src')
 
 from htdt.analysis_export import (
-    AnalysisExportMeta,
     build_analysis_export,
-    comparison_metadata_entries,
+    comparison_export_parts,
     render_analysis_csv,
     render_analysis_json,
-    series_from_comparison,
     series_from_measurement_dataset,
 )
 from htdt.cad_measurement_repository import CadMeasurementRepository
@@ -66,10 +64,11 @@ def main() -> None:
             current_scene_revision_id=revision.revision_id,
         ))
     for cmp_ in comparisons:
-        series.append(series_from_comparison(
+        comparison_series, comparison_metadata = comparison_export_parts(
             cmp_, current_scene_revision_id=revision.revision_id,
-        ))
-        metadata.extend(comparison_metadata_entries(cmp_))
+        )
+        series.extend(comparison_series)
+        metadata.extend(comparison_metadata)
 
     export = build_analysis_export(
         document_id=revision.document.document_id,
