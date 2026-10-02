@@ -107,6 +107,7 @@ from .cad_geometric_acoustics_adapter import (
     _occluder_triangles,
     _position_tuple,
     _region_point_membership,
+    _require_supported_feature_scale,
     _round_float,
     _rounded_direction,
     _rounded_position,
@@ -1106,6 +1107,7 @@ def execute_late_field_energy(
             f'late-field energy authority does not support geometry policy '
             f'{execution_input.geometry_policy!r}',
         )
+    _require_supported_feature_scale(compiled_geometry)
     _validate_supported_topology(
         region_authority=region_authority,
         portal_authority=portal_authority,

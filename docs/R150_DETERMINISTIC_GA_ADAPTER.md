@@ -55,6 +55,14 @@ Planar non-region semantic surfaces are also eligible first-order candidates. A 
 
 Source and receiver region membership is evaluated against the exact region triangle shell. Boundary or numerically ambiguous membership fails closed as `UNSUPPORTED_REGION_MEMBERSHIP`; unmodeled external space is never treated as an implicit propagation region.
 
+## Supported feature scale
+
+The verdict kernels are qualified only for occluder feature scales at or above `MIN_SUPPORTED_FEATURE_M = 2.0e-3 m` (2 mm). Deep-review sweeps showed occluder blocking verdicts diverging between the scaled and unscaled tolerance paths once triangle edges approach ~1.5 mm, so 2 mm pins the supported regime just above that boundary.
+
+`execute_deterministic_ga` and `execute_late_field_energy` therefore scan every compiled triangle's maximum edge before evaluating; a single compiled triangle below `MIN_SUPPORTED_FEATURE_M` fails the whole execution closed with `DeterministicGaUnsupportedError('UNSUPPORTED_GEOMETRY', ...)` — no verdict is emitted for geometry we cannot stand behind. Scenes that legitimately carry finer detail must pass through the R120 compiler's `tiny_feature_policy` (`drop_below_tolerance` / `reject_below_tolerance`) first so the compiled authority itself records the drop/reject decision rather than the adapter silently absorbing it.
+
+Separately, the point-in-triangle degenerate check compares the squared-area barycentric denominator (`dot00 * dot11 - dot01 * dot01`, units m⁴) against `geometric_tolerance_m²`, matching the portal module's proven `tolerance_m * tolerance_m` pattern; the previous bare-`tolerance` comparison dimensionally rejected every triangle under ~16 mm² as degenerate.
+
 ## First-order construction and finite-surface membership
 
 For each accepted plane, the general-planar lane deterministically computes:

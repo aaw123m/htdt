@@ -82,6 +82,14 @@ HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION = '2'
 HTDT_PORTAL_FIRST_ORDER_ENGINE_ID = 'htdt.r150.explicit_portal_first_order'
 HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION = '1'
 
+# Smallest compiled-triangle feature scale the deterministic verdict kernels
+# support (docs/R150_DETERMINISTIC_GA_ADAPTER.md §"Supported feature scale").
+# REV28 showed occluder verdicts diverging between scaled and unscaled
+# tolerance paths below ~1.5 mm; 2 mm pins the supported regime just above
+# that boundary so finer geometry fails closed instead of returning a
+# verdict we cannot stand behind.
+MIN_SUPPORTED_FEATURE_M = 2.0e-3
+
 PathType = Literal['direct', 'specular_reflection']
 PathCandidateDecision = Literal[
     'BLOCKED_VISIBILITY',
@@ -3011,7 +3019,7 @@ def _point_in_triangle_prepared(
     dot02 = _dot(edge2, v2)
     dot12 = _dot(edge1, v2)
     denominator = dot00 * dot11 - dot01 * dot01
-    if abs(denominator) <= tolerance:
+    if abs(denominator) <= tolerance * tolerance:
         return False
     inverse = 1.0 / denominator
     u = (dot11 * dot02 - dot01 * dot12) * inverse
@@ -3034,6 +3042,32 @@ def _occluder_triangles(
         (triangle.source_surface_id,) + _triangle_vertices(compiled, index)
         for index, triangle in enumerate(compiled.triangles)
     )
+
+
+def _require_supported_feature_scale(compiled: R120CompiledGeometry) -> None:
+    """Fail closed when any compiled triangle is below the supported scale.
+
+    Deterministic visibility/membership verdicts are only qualified for
+    occluder features of at least ``MIN_SUPPORTED_FEATURE_M``; a single
+    smaller triangle silently changes blocking and boundary decisions, so
+    the execution input is rejected as unsupported geometry.
+    """
+    for index in range(len(compiled.triangles)):
+        vertex_a, vertex_b, vertex_c = _triangle_vertices(compiled, index)
+        max_edge = max(
+            _norm(_vector(vertex_a, vertex_b)),
+            _norm(_vector(vertex_b, vertex_c)),
+            _norm(_vector(vertex_c, vertex_a)),
+        )
+        if max_edge < MIN_SUPPORTED_FEATURE_M:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_GEOMETRY',
+                f'compiled triangle {index} has maximum edge '
+                f'{max_edge:.6e} m below the supported minimum feature '
+                f'scale {MIN_SUPPORTED_FEATURE_M:.6e} m; deterministic '
+                'acoustic verdicts are not supported for sub-millimetre '
+                'geometry',
+            )
 
 
 def _segment_blocked(
@@ -3190,7 +3224,7 @@ def _point_in_triangle(
     dot11 = _dot(v1, v1)
     dot12 = _dot(v1, v2)
     denominator = dot00 * dot11 - dot01 * dot01
-    if abs(denominator) <= tolerance:
+    if abs(denominator) <= tolerance * tolerance:
         return False
     inverse = 1.0 / denominator
     u = (dot11 * dot02 - dot01 * dot12) * inverse
@@ -5132,6 +5166,7 @@ def execute_deterministic_ga(
         != execution_input.topology_identity_sha256
     ):
         raise ValueError('GA execution compiled geometry exact identity mismatch')
+    _require_supported_feature_scale(compiled_geometry)
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     origin = _position_tuple(execution_input.room_origin_m)
