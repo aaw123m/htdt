@@ -359,7 +359,7 @@ class RewApiClient:
             raise RewApiUnavailable(str(exc)) from exc
         try:
             return json.loads(raw.decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
             raise RewApiError('REW returned invalid JSON') from exc
 
     @staticmethod

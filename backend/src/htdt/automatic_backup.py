@@ -237,7 +237,7 @@ class AutomaticBackupScheduler:
         try:
             payload = json.loads(path.read_text(encoding='utf-8'))
             return AutomaticBackupPolicy.model_validate(payload)
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return AutomaticBackupPolicy.defaults()
 
     def save_policy(self, policy: AutomaticBackupPolicy) -> Path:
@@ -255,7 +255,7 @@ class AutomaticBackupScheduler:
         path = state_path(self.data_dir)
         try:
             payload = json.loads(path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return {}
         return payload if isinstance(payload, dict) else {}
 

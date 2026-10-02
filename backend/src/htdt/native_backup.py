@@ -1140,7 +1140,7 @@ def _journal_phase(rollback_root: Path, journal: dict[str, Any], phase: str) -> 
 def _read_restore_journal(journal_path: Path) -> dict[str, Any] | None:
     try:
         payload = json.loads(journal_path.read_text(encoding='utf-8'))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None

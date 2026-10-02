@@ -194,7 +194,7 @@ def load_bootstrap_config(
         return HTDTBootstrapConfig.model_validate(payload)
     except FileNotFoundError:
         return None
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         _LOGGER.warning('unreadable bootstrap config %s: %s', path, exc)
         return None
 
@@ -607,7 +607,7 @@ def _read_relocation_journal(path: Path) -> RelocationJournal | None:
         return RelocationJournal.model_validate(payload)
     except FileNotFoundError:
         return None
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         _LOGGER.warning('unreadable relocation journal %s: %s', path, exc)
         return None
 

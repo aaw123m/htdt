@@ -126,7 +126,7 @@ class CommissioningPlanRepository:
             return {'plans': {}}
         try:
             data = json.loads(self._path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return {'plans': {}}
         if not isinstance(data, dict) or not isinstance(data.get('plans'), dict):
             # Well-formed JSON in a foreign shape is as unusable as a torn

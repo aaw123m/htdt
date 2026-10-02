@@ -891,7 +891,7 @@ class ActivityCenter:
             return None
         try:
             payload = json.loads(path.read_text(encoding='utf-8'))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             _LOGGER.warning(
                 'activity record unreadable, ignoring %s: %s', path, exc
             )

@@ -80,7 +80,7 @@ def _load_build_info_file(path: Path, *, source: str) -> BuildInfo | None:
     try:
         # utf-8-sig tolerates a BOM written by Windows PowerShell 5.1 tooling.
         payload = json.loads(path.read_text(encoding='utf-8-sig'))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None

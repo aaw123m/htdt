@@ -69,7 +69,7 @@ class FileDialogMemoryStore:
             return
         try:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return
         if (
             not isinstance(payload, dict)

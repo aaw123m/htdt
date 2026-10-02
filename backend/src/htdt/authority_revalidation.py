@@ -242,7 +242,7 @@ def _revalidate_routing_profile(
         return _kept(diagnostic, '記録が見つかりません')
     try:
         stored = json.loads(row['payload_json'])
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         return _kept(diagnostic, f'保存済みペイロードを読めません: {exc}')
     try:
         profile = build_routing_profile(
@@ -396,7 +396,7 @@ def _revalidate_wiring_check(
         return _kept(diagnostic, '記録が見つかりません')
     try:
         stored = json.loads(row['payload_json'])
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         return _kept(diagnostic, f'保存済みペイロードを読めません: {exc}')
     try:
         check = build_wiring_check(

@@ -93,7 +93,12 @@ def import_capture_artifact(
     artifact = Path(path)
     try:
         frozen = FrozenBundle(artifact)
-    except (CaptureBundleError, ValueError, FileNotFoundError) as exc:
+    except (
+        CaptureBundleError,
+        ValueError,
+        FileNotFoundError,
+        RecursionError,  # deep-but-parseable payloads can still escape the re-walk
+    ) as exc:
         raise CaptureImportError('read', str(exc)) from exc
 
     report = frozen.report

@@ -324,7 +324,23 @@ def import_raw_visual_mesh(
     if asset_format == 'obj':
         vertices, triangles = _parse_obj(asset)
     elif asset_format == 'glb':
-        vertices, triangles = _parse_glb(asset)
+        try:
+            vertices, triangles = _parse_glb(asset)
+        except (
+            AttributeError,
+            TypeError,
+            IndexError,
+            KeyError,
+            OverflowError,
+            RecursionError,
+        ) as exc:
+            # The GLB JSON chunk is traversed without schema validation:
+            # present-but-mistyped members surface as AttributeError/
+            # TypeError/IndexError/KeyError, unbounded numeric members as
+            # OverflowError, and a deeply nested chunk escapes json.loads
+            # as RecursionError. Hostile assets must still surface the
+            # documented RawMeshImportError contract.
+            raise RawMeshImportError('GLB document is malformed') from exc
     elif asset_format == 'ply':
         vertices, triangles = _parse_ply(asset)
     elif asset_format == 'stl':

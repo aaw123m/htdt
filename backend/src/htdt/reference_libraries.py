@@ -496,7 +496,7 @@ class LibraryMetaStore:
             return
         try:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return
         if not isinstance(payload, dict) or payload.get('schema_version') != LIBRARY_SCHEMA_VERSION:
             return

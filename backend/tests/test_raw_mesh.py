@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 import struct
 
+import pytest
+
 from htdt.raw_mesh import (
     RawMeshDiagnosticProfile,
+    RawMeshImportError,
     deserialize_raw_mesh_diagnostics,
     deserialize_raw_visual_mesh,
     diagnose_raw_visual_mesh,
@@ -140,3 +143,85 @@ def test_diagnostic_identity_binds_profile_versioned_thresholds() -> None:
     )
     assert changed.diagnostic_id != default.diagnostic_id
     assert changed.profile_semantic_hash != default.profile_semantic_hash
+
+
+def _glb_container(document: bytes, binary: bytes = b'') -> bytes:
+    """Wrap arbitrary JSON/BIN payloads in a structurally valid GLB."""
+    json_bytes = document + b' ' * ((-len(document)) % 4)
+    chunks = struct.pack('<II', len(json_bytes), 0x4E4F534A) + json_bytes
+    if binary:
+        binary += b'\x00' * ((-len(binary)) % 4)
+        chunks += struct.pack('<II', len(binary), 0x004E4942) + binary
+    total = 12 + len(chunks)
+    return struct.pack('<4sII', b'glTF', 2, total) + chunks
+
+
+@pytest.mark.parametrize(
+    'document',
+    [
+        # present-but-mistyped members surfaced AttributeError/TypeError
+        # before the importer's error contract was enforced (#REV28)
+        b'[1]',
+        b'{"asset":[]}',
+        b'{"asset":{"version":"2.0"},"meshes":"x"}',
+        b'{"asset":{"version":"2.0"},"meshes":[{"primitives":"x"}]}',
+        b'{"asset":{"version":"2.0"},"meshes":[{"primitives":[5]}]}',
+        b'{"asset":{"version":"2.0"},"meshes":[{"primitives":[{"attributes":[]}]}]}',
+        b'{"asset":{"version":"2.0"},"accessors":["x"],'
+        b'"meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}]}',
+        b'{"asset":{"version":"2.0"},"scenes":[{"nodes":[0]}],"scene":0,'
+        b'"nodes":["x"]}',
+        b'{"asset":{"version":"2.0"},"scenes":[{"nodes":[0]}],"scene":0,'
+        b'"nodes":[{"matrix":5}]}',
+        b'{"asset":{"version":"2.0"},"scenes":[{"nodes":[0]}],"scene":0,'
+        b'"nodes":[{"children":5}]}',
+        b'{"asset":{"version":"2.0"},'
+        b'"meshes":[{"primitives":[{"attributes":{"POSITION":5}}]}]}',
+    ],
+    ids=[
+        'document_is_list',
+        'asset_is_list',
+        'meshes_is_string',
+        'primitives_is_string',
+        'primitive_is_int',
+        'attributes_is_list',
+        'accessor_is_string',
+        'node_is_string',
+        'node_matrix_is_int',
+        'node_children_is_int',
+        'accessor_index_out_of_range',
+    ],
+)
+def test_glb_mistyped_document_members_reject_with_import_error(
+    document: bytes,
+) -> None:
+    binary = struct.pack('<9f', 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    with pytest.raises(RawMeshImportError):
+        import_raw_visual_mesh(
+            _glb_container(document, binary), source_name='hostile.glb'
+        )
+
+
+def test_glb_unbounded_numeric_member_rejects_with_import_error() -> None:
+    document = (
+        b'{"asset":{"version":"2.0"},"buffers":[{"byteLength":36}],'
+        b'"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36}],'
+        b'"accessors":[{"componentType":5126,"count":1e999,"type":"VEC3",'
+        b'"bufferView":0}],'
+        b'"meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}]}'
+    )
+    binary = struct.pack('<9f', 0, 0, 0, 1, 0, 0, 0, 1, 0)
+    with pytest.raises(RawMeshImportError):
+        import_raw_visual_mesh(
+            _glb_container(document, binary), source_name='hostile.glb'
+        )
+
+
+def test_glb_deeply_nested_json_chunk_rejects_with_import_error() -> None:
+    # json.loads reports a deeply nested document as RecursionError, which
+    # escaped the importer's error contract before #REV28.
+    document = b'[' * 3000 + b']' * 3000
+    with pytest.raises(RawMeshImportError):
+        import_raw_visual_mesh(
+            _glb_container(document), source_name='hostile.glb'
+        )

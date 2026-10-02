@@ -493,7 +493,7 @@ class ApplicationPreferenceStore:
             return
         try:
             payload = json.loads(self.path.read_text(encoding='utf-8'))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             self._load_state = PreferenceLoadState.CORRUPT
             self._load_error = f'設定ファイルを読み込めません · {operation_error_message(exc)}'
             return

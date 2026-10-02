@@ -192,7 +192,7 @@ def _read_bounded_json(path: Path) -> dict[str, object] | None:
         return None
     try:
         payload = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, UnicodeDecodeError, ValueError):
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError):
         return None
     return payload if isinstance(payload, dict) else None
 

@@ -1060,7 +1060,7 @@ class DiagnosticPackageBuilder:
         path = diagnostics_dir(self.data_dir) / 'recovery-launch-metadata.json'
         try:
             payload = json.loads(path.read_text(encoding='utf-8'))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             members[name] = {
                 'status': 'skipped',
                 'reason': 'unreadable',

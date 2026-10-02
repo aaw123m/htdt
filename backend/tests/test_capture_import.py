@@ -122,3 +122,40 @@ def test_import_cli_roundtrip(tmp_path: Path) -> None:
     assert repository.source_evidence_count() == 10
     # second CLI import is a no-op verified path
     assert main([str(bundle_dir), '--db', str(db)]) == 0
+
+
+def test_import_deeply_nested_manifest_reports_stage(tmp_path: Path) -> None:
+    """A manifest json.loads reports as RecursionError stays a staged failure."""
+    bundle_dir = tmp_path / 'bundle'
+    bundle_dir.mkdir()
+    deep = ('[' * 3000 + ']' * 3000).encode('utf-8')
+    (bundle_dir / 'manifest.json').write_bytes(deep)
+    with pytest.raises(CaptureImportError) as excinfo:
+        import_capture_artifact(bundle_dir, _repository(tmp_path))
+    assert excinfo.value.stage == 'read'
+
+
+def test_import_zip_deeply_nested_manifest_reports_stage(
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / 'bundle'
+    bundle_dir.mkdir()
+    deep = ('[' * 3000 + ']' * 3000).encode('utf-8')
+    (bundle_dir / 'manifest.json').write_bytes(deep)
+    wrapped = _write_zip(bundle_dir, tmp_path / 'bundle.htdtcapture')
+    with pytest.raises(CaptureImportError) as excinfo:
+        import_capture_artifact(wrapped, _repository(tmp_path))
+    assert excinfo.value.stage == 'read'
+
+
+def test_validate_bundle_deeply_nested_manifest_is_bundle_error(
+    tmp_path: Path,
+) -> None:
+    from htdt.capture_bundle import CaptureBundleError, validate_bundle
+
+    bundle_dir = tmp_path / 'bundle'
+    bundle_dir.mkdir()
+    deep = ('[' * 3000 + ']' * 3000).encode('utf-8')
+    (bundle_dir / 'manifest.json').write_bytes(deep)
+    with pytest.raises(CaptureBundleError):
+        validate_bundle(bundle_dir)

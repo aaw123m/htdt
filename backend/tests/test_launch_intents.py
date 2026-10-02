@@ -123,3 +123,15 @@ def test_activation_intent_roundtrip(tmp_path: Path) -> None:
     assert 'HTDT' in describe_launch_intent(queued.intent)
     complete_queued_intent(queued, succeeded=True)
     assert drain_launch_intents(tmp_path) == ()
+
+
+def test_deeply_nested_descriptor_still_classifies_by_extension(
+    tmp_path: Path,
+) -> None:
+    # json.loads reports a deeply nested descriptor as RecursionError;
+    # it must take the same unreadable-descriptor path as torn JSON.
+    ref = tmp_path / 'deep.htdtproject'
+    ref.write_text('[' * 3000 + ']' * 3000, encoding='utf-8')
+    intent = build_launch_intent(ref)
+    assert intent.kind == 'open_project'
+    assert intent.document_id is None

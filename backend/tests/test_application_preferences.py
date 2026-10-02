@@ -377,3 +377,13 @@ def test_update_removes_defaults_in_same_atomic_write(tmp_path) -> None:
     payload = json.loads(path.read_text(encoding='utf-8'))
     assert 'display_input.theme' not in payload['values']
     assert payload['values']['display_input.reduced_motion'] is True
+
+
+def test_deeply_nested_file_falls_back_to_corrupt_state(tmp_path) -> None:
+    # json.loads reports deeply nested input as RecursionError, which
+    # previously aborted startup instead of degrading to CORRUPT (#REV28).
+    path = tmp_path / 'prefs.json'
+    path.write_text('[' * 3000 + ']' * 3000, encoding='utf-8')
+    store = ApplicationPreferenceStore(path)
+    assert store.load_state == PreferenceLoadState.CORRUPT
+    assert store.is_default('general.language')

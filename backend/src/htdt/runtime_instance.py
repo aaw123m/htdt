@@ -158,7 +158,7 @@ def read_lock_metadata(root: Path) -> dict[str, object] | None:
             file.seek(1)
             raw = file.read()
         payload = json.loads(raw.decode('utf-8'))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
     return payload if isinstance(payload, dict) else None
 
@@ -185,7 +185,7 @@ def read_runtime_info(root: Path) -> RuntimeInfo | None:
     path = root / RUNTIME_FILENAME
     try:
         payload = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return None
     # A marker whose JSON parses but is not an object is as unreadable as a
     # truncated one — probing it with .get would raise inside diagnostics.

@@ -235,7 +235,7 @@ def parse_json_bytes(data: bytes):
         return json.loads(text, object_pairs_hook=_duplicate_checking_object)
     except CaptureBundleError:
         raise
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise CaptureBundleError(f"invalid JSON: {exc}") from exc
 
 
