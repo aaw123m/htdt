@@ -686,3 +686,99 @@ def test_bundle_completion_runs_on_ui_thread(tmp_path: Path, monkeypatch) -> Non
         composition.shell.close()
         composition.shell.deleteLater()
         app.processEvents()
+
+
+def test_analysis_export_refuses_during_bundle_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """REV27: ``analysis.export_bundle`` was the only bundle-pool entry
+    point missing the ``_bundle_busy`` guard its siblings share — a
+    re-entry would double-book the pool and corrupt the in-flight
+    status-line bookkeeping."""
+    app = _app()
+    composition = _composition(tmp_path)
+    starts: list[str] = []
+    monkeypatch.setattr(
+        composition._bundle_pool,
+        'start',
+        lambda operation_id, job, on_completed: starts.append(operation_id),
+    )
+    composition._begin_bundle_job('エクスポート中…')
+
+    composition._export_analysis_bundle()
+
+    assert starts == []
+
+    composition._bundle_job_completed(
+        'project.bundle.export', None, WORKER_CANCELLED
+    )
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_project_menu_entries_survive_unbound_project_entry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """REV27: a restore that lands on zero projects leaves
+    ``project_entry=None`` — the project menu must not AttributeError
+    into excepthook."""
+    app = _app()
+    composition = _composition(tmp_path)
+    composition.document_id = ''
+    composition.project_entry = None
+
+    chosen: list[tuple] = []
+    monkeypatch.setattr(
+        composition,
+        '_choose_project',
+        lambda entries, *args: chosen.append(tuple(entries)) or None,
+    )
+    composition._open_project_dialog()
+    assert chosen[0] == composition.project_library.list_projects()
+
+    composition._archive_dialog(archived=True)
+    assert chosen[1] == tuple(
+        entry
+        for entry in composition.project_library.list_projects(
+            include_archived=True
+        )
+        if not entry.archived
+    )
+
+    for action in (
+        composition._rename_project,
+        composition._duplicate_project,
+        composition._export_project_bundle,
+        composition._open_deliverables,
+    ):
+        composition.shell.statusBar().clearMessage()
+        action()
+        assert '先にプロジェクトを選択してください' in (
+            composition.shell.statusBar().currentMessage()
+        )
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_restore_rebind_note_shows_display_name(tmp_path: Path) -> None:
+    """REV27: the post-restore note interpolated the raw ``document_id``
+    uuid into user-facing text — it must name the project by display_name
+    like the title bar and context-bar chip do."""
+    app = _app()
+    composition = _composition(tmp_path)
+    composition.project_library.rename_project(
+        composition.project_entry.project_id, 'リビングシアター'
+    )
+    try:
+        composition._reopen_data_handles()
+        assert composition._restore_rebind_note == (
+            'アクティブプロジェクト: リビングシアター'
+        )
+        assert composition.document_id not in composition._restore_rebind_note
+    finally:
+        composition.shell.close()
+        composition.shell.deleteLater()
+        app.processEvents()

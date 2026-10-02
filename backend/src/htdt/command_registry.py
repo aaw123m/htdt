@@ -259,7 +259,13 @@ class CommandRegistry:
         deep_link = command.definition.deep_link
         navigated = False
         if deep_link is not None and self._deep_link_handler is not None:
-            navigation_result = self._deep_link_handler(deep_link)
+            try:
+                navigation_result = self._deep_link_handler(deep_link)
+            except Exception as exc:
+                if self._error_handler is None:
+                    raise
+                self._error_handler(command.definition, exc)
+                return False
             if navigation_result is False:
                 return False
             navigated = True
