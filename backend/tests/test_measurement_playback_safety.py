@@ -231,3 +231,35 @@ def test_no_universal_safe_level_is_assumed() -> None:
     )
     # And it stays honest about what it does not prove.
     assert any('SPL' in item for item in result.limitations)
+
+
+def test_unknown_stimulus_level_requires_confirmation() -> None:
+    # A stimulus summary that cannot state its level is UNKNOWN evidence —
+    # it must not reach a silent 'ready'.
+    result = run_playback_preflight(
+        _request(stimulus=_stimulus(digital_level_dbfs=None)),
+        evaluated_at_utc='2026-01-01T00:00:00+00:00',
+    )
+    assert result.outcome == 'ready_with_confirmation'
+    assert any(r.code == 'unknown_test_level' for r in result.reasons)
+    assert 'test_level' in result.resolved_view['unknowns']
+    assert not result.automated_start_permitted
+    assert decide_preflight(
+        result,
+        decision='confirmed',
+        decided_at_utc='2026-01-01T00:00:01+00:00',
+    ).playback_permitted
+
+
+def test_unknown_stimulus_level_with_disallowed_manual_control_blocks() -> None:
+    result = run_playback_preflight(
+        _request(
+            stimulus=_stimulus(digital_level_dbfs=None),
+            policy=PlaybackSafetyPolicy(manual_control_permitted=False),
+        ),
+        evaluated_at_utc='2026-01-01T00:00:00+00:00',
+    )
+    assert result.outcome == 'blocked'
+    codes = {r.code for r in result.reasons}
+    assert 'unknown_test_level' in codes
+    assert 'manual_control_not_permitted' in codes

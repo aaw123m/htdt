@@ -471,9 +471,19 @@ def run_playback_preflight(
                 ),
             )
         )
+    elif stimulus.digital_level_dbfs is None:
+        reasons.append(
+            PlaybackPreflightReason(
+                code='unknown_test_level',
+                severity='confirm',
+                detail=(
+                    'the stimulus level is unknown; the test signal '
+                    'level cannot be confirmed not excessive'
+                ),
+            )
+        )
     elif (
         policy.max_digital_level_dbfs is not None
-        and stimulus.digital_level_dbfs is not None
         and stimulus.digital_level_dbfs > policy.max_digital_level_dbfs
     ):
         reasons.append(

@@ -251,6 +251,28 @@ class TestXmlEntityGuard:
         assert not contains_xml_doctype(b'<spdx><foo/></spdx>')
         assert not contains_xml_doctype('plain text')
 
+    def test_utf16_doctype_is_rejected(self) -> None:
+        # A BOM-prefixed wide-char payload must not slip past the byte scan:
+        # pyexpat expands internal entities instead of rejecting them.
+        for encoding in ('utf-16', 'utf-16-le', 'utf-32'):
+            payload = (
+                '<?xml version="1.0"?>\n'
+                '<!DOCTYPE adm [<!ENTITY x "boom">]>\n'
+                '<adm>&x;</adm>'
+            ).encode(encoding)
+            assert contains_xml_doctype(payload), encoding
+        clean = '<?xml version="1.0"?><adm/>'.encode('utf-16')
+        assert not contains_xml_doctype(clean)
+
+    def test_bomless_utf16_doctype_is_rejected(self) -> None:
+        payload = (
+            '<?xml version="1.0" encoding="utf-16"?>\n'
+            '<!DOCTYPE adm [<!ENTITY x "boom">]>\n'
+            '<adm>&x;</adm>'
+        ).encode('utf-16-le')
+        assert payload.startswith(b'<\x00')
+        assert contains_xml_doctype(payload)
+
 
 class TestBoundedUserFileReads:
     def test_read_file_bounded_preflights_size(self, tmp_path: Path) -> None:

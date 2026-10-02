@@ -27,6 +27,12 @@ from htdt.cad_scene import (
     Size3,
     quaternion_from_euler_deg,
 )
+from htdt.cad_standards import (
+    CriterionDefinition,
+    CriterionRule,
+    CriterionSource,
+    build_user_standards_profile,
+)
 from htdt.cad_standards_evidence import STANDARDS_MANUAL_OBSERVATION_KIND
 from htdt.cad_standards_layout_observation import (
     SCENE_LAYOUT_DERIVATION_METHOD,
@@ -50,6 +56,8 @@ def _seat(
     x: float,
     y: float,
     yaw_deg: float = 180.0,
+    pitch_deg: float = 0.0,
+    roll_deg: float = 0.0,
 ) -> SceneEntity:
     return SceneEntity(
         entity_id=entity_id,
@@ -57,7 +65,7 @@ def _seat(
         name=entity_id,
         position=Position3(x_m=x, y_m=y, z_m=0.55),
         orientation=quaternion_from_euler_deg(
-            yaw_deg=yaw_deg, pitch_deg=0.0, roll_deg=0.0
+            yaw_deg=yaw_deg, pitch_deg=pitch_deg, roll_deg=roll_deg
         ),
         size_m=Size3(x_m=0.6, y_m=0.6, z_m=1.1),
         acoustic_reference_offset_m=Offset3(z_m=0.65),
@@ -458,3 +466,108 @@ def test_scene_revision_change_derives_fresh_geometry(tmp_path) -> None:
     # New binding: seat ear at y=2.2 → front 2.2, rear 2.8, sides 3.0.
     assert result.status == "PASS"
     assert result.observed_value == pytest.approx(2.2)
+
+
+def test_listener_outside_room_reports_unknown(tmp_path) -> None:
+    # A seat placed outside the room footprint has no listener-to-boundary
+    # distance: measuring to the wall from outside would fabricate the
+    # clearance the criterion attests.
+    document = _scene((_seat("seat-out", x=-2.0, y=2.5),))
+    workspace = _workspace(tmp_path, document)
+
+    evaluation = workspace.evaluate(rp22_spatial_profile(1), variant_id=None)
+    result = _result(evaluation, "rp22.p01.listener-boundary-distance")
+    assert result.status == "UNKNOWN"
+    assert result.reason_code == "missing_observation"
+    assert result.observed_value is None
+
+
+def test_degenerate_listener_forward_derives_no_azimuth(tmp_path) -> None:
+    # A seat rolled a full 90 deg faces straight up: its forward vector has
+    # no horizontal component, so quaternion round-off must not mint an
+    # arbitrary azimuth.
+    document = _scene(
+        (
+            _seat("seat-tilt", x=3.0, y=3.6, roll_deg=90.0),
+            _speaker("speaker-fl", "FL", x=2.4, y=1.7),
+            _speaker("speaker-fr", "FR", x=3.6, y=1.7),
+        )
+    )
+    workspace = _workspace(tmp_path, document)
+
+    evaluation = workspace.evaluate(
+        dolby_atmos_home_5_1_2_profile(), variant_id=None
+    )
+    for criterion_id in (
+        "dolby.5.1.2.front-left-azimuth",
+        "dolby.5.1.2.front-right-azimuth",
+    ):
+        result = _result(evaluation, criterion_id)
+        assert result.status == "UNKNOWN"
+        assert result.reason_code == "missing_observation"
+        assert result.observed_value is None
+
+
+def test_colocated_speaker_derives_no_azimuth(tmp_path) -> None:
+    # The FL speaker sits exactly on the seat ear reference: atan2 of a
+    # (near-)zero delta would mint a fabricated angle, so the criterion
+    # stays UNKNOWN instead.
+    document = _scene(
+        (
+            _seat("seat-a", x=3.0, y=3.6),
+            _speaker("speaker-fl", "FL", x=3.0, y=3.6, z=1.2),
+        )
+    )
+    workspace = _workspace(tmp_path, document)
+
+    evaluation = workspace.evaluate(
+        dolby_atmos_home_5_1_2_profile(), variant_id=None
+    )
+    result = _result(evaluation, "dolby.5.1.2.front-left-azimuth")
+    assert result.status == "UNKNOWN"
+    assert result.reason_code == "missing_observation"
+    assert result.observed_value is None
+
+
+def test_criterion_id_reuse_with_foreign_quantity_not_served(tmp_path) -> None:
+    # A user profile reusing a derived criterion id but declaring a quantity
+    # the lane does not measure gets no observation authority: minting one
+    # would record a measurement that never happened.
+    document = _scene(
+        (
+            _seat("seat-a", x=3.0, y=3.6),
+            _speaker("speaker-fl", "FL", x=2.4, y=1.7),
+        )
+    )
+    workspace = _workspace(tmp_path, document)
+    profile = build_user_standards_profile(
+        profile_id="custom-poison",
+        version="1",
+        name="foreign quantity",
+        criteria=(
+            CriterionDefinition(
+                criterion_id="dolby.5.1.2.front-left-azimuth",
+                name="loudness",
+                source=CriterionSource(
+                    publisher="acme",
+                    document_title="doc",
+                    document_version="1",
+                    reference="x",
+                ),
+                quantity="loudness",
+                unit="deg",
+                rule=CriterionRule(
+                    operator="range", minimum=-30.0, maximum=-20.0
+                ),
+                applicable_domains=("room",),
+            ),
+        ),
+    )
+    workspace.repository.save_profile(profile)
+
+    evaluation = workspace.evaluate(profile, variant_id=None)
+    (result,) = evaluation.results
+    assert result.status == "UNKNOWN"
+    assert result.reason_code == "missing_observation"
+    assert result.observed_value is None
+    assert not workspace.repository.list_observation_authorities()

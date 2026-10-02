@@ -86,6 +86,38 @@ _DOLBY_ROLE_BY_CRITERION = {
     'dolby.5.1.2.surround-right-azimuth': 'SR',
 }
 
+# Quantity/unit each published criterion id names and this lane measures.
+# A criterion reusing one of these ids while declaring a different quantity
+# or unit is never served: the lane would otherwise mint an observation
+# authority claiming a quantity it did not measure.
+_DERIVED_QUANTITY_UNIT = {
+    'rp22.p01.listener-boundary-distance': (
+        'listener_head_to_nearest_room_boundary',
+        'm',
+    ),
+    'dolby.5.1.2.front-left-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
+    'dolby.5.1.2.front-right-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
+    'dolby.5.1.2.surround-left-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
+    'dolby.5.1.2.surround-right-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
+    'rp22.p05.max-adjacent-surround-horizontal-angle': (
+        'adjacent_surround_speaker_horizontal_angle',
+        'deg',
+    ),
+    'rp22.p09.max-adjacent-upper-vertical-angle': (
+        'adjacent_upper_speaker_vertical_angle',
+        'deg',
+    ),
+}
+
+# A listener forward direction whose XY norm falls below this is pointing
+# essentially straight up/down — its projection is quaternion round-off
+# noise, not a facing direction, so no azimuth can be derived from it.
+_MIN_FORWARD_XY_NORM = 1e-6
+
+# A speaker whose XY delta from the ear falls below this is co-located with
+# the listener: atan2 of a (near-)zero vector reports a fabricated angle.
+_MIN_SPEAKER_LISTENER_XY_M = 1e-9
+
 
 @dataclass(frozen=True, slots=True)
 class _ListenerReference:
@@ -118,7 +150,7 @@ def _listener_references(document: SceneDocument) -> tuple[_ListenerReference, .
         forward_x = matrix[0][1]
         forward_y = matrix[1][1]
         norm = math.hypot(forward_x, forward_y)
-        if norm == 0.0:
+        if norm < _MIN_FORWARD_XY_NORM:
             continue
         references.append(
             _ListenerReference(
@@ -153,9 +185,16 @@ def _assigned_speakers(
     )
 
 
-def _signed_azimuth_deg(reference: _ListenerReference, position: Position3) -> float:
+def _signed_azimuth_deg(
+    reference: _ListenerReference,
+    position: Position3,
+) -> float | None:
     dx = position.x_m - reference.position.x_m
     dy = position.y_m - reference.position.y_m
+    if math.hypot(dx, dy) < _MIN_SPEAKER_LISTENER_XY_M:
+        # The speaker is co-located with the listener; its azimuth is
+        # undefined, not zero.
+        return None
     # Right is forward rotated -90° in the XY plane.
     right_x = -reference.forward_y
     right_y = reference.forward_x
@@ -180,7 +219,12 @@ def _boundary_distance_m(document: SceneDocument, position: Position3) -> float 
     polygon = polygon_from_vertices(
         [(vertex.x_m, vertex.y_m) for vertex in room_vertices(document.room)]
     )
-    return Point(position.x_m, position.y_m).distance(polygon.boundary)
+    point = Point(position.x_m, position.y_m)
+    if not polygon.covers(point):
+        # A listener outside the room footprint has no listener-to-boundary
+        # distance: measuring to the wall would fabricate clearance.
+        return None
+    return point.distance(polygon.boundary)
 
 
 def _pairwise_separation_deg(left_deg: float, right_deg: float) -> float:
@@ -207,11 +251,14 @@ def _adjacent_pair_candidates(
     candidates: list[_Candidate] = []
     for listener in listeners:
         measured = [
-            (
-                _signed_azimuth_deg(listener, _speaker_reference_position(speaker)),
-                speaker,
-            )
+            (azimuth, speaker)
             for speaker in speakers
+            for azimuth in (
+                _signed_azimuth_deg(
+                    listener, _speaker_reference_position(speaker)
+                ),
+            )
+            if azimuth is not None
         ]
         if per_side:
             left = [item for item in measured if item[1].speaker_role in UPPER_LAYER_LEFT_ROLES]
@@ -294,18 +341,23 @@ def _criterion_candidates(
         speakers = _assigned_speakers(document, frozenset({role}))
         if not speakers:
             return None
-        return tuple(
+        candidates = [
             _Candidate(
-                value=_signed_azimuth_deg(
-                    listener, _speaker_reference_position(speaker)
-                ),
+                value=azimuth,
                 entity_ids=tuple(
                     sorted((listener.entity_id, speaker.entity_id))
                 ),
             )
             for listener in listeners
             for speaker in speakers
-        )
+            for azimuth in (
+                _signed_azimuth_deg(
+                    listener, _speaker_reference_position(speaker)
+                ),
+            )
+            if azimuth is not None
+        ]
+        return tuple(candidates) if candidates else None
 
     if criterion_id == 'rp22.p05.max-adjacent-surround-horizontal-angle':
         speakers = _assigned_speakers(document, SURROUND_LAYER_ROLES)
@@ -474,6 +526,11 @@ def derive_layout_observations(
     observations: list[CriterionObservation] = []
     for criterion in profile.criteria:
         if criterion.unit is None:
+            continue
+        if _DERIVED_QUANTITY_UNIT.get(criterion.criterion_id) != (
+            criterion.quantity,
+            criterion.unit,
+        ):
             continue
         candidates = _criterion_candidates(criterion, document)
         if not candidates:
