@@ -133,7 +133,15 @@ class _UniformOccluderGrid:
         )
         volume = extent[0] * extent[1] * extent[2]
         cell_volume = volume / max(len(rows) * 4.0, 1.0)
-        cell_size = max(cell_volume ** (1.0 / 3.0), padding)
+        # The 64-cell cap must never truncate coverage: cells are widened
+        # until every axis's extent fits, otherwise rows beyond the covered
+        # box are clamped into boundary cells while segment queries clip at
+        # the grid boundary and miss them (breaking the superset contract).
+        cell_size = max(
+            cell_volume ** (1.0 / 3.0),
+            padding,
+            *(extent[axis] / 64.0 for axis in range(3)),
+        )
         self._cell_size = cell_size
         self._dims = tuple(
             min(64, max(1, floor(extent[axis] / cell_size) + 1))
