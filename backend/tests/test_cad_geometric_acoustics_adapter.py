@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from hashlib import sha256
 import json
-from math import acos, degrees, isclose, sqrt
+from math import acos, degrees, isclose, isfinite, sqrt
 from pathlib import Path
 import random
 
@@ -77,6 +77,7 @@ from htdt.cad_geometric_acoustics_adapter import (
     build_deterministic_ga_result_envelope,
     compile_deterministic_ga_execution_input,
     execute_deterministic_ga,
+    _directivity_contribution,
 )
 from htdt.cad_geometric_acoustics_portal import (
     PORTAL_SIDE_SEMANTICS,
@@ -3825,3 +3826,118 @@ def test_prepared_candidates_yield_same_rows() -> None:
             for row, _prepared in grid.prepared_point_candidates(point, 0.5)
         ]
         assert prepared_point_ids == plain_point_ids
+
+
+def test_segment_blocked_grid_covers_elongated_extents() -> None:
+    """The 64-cell per-axis cap must never truncate grid coverage.
+
+    REV28 regression: when extent/cell_size exceeded 64, rows beyond the
+    covered box were clamped into boundary cells while segment queries
+    clipped at the grid boundary — the indexed path silently missed
+    occluders that a linear scan of the same rows finds.
+    """
+    length = 50.0
+    step = length / 100
+    rows = []
+    for index in range(100):
+        x0, x1 = index * step, (index + 1) * step
+        rows.append(
+            ('wall', (x0, 0.0, 0.0), (x1, 0.0, 0.0), (x0, 0.0, 1.0))
+        )
+        rows.append(
+            ('wall', (x1, 0.0, 0.0), (x1, 0.0, 1.0), (x0, 0.0, 1.0))
+        )
+    rows = tuple(rows)
+    indexed = _IndexedOccluderRows(rows)
+    mismatches = []
+    for fraction in (0.05, 0.5, 0.95, 0.99):
+        x = length * fraction
+        start = (x, -0.5, 0.5)
+        end = (x, 0.5, 0.5)
+        for scaled in (False, True):
+            expected = _segment_blocked(
+                None,
+                start,
+                end,
+                tolerance=1.0e-9,
+                distance_scaled_tolerance=scaled,
+                occluder_triangles=rows,
+            )
+            actual = _segment_blocked(
+                None,
+                start,
+                end,
+                tolerance=1.0e-9,
+                distance_scaled_tolerance=scaled,
+                occluder_triangles=indexed,
+            )
+            if actual != expected:
+                mismatches.append((fraction, scaled, expected, actual))
+    assert mismatches == []
+
+
+def _huge_magnitude_dataset(dataset):
+    """Dataset identical to `dataset` but with 5000 dB off-axis samples —
+    still admissible (magnitude_db is only required finite)."""
+    return dataset.model_copy(
+        update={
+            'samples': tuple(
+                sample.model_copy(
+                    update={
+                        'magnitude_db': (
+                            5000.0
+                            if not (
+                                sample.horizontal_angle_deg == 0.0
+                                and sample.vertical_angle_deg == 0.0
+                            )
+                            else 0.0
+                        )
+                    }
+                )
+                for sample in dataset.samples
+            )
+        }
+    )
+
+
+def test_directivity_contribution_rejects_unrepresentable_energy() -> None:
+    """Declared magnitudes the energy computation cannot represent must
+    yield ``None`` (-> UNSUPPORTED_DIRECTIVITY), not an OverflowError."""
+    _source_bytes, _definition, dataset = _directivity_definition(narrow=False)
+    huge_dataset = _huge_magnitude_dataset(dataset)
+    contribution = _directivity_contribution(
+        huge_dataset,
+        frequency_hz=500.0,
+        source_axis=Direction3(x=0.0, y=1.0, z=0.0),
+        departure_direction=(0.0, 0.0, 1.0),
+        tolerance=1.0e-9,
+    )
+    assert contribution is None
+    # A direction evaluating to a representable magnitude still contributes.
+    contribution = _directivity_contribution(
+        huge_dataset,
+        frequency_hz=500.0,
+        source_axis=Direction3(x=0.0, y=1.0, z=0.0),
+        departure_direction=(1.0, 0.0, 0.0),
+        tolerance=1.0e-9,
+    )
+    assert contribution is not None
+    assert contribution.energy_factor == 1e250
+
+
+def test_huge_directivity_magnitude_rejected_not_crash(tmp_path: Path) -> None:
+    """End-to-end: a 5000 dB dataset produces UNSUPPORTED_DIRECTIVITY
+    rejections and finite energies — never an OverflowError crash."""
+    fx = _fixture(tmp_path)
+    fx['dataset'] = _huge_magnitude_dataset(fx['dataset'])
+    artifact = _execute(fx)
+    assert any(
+        rejection.decision == 'UNSUPPORTED_DIRECTIVITY'
+        for rejection in artifact.rejected_candidates
+    )
+    assert all(
+        isfinite(band.relative_energy_transport_per_m2)
+        and band.relative_energy_transport_per_m2 >= 0.0
+        for path in artifact.paths
+        for band in path.bands
+    )

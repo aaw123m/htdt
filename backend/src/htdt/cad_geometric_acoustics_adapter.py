@@ -3538,6 +3538,12 @@ def _directivity_contribution(
         or evaluation.magnitude_linear is None
     ):
         return None
+    try:
+        energy_factor = evaluation.magnitude_linear ** 2
+    except OverflowError:
+        return None
+    if not isfinite(energy_factor):
+        return None
     return SourceDirectivityContribution(
         dataset_id=dataset.dataset_id,
         dataset_version=dataset.version,
@@ -3548,7 +3554,7 @@ def _directivity_contribution(
         vertical_angle_deg=vertical,
         magnitude_db=evaluation.magnitude_db,
         magnitude_linear=evaluation.magnitude_linear,
-        energy_factor=evaluation.magnitude_linear ** 2,
+        energy_factor=energy_factor,
     )
 
 
@@ -4161,15 +4167,24 @@ def _append_single_portal_first_order_reflections(
                 )
                 break
             spreading = 1.0 / (path_length * path_length)
+            energy = (
+                spreading
+                * directivity.energy_factor
+                * boundary.specular_energy_factor
+            )
+            if not isfinite(energy):
+                failure = 'UNSUPPORTED_DIRECTIVITY'
+                failure_reason = (
+                    'exact source directivity energy is not finitely representable'
+                )
+                break
             reflection_bands.append(
                 DeterministicPathBandQuantity(
                     center_hz=frequency_hz,
                     spreading_factor_per_m2=spreading,
                     source_directivity=directivity,
                     boundary_material=boundary,
-                    relative_energy_transport_per_m2=(
-                        spreading * directivity.energy_factor * boundary.specular_energy_factor
-                    ),
+                    relative_energy_transport_per_m2=energy,
                 )
             )
         if failure is not None:
@@ -4878,17 +4893,25 @@ def _append_portal_graph_reflections(
                         )
                         break
                     spreading = 1.0 / (path_length * path_length)
+                    energy = (
+                        spreading
+                        * directivity.energy_factor
+                        * boundary.specular_energy_factor
+                    )
+                    if not isfinite(energy):
+                        failure = 'UNSUPPORTED_DIRECTIVITY'
+                        failure_reason = (
+                            'exact source directivity energy is not finitely '
+                            'representable'
+                        )
+                        break
                     reflection_bands.append(
                         DeterministicPathBandQuantity(
                             center_hz=frequency_hz,
                             spreading_factor_per_m2=spreading,
                             source_directivity=directivity,
                             boundary_material=boundary,
-                            relative_energy_transport_per_m2=(
-                                spreading
-                                * directivity.energy_factor
-                                * boundary.specular_energy_factor
-                            ),
+                            relative_energy_transport_per_m2=energy,
                         )
                     )
                 if failure is not None:
@@ -5034,17 +5057,25 @@ def _append_portal_graph_reflections(
                             specular_product = 1.0
                             for boundary in boundary_contributions:
                                 specular_product *= boundary.specular_energy_factor
+                            energy = (
+                                spreading
+                                * directivity.energy_factor
+                                * specular_product
+                            )
+                            if not isfinite(energy):
+                                failure = 'UNSUPPORTED_DIRECTIVITY'
+                                failure_reason = (
+                                    'exact source directivity energy is not '
+                                    'finitely representable'
+                                )
+                                break
                             second_order_bands.append(
                                 DeterministicPathBandQuantity(
                                     center_hz=frequency_hz,
                                     spreading_factor_per_m2=spreading,
                                     source_directivity=directivity,
                                     boundary_materials=tuple(boundary_contributions),
-                                    relative_energy_transport_per_m2=(
-                                        spreading
-                                        * directivity.energy_factor
-                                        * specular_product
-                                    ),
+                                    relative_energy_transport_per_m2=energy,
                                 )
                             )
                         if failure is not None:
@@ -5235,14 +5266,16 @@ def execute_deterministic_ga(
                             directivity_failed = True
                             break
                         spreading = 1.0 / (direct_length * direct_length)
+                        energy = spreading * directivity.energy_factor
+                        if not isfinite(energy):
+                            directivity_failed = True
+                            break
                         direct_bands.append(
                             DeterministicPathBandQuantity(
                                 center_hz=frequency_hz,
                                 spreading_factor_per_m2=spreading,
                                 source_directivity=directivity,
-                                relative_energy_transport_per_m2=(
-                                    spreading * directivity.energy_factor
-                                ),
+                                relative_energy_transport_per_m2=energy,
                             )
                         )
                     if directivity_failed:
@@ -5574,14 +5607,16 @@ def execute_deterministic_ga(
                             directivity_failed = True
                             break
                         spreading = 1.0 / (direct_length * direct_length)
+                        energy = spreading * directivity.energy_factor
+                        if not isfinite(energy):
+                            directivity_failed = True
+                            break
                         direct_bands.append(
                             DeterministicPathBandQuantity(
                                 center_hz=frequency_hz,
                                 spreading_factor_per_m2=spreading,
                                 source_directivity=directivity,
-                                relative_energy_transport_per_m2=(
-                                    spreading * directivity.energy_factor
-                                ),
+                                relative_energy_transport_per_m2=energy,
                             )
                         )
                     if directivity_failed:
@@ -5683,14 +5718,16 @@ def execute_deterministic_ga(
                         directivity_failed = True
                         break
                     spreading = 1.0 / (direct_length * direct_length)
+                    energy = spreading * directivity.energy_factor
+                    if not isfinite(energy):
+                        directivity_failed = True
+                        break
                     direct_bands.append(
                         DeterministicPathBandQuantity(
                             center_hz=frequency_hz,
                             spreading_factor_per_m2=spreading,
                             source_directivity=directivity,
-                            relative_energy_transport_per_m2=(
-                                spreading * directivity.energy_factor
-                            ),
+                            relative_energy_transport_per_m2=energy,
                         )
                     )
                 if directivity_failed:
@@ -5921,17 +5958,25 @@ def execute_deterministic_ga(
                         )
                         break
                     spreading = 1.0 / (path_length * path_length)
+                    energy = (
+                        spreading
+                        * directivity.energy_factor
+                        * boundary.specular_energy_factor
+                    )
+                    if not isfinite(energy):
+                        failure = 'UNSUPPORTED_DIRECTIVITY'
+                        failure_reason = (
+                            'exact source directivity energy is not finitely '
+                            'representable'
+                        )
+                        break
                     reflection_bands.append(
                         DeterministicPathBandQuantity(
                             center_hz=frequency_hz,
                             spreading_factor_per_m2=spreading,
                             source_directivity=directivity,
                             boundary_material=boundary,
-                            relative_energy_transport_per_m2=(
-                                spreading
-                                * directivity.energy_factor
-                                * boundary.specular_energy_factor
-                            ),
+                            relative_energy_transport_per_m2=energy,
                         )
                     )
                 if failure is not None:
@@ -6319,6 +6364,18 @@ def execute_deterministic_ga(
                             specular_product = 1.0
                             for boundary in boundary_contributions:
                                 specular_product *= boundary.specular_energy_factor
+                            energy = (
+                                spreading
+                                * directivity.energy_factor
+                                * specular_product
+                            )
+                            if not isfinite(energy):
+                                failure = 'UNSUPPORTED_DIRECTIVITY'
+                                failure_reason = (
+                                    'exact source directivity energy is not '
+                                    'finitely representable'
+                                )
+                                break
                             second_order_bands.append(
                                 DeterministicPathBandQuantity(
                                     center_hz=frequency_hz,
@@ -6327,11 +6384,7 @@ def execute_deterministic_ga(
                                     boundary_materials=tuple(
                                         boundary_contributions
                                     ),
-                                    relative_energy_transport_per_m2=(
-                                        spreading
-                                        * directivity.energy_factor
-                                        * specular_product
-                                    ),
+                                    relative_energy_transport_per_m2=energy,
                                 )
                             )
                         if failure is not None:
