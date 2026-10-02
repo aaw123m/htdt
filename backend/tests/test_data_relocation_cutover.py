@@ -229,6 +229,95 @@ def test_recovery_aborts_pre_promotion_cleanly(tmp_path: Path) -> None:
     assert _journal_exists(bootstrap) is None
 
 
+def _stage_database_copy(source: Path, staged: Path) -> None:
+    """Reproduce the staged-copy prefix of a mid-copy crash: the SQLite
+    backup has landed but nothing else has (kill -9 inside the carried-
+    component copy phase, still journaled PREPARED)."""
+    staged.mkdir(parents=True)
+    with closing(sqlite3.connect(source / DATABASE_NAME)) as src, closing(
+        sqlite3.connect(staged / DATABASE_NAME)
+    ) as dst:
+        src.backup(dst)
+        dst.commit()
+
+
+def test_recovery_never_promotes_an_unverified_prepared_stage(
+    tmp_path: Path,
+) -> None:
+    """A PREPARED journal means the copy phase was interrupted: the staged
+    root is unverified residue, never promotable — even when it happens to
+    contain a complete-looking database. Promoting it would silently lose
+    every carried component (commissioning plans, backup policy, upgrade
+    recovery generations, diagnostics) the copy never reached."""
+    source = tmp_path / 'source'
+    _seed_data_dir(source)
+    (source / 'commissioning-plans.json').write_text(
+        json.dumps({'doc-1': ['step-a']}), encoding='utf-8'
+    )
+    destination = tmp_path / 'dest'
+    staged = tmp_path / 'staged'
+    _stage_database_copy(source, staged)
+    bootstrap = tmp_path / 'boot.json'
+    _write_journal(
+        _journal(
+            source,
+            destination,
+            staged,
+            tmp_path / 'source.relocated-x',
+            'PREPARED',
+        ),
+        bootstrap,
+    )
+
+    events = recover_interrupted_relocation(bootstrap_path=bootstrap)
+
+    assert [event.action for event in events] == ['aborted_before_promotion']
+    assert not staged.exists()
+    assert not destination.exists()
+    assert (source / DATABASE_NAME).is_file()
+    assert (source / 'commissioning-plans.json').is_file()
+    assert _journal_exists(bootstrap) is None
+
+
+def test_recovery_aborts_a_torn_prepared_stage_instead_of_bricking(
+    tmp_path: Path,
+) -> None:
+    """Kill -9 mid ``sqlite3.backup`` leaves a PREPARED journal over a torn
+    staged database. Verification must not run on it at all: re-verifying
+    threw through recovery and every subsequent startup, bricking an
+    intact source behind a journal that could never clear."""
+    source = tmp_path / 'source'
+    _seed_data_dir(source)
+    destination = tmp_path / 'dest'
+    staged = tmp_path / 'staged'
+    staged.mkdir()
+    raw = (source / DATABASE_NAME).read_bytes()
+    (staged / DATABASE_NAME).write_bytes(b'\x00' * 4096 + raw[4096:])
+    bootstrap = tmp_path / 'boot.json'
+    _write_journal(
+        _journal(
+            source,
+            destination,
+            staged,
+            tmp_path / 'source.relocated-x',
+            'PREPARED',
+        ),
+        bootstrap,
+    )
+
+    events = recover_interrupted_relocation(bootstrap_path=bootstrap)
+
+    assert [event.action for event in events] == ['aborted_before_promotion']
+    assert not staged.exists()
+    assert not destination.exists()
+    assert (source / DATABASE_NAME).is_file()
+    assert _journal_exists(bootstrap) is None
+    # The next launch sees a usable root, not a stale-journal brick.
+    assert_managed_root_available(
+        source, 'default', bootstrap_path=bootstrap
+    )
+
+
 def test_recovery_restores_source_when_destination_missing(
     tmp_path: Path,
 ) -> None:

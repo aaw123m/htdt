@@ -701,11 +701,16 @@ def _recover_journal_locked(
         return events
 
     destination_database = destination / DATABASE_NAME
-    if not destination_database.is_file() and _staged_database(
-        journal
-    ).is_file():
+    if (
+        not destination_database.is_file()
+        and journal.phase != 'PREPARED'
+        and _staged_database(journal).is_file()
+    ):
         # The promotion rename never fsync'd into the journal: promote the
-        # verified staged copy now.
+        # verified staged copy now. A PREPARED journal means the copy phase
+        # died before verification ever ran — that staged root is
+        # unverified and disposable (it falls to the abort path below),
+        # never promotable even when it happens to contain a database.
         _verify_staged_root(staged)
         destination.parent.mkdir(parents=True, exist_ok=True)
         os.replace(staged, destination)
