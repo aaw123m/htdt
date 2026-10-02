@@ -208,9 +208,6 @@ class CadVideoGeometryRepository:
                     'projector spec source filename is required when '
                     'persisting source bytes'
                 )
-            # Install before the transaction: a failed commit leaves a safe
-            # content-addressed orphan rather than a partially written file.
-            self._asset_store.ensure_installed(digest, source_bytes)
             bound_source = source_bytes
         elif digest is not None and self._source_asset_row(digest) is not None:
             bound_source = self._verified_source_asset(digest)
@@ -260,6 +257,13 @@ class CadVideoGeometryRepository:
                     ),
                 )
             if bound_source is not None:
+                # Install under the same write exclusion as the row inserts
+                # so the republish is atomic against storage GC's delete
+                # window; a failed commit leaves a safe content-addressed
+                # orphan rather than a partially written file.
+                self._asset_store.ensure_installed(
+                    evidence.source_sha256, bound_source
+                )
                 target = self._asset_store.asset_path(evidence.source_sha256)
                 connection.execute(
                     """

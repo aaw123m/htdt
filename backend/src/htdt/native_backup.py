@@ -1745,11 +1745,15 @@ def recover_interrupted_restore(data_dir: Path) -> list[RestoreRecoveryEvent]:
         # against). Gated on a real pending swap so callers on the hot
         # open path — every ensure_native_schema — never pay for it.
         # Deferred import, same reason as in restore_backup().
-        from .cad_repository import release_read_handles_under
+        from .cad_repository import (
+            fenced_read_reopens_under,
+            release_read_handles_under,
+        )
 
-        release_read_handles_under(data_dir)
-    for candidate in rollback_dirs:
-        events.append(_recover_rollback_dir(data_dir, candidate))
+        with fenced_read_reopens_under(data_dir):
+            release_read_handles_under(data_dir)
+            for candidate in rollback_dirs:
+                events.append(_recover_rollback_dir(data_dir, candidate))
     if events:
         _fsync_directory(parent)
     _sweep_open_residue(data_dir, parent)
@@ -1777,20 +1781,26 @@ def restore_backup(
     # and unlink sqlite files under the data root; a live pooled read
     # connection on them makes that fail with WinError 32 on Windows.
     # Releasing first is safe — the repositories re-open on their next
-    # read. Deferred import keeps the backup authority independent of the
-    # native_backup import inside ensure_native_schema().
-    from .cad_repository import release_read_handles_under
-
-    release_read_handles_under(Path(data_dir))
-
-    recover_interrupted_restore(Path(data_dir))
-    return _restore_backup(
-        data_dir,
-        backup_path,
-        pre_restore_backup=pre_restore_backup,
-        is_cancelled=is_cancelled,
-        on_commit_point=on_commit_point,
+    # read — and the re-open fence keeps those lazy re-opens from winning
+    # the race back open before the swap lands. Deferred import keeps the
+    # backup authority independent of the native_backup import inside
+    # ensure_native_schema().
+    from .cad_repository import (
+        fenced_read_reopens_under,
+        release_read_handles_under,
     )
+
+    with fenced_read_reopens_under(Path(data_dir)):
+        release_read_handles_under(Path(data_dir))
+
+        recover_interrupted_restore(Path(data_dir))
+        return _restore_backup(
+            data_dir,
+            backup_path,
+            pre_restore_backup=pre_restore_backup,
+            is_cancelled=is_cancelled,
+            on_commit_point=on_commit_point,
+        )
 
 
 def _restore_backup(

@@ -1,13 +1,22 @@
 from contextlib import closing
 import logging
+import os
 from pathlib import Path
+import shutil
 import sqlite3
 import threading
+import time
 
 import pytest
 
 from htdt.cad_document import WorkingDocument
-from htdt.cad_repository import SceneRepository, SceneRevisionConflictError
+from htdt.cad_repository import (
+    SceneRepository,
+    SceneRevisionConflictError,
+    _reopen_fence,
+    fenced_read_reopens_under,
+    release_read_handles_under,
+)
 from htdt.cad_scene import (
     Position3,
     SceneDocument,
@@ -992,3 +1001,88 @@ def test_close_while_other_threads_read_is_safe(tmp_path: Path) -> None:
     # The pool slot was released; a subsequent read re-opens lazily.
     assert repository.get(revision.revision_id) is not None
     repository.close()
+
+
+def test_read_reopen_fence_counts_nested_holds(tmp_path: Path) -> None:
+    """The per-root re-open fence is a counted gate: nested swap sections
+    each hold it, and waiting readers drain only after the last hold
+    releases (REV29 quiesce epoch for file-swap windows)."""
+    root = tmp_path / 'data'
+    fence = _reopen_fence(root)
+    assert _reopen_fence(root.resolve()) is fence
+    assert not fence.held()
+
+    drained = threading.Event()
+
+    def waiter() -> None:
+        fence.wait()
+        drained.set()
+
+    with fenced_read_reopens_under(root):
+        assert fence.held()
+        with fenced_read_reopens_under(root / '.ignored-inner'):
+            pass
+        with fenced_read_reopens_under(root):
+            thread = threading.Thread(target=waiter, daemon=True)
+            thread.start()
+            # Inner hold released: the outer hold still gates the waiter.
+            assert not drained.wait(0.2)
+    thread.join(timeout=10)
+    assert drained.is_set()
+    assert not fence.held()
+
+
+def test_fenced_release_allows_swap_under_reopening_reader(
+    tmp_path: Path,
+) -> None:
+    """release_read_handles_under + os.replace inside the fence: a reader
+    whose lazily re-opened handle raced the release can no longer win the
+    swap window — WinError 32 becomes a wait, and reads resume on the
+    swapped-in file afterwards (REV29)."""
+    data_dir = tmp_path / 'data'
+    data_dir.mkdir()
+    repository = SceneRepository(data_dir / 'cad-scenes.sqlite3')
+    revision = repository.save(
+        make_f1_scene(), parent_revision_id=None
+    ).revision
+    # Warm a pooled read handle the release path must close.
+    assert repository.get(revision.revision_id) is not None
+
+    db_path = data_dir / 'cad-scenes.sqlite3'
+    staged = tmp_path / 'staged.sqlite3'
+    shutil.copy(db_path, staged)
+
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def reader() -> None:
+        while not stop.is_set():
+            try:
+                got = repository.get(revision.revision_id)
+                assert got is not None
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    failures: list[BaseException] = []
+    try:
+        for attempt in range(10):
+            with fenced_read_reopens_under(data_dir):
+                release_read_handles_under(data_dir)
+                replacement = tmp_path / f'swap-{attempt}.sqlite3'
+                shutil.copy(staged, replacement)
+                try:
+                    os.replace(replacement, db_path)
+                except OSError as exc:
+                    failures.append(exc)
+            time.sleep(0.002)
+    finally:
+        stop.set()
+        thread.join(timeout=10)
+        repository.close()
+
+    assert failures == []
+    assert errors == []
+    # Reads resumed normally after the swap windows closed.
+    assert repository.get(revision.revision_id) is not None

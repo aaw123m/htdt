@@ -215,15 +215,20 @@ class CadMeasurementRepository:
             dataset_sha256=dataset_identity,
         )
         target = self._asset_path(digest)
-        # An already-installed identical digest is a successful dedup hit;
-        # anything else at the path is corrupt or a genuine collision.
-        self._asset_store.ensure_installed(digest, raw_bytes)
 
         # A failed transaction leaves the installed digest path in place: the
         # content-addressed file may already be referenced by another committed
         # row, and an orphaned asset is safer than deleting referenced data.
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # The install runs under the same write exclusion as the row
+            # inserts so republish is atomic against storage GC's delete
+            # window: an asset GC unlinked mid-race is reinstalled here,
+            # before this commit can publish a reference over a missing
+            # file. An already-installed identical digest is a successful
+            # dedup hit; anything else at the path is corrupt or a genuine
+            # collision.
+            self._asset_store.ensure_installed(digest, raw_bytes)
             if connection.execute(
                 'SELECT 1 FROM cad_measurements WHERE measurement_id=?',
                 (record.measurement_id,),
@@ -517,7 +522,6 @@ class CadMeasurementRepository:
         if record is None:
             raise ValueError(f'unknown measurement: {measurement_id}')
         digest = sha256(raw_bytes).hexdigest()
-        self._asset_store.ensure_installed(digest, raw_bytes)
         attachment = CadMeasurementAttachment(
             attachment_id=attachment_id or str(uuid4()),
             document_id=record.document_id,
@@ -532,6 +536,9 @@ class CadMeasurementRepository:
         target = self._asset_path(digest)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # Install under the same write exclusion as the row inserts so
+            # the republish is atomic against storage GC's delete window.
+            self._asset_store.ensure_installed(digest, raw_bytes)
             # An identical artifact already bound to this measurement is a
             # safe dedup reuse — re-attaching the same (filename, kind,
             # bytes, note) must not register an indistinguishable second
@@ -1211,10 +1218,12 @@ class CadMeasurementRepository:
             dataset_sha256=dataset_identity,
         )
         target = self._asset_path(digest)
-        self._asset_store.ensure_installed(digest, raw_bytes)
 
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # Install under the same write exclusion as the row inserts so
+            # the republish is atomic against storage GC's delete window.
+            self._asset_store.ensure_installed(digest, raw_bytes)
             if connection.execute(
                 'SELECT 1 FROM cad_impulse_responses WHERE dataset_id=?',
                 (dataset.dataset_id,),

@@ -1370,10 +1370,6 @@ class CadWaveExcitationRepository:
                         'wave-excitation source filename is required when '
                         'persisting source bytes'
                     )
-                # Install before the transaction: a failed commit leaves a
-                # safe content-addressed orphan rather than a partially
-                # written file.
-                self._asset_store.ensure_installed(digest, source_bytes)
                 bound_source = source_bytes
             else:
                 bound_source = self._verified_source_asset(digest)
@@ -1409,6 +1405,14 @@ class CadWaveExcitationRepository:
                         'semantics'
                     )
             if isinstance(derivation, WaveExcitationSourceAssetDerivation):
+                # Install under the same write exclusion as the row inserts
+                # so the republish is atomic against storage GC's delete
+                # window; a failed commit leaves a safe content-addressed
+                # orphan rather than a partially written file.
+                if bound_source is not None:
+                    self._asset_store.ensure_installed(
+                        derivation.source_asset_sha256, bound_source
+                    )
                 target = self._asset_store.asset_path(
                     derivation.source_asset_sha256
                 )

@@ -306,9 +306,6 @@ class CadEquipmentRepository:
                     raise ValueError(
                         'equipment evidence asset declared schema mismatch'
                     )
-                # Install before the transaction: a failed commit leaves a
-                # safe content-addressed orphan rather than a partial file.
-                self._asset_store.ensure_installed(digest, source_bytes)
                 bound_source = source_bytes
                 install_digest = digest
             else:
@@ -400,6 +397,13 @@ class CadEquipmentRepository:
                     'different equipment evidence is already retained for '
                     'this definition provenance claim'
                 )
+            if bound_source is not None:
+                # Install under the same write exclusion as the row inserts
+                # so the republish is atomic against storage GC's delete
+                # window — an asset GC unlinked between the pre-transaction
+                # verify and this commit is reinstalled here. A failed
+                # commit leaves a safe content-addressed orphan.
+                self._asset_store.ensure_installed(digest, bound_source)
             if install_digest is not None and bound_source is not None:
                 target = self._asset_store.asset_path(install_digest)
                 connection.execute(

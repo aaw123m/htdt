@@ -775,17 +775,22 @@ def execute_native_upgrade(
     # snapshotting so the upgrade never builds a recovery generation over a
     # mid-swap directory. Recovery swaps replace and unlink sqlite files;
     # a caller's live repository must not hold pooled read handles on them
-    # (WinError 32 on Windows) — release first, same as restore_backup().
-    from .cad_repository import release_read_handles_under
+    # (WinError 32 on Windows) — release first, same as restore_backup(),
+    # and the re-open fence keeps lazy re-opens out of the swap window.
+    from .cad_repository import (
+        fenced_read_reopens_under,
+        release_read_handles_under,
+    )
 
-    release_read_handles_under(data_dir)
-    try:
-        recover_interrupted_restore(data_dir)
-    except Exception as exc:
-        raise NativeUpgradeError(
-            'a previous restore is still unresolved; refusing to upgrade '
-            f'managed data until it is recovered: {exc}'
-        ) from exc
+    with fenced_read_reopens_under(data_dir):
+        release_read_handles_under(data_dir)
+        try:
+            recover_interrupted_restore(data_dir)
+        except Exception as exc:
+            raise NativeUpgradeError(
+                'a previous restore is still unresolved; refusing to upgrade '
+                f'managed data until it is recovered: {exc}'
+            ) from exc
 
     if plan.recovery_snapshot_required and plan.estimated_snapshot_bytes is not None:
         probe = data_dir if data_dir.is_dir() else data_dir.parent

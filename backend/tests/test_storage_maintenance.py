@@ -280,6 +280,106 @@ def test_referenced_orphan_registry_row_is_not_a_candidate(tmp_path):
     ]
 
 
+def test_gc_restores_registry_row_resurrected_between_live_checks(
+    tmp_path, monkeypatch
+):
+    """A writer whose republish+reference commits inside GC's inter-
+    transaction gap is seen by the second live check: GC restores the
+    registry row and keeps the file rather than unlinking a referenced
+    asset — the REV29 resurrection fix."""
+
+    _repo, data_dir, _referenced, orphan = _seed_measurement(
+        tmp_path, orphan_raw=b'orphaned-failed-import-bytes'
+    )
+    db_path = data_dir / 'cad-scenes.sqlite3'
+    real_begin = storage_maintenance._begin_immediate
+    begins = {'n': 0}
+
+    def _resurrect_before_second_begin(connection, **kwargs):
+        begins['n'] += 1
+        if begins['n'] == 2:
+            # Mirror the repository write path — registry republish and
+            # reference inside one write exclusion — landing between GC's
+            # two transactions, where GC holds no lock.
+            writer = sqlite3.connect(db_path)
+            try:
+                writer.execute('BEGIN IMMEDIATE')
+                writer.execute(
+                    'INSERT OR IGNORE INTO cad_measurement_assets('
+                    'sha256, filename, relative_path, size_bytes'
+                    ') VALUES (?, ?, ?, ?)',
+                    (
+                        orphan,
+                        'raced-import.txt',
+                        f'{MANAGED_ASSETS_DIRNAME}/{orphan}',
+                        len(b'orphaned-failed-import-bytes'),
+                    ),
+                )
+                revision = writer.execute(
+                    'SELECT revision_id FROM scene_revisions'
+                ).fetchone()
+                writer.execute(
+                    '''INSERT INTO cad_measurements(
+                        measurement_id, document_id, scene_revision_id,
+                        scene_content_hash, measurement_entity_id,
+                        measurement_position_json,
+                        measurement_direction_json, evidence_type,
+                        channel_role, source_speaker_ids_json,
+                        radiation_scope, routing_evidence, captured_at,
+                        imported_at, source_kind, external_source_id,
+                        quality_status, quality_reasons_json,
+                        quality_source, provenance_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)''',
+                    (
+                        'm-resurrected',
+                        'doc-1',
+                        revision[0],
+                        'h',
+                        'point-mlp',
+                        '{}',
+                        'measured',
+                        'front_left',
+                        '[]',
+                        'point',
+                        'verified',
+                        '2026-09-20T00:00:00+00:00',
+                        'rew',
+                        None,
+                        'unverified',
+                        '[]',
+                        'import',
+                        f'{{"source_sha256": "{orphan}"}}',
+                    ),
+                )
+                writer.commit()
+            finally:
+                writer.close()
+        return real_begin(connection, **kwargs)
+
+    monkeypatch.setattr(
+        storage_maintenance,
+        '_begin_immediate',
+        _resurrect_before_second_begin,
+    )
+    result = run_storage_gc(data_dir)
+
+    assert result.deleted_files == 0
+    assert orphan in result.skipped_digests
+    assert (data_dir / MANAGED_ASSETS_DIRNAME / orphan).is_file()
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_measurement_assets WHERE sha256=?',
+            (orphan,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            'SELECT COUNT(*) FROM htdt_storage_gc_pending'
+        ).fetchone()[0] == 0
+    finally:
+        connection.close()
+    assert scan_storage(data_dir).missing_referenced == ()
+
+
 def test_gc_without_database_fails_closed(tmp_path):
     with pytest.raises(Exception):
         run_storage_gc(tmp_path / 'missing')

@@ -119,17 +119,24 @@ def test_db_failure_after_install_leaves_safe_orphan_asset(
     record, dataset, filename, source = _measurement(revision)
     digest = dataset.source_sha256
 
-    def refused_connect() -> sqlite3.Connection:
+    real_install = repository._asset_store.ensure_installed
+
+    def fail_after_install(digest_value: str, data: bytes) -> None:
+        # The install lands, then the write transaction fails around it —
+        # the row inserts roll back but the verified file must stay.
+        real_install(digest_value, data)
         raise sqlite3.OperationalError('simulated database outage')
 
-    monkeypatch.setattr(repository, '_connect', refused_connect)
+    monkeypatch.setattr(
+        repository._asset_store, 'ensure_installed', fail_after_install
+    )
     with pytest.raises(sqlite3.OperationalError, match='simulated database outage'):
         repository.save(record, dataset, raw_filename=filename, raw_bytes=source)
 
     # The complete, verified asset stays behind as a safe orphan.
     assert (repository.assets_dir / digest).read_bytes() == source
     assert _temp_leftovers(repository) == []
-    monkeypatch.delattr(repository, '_connect')
+    monkeypatch.delattr(repository._asset_store, 'ensure_installed')
     assert repository.get_measurement(record.measurement_id) is None
 
 
@@ -156,9 +163,9 @@ def test_failed_save_on_dedup_hit_never_removes_shared_asset(tmp_path: Path) -> 
 def test_concurrent_same_digest_save_cannot_orphan_committed_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Two racing saves of identical content both see the digest path as
-    missing and install it themselves; the loser must not delete the asset
-    that the winner's committed row references."""
+    """Two racing saves of identical content serialize on the write
+    exclusion — the loser dedups onto the winner's committed install and
+    must not delete the asset that the committed row references."""
     scene_repository, revision = _saved_f1(tmp_path)
     repository = CadMeasurementRepository(scene_repository)
     record, dataset, filename, source = _measurement(revision)
@@ -166,16 +173,15 @@ def test_concurrent_same_digest_save_cannot_orphan_committed_row(
     target = repository.assets_dir / digest
 
     barrier = threading.Barrier(2)
-    real_exists = Path.exists
+    real_connect = repository._connect
 
-    def forced_absent(path: Path) -> bool:
-        # Force both workers onto the install path before either proceeds.
-        if path == target:
-            barrier.wait(timeout=30)
-            return False
-        return real_exists(path)
+    def gated_connect() -> sqlite3.Connection:
+        # Release both workers together just before BEGIN IMMEDIATE so the
+        # write-lock race is genuinely concurrent.
+        barrier.wait(timeout=30)
+        return real_connect()
 
-    monkeypatch.setattr(Path, 'exists', forced_absent)
+    monkeypatch.setattr(repository, '_connect', gated_connect)
 
     results: list[object] = []
 
@@ -192,6 +198,7 @@ def test_concurrent_same_digest_save_cannot_orphan_committed_row(
     for thread in threads:
         thread.join(timeout=60)
         assert not thread.is_alive()
+    monkeypatch.delattr(repository, '_connect')
 
     assert results.count('ok') == 1
     failure = next(result for result in results if result != 'ok')
@@ -208,8 +215,8 @@ def test_concurrent_same_digest_save_cannot_orphan_committed_row(
 def test_concurrent_same_digest_distinct_measurements_share_single_asset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Same-digest saves for different measurements deduplicate onto one
-    installed asset and one asset row even when the installs race."""
+    """Same-digest saves for different measurements serialize on the write
+    exclusion and deduplicate onto one installed asset and one asset row."""
     scene_repository, revision = _saved_f1(tmp_path)
     repository = CadMeasurementRepository(scene_repository)
     record_a, dataset_a, filename_a, source = _measurement(revision, filename='a.txt')
@@ -218,15 +225,13 @@ def test_concurrent_same_digest_distinct_measurements_share_single_asset(
     target = repository.assets_dir / digest
 
     barrier = threading.Barrier(2)
-    real_exists = Path.exists
+    real_connect = repository._connect
 
-    def forced_absent(path: Path) -> bool:
-        if path == target:
-            barrier.wait(timeout=30)
-            return False
-        return real_exists(path)
+    def gated_connect() -> sqlite3.Connection:
+        barrier.wait(timeout=30)
+        return real_connect()
 
-    monkeypatch.setattr(Path, 'exists', forced_absent)
+    monkeypatch.setattr(repository, '_connect', gated_connect)
 
     results: list[object] = []
 
@@ -246,6 +251,7 @@ def test_concurrent_same_digest_distinct_measurements_share_single_asset(
     for thread in threads:
         thread.join(timeout=60)
         assert not thread.is_alive()
+    monkeypatch.delattr(repository, '_connect')
 
     assert results.count('ok') == 2
     assert target.read_bytes() == source
@@ -316,13 +322,18 @@ def test_orphaned_asset_from_failed_save_is_reused_by_retry(
     record, dataset, filename, source = _measurement(revision)
     digest = dataset.source_sha256
 
-    def refused_connect() -> sqlite3.Connection:
+    real_install = repository._asset_store.ensure_installed
+
+    def fail_after_install(digest_value: str, data: bytes) -> None:
+        real_install(digest_value, data)
         raise sqlite3.OperationalError('simulated database outage')
 
-    monkeypatch.setattr(repository, '_connect', refused_connect)
+    monkeypatch.setattr(
+        repository._asset_store, 'ensure_installed', fail_after_install
+    )
     with pytest.raises(sqlite3.OperationalError):
         repository.save(record, dataset, raw_filename=filename, raw_bytes=source)
-    monkeypatch.delattr(repository, '_connect')
+    monkeypatch.delattr(repository._asset_store, 'ensure_installed')
 
     repository.save(record, dataset, raw_filename=filename, raw_bytes=source)
 

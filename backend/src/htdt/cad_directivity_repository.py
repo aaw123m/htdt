@@ -297,9 +297,6 @@ class CadDirectivityRepository:
                     'directivity source filename is required when persisting '
                     'source bytes'
                 )
-            # Install before the transaction: a failed commit leaves a safe
-            # content-addressed orphan rather than a partially written file.
-            self._asset_store.ensure_installed(digest, source_bytes)
             bound_source = source_bytes
         else:
             bound_source = self._verified_source_asset(digest)
@@ -318,6 +315,11 @@ class CadDirectivityRepository:
         target = self._asset_store.asset_path(digest)
         with closing(self._connect()) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
+            # Install under the same write exclusion as the row inserts so
+            # the republish is atomic against storage GC's delete window; a
+            # failed commit leaves a safe content-addressed orphan rather
+            # than a partially written file.
+            self._asset_store.ensure_installed(digest, bound_source)
             existing = connection.execute(
                 """
                 SELECT payload_json

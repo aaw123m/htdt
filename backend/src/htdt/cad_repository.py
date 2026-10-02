@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 import sqlite3
 import threading
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 import weakref
 from uuid import uuid4
 
@@ -53,33 +53,73 @@ class _SharedReadConnection:
     borrow to unwind instead of closing mid-read. A proxy already handed
     out when its slot is released re-opens lazily on next use — the pool
     slot was cleared, so the reopened handle is a one-off for that borrow.
+
+    Lazy re-opens honor the per-root re-open fence (see
+    ``fenced_read_reopens_under``): while a file-swap layer holds the fence
+    for this root, a re-open waits for the swap window to end so the new
+    handle always lands on the post-swap file — never holding the target
+    open mid-rename (WinError 32 on Windows). The fence wait happens
+    *before* ``_borrow_lock`` is taken: the release path needs that lock,
+    so waiting while holding it would deadlock the swap.
     """
 
-    def __init__(self, connect: Callable[[], sqlite3.Connection]) -> None:
+    def __init__(
+        self,
+        connect: Callable[[], sqlite3.Connection],
+        *,
+        reopen_root: Path | None = None,
+    ) -> None:
         self._connect_factory = connect
+        self._reopen_root = reopen_root
         self._inner = connect()
         self._borrow_lock = threading.RLock()
         self._closed = False
 
+    def _reopen(self) -> None:
+        """Re-open after a release, waiting out any swap fence on the root."""
+        if self._reopen_root is None:
+            fences: list[_ReopenFence] = []
+        else:
+            fences = _reopen_fences_for(self._reopen_root)
+        while True:
+            for fence in fences:
+                fence.wait()
+            with self._borrow_lock:
+                if not self._closed:
+                    return
+                if any(
+                    fence.held()
+                    for fence in _reopen_fences_for(self._reopen_root)
+                ):
+                    # A swap fenced an ancestor between our wait and the
+                    # borrow: loop out and wait that window out too —
+                    # never wait inside _borrow_lock, the release needs it.
+                    continue
+                self._inner = self._connect_factory()
+                self._closed = False
+                return
+
     def __getattr__(self, name):
         if self._closed:
-            with self._borrow_lock:
-                if self._closed:
-                    self._inner = self._connect_factory()
-                    self._closed = False
+            self._reopen()
         return getattr(self._inner, name)
 
     def __enter__(self):
-        self._borrow_lock.acquire()
-        try:
+        while True:
             if self._closed:
-                self._inner = self._connect_factory()
-                self._closed = False
-            self._inner.__enter__()
-        except BaseException:
-            self._borrow_lock.release()
-            raise
-        return self._inner
+                self._reopen()
+            self._borrow_lock.acquire()
+            if self._closed:
+                # A release landed between the fence check and the borrow:
+                # loop back so the re-open waits on that swap's fence.
+                self._borrow_lock.release()
+                continue
+            try:
+                self._inner.__enter__()
+            except BaseException:
+                self._borrow_lock.release()
+                raise
+            return self._inner
 
     def __exit__(self, exc_type, exc, tb):
         try:
@@ -112,6 +152,91 @@ class _SharedReadConnection:
 # repository registers here so those layers can force pooled read
 # handles closed before mutating the managed tree.
 _LIVE_REPOSITORIES: weakref.WeakSet = weakref.WeakSet()
+
+
+class _ReopenFence:
+    """Counted gate holding lazy read-handle re-opens for one data root.
+
+    File-swap layers take ``hold`` for the whole release -> replace/rename
+    window; ``wait`` (called on every lazy re-open path) blocks until the
+    last hold releases, so a reader cannot win a re-open inside the swap.
+    Holds are counted and never block, so nesting — e.g. restore_backup's
+    outer fence plus recover_interrupted_restore's inner one — is safe and
+    order-free.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._count = 0
+
+    def hold(self) -> None:
+        with self._condition:
+            self._count += 1
+
+    def release(self) -> None:
+        with self._condition:
+            self._count -= 1
+            if self._count <= 0:
+                self._count = 0
+                self._condition.notify_all()
+
+    def wait(self) -> None:
+        with self._condition:
+            while self._count:
+                self._condition.wait()
+
+    def held(self) -> bool:
+        with self._condition:
+            return self._count > 0
+
+
+_REOPEN_FENCES_LOCK = threading.Lock()
+_REOPEN_FENCES: dict[Path, _ReopenFence] = {}
+
+
+def _reopen_fence(root: Path) -> _ReopenFence:
+    key = Path(root).resolve()
+    with _REOPEN_FENCES_LOCK:
+        fence = _REOPEN_FENCES.get(key)
+        if fence is None:
+            fence = _ReopenFence()
+            _REOPEN_FENCES[key] = fence
+        return fence
+
+
+def _reopen_fences_for(path: Path) -> list[_ReopenFence]:
+    """Every existing fence on ``path`` or an ancestor.
+
+    ``release_read_handles_under`` releases a repository whose database
+    file sits anywhere below the swap root, so a swap may fence any
+    ancestor of a repository's parent directory — a reader must wait on
+    all of them, not just its own root's.
+    """
+    resolved = Path(path).resolve()
+    keys = [resolved, *resolved.parents]
+    with _REOPEN_FENCES_LOCK:
+        return [_REOPEN_FENCES[k] for k in keys if k in _REOPEN_FENCES]
+
+
+@contextmanager
+def fenced_read_reopens_under(data_dir: Path) -> Iterator[None]:
+    """Fence lazy read-handle re-opens for everything under ``data_dir``.
+
+    A swap layer wraps the release -> replace/rename window in this: after
+    ``release_read_handles_under`` returns, a reader that lazily re-opens
+    waits here until the swap completes, then opens the post-swap file.
+    """
+    fence = _reopen_fence(data_dir)
+    fence.hold()
+    try:
+        yield
+    finally:
+        fence.release()
+
+
+def wait_for_read_reopen(root: Path) -> None:
+    """Block while a swap layer fences re-opens for ``root``; no-op otherwise."""
+    _reopen_fence(root).wait()
 
 
 def release_read_handles_under(data_dir: Path) -> int:
@@ -405,6 +530,9 @@ class SceneRepository:
         # relocation worker when the swap needs the file handles back.
         self._read_connections: dict[int, _SharedReadConnection] = {}
         self._read_connections_lock = threading.Lock()
+        # Re-open fences key on this root — the directory file-swap layers
+        # hand to fenced_read_reopens_under/release_read_handles_under.
+        self._data_root = self.path.parent.resolve()
         _LIVE_REPOSITORIES.add(self)
         self._initialize()
 
@@ -413,14 +541,33 @@ class SceneRepository:
 
     def _read(self) -> sqlite3.Connection:
         ident = threading.get_ident()
-        with self._read_connections_lock:
-            connection = self._read_connections.get(ident)
-            if connection is None:
-                connection = _SharedReadConnection(
-                    lambda: connect_sqlite(self.path, check_same_thread=False)
-                )
-                self._read_connections[ident] = connection
-        return connection
+        # A swap layer fencing this root makes a fresh pooled handle wait —
+        # opening it now would hold the swap target open mid-rename. The
+        # fence wait precedes the dict lock because release needs it, and
+        # the held() recheck inside the lock keeps a fence taken between
+        # the two from slipping a new handle past the release snapshot.
+        fences = _reopen_fences_for(self._data_root)
+        while True:
+            for fence in fences:
+                fence.wait()
+            with self._read_connections_lock:
+                # Recompute inside the lock: a fence created after the
+                # wait — one this snapshot never saw — must still gate.
+                if any(
+                    fence.held()
+                    for fence in _reopen_fences_for(self._data_root)
+                ):
+                    continue
+                connection = self._read_connections.get(ident)
+                if connection is None:
+                    connection = _SharedReadConnection(
+                        lambda: connect_sqlite(
+                            self.path, check_same_thread=False
+                        ),
+                        reopen_root=self._data_root,
+                    )
+                    self._read_connections[ident] = connection
+                return connection
 
     def close(self) -> None:
         """Release every pooled read connection this repository holds.

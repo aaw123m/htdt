@@ -690,101 +690,112 @@ def _recover_journal_locked(
     # The renames below move whole directories containing the live
     # database; a pooled read connection inside any of them fails the
     # rename with WinError 32 on Windows (the same class restore guards
-    # against). Releasing is safe — reads re-open lazily.
-    from .cad_repository import release_read_handles_under
+    # against). Releasing is safe — reads re-open lazily — and the re-open
+    # fences keep those lazy re-opens from winning the race back open
+    # before the renames land.
+    from .cad_repository import (
+        fenced_read_reopens_under,
+        release_read_handles_under,
+    )
 
-    for swap_root in (source, destination, staged, parked):
-        release_read_handles_under(swap_root)
-
-    if journal.phase == 'COMPLETED':
-        journal_path.unlink(missing_ok=True)
-        return events
-
-    destination_database = destination / DATABASE_NAME
-    if (
-        not destination_database.is_file()
-        and journal.phase != 'PREPARED'
-        and _staged_database(journal).is_file()
+    with (
+        fenced_read_reopens_under(source),
+        fenced_read_reopens_under(destination),
+        fenced_read_reopens_under(staged),
+        fenced_read_reopens_under(parked),
     ):
-        # The promotion rename never fsync'd into the journal: promote the
-        # verified staged copy now. A PREPARED journal means the copy phase
-        # died before verification ever ran — that staged root is
-        # unverified and disposable (it falls to the abort path below),
-        # never promotable even when it happens to contain a database.
-        _verify_staged_root(staged)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(staged, destination)
-        events.append(
-            RelocationRecoveryEvent(
-                'destination_promoted',
-                f'verified staged copy promoted to {destination}',
-            )
-        )
+        for swap_root in (source, destination, staged, parked):
+            release_read_handles_under(swap_root)
 
-    if not destination_database.is_file():
-        if journal.phase in (
-            'DESTINATION_PROMOTED',
-            'SOURCE_PARKED',
-            'BOOTSTRAP_SWITCHED',
-        ):
-            # The journal claims a promoted destination that does not
-            # exist — roll the source back to its original name so the
-            # pre-relocation generation is what the next launch sees.
-            if not source.is_dir() and parked.is_dir():
-                os.replace(parked, source)
-                events.append(
-                    RelocationRecoveryEvent(
-                        'source_restored',
-                        f'parked source restored to {source}',
-                    )
-                )
+        if journal.phase == 'COMPLETED':
             journal_path.unlink(missing_ok=True)
-            raise DataRelocationError(
-                f'relocation journal records phase {journal.phase} but '
-                f'{destination} has no database; rolled the source back '
-                f'to {source} and cleared the transaction'
+            return events
+
+        destination_database = destination / DATABASE_NAME
+        if (
+            not destination_database.is_file()
+            and journal.phase != 'PREPARED'
+            and _staged_database(journal).is_file()
+        ):
+            # The promotion rename never fsync'd into the journal: promote the
+            # verified staged copy now. A PREPARED journal means the copy phase
+            # died before verification ever ran — that staged root is
+            # unverified and disposable (it falls to the abort path below),
+            # never promotable even when it happens to contain a database.
+            _verify_staged_root(staged)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(staged, destination)
+            events.append(
+                RelocationRecoveryEvent(
+                    'destination_promoted',
+                    f'verified staged copy promoted to {destination}',
+                )
             )
-        # Copy never reached promotion: the source was never touched and
-        # the partial staged copy is disposable.
-        if staged.is_dir():
-            shutil.rmtree(staged, ignore_errors=True)
+
+        if not destination_database.is_file():
+            if journal.phase in (
+                'DESTINATION_PROMOTED',
+                'SOURCE_PARKED',
+                'BOOTSTRAP_SWITCHED',
+            ):
+                # The journal claims a promoted destination that does not
+                # exist — roll the source back to its original name so the
+                # pre-relocation generation is what the next launch sees.
+                if not source.is_dir() and parked.is_dir():
+                    os.replace(parked, source)
+                    events.append(
+                        RelocationRecoveryEvent(
+                            'source_restored',
+                            f'parked source restored to {source}',
+                        )
+                    )
+                journal_path.unlink(missing_ok=True)
+                raise DataRelocationError(
+                    f'relocation journal records phase {journal.phase} but '
+                    f'{destination} has no database; rolled the source back '
+                    f'to {source} and cleared the transaction'
+                )
+            # Copy never reached promotion: the source was never touched and
+            # the partial staged copy is disposable.
+            if staged.is_dir():
+                shutil.rmtree(staged, ignore_errors=True)
+            journal_path.unlink(missing_ok=True)
+            events.append(
+                RelocationRecoveryEvent(
+                    'aborted_before_promotion',
+                    f'pre-cutover residue cleared (phase {journal.phase})',
+                )
+            )
+            return events
+
+        # Destination holds a verified generation — finish the cutover.
+        _verify_staged_root(destination)
+        if source.is_dir():
+            os.replace(source, parked)
+            events.append(
+                RelocationRecoveryEvent(
+                    'source_parked', f'source parked at {parked}'
+                )
+            )
+        save_bootstrap_config(
+            HTDTBootstrapConfig(
+                data_dir=str(destination), written_at_utc=_utc_now()
+            ),
+            bootstrap_path,
+        )
+        _write_relocation_journal(
+            journal.model_copy(
+                update={'phase': 'COMPLETED', 'updated_at_utc': _utc_now()}
+            ),
+            journal_path,
+        )
         journal_path.unlink(missing_ok=True)
         events.append(
             RelocationRecoveryEvent(
-                'aborted_before_promotion',
-                f'pre-cutover residue cleared (phase {journal.phase})',
+                'completed',
+                f'cutover completed; bootstrap points at {destination}',
             )
         )
-        return events
-
-    # Destination holds a verified generation — finish the cutover.
-    _verify_staged_root(destination)
-    if source.is_dir():
-        os.replace(source, parked)
-        events.append(
-            RelocationRecoveryEvent(
-                'source_parked', f'source parked at {parked}'
-            )
-        )
-    save_bootstrap_config(
-        HTDTBootstrapConfig(
-            data_dir=str(destination), written_at_utc=_utc_now()
-        ),
-        bootstrap_path,
-    )
-    _write_relocation_journal(
-        journal.model_copy(
-            update={'phase': 'COMPLETED', 'updated_at_utc': _utc_now()}
-        ),
-        journal_path,
-    )
-    journal_path.unlink(missing_ok=True)
-    events.append(
-        RelocationRecoveryEvent(
-            'completed',
-            f'cutover completed; bootstrap points at {destination}',
-        )
-    )
     return events
 
 
@@ -879,7 +890,10 @@ def execute_data_relocation(
             # tree is the resolved generation, not a mid-swap artifact.
             # Deferred import keeps cad_repository out of this module's
             # import-time dependency graph.
-            from .cad_repository import release_read_handles_under
+            from .cad_repository import (
+                fenced_read_reopens_under,
+                release_read_handles_under,
+            )
 
             recover_interrupted_restore(source_dir)
 
@@ -992,44 +1006,58 @@ def execute_data_relocation(
             # the locator does not describe. Pooled read connections are
             # in-process handles the instance lock cannot see — release
             # them as well or the source rename fails with WinError 32.
-            release_read_handles_under(source_dir)
-            guard.release()
-            destination_dir.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staged, destination_dir)
-            journal = _journal_with_phase(
-                journal, 'DESTINATION_PROMOTED', journal_path
-            )
-            try:
-                os.replace(source_dir, parked)
-            except OSError as exc:
-                raise DataRelocationError(
-                    f'the verified copy is live at {destination_dir}, but '
-                    f'the old source directory {source_dir} could not be '
-                    f'parked: {exc}. The relocation journal will recover '
-                    'the cutover on the next startup.'
-                ) from exc
-            journal = _journal_with_phase(
-                journal, 'SOURCE_PARKED', journal_path
-            )
-
-            # Point the bootstrap config at the new root.
-            try:
-                save_bootstrap_config(
-                    HTDTBootstrapConfig(
-                        data_dir=str(destination_dir),
-                        written_at_utc=_utc_now(),
-                    ),
-                    bootstrap_path,
+            # The re-open fences keep a lazy re-open from winning the race
+            # back open before the renames land.
+            with (
+                fenced_read_reopens_under(source_dir),
+                fenced_read_reopens_under(destination_dir),
+                fenced_read_reopens_under(staged),
+                fenced_read_reopens_under(parked),
+            ):
+                for swap_root in (
+                    source_dir,
+                    destination_dir,
+                    staged,
+                    parked,
+                ):
+                    release_read_handles_under(swap_root)
+                guard.release()
+                destination_dir.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(staged, destination_dir)
+                journal = _journal_with_phase(
+                    journal, 'DESTINATION_PROMOTED', journal_path
                 )
-            except OSError as exc:
-                raise DataRelocationError(
-                    'the relocated generation is live at '
-                    f'{destination_dir} and the source is parked at '
-                    f'{parked}, but the bootstrap pointer could not be '
-                    f'written: {exc}. The relocation journal will finish '
-                    'the switch on the next startup — no default data '
-                    'universe will be created.'
-                ) from exc
+                try:
+                    os.replace(source_dir, parked)
+                except OSError as exc:
+                    raise DataRelocationError(
+                        f'the verified copy is live at {destination_dir}, but '
+                        f'the old source directory {source_dir} could not be '
+                        f'parked: {exc}. The relocation journal will recover '
+                        'the cutover on the next startup.'
+                    ) from exc
+                journal = _journal_with_phase(
+                    journal, 'SOURCE_PARKED', journal_path
+                )
+
+                # Point the bootstrap config at the new root.
+                try:
+                    save_bootstrap_config(
+                        HTDTBootstrapConfig(
+                            data_dir=str(destination_dir),
+                            written_at_utc=_utc_now(),
+                        ),
+                        bootstrap_path,
+                    )
+                except OSError as exc:
+                    raise DataRelocationError(
+                        'the relocated generation is live at '
+                        f'{destination_dir} and the source is parked at '
+                        f'{parked}, but the bootstrap pointer could not be '
+                        f'written: {exc}. The relocation journal will finish '
+                        'the switch on the next startup — no default data '
+                        'universe will be created.'
+                    ) from exc
             journal = _journal_with_phase(
                 journal, 'BOOTSTRAP_SWITCHED', journal_path
             )
