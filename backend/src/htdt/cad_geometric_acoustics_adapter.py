@@ -1418,6 +1418,45 @@ class HtdtPortalSpecularGraphEngine:
         )
 
 
+# ``engine_id`` is the engine-family id: several implementations share one
+# family and are distinguished by ``engine_version``. The (id, version)
+# pair — not the id alone — names one exact solver implementation, and
+# every artifact/digest/provenance surface carries both fields.
+_ENGINE_SOLVER_REF_BY_ID_VERSION = {
+    (
+        HTDT_PLANAR_ENGINE_ID,
+        HTDT_PLANAR_ENGINE_VERSION,
+    ): HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
+    (
+        HTDT_PLANAR_ENGINE_ID,
+        HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION,
+    ): HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
+    (
+        HTDT_PORTAL_DIRECT_ENGINE_ID,
+        HTDT_PORTAL_DIRECT_ENGINE_VERSION,
+    ): HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
+    (
+        HTDT_PORTAL_DIRECT_ENGINE_ID,
+        HTDT_PORTAL_GRAPH_DIRECT_ENGINE_VERSION,
+    ): HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF,
+    (
+        HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
+        HTDT_PORTAL_FIRST_ORDER_ENGINE_VERSION,
+    ): HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF,
+    (
+        HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
+        HTDT_PORTAL_SPECULAR_GRAPH_ENGINE_VERSION,
+    ): HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF,
+    (
+        PYROOMACOUSTICS_ENGINE_ID,
+        PYROOMACOUSTICS_ENGINE_VERSION,
+    ): PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
+}
+_REGISTERED_ENGINE_IDS = frozenset(
+    engine_id for engine_id, _version in _ENGINE_SOLVER_REF_BY_ID_VERSION
+)
+
+
 class PyroomacousticsImageSourceEngine:
     """Candidate engine bridge. pyroomacoustics objects never cross this adapter."""
 
@@ -1918,13 +1957,8 @@ def _compile_single_portal_execution_input_legacy(
     if any(value <= 0.0 for value in dimensions):
         raise ValueError('R120 bounding dimensions must be positive')
 
-    object_triangle_indices = tuple(
-        sorted(
-            index
-            for mapping in compiled_geometry.surface_mapping
-            if mapping.semantic_class != 'room_boundary'
-            for index in mapping.compiled_triangle_indices
-        )
+    object_triangle_indices = _occluder_object_triangle_indices(
+        compiled_geometry
     )
     core: dict[str, Any] = {
         'schema_version': DETERMINISTIC_GA_SCHEMA_VERSION,
@@ -2293,13 +2327,8 @@ def _compile_multi_region_portal_execution_input(
     if any(value <= 0.0 for value in dimensions):
         raise ValueError('R120 bounding dimensions must be positive')
 
-    object_triangle_indices = tuple(
-        sorted(
-            index
-            for mapping in compiled_geometry.surface_mapping
-            if mapping.semantic_class != 'room_boundary'
-            for index in mapping.compiled_triangle_indices
-        )
+    object_triangle_indices = _occluder_object_triangle_indices(
+        compiled_geometry
     )
     reflection_planes: tuple[GeometricSurfacePlane, ...] = ()
     if configuration.maximum_reflection_order >= 1:
@@ -2755,13 +2784,8 @@ def compile_deterministic_ga_execution_input(
     if not source_inputs or not receiver_inputs:
         raise ValueError('deterministic GA execution requires source and receiver authority')
 
-    object_triangle_indices = tuple(
-        sorted(
-            index
-            for mapping in compiled_geometry.surface_mapping
-            if mapping.semantic_class != 'room_boundary'
-            for index in mapping.compiled_triangle_indices
-        )
+    object_triangle_indices = _occluder_object_triangle_indices(
+        compiled_geometry
     )
     origin = Position3(
         x_m=bounds.min_x_m,
@@ -3025,6 +3049,19 @@ def _point_in_triangle_prepared(
     u = (dot11 * dot02 - dot01 * dot12) * inverse
     v = (dot00 * dot12 - dot01 * dot02) * inverse
     return u >= -tolerance and v >= -tolerance and u + v <= 1.0 + tolerance
+
+
+def _occluder_object_triangle_indices(
+    compiled_geometry: R120CompiledGeometry,
+) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            index
+            for mapping in compiled_geometry.surface_mapping
+            if mapping.semantic_class != 'room_boundary'
+            for index in mapping.compiled_triangle_indices
+        )
+    )
 
 
 def _occluder_triangles(
@@ -5157,6 +5194,18 @@ def execute_deterministic_ga(
             'candidate engine exact solver implementation authority does not '
             'match the READY dispatch execution input'
         )
+    if engine.engine_id in _REGISTERED_ENGINE_IDS:
+        registered_ref = _ENGINE_SOLVER_REF_BY_ID_VERSION.get(
+            (engine.engine_id, engine.engine_version)
+        )
+        if (
+            registered_ref is None
+            or engine.solver_implementation_ref != registered_ref
+        ):
+            raise ValueError(
+                'candidate engine id/version pair does not reproduce the '
+                'registered exact solver implementation authority'
+            )
     if (
         compiled_geometry.compiled_geometry_id
         != execution_input.r120_compiled_geometry_id
@@ -5167,6 +5216,13 @@ def execute_deterministic_ga(
     ):
         raise ValueError('GA execution compiled geometry exact identity mismatch')
     _require_supported_feature_scale(compiled_geometry)
+    if execution_input.occluder_triangle_indices != (
+        _occluder_object_triangle_indices(compiled_geometry)
+    ):
+        raise ValueError(
+            'execution input occluder triangle set does not reproduce the '
+            'compiled geometry authority'
+        )
 
     dataset_by_hash = {item.semantic_sha256: item for item in directivity_datasets}
     origin = _position_tuple(execution_input.room_origin_m)

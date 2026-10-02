@@ -15,6 +15,7 @@ ProjectTemplate instead of an empty scene.
 from __future__ import annotations
 
 import dataclasses
+from contextlib import closing
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
@@ -243,10 +244,11 @@ class CommissioningWizard(QDialog):
 
     def _other_documents(self) -> tuple[str, ...]:
         try:
-            rows = self.repository._connect().execute(
-                'SELECT document_id FROM scene_document_heads'
-                ' ORDER BY document_id'
-            ).fetchall()
+            with closing(self.repository._read()) as connection, connection:
+                rows = connection.execute(
+                    'SELECT document_id FROM scene_document_heads'
+                    ' ORDER BY document_id'
+                ).fetchall()
             return tuple(
                 row[0] for row in rows if row[0] != self.current_document_id
             )

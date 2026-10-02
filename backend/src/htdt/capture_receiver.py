@@ -123,6 +123,10 @@ MISSION_LISTING_MAX_BYTES = 256 * 1024
 DEFAULT_RECEIVER_PORT = 8443
 PAIRING_TTL_MINUTES = 10
 
+# Serializes identity minting and pin reconciliation across service objects
+# in this process; a sqlite IntegrityError still covers cross-process races.
+_CONFIG_LOCK = threading.Lock()
+
 
 class CaptureReceiverError(ValueError):
     pass
@@ -378,26 +382,46 @@ class CaptureReceiverService:
 
     def get_config(self) -> CaptureReceiverConfig:
         """Load (or lazily mint) the durable receiver identity."""
-        row = self._config_row()
-        if row is None:
-            receiver_instance_id = str(uuid.uuid4())
-            cert_pem, _key_pem = self._ensure_certificate()
-            pinned = cert_pin_from_pem(cert_pem)
-            with closing(self._connect()) as connection, connection:
-                connection.execute(
-                    'INSERT INTO capture_receiver_config('
-                    'id, receiver_instance_id, display_name, host, port, '
-                    'enabled, pinned_identity) VALUES (1, ?, ?, ?, ?, 0, ?)',
-                    (
-                        receiver_instance_id,
-                        'HTDT Receiver',
-                        '0.0.0.0',
-                        DEFAULT_RECEIVER_PORT,
-                        pinned,
-                    ),
-                )
+        with _CONFIG_LOCK:
             row = self._config_row()
-        assert row is not None
+            if row is None:
+                receiver_instance_id = str(uuid.uuid4())
+                cert_pem, _key_pem = self._ensure_certificate()
+                pinned = cert_pin_from_pem(cert_pem)
+                try:
+                    with closing(self._connect()) as connection, connection:
+                        connection.execute(
+                            'INSERT INTO capture_receiver_config('
+                            'id, receiver_instance_id, display_name, host, port, '
+                            'enabled, pinned_identity) VALUES (1, ?, ?, ?, ?, 0, ?)',
+                            (
+                                receiver_instance_id,
+                                'HTDT Receiver',
+                                '0.0.0.0',
+                                DEFAULT_RECEIVER_PORT,
+                                pinned,
+                            ),
+                        )
+                except sqlite3.IntegrityError:
+                    # A concurrent first call minted the row first; its
+                    # identity stands and is re-read below.
+                    pass
+                row = self._config_row()
+            assert row is not None
+            cert_pem, _key_pem = self._ensure_certificate()
+            live_pin = cert_pin_from_pem(cert_pem)
+            if row['pinned_identity'] != live_pin:
+                # The served credential is the live artifact; a silent
+                # regeneration (deleted/torn files) leaves the stored pin
+                # stale until reconciled here.
+                with closing(self._connect()) as connection, connection:
+                    connection.execute(
+                        'UPDATE capture_receiver_config '
+                        'SET pinned_identity=? WHERE id=1',
+                        (live_pin,),
+                    )
+                row = self._config_row()
+                assert row is not None
         return CaptureReceiverConfig(
             receiver_instance_id=row['receiver_instance_id'],
             display_name=row['display_name'],
@@ -430,14 +454,25 @@ class CaptureReceiverService:
         key_path = self._data_dir / 'receiver-key.pem'
         try:
             if cert_path.exists() and key_path.exists():
-                return (
-                    read_file_bounded(
-                        cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
-                    ),
-                    read_file_bounded(
-                        key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
-                    ),
-                )
+                # A torn pair (interrupted promote, manual splice) passes
+                # the exists-guard but cannot load; regenerate it so every
+                # caller sees a consistent credential.
+                try:
+                    ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(
+                        str(cert_path), str(key_path)
+                    )
+                except ssl.SSLError:
+                    cert_path.unlink(missing_ok=True)
+                    key_path.unlink(missing_ok=True)
+                else:
+                    return (
+                        read_file_bounded(
+                            cert_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS certificate'
+                        ),
+                        read_file_bounded(
+                            key_path, TLS_CREDENTIAL_MAX_BYTES, label='TLS private key'
+                        ),
+                    )
             # openssl writes the pair non-atomically; stage beside the
             # canonical names and promote, or a torn credential survives
             # under the exists-guard and bricks every later start.

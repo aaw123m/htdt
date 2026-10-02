@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
 
 from .build_info import version_string
 from .cad_repository import SceneRepository
-from .cad_schema import connect_sqlite
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -87,6 +86,7 @@ class ProjectLibraryService:
         project_library: ProjectLibraryRepository | None = None,
     ) -> None:
         self.path = Path(repository.path)
+        self._repository = repository
         self._project_library = project_library or ProjectLibraryRepository(
             repository
         )
@@ -147,7 +147,7 @@ class ProjectLibraryService:
         if not self.path.is_file():
             return {}
         try:
-            with closing(connect_sqlite(self.path)) as connection:
+            with closing(self._repository._read()) as connection, connection:
                 rows = connection.execute(
                     """
                     SELECT h.document_id AS document_id,
@@ -1139,7 +1139,7 @@ def list_recent_revisions(repository: SceneRepository, limit: int = 50) -> tuple
     if not path.is_file():
         return ()
     try:
-        with closing(connect_sqlite(path)) as connection:
+        with closing(repository._read()) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT created_at_utc, document_id, revision_id

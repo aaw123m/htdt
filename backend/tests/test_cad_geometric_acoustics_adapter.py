@@ -64,6 +64,12 @@ from htdt.cad_geometric_acoustics_adapter import (
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
     PyroomacousticsImageSourceEngine,
+    GeometricSurfacePlane,
+    HTDT_PLANAR_ENGINE_ID,
+    HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION,
+    _ENGINE_SOLVER_REF_BY_ID_VERSION,
+    _segment_grazes_plane,
+    _semantic_hash,
     _point_in_triangle,
     _point_in_triangle_prepared,
     _point_on_triangle_surface,
@@ -3941,3 +3947,106 @@ def test_huge_directivity_magnitude_rejected_not_crash(tmp_path: Path) -> None:
         for path in artifact.paths
         for band in path.bands
     )
+
+
+def test_engine_id_version_pairs_are_unique_and_registered() -> None:
+    """engine_id is a family id; only (id, version) names an implementation."""
+    engines = (
+        HtdtPlanarImageSourceEngine(maximum_reflection_order=1),
+        HtdtPlanarImageSourceEngine(maximum_reflection_order=2),
+        HtdtPortalDirectEngine(),
+        HtdtPortalGraphDirectEngine(),
+        HtdtPortalFirstOrderReflectionEngine(),
+        HtdtPortalSpecularGraphEngine(),
+        PyroomacousticsImageSourceEngine(),
+    )
+    pairs = [(e.engine_id, e.engine_version) for e in engines]
+    assert len(set(pairs)) == len(pairs)
+    for engine in engines:
+        assert (
+            _ENGINE_SOLVER_REF_BY_ID_VERSION[
+                (engine.engine_id, engine.engine_version)
+            ]
+            == engine.solver_implementation_ref
+        )
+
+
+def test_registered_engine_id_with_mismatched_version_ref_rejected(
+    tmp_path: Path,
+) -> None:
+    """An engine claiming a registered family id must declare the paired ref."""
+    fx = _fixture(tmp_path, room_policy=GENERAL_POLICY)
+
+    class _MismatchedEngine(FixtureImageEngine):
+        engine_id = HTDT_PLANAR_ENGINE_ID
+        engine_version = HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION
+        solver_implementation_ref = HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF
+
+    with pytest.raises(ValueError, match='id/version pair'):
+        _execute(fx, engine=_MismatchedEngine())
+
+
+def test_segment_grazes_plane_honours_tolerance_boundaries() -> None:
+    plane = GeometricSurfacePlane(
+        source_surface_id='semantic-surface:' + '0' * 64,
+        point_m=Position3(x_m=0.0, y_m=0.0, z_m=0.0),
+        normal=Direction3(x=1.0, y=0.0, z=0.0),
+        compiled_triangle_indices=(0,),
+        material_authority=None,
+    )
+    tolerance = 0.01
+    assert _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.005, 0.0, 0.0), plane, tolerance=tolerance
+    )
+    assert not _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.5, 0.0, 0.0), plane, tolerance=tolerance
+    )
+    assert _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.0, 1.0, 0.0), plane, tolerance=tolerance
+    )
+    assert _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.009, 0.9999595, 0.0), plane, tolerance=tolerance
+    )
+    assert not _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.011, 0.9999395, 0.0), plane, tolerance=tolerance
+    )
+    # tolerance/length ratio is clamped at 0.25 for short segments
+    assert _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.0072, 0.02913, 0.0), plane, tolerance=tolerance
+    )
+    assert not _segment_grazes_plane(
+        (0.0, 0.0, 0.0), (0.0078, 0.02897, 0.0), plane, tolerance=tolerance
+    )
+
+
+def test_wall_hugging_endpoint_rejected_at_execution_input_compile(
+    tmp_path: Path,
+) -> None:
+    """Endpoint inside tolerance of a boundary is ambiguous at compile time —
+    the first-order legs can never graze the reflection plane."""
+    with pytest.raises(
+        DeterministicGaUnsupportedError, match='membership=boundary'
+    ):
+        _fixture(
+            tmp_path,
+            room_policy=GENERAL_POLICY,
+            source_position=Position3(x_m=5.0e-10, y_m=1.0, z_m=1.0),
+        )
+
+
+def test_occluder_triangle_indices_mismatch_rejected(tmp_path: Path) -> None:
+    fx = _fixture(tmp_path, room_policy=GENERAL_POLICY, occluder=True)
+    execution_input = fx['execution_input']
+    assert execution_input.occluder_triangle_indices
+    lying = execution_input.model_copy(
+        update={'occluder_triangle_indices': ()}
+    )
+    digest = _semantic_hash(lying.semantic_payload())
+    fx['execution_input'] = lying.model_copy(
+        update={
+            'semantic_sha256': digest,
+            'execution_input_id': f'r150-ga-execution-input:{digest}',
+        }
+    )
+    with pytest.raises(ValueError, match='occluder triangle set'):
+        _execute(fx)

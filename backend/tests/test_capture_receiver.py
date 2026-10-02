@@ -31,6 +31,7 @@ from htdt.capture_receiver import (
     CaptureReceiverError,
     CaptureReceiverService,
     cert_pin_from_pem,
+    generate_self_signed_cert,
     verification_code,
 )
 
@@ -597,4 +598,71 @@ class TestHttpsEndpoint:
         assert (
             service2.get_config().receiver_instance_id
             == config.receiver_instance_id
+        )
+
+    def test_config_pin_reconciles_after_silent_cert_regeneration(
+        self, tmp_path
+    ):
+        _i, _b, _r, service = _rig(tmp_path)
+        config = service.get_config()
+        cert_path = tmp_path / 'receiver' / 'receiver-cert.pem'
+        key_path = tmp_path / 'receiver' / 'receiver-key.pem'
+        stale_pin = config.pinned_identity
+        cert_path.unlink()
+        key_path.unlink()
+        reconciled = service.get_config()
+        live_pin = cert_pin_from_pem(cert_path.read_bytes())
+        assert reconciled.pinned_identity == live_pin
+        assert reconciled.pinned_identity != stale_pin
+        assert (
+            reconciled.receiver_instance_id == config.receiver_instance_id
+        )
+
+    def test_torn_cert_pair_regenerates_instead_of_loading(self, tmp_path):
+        _i, _b, _r, service = _rig(tmp_path)
+        service.get_config()
+        data_dir = tmp_path / 'receiver'
+        staged = tmp_path / 'staged'
+        staged.mkdir()
+        generate_self_signed_cert(staged / 'c.pem', staged / 'k.pem')
+        # splice an unrelated cert over the persisted key: the pair passes
+        # the exists-guard but cannot load and must be regenerated
+        (data_dir / 'receiver-cert.pem').write_bytes(
+            (staged / 'c.pem').read_bytes()
+        )
+        cert_pem, _key_pem = service._ensure_certificate()
+        ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER).load_cert_chain(
+            str(data_dir / 'receiver-cert.pem'),
+            str(data_dir / 'receiver-key.pem'),
+        )
+        assert (
+            service.get_config().pinned_identity
+            == cert_pin_from_pem(cert_pem)
+        )
+
+    def test_concurrent_first_get_config_mints_one_identity(self, tmp_path):
+        _i, _b, _r, service = _rig(tmp_path)
+        barrier = threading.Barrier(6)
+        results = []
+        errors = []
+
+        def worker():
+            try:
+                barrier.wait(timeout=15)
+                results.append(service.get_config())
+            except Exception as exc:  # noqa: BLE001
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+        assert not errors
+        assert len({c.receiver_instance_id for c in results}) == 1
+        assert {c.pinned_identity for c in results} == {
+            results[0].pinned_identity
+        }
+        assert results[0].pinned_identity == cert_pin_from_pem(
+            (tmp_path / 'receiver' / 'receiver-cert.pem').read_bytes()
         )
