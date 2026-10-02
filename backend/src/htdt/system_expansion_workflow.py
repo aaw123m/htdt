@@ -807,7 +807,7 @@ class SystemExpansionWorkflowService:
                 variant_id,
                 "validated",
                 "実測済み・検証済み",
-                "O60/R180 validation authority resolves this measured SystemVariant as validated.",
+                "O60/R180検証権威がこの実測済みシステムバリアントを検証済みと解決しました。",
                 True,
                 True,
                 "検証済み",
@@ -2120,7 +2120,7 @@ class SystemExpansionWorkflowService:
             if evaluation is None:
                 blocked = "比較評価がまだありません。"
             elif eligibility is None:
-                blocked = "比較eligibilityを再解決できません。"
+                blocked = "比較適格性を再解決できません。"
             elif issues:
                 blocked = " / ".join(
                     solver_reason_label(item.detail) for item in issues

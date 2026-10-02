@@ -1,3 +1,4 @@
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -283,6 +284,50 @@ def test_application_note_is_hashed_into_identity(tmp_path: Path) -> None:
     assert first.alternative_sha256 != second.alternative_sha256
     # The field is hashed but never drives apply semantics.
     assert first.application_note == 'seat move only'
+
+
+def test_saved_alternative_records_insertion_timestamp(tmp_path: Path) -> None:
+    """Alternatives have no created_at_utc field — the DB column is
+    insertion-order metadata and must not inherit the spec's timestamp
+    (which would pin every row to one instant and lie about ordering)."""
+    fixture = _fixture(tmp_path)
+    planner = _planner(fixture)
+    spec = _study(planner)
+    assert spec is not None
+    objective_id = spec.metric_definitions[0].objective_id
+    metrics = (_target_metric(fixture, objective_id, -0.1),)
+
+    first = planner.record_alternative(
+        spec=spec,
+        family='geometry',
+        diff_summary='move seat +180 mm',
+        evidence_state='predicted_unvalidated',
+        fidelity_label=spec.fidelity_label,
+        metrics=metrics,
+        application_note='first',
+    )
+    second = planner.record_alternative(
+        spec=spec,
+        family='geometry',
+        diff_summary='move seat +180 mm',
+        evidence_state='predicted_unvalidated',
+        fidelity_label=spec.fidelity_label,
+        metrics=metrics,
+        application_note='second',
+    )
+    assert first.alternative_id != second.alternative_id
+
+    with closing(planner.repository._connect()) as connection:
+        rows = connection.execute(
+            'SELECT alternative_id, created_at_utc FROM '
+            'cad_intervention_alternatives WHERE spec_id = ? '
+            'ORDER BY created_at_utc, alternative_id',
+            (spec.spec_id,),
+        ).fetchall()
+    stored = {row['alternative_id']: row['created_at_utc'] for row in rows}
+    assert stored[first.alternative_id] != NOW
+    assert stored[second.alternative_id] != NOW
+    assert stored[first.alternative_id] <= stored[second.alternative_id]
 
 
 def test_evidence_state_floor_is_enforced(tmp_path: Path) -> None:

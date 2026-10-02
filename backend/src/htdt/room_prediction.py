@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from .cad_display_labels import (
     environment_source_kind_label,
+    geometry_compatibility_label,
     state_token_label,
 )
 from .cad_acoustic_environment import (
@@ -1278,11 +1279,6 @@ class RoomPredictionPanel(QWidget):
         "UNSUPPORTED": "未評価",
         "UNKNOWN": "不明",
     }
-    _APPROXIMATION_LABELS = {
-        "exact_for_model_geometry": "対象ジオメトリに対して厳密",
-        "rectangular_approximation": "矩形近似",
-        "unsupported": "対象外",
-    }
     _FINDING_TONE_COLORS = {
         "attention": DARK_THEME.semantic.warning.hex,
         "limitation": DARK_THEME.semantic.stale.hex,
@@ -1479,11 +1475,9 @@ class RoomPredictionPanel(QWidget):
                 continue
             first = results[0]
             current = self.controller.result_is_current(first)
-            compatibility = {
-                "exact_for_model_geometry": "矩形モデル対応",
-                "rectangular_approximation": "近似",
-                "unsupported": "非対応",
-            }.get(first.geometry_compatibility, first.geometry_compatibility)
+            compatibility = geometry_compatibility_label(
+                first.geometry_compatibility
+            )
             item = QTreeWidgetItem(
                 [f"予測 {index}", "現在" if current else "要再計算"]
             )
@@ -1677,8 +1671,7 @@ class RoomPredictionPanel(QWidget):
             f"評価帯域: {self._band_text(interpretation)}",
             (
                 "近似: "
-                + self._APPROXIMATION_LABELS.get(
-                    reliability.approximation_state,
+                + geometry_compatibility_label(
                     reliability.approximation_state,
                 )
             ),

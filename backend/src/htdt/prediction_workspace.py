@@ -25,7 +25,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .cad_display_labels import solver_reason_label, state_token_label
+from .cad_display_labels import (
+    entity_kind_label,
+    geometry_compatibility_label,
+    mode_class_label,
+    solver_reason_label,
+    state_token_label,
+)
 from .cad_prediction_jobs import PredictionJobApplyContext, PredictionJobGuard, PredictionJobToken
 from .cad_prediction_models import CadPredictionResult, canonical_prediction_json
 from .cad_prediction_repository import CadPredictionRepository
@@ -274,7 +280,7 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         for entity in self.working.committed_document.entities:
             if acoustic_reference_position(entity) is None:
                 continue
-            label = f'{entity.name} · {entity.kind}'
+            label = f'{entity.name} · {entity_kind_label(entity.kind)}'
             combo.addItem(label, entity.entity_id)
         preferred = self.selected_id if self.selected_id is not None else previous
         if preferred is not None:
@@ -486,7 +492,8 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
                 for mode in modes.modes[:20]:
                     child = QTreeWidgetItem(
                         [
-                            f'{mode.frequency_hz:.1f} Hz · {mode.mode_class} '
+                            f'{mode.frequency_hz:.1f} Hz · '
+                            f'{mode_class_label(mode.mode_class)} '
                             f'({mode.n_x},{mode.n_y},{mode.n_z})',
                             'FR/SPLではない',
                         ]
@@ -584,11 +591,9 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
             self.prediction_scalar_button.setEnabled(
                 self._explorable_prediction_results() is not None
             )
-        compatibility = {
-            'exact_for_model_geometry': 'exact_for_model_geometry',
-            'rectangular_approximation': 'rectangular_approximation',
-            'unsupported': 'unsupported',
-        }.get(first.geometry_compatibility, first.geometry_compatibility)
+        compatibility = geometry_compatibility_label(
+            first.geometry_compatibility
+        )
         self.prediction_summary_label.setText(
             f'{state}\nリビジョン {first.scene_revision_id[:8]} · 入力 {first.input_hash[:8]} · {compatibility}'
         )

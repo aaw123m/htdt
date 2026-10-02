@@ -1113,10 +1113,10 @@ def assess_matrix_currency(
                 )
         if receiver_bindings is not None:
             for receiver in spec.receivers:
-                current = receiver_bindings.get(
-                    receiver.receiver_entity_id,
-                    receiver_bindings.get(receiver.matrix_receiver_id),
-                )
+                # Producer keys receiver bindings by the bare receiver_id
+                # (prediction_matrix_service), not matrix_receiver_id or
+                # receiver_entity_id.
+                current = receiver_bindings.get(receiver.receiver_id)
                 if current is None:
                     unverifiable_receivers.add(
                         receiver.matrix_receiver_id

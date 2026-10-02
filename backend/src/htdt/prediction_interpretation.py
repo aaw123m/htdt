@@ -1004,7 +1004,7 @@ def interpret_prediction_results(
     if evidence is not None and evidence.valid_band_hz is not None:
         valid_bands.append(
             PredictionValidBand(
-                label='wave prediction provider',
+                label='波動予測プロバイダー',
                 minimum_hz=evidence.valid_band_hz[0],
                 maximum_hz=evidence.valid_band_hz[1],
             )

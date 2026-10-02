@@ -26,6 +26,10 @@ from PySide6.QtWidgets import (
 )
 
 from . import file_dialog_memory
+from .cad_display_labels import (
+    measurement_quality_status_label,
+    measurement_source_kind_label,
+)
 from .cad_measurement_jobs import MeasurementJobApplyContext, MeasurementJobGuard, MeasurementJobToken
 from .cad_measurement_models import CadFrequencyResponseDataset, CadMeasurementRecord
 from .cad_measurement_repository import CadMeasurementRepository
@@ -505,9 +509,11 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
             else measurement_evidence_label(record)
         )
         self.measurement_detail_label.setText(
-            f'証拠: {scope} ({record.evidence_type}) · '
-            f'入力: {record.channel_role} · ソース: {record.source_kind}\n'
-            f'取得時刻: {captured} · 品質: {record.quality_status}\n'
+            f'証拠: {scope} · '
+            f'入力: {record.channel_role} · '
+            f'ソース: {measurement_source_kind_label(record.source_kind)}\n'
+            f'取得時刻: {captured} · '
+            f'品質: {measurement_quality_status_label(record.quality_status)}\n'
             f'位置: X {record.measurement_position.x_m:.3f} / '
             f'Y {record.measurement_position.y_m:.3f} / '
             f'Z {record.measurement_position.z_m:.3f} m'

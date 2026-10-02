@@ -305,6 +305,53 @@ def test_currency_marks_stale_scene() -> None:
     assert stale.stale_cell_ids == tuple(c.cell_id for c in result.cells)
 
 
+def test_currency_receiver_bindings_keyed_by_receiver_id() -> None:
+    # Producer evidence keys current_receiver_bindings by the bare
+    # receiver_id (prediction_matrix_service) — a receiver whose id
+    # differs from its matrix_receiver_id and entity_id must still be
+    # re-verified instead of force-staled.
+    spec = _spec(
+        receivers=(
+            MatrixReceiverRef(
+                matrix_receiver_id='receiver:seat-a',
+                receiver_id='meas-a',
+                receiver_entity_id='entity-a',
+                receiver_binding_sha256=_hash('a'),
+            ),
+        ),
+    )
+    providers = {
+        'source-fl': _provider(spec, receiver_ids=('meas-a',)),
+        'source-fr': _provider(spec, receiver_ids=('meas-a',)),
+    }
+    result = collect_matrix_results(spec, providers)
+    current = assess_matrix_currency(
+        spec,
+        result,
+        current_scene_content_hash=_hash('scene'),
+        current_snapshot_sha256=_hash('snapshot'),
+        current_receiver_bindings={'meas-a': _hash('a')},
+    )
+    assert current.state == 'CURRENT'
+    changed = assess_matrix_currency(
+        spec,
+        result,
+        current_scene_content_hash=_hash('scene'),
+        current_snapshot_sha256=_hash('snapshot'),
+        current_receiver_bindings={'meas-a': _hash('other')},
+    )
+    assert changed.state == 'STALE'
+    assert any('receiver:seat-a' in item for item in changed.stale_reasons)
+    missing = assess_matrix_currency(
+        spec,
+        result,
+        current_scene_content_hash=_hash('scene'),
+        current_snapshot_sha256=_hash('snapshot'),
+        current_receiver_bindings={},
+    )
+    assert missing.state == 'STALE'
+
+
 def test_coherent_sum_requires_matching_semantics() -> None:
     # #942: two phase-bearing results that differ in normalization or
     # timing authority can never be summed into a coherent response.

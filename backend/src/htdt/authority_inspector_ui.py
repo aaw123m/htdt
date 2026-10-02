@@ -95,6 +95,8 @@ _NODE_TYPE_LABELS = {
 _EVIDENCE_TYPE_LABELS = {
     'measured': '実測',
     'predicted': '予測',
+    'derived': '派生',
+    'unknown': '不明',
 }
 
 

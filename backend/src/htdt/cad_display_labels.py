@@ -412,6 +412,47 @@ def environment_source_kind_label(kind: str) -> str:
     return _ENVIRONMENT_SOURCE_KIND_JA.get(kind, kind)
 
 
+_GEOMETRY_COMPATIBILITY_JA: dict[str, str] = {
+    'exact_for_model_geometry': '矩形厳密',
+    'rectangular_approximation': '矩形近似',
+    'unsupported': '非対応',
+}
+
+
+def geometry_compatibility_label(compatibility: str) -> str:
+    """JA label for a ``PredictionGeometryCompatibility`` token."""
+
+    return _GEOMETRY_COMPATIBILITY_JA.get(compatibility, compatibility)
+
+
+_MEASUREMENT_SOURCE_KIND_JA: dict[str, str] = {
+    'rew_api': 'REW API',
+    'rew_text': 'REWテキスト',
+    'unknown': '不明',
+}
+
+
+def measurement_source_kind_label(kind: str) -> str:
+    """JA label for a ``MeasurementSourceKind`` import-source token."""
+
+    return _MEASUREMENT_SOURCE_KIND_JA.get(kind, kind)
+
+
+_MEASUREMENT_QUALITY_STATUS_JA: dict[str, str] = {
+    'unknown': '不明',
+    'synthetic_fixture': '合成フィクスチャ',
+    'imported': '取り込み済み',
+    'measured': '実測',
+    'verified': '検証済み',
+}
+
+
+def measurement_quality_status_label(status: str) -> str:
+    """JA label for a measurement ``quality_status`` token."""
+
+    return _MEASUREMENT_QUALITY_STATUS_JA.get(status, status)
+
+
 _CAPABILITY_KIND_JA: dict[str, str] = {
     'continuous': '連続',
     'peak': 'ピーク',
@@ -576,6 +617,11 @@ _SOLVER_REASON_JA: dict[str, str] = {
         '直接比較されません',
     'same-reference claim but the profile records no measurement distance':
         '同一基準の主張ですがプロファイルに測定距離が記録されていません',
+    'usable-output profile binding is advisory (equipment definition '
+    'referenced by id only, without version+sha256) — it cannot drive an '
+    'authoritative headroom decision (#1026)':
+        '使用可能出力プロファイルの結合は参照専用（バージョン+SHAなしの'
+        'ID参照のみ）のため権威あるヘッドルーム判定を駆動できません（#1026）',
     # cad_prediction_matrix
     'no provider run bound for this matrix source':
         'この行列ソースに結び付けられたプロバイダー実行がありません',
@@ -606,6 +652,8 @@ _SOLVER_REASON_JA: dict[str, str] = {
         '必須座席が未対応のためカバレッジ集計が利用できません：'
         '部分集団評価は禁止です',
     'unsupported directivity evaluation': '指向性評価が未対応です',
+    'source angle semantics are unsupported':
+        'ソース角度セマンティクスは未対応です',
     'required receiver seat entity is missing from SystemVariant scene':
         '必須の受信座席エンティティがSystemVariantシーンにありません',
     # cad_topology_comparison (eligibility issue details)
@@ -1128,9 +1176,12 @@ __all__ = [
     'entity_kind_label',
     'environment_source_kind_label',
     'format_versioned_label',
+    'geometry_compatibility_label',
     'limiter_state_label',
     'measurement_claim_label',
+    'measurement_quality_status_label',
     'measurement_reason_label',
+    'measurement_source_kind_label',
     'mode_class_label',
     'named_or_saved_label',
     'objective_state_label',

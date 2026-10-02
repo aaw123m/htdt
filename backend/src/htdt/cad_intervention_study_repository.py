@@ -15,6 +15,7 @@ from .cad_intervention_study import (
 from .cad_repository import SceneRepository
 from .cad_schema import connect_sqlite, ensure_native_schema, require_native_tables
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .clock import utc_now_iso
 
 
 # Typed authority kind -> (table, id column, semantic sha column). Every
@@ -598,7 +599,7 @@ class CadInterventionStudyRepository:
                     alternative.family,
                     alternative.model_dump_json(),
                     alternative.alternative_sha256,
-                    spec.created_at_utc,
+                    utc_now_iso(),
                 ),
             )
         return alternative
