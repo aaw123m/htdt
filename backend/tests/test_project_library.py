@@ -86,6 +86,24 @@ def test_startup_resolution_registers_explicit_document(tmp_path):
     assert library.resolve_startup_document(None).project_id == entry.project_id
 
 
+def test_lifecycle_registered_project_reads_as_library_entry(tmp_path):
+    """The lifecycle registry and the library repository share one table:
+    a row written by ``ProjectLibrary.register_project`` (template
+    instantiation, document adoption) must satisfy the repository layer's
+    UUIDv4 identity contract — a non-hyphenated id would otherwise poison
+    every listing."""
+    from htdt.project_lifecycle import ProjectLibrary
+
+    lifecycle = ProjectLibrary(tmp_path / 'cad-scenes.sqlite3')
+    record = lifecycle.register_project('doc-template-1', display_name='From Template')
+
+    library = ProjectLibraryRepository(_repository(tmp_path))
+    entry = library.get_by_document_id('doc-template-1')
+    assert entry is not None
+    assert entry.project_id == record.project_id
+    assert library.list_projects()
+
+
 def test_migration_registers_existing_documents_as_projects(tmp_path):
     repository = _repository(tmp_path)
     repository.save(_scene('document-alpha'), parent_revision_id=None)
