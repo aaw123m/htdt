@@ -1578,9 +1578,9 @@ RESERVED_PATH_METADATA = {
     },
     "roomplan/captured-room-metadata.json": {
         "media_type": "application/json",
-        "producer": "roomplan_builder",
+        "producer": "capture_app",
         "provenance_class": "capture_app_derived",
-        "role": "derived",
+        "role": "canonical",
     },
 }
 

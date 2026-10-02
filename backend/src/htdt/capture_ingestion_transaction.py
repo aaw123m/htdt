@@ -601,6 +601,14 @@ class CaptureRoomPlanCaptureMetadata(BaseModel):
     raw_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
     processed_payload_path: str | None = None
     processed_sha256: str | None = None
+    # External RoomPlan-lineage family: emitters append lineage fields
+    # the receiver accepts but does not require (see capture_reference
+    # _load_roomplan_capture_metadata).
+    processed_byte_count: int | None = Field(default=None, ge=0)
+    processed_serialization_format: str | None = None
+    raw_byte_count: int | None = Field(default=None, ge=0)
+    raw_serialization_format: str | None = None
+    runtime: dict[str, str] | None = None
     surface_count: int | None = None
     object_count: int | None = None
     dimensions: dict[str, float] | None = None
@@ -3880,8 +3888,12 @@ class CaptureIngestionRepository:
                 'exact payload contract'
             )
 
+        # exclude_unset: lineage-family metadata fields the emitter
+        # omits validate to None — comparing them against rederived
+        # rows (which omit unset keys) must not see explicit nulls.
         expected_roomplan = _canonical_rows(
-            item.model_dump(mode='json') for item in typed.roomplan_records
+            item.model_dump(mode='json', exclude_unset=True)
+            for item in typed.roomplan_records
         )
         recomputed_roomplan = _canonical_rows(sections['roomplan_records'])
         if expected_roomplan != recomputed_roomplan:
@@ -3891,7 +3903,9 @@ class CaptureIngestionRepository:
             )
         expected_metadata = _canonical_rows(
             [
-                typed.roomplan_capture_metadata.model_dump(mode='json')
+                typed.roomplan_capture_metadata.model_dump(
+                    mode='json', exclude_unset=True
+                )
                 if typed.roomplan_capture_metadata is not None
                 else None
             ]
