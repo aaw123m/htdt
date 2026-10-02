@@ -284,6 +284,14 @@ class Size3(BaseModel):
     y_m: float = Field(gt=0)
     z_m: float = Field(gt=0)
 
+    @field_validator('x_m', 'y_m', 'z_m')
+    @classmethod
+    def finite(cls, value: float) -> float:
+        value = float(value)
+        if not isfinite(value):
+            raise ValueError('size values must be finite')
+        return value
+
 
 # --- Physical body geometry (Issue #464) -------------------------------------
 #
@@ -674,6 +682,14 @@ class RoomPrism(BaseModel):
     depth_m: float = Field(gt=0)
     height_m: float = Field(gt=0)
     footprint_vertices: tuple[RoomVertex, ...] | None = None
+
+    @field_validator('width_m', 'depth_m', 'height_m')
+    @classmethod
+    def finite(cls, value: float) -> float:
+        value = float(value)
+        if not isfinite(value):
+            raise ValueError('room dimension values must be finite')
+        return value
 
     @model_validator(mode='after')
     def valid_footprint(self) -> 'RoomPrism':

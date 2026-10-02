@@ -23,7 +23,7 @@ from PySide6.QtWidgets import QApplication
 from htdt.cad_measurement_quality_repository import CadMeasurementQualityRepository
 from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import make_f1_scene
+from htdt.cad_scene import RoomPrism, Size3, make_f1_scene
 from htdt.cad_standards import CriterionRule, _compare
 from htdt.measurement_page_workspace import MeasurementPageWorkspace
 from htdt.measurement_workflow import MeasurementWorkflowController
@@ -138,3 +138,20 @@ def test_criterion_rule_equals_still_accepts_legitimate_expected() -> None:
     textual = CriterionRule(operator="equals", expected="standard")
     assert _compare("standard", textual)
     assert not _compare("other", textual)
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_size3_rejects_nonfinite_dimensions(bad: float) -> None:
+    with pytest.raises(ValueError):
+        Size3(x_m=bad, y_m=0.1, z_m=0.1)
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
+def test_room_prism_rejects_nonfinite_dimensions(bad: float) -> None:
+    with pytest.raises(ValueError):
+        RoomPrism(width_m=6.0, depth_m=4.0, height_m=bad)
+
+
+def test_size3_and_room_prism_still_accept_legitimate_values() -> None:
+    Size3(x_m=0.001, y_m=10.0, z_m=1e9)
+    RoomPrism(width_m=5e-324, depth_m=4.0, height_m=2.4)
