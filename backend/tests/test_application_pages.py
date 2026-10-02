@@ -217,3 +217,62 @@ def test_capture_inbox_detail_preserves_item_and_project_context(
         page.close()
         page.deleteLater()
         app.processEvents()
+
+
+def test_inbox_detail_renders_gate_detail_fields(tmp_path) -> None:
+    """REV27: gate detail fields must render in the item detail pane.
+
+    The renderer derived the detail attribute as ``key[:-5] + '_detail'`` —
+    producing ``bundle_valid_detail`` / ``dependency__detail`` /
+    ``alignment__detail`` / ``evidence_conflict__detail``, none of which
+    exist on ``CaptureInboxItem``, so every gate detail was silently
+    dropped. The real fields are ``validation_detail``,
+    ``dependency_detail``, ``alignment_detail`` and
+    ``evidence_conflict_detail``.
+    """
+    app = _app()
+    page = CaptureInboxPage(lambda: (), on_navigate=lambda link: True)
+    item = SimpleNamespace(
+        classification_flags=(),
+        primary_classification="new_series",
+        scope="capture-inbox-unassigned",
+        inbox_item_id="capture-inbox-item:" + "a" * 64,
+        capture_series_id="series-1",
+        capture_revision_id="rev-1",
+        arrival_source="file_import",
+        arrival_count=1,
+        first_arrived_at_utc="2026-01-01T00:00:00+00:00",
+        disposition="pending",
+        disposition_reason="",
+        operator_notes="",
+        bundle_validation="rejected",
+        validation_detail="マニフェスト不一致",
+        dependency_state="unresolved",
+        dependency_detail="先行リビジョンが欠落",
+        alignment_state="blocked",
+        alignment_detail="座標系が未整列",
+        evidence_conflict_state="open",
+        evidence_conflict_detail="同一性ダイジェスト衝突",
+    )
+    inspection = SimpleNamespace(
+        item=item,
+        promotability="blocked",
+        available_authority_kinds=(),
+        promoted_authority_kinds=(),
+        blocked_authority_kinds=("measurements",),
+        source_evidence_count=0,
+        roomplan_record_count=0,
+        raw_mesh_count=0,
+        authority_record_count=0,
+    )
+    try:
+        page._populate_detail(inspection)
+        text = page.detail.text()
+        assert "マニフェスト不一致" in text
+        assert "先行リビジョンが欠落" in text
+        assert "座標系が未整列" in text
+        assert "同一性ダイジェスト衝突" in text
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()

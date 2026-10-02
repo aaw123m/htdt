@@ -70,6 +70,7 @@ class HelpDialog(QDialog):
         topic: HelpTopic,
         *,
         locale: PresentationLocale = PresentationLocale.JAPANESE,
+        command_registry: CommandRegistry | None = None,
         parent: QWidget | None = None,
     ) -> "HelpDialog":
         """Render one :class:`HelpTopic` — localized title, summary, sections."""
@@ -80,9 +81,17 @@ class HelpDialog(QDialog):
             lines.append(f"■ {section.heading}")
             lines.append(section.body)
         if topic.related_commands:
-            lines.append(
-                "関連操作: " + ", ".join(topic.related_commands)
-            )
+            labels = []
+            for command_id in topic.related_commands:
+                try:
+                    labels.append(
+                        command_registry.definition(command_id).display_name
+                        if command_registry is not None
+                        else command_id
+                    )
+                except KeyError:
+                    labels.append(command_id)
+            lines.append("関連操作: " + ", ".join(labels))
         return cls(content.title, tuple(lines), parent)
 
 

@@ -1324,7 +1324,8 @@ class WorkflowApplicationComposition:
         entries = tuple(
             entry
             for entry in self.project_library.list_projects()
-            if entry.project_id != self.project_entry.project_id
+            if self.project_entry is None
+            or entry.project_id != self.project_entry.project_id
         )
         entry = self._choose_project(
             entries, "プロジェクトを開く", "開くプロジェクト:"
@@ -1332,7 +1333,18 @@ class WorkflowApplicationComposition:
         if entry is not None:
             self._switch_to_project(entry)
 
+    def _require_bound_project(self) -> bool:
+        """Menu entries bound to the active project refuse silently when a
+        restore left ``project_entry`` unbound — the Projects surface is
+        where a new identity is picked, not a crash into excepthook."""
+        if self.project_entry is not None:
+            return True
+        self.shell.statusBar().showMessage("先にプロジェクトを選択してください")
+        return False
+
     def _rename_project(self) -> None:
+        if not self._require_bound_project():
+            return
         name = self._prompt_project_name(
             "プロジェクト名を変更",
             "新しいプロジェクト名:",
@@ -1413,6 +1425,8 @@ class WorkflowApplicationComposition:
         return 'saved'
 
     def _duplicate_project(self) -> None:
+        if not self._require_bound_project():
+            return
         # #918: decide the source generation BEFORE the clone is created.
         decision = self._project_snapshot_decision('複製')
         if decision is None:
@@ -1446,7 +1460,7 @@ class WorkflowApplicationComposition:
         written so the serialized project is always one exact generation —
         and the default file name stamps that generation's head revision.
         """
-        if self._bundle_busy:
+        if not self._require_bound_project() or self._bundle_busy:
             return
         decision = self._project_snapshot_decision('エクスポート')
         if decision is None:
@@ -1522,7 +1536,10 @@ class WorkflowApplicationComposition:
                 include_archived=True
             )
             if entry.archived != archived
-            and entry.project_id != self.project_entry.project_id
+            and (
+                self.project_entry is None
+                or entry.project_id != self.project_entry.project_id
+            )
         )
         title = "プロジェクトをアーカイブ" if archived else "アーカイブ解除"
         entry = self._choose_project(candidates, title, title)
@@ -1822,6 +1839,7 @@ class WorkflowApplicationComposition:
         HelpDialog.topic(
             topic,
             locale=self._presentation_locale(),
+            command_registry=self.registry,
             parent=self.shell,
         ).exec()
         return True
@@ -3332,8 +3350,8 @@ class WorkflowApplicationComposition:
         # Restore completion reports the actual active project (#768 D);
         # surfaced after thaw rebuilds the destination.
         self._restore_rebind_note = (
-            f'アクティブプロジェクト: {self.document_id}'
-            if self.document_id
+            f'アクティブプロジェクト: {self.project_entry.display_name}'
+            if self.project_entry is not None
             else '復元が完了しました。プロジェクトを選択してください。'
         )
 
@@ -3561,6 +3579,8 @@ class WorkflowApplicationComposition:
         DeliverablesCatalogService; generation routes to the existing
         domain commands and input deep-links open the owning workspace.
         """
+        if not self._require_bound_project():
+            return
         from .deliverables_catalog import DeliverablesCatalogService
         from .deliverables_dialog import DeliverablesDialog
 
@@ -3734,6 +3754,8 @@ class WorkflowApplicationComposition:
         resumes in ``_analysis_export_prepare_done`` for the prompts,
         then a second job performs the render + write.
         """
+        if self._bundle_busy:
+            return
         self._begin_bundle_job("解析エクスポートを作成しています…")
         self._bundle_pool.start(
             "project.bundle.analysis_export.prepare",

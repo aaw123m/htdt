@@ -594,6 +594,12 @@ _INBOX_GATE_LABELS = {
     "alignment_state": "整列状態",
     "evidence_conflict_state": "証拠競合",
 }
+_INBOX_GATE_DETAIL_FIELDS = {
+    "bundle_validation": "validation_detail",
+    "dependency_state": "dependency_detail",
+    "alignment_state": "alignment_detail",
+    "evidence_conflict_state": "evidence_conflict_detail",
+}
 _INBOX_DISPOSITION_LABELS = {
     "pending": "保留中",
     "deferred": "延期",
@@ -799,8 +805,8 @@ class CaptureInboxPage(QWidget):
                 f"{_INBOX_GATE_LABELS[key]}="
                 f"{_INBOX_GATE_STATE_LABELS.get(getattr(item, key), getattr(item, key))}"
                 + (
-                    f"（{getattr(item, key[:-5] + '_detail')}）"
-                    if getattr(item, key[:-5] + '_detail', '')
+                    f"（{getattr(item, _INBOX_GATE_DETAIL_FIELDS[key], '')}）"
+                    if getattr(item, _INBOX_GATE_DETAIL_FIELDS[key], '')
                     else ""
                 )
                 for key in _INBOX_GATE_LABELS

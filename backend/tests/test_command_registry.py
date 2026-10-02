@@ -130,6 +130,33 @@ def test_lazy_shell_binding_can_attach_executor_during_navigation() -> None:
     assert events == ['navigate', 'execute']
 
 
+def test_deep_link_handler_failure_reaches_error_handler() -> None:
+    """REV27: a deep-link handler exception must surface through the
+    registry's error handler like executor failures — previously it
+    escaped ``execute`` into the caller's excepthook."""
+    registry = CommandRegistry()
+    definition = CommandDefinition(
+        command_id='navigation.broken',
+        display_name='壊れた画面',
+        deep_link=WorkspaceDeepLink(WorkspaceId.ROOM),
+    )
+    registry.register(definition)
+    failures: list[tuple[str, Exception]] = []
+    registry.set_error_handler(
+        lambda d, exc: failures.append((d.command_id, exc))
+    )
+
+    def navigate(_deep_link: WorkspaceDeepLink) -> bool:
+        raise RuntimeError('router lost its mount')
+
+    registry.set_deep_link_handler(navigate)
+
+    assert registry.execute(definition.command_id) is False
+    assert len(failures) == 1
+    assert failures[0][0] == 'navigation.broken'
+    assert isinstance(failures[0][1], RuntimeError)
+
+
 def test_unbound_global_command_has_disabled_reason_until_bound() -> None:
     registry = CommandRegistry()
     definition = CommandDefinition(command_id='project.lazy', display_name='遅延保存')

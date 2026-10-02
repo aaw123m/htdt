@@ -14,6 +14,8 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication, QLabel
 
 from htdt.command_registry import CommandDefinition, CommandRegistry
+from htdt.help_registry import HelpTopic, LocalizedTopicContent
+from htdt.localization import PresentationLocale
 from htdt.workflow_help import HelpDialog
 
 
@@ -95,3 +97,34 @@ def test_palette_usage_dialog_has_fixed_content() -> None:
     assert dialog.windowTitle() == 'コマンドパレットの使い方'
     texts = [label.text() for label in dialog.findChildren(QLabel)]
     assert any('Ctrl+K' in text for text in texts)
+
+
+def test_topic_related_commands_render_display_names() -> None:
+    """REV27: 関連操作 rendered raw command ids (``navigation.room``) —
+    with a registry the labels resolve to display names; unknown ids
+    fall back to the raw id."""
+    _app()
+    registry = CommandRegistry()
+    registry.register(
+        CommandDefinition(command_id='navigation.room', display_name='部屋'),
+        execute=lambda: None,
+    )
+    registry.register(
+        CommandDefinition(command_id='project.save', display_name='保存'),
+        execute=lambda: None,
+    )
+    topic = HelpTopic(
+        topic_id='room.overview',
+        content={
+            PresentationLocale.JAPANESE: LocalizedTopicContent(
+                title='部屋の操作', summary='要約'
+            )
+        },
+        related_commands=(
+            'navigation.room', 'project.save', 'unknown.command'
+        ),
+    )
+    dialog = HelpDialog.topic(topic, command_registry=registry)
+    texts = [label.text() for label in dialog.findChildren(QLabel)]
+    related = [text for text in texts if text.startswith('関連操作:')]
+    assert related == ['関連操作: 部屋, 保存, unknown.command']
