@@ -656,6 +656,9 @@ _INBOX_AUTHORITY_KIND_LABELS = {
     "annotations": "注釈",
     "measurements": "測定",
     "as_built_observations": "竣工観測",
+    "connected_space": "接続空間",
+    "reference_targets": "参照ターゲット",
+    "supplemental_authority": "補足権威",
 }
 _INBOX_UNASSIGNED_SCOPE = "capture-inbox-unassigned"
 
