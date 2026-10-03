@@ -20,12 +20,13 @@ import enum
 import importlib
 import inspect
 import itertools
+import re
 import types
 import typing
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from htdt.canonical_json import canonical_sha256, canonicalize_payload
 
@@ -168,7 +169,98 @@ def _synth_model_payload(cls: type[BaseModel], depth: int) -> dict:
         if not field.is_required():
             continue
         out[name] = _synth_field(field, name) if depth + 1 <= 6 else _synth(field.annotation, field, depth + 1, name=name)
+    out = _satisfy_model_validators(cls, out)
     return _seal_payload(cls, out)
+
+
+def _model_error_count(cls: type[BaseModel], payload: dict) -> int:
+    try:
+        cls(**payload)
+        return 0
+    except ValidationError as exc:
+        return len(exc.errors())
+    except Exception:  # noqa: BLE001
+        return 1
+
+
+def _field_candidates(field, name: str) -> list:
+    """Small bounded pool of values a defaulted field might need.
+
+    Literal members (incl. ``Optional[Literal]``) lead — model validators
+    routinely demand an explicit enum value — followed by the boolean
+    arms, the annotation-valid synthesis, a couple of numerics, and a
+    four-element container for models needing several samples.
+    """
+    ann = field.annotation
+    cands: list = []
+    seen: set[str] = set()
+
+    def _push(value) -> None:
+        key = repr(value)
+        if key not in seen:
+            seen.add(key)
+            cands.append(value)
+
+    for a in (ann, *typing.get_args(ann)):
+        if typing.get_origin(a) is typing.Literal or str(typing.get_origin(a)) == 'typing.Literal':
+            for member in typing.get_args(a):
+                _push(member)
+    if ann is bool:
+        _push(True)
+        _push(False)
+    try:
+        _push(_synth_field(field, name))
+    except Exception:  # noqa: BLE001
+        pass
+    origin = typing.get_origin(ann)
+    if ann in (int, float):
+        _push(2)
+        _push(4)
+    elif origin in (tuple, list, set, frozenset):
+        item_ann = next(iter(typing.get_args(ann)), str)
+        try:
+            _push(tuple(_synth(item_ann, name=name) for _ in range(4)))
+        except _Unsynthable:
+            pass
+        try:
+            _push(tuple(_synth(item_ann, name=name) for _ in range(2)))
+        except _Unsynthable:
+            pass
+    return cands
+
+
+def _satisfy_model_validators(cls: type[BaseModel], payload: dict) -> dict:
+    """Fill defaulted fields the model's own validators still require.
+
+    Minimal payloads cover required fields only, but sealed models often
+    make a semantic default (``propagation_method='declared_only'``,
+    ``quality='pass'``) invalid — the validator wants an explicit value.
+    Each defaulted field is tried with a bounded candidate pool and kept
+    only when it shrinks the model's error set; up to three passes ride
+    out pairwise field dependencies. A payload that still fails is
+    returned unchanged — the caller's seal validation decides.
+    """
+    count = _model_error_count(cls, payload)
+    if count == 0:
+        return payload
+    work = dict(payload)
+    for _ in range(3):
+        progressed = False
+        for name, field in cls.model_fields.items():
+            if field.is_required() or name in work:
+                continue
+            for cand in _field_candidates(field, name):
+                trial = {**work, name: cand}
+                trial_count = _model_error_count(cls, trial)
+                if trial_count < count:
+                    work, count = trial, trial_count
+                    progressed = True
+                    break
+            if count == 0:
+                return work
+        if not progressed:
+            break
+    return work
 
 
 def _seal_payload(cls: type[BaseModel], payload: dict) -> dict:
@@ -210,21 +302,27 @@ def _seal_payload(cls: type[BaseModel], payload: dict) -> dict:
     return out
 
 
-def _distinct_model_payload(cls: type[BaseModel], depth: int = 0) -> dict:
+def _distinct_model_payload(
+    cls: type[BaseModel], depth: int = 0, seed: int = 0
+) -> dict:
     """A ``_synth_model_payload`` variant with pairwise-distinct literals.
 
     Models that validate ordering or distinctness across their own fields
     (``minimum_hz < maximum_hz``, ``start < end``, distinct sibling ids)
     can never accept the single-value payload — giving each required
     numeric/string field a different value keeps the sweep honest without
-    bespoke per-class handling.
+    bespoke per-class handling. Nested models get their literals offset
+    by the outer field's ordinal (``seed``) so sibling model fields such
+    as ``bounds_min``/``bounds_max`` come out ordered too.
     """
     out: dict = {}
-    str_i = 0
-    num_i = 0
+    str_i = seed * 100
+    num_i = seed * 100
+    ordinal = 0
     for name, field in cls.model_fields.items():
         if not field.is_required():
             continue
+        ordinal += 1
         ann = field.annotation
         origin = typing.get_origin(ann)
         args = typing.get_args(ann)
@@ -239,12 +337,16 @@ def _distinct_model_payload(cls: type[BaseModel], depth: int = 0) -> dict:
                 out[name] = _synth_field(field, name)
             else:
                 try:
-                    out[name] = _distinct_model_payload(simple, depth + 1)
+                    out[name] = _distinct_model_payload(
+                        simple, depth + 1, seed=ordinal
+                    )
                 except _Unsynthable:
                     out[name] = _synth_field(field, name)
         elif simple is float:
             num_i += 1
-            cands = [num_i + 0.5, float(num_i), 1.0 + num_i, 100.0 + num_i]
+            # int literal first: keeps the round-13 int-for-float hazard
+            # while still giving sibling fields distinct values.
+            cands = [num_i, num_i + 0.5, 1.0 + num_i, 100.0 + num_i]
             out[name] = _first_valid(ann=ann, candidates=cands, fallback=name)
         elif simple is int:
             num_i += 1
@@ -697,22 +799,27 @@ def _resolve(modname: str, name: str):
     return getattr(mod, name)
 
 
-@pytest.mark.parametrize('modname,clsname', SWEEP_CLASSES)
-def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
-    """Raw type-mismatched literals must seal with the provisional hash."""
-    cls = _resolve(modname, clsname)
-    sha_fields = _sha_fields(cls)
-    methods = _payload_methods(cls)
-    if not sha_fields or not methods:
-        pytest.skip('no sha256 field or payload method found')
-    try:
-        raw = {
+def _single_value_payload(cls: type[BaseModel]) -> dict:
+    """The classic sweep payload: one literal per required field."""
+    return _satisfy_model_validators(
+        cls,
+        {
             n: _synth_field(f, n)
             for n, f in cls.model_fields.items()
             if f.is_required()
-        }
-    except _Unsynthable as exc:
-        pytest.skip(f'unable to synthesize fields: {exc}')
+        },
+    )
+
+
+def _attempt_class_sweep(cls: type[BaseModel], modname: str, raw: dict):
+    """Run the provisional-vs-sealed check on one synthesized payload.
+
+    Returns the skip reason when the payload cannot exercise the seal
+    path, ``None`` when the seal invariant held. Genuine seal failures
+    still propagate via ``pytest.fail``.
+    """
+    sha_fields = _sha_fields(cls)
+    methods = _payload_methods(cls)
     # Seal dummies honour the seal field's own annotation — a ``*_sha256``
     # field declared as a tuple of hashes must not be handed a bare str.
     dummy = {}
@@ -730,7 +837,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
             **canonicalize_payload(cls, dict(raw, **dummy))
         )
     except Exception as exc:  # noqa: BLE001 - synthesized value rejected
-        pytest.skip(f'synthesized payload rejected by field validation: {exc}')
+        return f'synthesized payload rejected by field validation: {exc}'
     payload_keys: set[str] = set()
     for method in methods:
         try:
@@ -739,7 +846,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
             pass
     seal_fields = [s for s in sha_fields if s not in payload_keys]
     if not seal_fields:
-        pytest.skip('no seal field identified')
+        return 'no seal field identified'
     # The fixed builder path: provisional carries canonicalized values;
     # content hash fields keep their caller value, seals get a dummy.
     try:
@@ -749,7 +856,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
             )
         )
     except Exception as exc:  # noqa: BLE001 - synthesized value rejected
-        pytest.skip(f'synthesized payload rejected by field validation: {exc}')
+        return f'synthesized payload rejected by field validation: {exc}'
     # Hash over the provisional's canonical payload equals what the sealed
     # validator recomputes over validated fields — so sealing must succeed.
     ok = False
@@ -779,7 +886,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
         except Exception:  # noqa: BLE001 - method needs fuller payload
             pass
     if not method_hashes and not consts:
-        pytest.skip('no payload method computable on provisional')
+        return 'no payload method computable on provisional'
     # Content '*_sha256'/'*_hash' fields may be checked against module
     # constants or against the canonical hash of a sibling ``*_json``
     # field — solve their values alongside the seal.
@@ -789,7 +896,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
         if ('sha256' in n or n.endswith('_hash')) and n not in seal_fields
     ]
     if len(content_fields) > 3:
-        pytest.skip('too many hash-coupled fields to solve')
+        return 'too many hash-coupled fields to solve'
     extras = sorted(consts) + json_hashes
     combos = (
         itertools.product(*([[raw[n]] + extras for n in content_fields]))
@@ -825,7 +932,7 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
         except Exception as exc:  # noqa: BLE001
             errors_bad = str(exc)
         if not errors_bad:
-            pytest.skip('seal field not enforced by validation')
+            return 'seal field not enforced by validation'
         # Seal candidates must satisfy the seal field's own annotation —
         # a type-invalid "seal" changes the first error for the wrong
         # reason and would read as a false resolution.
@@ -858,13 +965,34 @@ def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
             if 'hash mismatch' in errors_bad.lower():
                 # The same mismatch fires under a wrong seal — it is a
                 # content check reached before the seal, not the seal.
-                pytest.skip(
-                    f'hash-coupled content field unsolved: {errors_bad[:200]}'
-                )
+                return f'hash-coupled content field unsolved: {errors_bad[:200]}'
             pytest.fail(
                 f'{clsname} provisional hash does not seal: {last_exc}'
             )
-        pytest.skip(f'synthesized payload rejected by validation: {last_exc}')
+        return f'synthesized payload rejected by validation: {last_exc}'
+    return None
+
+
+@pytest.mark.parametrize('modname,clsname', SWEEP_CLASSES)
+def test_provisional_hash_equals_sealed_hash(modname: str, clsname: str):
+    """Raw type-mismatched literals must seal with the provisional hash."""
+    cls = _resolve(modname, clsname)
+    if not _sha_fields(cls) or not _payload_methods(cls):
+        pytest.skip('no sha256 field or payload method found')
+    reason: str | None = None
+    # Models whose validators order or cross-reference sibling fields
+    # reject the single-value payload outright — retry those with the
+    # pairwise-distinct variant so they are swept instead of skipped.
+    for build in (_single_value_payload, _distinct_model_payload):
+        try:
+            raw = build(cls)
+        except Exception as exc:  # noqa: BLE001 - try the other shape
+            reason = f'unable to synthesize fields: {exc}'
+            continue
+        reason = _attempt_class_sweep(cls, modname, raw)
+        if reason is None:
+            return
+    pytest.skip(reason)
 
 
 def _primitive_ann(ann):
@@ -926,6 +1054,121 @@ def _cross_reference_repair(args: dict) -> dict:
     return args
 
 
+def _coerce_models(value, ann):
+    """Validate synthesized payload dicts into the models *ann* declares.
+
+    ``_synth`` emits payload dicts for BaseModel annotations; union and
+    container wrappers leave those dicts raw, so a builder receiving
+    ``tuple[SomeModel, ...]`` or ``SomeModel | None`` gets a dict where it
+    dereferences a model attribute. Coerce dicts into the declared model
+    member — exactly what pydantic does when a caller validates — so the
+    synthesized call is well formed without bypassing validation. A union
+    that also accepts a real ``dict`` is left alone: coercing would hand
+    the builder a model where it asked for a mapping.
+    """
+    if value is None:
+        return value
+    origin = typing.get_origin(ann)
+    args = typing.get_args(ann)
+    if args and (
+        origin in (types.UnionType, typing.Union)
+        or str(origin) == 'types.UnionType'
+    ):
+        non_none = [a for a in args if a is not type(None)]
+        if isinstance(value, dict) and not any(
+            a is dict or typing.get_origin(a) is dict for a in non_none
+        ):
+            for member in non_none:
+                if isinstance(member, type) and issubclass(member, BaseModel):
+                    try:
+                        return member.model_validate(value)
+                    except Exception:  # noqa: BLE001 - try next member
+                        continue
+        for member in non_none:
+            coerced = _coerce_models(value, member)
+            if coerced is not value:
+                return coerced
+        return value
+    if isinstance(value, dict) and isinstance(ann, type) and issubclass(
+        ann, BaseModel
+    ):
+        try:
+            return ann.model_validate(value)
+        except Exception:  # noqa: BLE001 - keep the raw dict
+            return value
+    if isinstance(value, (tuple, list)) and args and origin in (
+        tuple,
+        list,
+        set,
+        frozenset,
+        collections.abc.Sequence,
+        collections.abc.MutableSequence,
+    ):
+        if len(args) > 1 and args[-1] is not Ellipsis:
+            # Fixed-arity container: each element has its own annotation.
+            return type(value)(
+                _coerce_models(v, a) for v, a in zip(value, args)
+            )
+        item_ann = args[0]
+        return type(value)(_coerce_models(v, item_ann) for v in value)
+    return value
+
+
+def _widen_containers(args: dict, fn) -> dict:
+    """Variant args with larger, strictly-increasing containers.
+
+    Builders that require a minimum sample count or ordered inputs
+    (``at least four IR samples``, monotonic lifecycle steps) reject the
+    single-element tuple the primary synthesis emits. This variant gives
+    variadic container parameters four distinct, increasing values —
+    int/float elements offset by index, str elements suffixed — while
+    fixed-arity tuples keep their per-position synthesis.
+    """
+    sig = inspect.signature(fn)
+    try:
+        hints = typing.get_type_hints(fn)
+    except Exception:  # noqa: BLE001
+        hints = {}
+    out = dict(args)
+    for name, value in args.items():
+        ann = hints.get(name, sig.parameters[name].annotation)
+        if isinstance(ann, str):
+            continue
+        origin = typing.get_origin(ann)
+        ann_args = typing.get_args(ann)
+        if not isinstance(value, (tuple, list)):
+            continue
+        if not ann_args or origin not in (
+            tuple,
+            list,
+            set,
+            frozenset,
+            collections.abc.Sequence,
+            collections.abc.MutableSequence,
+        ):
+            continue
+        if len(ann_args) > 1 and ann_args[-1] is not Ellipsis:
+            continue  # fixed arity — per-position values are already set
+        item_ann = ann_args[0]
+        items = []
+        for i in range(4):
+            try:
+                item = _synth(item_ann, name=name)
+            except _Unsynthable:
+                items = None
+                break
+            if isinstance(item, bool):
+                pass
+            elif isinstance(item, (int, float)):
+                item = item + i
+            elif isinstance(item, str):
+                item = f'{item}{i}'
+            items.append(item)
+        if items:
+            out[name] = type(value)(_coerce_models(v, item_ann) for v in items)
+    return _cross_reference_repair(out)
+
+
 def _builder_args(fn) -> dict | None:
     sig = inspect.signature(fn)
     try:
@@ -966,17 +1209,76 @@ def _builder_args(fn) -> dict | None:
                 args[p.name] = True
             else:
                 value = _synth(ann, name=p.name)
-                if (
-                    isinstance(value, dict)
-                    and isinstance(ann, type)
-                    and issubclass(ann, BaseModel)
-                ):
-                    # Builders take the model instance, not its payload dict.
-                    value = ann.model_validate(value)
-                args[p.name] = value
+                args[p.name] = _coerce_models(value, ann)
         except Exception:
             return None
     return _cross_reference_repair(args)
+
+
+def _builder_arg_variants(fn) -> list[dict] | None:
+    """Synthesized call payloads for one builder, most-hazardous first.
+
+    The primary variant is the same single-value, int-for-float literal
+    set the sweep has always used. Follow-ups cover the shapes a builder
+    legitimately needs more of — wider containers and, for ``**kwargs``
+    builders that seal the returned model's own fields, that model's
+    synthesized payload. A seal bug on ANY valid input must still fail;
+    the variants only decide whether the builder is exercised at all.
+    """
+    base = _builder_args(fn)
+    if base is None:
+        return None
+    variants = [base]
+    wide = _widen_containers(base, fn)
+    if wide != base:
+        variants.append(wide)
+    takes_kwargs = any(
+        p.kind is inspect.Parameter.VAR_KEYWORD
+        for p in inspect.signature(fn).parameters.values()
+    )
+    if takes_kwargs:
+        # ``**kwargs`` builders seal the fields of the model they
+        # return — merge that model's synthesized payload in as kwargs
+        # (the explicitly synthesized params win on a name clash). Builder-
+        # derived ids still collide — ``_call_builder`` peels those off.
+        try:
+            ret = typing.get_type_hints(fn).get('return')
+        except Exception:  # noqa: BLE001
+            ret = None
+        if isinstance(ret, type) and issubclass(ret, BaseModel):
+            try:
+                payload = _synth_model_payload(ret, 0)
+                # The builder overrides the seal itself; passing it
+                # twice is a duplicate-kwarg TypeError.
+                for sha in _sha_fields(ret):
+                    payload.pop(sha, None)
+                merged = {**payload, **base}
+                if merged != base:
+                    variants.insert(0, merged)
+            except Exception:  # noqa: BLE001 - return type not fillable
+                pass
+    return variants
+
+
+def _call_builder(fn, args: dict):
+    """Call a sweep builder, peeling off kwarg keys it derives itself.
+
+    Builders that seal a merged payload do ``dict(spec_id=..., **kwargs)``
+    — when the synthesized kwargs already carry the derived key the call
+    dies on a duplicate-key ``TypeError`` before the seal path runs.
+    Dropping the colliding key and retrying (bounded) keeps the rest of
+    the synthesized payload in play.
+    """
+    args = dict(args)
+    for _ in range(4):
+        try:
+            return fn(**args)
+        except TypeError as exc:
+            match = re.search(r"keyword argument '(\w+)'", str(exc))
+            if match is None or match.group(1) not in args:
+                raise
+            args.pop(match.group(1))
+    raise TypeError('builder keyword collisions unresolved')
 
 
 @pytest.mark.parametrize('modname,funcname', SWEEP_BUILDERS)
@@ -986,13 +1288,18 @@ def test_public_builder_accepts_int_literals(modname: str, funcname: str):
         fn = _resolve(modname, funcname)
     except AttributeError:
         pytest.skip('builder not resolvable at module level')
-    args = _builder_args(fn)
-    if args is None:
+    variants = _builder_arg_variants(fn)
+    if not variants:
         pytest.skip('builder parameters not auto-synthesizable')
-    try:
-        result = fn(**args)
-    except Exception as exc:  # noqa: BLE001 - inspecting failure cause
-        if 'hash mismatch' in str(exc).lower():
-            pytest.fail(f'{funcname} hash mismatch: {exc}')
-        pytest.skip(f'builder rejected synthesized args: {exc}')
-    assert result is not None
+    last_exc: Exception | None = None
+    for args in variants:
+        try:
+            _call_builder(fn, args)
+            return
+        except Exception as exc:  # noqa: BLE001 - inspecting failure cause
+            # A seal bug on any valid input fails the sweep — later
+            # variants must not paper over it.
+            if 'hash mismatch' in str(exc).lower():
+                pytest.fail(f'{funcname} hash mismatch: {exc}')
+            last_exc = exc
+    pytest.skip(f'builder rejected synthesized args: {last_exc}')
