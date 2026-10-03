@@ -78,6 +78,11 @@ from .measurement_instrument_onboarding import (
     InstrumentStep,
     evaluate_instrument_onboarding,
 )
+from .measurement_journey import (
+    MeasurementJourneyStep,
+    current_journey_step,
+    evaluate_measurement_journey,
+)
 from .measurement_workflow import (
     AcquisitionCapture,
     AssignmentCorrection,
@@ -116,6 +121,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import WorkspaceFactory, WorkspaceMount
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 
@@ -435,9 +441,12 @@ class MeasurementPageWorkspace(QWidget):
         self,
         controller: MeasurementWorkflowController,
         parent: QWidget | None = None,
+        *,
+        on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
+        self._on_navigate = on_navigate
         self.current_context_id = "import"
         self._job_pool = NativeWorkerPool(self)
         self.batch_commit_progress.connect(self._on_batch_commit_progress)
@@ -464,6 +473,8 @@ class MeasurementPageWorkspace(QWidget):
         # Semantic identity of the staged import acknowledged via keep_draft
         # (#610/#796); a re-staged or re-created import re-blocks.
         self._pending_release: str | None = None
+        self._journey_steps: tuple[MeasurementJourneyStep, ...] = ()
+        self._journey_buttons: dict[str, QPushButton] = {}
 
         self.setObjectName("measurementPageWorkspace")
         set_surface_role(self, SurfaceRole.BASE)
@@ -498,6 +509,44 @@ class MeasurementPageWorkspace(QWidget):
         notice_row_layout.addWidget(self.notice_action)
         self.notice_row.setVisible(False)
         root.addWidget(self.notice_row)
+
+        # Numbered journey strip (REV32): the six context tabs are flat
+        # siblings that never express the canonical first-run order, so a
+        # state-driven step list stays pinned above the page stack — each
+        # number opens the page that owns the step.
+        self.journey_card = QFrame(self)
+        self.journey_card.setObjectName("measurementJourneyCard")
+        set_surface_role(self.journey_card, SurfaceRole.RAISED)
+        journey_layout = QVBoxLayout(self.journey_card)
+        journey_layout.setContentsMargins(16, 10, 16, 10)
+        journey_layout.setSpacing(6)
+        journey_head = QHBoxLayout()
+        journey_head.setSpacing(8)
+        journey_title = QLabel("測定の手順", self.journey_card)
+        set_typography_role(journey_title, TypographyRole.SECTION_TITLE)
+        journey_head.addWidget(journey_title)
+        journey_head.addStretch(1)
+        self.journey_progress = QLabel(self.journey_card)
+        self.journey_progress.setObjectName("measurementJourneyProgress")
+        set_typography_role(self.journey_progress, TypographyRole.SECONDARY)
+        journey_head.addWidget(self.journey_progress)
+        journey_layout.addLayout(journey_head)
+        self.journey_steps_row = QHBoxLayout()
+        self.journey_steps_row.setSpacing(6)
+        journey_layout.addLayout(self.journey_steps_row)
+        journey_hint_row = QHBoxLayout()
+        journey_hint_row.setSpacing(8)
+        self.journey_hint = QLabel(self.journey_card)
+        self.journey_hint.setObjectName("measurementJourneyHint")
+        self.journey_hint.setWordWrap(True)
+        set_typography_role(self.journey_hint, TypographyRole.SECONDARY)
+        journey_hint_row.addWidget(self.journey_hint, 1)
+        self.journey_open = QPushButton("現在の手順を開く", self.journey_card)
+        self.journey_open.setObjectName("measurementJourneyOpen")
+        self.journey_open.clicked.connect(self._open_current_journey_step)
+        journey_hint_row.addWidget(self.journey_open)
+        journey_layout.addLayout(journey_hint_row)
+        root.addWidget(self.journey_card)
 
         self.pages = QStackedWidget(self)
         self.pages.setObjectName("measurementPageStack")
@@ -579,6 +628,131 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_quality(views)
         self._refresh_comparison_choices(views)
         self._refresh_onboarding()
+        self._refresh_journey(batch_items, views)
+
+    def _refresh_journey(
+        self,
+        batch_items: list[BatchImportItem] | tuple[BatchImportItem, ...],
+        views: tuple[MeasurementView, ...] | list[MeasurementView],
+    ) -> None:
+        """Re-evaluate the numbered journey strip from persisted state.
+
+        Runs after ``_refresh_onboarding`` so the instrument table's
+        evaluated steps drive the 機器の準備 entry without a second pass.
+        Every controller call degrades to an empty signal: a guide that
+        silently drops to step 1 is annoying but a guide that kills the
+        whole workspace refresh is a regression.
+        """
+        try:
+            self.controller.latest_revision()
+            scene_saved = True
+        except Exception:  # noqa: BLE001 — unsaved/failed scene → step 1
+            scene_saved = False
+        plan_count = 0
+        cells_completed = 0
+        cells_remaining = 0
+        if scene_saved:
+            try:
+                plans = self.controller.runner_plans()
+                plan_count = len(plans)
+                for plan in plans:
+                    runs = self.controller.runner_repository.list_runs(
+                        plan.plan_id
+                    )
+                    if not runs:
+                        continue
+                    progress = self.controller.runner_progress(runs[-1].run_id)
+                    cells_completed += progress.completed
+                    cells_remaining += (
+                        progress.total - progress.completed - progress.skipped
+                    )
+            except Exception:  # noqa: BLE001 — plan state unreadable
+                pass
+        try:
+            pending_import = self.controller.pending_import
+        except Exception:  # noqa: BLE001 — staged state unreadable
+            pending_import = None
+        staged_pending = pending_import is not None or any(
+            item.status in ("staged", "failed") for item in batch_items
+        )
+        steps = evaluate_measurement_journey(
+            scene_saved=scene_saved,
+            instrument_steps=tuple(self._onboarding_steps or ()),
+            plan_count=plan_count,
+            cells_completed=cells_completed,
+            cells_remaining=cells_remaining,
+            measurement_count=len(views),
+            staged_pending=staged_pending,
+        )
+        self._journey_steps = steps
+
+        while self.journey_steps_row.count():
+            item = self.journey_steps_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._journey_buttons.clear()
+        done_count = sum(1 for step in steps if step.status == "done")
+        self.journey_progress.setText(f"{done_count}/6")
+        for step in steps:
+            label = f"{step.number} {step.title}"
+            if step.status == "done":
+                label += " ✓"
+            button = QPushButton(label, self.journey_card)
+            button.setObjectName(f"measurementJourneyStep_{step.key}")
+            button.setFlat(True)
+            button.setToolTip(step.detail)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if step.status == "current":
+                set_primary_action(button)
+            elif step.status == "done":
+                set_semantic_state(button, SemanticState.SUCCESS)
+            button.clicked.connect(
+                lambda checked=False, key=step.key: self._open_journey_step(key)
+            )
+            self.journey_steps_row.addWidget(button)
+            self._journey_buttons[step.key] = button
+        self.journey_steps_row.addStretch(1)
+
+        current = current_journey_step(steps)
+        if current is None:
+            self.journey_hint.setText(
+                "すべての手順が完了しています。品質の確認や別条件との比較に進めます。"
+            )
+            self.journey_open.setVisible(False)
+        else:
+            self.journey_hint.setText(
+                f"次にやること — {current.number} {current.title}: {current.detail}"
+            )
+            self.journey_open.setVisible(True)
+
+    def _open_journey_step(self, key: str) -> None:
+        step = next(
+            (step for step in self._journey_steps if step.key == key), None
+        )
+        if step is None:
+            return
+        # Deep links keep the shell's context bar and router in sync with
+        # the page switch; bare set_context is the standalone/test fallback.
+        if step.context_id is not None:
+            if self._on_navigate is not None:
+                self._on_navigate(
+                    WorkspaceDeepLink(
+                        WorkspaceId.MEASUREMENT, step.context_id
+                    )
+                )
+            else:
+                self.set_context(step.context_id)
+            return
+        if step.workspace == "room" and self._on_navigate is not None:
+            self._on_navigate(
+                WorkspaceDeepLink(WorkspaceId.ROOM, "geometry")
+            )
+
+    def _open_current_journey_step(self) -> None:
+        step = current_journey_step(self._journey_steps)
+        if step is not None:
+            self._open_journey_step(step.key)
 
     def import_rew_text_dialog(self) -> None:
         path, _ = file_dialog_memory.get_open_file_name(
@@ -2074,7 +2248,10 @@ class MeasurementPageWorkspace(QWidget):
         layout.addWidget(matrix_card)
 
         step_card, step_layout = _card("現在のステップ", host)
-        self.campaign_step_label = QLabel("キャンペーンを開いてください", step_card)
+        self.campaign_step_label = QLabel(
+            "「実行を開始 / 再開」で計画を開くと、次に測るセルがここに表示されます",
+            step_card,
+        )
         self.campaign_step_label.setWordWrap(True)
         step_layout.addWidget(self.campaign_step_label)
         self.campaign_progress_label = QLabel("", step_card)
@@ -2194,7 +2371,9 @@ class MeasurementPageWorkspace(QWidget):
             self._campaign_run_id
         ) is None:
             self.campaign_table.setRowCount(0)
-            self.campaign_step_label.setText("キャンペーンを開いてください")
+            self.campaign_step_label.setText(
+                "計画がまだありません — 上の「計画を作成」で条件を選んでください"
+            )
             self.campaign_progress_label.setText("")
             return
 
@@ -4669,10 +4848,12 @@ class MeasurementPageWorkspace(QWidget):
 
 def build_measurement_workspace_mount(
     controller: MeasurementWorkflowController,
+    *,
+    on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
 ) -> WorkspaceMount:
     """Build the shell-owned mount without a legacy QMainWindow/QDockWidget bridge."""
 
-    workspace = MeasurementPageWorkspace(controller)
+    workspace = MeasurementPageWorkspace(controller, on_navigate=on_navigate)
     return WorkspaceMount.from_widget(
         workspace,
         on_activate=workspace.refresh,
@@ -4689,6 +4870,7 @@ def create_measurement_workspace_factory(
     document_id: str,
     *,
     rew_client: RewReadSource | None = None,
+    on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
 ) -> WorkspaceFactory:
     """Return the lazy factory consumed by build_canonical_workspace_registrations."""
 
@@ -4698,7 +4880,7 @@ def create_measurement_workspace_factory(
             document_id,
             rew_client=rew_client,
         )
-        return build_measurement_workspace_mount(controller)
+        return build_measurement_workspace_mount(controller, on_navigate=on_navigate)
 
     return build
 

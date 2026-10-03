@@ -3163,7 +3163,10 @@ class WorkflowApplicationComposition:
             self.document_id,
             rew_client=self._make_rew_client(),
         )
-        mount = _self.build_measurement_workspace_mount(controller)
+        mount = _self.build_measurement_workspace_mount(
+            controller,
+            on_navigate=self._navigate_target,
+        )
         workspace = mount.widget
         original_activate = mount.on_activate
 
