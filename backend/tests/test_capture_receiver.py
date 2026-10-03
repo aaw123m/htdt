@@ -385,7 +385,10 @@ class TestMissionPull:
         assert listing['schema'] == 'htdt.mission-listing'
         assert listing['capture_instance_id'] == 'capture-instance-9'
         assert listing['packages'][0]['package_id'] == 'pkg-1'
-        assert listing['packages'][0]['package_sha256'] == package.package_sha256
+        assert (
+            listing['packages'][0]['package_sha256']
+            == f"sha256:{package.package_sha256}"
+        )
         assert listing['packages'][0]['byte_size'] == len(
             b'mission-package-bytes'
         )

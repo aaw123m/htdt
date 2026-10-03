@@ -123,6 +123,7 @@ def _plan_and_payloads(
                     'producer': 'test_fixture',
                     'provenance_class': 'imported_reference',
                     'role': 'derived',
+                    'source_refs': ['path:session/capture-session.json'],
                 }
             files[path] = {'bytes': payload, **meta}
 

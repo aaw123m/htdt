@@ -449,6 +449,13 @@ def validate_manifest_shape(manifest: dict) -> None:
             raise CaptureBundleError(f"invalid provenance_class for {path}")
         if entry["role"] not in ROLES:
             raise CaptureBundleError(f"invalid role for {path}")
+        # A derived entry is a restatement of committed evidence —
+        # without resolvable source_refs it carries no provenance and
+        # both emit-side validators already reject it.
+        if entry["role"] == "derived" and not entry.get("source_refs"):
+            raise CaptureBundleError(
+                f"derived entry missing source_refs for {path}"
+            )
         if not isinstance(entry["sha256"], str) or not SHA256_RE.fullmatch(entry["sha256"]):
             raise CaptureBundleError(f"invalid SHA-256 for {path}")
         if "source_refs" in entry:
@@ -1549,13 +1556,34 @@ RESERVED_PATH_METADATA = {
     "annotations/entities.json": {
         "media_type": "application/json",
         "producer": "annotation",
-        "provenance_class": "user_annotation",
+        # The collection entry summarizes member provenance:
+        # homogeneous imported sets declare imported_reference and
+        # mixed/derived/empty sets declare capture_app_derived, while
+        # per-record provenance_class stays authoritative.
+        "provenance_class": frozenset(
+            {
+                "user_annotation",
+                "imported_reference",
+                "capture_app_derived",
+            }
+        ),
         "role": "canonical",
     },
     "annotations/measurements.json": {
         "media_type": "application/json",
         "producer": "measurement",
-        "provenance_class": "user_attested_measurement",
+        # Same summary semantics: the collection may declare any class
+        # its members' provenance resolves to (issue #286 on the
+        # capture side).
+        "provenance_class": frozenset(
+            {
+                "user_attested_measurement",
+                "apple_roomplan_inference",
+                "arkit_mesh_reconstruction",
+                "imported_reference",
+                "capture_app_derived",
+            }
+        ),
         "role": "canonical",
     },
     "mesh/anchors.json": {
@@ -1602,7 +1630,13 @@ def _enforce_reserved_path_metadata(
             continue
         for field, expected in contract.items():
             actual = entry[field] if field != "sha256" else None
-            if actual != expected:
+            if isinstance(expected, frozenset):
+                if actual not in expected:
+                    raise CaptureBundleError(
+                        f"{path} must declare {field} in "
+                        f"{sorted(expected)!r}, got {actual!r}"
+                    )
+            elif actual != expected:
                 raise CaptureBundleError(
                     f"{path} must declare {field} {expected!r}, "
                     f"got {actual!r}"

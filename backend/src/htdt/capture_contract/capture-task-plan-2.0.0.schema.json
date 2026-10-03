@@ -1,0 +1,535 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/capture-task-plan-2.0.0.schema.json",
+  "title": "HTDT Capture Task Plan v2.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "plan_id",
+    "plan_version",
+    "project_ref",
+    "room_name",
+    "entity_checklist",
+    "measurement_requests",
+    "surface_review_tasks",
+    "evidence_targets",
+    "expected_channel_roles"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture-task-plan"
+    },
+    "schema_version": {
+      "const": "2.0.0"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "room_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issued_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "entity_checklist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "entity_type",
+          "requirement"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "entity_type": {
+            "enum": [
+              "speaker",
+              "subwoofer",
+              "display",
+              "projection_screen",
+              "projector",
+              "listening_position",
+              "seat",
+              "acoustic_treatment",
+              "equipment_rack",
+              "reference_point",
+              "custom",
+              "measurement_point"
+            ]
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "channel_role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z0-9_]+$"
+          },
+          "label_hint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "equipment_ref": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "equipment_id",
+                  "equipment_version",
+                  "equipment_hash"
+                ],
+                "properties": {
+                  "equipment_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "equipment_version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "equipment_hash": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "authority_version": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "measurement_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "quantity_type",
+          "requirement"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "quantity_type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "endpoint_semantics": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "expected_unit": {
+            "enum": [
+              "m",
+              "rad",
+              "1",
+              "s",
+              "degC",
+              "%",
+              null
+            ]
+          }
+        }
+      }
+    },
+    "surface_review_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "surface_kind",
+          "requirement"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "surface_kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          }
+        }
+      }
+    },
+    "evidence_targets": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "expected_channel_roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z0-9_]+$"
+      }
+    },
+    "equipment_catalog": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "schemaVersion",
+            "authorityVersion",
+            "definitions"
+          ],
+          "properties": {
+            "schema": {
+              "const": "htdt.equipment.catalog-snapshot"
+            },
+            "schemaVersion": {
+              "const": 1
+            },
+            "authorityVersion": {
+              "const": "o100c-equipment-definition-1"
+            },
+            "definitions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "definition_id",
+                  "version",
+                  "semantic_sha256",
+                  "identity_kind"
+                ],
+                "properties": {
+                  "definition_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "semantic_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "identity_kind": {
+                    "enum": [
+                      "manufacturer",
+                      "user_defined"
+                    ]
+                  },
+                  "manufacturer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "model": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  },
+                  "user_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "recommended_capture_strategy": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "enum": [
+            "quick_scan",
+            "standard",
+            "detailed",
+            "commissioning"
+          ]
+        }
+      ]
+    },
+    "capture_strategy_pinned": {
+      "type": "boolean"
+    },
+    "semantic_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "requirement",
+          "semantic_kind"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "semantic_kind": {
+            "enum": [
+              "surface_semantics",
+              "surface_construction",
+              "problem_surface",
+              "construction_feature",
+              "room_state_observation",
+              "room_state_snapshot",
+              "inventory_item",
+              "furniture_semantics",
+              "speaker_installation",
+              "screen_semantics",
+              "seat_layout",
+              "routing_verification",
+              "projector_commissioning",
+              "installation_alignment"
+            ]
+          },
+          "expected_subtype": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "target_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "planned_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "allow_shared_fulfillment": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "evidence_tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "item_id",
+          "requirement",
+          "purpose"
+        ],
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subject_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "guidance": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "layout_profile": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema",
+            "schema_version",
+            "profile_id",
+            "profile_version",
+            "roles"
+          ],
+          "properties": {
+            "schema": {
+              "const": "htdt.speaker-layout-profile"
+            },
+            "schema_version": {
+              "const": "1.0.0"
+            },
+            "profile_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "profile_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "display_name": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "minLength": 1
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "role_id",
+                  "channel_role",
+                  "display_name",
+                  "is_subwoofer",
+                  "minimum_count"
+                ],
+                "properties": {
+                  "role_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "channel_role": {
+                    "type": "string",
+                    "pattern": "^[A-Z0-9_]+$"
+                  },
+                  "display_name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "is_subwoofer": {
+                    "type": "boolean"
+                  },
+                  "minimum_count": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "maximum_count": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

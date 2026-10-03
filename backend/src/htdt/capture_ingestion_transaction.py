@@ -589,6 +589,22 @@ class CaptureSourceEvidence(BaseModel):
         return value
 
 
+class CapturedRoomDimensionsSummary(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    x_m: float = Field(ge=0)
+    y_m: float = Field(ge=0)
+    z_m: float = Field(ge=0)
+
+
+class CapturedRoomContentSummary(BaseModel):
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    surface_count: int | None = Field(default=None, ge=0)
+    object_count: int | None = Field(default=None, ge=0)
+    dimensions_m: CapturedRoomDimensionsSummary | None = None
+
+
 class CaptureRoomPlanCaptureMetadata(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -608,7 +624,9 @@ class CaptureRoomPlanCaptureMetadata(BaseModel):
     processed_serialization_format: str | None = None
     raw_byte_count: int | None = Field(default=None, ge=0)
     raw_serialization_format: str | None = None
+    captured_room_version: str | None = None
     runtime: dict[str, str] | None = None
+    summary: CapturedRoomContentSummary | None = None
     surface_count: int | None = None
     object_count: int | None = None
     dimensions: dict[str, float] | None = None

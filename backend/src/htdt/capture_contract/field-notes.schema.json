@@ -12,14 +12,26 @@
     "notes"
   ],
   "properties": {
-    "schema": { "const": "htdt.capture.field_notes" },
-    "schema_version": { "const": "1.0.0" },
-    "capture_revision_id": { "$ref": "#/$defs/uuid4" },
-    "capture_session_id": { "$ref": "#/$defs/uuid4" },
-    "updated_at": { "$ref": "#/$defs/utcTimestamp" },
+    "schema": {
+      "const": "htdt.capture.field_notes"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "capture_session_id": {
+      "$ref": "#/$defs/uuid4"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/utcTimestamp"
+    },
     "notes": {
       "type": "array",
-      "items": { "$ref": "#/$defs/note" }
+      "items": {
+        "$ref": "#/$defs/note"
+      }
     }
   },
   "$defs": {
@@ -48,10 +60,18 @@
         "status"
       ],
       "properties": {
-        "note_id": { "$ref": "#/$defs/uuid4" },
-        "capture_revision_id": { "$ref": "#/$defs/uuid4" },
-        "capture_session_id": { "$ref": "#/$defs/uuid4" },
-        "created_at": { "$ref": "#/$defs/utcTimestamp" },
+        "note_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "capture_revision_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "capture_session_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "created_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
         "session_timestamp_seconds": {
           "type": "number",
           "minimum": 0
@@ -60,45 +80,99 @@
           "type": "string",
           "pattern": "^[a-z0-9_]{1,128}$"
         },
-        "text": { "type": "string", "minLength": 1 },
-        "severity": {
-          "enum": ["observation", "concern", "hazard"]
+        "text": {
+          "type": "string",
+          "minLength": 1
         },
-        "needs_attention": { "type": "boolean" },
+        "severity": {
+          "enum": [
+            "observation",
+            "concern",
+            "hazard"
+          ]
+        },
+        "needs_attention": {
+          "type": "boolean"
+        },
         "binding_refs": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "evidence_refs": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
         },
         "spatial_position": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["coordinate_space_id", "point_meters"],
+          "required": [
+            "coordinate_space_id",
+            "point_meters"
+          ],
           "properties": {
-            "coordinate_space_id": { "$ref": "#/$defs/uuid4" },
+            "coordinate_space_id": {
+              "$ref": "#/$defs/uuid4"
+            },
             "point_meters": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["x", "y", "z"],
+              "required": [
+                "x",
+                "y",
+                "z"
+              ],
               "properties": {
-                "x": { "type": "number" },
-                "y": { "type": "number" },
-                "z": { "type": "number" }
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "z": {
+                  "type": "number"
+                }
               }
+            },
+            "anchor_kind": {
+              "enum": [
+                "subject_point",
+                "viewpoint",
+                null
+              ]
             }
           }
         },
-        "authoring_method": { "enum": ["typed", "dictated"] },
-        "operator_id": { "$ref": "#/$defs/uuid4" },
-        "status": {
-          "enum": ["active", "resolved", "superseded"]
+        "authoring_method": {
+          "enum": [
+            "typed",
+            "dictated"
+          ]
         },
-        "supersedes_note_id": { "$ref": "#/$defs/uuid4" },
-        "superseded_by_note_id": { "$ref": "#/$defs/uuid4" },
-        "resolved_at": { "$ref": "#/$defs/utcTimestamp" }
+        "operator_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "resolved",
+            "superseded"
+          ]
+        },
+        "supersedes_note_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "superseded_by_note_id": {
+          "$ref": "#/$defs/uuid4"
+        },
+        "resolved_at": {
+          "$ref": "#/$defs/utcTimestamp"
+        }
       }
     }
   }

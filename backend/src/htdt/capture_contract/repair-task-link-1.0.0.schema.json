@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/repair-task-link-1.0.0.schema.json",
+  "title": "HTDT Capture Repair Task Link v1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "repair_plan_id",
+    "repair_plan_version",
+    "repair_plan_sha256",
+    "repair_task_id",
+    "source_capture_revision_id",
+    "ingestion_receipt_ref"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture-repair-task-link"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "repair_plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repair_plan_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repair_plan_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "repair_task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ingestion_receipt_ref": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
