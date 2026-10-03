@@ -277,20 +277,9 @@ def test_supported_supplemental_documents_ingest_and_reopen(
     plan, payloads, _manifest = support.plan_and_payloads(
         tmp_path / 'bundle', files=files
     )
-    documents = [
-        _supplemental_for(
-            plan,
-            path,
-            kind=SUPPLEMENTAL_KINDS[path],
-            state='supported',
-            schema=f'htdt.capture.{SUPPLEMENTAL_KINDS[path]}',
-            version='1',
-            coordinate_space_ids=(support.SPACE_ID,),
-            capture_session_ids=(support.SESSION_ID,),
-        )
-        for path in SUPPLEMENTAL_DOCS
-    ]
-    plan = _attach_supplemental(plan, documents)
+    # build_ingestion_plan now emits the typed handoffs itself — the
+    # plan already carries one supported document per declared path.
+    assert len(plan['supplemental_documents']) == 5
 
     result = repository.ingest(plan, payloads)
     assert result.created
