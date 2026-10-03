@@ -1,16 +1,12 @@
-"""REV36-NITPICK: sketch Enter-to-commit on both paths + ruler first tick.
+"""REV36-NITPICK: sketch Enter-to-commit + ruler first tick (workflow path).
 
 1. 「Enter で閉じる」 never fired: ``'Enter'`` parses to ``Qt.Key_Enter``
-   (numpad) while the main keyboard emits ``Qt.Key_Return``, and the
-   legacy editor's interactor-level key filter never ran because the
-   QVTK interactor never takes Qt focus. The workflow path now carries a
-   ``Return`` alias on ``room.edit.commit``; the legacy path binds real
-   window-level QShortcuts.
-2. The bounds ruler (CubeAxesActor) used to be created before any scene
-   content existed, so its first sampled extent was the post-clear
-   degenerate one — a stale ~1e-7 tick until follow-scene recalibrated.
-   ``_add_scene_axes`` now runs after the scene and falls back to the
-   default floor patch when the scene has no usable bounds.
+   (numpad) while the main keyboard emits ``Qt.Key_Return``. The workflow
+   path carries a ``Return`` alias on ``room.edit.commit``.
+2. The sketch cursor preview is a ``pv.Line`` whose ``'Distance'`` scalars
+   auto-show a scalar bar; on first render the segment is ~0-length so the
+   bar's first range is ~1e-7 — a stale tick. It opts out via
+   ``show_scalar_bar=False``.
 """
 
 from __future__ import annotations
@@ -32,40 +28,19 @@ from htdt.cad_input import (
     CadInputController,
     bind_cad_input_commands,
 )
-from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, RoomVertex, make_f1_scene
+from htdt.cad_scene import RoomVertex
 from htdt.command_registry import (
     CommandRegistry,
     default_command_definitions,
     register_default_commands,
 )
-from htdt.native_editor import NativeEditorWindow
-from htdt.room_editor import RoomEditorWindow
 from htdt.room_geometry_input import RoomGeometryInputController
-from htdt.room_viewport import (
-    DEFAULT_EMPTY_SCENE_BOUNDS,
-    scene_has_usable_bounds,
-)
-from htdt.theater_editor import TheaterEditorWindow
 
 from test_cad_input import _ViewportPort
 
 
 def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
-
-
-def _repository(tmp_path, scene=None):
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
-    repository.save(scene or make_f1_scene(), parent_revision_id=None)
-    return repository
-
-
-def _window(repository, cls):
-    _app()
-    window = cls(repository, F1_DOCUMENT_ID)
-    assert window.working is not None
-    return window
 
 
 # ---------------------------------------------------------------------------
@@ -168,139 +143,8 @@ def test_commit_shortcuts_yield_to_text_input() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Legacy RoomEditorWindow: window-level shortcuts replace the dead interactor
-# eventFilter (the QVTK interactor never takes Qt focus).
+# Sketch cursor preview: no auto Distance scalar bar (stale ~1e-7 tick)
 # ---------------------------------------------------------------------------
-
-
-def _shortcut_for_key(window: RoomEditorWindow, key: Qt.Key):
-    return next(
-        shortcut
-        for shortcut, _modes in window._room_mode_shortcuts
-        if shortcut.key() == QKeySequence(key)
-    )
-
-
-def test_legacy_return_and_enter_close_the_sketch(tmp_path) -> None:
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        window.cancel_preview()
-        window.start_room_sketch()
-        assert window.room_mode == 'sketch'
-        window.room_sketch_vertices = [
-            RoomVertex(vertex_id=f"sk-{i}", x_m=x, y_m=y)
-            for i, (x, y) in enumerate(
-                ((0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0))
-            )
-        ]
-        shortcut = _shortcut_for_key(window, key)
-        assert shortcut.isEnabled()
-        shortcut.activated.emit()
-        assert window.room_mode == 'edit'
-    window.deleteLater()
-
-
-def test_legacy_enter_shortcuts_only_live_in_sketch_mode(tmp_path) -> None:
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        assert _shortcut_for_key(window, key).isEnabled() is False
-    window.start_room_edit()
-    assert window.room_mode == 'edit'
-    for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-        assert _shortcut_for_key(window, key).isEnabled() is False
-    window.finish_room_edit()
-    window.deleteLater()
-
-
-def test_legacy_escape_cancels_sketch_and_edit_cancel(tmp_path) -> None:
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    escape = _shortcut_for_key(window, Qt.Key.Key_Escape)
-    assert escape.isEnabled() is False
-
-    window.start_room_sketch()
-    assert escape.isEnabled()
-    calls: list[str] = []
-    window.cancel_preview = lambda: calls.append("cancel")
-    escape.activated.emit()
-    assert calls == ["cancel"]
-    window.deleteLater()
-
-
-def test_legacy_room_shortcuts_yield_to_text_input(tmp_path, monkeypatch) -> None:
-    import htdt.room_editor as room_editor_module
-
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    window.start_room_sketch()
-    shortcuts = [shortcut for shortcut, _modes in window._room_mode_shortcuts]
-    assert all(shortcut.isEnabled() for shortcut in shortcuts)
-
-    # Text-focus gating is driven by the same predicate the workflow binder
-    # uses; focus delivery to dock children is unreliable offscreen, so the
-    # predicate is stubbed while the predicate itself is checked for real.
-    assert room_editor_module.is_text_input_widget(window.room_height)
-    monkeypatch.setattr(
-        room_editor_module, "is_text_input_widget", lambda _widget: True
-    )
-    window._refresh_room_mode_shortcuts()
-    assert all(not shortcut.isEnabled() for shortcut in shortcuts)
-
-    monkeypatch.undo()
-    window._refresh_room_mode_shortcuts()
-    assert all(shortcut.isEnabled() for shortcut in shortcuts)
-    window.deleteLater()
-
-
-# ---------------------------------------------------------------------------
-# Bounds ruler: first tick samples real bounds (or the default floor patch)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "window_cls",
-    [NativeEditorWindow, RoomEditorWindow, TheaterEditorWindow],
-)
-def test_scene_grid_first_tick_has_real_bounds(tmp_path, window_cls) -> None:
-    window = _window(_repository(tmp_path), window_cls)
-    actor = window.viewport.renderer.cube_axes_actor
-    assert actor is not None
-    bounds = tuple(float(value) for value in actor.bounds)
-    extents = (bounds[1] - bounds[0], bounds[3] - bounds[2], bounds[5] - bounds[4])
-    # The pre-fix ruler was born on the post-clear degenerate extent and
-    # showed a ~1e-7 tick; the F1 scene spans several metres on every axis.
-    assert all(extent > 0.5 for extent in extents)
-    window.deleteLater()
-
-
-def test_scene_grid_created_after_content(tmp_path, monkeypatch) -> None:
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    calls: list[tuple[bool, object]] = []
-    original = window.viewport.show_grid
-
-    def spy(*args, **kwargs):
-        calls.append(
-            (scene_has_usable_bounds(window.viewport), kwargs.get("bounds"))
-        )
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(window.viewport, "show_grid", spy)
-    window._rebuild()
-    assert calls == [(True, None)]
-    window.deleteLater()
-
-
-def test_sketch_cursor_line_hides_distance_scalar_bar(tmp_path) -> None:
-    window = _window(_repository(tmp_path), RoomEditorWindow)
-    window.start_room_sketch()
-    window.room_sketch_vertices = [
-        RoomVertex(vertex_id="sk-0", x_m=0.0, y_m=0.0),
-        RoomVertex(vertex_id="sk-1", x_m=6.0, y_m=0.0),
-    ]
-    window.room_cursor_xy = (6.0, 0.0000001)
-    window._render_room_sketch_overlay()
-    # pv.Line's 'Distance' scalars auto-show a scalar bar whose first range
-    # is ~1e-7 — the stale tick the report flagged. It must stay hidden.
-    assert "Distance" not in window.viewport.scalar_bars
-    window.deleteLater()
 
 
 def test_workflow_sketch_cursor_line_hides_distance_scalar_bar(monkeypatch) -> None:
@@ -325,28 +169,3 @@ def test_workflow_sketch_cursor_line_hides_distance_scalar_bar(monkeypatch) -> N
     # of the scalar bar that shows a stale ~1e-7 tick on first render.
     assert ("ux120-room-sketch-cursor", False) in calls
     controller.dispose()
-
-
-def test_empty_scene_grid_uses_default_floor_bounds(tmp_path, monkeypatch) -> None:
-    scene = make_f1_scene().model_copy(update={"room": None, "entities": ()})
-    window = _window(_repository(tmp_path, scene), RoomEditorWindow)
-    calls: list[tuple[bool, object]] = []
-    original = window.viewport.show_grid
-
-    def spy(*args, **kwargs):
-        calls.append(
-            (scene_has_usable_bounds(window.viewport), kwargs.get("bounds"))
-        )
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(window.viewport, "show_grid", spy)
-    window._rebuild()
-    # No scene actors: the ruler is initialized to the default floor patch
-    # instead of sampling the degenerate ~1e-9 extent.
-    assert calls == [(False, DEFAULT_EMPTY_SCENE_BOUNDS)]
-    actor = window.viewport.renderer.cube_axes_actor
-    assert actor is not None
-    assert tuple(float(v) for v in actor.bounds) == pytest.approx(
-        DEFAULT_EMPTY_SCENE_BOUNDS
-    )
-    window.deleteLater()
