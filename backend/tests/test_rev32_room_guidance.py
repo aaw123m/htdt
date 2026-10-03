@@ -29,6 +29,7 @@ from htdt.room_workspace import (  # noqa: E402
     ObjectPalette,
     ROOM_CONTEXT_IDS,
     RoomWorkspace,
+    SelectionInspector,
 )
 from htdt.standards_workspace import StandardsCriterionPanel  # noqa: E402
 from htdt.workflow_navigation import (  # noqa: E402
@@ -126,6 +127,21 @@ def test_geometry_panel_explains_fields_and_empty_sections(tmp_path) -> None:
         panel.delete_opening_button,
     ):
         assert widget.toolTip(), f"{widget.objectName() or widget!r} lacks a tooltip"
+
+
+def test_inspector_row_labels_carry_the_field_hint() -> None:
+    _app()
+    inspector = SelectionInspector()
+    for text in ("種類", "名前", "位置", "寸法", "役割"):
+        labels = [
+            label
+            for label in inspector.findChildren(QLabel)
+            if label.text() == text
+        ]
+        assert labels, f"{text} row label missing"
+        assert any(label.toolTip() for label in labels), (
+            f"{text} row label lacks a tooltip"
+        )
 
 
 def test_objects_panel_explains_columns_and_actions() -> None:

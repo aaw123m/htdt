@@ -3044,12 +3044,12 @@ class SelectionInspector(QFrame):
         role_edit = self.role_field.lineEdit()
         if role_edit is not None:
             role_edit.setPlaceholderText("役割を選択または入力（例: FL / C / TFL）")
+        speaker_form.addRow("役割", self.role_field)
         self._hint(
             speaker_form, self.role_field,
             "スピーカーのチャンネル役割（FL=前方左、C=センター、SL/SR=左右サラウンド、"
             "SUB=サブウーファー、T**=天井など）· 自由入力も可 · 配置評価・提案に使われます",
         )
-        speaker_form.addRow("役割", self.role_field)
         self.speaker_section.body_layout.addLayout(speaker_form)
 
         # Speaker-only acoustic aim block (#470): independent authority from the
