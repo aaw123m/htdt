@@ -29,6 +29,8 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import (
     F1_DOCUMENT_ID,
     Position3,
+    RoomVertex,
+    SceneDocument,
     domain_to_render,
     make_f1_scene,
     room_vertices,
@@ -38,7 +40,11 @@ from htdt.command_registry import CommandRegistry, register_default_commands
 from htdt.room_geometry_input import RoomGeometryInputController
 from htdt.room_measure_input import RoomMeasureController, RoomMeasurePanel
 from htdt.room_transform_input import RoomEntityTransformController
-from htdt.room_viewport import RoomViewport3D
+from htdt.room_viewport import (
+    DEFAULT_EMPTY_SCENE_BOUNDS,
+    RoomViewport3D,
+    reset_camera_or_floor_default,
+)
 from htdt.room_workspace import RoomWorkspace
 
 
@@ -109,6 +115,23 @@ class FakeRoomViewport(QFrame):
 def _workspace(tmp_path, viewport_cls=FakeRoomViewport):
     app = _app()
     repository = _f1_repository(tmp_path)
+    workspace = RoomWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: viewport_cls(parent),
+    )
+    return app, workspace
+
+
+def _empty_workspace(tmp_path, viewport_cls=FakeRoomViewport):
+    """Workspace backed by a document with no room and no entities — the
+    first-run state a brand-new project starts in."""
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(
+        SceneDocument(document_id=F1_DOCUMENT_ID, room=None, entities=()),
+        parent_revision_id=None,
+    )
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -525,6 +548,91 @@ def test_workspace_render_feeds_positions_to_draft_measure_overlay(tmp_path) -> 
     ]
     assert seen
     assert all(isinstance(endpoint, Position3) for endpoint in seen)
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+# --- REV34-DIALOGUX: first-run camera framing + sketch error guidance ----
+
+
+class _BoundsStubPlotter:
+    def __init__(self, bounds) -> None:
+        self.bounds = bounds
+        self.calls: list = []
+
+    def reset_camera(self, render=True, bounds=None) -> None:
+        self.calls.append(bounds)
+
+
+def test_reset_camera_frames_scene_bounds_when_usable() -> None:
+    plotter = _BoundsStubPlotter((0.0, 5.0, 0.0, 3.0, 0.0, 2.4))
+    reset_camera_or_floor_default(plotter)
+    assert plotter.calls == [None]
+
+
+def test_reset_camera_covers_vtk_empty_scene_sentinel() -> None:
+    """A renderer with no scene actors reports the exact ±1 sentinel —
+    framing it left first-run sketching at sub-metre scale."""
+    plotter = _BoundsStubPlotter((-1.0, 1.0, -1.0, 1.0, -1.0, 1.0))
+    reset_camera_or_floor_default(plotter)
+    assert plotter.calls == [DEFAULT_EMPTY_SCENE_BOUNDS]
+
+
+def test_reset_camera_covers_degenerate_scene_extent() -> None:
+    """Overlay-only scenes can report a ~1e-9 m extent."""
+    plotter = _BoundsStubPlotter((0.0, 1e-9, 0.0, 1e-9, 0.0, 1e-9))
+    reset_camera_or_floor_default(plotter)
+    assert plotter.calls == [DEFAULT_EMPTY_SCENE_BOUNDS]
+
+
+def test_view_top_on_empty_scene_frames_default_floor_patch(tmp_path) -> None:
+    """Sketch entry on a brand-new project must land at metre scale."""
+    app, workspace = _empty_workspace(tmp_path)
+    controller = RoomGeometryInputController(workspace, workspace.viewport)
+    controller.start_sketch()
+    assert workspace.viewport.plotter.reset_bounds[-1] == DEFAULT_EMPTY_SCENE_BOUNDS
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_close_sketch_rejects_self_intersecting_outline(tmp_path) -> None:
+    """A bowtie sketch must say *why* it failed, not a generic
+    'データを処理できませんでした' — the domain validator's English text
+    maps to the generic fallback, so the sketch layer names the two
+    drawable failures explicitly."""
+    app, workspace = _empty_workspace(tmp_path)
+    controller = RoomGeometryInputController(workspace, workspace.viewport)
+    controller.start_sketch()
+    controller._sketch = [
+        RoomVertex(vertex_id="v1", x_m=0.0, y_m=0.0),
+        RoomVertex(vertex_id="v2", x_m=4.0, y_m=4.0),
+        RoomVertex(vertex_id="v3", x_m=4.0, y_m=0.0),
+        RoomVertex(vertex_id="v4", x_m=0.0, y_m=4.0),
+    ]
+    assert controller._close_sketch() is False
+    assert "自己交差" in workspace.status.text()
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_close_sketch_rejects_stacked_vertices(tmp_path) -> None:
+    app, workspace = _empty_workspace(tmp_path)
+    controller = RoomGeometryInputController(workspace, workspace.viewport)
+    controller.start_sketch()
+    controller._sketch = [
+        RoomVertex(vertex_id="v1", x_m=0.0, y_m=0.0),
+        RoomVertex(vertex_id="v2", x_m=4.0, y_m=0.0),
+        RoomVertex(vertex_id="v3", x_m=4.0, y_m=0.0),
+        RoomVertex(vertex_id="v4", x_m=0.0, y_m=3.0),
+    ]
+    assert controller._close_sketch() is False
+    assert "重なっています" in workspace.status.text()
 
     workspace.close()
     workspace.deleteLater()

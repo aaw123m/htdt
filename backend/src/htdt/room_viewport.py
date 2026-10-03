@@ -38,6 +38,54 @@ from .cad_scene import (
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
 
 
+#: Camera framing used when the scene has no usable bounds yet — a
+#: typical-room floor patch (x/y ±5 m, z 0–3 m). On an empty document VTK's
+#: bounds are degenerate (~1e-9 m extent); framing them leaves the floor so
+#: small that sketch clicks land at nanometre scale and first-run room
+#: drawing is effectively impossible (REV34-DIALOGUX).
+DEFAULT_EMPTY_SCENE_BOUNDS = (-5.0, 5.0, -5.0, 5.0, 0.0, 3.0)
+
+
+#: Bounds tuple VTK reports for a renderer with no scene actors — the
+#: sentinel for "empty scene" alongside degenerate extents.
+_VTK_EMPTY_SCENE_BOUNDS = (-1.0, 1.0, -1.0, 1.0, -1.0, 1.0)
+
+
+def scene_has_usable_bounds(plotter) -> bool:
+    """Whether the plotter's scene bounds are usable for camera framing.
+
+    An empty renderer reports the exact ±1 sentinel
+    (:data:`_VTK_EMPTY_SCENE_BOUNDS`), and overlay-only scenes can report a
+    degenerate ~1e-9 m extent; neither may be used to frame the camera.
+    """
+    bounds = getattr(plotter, 'bounds', None)
+    if bounds is None or len(bounds) < 6:
+        return False
+    if all(abs(float(a) - b) < 1e-9 for a, b in zip(bounds, _VTK_EMPTY_SCENE_BOUNDS)):
+        return False
+    extent = float(
+        max(
+            bounds[1] - bounds[0],
+            bounds[3] - bounds[2],
+            bounds[5] - bounds[4],
+        )
+    )
+    return isfinite(extent) and extent >= 0.1
+
+
+def reset_camera_or_floor_default(plotter) -> None:
+    """``plotter.reset_camera()`` that stays drawable on an empty scene.
+
+    When the scene has no usable bounds (see :func:`scene_has_usable_bounds`)
+    the camera frames :data:`DEFAULT_EMPTY_SCENE_BOUNDS` instead; every other
+    scene keeps VTK's own reset.
+    """
+    if scene_has_usable_bounds(plotter):
+        plotter.reset_camera()
+    else:
+        plotter.reset_camera(bounds=DEFAULT_EMPTY_SCENE_BOUNDS)
+
+
 @dataclass(frozen=True, slots=True)
 class RoomOverlayState:
     grid: bool = True
@@ -2035,7 +2083,11 @@ class RoomViewport3D(QFrame):
         self._render()
 
     def fit_scene(self) -> None:
-        self.plotter.reset_camera()
+        document = self._document
+        if document is not None and document.room is None and not document.entities:
+            self.plotter.reset_camera(bounds=DEFAULT_EMPTY_SCENE_BOUNDS)
+        else:
+            reset_camera_or_floor_default(self.plotter)
         self.plotter.camera.zoom(0.92)
         self._render()
 

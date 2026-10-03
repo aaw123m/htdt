@@ -44,7 +44,10 @@ from .cad_scene import (
     rotate_orientation_world,
 )
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
-from .room_viewport import _entity_mesh as _scene_entity_mesh
+from .room_viewport import (
+    _entity_mesh as _scene_entity_mesh,
+    reset_camera_or_floor_default,
+)
 from .accessible_labels import wire_status_announcements
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .user_facing_error import operation_error_message, warn_user
@@ -1231,33 +1234,33 @@ class NativeEditorWindow(QMainWindow):
         self._cancel_before_view_change()
         self.viewport.view_xy(negative=True)
         self.viewport.enable_parallel_projection()
-        self.viewport.reset_camera()
+        reset_camera_or_floor_default(self.viewport)
         self.viewport.render()
 
     def _front(self) -> None:
         self._cancel_before_view_change()
         self.viewport.view_xz(negative=False)
         self.viewport.enable_parallel_projection()
-        self.viewport.reset_camera()
+        reset_camera_or_floor_default(self.viewport)
         self.viewport.render()
 
     def _right(self) -> None:
         self._cancel_before_view_change()
         self.viewport.view_yz(negative=True)
         self.viewport.enable_parallel_projection()
-        self.viewport.reset_camera()
+        reset_camera_or_floor_default(self.viewport)
         self.viewport.render()
 
     def _perspective(self) -> None:
         self._cancel_before_view_change()
         self.viewport.disable_parallel_projection()
         self.viewport.view_isometric()
-        self.viewport.reset_camera()
+        reset_camera_or_floor_default(self.viewport)
         self.viewport.render()
 
     def _fit(self) -> None:
         self._cancel_before_view_change()
-        self.viewport.reset_camera()
+        reset_camera_or_floor_default(self.viewport)
         self.viewport.render()
 
     def _check_mouse_capture(self) -> None:

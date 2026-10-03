@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import numpy as np
 import pyvista as pv
+from shapely.geometry import Polygon
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
@@ -20,7 +21,10 @@ from .cad_walls import (
     split_wall,
     wall_length,
 )
-from .room_viewport import RoomViewport3D
+from .room_viewport import (
+    RoomViewport3D,
+    reset_camera_or_floor_default,
+)
 from .room_workspace import RoomWorkspace
 from .ui_theme import DARK_THEME
 from .user_facing_error import operation_error_message
@@ -624,6 +628,24 @@ class RoomGeometryInputController(QObject):
         if len(self._sketch) < 3:
             self.workspace._set_status("部屋には3頂点以上が必要です", error=True)
             return False
+        # Domain validation (polygon_from_vertices) raises English
+        # diagnostics, which the error mapper renders as a generic
+        # 'データを処理できませんでした'. The two failures a user can
+        # actually draw — stacked vertices and a self-intersecting
+        # outline — get explicit guidance here instead.
+        coords = tuple((vertex.x_m, vertex.y_m) for vertex in self._sketch)
+        if len(set(coords)) != len(coords):
+            self.workspace._set_status(
+                "部屋形状を確定できません: 頂点が重なっています · Esc で描き直してください",
+                error=True,
+            )
+            return False
+        if not Polygon(coords).is_valid:
+            self.workspace._set_status(
+                "部屋形状を確定できません: 外形が自己交差しています · 頂点を時計回りに置くか Esc で描き直してください",
+                error=True,
+            )
+            return False
         current_document = self.workspace.controller.committed_document
         current = current_document.room
         height_m = 2.4 if current is None else current.height_m
@@ -780,7 +802,7 @@ class RoomGeometryInputController(QObject):
         plotter = self.viewport.plotter
         plotter.view_xy(negative=True)
         plotter.enable_parallel_projection()
-        plotter.reset_camera()
+        reset_camera_or_floor_default(plotter)
         plotter.render()
 
     def _screen_to_floor(self, position: QPointF) -> tuple[float, float] | None:
