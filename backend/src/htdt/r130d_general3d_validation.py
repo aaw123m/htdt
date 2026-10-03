@@ -26,6 +26,14 @@ SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SCHEMA = (
 SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256 = (
     '7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4'
 )
+DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.dense-frequency-diagnostic-plan-1'
+)
+DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256 = (
+    '5922d03be22b86634c9397d94d15b1164b00c7a9c3e012d9628fd3a63dd3c80a'
+)
+DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
+DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
 
 
 
@@ -62,6 +70,56 @@ def load_spatial_representation_diagnostic_plan(
             f'authority: {digest}'
         )
     return payload
+
+
+def load_dense_frequency_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError('R130D dense frequency diagnostic plan must be a JSON object')
+    if payload.get('schema_version') != DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SCHEMA:
+        raise ValueError('R130D dense frequency diagnostic plan schema mismatch')
+    digest = semantic_hash(payload)
+    if digest != DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D dense frequency diagnostic plan differs from the frozen '
+            f'pre-run authority: {digest}'
+        )
+    return payload
+
+
+def dense_frequency_grid(
+    bands: Sequence[dict[str, Any]],
+) -> tuple[float, ...]:
+    frequencies: list[float] = []
+    for band in bands:
+        band_id = band.get('band_id')
+        start = float(band.get('start_hz', math.nan))
+        stop = float(band.get('stop_hz', math.nan))
+        step = float(band.get('step_hz', math.nan))
+        center = float(band.get('canonical_center_hz', math.nan))
+        if not all(math.isfinite(x) for x in (start, stop, step)):
+            raise ValueError('dense frequency band bounds must be finite')
+        if step <= 0.0 or stop < start:
+            raise ValueError('dense frequency band must have start <= stop, step > 0')
+        span = (stop - start) / step
+        count = int(round(span)) + 1
+        if not math.isclose(span, count - 1, rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError('dense frequency band does not divide evenly by step')
+        values = [start + index * step for index in range(count)]
+        if not math.isclose(values[-1], stop, rel_tol=0.0, abs_tol=1.0e-9):
+            raise ValueError('dense frequency band does not land on its stop bound')
+        if not math.isfinite(center) or not any(
+            math.isclose(x, center, rel_tol=0.0, abs_tol=1.0e-9) for x in values
+        ):
+            raise ValueError(
+                f'dense frequency band {band_id!r} must contain its canonical center'
+            )
+        frequencies.extend(values)
+    if len(frequencies) != len(set(frequencies)):
+        raise ValueError('dense frequency grid must not repeat a frequency')
+    return tuple(frequencies)
 
 
 def validate_spatial_representation_diagnostic_binding(
@@ -148,6 +206,129 @@ def validate_spatial_representation_diagnostic_binding(
         raise ValueError('R130D spatial diagnostic decision semantics are not fail-closed')
 
 
+def validate_dense_frequency_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    spatial_parent = diagnostic.get('parent_spatial_representation_diagnostic', {})
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent spatial diagnostic sha256',
+            spatial_parent.get('semantic_sha256'),
+            SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                f'R130D dense frequency diagnostic binding mismatch for {label}: '
+                f'{actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError('R130D dense frequency diagnostic changes canonical thresholds')
+    dense = diagnostic.get('dense_frequency_neighborhood', {})
+    grid = dense_frequency_grid(dense.get('bands', ()))
+    if tuple(float(x) for x in dense.get('diagnostic_frequency_hz', ())) != grid:
+        raise ValueError('R130D dense diagnostic frequency list is not the band grid')
+    canonical = tuple(
+        float(x) for x in dense.get('canonical_scored_frequency_hz', ())
+    )
+    if canonical != tuple(
+        float(x) for x in plan.physical_quantity.frequency_hz
+    ):
+        raise ValueError('R130D dense diagnostic changed canonical scored frequencies')
+    if not all(x in grid for x in canonical):
+        raise ValueError('dense frequency grid must evaluate the canonical frequencies')
+    diagnostic_only = set(float(x) for x in dense.get('diagnostic_only_frequency_hz', ()))
+    if diagnostic_only != set(grid) - set(canonical):
+        raise ValueError('diagnostic-only set must be the dense grid minus canonical')
+    if dense.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only frequencies cannot enter canonical acceptance')
+    if dense.get('normalized_complex_difference_formula') != (
+        '|H_b-H_a| / max(|H_b|, |H_a|, fixed_floor)'
+    ):
+        raise ValueError('dense diagnostic metric formula is not the frozen one')
+    if float(dense.get('fixed_floor', math.nan)) != 1.0e-12:
+        raise ValueError('dense diagnostic fixed floor is not the frozen 1e-12')
+    if list(dense.get('pairs', ())) != ['8_to_10', '10_to_12']:
+        raise ValueError('dense diagnostic pairs must be exactly 8->10 and 10->12')
+    classification = dense.get('classification', {})
+    if int(classification.get('localized_max_count', -1)) != (
+        DENSE_FREQUENCY_LOCALIZED_MAX_COUNT
+    ) or int(classification.get('persists_min_count', -1)) != (
+        DENSE_FREQUENCY_PERSISTS_MIN_COUNT
+    ):
+        raise ValueError('dense diagnostic classification thresholds are not frozen')
+    binding = diagnostic.get('run76_record_binding', {})
+    levels = list(binding.get('levels', ()))
+    if [float(item.get('points_per_wavelength', math.nan)) for item in levels] != [
+        float(x) for x in plan.pffdtd.points_per_wavelength
+    ]:
+        raise ValueError('run76 record binding levels must match the PPW ladder')
+    for item in levels:
+        for key in ('pressure_trace_sha256', 'source_trace_sha256'):
+            value = str(item.get(key, ''))
+            if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError(f'run76 record binding {key} is not a sha256')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError('R130D dense frequency diagnostic forbidden-change flag is on')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError('R130D dense diagnostic decision semantics are not fail-closed')
+
+
 def normalized_complex_difference(
     first: complex,
     second: complex,
@@ -182,6 +363,33 @@ def classify_frequency_neighborhood(
         classification = 'NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
     else:
         classification = 'MIXED_NEIGHBORHOOD_SENSITIVITY'
+    return {
+        'classification': classification,
+        'worsening_count': count,
+        'worsening_by_frequency': list(worsening),
+    }
+
+
+def classify_dense_frequency_neighborhood(
+    d_8_10: Sequence[float],
+    d_10_12: Sequence[float],
+) -> dict[str, Any]:
+    coarse = tuple(float(x) for x in d_8_10)
+    fine = tuple(float(x) for x in d_10_12)
+    if len(coarse) != len(fine):
+        raise ValueError('dense frequency-neighborhood series must have equal length')
+    if len(coarse) < 2:
+        raise ValueError('dense frequency-neighborhood classifier requires a grid')
+    if any(not math.isfinite(x) or x < 0.0 for x in (*coarse, *fine)):
+        raise ValueError('dense frequency-neighborhood differences must be finite/nonnegative')
+    worsening = tuple(b > a for a, b in zip(coarse, fine, strict=True))
+    count = sum(worsening)
+    if count >= DENSE_FREQUENCY_PERSISTS_MIN_COUNT:
+        classification = 'DENSE_NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'
+    elif count <= DENSE_FREQUENCY_LOCALIZED_MAX_COUNT:
+        classification = 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
+    else:
+        classification = 'DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'
     return {
         'classification': classification,
         'worsening_count': count,

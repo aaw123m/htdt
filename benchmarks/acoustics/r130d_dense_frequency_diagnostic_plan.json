@@ -1,0 +1,232 @@
+{
+    "schema_version": "htdt.r130d.dense-frequency-diagnostic-plan-1",
+    "diagnostic_id": "r130d-general3d-dense-frequency-neighborhood-2026-10-03",
+    "purpose": "Diagnose the frequency structure of the PFFDTD adjacent-level non-monotonicity over the predeclared dense frequency neighborhoods around the canonical 40/80 Hz scored bins, without changing the canonical solver contract or scored-frequency acceptance. Predeclared by docs/R130D_GENERAL3D_SPATIAL_REPRESENTATION_DIAGNOSTIC_RESULT_2026-09-21.md.",
+    "task_start_main_sha": "b6577df1109ad786040d8ae1d3719d2b5cd3456d",
+    "parent_general3d_plan": {
+        "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+        "semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec"
+    },
+    "parent_target_window_diagnostic": {
+        "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
+        "semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+        "authoritative_run_id": 35540693380,
+        "artifact_id": 10614827536,
+        "artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f"
+    },
+    "parent_spatial_representation_diagnostic": {
+        "diagnostic_id": "r130d-general3d-spatial-representation-stencil-neighborhood-2026-09-21",
+        "semantic_sha256": "7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4",
+        "authoritative_run_id": 35545706871,
+        "artifact_id": 10616239750,
+        "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f"
+    },
+    "frozen_solver_contract": {
+        "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+        "geometry_kind": "explicit_polyhedral",
+        "source_position_m": [
+            1.5,
+            2.0,
+            2.0
+        ],
+        "receiver_position_m": [
+            2.5,
+            2.0,
+            2.0
+        ],
+        "density_kg_m3": 1.2,
+        "sound_speed_m_s": 343.2,
+        "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+        "pffdtd_backend": "Python/Numba CPU",
+        "pffdtd_ppw": [
+            8.0,
+            10.0,
+            12.0
+        ],
+        "requested_duration_s": 0.25,
+        "canonical_frequency_hz": [
+            40.0,
+            80.0
+        ],
+        "canonical_window_function": "rectangular_no_taper",
+        "canonical_record_interval": "[0,T)",
+        "canonical_phasor_convention": "exp(-i*omega*t)",
+        "canonical_analysis_fourier_kernel": "exp(+i*omega*t)",
+        "magnitude_mask_relative_db": -50.0,
+        "pffdtd_self_convergence_thresholds": {
+            "complex_rms_relative_max": 0.2,
+            "magnitude_max_relative": 0.25,
+            "phase_max_deg": 15.0
+        }
+    },
+    "forbidden_changes": {
+        "additional_ppw": false,
+        "source_receiver_movement": false,
+        "geometry_fitting": false,
+        "time_window_replacement": false,
+        "amplitude_phase_fitting": false,
+        "post_result_frequency_selection": false,
+        "canonical_observable_change": false,
+        "threshold_change": false
+    },
+    "run76_record_binding": {
+        "binding_rule": "the dense sweep evaluates the same persisted pressure/source records as authoritative run #76; a run that re-executes the pinned PFFDTD contract binds to those records by comparing the semantic sha256 of the recombined pressure trace and the unit discrete volume-velocity impulse source trace at every predeclared PPW level",
+        "authoritative_run_id": 35545706871,
+        "artifact_id": 10616239750,
+        "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f",
+        "identical_label": "RUN76_TRACE_IDENTICAL",
+        "nonidentical_label": "REEXECUTED_TRACE_DIFFERS",
+        "on_nonidentical": "the computed sweep values are still emitted, but evaluation_state becomes NOT_EVALUATED_RECORD_BINDING_MISMATCH and the frozen classification is withheld so the result cannot be read as the run-76 experiment",
+        "levels": [
+            {
+                "points_per_wavelength": 8.0,
+                "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+                "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444"
+            },
+            {
+                "points_per_wavelength": 10.0,
+                "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+                "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49"
+            },
+            {
+                "points_per_wavelength": 12.0,
+                "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+                "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0"
+            }
+        ]
+    },
+    "dense_frequency_neighborhood": {
+        "bands": [
+            {
+                "band_id": "canonical_40hz_neighborhood",
+                "canonical_center_hz": 40.0,
+                "start_hz": 36.0,
+                "stop_hz": 44.0,
+                "step_hz": 0.5
+            },
+            {
+                "band_id": "canonical_80hz_neighborhood",
+                "canonical_center_hz": 80.0,
+                "start_hz": 76.0,
+                "stop_hz": 84.0,
+                "step_hz": 0.5
+            }
+        ],
+        "band_span_note": "each band spans one nominal 1/T = 4 Hz record-resolution neighborhood on either side of a canonical scored frequency",
+        "diagnostic_frequency_hz": [
+            36.0,
+            36.5,
+            37.0,
+            37.5,
+            38.0,
+            38.5,
+            39.0,
+            39.5,
+            40.0,
+            40.5,
+            41.0,
+            41.5,
+            42.0,
+            42.5,
+            43.0,
+            43.5,
+            44.0,
+            76.0,
+            76.5,
+            77.0,
+            77.5,
+            78.0,
+            78.5,
+            79.0,
+            79.5,
+            80.0,
+            80.5,
+            81.0,
+            81.5,
+            82.0,
+            82.5,
+            83.0,
+            83.5,
+            84.0
+        ],
+        "diagnostic_only_frequency_hz": [
+            36.0,
+            36.5,
+            37.0,
+            37.5,
+            38.0,
+            38.5,
+            39.0,
+            39.5,
+            40.5,
+            41.0,
+            41.5,
+            42.0,
+            42.5,
+            43.0,
+            43.5,
+            44.0,
+            76.0,
+            76.5,
+            77.0,
+            77.5,
+            78.0,
+            78.5,
+            79.0,
+            79.5,
+            80.5,
+            81.0,
+            81.5,
+            82.0,
+            82.5,
+            83.0,
+            83.5,
+            84.0
+        ],
+        "canonical_scored_frequency_hz": [
+            40.0,
+            80.0
+        ],
+        "operator": "same native finite-record direct DTFT P_T/Q_T left-rectangle operator as canonical execution, evaluated from the same raw pressure/source record; no additional solver execution",
+        "normalized_complex_difference_formula": "|H_b-H_a| / max(|H_b|, |H_a|, fixed_floor)",
+        "fixed_floor": 1e-12,
+        "pairs": [
+            "8_to_10",
+            "10_to_12"
+        ],
+        "worsening_rule": "worsening at frequency f iff d_10_12(f) > d_8_10(f)",
+        "complete_grid_evaluation": "every predeclared grid frequency is evaluated and reported; no post-result frequency selection",
+        "classification": {
+            "rule": "worsening_count over the complete 34-frequency grid; thresholds scaled proportionally from the frozen six-frequency classifier (localized at or below one third, persists at or above two thirds)",
+            "localized_max_count": 11,
+            "persists_min_count": 23,
+            "localized": "DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS",
+            "mixed": "DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY",
+            "persists": "DENSE_NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD",
+            "not_evaluated": "NOT_EVALUATED"
+        },
+        "canonical_acceptance_inclusion": false
+    },
+    "canonical_reproduction": {
+        "baseline_evidence": "benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json",
+        "required_ppw": [
+            8.0,
+            10.0,
+            12.0
+        ],
+        "required_frequency_hz": [
+            40.0,
+            80.0
+        ],
+        "max_abs_complex_component_tolerance": 1e-09,
+        "instrumentation_change_blocks_on_mismatch": true
+    },
+    "decision_semantics": {
+        "diagnostic_only": true,
+        "canonical_solver_execution_unchanged": true,
+        "canonical_pr295_reproduction_required": true,
+        "canonical_self_convergence_unchanged": true,
+        "cross_solver_unblocked_by_diagnostic": false,
+        "general_3d_validation_promoted_by_diagnostic": false
+    }
+}
