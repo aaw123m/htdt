@@ -29,16 +29,16 @@ original-issue order. Work through them in batches of ~10.
 | 8 | 786 | 59 | Measurements context regression: visible `Calibration` tab has no page and raises `unknown measurement context` | 1 | verified-fixed |
 | 9 | 788 | 60 | IA v2 compact-rail regression: permanent text destinations can overflow at 200% DPI and have no real compact/overflow mode | 1 | verified-fixed |
 | 10 | 801 | 67 | Measurement batch commit integrity: make measurement, AcquisitionContext and staged attachments idempotently resumable as one logical item | 1 | verified-fixed |
-| 11 | 810 | 72 | Owned-room validation evidence gate: require measurement quality, disposition and hardware evidence before claimed validation | — | open queue |
-| 12 | 811 | 73 | Windows in-place update acceptance: test old installed HTDT → new installer, schema migration and data preservation | — | open queue |
-| 13 | 812 | 74 | SystemVariant validation lifecycle disconnect: measured proposals can never resolve back to the scene they tested | — | open queue |
-| 14 | 817 | 79 | Audio/theater authority batch integration: persist and productize BassManagement, theater modes and listening profiles | — | open queue |
-| 15 | 818 | 80 | Video authority batch integration: persist PresentationProfile, Photometric/HDR and projection modes | — | open queue |
-| 16 | 839 | 95 | Measurement lifecycle enforcement regression: excluded/corrected evidence can bypass disposition rules | — | open queue |
-| 17 | 844 | 100 | Measurement eligibility integration regression: Calibration, O60 and O100G bypass eligibility checks | — | open queue |
-| 18 | 876 | 129 | Interactive SBIR & Reflection Diagnosis UX: turn exact path authority into an explorable diagnosis surface | — | open queue |
-| 19 | 886 | 133 | Feature authority batch integration: persist and productize acoustic targets, isolation and listening modes | — | open queue |
-| 20 | 887 | 134 | IA v2 project-secondary integration: expose decisions, installation, commissioning and reports surfaces | — | open queue |
+| 11 | 810 | 72 | Owned-room validation evidence gate: require measurement quality, disposition and hardware evidence before claimed validation | 2 | verified-fixed |
+| 12 | 811 | 73 | Windows in-place update acceptance: test old installed HTDT → new installer, schema migration and data preservation | 2 | verified-fixed |
+| 13 | 812 | 74 | SystemVariant validation lifecycle disconnect: measured proposals can never resolve back to the scene they tested | 2 | verified-fixed |
+| 14 | 817 | 79 | Audio/theater authority batch integration: persist and productize BassManagement, theater modes and listening profiles | 2 | verified-fixed |
+| 15 | 818 | 80 | Video authority batch integration: persist PresentationProfile, Photometric/HDR and projection modes | 2 | verified-fixed |
+| 16 | 839 | 95 | Measurement lifecycle enforcement regression: excluded/corrected evidence can bypass disposition rules | 2 | verified-fixed |
+| 17 | 844 | 100 | Measurement eligibility integration regression: Calibration, O60 and O100G bypass eligibility checks | 2 | verified-fixed |
+| 18 | 876 | 129 | Interactive SBIR & Reflection Diagnosis UX: turn exact path authority into an explorable diagnosis surface | 2 | verified-fixed (see note) |
+| 19 | 886 | 133 | Feature authority batch integration: persist and productize acoustic targets, isolation and listening modes | 2 | verified-fixed |
+| 20 | 887 | 134 | IA v2 project-secondary integration: expose decisions, installation, commissioning and reports surfaces | 2 | verified-fixed |
 | 21 | 920 | 155 | CI red on main: authority audit coverage_gap for htdt_project_* tables | — | open queue |
 | 22 | 933 | 162 | Treatment-aware wave/hybrid gap: R130 rejects all non-empty treatment boundary options | — | open queue |
 | 23 | 938 | 164 | Room prediction execution regression: closed #457 still leaves wave providers non-runnable and hybrid permanently unsupported | — | open queue |
@@ -91,6 +91,44 @@ TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
 → 112 passed in 135s
 ```
 
+## Batch 2 — REV35-SKELETON2 (2026-10-03, main @ c7e898a9)
+
+All ten items verified-fixed on current main; no survivor. Each closing
+commit is an ancestor of `origin/main` and its regression tests still
+pass (130 tests, `-n 4`, basetemp `C:/t/skel-b2a`).
+
+| Orig | GH | Closing commit | Evidence on main |
+|------|----|----------------|------------------|
+| 810 | 72 | b211065867 (Measurement lifecycle + validation evidence gates, W4-09) | `cad_validation_campaign_service.py` owned-room gate requires the persisted replay-validated quality report bound to the exact measurement (sha/document/revision/content-hash/entity/position), a non-`unknown` `AcquisitionContext`, and `gate_measurement_claim` over `campaign.requested_band_hz` before O60 eligibility. Tests: `test_cad_validation_campaign_service.py`. |
+| 811 | 73 | 095253b696 (Fix #811 update-acceptance lane vs post-lane authority hardening) | `scripts/validate_update_windows.py` keeps the sentinel-table drop before `--backup` (fails closed on unclassified tables otherwise) and the clean-NEW-before-in-place ordering; pinned OLD `803a512b0f` is an ancestor of main; `--seed-synthetic-demo`/`--backup` flags and `htdt-synthetic-o70-o80-demo-v1` document id all still present. The lane itself is a manual installer lane (documented non-scriptable subset stays owned-Windows acceptance); surface verified, lane not re-executed. Tests: none by design (lane script). |
+| 812 | 74 | b211065867 | `system_expansion_workflow._measured_validated` resolves canonical O60/R180 authority (`_o60_validates`/`_r180_validates`) and drives both the lifecycle presentation (`measured` + `validated` flag → overview stage `measured_validated`, JA label `実測済み・検証済み`) and the `MeasurementPresentation` `validated` path. Tests: `test_system_expansion_workflow.py`. |
+| 817 | 79 | 98ccd7e640 (Persist remaining #817/#818 audio/theater and video authorities) | Append-only repositories `cad_signal_path_repository`, `cad_lighting_repository`, `cad_tactile_repository`, `cad_usable_output_repository` (plus earlier `cad_bass_management_*` tables in baseline DDL); all families registered in `native_authority_audit` coverage map. Tests: `test_cad_authority_batch_repositories.py`, `test_cad_schema.py`. |
+| 818 | 80 | 98ccd7e640 | `cad_photometric_repository`, `cad_colorimetry_repository`, `cad_video_presentation_*`, `cad_screen_optical_*`, `cad_color_target_*`, `cad_color_measurement_sets`, `cad_ambient_reflectance_profiles`, `cad_visual_qa_verdicts` — all registered in the audit coverage map; schema v10 converges v9 databases. Tests: `test_cad_authority_batch_repositories.py`, `test_cad_schema.py`. |
+| 839 | 95 | b211065867 | `cad_model_validation_service` routes every validation-evidence read through `CadEffectiveMeasurementResolver.require_normal_use` — candidate, repeatability and separation checks all fail closed on excluded/misassigned/test-only/duplicate evidence (not only the campaign-gated path). Tests: `test_cad_model_validation_service.py`, `test_cad_validation_campaign_service.py`. |
+| 844 | 100 | c5c2791dd7 (calibration authority audit: register R180 lifecycle tables + fail-closed row verification) | Six `cad_calibration_*` tables (specs/results/models/freezes/holdout_records/evidence_events) registered in `native_authority_audit` with `replay_canonical` probes; `CadModelCalibrationRepository.get_holdout_record` and fail-closed identity/hash re-verification on every persisted read. Tests: `test_cad_model_calibration_persistence.py`, `test_cad_schema.py`. |
+| 876 | 129 | cf6f3b71dd (Reflection guidance UX + feature authority persistence) | `cad_reflection_guidance.py` delivers the explorable surface the issue titles: `build_reflection_guidance` (ranked treat-zone/reposition/verify/disambiguate items bound to exact path authority) plus the interactive scrub session (`open_guidance_session`/`scrub_source` exact per-frame deltas — the test suite itself calls this "the interactive scrub session"); the interactive diagnosis surface exists in-product via prediction findings (`reflection_path` → 3D highlight + `check-reflection-surface`/`create-treatment` actions). Tests: `test_cad_reflection_guidance.py`, `test_cad_reflection_diagnostic.py`. Residual note: `cad_reflection_guidance` currently has no production consumer — wiring its ranked items into a UI surface is a productization follow-up, not part of the closed claim. |
+| 886 | 133 | cf6f3b71dd | `cad_feature_authority_repository` (acoustic targets, isolation, rack/BOM, drawings, field labels — 927 LOC) registered through `cad_authority_registry` for canonical access; audit-covered. Tests: `test_cad_feature_authority_repository.py`. |
+| 887 | 134 | 82e03d458a (Expose IA v2 project-secondary domains on the Overview hub) | `overview_readiness._secondary_domains` produces per-domain `OverviewSecondaryDomain` cards — decisions (unapplied/expired-assumption flags), installation (deep-link to Optimization interventions), commissioning (plan absent/in-progress/finished), operating health (latest check-run assessment counts) — rendered by `overview_workspace._add_secondary_domain` under a dedicated `domain_header` section without bloating the four primary workspaces. Tests: `test_overview_secondary_domains.py`. |
+
+### Scoped verification run
+
+```
+TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
+  C:/devin/python/python.exe -m pytest \
+  backend/tests/test_cad_model_validation_service.py \
+  backend/tests/test_cad_validation_campaign_service.py \
+  backend/tests/test_system_expansion_workflow.py \
+  backend/tests/test_cad_authority_batch_repositories.py \
+  backend/tests/test_cad_model_calibration_persistence.py \
+  backend/tests/test_cad_feature_authority_repository.py \
+  backend/tests/test_cad_reflection_guidance.py \
+  backend/tests/test_cad_reflection_diagnostic.py \
+  backend/tests/test_overview_secondary_domains.py \
+  backend/tests/test_cad_schema.py \
+  -q -n 4 -p no:warnings --basetemp=C:/t/skel-b2a
+→ 130 passed
+```
+
 ## Still-open imported issues (all gated epics)
 
 Nine imported issues remain open on GitHub — every one is a
@@ -114,7 +152,7 @@ pending Controller close-out.
 
 ## Next batch
 
-Start at queue row 11 (orig 810 / GH#72). Method per item: read the
+Start at queue row 21 (orig 920 / GH#155). Method per item: read the
 closing commit from the issue's events, confirm it is an ancestor of
 `origin/main`, run its regression tests, and grep the claimed surface —
 then mark the row verified-fixed / still-present / invalid here and
