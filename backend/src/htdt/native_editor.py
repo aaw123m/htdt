@@ -45,8 +45,10 @@ from .cad_scene import (
 )
 from .cad_snap import SnapCandidate, SnapSelector, generate_snap_candidates, snap_angle_deg, snap_position_axis
 from .room_viewport import (
+    DEFAULT_EMPTY_SCENE_BOUNDS,
     _entity_mesh as _scene_entity_mesh,
     reset_camera_or_floor_default,
+    scene_has_usable_bounds,
 )
 from .accessible_labels import wire_status_announcements
 from .command_palette import flush_focused_text_editor, focused_text_editor
@@ -435,8 +437,6 @@ class NativeEditorWindow(QMainWindow):
         self._invalidate_scene_pick_cache()
         self._remove_gizmo()
         self.viewport.clear()
-        self.viewport.add_axes()
-        self.viewport.show_grid()
         self.tree.clear()
         self.actors.clear()
         self.actor_ids.clear()
@@ -472,6 +472,7 @@ class NativeEditorWindow(QMainWindow):
             self._perspective()
         valid_selected = tuple(entity_id for entity_id in selected_ids if entity_id in self.items)
         self._set_selection(valid_selected, primary_id=primary_id, cancel_preview=False, persist=False)
+        self._add_scene_axes()
         self._update_actions()
 
     def _add_entity(self, parent: QTreeWidgetItem, entity: SceneEntity) -> None:
@@ -562,6 +563,22 @@ class NativeEditorWindow(QMainWindow):
             cancel_preview=cancel_preview,
             persist=persist,
         )
+
+    def _add_scene_axes(self) -> None:
+        """Orientation marker + bounds ruler for the current scene contents.
+
+        ``show_grid`` creates a CubeAxesActor that samples the renderer
+        bounds at creation; called before the scene meshes exist it
+        captured the post-clear degenerate extent and flashed a ~1e-7
+        tick until the next bounds update recalibrated it. Creating the
+        ruler after the scene keeps its first tick real, and an empty
+        scene gets the same default floor patch the camera frames.
+        """
+        self.viewport.add_axes()
+        if scene_has_usable_bounds(self.viewport):
+            self.viewport.show_grid()
+        else:
+            self.viewport.show_grid(bounds=DEFAULT_EMPTY_SCENE_BOUNDS)
 
     def _set_selection(
         self,
