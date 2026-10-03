@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -209,6 +210,9 @@ class OverviewWorkspace(QWidget):
             _hint = deeplink_hint(notice.action.target)
             button.setToolTip(_hint)
             button.setWhatsThis(_hint)
+            # Qt hides tooltips on disabled buttons — a disabled action
+            # still needs to explain what it would do.
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=notice.action.target: self.navigate(target)
             )
@@ -243,6 +247,7 @@ class OverviewWorkspace(QWidget):
             _hint = deeplink_hint(state.action.target)
             button.setToolTip(_hint)
             button.setWhatsThis(_hint)
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=state.action.target: self.navigate(target)
             )
@@ -275,6 +280,7 @@ class OverviewWorkspace(QWidget):
             _hint = deeplink_hint(domain.action.target)
             button.setToolTip(_hint)
             button.setWhatsThis(_hint)
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=domain.action.target: self.navigate(target)
             )
