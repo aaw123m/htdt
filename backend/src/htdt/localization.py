@@ -472,6 +472,47 @@ class TermId(StrEnum):
     HISTORICAL = 'historical'
     SYSTEM_VARIANT = 'system_variant'
     ACQUISITION_CONTEXT = 'acquisition_context'
+    # REV34-HELPDESK: domain jargon surfaced in JA UI strings — every term
+    # a first-time operator could look up in the glossary.
+    SCENE = 'scene'
+    CAPTURE = 'capture'
+    CAPTURE_INBOX = 'capture_inbox'
+    UNDO_HISTORY = 'undo_history'
+    DERIVED = 'derived'
+    PREDICTED = 'predicted'
+    AUTHORITY = 'authority'
+    PROVENANCE = 'provenance'
+    REW = 'rew'
+    MDAT = 'mdat'
+    IMPULSE_RESPONSE = 'impulse_response'
+    FREQUENCY_RESPONSE = 'frequency_response'
+    PHASE = 'phase'
+    RT60 = 'rt60'
+    SPL = 'spl'
+    SNR = 'snr'
+    NOISE_FLOOR = 'noise_floor'
+    CLIPPING = 'clipping'
+    POLARITY = 'polarity'
+    TIMING_REFERENCE = 'timing_reference'
+    LEVEL_REFERENCE = 'level_reference'
+    SMOOTHING = 'smoothing'
+    OCTAVE = 'octave'
+    LISTENING_POSITION = 'listening_position'
+    CALIBRATION = 'calibration'
+    CROSSOVER = 'crossover'
+    BASS_MANAGEMENT = 'bass_management'
+    AVR = 'avr'
+    PEQ = 'peq'
+    HEADROOM = 'headroom'
+    DELAY = 'delay'
+    DECAY = 'decay'
+    ROOM_MODE = 'room_mode'
+    TREATMENT = 'treatment'
+    ABSORPTION = 'absorption'
+    DIFFUSION = 'diffusion'
+    DIRECTIVITY = 'directivity'
+    PARETO = 'pareto'
+    PROBE = 'probe'
 
 
 class TerminologyEntry(BaseModel):
@@ -652,6 +693,572 @@ HTDT_TERMINOLOGY: dict[TermId, TerminologyEntry] = {
         gloss={
             PresentationLocale.JAPANESE: '測定の機器・設定・環境条件。',
             PresentationLocale.ENGLISH: 'Instrument, settings and conditions of a measurement.',
+        },
+    ),
+    # --- App-coined concepts (REV34-HELPDESK) --------------------------
+    TermId.SCENE: TerminologyEntry(
+        term_id=TermId.SCENE,
+        preferred={
+            PresentationLocale.JAPANESE: 'シーン',
+            PresentationLocale.ENGLISH: 'Scene',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '部屋の形状・配置・機器の現在の設計。'
+            '編集するたびに不変のシーンリビジョンが記録されます。',
+            PresentationLocale.ENGLISH: 'The current design of room geometry, '
+            'placement and equipment. Every edit records an immutable SceneRevision.',
+        },
+    ),
+    TermId.CAPTURE: TerminologyEntry(
+        term_id=TermId.CAPTURE,
+        preferred={
+            PresentationLocale.JAPANESE: 'キャプチャ',
+            PresentationLocale.ENGLISH: 'Capture',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'HTDTCapture 等から取り込んだ測定・'
+            'スキャン・設定データ。受信ボックスでステージされ、'
+            '確認後に昇格します。',
+            PresentationLocale.ENGLISH: 'Measurement, scan and settings data '
+            'imported from tools such as HTDTCapture; staged in the inbox and '
+            'promoted after review.',
+        },
+    ),
+    TermId.CAPTURE_INBOX: TerminologyEntry(
+        term_id=TermId.CAPTURE_INBOX,
+        preferred={
+            PresentationLocale.JAPANESE: '受信ボックス',
+            PresentationLocale.ENGLISH: 'Capture inbox',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'キャプチャデータの仮置き場。'
+            '内容を確認し、プロジェクトへ昇格するかを決めます。',
+            PresentationLocale.ENGLISH: 'The staging area for incoming captures '
+            '— review the contents and decide what to promote into the project.',
+        },
+    ),
+    TermId.UNDO_HISTORY: TerminologyEntry(
+        term_id=TermId.UNDO_HISTORY,
+        preferred={
+            PresentationLocale.JAPANESE: 'アンドゥ履歴',
+            PresentationLocale.ENGLISH: 'Undo history',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '編集操作の取り消し・やり直し履歴。'
+            '前の編集へ遡って確認・復帰できます。',
+            PresentationLocale.ENGLISH: 'The undo/redo trail of edits — step '
+            'back through earlier changes to inspect or restore them.',
+        },
+    ),
+    TermId.DERIVED: TerminologyEntry(
+        term_id=TermId.DERIVED,
+        preferred={
+            PresentationLocale.JAPANESE: '派生',
+            PresentationLocale.ENGLISH: 'Derived',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '別の測定や権威から生成されたデータ。'
+            '実測そのものではありません。',
+            PresentationLocale.ENGLISH: 'Data generated from another measurement '
+            'or authority — not a direct measurement itself.',
+        },
+    ),
+    TermId.PREDICTED: TerminologyEntry(
+        term_id=TermId.PREDICTED,
+        preferred={
+            PresentationLocale.JAPANESE: '予測',
+            PresentationLocale.ENGLISH: 'Predicted',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'シミュレーション等で予測したデータ。'
+            '実測と区別して表示されます。',
+            PresentationLocale.ENGLISH: 'Simulated or predicted data, shown '
+            'distinctly from measured results.',
+        },
+    ),
+    TermId.AUTHORITY: TerminologyEntry(
+        term_id=TermId.AUTHORITY,
+        preferred={
+            PresentationLocale.JAPANESE: '権威',
+            PresentationLocale.ENGLISH: 'Authority',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'その情報の正本となる記録。'
+            'HTDT は表示値を必ず権威に結び付け、'
+            '推測値を権威扱いしません。',
+            PresentationLocale.ENGLISH: 'The record that is the source of truth '
+            'for a value. HTDT binds every displayed value to an authority and '
+            'never treats guesses as authoritative.',
+        },
+    ),
+    TermId.PROVENANCE: TerminologyEntry(
+        term_id=TermId.PROVENANCE,
+        preferred={
+            PresentationLocale.JAPANESE: '出典',
+            PresentationLocale.ENGLISH: 'Provenance',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'データがどこから来たか'
+            '（実測・派生・予測・入力など）。'
+            '出典が分かると値を信頼できる範囲を判断できます。',
+            PresentationLocale.ENGLISH: 'Where a value came from — measured, '
+            'derived, predicted or typed in. Provenance tells you how far to '
+            'trust it.',
+        },
+    ),
+    # --- Measurement / acoustics jargon --------------------------------
+    TermId.REW: TerminologyEntry(
+        term_id=TermId.REW,
+        preferred={
+            PresentationLocale.JAPANESE: 'REW',
+            PresentationLocale.ENGLISH: 'REW',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '無償の測定ソフト Room EQ Wizard。'
+            'HTDT は REW の API または REW が出力する .mdat / テキスト'
+            'ファイルから測定を取り込みます。',
+            PresentationLocale.ENGLISH: 'The free measurement application '
+            'Room EQ Wizard. HTDT imports measurements through its API or '
+            'via .mdat / text exports.',
+        },
+    ),
+    TermId.MDAT: TerminologyEntry(
+        term_id=TermId.MDAT,
+        preferred={
+            PresentationLocale.JAPANESE: '.mdat',
+            PresentationLocale.ENGLISH: '.mdat',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'REW の測定データファイル形式。'
+            '周波数応答・インパルス応答・取得条件を1ファイルに保持します。',
+            PresentationLocale.ENGLISH: 'REW measurement data file format '
+            'holding frequency response, impulse response and acquisition '
+            'metadata in one file.',
+        },
+    ),
+    TermId.IMPULSE_RESPONSE: TerminologyEntry(
+        term_id=TermId.IMPULSE_RESPONSE,
+        preferred={
+            PresentationLocale.JAPANESE: 'インパルス応答 (IR)',
+            PresentationLocale.ENGLISH: 'Impulse response (IR)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '一瞬の音に対する部屋と機器の'
+            '時間応答。到達時刻・反射・減衰がここから分かります。'
+            '時間軸の単位は秒です。',
+            PresentationLocale.ENGLISH: 'The room/system response to an '
+            'instantaneous impulse; arrival time, reflections and decay all '
+            'come from it. Its time axis is in seconds.',
+        },
+    ),
+    TermId.FREQUENCY_RESPONSE: TerminologyEntry(
+        term_id=TermId.FREQUENCY_RESPONSE,
+        preferred={
+            PresentationLocale.JAPANESE: '周波数応答',
+            PresentationLocale.ENGLISH: 'Frequency response',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '周波数ごとの出力レベル。'
+            '横軸は Hz、縦軸は dB。'
+            '平らなほど全帯域が均等に再生されます。',
+            PresentationLocale.ENGLISH: 'Output level at each frequency — Hz '
+            'on the x axis, dB on the y axis. A flatter response reproduces '
+            'all bands evenly.',
+        },
+    ),
+    TermId.PHASE: TerminologyEntry(
+        term_id=TermId.PHASE,
+        preferred={
+            PresentationLocale.JAPANESE: '位相',
+            PresentationLocale.ENGLISH: 'Phase',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '波形のタイミング成分。単位は度 (°)。'
+            '複数スピーカーの位相が揃うと低音が強め合い、'
+            'ずれると打ち消し合います。',
+            PresentationLocale.ENGLISH: 'The timing component of a waveform, '
+            'in degrees. Aligned phase across speakers reinforces bass; '
+            'misaligned phase cancels it.',
+        },
+    ),
+    TermId.RT60: TerminologyEntry(
+        term_id=TermId.RT60,
+        preferred={
+            PresentationLocale.JAPANESE: 'RT60（残響時間）',
+            PresentationLocale.ENGLISH: 'RT60 (reverberation time)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '音が 60 dB 減衰するまでの時間。'
+            '単位は秒。残響の長さの指標で、ホームシアターでは'
+            '0.2〜0.4 秒程度が目安とされます。',
+            PresentationLocale.ENGLISH: 'Time for sound to decay by 60 dB, '
+            'in seconds — the reverberation-length metric. ~0.2-0.4 s is a '
+            'common home-theater target.',
+        },
+    ),
+    TermId.SPL: TerminologyEntry(
+        term_id=TermId.SPL,
+        preferred={
+            PresentationLocale.JAPANESE: 'SPL（音圧レベル）',
+            PresentationLocale.ENGLISH: 'SPL (sound pressure level)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '音の大きさを基準音圧 20 µPa との'
+            '比で表すレベル。単位は dB SPL。会話は約 60 dB、'
+            '映画の再生目安は約 75〜85 dB SPL です。',
+            PresentationLocale.ENGLISH: 'Loudness relative to the 20 µPa '
+            'reference, in dB SPL. Conversation is ~60 dB; reference movie '
+            'playback is ~75-85 dB SPL.',
+        },
+    ),
+    TermId.SNR: TerminologyEntry(
+        term_id=TermId.SNR,
+        preferred={
+            PresentationLocale.JAPANESE: 'SNR（信号対雑音比）',
+            PresentationLocale.ENGLISH: 'SNR (signal-to-noise ratio)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '測定信号とノイズフロアの差。'
+            '単位は dB。大きいほど測定がクリーンで、'
+            '品質チェックの下限として使われます。',
+            PresentationLocale.ENGLISH: 'Level difference between the test '
+            'signal and the noise floor, in dB. Higher means a cleaner '
+            'measurement; used as a quality-check threshold.',
+        },
+    ),
+    TermId.NOISE_FLOOR: TerminologyEntry(
+        term_id=TermId.NOISE_FLOOR,
+        preferred={
+            PresentationLocale.JAPANESE: 'ノイズフロア',
+            PresentationLocale.ENGLISH: 'Noise floor',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '信号がなくても残る環境・機器の'
+            '雑音レベル。単位は dB。これ以下の信号は測定できません。',
+            PresentationLocale.ENGLISH: 'Residual noise level from room and '
+            'equipment with no signal playing, in dB. Signals below it '
+            'cannot be measured.',
+        },
+    ),
+    TermId.CLIPPING: TerminologyEntry(
+        term_id=TermId.CLIPPING,
+        preferred={
+            PresentationLocale.JAPANESE: 'クリッピング',
+            PresentationLocale.ENGLISH: 'Clipping',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '信号が最大振幅を超えて波形の頂点が'
+            '潰れる歪み。クリッピングした測定は使えず再測定が必要です。',
+            PresentationLocale.ENGLISH: 'Distortion where the signal exceeds '
+            'the maximum amplitude and the waveform flattens. Clipped '
+            'measurements must be re-taken.',
+        },
+    ),
+    TermId.POLARITY: TerminologyEntry(
+        term_id=TermId.POLARITY,
+        preferred={
+            PresentationLocale.JAPANESE: '極性',
+            PresentationLocale.ENGLISH: 'Polarity',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '信号の正負の向き。'
+            'スピーカーの極性が逆だと低音が弱まり音像がぼやけます。'
+            '配線ミスの発見にも使います。',
+            PresentationLocale.ENGLISH: 'The sign orientation of the signal. '
+            'Reversed speaker polarity weakens bass and blurs imaging; it '
+            'also detects wiring errors.',
+        },
+    ),
+    TermId.TIMING_REFERENCE: TerminologyEntry(
+        term_id=TermId.TIMING_REFERENCE,
+        preferred={
+            PresentationLocale.JAPANESE: 'タイミング基準',
+            PresentationLocale.ENGLISH: 'Timing reference',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '測定の時間軸を合わせる基準。'
+            '基準ID・クロック・サンプルレート・遅延補正が揃うと'
+            '複数測定の位相を比較できます。',
+            PresentationLocale.ENGLISH: 'The common clock aligning '
+            'measurements — reference ID, clock source, sample rate and '
+            'delay correction. Complete metadata enables cross-measurement '
+            'phase comparison.',
+        },
+    ),
+    TermId.LEVEL_REFERENCE: TerminologyEntry(
+        term_id=TermId.LEVEL_REFERENCE,
+        preferred={
+            PresentationLocale.JAPANESE: 'レベル基準',
+            PresentationLocale.ENGLISH: 'Level reference',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'データセットの dB 値が何を基準に'
+            'しているか（絶対 SPL か相対形状か）。基準が違う測定同士は'
+            '絶対レベルで比較できません。',
+            PresentationLocale.ENGLISH: 'What a dataset\'s dB values are '
+            'referenced to — absolute SPL or normalized shape. Measurements '
+            'on different references cannot be compared in absolute level.',
+        },
+    ),
+    TermId.SMOOTHING: TerminologyEntry(
+        term_id=TermId.SMOOTHING,
+        preferred={
+            PresentationLocale.JAPANESE: 'スムージング',
+            PresentationLocale.ENGLISH: 'Smoothing',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '周波数応答表示の平滑化。'
+            '単位はオクターブ分数（1/1〜1/48）。細かいほど生の波形に近く、'
+            '粗いほど傾向だけが見えます。',
+            PresentationLocale.ENGLISH: 'Smoothing of the frequency-response '
+            'trace, in octave fractions (1/1-1/48). Finer stays closer to '
+            'the raw response; coarser shows only the trend.',
+        },
+    ),
+    TermId.OCTAVE: TerminologyEntry(
+        term_id=TermId.OCTAVE,
+        preferred={
+            PresentationLocale.JAPANESE: 'オクターブ',
+            PresentationLocale.ENGLISH: 'Octave',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '周波数比 2 倍の区間。'
+            '「1オクターブ上」は周波数が 2 倍のこと。'
+            'スムージングや帯域の単位として使います。',
+            PresentationLocale.ENGLISH: 'A doubling of frequency — one octave '
+            'up is twice the frequency. Used as the unit for smoothing and '
+            'band widths.',
+        },
+    ),
+    TermId.LISTENING_POSITION: TerminologyEntry(
+        term_id=TermId.LISTENING_POSITION,
+        preferred={
+            PresentationLocale.JAPANESE: '受音点',
+            PresentationLocale.ENGLISH: 'Listening position',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '測定マイクを置く聴取位置。'
+            'MLP（主受音点）はその代表で、測定・予測の基準点です。',
+            PresentationLocale.ENGLISH: 'Where the measurement microphone '
+            'sits. The MLP (main listening position) is the reference point '
+            'for measurement and prediction.',
+        },
+    ),
+    TermId.CALIBRATION: TerminologyEntry(
+        term_id=TermId.CALIBRATION,
+        preferred={
+            PresentationLocale.JAPANESE: '校正',
+            PresentationLocale.ENGLISH: 'Calibration',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'マイクや再生レベルの補正。'
+            'マイク校正ファイルは個体差を補正し、レベル校正は'
+            '絶対 SPL の主張を可能にします。',
+            PresentationLocale.ENGLISH: 'Correction of microphone or playback '
+            'level. A mic calibration file fixes unit variation; level '
+            'calibration enables absolute-SPL claims.',
+        },
+    ),
+    # --- Optimization / room-acoustics jargon --------------------------
+    TermId.CROSSOVER: TerminologyEntry(
+        term_id=TermId.CROSSOVER,
+        preferred={
+            PresentationLocale.JAPANESE: 'クロスオーバー',
+            PresentationLocale.ENGLISH: 'Crossover',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'スピーカーとサブウーファーの帯域を'
+            '分ける周波数。単位は Hz。AVR では 80 Hz が一般的な設定値です。',
+            PresentationLocale.ENGLISH: 'The frequency where speaker and '
+            'subwoofer duties split, in Hz. 80 Hz is the common AVR setting.',
+        },
+    ),
+    TermId.BASS_MANAGEMENT: TerminologyEntry(
+        term_id=TermId.BASS_MANAGEMENT,
+        preferred={
+            PresentationLocale.JAPANESE: 'バスマネジメント',
+            PresentationLocale.ENGLISH: 'Bass management',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '小さなスピーカーの低音を'
+            'サブウーファーへ振り分ける AVR の機能。'
+            '測定が複数音源の合成応答を表す場合に関係します。',
+            PresentationLocale.ENGLISH: 'The AVR feature routing low '
+            'frequencies from small speakers to the subwoofer; relevant '
+            'when a measurement captures the summed output of speakers.',
+        },
+    ),
+    TermId.AVR: TerminologyEntry(
+        term_id=TermId.AVR,
+        preferred={
+            PresentationLocale.JAPANESE: 'AVR（AVレシーバー）',
+            PresentationLocale.ENGLISH: 'AVR (AV receiver)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '音・映像の切り替えと音響処理を'
+            '担うアンプ。取得条件や機器定義に登場します。',
+            PresentationLocale.ENGLISH: 'The receiver that switches '
+            'audio/video and runs processing such as bass management and '
+            'delay. Appears in acquisition presets and equipment definitions.',
+        },
+    ),
+    TermId.PEQ: TerminologyEntry(
+        term_id=TermId.PEQ,
+        preferred={
+            PresentationLocale.JAPANESE: 'PEQ（パラメトリックEQ）',
+            PresentationLocale.ENGLISH: 'PEQ (parametric EQ)',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '中心周波数・ゲイン・Q（幅）を'
+            '個別に設定できるイコライザー。',
+            PresentationLocale.ENGLISH: 'An equalizer whose bands set center '
+            'frequency, gain and Q individually.',
+        },
+    ),
+    TermId.HEADROOM: TerminologyEntry(
+        term_id=TermId.HEADROOM,
+        preferred={
+            PresentationLocale.JAPANESE: 'ヘッドルーム',
+            PresentationLocale.ENGLISH: 'Headroom',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '最大出力（クリッピング開始）までの'
+            '余裕。単位は dB。余裕が小さいと大音量で歪み始めます。',
+            PresentationLocale.ENGLISH: 'Margin before maximum output (the '
+            'onset of clipping), in dB. Little headroom means distortion at '
+            'loud playback.',
+        },
+    ),
+    TermId.DELAY: TerminologyEntry(
+        term_id=TermId.DELAY,
+        preferred={
+            PresentationLocale.JAPANESE: 'ディレイ（遅延）',
+            PresentationLocale.ENGLISH: 'Delay',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '音の到達時間を揃えるための遅延設定。'
+            '単位は ms（距離換算の m 表示もあり）。'
+            'スピーカー間の距離差の補正に使います。',
+            PresentationLocale.ENGLISH: 'Time delay applied to align arrival '
+            'times, in ms (sometimes shown as meters). Corrects distance '
+            'differences between speakers.',
+        },
+    ),
+    TermId.DECAY: TerminologyEntry(
+        term_id=TermId.DECAY,
+        preferred={
+            PresentationLocale.JAPANESE: '減衰特性',
+            PresentationLocale.ENGLISH: 'Decay',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '時間に対してレベルが下がる特性。'
+            'インパルス応答から読み取り、RT60 やエコーの指標になります。',
+            PresentationLocale.ENGLISH: 'How the level falls over time, read '
+            'from the impulse response; the basis of RT60 and echo '
+            'assessment.',
+        },
+    ),
+    TermId.ROOM_MODE: TerminologyEntry(
+        term_id=TermId.ROOM_MODE,
+        preferred={
+            PresentationLocale.JAPANESE: 'ルームモード',
+            PresentationLocale.ENGLISH: 'Room mode',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '部屋の寸法で決まる固有共振。'
+            '特定の低域が強調・打ち消しされ、スピーカーと受音点の配置に'
+            '影響します。周波数の単位は Hz。',
+            PresentationLocale.ENGLISH: 'Room-dimension resonances that '
+            'exaggerate or cancel specific low frequencies (in Hz) — a '
+            'major factor in speaker and seat placement.',
+        },
+    ),
+    TermId.TREATMENT: TerminologyEntry(
+        term_id=TermId.TREATMENT,
+        preferred={
+            PresentationLocale.JAPANESE: 'トリートメント',
+            PresentationLocale.ENGLISH: 'Acoustic treatment',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '吸音材・拡散材など壁・天井に置く'
+            '音響調整部材。部屋モデルの一部として配置します。',
+            PresentationLocale.ENGLISH: 'Absorptive or diffusive elements '
+            'placed on walls/ceiling to adjust acoustics — part of the '
+            'HTDT room model.',
+        },
+    ),
+    TermId.ABSORPTION: TerminologyEntry(
+        term_id=TermId.ABSORPTION,
+        preferred={
+            PresentationLocale.JAPANESE: '吸音',
+            PresentationLocale.ENGLISH: 'Absorption',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '音エネルギーを材料内部で熱に変えて'
+            '反射を減らす特性。吸音パネルやカーペットなどが担います。',
+            PresentationLocale.ENGLISH: 'Converting sound energy to heat '
+            'inside a material to reduce reflections — absorber panels, '
+            'carpet, etc.',
+        },
+    ),
+    TermId.DIFFUSION: TerminologyEntry(
+        term_id=TermId.DIFFUSION,
+        preferred={
+            PresentationLocale.JAPANESE: '拡散',
+            PresentationLocale.ENGLISH: 'Diffusion',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '反射音を多方向へ散乱させる特性。'
+            '残響を減らさずに音場を滑らかにします。',
+            PresentationLocale.ENGLISH: 'Scattering reflections in many '
+            'directions — smooths the sound field without reducing '
+            'reverberation.',
+        },
+    ),
+    TermId.DIRECTIVITY: TerminologyEntry(
+        term_id=TermId.DIRECTIVITY,
+        preferred={
+            PresentationLocale.JAPANESE: '指向性',
+            PresentationLocale.ENGLISH: 'Directivity',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'スピーカーが音を放射する角度特性。'
+            '単位は度 (°)。指向性照準データがあると'
+            '角度ごとの応答を評価できます。',
+            PresentationLocale.ENGLISH: 'How a speaker radiates sound by '
+            'angle, in degrees. Directivity aim data lets the app evaluate '
+            'off-axis response.',
+        },
+    ),
+    TermId.PARETO: TerminologyEntry(
+        term_id=TermId.PARETO,
+        preferred={
+            PresentationLocale.JAPANESE: 'パレート（パレートフロント）',
+            PresentationLocale.ENGLISH: 'Pareto front',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: '複数の目的を同時にこれ以上改善'
+            'できない解の集合。最適化結果では'
+            '「ある目的を良くすると別の目的が悪くなる」限界の一覧として'
+            '表示されます。',
+            PresentationLocale.ENGLISH: 'The set of solutions where no '
+            'objective can improve without worsening another — shown in '
+            'optimization results as the achievable trade-off frontier.',
+        },
+    ),
+    TermId.PROBE: TerminologyEntry(
+        term_id=TermId.PROBE,
+        preferred={
+            PresentationLocale.JAPANESE: 'プローブ',
+            PresentationLocale.ENGLISH: 'Probe',
+        },
+        gloss={
+            PresentationLocale.JAPANESE: 'フィールドエクスプローラーで'
+            '音場を調べる仮想の計測点。位置を動かして各点の応答を'
+            '確認できます。',
+            PresentationLocale.ENGLISH: 'A virtual measurement point in the '
+            'field explorer — move it to inspect the response at different '
+            'positions.',
         },
     ),
 }
