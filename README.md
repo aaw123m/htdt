@@ -80,7 +80,9 @@ installed buildではinstallerが配置した `HTDT\HTDT.exe` を起動します
 
 初回起動は既定のworkflow shellの「概要」workspaceを開きます。プロジェクトが未作成の場合は自動で初期project（「My Home Theater」）が作成され、「概要」画面下端のprimary buttonが次の推奨操作（「部屋を作成」「スピーカーを追加」等）を示すので、そのままguided path（部屋→スピーカー→測定→予測→最適化）を辿れます。
 
-画面内ヘルプ: `Ctrl+K` のコマンドpaletteで `help` または `ショートカット` を検索すると、ショートカット一覧・用語・workflow説明のhelp topicを開けます。常設のヘルプmenu/buttonはありません。
+操作手順は [ユーザーガイド](docs/USER_GUIDE_JA.md)（日本語）を参照してください。
+
+画面内ヘルプ: `Ctrl+K` のコマンドpaletteで `help` または `ショートカット` を検索すると、ショートカット一覧・用語・workflow説明のhelp topicを開けます。「測定」workspaceには常設の「用語集・ヘルプ」buttonがあり、エラーダイアログの「ヘルプ」buttonは該当トピックを直接開きます。
 
 起動option（`HTDT.exe` / `python -m htdt.native_cad` 共通）:
 
