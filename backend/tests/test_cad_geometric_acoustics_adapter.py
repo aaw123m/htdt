@@ -1054,6 +1054,7 @@ def _fixture(
     expected_dispatch_state: str = 'READY',
     portal_specular_engine: bool = False,
     source_position: Position3 | None = None,
+    extra_requested_observables: tuple[str, ...] = (),
 ):
     scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
     document = SceneDocument(
@@ -1348,7 +1349,9 @@ def _fixture(
         scene_revision=revision,
         system_variant=variant,
         entity_id='receiver-mlp',
-        requested_output_capabilities=('deterministic_paths',),
+        requested_output_capabilities=(
+            ('deterministic_paths',) + extra_requested_observables
+        ),
     )
     environment = SnapshotEnvironmentAuthorityRef(
         authority=_ref('fixture-environment', 'environment'),
@@ -1366,7 +1369,9 @@ def _fixture(
         source_models=(source,),
         receivers=(receiver,),
         requested_frequency_domain=domain,
-        requested_observables=('deterministic_paths',),
+        requested_observables=(
+            ('deterministic_paths',) + extra_requested_observables
+        ),
         environment=environment,
         valid_frequency_domain=domain,
         valid_frequency_domain_authority_ref=_ref(
