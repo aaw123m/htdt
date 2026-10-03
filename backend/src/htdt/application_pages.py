@@ -1045,7 +1045,9 @@ class ActivityPage(QWidget):
         layout = _page_layout(
             self,
             "アクティビティ",
-            "実行中の操作・プロジェクトの記録（最新順）です。",
+            "実行中の操作・プロジェクトの記録（最新順）です。"
+            "タイムラインの行をダブルクリックすると、"
+            "その出来事が起きた画面へ移動します。",
         )
         if self._list_operations is not None:
             operations_heading = QLabel("操作")
