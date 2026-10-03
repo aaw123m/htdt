@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from hashlib import sha256
+import json
 from math import isfinite
 from typing import Any, Literal
 
@@ -404,3 +405,26 @@ class CadMeasurementAttachment(BaseModel):
 
 
 MEASUREMENT_ATTACHMENT_KINDS = ('mdat', 'calibration', 'notes', 'other')
+
+
+def measurement_is_synthetic(record: CadMeasurementRecord) -> bool:
+    try:
+        provenance = json.loads(record.provenance_json)
+    except (TypeError, json.JSONDecodeError):
+        provenance = {}
+    return bool(
+        provenance.get('validation_scope') == 'synthetic_fixture'
+        or provenance.get('synthetic_fixture') is True
+        or record.quality_status == 'synthetic_fixture'
+    )
+
+
+def measurement_evidence_label(record: CadMeasurementRecord) -> str:
+    if measurement_is_synthetic(record):
+        return '合成'
+    return {
+        'measured': '実測',
+        'derived': '派生',
+        'predicted': '予測',
+        'unknown': '不明',
+    }.get(record.evidence_type, record.evidence_type)

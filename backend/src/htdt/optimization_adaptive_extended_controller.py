@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QTreeWidgetItem
 
 from .cad_adaptive_extended_service import CadAdaptiveExtendedPlannerService
 from .developer_mode import developer_mode_enabled
-from .native_editor import ROLE
+from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED
 from .user_facing_error import operation_error_message
 

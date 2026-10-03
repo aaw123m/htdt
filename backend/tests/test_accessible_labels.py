@@ -518,34 +518,6 @@ def test_status_bar_clear_announces_nothing(
     assert events == []
 
 
-def test_native_editor_announces_status(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The N20b shell has its own status bar — wired the same way."""
-    from htdt.native_editor import NativeEditorWindow
-
-    events, announcement = _announcement_sink(monkeypatch)
-    repository = SceneRepository(tmp_path / "cad.sqlite3")
-    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
-    events.clear()  # construction announces its own load status first
-    window.statusBar().showMessage("スナップ: 頂点")
-    assert [
-        event.message()
-        for event in events
-        if isinstance(event, announcement)
-    ] == ["スナップ: 頂点"]
-
-
-def test_native_editor_surfaces_are_named(tmp_path: Path) -> None:
-    from htdt.native_editor import NativeEditorWindow
-
-    _app()
-    repository = SceneRepository(tmp_path / "cad.sqlite3")
-    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
-    assert window.tree.accessibleName() == "シーンツリー"
-    assert window.viewport.interactor.accessibleName() == "シーン3Dビュー"
-
-
 def test_room_viewport_interactor_is_named(tmp_path: Path) -> None:
     app = _app()
     composition = _composition(tmp_path)

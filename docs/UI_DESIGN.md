@@ -259,7 +259,7 @@ Acoustics:
 | L | ロックを切替 |
 | X / Y / Z | transform中のaxis constraint |
 | Shift | transform中のsnap一時無効 |
-| Alt | （`--legacy-ui` のみ）snap一時反転 — workflow shellではShiftがsnap一時無効 |
+| Alt | ~~（`--legacy-ui` のみ snap一時反転）~~ REV36-UX140Cで旧構成とともに削除。workflow shellではShiftがsnap一時無効 |
 | Ctrl+K | コマンド検索（help / 設定 / 各commandへも到達） |
 
 既存実装の `W=Move` や `right-drag=orbit` は新UIの既定契約にはしない。必要なら移行期間のaliasにできるが、tooltip/help上のprimary shortcutは上表へ統一する。

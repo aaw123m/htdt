@@ -37,7 +37,7 @@ from htdt.cad_scene import (
     make_polygon_room,
 )
 from htdt.cad_search_models import CadCandidate, CadCandidateSetPage
-from htdt.native_editor import ROLE
+from htdt.tree_item_role import ROLE
 from htdt.optimization_workflow_workspace import (
     OptimizationWorkflowWorkspace,
 )

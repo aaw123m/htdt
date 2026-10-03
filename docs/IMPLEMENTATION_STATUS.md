@@ -54,7 +54,7 @@ N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software val
 | A13 | stale、UI responsiveness、明示cancel、document change、clean close/no worker PASS |
 | A14 | 8頂点L-room、rectangular-only model=`unsupported`、無silent approximation、overlayなし、scalar control gated PASS |
 | F5 | 50 editable objects＋10,000 markers、1 non-pickable actor、初回11.406 ms、orbit p95 27.963 ms PASS |
-| native entry | `htdt-native` / `run-native.ps1` / `python -m htdt.native_cad` はworkflow-first shellをdefaultで起動。`--legacy-ui`で旧`OptimizationWorkspaceWindow` compositionへrollback可。起動時にactive compositionがdiagnosticsへ記録される（UX160 launch-path task） |
+| native entry | `htdt-native` / `run-native.ps1` / `python -m htdt.native_cad` はworkflow-first shellのみで起動（REV36-UX140Cで旧`OptimizationWorkspaceWindow` compositionを撤去。`--legacy-ui`指定は日本語エラーで終了）。起動時にactive compositionがdiagnosticsへ記録される |
 | browser UI | 新CAD機能は凍結。native release CIからfrontend buildを除外済み。二重実装しない |
 | N90 stable product head | `968a9461435ac37138ddd15526140c06613fccb8` / CI #458 PASS / Windows Release Artifact #23 PASS |
 | N90 accepted gate head | `3ee2fb91b4976d7b0cac7b13718222cd6e359b76` / A15 owned-Windows PASS |
@@ -519,7 +519,7 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - Optimization canonical contextは `setup / candidates / comparison / validation`。旧 `objectives / measurement-plan` deep-linkはshared navigation boundaryで互換normalizeする。
 - rail下部の「設定」から#128 Data Management UIへ入り、restore時は全mounted workspace guard→handle dispose→native restore→fresh SceneRepository→lazy rebuildを行う。
 - follow-upで新Roomへ既存N70 rectangular geometry predictionを接続。request identity / JobGuard / repository / constraint hashを再利用し、dirty/stale/cancelled resultはfail closed、current resultだけ3D overlayへ表示する。
-- 既知残件: 旧wall/opening・高度geometry editingの完全移植、UX140のlegacy QMainWindow adapter除去、UX150/UX160 visual acceptance。
+- 既知残件: 旧wall/opening・高度geometry editingの完全移植、UX150/UX160 visual acceptance。（UX140のlegacy QMainWindow adapter除去はREV36-UX140Cで完了）
 - workflow shellは引き続き明示 `--workflow-shell` preview。default launcherはUX160 acceptanceまで変更しない。
 - 詳細: [UX120–UX140 integration record](UX120_140_INTEGRATION_2026-09-19.md)
 - RDC未使用。

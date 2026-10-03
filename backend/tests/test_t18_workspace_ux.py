@@ -18,7 +18,7 @@ from htdt.cad_scene import Direction3, F1_DOCUMENT_ID, make_f1_scene
 from htdt.cad_search_models import CadCandidate, CadCandidateSetPage
 from htdt.measurement_instrument_onboarding import evaluate_instrument_onboarding
 from htdt.measurement_page_workspace import MeasurementPageWorkspace
-from htdt.native_editor import ROLE
+from htdt.tree_item_role import ROLE
 from htdt.measurement_workflow import MeasurementWorkflowController
 from htdt.optimization_workflow_workspace import (
     OptimizationWorkflowWorkspace,

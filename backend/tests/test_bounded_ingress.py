@@ -378,35 +378,39 @@ def test_workspace_file_dialog_rejects_oversized_file(tmp_path: Path, monkeypatc
     app.processEvents()
 
 
-def test_legacy_editor_dialog_uses_shared_bounded_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from htdt import file_dialog_memory, measurement_editor
-    from htdt.measurement_editor import MeasurementEditorWindow
+def test_measurement_page_dialog_uses_shared_bounded_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from htdt import file_dialog_memory
+    from htdt.measurement_page_workspace import MeasurementPageWorkspace
+    from htdt.user_facing_error import operation_error_message
 
     oversized = tmp_path / 'huge.txt'
     oversized.write_bytes(b'0' * (MAX_NATIVE_REW_TEXT_FILE_BYTES + 1))
 
     imported: list[tuple[bytes, str]] = []
-    messages: list[str] = []
+    errors: list[str] = []
 
-    class StubStatusBar:
-        def showMessage(self, message: str) -> None:
-            messages.append(message)
-
-    class StubEditor:
-        def statusBar(self) -> StubStatusBar:
-            return StubStatusBar()
-
-        def import_rew_text_bytes(self, raw: bytes, filename: str) -> None:
-            imported.append((raw, filename))
+    workspace = SimpleNamespace(
+        controller=SimpleNamespace(
+            stage_rew_text=lambda raw, filename: imported.append((raw, filename)),
+        ),
+        _operation_error_notice=lambda prefix, exc: errors.append(
+            f'{prefix} · {operation_error_message(exc)}'
+        ),
+        _set_notice=lambda *args, **kwargs: None,
+        refresh=lambda: None,
+        set_context=lambda _ctx: None,
+    )
 
     monkeypatch.setattr(
         file_dialog_memory.QFileDialog,
         'getOpenFileName',
         staticmethod(lambda *args, **kwargs: (str(oversized), '')),
     )
-    MeasurementEditorWindow.import_rew_text_dialog(StubEditor())  # type: ignore[arg-type]
+    MeasurementPageWorkspace.import_rew_text_dialog(workspace)  # type: ignore[arg-type]
 
     assert imported == []
     # The dialog surfaces the mapped operator message (R6: no raw exc text);
     # IngressTooLargeError maps to the size-specific JP message.
-    assert messages and '大きすぎ' in messages[0]
+    assert errors and '大きすぎ' in errors[0]

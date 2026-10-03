@@ -18,7 +18,6 @@ from htdt.cad_search import (
 )
 from htdt.cad_search_models import CadSearchAxis, constraint_workspace_snapshot
 from htdt.cad_search_repository import CadSearchRepository
-from htdt.measurement_editor import MeasurementEditorWindow
 from htdt.optimization_workflow_controller import OptimizationWorkflowController
 
 
@@ -69,38 +68,6 @@ def _planned_measurement_plan(
         candidate_id=candidate.candidate_id,
         applied_scene_revision_id=applied.revision_id,
     )
-
-
-def test_editor_rew_read_binds_current_constraint_workspace(tmp_path: Path, monkeypatch) -> None:
-    app = _app()
-    repository = SceneRepository(tmp_path / 'cad.sqlite3')
-    # #627: the F1 fixture is explicit test content now, never auto-seeded.
-    repository.save(make_f1_scene(), parent_revision_id=None)
-    window = MeasurementEditorWindow(repository, F1_DOCUMENT_ID)
-    window.selected_id = 'point-mlp'
-    window.rew_combo.addItem('REW A', 'rew-uuid-1')
-    monkeypatch.setattr(window, '_start_rew_task', lambda *args, **kwargs: None)
-
-    window.read_selected_rew_async()
-
-    expected = constraint_workspace_snapshot(window.constraint_set)[1]
-    token = next(iter(window._rew_tokens.values()))
-    assert token.constraint_workspace_hash == expected
-    context = window._current_job_apply_context()
-    assert context is not None
-    assert context.constraint_workspace_hash == expected
-    assert window.rew_job_guard.can_apply(token, context)
-
-    # Editing constraints while the external read is in flight stales the token.
-    window.constraint_set = _constraint_set(window.document_id)
-    stale = window._current_job_apply_context()
-    assert stale is not None
-    assert stale.constraint_workspace_hash != expected
-    assert not window.rew_job_guard.can_apply(token, stale)
-
-    window.close()
-    window.deleteLater()
-    app.processEvents()
 
 
 def test_optimization_rew_read_binds_current_constraint_workspace(tmp_path: Path, monkeypatch) -> None:

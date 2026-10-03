@@ -6,8 +6,8 @@ keyboard defaults (Enter picks a non-destructive choice).
 The bundle-status, list-picker, and name-prompt regressions live in
 test_workflow_application.py: WorkflowApplicationComposition cannot be
 constructed in a pytest-xdist worker whose process has already imported
-htdt.native_editor/htdt.room_workspace — PyVista/Qt interactor state then
-crashes the worker (serially everything passes).
+htdt.room_workspace — PyVista/Qt interactor state then crashes the worker
+(serially everything passes).
 """
 
 from __future__ import annotations
@@ -36,7 +36,6 @@ from htdt.cad_scene import (
     Size3,
     make_f1_scene,
 )
-from htdt.native_editor import NativeEditorWindow
 from htdt.room_workspace import RoomWorkspace
 from htdt.workspace_dirty_state import dirty_state_prompt
 
@@ -57,15 +56,6 @@ def room_workspace(tmp_path: Path):
     yield workspace
     workspace.close()
     workspace.deleteLater()
-    _app().processEvents()
-
-
-@pytest.fixture
-def native_editor(tmp_path: Path):
-    window = NativeEditorWindow(_repository(tmp_path), F1_DOCUMENT_ID)
-    yield window
-    window.close()
-    window.deleteLater()
     _app().processEvents()
 
 
@@ -157,32 +147,6 @@ def test_room_workspace_dirty_badge_survives_notices(room_workspace) -> None:
     workspace.save()
     assert workspace.dirty_status_label.text() == "保存済み"
     assert "保存しました" in workspace.status.text()
-
-
-def test_native_editor_dirty_badge_survives_transient_notices(
-    native_editor,
-) -> None:
-    """'未保存'/'保存済み' lived in the transient status-bar message; any
-    later showMessage clobbered it permanently. It must sit in the
-    permanent zone so notices cannot hide it."""
-    app = _app()
-    window = native_editor
-    window.show()
-    app.processEvents()
-
-    assert window._dirty_indicator.text() == "保存済み"
-
-    window.working.add_entity(_new_entity("speaker-extra"))
-    window._set_dirty_status()
-    assert window._dirty_indicator.text() == "未保存"
-
-    window.statusBar().showMessage("任意の通知")
-    app.processEvents()
-    assert window._dirty_indicator.text() == "未保存"
-
-    window.save()
-    app.processEvents()
-    assert window._dirty_indicator.text() == "保存済み"
 
 
 # ---------------------------------------------------------------------
