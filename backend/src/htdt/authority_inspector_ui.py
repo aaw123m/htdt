@@ -167,12 +167,17 @@ class AuthorityInspectorDialog(QDialog):
         form_layout.addRow('作成:', self.created_label)
         layout.addWidget(form)
 
+        self.node_combo.setToolTip('権威グラフ内のノード — 選択すると下の詳細と系譜が更新されます')
         lineage_row = QHBoxLayout()
-        for title, attr in (('上流:', 'upstream_list'), ('下流:', 'downstream_list')):
+        for title, attr, list_tip in (
+            ('上流:', 'upstream_list', 'このノードが依存している情報源 — ここが古いとこのノードも古くなります'),
+            ('下流:', 'downstream_list', 'このノードに依存している結果 — このノードが古くなるとこれらも古くなります'),
+        ):
             column = QVBoxLayout()
             column.addWidget(QLabel(title))
             widget = QListWidget()
             widget.setObjectName(f'authority_{attr}')
+            widget.setToolTip(list_tip)
             setattr(self, attr, widget)
             column.addWidget(widget)
             lineage_row.addLayout(column)
@@ -187,6 +192,7 @@ class AuthorityInspectorDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
         self.open_button = QPushButton('ワークスペースで開く')
+        self.open_button.setToolTip('選択中のノードに対応するワークスペース画面へ移動します')
         self.open_button.setObjectName('authorityOpenButton')
         self.open_button.setEnabled(False)
         self.open_button.clicked.connect(self._open_deep_link)

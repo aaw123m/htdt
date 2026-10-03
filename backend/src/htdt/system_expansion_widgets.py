@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from .cad_display_labels import measurement_claim_label
 from .cad_scene import is_unassigned_speaker_role
+from .field_tooltips import apply_field_tooltip
 from .cad_topology_search import PlacementAngleAxis
 from .native_worker import (
     WORKER_CANCELLED,
@@ -1616,6 +1617,17 @@ class _MeasurementPlanDialog(QDialog):
         form.addRow(self.context_check)
         self.purpose_edit = QLineEdit("設置済み構成の実測検証")
         form.addRow("目的", self.purpose_edit)
+        for field, tip in (
+            (self.point_combo, "測定を行うリスニング位置・測定点"),
+            (self.sources, "測定対象の音源（複数選択可）· 少なくとも1つ必須"),
+            (self.role_combo, "この測定のチャンネル役割（例: L, R, SW）· 入力も可"),
+            (self.observable_combo, "計測する量（音圧レベルや周波数応答など）"),
+            (self.count_spin, "必要な測定回数（1–8）· 再現性を要求する場合は2以上"),
+            (self.repeatability_check, "オンにすると再現性検証が必須になります（測定2回以上が必要）"),
+            (self.context_check, "測定時の機材・ゲインなどの acquisition context 記録を要求します"),
+            (self.purpose_edit, "測定計画の目的（自由記述）"),
+        ):
+            apply_field_tooltip(field, tip, form)
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(

@@ -252,11 +252,13 @@ class CommandPalette(QDialog):
         self.search_field.setAccessibleName('コマンド検索')
         self.search_field.setPlaceholderText('機能・項目・設定・ヘルプを検索…')
         self.search_field.setClearButtonEnabled(True)
+        self.search_field.setToolTip('機能名・設定・ヘルプ項目を入力して検索 — Enterで実行、Escで閉じます')
         self.search_field.textChanged.connect(self.refresh_results)
         self.search_field.returnPressed.connect(self.activate_current)
         layout.addWidget(self.search_field)
 
         self.results_list = QListWidget(self)
+        self.results_list.setToolTip('検索結果 — 上下キーで選択、Enterで実行 · グレー項目は現在の状態では使えません')
         self.results_list.setUniformItemSizes(False)
         self.results_list.setItemDelegate(PaletteResultDelegate(self.results_list))
         self.results_list.currentItemChanged.connect(self._selection_changed)

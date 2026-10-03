@@ -128,6 +128,8 @@ class GlossaryDialog(QDialog):
         layout.addWidget(heading)
         self._filter = QLineEdit(self)
         self._filter.setPlaceholderText("用語を検索…")
+        self._filter.setToolTip("入力した文字で用語を絞り込みます — 語句の一部でも一致します")
+        self._filter.setClearButtonEnabled(True)
         layout.addWidget(self._filter)
 
         scroll = QScrollArea(self)
@@ -208,9 +210,11 @@ class ReasonTextDialog(QDialog):
         layout.addWidget(prompt)
         self.line_edit = QLineEdit(self)
         layout.addWidget(self.line_edit)
+        self.line_edit.setToolTip(label)
         buttons = QHBoxLayout()
         if on_help is not None:
             help_button = QPushButton("ヘルプ", self)
+            help_button.setToolTip("この入力が必要な理由をヘルプで確認します")
             help_button.clicked.connect(on_help)
             buttons.addWidget(help_button)
         buttons.addStretch(1)

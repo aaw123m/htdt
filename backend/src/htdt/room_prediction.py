@@ -81,6 +81,7 @@ from .cad_room_operating_state_repository import (
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .field_tooltips import apply_field_tooltip
 from .cad_scene import (
     acoustic_reference_position,
     is_listener_receiver_eligible,
@@ -1828,6 +1829,14 @@ class EnvironmentProfileDialog(QDialog):
 
         self.notes = QLineEdit()
         form.addRow("備考", self.notes)
+        for field, tip in (
+            (self.label, "この環境プロファイルの表示名（例: 測定日 2026-09 · 室内 22 °C）"),
+            (self.source_kind, "音速値の出典 — 標準仮定 / 温度から導出 / 手動測定値 / 不明"),
+            (self.sound_speed, "音速（250–400 m/s）· 「手動測定値」を選んだときだけ編集できます"),
+            (self.temperature, "温度（-40–60 °C）· 「温度から導出」を選んだとき有効 c = 331.3 + 0.606·T"),
+            (self.notes, "任意の備考メモ"),
+        ):
+            apply_field_tooltip(field, tip, form)
         layout.addLayout(form)
 
         hint = QLabel(

@@ -38,6 +38,14 @@ _AVAILABILITY_LABEL: dict[DeliverableAvailability, str] = {
     'not_applicable': '対象外',
 }
 
+_AVAILABILITY_TIP: dict[DeliverableAvailability, str] = {
+    'available': '必要な入力がすべて揃っています — そのまま書き出せます',
+    'available_degraded': '一部の入力が未確定です — 暫定値で書き出せますが確認が推奨されます',
+    'stale_review': '入力が古くなっています — 書き出す前に最新の状態へレビューが必要です',
+    'blocked': '必須の入力が不足しています — 「開く」から対象ワークスペースで用意してください',
+    'not_applicable': 'このプロジェクト構成では対象外です',
+}
+
 _CATEGORY_TITLES = {
     'engineering_analysis': 'エンジニアリング解析',
     'installation_field': '設置・現場デリバラブル',
@@ -96,6 +104,7 @@ class DeliverablesDialog(QDialog):
     def _entry_row(self, entry: DeliverableEntry) -> QHBoxLayout:
         row = QHBoxLayout()
         badge = QLabel(_AVAILABILITY_LABEL[entry.availability])
+        badge.setToolTip(_AVAILABILITY_TIP[entry.availability])
         badge.setMinimumWidth(90)
         row.addWidget(badge)
         detail = entry.title
@@ -114,6 +123,7 @@ class DeliverablesDialog(QDialog):
             in ('available', 'available_degraded', 'stale_review')
         ):
             generate = QPushButton('書き出し')
+            generate.setToolTip(f'{entry.title} を生成・書き出します')
             command_id = entry.command_id
             generate.clicked.connect(
                 lambda _checked=False, cid=command_id: self._on_command(cid)
@@ -121,6 +131,7 @@ class DeliverablesDialog(QDialog):
             row.addWidget(generate)
         elif entry.action is not None:
             open_input = QPushButton('開く')
+            open_input.setToolTip('不足している入力を用意できるワークスペースを開きます')
             link = entry.action
             open_input.clicked.connect(
                 lambda _checked=False, target=link: self._on_navigate(target)

@@ -49,6 +49,7 @@ from .commissioning_plan import (
     CommissioningStage,
     new_plan,
 )
+from .field_tooltips import apply_field_tooltip
 from .overview_readiness import OverviewReadinessService
 from .ui_theme import TypographyRole, set_typography_role
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
@@ -118,7 +119,9 @@ class CommissioningWizard(QDialog):
         nav = QHBoxLayout()
         nav.addStretch(1)
         self.back_button = QPushButton('戻る')
+        self.back_button.setToolTip('前のページに戻ります')
         self.next_button = QPushButton('次へ')
+        self.next_button.setToolTip('次のページへ進みます')
         self.back_button.clicked.connect(lambda: self._show_page(self._page_index - 1))
         self.next_button.clicked.connect(self._advance)
         nav.addWidget(self.back_button)
@@ -132,6 +135,9 @@ class CommissioningWizard(QDialog):
         )
         self.save_button = buttons.button(QDialogButtonBox.StandardButton.Save)
         self.save_button.setText('保存して閉じる')
+        self.save_button.setToolTip(
+            '初期設定プランを保存してウィザードを閉じます'
+        )
         buttons.accepted.connect(self._save_and_close)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -198,6 +204,20 @@ class CommissioningWizard(QDialog):
             form.addRow(widget)
         form.addRow(self.goals_label, self.goals)
         form.addRow('スピーカー台数（目安）', self.speaker_count)
+        for field, tip in (
+            (self.name_edit, '新しいプロジェクトの名前（例: living-theater）'),
+            (self.new_radio, '新しいプロジェクトを作成して初期設定を始めます'),
+            (self.existing_radio, '既存のプロジェクトに対して初期設定プランを作ります'),
+            (self.existing_combo, '初期設定の対象となる既存プロジェクト'),
+            (self.has_room, '部屋データが既にある場合にオン — 部屋ステップをスキップできます'),
+            (self.audio_only, '映像システムを使わない場合にオン'),
+            (self.rew_available, 'REWなどの測定データを使う予定がある場合にオン'),
+            (self.hybrid, 'シミュレーションと実測を併用するハイブリッド予測を使う場合にオン'),
+            (self.start_combo, 'プロジェクトの開始方法 — 空のプロジェクトかテンプレートを選びます'),
+            (self.goals, '目指す特性を選択（複数可）— 準備状況の判定に反映されます'),
+            (self.speaker_count, '設置予定のスピーカー台数の目安（1–64）'),
+        ):
+            apply_field_tooltip(field, tip, form)
         self._add_page(intent, 'intent')
 
         # 2-4. Guidance pages linking to the real workspaces. The room
@@ -229,6 +249,10 @@ class CommissioningWizard(QDialog):
             label.setWordWrap(True)
             page_layout.addWidget(label)
             skip = QCheckBox('このステップは後で行う（スキップ）', page)
+            skip.setToolTip(
+                'オンにするとこのステップはスキップとして記録され、'
+                '準備状況に残りの作業として表示されます'
+            )
             page_layout.addWidget(skip)
             page_layout.addStretch(1)
             setattr(self, f'_skip_{stage.value}', skip)
@@ -444,6 +468,9 @@ class CommissioningWizard(QDialog):
             row.addWidget(label, 1)
             if requirement.link is not None:
                 button = QPushButton('開く')
+                button.setToolTip(
+                    'この要件のワークスペースを開きます（ウィザードは閉じます）'
+                )
                 button.clicked.connect(
                     lambda checked=False, link=requirement.link: self._queue_navigation(link)
                 )

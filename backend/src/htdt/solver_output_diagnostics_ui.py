@@ -161,6 +161,10 @@ class SolverOutputDiagnosticsDialog(QDialog):
         layout.addWidget(QLabel('対象リビジョン:'))
         self.revision_combo = QComboBox()
         self.revision_combo.setObjectName('solverRevisionCombo')
+        self.revision_combo.setToolTip(
+            '成果物を絞り込むシーンリビジョン — 「（リビジョン未解決）」は'
+            'どのリビジョンにも紐付かない孤立した記録です'
+        )
         self.revision_combo.addItem('すべてのリビジョン', None)
         for revision in revisions:
             self.revision_combo.addItem(
@@ -184,6 +188,9 @@ class SolverOutputDiagnosticsDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setToolTip(
+            '記録されたソルバー成果物の一覧 — 選択すると下に出典・能力・状態を表示します'
+        )
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)
 
@@ -213,6 +220,9 @@ class SolverOutputDiagnosticsDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
         buttons.rejected.connect(self.reject)
         self.authority_button = QPushButton('権威グラフで開く')
+        self.authority_button.setToolTip(
+            '選択した成果物の出典リビジョンを権威グラフで開きます'
+        )
         self.authority_button.setObjectName('solverAuthorityOpenButton')
         self.authority_button.setEnabled(False)
         self.authority_button.clicked.connect(self._open_in_authority_graph)

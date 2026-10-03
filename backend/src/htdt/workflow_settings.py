@@ -417,12 +417,28 @@ class DataManagementDialog(QDialog):
         else:
             self._tabs = QTabWidget(self)
             self._tabs.addTab(component.widget, "データ管理")
+            self._tabs.setTabToolTip(
+                self._tabs.indexOf(component.widget),
+                "プロジェクトデータの管理（バックアップ・リセットなどの破壊的操作を含みます）",
+            )
             if preferences_panel is not None:
                 self._tabs.addTab(preferences_panel, "環境設定")
+                self._tabs.setTabToolTip(
+                    self._tabs.indexOf(preferences_panel),
+                    "アプリケーションの表示・動作の環境設定",
+                )
             if capture_panel is not None:
                 self._tabs.addTab(capture_panel, "キャプチャ")
+                self._tabs.setTabToolTip(
+                    self._tabs.indexOf(capture_panel),
+                    "HTDT Capture アプリからの測定パッケージ受信の設定",
+                )
             if retention_panel is not None:
                 self._tabs.addTab(retention_panel, "保持管理")
+                self._tabs.setTabToolTip(
+                    self._tabs.indexOf(retention_panel),
+                    "保存データの保持期間と自動削除の設定",
+                )
             layout.addWidget(self._tabs)
 
     def open_settings(self) -> None:

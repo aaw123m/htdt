@@ -120,6 +120,7 @@ class NativeEditorWindow(QMainWindow):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.setToolTip('シーン内のオブジェクト一覧 — クリックで選択、複数選択も可')
         self.tree.setAccessibleName('シーンツリー')
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.itemSelectionChanged.connect(self._tree_selected)
@@ -146,10 +147,17 @@ class NativeEditorWindow(QMainWindow):
             field.setSuffix(' m')
             field.setKeyboardTracking(False)
             field.editingFinished.connect(self._numeric_position_edited)
+            field.setToolTip(f'選択オブジェクトの{axis}座標（m）— Enterで適用')
+            field.lineEdit().setToolTip(f'選択オブジェクトの{axis}座標（m）— Enterで適用')
             self.position_fields[axis] = field
             form.addRow(axis, field)
 
         axis_labels = {'Yaw': 'ヨー', 'Pitch': 'ピッチ', 'Roll': 'ロール'}
+        axis_tips = {
+            'Yaw': 'ヨー（水平回転、-180–180°）— Enterで適用',
+            'Pitch': 'ピッチ（上下の傾き、-180–180°）— Enterで適用',
+            'Roll': 'ロール（左右の傾き、-180–180°）— Enterで適用',
+        }
         self.orientation_fields: dict[str, QDoubleSpinBox] = {}
         for axis in ('Yaw', 'Pitch', 'Roll'):
             field = QDoubleSpinBox()
@@ -159,6 +167,8 @@ class NativeEditorWindow(QMainWindow):
             field.setSuffix('°')
             field.setKeyboardTracking(False)
             field.editingFinished.connect(self._numeric_orientation_edited)
+            field.setToolTip(axis_tips[axis])
+            field.lineEdit().setToolTip(axis_tips[axis])
             self.orientation_fields[axis] = field
             form.addRow(axis_labels[axis], field)
         form.addRow('向き', self.aim_label)
@@ -220,6 +230,8 @@ class NativeEditorWindow(QMainWindow):
         self.grid_step_field.setSingleStep(0.01)
         self.grid_step_field.setValue(self.view_state.grid_step_m)
         self.grid_step_field.setSuffix(' m グリッド')
+        self.grid_step_field.setToolTip('グリッドスナップの間隔（0.001–10 m）')
+        self.grid_step_field.lineEdit().setToolTip('グリッドスナップの間隔（0.001–10 m）')
         self.grid_step_field.valueChanged.connect(self._grid_step_changed)
         snap_toolbar.addWidget(self.grid_step_field)
 
@@ -229,6 +241,8 @@ class NativeEditorWindow(QMainWindow):
         self.angle_step_field.setSingleStep(5.0)
         self.angle_step_field.setValue(self.view_state.angle_step_deg)
         self.angle_step_field.setSuffix('° 角度')
+        self.angle_step_field.setToolTip('回転時の角度スナップ刻み（0.1–180°）')
+        self.angle_step_field.lineEdit().setToolTip('回転時の角度スナップ刻み（0.1–180°）')
         self.angle_step_field.valueChanged.connect(self._angle_step_changed)
         snap_toolbar.addWidget(self.angle_step_field)
 

@@ -76,6 +76,7 @@ from .cad_source_response import (
     build_source_response,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .field_tooltips import apply_field_tooltip
 from .ingress import read_file_bounded, strict_ascii_number
 from .limits import MAX_ATTACHMENT_BYTES
 from .user_facing_error import operation_error_message
@@ -673,6 +674,10 @@ class EquipmentLibraryDialog(QDialog):
 
         self.definition_list = QListWidget()
         self.definition_list.setAccessibleName("機器定義一覧")
+        self.definition_list.setToolTip(
+            "登録済みの機器定義の一覧 — 選択すると能力プレビューが表示され、"
+            "新バージョン保存・指向性インポートが有効になります"
+        )
         self.definition_list.currentRowChanged.connect(self._selection_changed)
         body.addWidget(self.definition_list, 1)
 
@@ -687,6 +692,12 @@ class EquipmentLibraryDialog(QDialog):
         form.addRow("メーカー", self.manufacturer_edit)
         self.model_edit = QLineEdit()
         form.addRow("モデル", self.model_edit)
+        for field, tip in (
+            (self.label_edit, "この機器定義の表示名（必須）— 一覧での表示名になります"),
+            (self.manufacturer_edit, "機器のメーカー名（任意）"),
+            (self.model_edit, "機器のモデル名（任意）"),
+        ):
+            apply_field_tooltip(field, tip, form)
 
         dims = QHBoxLayout()
         self.width_spin = QDoubleSpinBox()
@@ -705,6 +716,12 @@ class EquipmentLibraryDialog(QDialog):
         dims.addWidget(self.height_spin)
         dims.addWidget(QLabel("奥行"))
         dims.addWidget(self.depth_spin)
+        for spin, tip in (
+            (self.width_spin, "キャビネットの幅（0.001–5 m）"),
+            (self.height_spin, "キャビネットの高さ（0.001–5 m）"),
+            (self.depth_spin, "キャビネットの奥行き（0.001–5 m）"),
+        ):
+            apply_field_tooltip(spin, tip)
         form.addRow("キャビネット寸法 (m)", dims)
 
         self.mounting_combo = QComboBox()
@@ -721,6 +738,12 @@ class EquipmentLibraryDialog(QDialog):
         self.port_clearance_spin.setDecimals(3)
         self.port_clearance_spin.setSpecialValueText("未設定")
         form.addRow("ポート最小クリアランス (m)", self.port_clearance_spin)
+        for field, tip in (
+            (self.mounting_combo, "機器の設置方法 · 不明なら「未設定（不明）」のまま"),
+            (self.port_combo, "低音ポートの位置・形式 · 不明なら「不明」のまま"),
+            (self.port_clearance_spin, "ポートに必要な最小クリアランス（0–2 m）· 「未設定」のままなら制約なし"),
+        ):
+            apply_field_tooltip(field, tip, form)
 
         self.evidence_combo = QComboBox()
         for label, value in _EVIDENCE_KINDS:
@@ -732,9 +755,19 @@ class EquipmentLibraryDialog(QDialog):
         form.addRow("出典バージョン（必須）", self.source_version_edit)
         self.source_reference_edit = QLineEdit()
         form.addRow("出典参照（必須）", self.source_reference_edit)
+        for field, tip in (
+            (self.evidence_combo, "この定義値の出典種別（ユーザー入力 / メーカー資料 / 実測 など）"),
+            (self.source_name_edit, "出典の名前（必須 — メーカー仕様書・実測メモなど）"),
+            (self.source_version_edit, "出典の版・日付（必須）"),
+            (self.source_reference_edit, "出典内の参照位置（必須 — ページ・項目名）"),
+        ):
+            apply_field_tooltip(field, tip, form)
         source_file_row = QHBoxLayout()
         self.source_file_label = QLabel("（なし — 入力参照のハッシュを使用）")
         self.source_file_button = QPushButton("出典ファイルを添付…")
+        self.source_file_button.setToolTip(
+            "仕様書などのファイルを添付して出典のハッシュとして記録します"
+        )
         self.source_file_button.clicked.connect(self._attach_source_file)
         source_file_row.addWidget(self.source_file_label, 1)
         source_file_row.addWidget(self.source_file_button)
@@ -747,10 +780,19 @@ class EquipmentLibraryDialog(QDialog):
 
         buttons = QHBoxLayout()
         self.save_new_button = QPushButton("新規保存")
+        self.save_new_button.setToolTip(
+            "フォームの内容を新しい機器定義として保存します"
+        )
         self.save_new_button.clicked.connect(self._save_new)
         self.save_version_button = QPushButton("選択中の新バージョンとして保存")
+        self.save_version_button.setToolTip(
+            "一覧で選択中の定義の新バージョンとして保存します（定義を選ぶと有効）"
+        )
         self.save_version_button.clicked.connect(self._save_new_version)
         self.import_button = QPushButton("指向性データをインポート…")
+        self.import_button.setToolTip(
+            "選択中の定義に指向性データ（CFx等）を読み込み、新バージョンとして保存します"
+        )
         self.import_button.clicked.connect(self._import_directivity)
         buttons.addWidget(self.save_new_button)
         buttons.addWidget(self.save_version_button)
