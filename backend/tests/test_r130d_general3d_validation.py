@@ -10,6 +10,9 @@ from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.canonical_json import canonical_sha256
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
+    JOINT_TRANSLATION_CANONICAL_CELL_ID,
+    JOINT_TRANSLATION_CELL_IDS,
+    JOINT_TRANSLATION_OFFSET_CELLS,
     RECEIVER_POSITION_CANONICAL_CELL_ID,
     RECEIVER_POSITION_CELL_IDS,
     RECEIVER_POSITION_OFFSET_CELLS,
@@ -34,6 +37,7 @@ from htdt.r130d_general3d_validation import (
     assess_refinement_series,
     classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
+    classify_joint_translation_sensitivity,
     classify_receiver_position_sensitivity,
     classify_source_position_sensitivity,
     classify_spatial_representation_trend,
@@ -44,8 +48,10 @@ from htdt.r130d_general3d_validation import (
     connected_air_domain_node_metrics,
     dense_frequency_grid,
     interpolation_stencil_diagnostic,
+    joint_translation_offset_stencil,
     load_dense_frequency_diagnostic_plan,
     load_evidence,
+    load_joint_translation_sensitivity_diagnostic_plan,
     load_receiver_position_sensitivity_diagnostic_plan,
     load_source_position_sensitivity_diagnostic_plan,
     load_spatial_representation_diagnostic_plan,
@@ -67,6 +73,7 @@ from htdt.r130d_general3d_validation import (
     target_window_clipped_left_rectangle_transfer,
     validate_dense_frequency_diagnostic_binding,
     validate_exact_binding,
+    validate_joint_translation_sensitivity_diagnostic_binding,
     validate_physical_observable_contract,
     validate_receiver_position_sensitivity_diagnostic_binding,
     validate_refinement_schedule,
@@ -130,6 +137,12 @@ SOURCE_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_source_position_sensitivity_diagnostic_plan.json'
+)
+JOINT_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_joint_translation_sensitivity_diagnostic_plan.json'
 )
 RUN76_EVIDENCE = (
     Path(__file__).parents[2]
@@ -2888,6 +2901,472 @@ def test_source_position_diagnostic_cannot_enter_canonical_acceptance():
     )
     assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
     assert diagnostic['source_position_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] is False
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert diagnostic['decision_semantics'][
+        'cross_solver_unblocked_by_diagnostic'
+    ] is False
+
+
+
+def test_joint_translation_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_joint_translation_sensitivity_diagnostic_plan(
+        JOINT_DIAGNOSTIC_PLAN
+    )
+    validate_joint_translation_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert diagnostic['task_start_main_sha'] == (
+        '9c6d1582d5919f26d24e78757660b230aa6eeab1'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [
+        8.0, 10.0, 12.0,
+    ]
+    assert diagnostic['parent_source_position_sensitivity_diagnostic'][
+        'semantic_sha256'
+    ] == canonical_sha256(
+        load_source_position_sensitivity_diagnostic_plan(
+            SOURCE_DIAGNOSTIC_PLAN
+        )
+    )
+    joint = diagnostic['joint_translation_sensitivity']
+    offsets = joint['joint_offsets']
+    assert [item['cell_id'] for item in offsets] == list(
+        JOINT_TRANSLATION_CELL_IDS
+    )
+    assert [bool(item.get('control')) for item in offsets] == [True] + [
+        False
+    ] * (len(JOINT_TRANSLATION_CELL_IDS) - 1)
+    for item in offsets:
+        assert item['offset_cells'] == list(
+            JOINT_TRANSLATION_OFFSET_CELLS[item['cell_id']]
+        )
+    cell_axis = joint['cell_axis']
+    assert cell_axis['cells'] == list(JOINT_TRANSLATION_CELL_IDS)
+    assert cell_axis['canonical_cell_id'] == (
+        JOINT_TRANSLATION_CANONICAL_CELL_ID
+    )
+    evaluation = joint['evaluation']
+    dense_block = dense['dense_frequency_neighborhood']
+    assert evaluation['normalized_complex_difference_formula'] == dense_block[
+        'normalized_complex_difference_formula'
+    ]
+    assert evaluation['fixed_floor'] == dense_block['fixed_floor']
+    assert evaluation['pairs'] == dense_block['pairs']
+    assert evaluation['per_cell_classification'][
+        'localized_max_count'
+    ] == dense_block['classification']['localized_max_count']
+    assert evaluation['per_cell_classification'][
+        'persists_min_count'
+    ] == dense_block['classification']['persists_min_count']
+    assert evaluation['canonical_acceptance_inclusion'] is False
+
+
+def test_joint_translation_run76_pins_match_dense_authority():
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_joint_translation_sensitivity_diagnostic_plan(
+        JOINT_DIAGNOSTIC_PLAN
+    )
+    dense_levels = {
+        float(item['points_per_wavelength']): item
+        for item in dense['run76_record_binding']['levels']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        dense_level = dense_levels[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == dense_level[
+            'pressure_trace_sha256'
+        ]
+        assert level['source_trace_sha256'] == dense_level['source_trace_sha256']
+
+
+def test_joint_translation_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_joint_translation_sensitivity_diagnostic_plan(
+        JOINT_DIAGNOSTIC_PLAN
+    )
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, stale, dense
+        )
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['joint_translation_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, promoted, dense
+        )
+    drift = json.loads(json.dumps(diagnostic))
+    drift['joint_translation_sensitivity']['joint_offsets'][1][
+        'cell_id'
+    ] = 'x_minus_3'
+    with pytest.raises(ValueError, match='not the frozen set'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift, dense
+        )
+    drift_offset = json.loads(json.dumps(diagnostic))
+    drift_offset['joint_translation_sensitivity']['joint_offsets'][1][
+        'offset_cells'
+    ] = [-3, 0, 0]
+    with pytest.raises(ValueError, match='whole-cell offset'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift_offset, dense
+        )
+    drift_cell = json.loads(json.dumps(diagnostic))
+    drift_cell['joint_translation_sensitivity']['cell_axis'][
+        'canonical_cell_id'
+    ] = 'x_plus_1'
+    with pytest.raises(ValueError, match='canonical cell'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift_cell, dense
+        )
+    drift_metric = json.loads(json.dumps(diagnostic))
+    drift_metric['joint_translation_sensitivity']['evaluation'][
+        'fixed_floor'
+    ] = 1.0e-9
+    with pytest.raises(ValueError, match='fixed floor'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift_metric, dense
+        )
+    drift_labels = json.loads(json.dumps(diagnostic))
+    drift_labels['joint_translation_sensitivity']['evaluation'][
+        'classification'
+    ]['shifted'] = 'RENAMED'
+    with pytest.raises(ValueError, match='classification labels'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift_labels, dense
+        )
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['receiver_movement'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, rewritten, dense
+        )
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_source_position_sensitivity_diagnostic'][
+        'semantic_sha256'
+    ] = '0' * 64
+    with pytest.raises(ValueError, match='source-position diagnostic sha256'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, stale_parent, dense
+        )
+    drift_pin = json.loads(json.dumps(diagnostic))
+    drift_pin['run76_record_binding']['levels'][0]['pressure_trace_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense authority'):
+        validate_joint_translation_sensitivity_diagnostic_binding(
+            plan, drift_pin, dense
+        )
+
+
+def _joint_stencil_fixture():
+    # Source trilinear cell at base (2,2,2), receiver at base (3,2,2):
+    # the pair separation is exactly one cell along +x, mirroring the
+    # canonical fixture's 1 m x-axis separation at any level's grid.
+    s_axes, dims, h, s_linear, weights, s_position = _source_stencil_fixture(
+        base=(2, 2, 2)
+    )
+    _, _, _, r_linear, _, r_position = _source_stencil_fixture(base=(3, 2, 2))
+    return s_axes, dims, h, s_linear, r_linear, weights, s_position, r_position
+
+
+def test_joint_translation_offset_stencil_translates_both_stencils():
+    axes, dims, h, s_linear, r_linear, weights, s_position, r_position = (
+        _joint_stencil_fixture()
+    )
+    moved = joint_translation_offset_stencil(
+        cell_id='y_plus_1',
+        xv=axes[0],
+        yv=axes[1],
+        zv=axes[2],
+        canonical_source_linear_indices=s_linear,
+        canonical_source_weights=weights,
+        canonical_receiver_linear_indices=r_linear,
+        canonical_receiver_weights=weights,
+        grid_spacing_m=h,
+        canonical_source_position_m=s_position,
+        canonical_receiver_position_m=r_position,
+    )
+    expected = np.int64(dims[2])
+    assert moved['moved_source_linear_indices'] == [
+        int(x) for x in s_linear + expected
+    ]
+    assert moved['moved_receiver_linear_indices'] == [
+        int(x) for x in r_linear + expected
+    ]
+    assert moved['moved_source_position_m'] == [
+        float(s_position[0]), float(s_position[1] + h), float(s_position[2]),
+    ]
+    assert moved['moved_receiver_position_m'] == [
+        float(r_position[0]), float(r_position[1] + h), float(r_position[2]),
+    ]
+    assert moved['source_interpolation_weights'] == [
+        float(x) for x in weights
+    ]
+    assert moved['receiver_interpolation_weights'] == [
+        float(x) for x in weights
+    ]
+    assert moved['source_reconstruction_error_m'] <= 1.0e-9
+    assert moved['receiver_reconstruction_error_m'] <= 1.0e-9
+    assert moved['separation_preservation_error_m'] <= 1.0e-12
+    canonical_separation = np.asarray(s_position) - np.asarray(r_position)
+    assert moved['pair_separation_m'] == [
+        float(x) for x in canonical_separation
+    ]
+    assert len(moved['stencil_sha256']) == 64
+    canonical = joint_translation_offset_stencil(
+        cell_id='canonical_position',
+        xv=axes[0],
+        yv=axes[1],
+        zv=axes[2],
+        canonical_source_linear_indices=s_linear,
+        canonical_source_weights=weights,
+        canonical_receiver_linear_indices=r_linear,
+        canonical_receiver_weights=weights,
+        grid_spacing_m=h,
+        canonical_source_position_m=s_position,
+        canonical_receiver_position_m=r_position,
+    )
+    assert canonical['moved_source_linear_indices'] == [
+        int(x) for x in s_linear
+    ]
+    assert canonical['moved_receiver_linear_indices'] == [
+        int(x) for x in r_linear
+    ]
+    assert canonical['moved_source_position_m'] == [
+        float(x) for x in s_position
+    ]
+    assert canonical['moved_receiver_position_m'] == [
+        float(x) for x in r_position
+    ]
+
+
+def test_joint_translation_offset_stencil_is_fail_closed():
+    axes, dims, h, s_linear, r_linear, weights, s_position, r_position = (
+        _joint_stencil_fixture()
+    )
+    with pytest.raises(ValueError, match='unknown joint-translation'):
+        joint_translation_offset_stencil(
+            cell_id='x_minus_3',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear,
+            canonical_source_weights=weights,
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+    # z_minus_2 lands the moved cells on the iz=0 absorbing plane.
+    with pytest.raises(ValueError, match='absorbing-layer plane'):
+        joint_translation_offset_stencil(
+            cell_id='z_minus_2',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear,
+            canonical_source_weights=weights,
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+    # x_plus_2 pushes the receiver cell (base ix=3) past the grid edge.
+    with pytest.raises(ValueError, match='leaves the grid'):
+        joint_translation_offset_stencil(
+            cell_id='x_plus_2',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear,
+            canonical_source_weights=weights,
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+    wrong_weights = np.asarray(weights, dtype=np.float64)
+    wrong_weights[0] += 0.4
+    with pytest.raises(ValueError, match='does not interpolate'):
+        joint_translation_offset_stencil(
+            cell_id='z_minus_1',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear,
+            canonical_source_weights=wrong_weights,
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+    with pytest.raises(ValueError, match='does not interpolate'):
+        joint_translation_offset_stencil(
+            cell_id='z_minus_1',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear,
+            canonical_source_weights=weights,
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=wrong_weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+    with pytest.raises(ValueError, match='exactly eight nodes'):
+        joint_translation_offset_stencil(
+            cell_id='x_plus_1',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_source_linear_indices=s_linear[:7],
+            canonical_source_weights=weights[:7],
+            canonical_receiver_linear_indices=r_linear,
+            canonical_receiver_weights=weights,
+            grid_spacing_m=h,
+            canonical_source_position_m=s_position,
+            canonical_receiver_position_m=r_position,
+        )
+
+
+def _joint_cells(vectors, labels):
+    cell_ids = [
+        cell_id
+        for cell_id in JOINT_TRANSLATION_CELL_IDS
+        if cell_id != JOINT_TRANSLATION_CANONICAL_CELL_ID
+    ]
+    return [
+        {
+            'cell_id': cell_id,
+            'worsening_by_frequency': vectors[index],
+            'classification': labels[index],
+        }
+        for index, cell_id in enumerate(cell_ids)
+    ]
+
+
+def test_joint_translation_classifier_frozen_labels():
+    canonical_vector = [True, False, True, False]
+    identical = [canonical_vector] * 12
+    result = classify_joint_translation_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_joint_cells(identical, [_MIXED] * 12),
+    )
+    assert result['classification'] == (
+        'JOINT_TRANSLATION_WORSENING_RELATIVE_GEOMETRY_INVARIANT'
+    )
+    assert result['identical_vector_cell_count'] == 12
+
+    # Any moved cell localized (worsening gone) -> absolute-position bound.
+    shifted = [[False, True, True, False]] * 12
+    labels = [_MIXED] * 12
+    labels[3] = _LOCALIZED
+    labels[7] = _LOCALIZED
+    result = classify_joint_translation_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_joint_cells(shifted, labels),
+    )
+    assert result['classification'] == (
+        'JOINT_TRANSLATION_WORSENING_ABSOLUTE_POSITION_BOUND'
+    )
+    assert set(result['localized_cell_ids']) == {'x_plus_2', 'y_plus_2'}
+
+    # Every moved pair still carries the worsening but vectors shift ->
+    # pattern shifted.
+    result = classify_joint_translation_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_joint_cells(shifted, [_MIXED] * 12),
+    )
+    assert result['classification'] == (
+        'JOINT_TRANSLATION_WORSENING_PATTERN_SHIFTED'
+    )
+    assert result['shifted_cell_ids'] == [
+        cell_id
+        for cell_id in JOINT_TRANSLATION_CELL_IDS
+        if cell_id != JOINT_TRANSLATION_CANONICAL_CELL_ID
+    ]
+    assert result['localized_cell_ids'] == []
+
+    # Hamming distances are recorded per moved cell.
+    vectors = [canonical_vector] * 12
+    vectors[0] = shifted[0]
+    result = classify_joint_translation_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_joint_cells(vectors, [_MIXED] * 12),
+    )
+    assert result['hamming_distance_by_cell']['x_minus_1'] == 2
+    assert result['hamming_distance_by_cell']['x_plus_1'] == 0
+
+
+def test_joint_translation_classifier_is_fail_closed_on_inputs():
+    canonical_vector = [True, False, True, False]
+    cells = _joint_cells([canonical_vector] * 12, [_MIXED] * 12)
+    with pytest.raises(ValueError, match='control'):
+        classify_joint_translation_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {
+                    'cell_id': JOINT_TRANSLATION_CANONICAL_CELL_ID,
+                    'worsening_by_frequency': canonical_vector,
+                    'classification': _MIXED,
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match='length mismatch'):
+        classify_joint_translation_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {**cells[0], 'worsening_by_frequency': [True]}
+            ]
+            + cells[1:],
+        )
+    with pytest.raises(ValueError, match='frozen non-control cells'):
+        classify_joint_translation_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=cells[:-1],
+        )
+    with pytest.raises(ValueError, match='not in the frozen set'):
+        classify_joint_translation_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {**cells[0], 'cell_id': 'x_minus_3'}
+            ]
+            + cells[1:],
+        )
+
+
+def test_joint_translation_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_joint_translation_sensitivity_diagnostic_plan(
+        JOINT_DIAGNOSTIC_PLAN
+    )
+    validate_joint_translation_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert diagnostic['joint_translation_sensitivity']['evaluation'][
         'canonical_acceptance_inclusion'
     ] is False
     assert diagnostic['decision_semantics']['diagnostic_only'] is True
