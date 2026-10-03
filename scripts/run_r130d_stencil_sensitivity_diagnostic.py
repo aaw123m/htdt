@@ -487,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     upstream_python = args.pffdtd_root / 'python'
     if not (upstream_python / 'sim_setup.py').is_file():
         raise ValidationBlocked('PFFDTD Python runtime is missing from exact checkout')
+    _restore_pinned_pffdtd_checkout(fixture['executor'])
     apply_pffdtd_runtime_compatibility_patches(args.pffdtd_root)
     sys.path.insert(0, str(upstream_python))
     try:
