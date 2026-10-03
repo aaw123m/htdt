@@ -83,6 +83,9 @@ class PairingDialog(QDialog):
         offer_form = QFormLayout()
         self.display_name_edit = QLineEdit(self)
         self.display_name_edit.setPlaceholderText("例: 測定用タブレット")
+        self.display_name_edit.setToolTip(
+            "ペアリングするデバイスの識別用の名前です。ペアリング済み一覧に表示されます。"
+        )
         offer_form.addRow("デバイス名", self.display_name_edit)
         self.scope_combo = QComboBox(self)
         self.scope_combo.addItem(
@@ -93,11 +96,20 @@ class PairingDialog(QDialog):
         )
         if project_ref is None:
             self.scope_combo.removeItem(0)
+        self.scope_combo.setToolTip(
+            "このデバイスから取り込んだデータの保存先です。"
+            "「このプロジェクトへ割り当て」は現在のプロジェクトに直接取り込み、"
+            "「後で割り当て」は受信ボックスに入れてから振り分けます。"
+        )
         offer_form.addRow("取り込み先", self.scope_combo)
         layout.addLayout(offer_form)
 
         offer_row = QHBoxLayout()
         self.offer_button = QPushButton("QRコードを発行", self)
+        self.offer_button.setToolTip(
+            "Capture アプリでスキャンするペアリング用QRコードを発行します。"
+            "発行後、アプリ側に表示される確認コードを入力して確定します。"
+        )
         self.offer_button.clicked.connect(self._issue_offer)
         offer_row.addWidget(self.offer_button)
         offer_row.addStretch(1)
@@ -114,6 +126,10 @@ class PairingDialog(QDialog):
         self.confirm_row.addWidget(QLabel("確認コード", self))
         self.confirm_code_edit = QLineEdit(self)
         self.confirm_code_edit.setPlaceholderText("アプリに表示されたコード")
+        self.confirm_code_edit.setToolTip(
+            "QRコードをスキャンしたアプリ側に表示される確認コードです。"
+            "一致することで正しいデバイスとペアリングしていることを確認します。"
+        )
         self.confirm_row.addWidget(self.confirm_code_edit, 1)
         self.confirm_button = QPushButton("確認", self)
         self.confirm_button.clicked.connect(self._confirm)
@@ -127,6 +143,10 @@ class PairingDialog(QDialog):
         layout.addWidget(QLabel("ペアリング済みデバイス", self))
         self.pairing_list = QListWidget(self)
         self.pairing_list.setMinimumHeight(120)
+        self.pairing_list.setToolTip(
+            "ペアリング済みのデバイス一覧です。"
+            "状態（発行済み（未確認）・有効・解除済み・期限切れ）と取り込み先を表示します。"
+        )
         layout.addWidget(self.pairing_list)
         self.revoke_button = QPushButton("選択したデバイスを解除", self)
         self.revoke_button.clicked.connect(self._revoke_selected)
@@ -281,6 +301,10 @@ class CaptureReceiverPanel(QWidget):
         self.enabled_combo = QComboBox(self)
         self.enabled_combo.addItem("無効", False)
         self.enabled_combo.addItem("有効", True)
+        self.enabled_combo.setToolTip(
+            "Capture アプリからの測定パッケージの受信を許可するかどうかです。"
+            "有効にするとこのPC上で受信サーバーが起動します。"
+        )
         toggle_row.addWidget(self.enabled_combo)
         self.apply_button = QPushButton("適用", self)
         self.apply_button.clicked.connect(self._apply_enabled)
@@ -292,6 +316,10 @@ class CaptureReceiverPanel(QWidget):
         port_row.addWidget(QLabel("待受ポート", self))
         self.port_spin = QSpinBox(self)
         self.port_spin.setRange(1, 65535)
+        self.port_spin.setToolTip(
+            "受信サーバーが待ち受けるTCPポート番号です（1〜65535）。"
+            "アプリ側の接続先と一致させる必要があります。"
+        )
         port_row.addWidget(self.port_spin)
         self.port_button = QPushButton("ポートを変更", self)
         self.port_button.clicked.connect(self._apply_port)
@@ -301,6 +329,9 @@ class CaptureReceiverPanel(QWidget):
 
         action_row = QHBoxLayout()
         self.pair_button = QPushButton("デバイスをペアリング…", self)
+        self.pair_button.setToolTip(
+            "QRコード発行と確認コード照合の手順で、新しいCaptureデバイスを登録します。"
+        )
         self.pair_button.clicked.connect(self._open_pairing)
         action_row.addWidget(self.pair_button)
         action_row.addStretch(1)

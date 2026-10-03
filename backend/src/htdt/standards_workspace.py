@@ -371,6 +371,9 @@ class StandardsCriterionPanel(QFrame):
 
         self.profile_combo = QComboBox()
         self.profile_combo.setAccessibleName("規格プロファイル")
+        self.profile_combo.setToolTip(
+            "評価に使う配置基準のセット（規格プロファイル）です。"
+        )
         # Long profile names must not widen the dock — cap the size hint;
         # the popup still shows full text.
         self.profile_combo.setMinimumContentsLength(12)
@@ -382,6 +385,9 @@ class StandardsCriterionPanel(QFrame):
 
         self.target_combo = QComboBox()
         self.target_combo.setAccessibleName("規格ターゲット")
+        self.target_combo.setToolTip(
+            "基準を評価する対象（現在の部屋や候補）を選びます。"
+        )
         self.target_combo.setMinimumContentsLength(12)
         self.target_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -395,6 +401,9 @@ class StandardsCriterionPanel(QFrame):
         layout.addWidget(self.profile_meta)
 
         self.evaluate_button = QPushButton("この基準で評価")
+        self.evaluate_button.setToolTip(
+            "選択した対象をこの基準で評価し、各項目の適合状態を更新します。"
+        )
         set_control_size(self.evaluate_button, ControlSize.STANDARD)
         self.evaluate_button.clicked.connect(self.evaluate_selected)
         layout.addWidget(self.evaluate_button)
@@ -425,6 +434,18 @@ class StandardsCriterionPanel(QFrame):
         self.tree.setHeaderLabels(
             ["配置制約 / 基準", "状態", "観測値", "必要条件", "証拠"]
         )
+        self.tree.setToolTip(
+            "配置基準の項目一覧です。チェックした項目は候補生成時のハード制約になります。"
+        )
+        _std_header = self.tree.headerItem()
+        for _c, _t in {
+            0: '基準項目の名前。チェックすると配置制約として使われます',
+            1: '評価結果（適合・不適合・未評価）',
+            2: '対象について実際に観測・計算された値',
+            3: '基準が要求する値・範囲',
+            4: '判定の根拠となる証拠',
+        }.items():
+            _std_header.setToolTip(_c, _t)
         header = self.tree.header()
         header.setMinimumSectionSize(0)
         for index in range(self.tree.columnCount()):
@@ -733,10 +754,16 @@ class StandardsVariantComparisonPanel(QFrame):
 
         controls = QHBoxLayout()
         self.profile_combo = QComboBox()
+        self.profile_combo.setToolTip(
+            "比較に使う配置基準のセット（規格プロファイル）です。"
+        )
         self.profile_combo.currentIndexChanged.connect(self._profile_changed)
         controls.addWidget(QLabel("基準"))
         controls.addWidget(self.profile_combo, 1)
         self.evaluate_button = QPushButton("各構成を評価")
+        self.evaluate_button.setToolTip(
+            "全ての構成（システムバリアント）をこの基準で評価し、項目ごとの適合状態を更新します。"
+        )
         self.evaluate_button.clicked.connect(self.evaluate_all)
         controls.addWidget(self.evaluate_button)
         self.editor_button = QPushButton("プロファイル編集…")
@@ -747,6 +774,10 @@ class StandardsVariantComparisonPanel(QFrame):
 
         self.matrix = QTreeWidget()
         self.matrix.setObjectName("standardsVariantMatrix")
+        self.matrix.setToolTip(
+            "基準項目を行、構成を列とする適合状態の比較です。"
+            "チェックした項目は候補生成時のハード制約になります。"
+        )
         self.matrix.itemChanged.connect(self._constraint_changed)
         layout.addWidget(self.matrix, 1)
 

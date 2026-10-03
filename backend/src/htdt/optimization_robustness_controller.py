@@ -65,6 +65,30 @@ class RobustnessControllerMixin:
         self.robustness_detail_label.setWordWrap(True)
         self.robustness_advanced_label = QLabel('内部権威情報は未選択です')
         self.robustness_advanced_label.setWordWrap(True)
+
+        self.robustness_tree.setToolTip(
+            '候補ごとのばらつき評価です。配置・向きが少しずれたとき指標がどれだけ悪化するかを示します。'
+        )
+        self.robustness_comparison_tree.setToolTip(
+            '複数候補のばらつき指標の並行比較です。列は候補、行は指標です。'
+        )
+        robustness_header = self.robustness_tree.headerItem()
+        for column, text in {
+            0: '評価対象の候補',
+            1: '評価指標の名前',
+            2: '指標の良い方向（小さいほど良い等）',
+            3: '基準配置（ずれなし）での指標値',
+            4: 'ばらつき評価点の中で最も悪い値',
+            5: '入力が1単位ずれたときの指標変化量',
+            6: '評価データの充足状況',
+        }.items():
+            robustness_header.setToolTip(column, text)
+        self.robustness_sensitivity_plot.setToolTip(
+            '各不確かさ軸に対する指標の感度です。値が大きい軸ほど配置誤差の影響が大きいです。'
+        )
+        self.robustness_distribution_plot.setToolTip(
+            'ばらつき評価点での指標値の頻度表示です。確率分布ではなく、有限サンプルの度数です。'
+        )
         self._robustness_presentations = ()
         self._robustness_row_payload: dict[int, tuple[object, object]] = {}
         self.robustness_viewport = None

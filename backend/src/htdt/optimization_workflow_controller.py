@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
+    QWidget,
 )
 
 from .cad_adaptive_extended_repository import CadAdaptiveExtendedRepository
@@ -1076,6 +1077,333 @@ class OptimizationWorkflowController(
         self.rew_channel_role_field = QLineEdit("unknown")
         self.rew_channel_role_field.setPlaceholderText("例: FL / C / SUB")
         self.campaign_measurement_point_combo = QComboBox()
+
+        self._apply_help_tooltips()
+
+    def _apply_help_tooltips(self) -> None:
+        """Explain every control and column in plain Japanese.
+
+        The workspace forms are terse by design; the tooltip carries the
+        field's meaning, its unit, and what the value affects so the panel
+        stays readable without a manual.
+        """
+        tooltips: dict[QWidget, str] = {
+            self.search_name_field: (
+                "この探索設定の名前です。保存済み一覧にこの名前で表示されます。"
+            ),
+            self.search_entity_combo: (
+                "動かす対象の物体（スピーカー・機器・測定点など）です。"
+            ),
+            self.search_axis_combo: (
+                "物体を動かす方向です。X=部屋の幅、Y=奥行き、Z=高さです。"
+            ),
+            self.search_min_field: (
+                "探索する範囲の下限です（m）。部屋の座標での絶対位置です。"
+            ),
+            self.search_max_field: (
+                "探索する範囲の上限です（m）。部屋の座標での絶対位置です。"
+            ),
+            self.search_step_field: (
+                "候補を生成する間隔です（m）。小さいほど細かくなり、候補数と計算時間が増えます。"
+            ),
+            self.search_limit_field: (
+                "生成する候補数の上限です（1〜50000）。上限を超えた分の組み合わせは生成されません。"
+            ),
+            self.search_preset_combo: (
+                "代表的な探索範囲のテンプレートです。選んで「プリセットで軸を追加」を押すと、"
+                "下の詳細フォームを使わずに軸を登録できます。"
+            ),
+            self.search_preset_apply_button: (
+                "選択したプリセットの軸・範囲・刻みを探索軸として追加します。"
+            ),
+            self.search_axis_tree: (
+                "登録済みの探索軸の一覧です。「軸を追加 / 更新」で上のフォームの内容がここに反映されます。"
+            ),
+            self.linked_master_combo: (
+                "連動の基準となる物体（マスター）です。スレーブはこの物体の位置から決まります。"
+            ),
+            self.linked_slave_combo: (
+                "マスターの移動に追従する物体（スレーブ）です。"
+            ),
+            self.linked_relation_combo: (
+                "スレーブの位置をマスターから決める関係です。"
+                "鏡像=鏡面を挟んだ対称位置、一致=同じ座標値、同一変位=同じ移動量です。"
+            ),
+            self.linked_mirror_field: (
+                "「鏡像 X」を選んだときの鏡面の X 座標です（m）。"
+                "部屋の中心線は自動では仮定されないため、必ず値を指定します。"
+            ),
+            self.search_linked_tree: (
+                "登録済みの連動ルールです。候補生成時にスレーブの位置はこのルールで自動的に決まります。"
+            ),
+            self.search_save_button: (
+                "現在の軸・候補上限・連動ルールを探索設定として保存します。"
+            ),
+            self.search_spec_tree: (
+                "保存済みの探索設定です。「入力状態」が古い設定は部屋や制約の変更で無効化されており、"
+                "「同じ条件で再探索」で現在の部屋に作り直せます。"
+            ),
+            self.search_generate_button: (
+                "登録した軸の組み合わせから、ハード制約を満たす配置候補を生成します。"
+                "ここでは順位や推奨は決めません。"
+            ),
+            self.search_cancel_button: "実行中の候補生成を中断します。",
+            self.search_candidate_tree: (
+                "生成された候補の一覧です。選択するとプレビューや適用ができます。"
+            ),
+            self.search_candidate_filter_field: (
+                "番号や位置の文字で候補一覧を絞り込みます。"
+            ),
+            self.search_prev_button: "候補一覧を前のページへ戻します。",
+            self.search_next_button: "候補一覧を次のページへ進めます。",
+            self.search_preview_button: (
+                "選択した候補の配置を 3D プレビューに重ねて表示します。部屋はまだ変更されません。"
+            ),
+            self.search_clear_preview_button: "プレビューの重ね表示を解除します。",
+            self.search_apply_button: (
+                "選択した候補の配置を新しいリビジョンとして部屋に適用します。"
+            ),
+            self.measurement_plan_button: (
+                "現在の保存版の配置を実測候補として記録します。"
+                "後で実際の測定結果と突き合わせるための予定表です。"
+            ),
+            self.measurement_plan_tree: (
+                "実測予定の候補一覧です。「測定」列が実測結果との突き合わせ状況を示します。"
+            ),
+            self.measurement_match_list: (
+                "選択した候補に関連付ける実測結果を選びます（複数選択可）。"
+            ),
+            self.measurement_complete_button: (
+                "選択した実測を候補に関連付けて、突き合わせを完了にします。"
+            ),
+            self.objective_list: (
+                "候補の比較に使う評価指標を選びます（複数選択可）。"
+            ),
+            self.pareto_refresh_button: (
+                "選択した指標で候補同士を比較します。Pareto最適とは、"
+                "どれか1つの指標を良くしようとすると別の指標が必ず悪くなる候補のことです。"
+            ),
+            self.pareto_tree: (
+                "Pareto比較の結果です。「Pareto」列が支配関係、"
+                "「根拠」列がその判定の理由、「指標」列が各評価値です。"
+            ),
+            self.campaign_assignment_tree: (
+                "検証対象の候補と、その検証内での役割（基準・比較など）です。"
+            ),
+            self.campaign_model_version_field: (
+                "この検証に使う予測モデルのバージョン識別子です。"
+            ),
+            self.campaign_low_field: "検証する周波数帯の下限です（Hz）。",
+            self.campaign_high_field: "検証する周波数帯の上限です（Hz）。",
+            self.campaign_residual_field: (
+                "検証に使う実測RMS誤差の許容上限です（dB）。"
+                "予測と実測の差がこれを超えると検証は不合格です。"
+            ),
+            self.campaign_sensitivity_field: (
+                "位置が1mずれたときの音圧変化（感度）の許容上限です（dB/m）。"
+            ),
+            self.campaign_sensitivity_error_field: (
+                "感度の推定に許容する誤差の上限です（dB/m）。"
+            ),
+            self.campaign_separation_field: (
+                "候補同士を区別できるとみなす最小の差（再現性の目安）です。"
+            ),
+            self.campaign_tree: (
+                "保存済みの検証キャンペーンです。「準備状況」が実施に必要な条件の充足を示します。"
+            ),
+            self.validation_refresh_button: (
+                "保存済みのモデル検証結果を読み込み直します。"
+            ),
+            self.validation_tree: (
+                "モデル検証の結果一覧です。「推奨可否」は、この検証結果を配置の推奨根拠に"
+                "使えるかどうかを示します。"
+            ),
+            self.adaptive_scope_combo: (
+                "次候補の計算に使うデータの範囲です。通常は実室データのみです。"
+            ),
+            self.adaptive_length_scale_field: (
+                "ガウス過程（GP）回帰の長さ尺度です（m）。"
+                "大きいほど滑らかな変化を仮定し広い範囲から、小さいほど近傍から次候補を探します。"
+            ),
+            self.adaptive_proposal_limit_field: (
+                "1回の計算で出す次候補の最大数です。"
+            ),
+            self.adaptive_build_button: (
+                "取得済みの測定データから、次に測ると情報量が最も増える候補を計算して保存します。"
+            ),
+            self.adaptive_cancel_button: "実行中の次候補計算を中断します。",
+            self.adaptive_tree: (
+                "アダプティブ計画とその候補の一覧です。「補正指標」はモデルの不確かさの大きさを示します。"
+            ),
+            self.extended_capability_combo: (
+                "拡張探索の前提となる検証済み能力（向き探索の検証結果）です。"
+                "検証結果がない場合は「選択した検証結果から本番向け能力を作成」で作ります。"
+            ),
+            self.extended_parameter_combo: (
+                "探索する角度パラメーターです。音響照準=音が向かう方向、"
+                "筐体ヨー=スピーカー筐体の実際の向き（トーイン）です。"
+            ),
+            self.extended_entity_combo: "角度を変えるスピーカーです。",
+            self.extended_min_field: "角度の下限です（°）。",
+            self.extended_max_field: "角度の上限です（°）。",
+            self.extended_step_field: (
+                "角度の刻みです（°）。小さいほど細かく、候補数と計算時間が増えます。"
+            ),
+            self.extended_limit_field: (
+                "生成する拡張候補数の上限です（1〜50000）。"
+            ),
+            self.extended_axis_tree: (
+                "登録済みの拡張探索軸（角度範囲）の一覧です。"
+            ),
+            self.extended_spec_tree: (
+                "保存済みの拡張探索設定と、対象モデル・パラメーター・状態です。"
+            ),
+            self.extended_generate_button: (
+                "登録した角度範囲から拡張候補を生成します。"
+            ),
+            self.extended_cancel_button: "実行中の拡張候補生成を中断します。",
+            self.extended_candidate_tree: (
+                "生成された拡張候補の一覧です。元候補からの角度変化を確認できます。"
+            ),
+            self.extended_candidate_filter_field: (
+                "候補名や位置の文字で拡張候補を絞り込みます。"
+            ),
+            self.extended_prev_button: "拡張候補一覧を前のページへ戻します。",
+            self.extended_next_button: "拡張候補一覧を次のページへ進めます。",
+            self.extended_preview_button: (
+                "選択した拡張候補の角度を 3D プレビューで確認します。"
+            ),
+            self.extended_clear_preview_button: "拡張候補のプレビュー表示を解除します。",
+            self.extended_apply_button: (
+                "選択した拡張候補の角度を部屋に適用します。"
+            ),
+            self.adaptive_extended_length_scale_field: (
+                "拡張した次候補を探すガウス過程の正規化長さ尺度です（m）。"
+            ),
+            self.adaptive_extended_proposal_limit_field: (
+                "1回の計算で出す拡張次候補の最大数です。"
+            ),
+            self.adaptive_extended_build_button: (
+                "拡張探索も含めて、次に測るべき候補を計算して保存します。"
+            ),
+            self.adaptive_extended_cancel_button: (
+                "実行中の拡張次候補計算を中断します。"
+            ),
+            self.adaptive_extended_tree: (
+                "拡張アダプティブ計画とその候補の一覧です。"
+            ),
+            self.rew_combo: "取り込む REW 測定を選びます。",
+            self.rew_refresh_button: "REW API から測定一覧を更新します。",
+            self.rew_channel_role_field: (
+                "この測定のチャンネル役割です（例: FL / C / SUB）。実測と候補の突き合わせに使います。"
+            ),
+            self.campaign_measurement_point_combo: (
+                "実測の採点位置（部屋内の測定点）です。"
+            ),
+        }
+        for widget, text in tooltips.items():
+            if widget is not None:
+                widget.setToolTip(text)
+                widget.setWhatsThis(text)
+
+        for code, combo in self.campaign_applicability_state.items():
+            combo.setToolTip(
+                "この検証領域の適用可否の確認方法です。"
+                "未確認=まだ評価していない、自動評価=ソフトが判定、手動証拠=外部の証拠で確認済み。"
+            )
+        for field in self.campaign_applicability_detail.values():
+            field.setToolTip("適用可否の根拠となる確認メモまたは証明IDです。")
+
+        # Column meanings — the headers stay short, the tooltip carries the
+        # definition so a first-time reader can decode the table.
+        column_tooltips: tuple[tuple[QTreeWidget, dict[int, str]], ...] = (
+            (self.search_axis_tree, {
+                0: "探索対象の物体",
+                1: "動かす方向（X=幅、Y=奥行き、Z=高さ）",
+                2: "探索範囲の下限（m）",
+                3: "探索範囲の上限（m）",
+                4: "候補を生成する間隔（m）",
+            }),
+            (self.search_spec_tree, {
+                0: "探索設定の名前",
+                1: "設定作成時の部屋・制約との一致状態（古い場合は要再設定）",
+                2: "この設定が現在使える状態かどうか",
+            }),
+            (self.search_candidate_tree, {
+                0: "候補の名前",
+                1: "生成順の番号",
+                2: "物体の配置座標（m）",
+            }),
+            (self.measurement_plan_tree, {
+                0: "実測予定の候補名",
+                1: "計画の進行状態",
+                2: "計画の保存状態",
+                3: "実測結果との突き合わせ状況",
+            }),
+            (self.pareto_tree, {
+                0: "候補の名前",
+                1: "Pareto支配関係（他候補に全指標で負けていないか）",
+                2: "支配関係の判定理由",
+                3: "各評価指標の値",
+            }),
+            (self.campaign_assignment_tree, {
+                0: "検証対象の候補名",
+                1: "検証内での役割（基準・比較など）",
+            }),
+            (self.campaign_tree, {
+                0: "検証条件の名前",
+                1: "使用する予測モデルのバージョン",
+                2: "対象の候補",
+                3: "検証実施に必要な条件の充足状況",
+            }),
+            (self.validation_tree, {
+                0: "検証の名前",
+                1: "検証した周波数帯・範囲",
+                2: "予測と実測の差（小さいほど一致）",
+                3: "周波数変化への追従傾向",
+                4: "入力変化に対する出力変化の大きさ",
+                5: "同じ条件で測り直したときの一致度",
+                6: "この検証結果を配置推奨の根拠に使えるか",
+            }),
+            (self.adaptive_tree, {
+                0: "計画名または候補名",
+                1: "対象の範囲",
+                2: "既に取得済みの測定値",
+                3: "モデル不確かさの補正指標",
+            }),
+            (self.extended_axis_tree, {
+                0: "対象スピーカー",
+                1: "角度パラメーター（音響照準・筐体ヨー）",
+                2: "角度の下限（°）",
+                3: "角度の上限（°）",
+                4: "角度の刻み（°）",
+            }),
+            (self.extended_spec_tree, {
+                0: "拡張探索設定の名前",
+                1: "対象モデル",
+                2: "探索する角度パラメーター",
+                3: "この設定が現在使える状態かどうか",
+            }),
+            (self.extended_candidate_tree, {
+                0: "拡張候補の名前",
+                1: "派生元の候補",
+                2: "物体の配置座標（m）",
+                3: "音響照準のヨー角（°）",
+                4: "筐体のヨー角（°）",
+            }),
+            (self.adaptive_extended_tree, {
+                0: "計画名または候補名",
+                1: "対象の範囲",
+                2: "既に取得済みの測定値",
+                3: "候補の特徴量・指標",
+            }),
+        )
+        for tree, tips in column_tooltips:
+            if tree is None:
+                continue
+            header = tree.headerItem()
+            for column, text in tips.items():
+                header.setToolTip(column, text)
 
     @staticmethod
     def _number_field(

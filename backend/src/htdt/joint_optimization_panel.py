@@ -119,11 +119,18 @@ class JointOptimizationPanel(QWidget):
         self.mode_combo = QComboBox(self)
         for _mode, label in _MODE_ITEMS:
             self.mode_combo.addItem(label, _mode)
+        self.mode_combo.setToolTip(
+            '配置とDSP設定をどう組み合わせて探索するかを選びます。'
+        )
         self.mode_combo.currentIndexChanged.connect(self._refresh_preflight)
         mode_form.addRow('探索モード', self.mode_combo)
         self.budget_spin = QSpinBox(self)
         self.budget_spin.setRange(1, 50_000)
         self.budget_spin.setValue(64)
+        self.budget_spin.setToolTip(
+            '1回の実行で評価する候補の最大数です。'
+            '大きいほど網羅的になりますが計算時間が増えます。'
+        )
         self.budget_spin.valueChanged.connect(self._refresh_preflight)
         mode_form.addRow('候補上限（予算）', self.budget_spin)
         layout.addLayout(mode_form)
@@ -146,6 +153,10 @@ class JointOptimizationPanel(QWidget):
 
         actions = QHBoxLayout()
         self.create_button = QPushButton('ジョイント最適化仕様を保存', self)
+        self.create_button.setToolTip(
+            '現在の探索モード・DSP変数・候補上限を仕様として保存します。'
+            '保存後に一覧から選んで実行します。'
+        )
         self.create_button.clicked.connect(self._create_spec)
         actions.addWidget(self.create_button)
         self.execute_button = QPushButton('選択した仕様を実行', self)
@@ -168,6 +179,18 @@ class JointOptimizationPanel(QWidget):
         self.spec_tree.setHeaderLabels(
             ('仕様', 'モード', 'DSP変数', '候補上限', '状態')
         )
+        self.spec_tree.setToolTip(
+            '保存済みのジョイント最適化仕様です。選択すると実行できます。'
+        )
+        joint_header = self.spec_tree.headerItem()
+        for _col, _tip in {
+            0: '仕様の名前',
+            1: '配置とDSP設定の探索方法',
+            2: '探索対象に含まれるDSP変数',
+            3: '1回の実行で評価する候補の最大数',
+            4: 'この仕様が現在実行可能かどうか',
+        }.items():
+            joint_header.setToolTip(_col, _tip)
         self.spec_tree.setRootIsDecorated(False)
         self.spec_tree.itemSelectionChanged.connect(self._on_spec_selection)
         layout.addWidget(self.spec_tree)
@@ -261,6 +284,11 @@ class JointOptimizationPanel(QWidget):
             bounds: dict[str, QDoubleSpinBox] = {}
             defaults = _DSP_NUMERIC_DEFAULTS.get(option.parameter)
             if defaults is not None:
+                _bound_tips = {
+                    'min': f'{option.label_ja} の探索下限です。',
+                    'max': f'{option.label_ja} の探索上限です。',
+                    'step': f'{option.label_ja} の探索刻みです。',
+                }
                 for key, value in zip(
                     ('min', 'max', 'step'), defaults[:3]
                 ):
@@ -269,6 +297,7 @@ class JointOptimizationPanel(QWidget):
                     spin.setRange(-1_000_000.0, 1_000_000.0)
                     spin.setValue(value)
                     spin.setEnabled(option.enabled)
+                    spin.setToolTip(_bound_tips[key])
                     bounds[key] = spin
                     row.addWidget(spin)
             host = QWidget(self)
