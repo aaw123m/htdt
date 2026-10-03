@@ -3121,6 +3121,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'screen transfer authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
     ),
+    'cad_stochastic_receiver_estimate_artifacts': (
+        'STRUCTURAL_ONLY',
+        'stochastic receiver estimate artifact authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
     'cad_surface_material_assignments': (
         'STRUCTURAL_ONLY',
         'surface material assignment authority; canonical replay path '

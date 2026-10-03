@@ -1191,6 +1191,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_standards_profiles',
     'cad_standards_source_authorities',
     'cad_stimulus_profiles',
+    'cad_stochastic_receiver_estimate_artifacts',
     'cad_system_variant_as_built',
     'cad_system_variant_measured',
     'cad_system_variant_measurement_campaign_completions',

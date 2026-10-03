@@ -249,6 +249,31 @@ def _seed_solver_stack(connection, revision_id: str) -> None:
     )
     _insert(
         connection,
+        'INSERT INTO cad_stochastic_receiver_estimate_artifacts (artifact_id, '
+        'semantic_sha256, execution_id, execution_provenance_authority_id, '
+        'execution_input_id, snapshot_id, prediction_request_id, '
+        'dispatch_binding_id, r120_compiled_geometry_id, payload_json, '
+        'recorded_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        f'stochastic-receiver-estimate-artifact:{SHA}',
+        SHA,
+        'r150-stochastic-ray-execution:' + 'b' * 16,
+        'r150-stochastic-ray-execution-provenance:' + 'c' * 16,
+        f'deterministic-ga-execution-input:{SHA}',
+        f'acoustic-scene-snapshot:{SHA}',
+        f'acoustic-prediction-request:{SHA}',
+        f'acoustic-solver-dispatch:{SHA}',
+        f'r120-compiled-geometry:{SHA}',
+        _payload(
+            estimation_scope='bounded_stochastic_ray_receiver_estimate_v1',
+            capability_record={
+                'energy_semantics': 'monte_carlo_point_estimate_not_upper_bound',
+            },
+            estimates=[{'estimate_id': 'e1'}],
+        ),
+        NOW,
+    )
+    _insert(
+        connection,
         'INSERT INTO r160_late_energy_decay_artifacts (artifact_id, '
         'semantic_sha256, late_field_input_id, payload_json) '
         'VALUES (?, ?, ?, ?)',
@@ -504,6 +529,7 @@ def test_ledger_resolves_full_solver_stack(tmp_path: Path) -> None:
         'solver_result',
         'path_artifact',
         'late_field',
+        'stochastic_ray_estimate',
         'late_energy_decay',
         'stitched_response',
         'numerical_hybrid_response',
