@@ -89,7 +89,7 @@ installed buildではinstallerが配置した `HTDT\HTDT.exe` を起動します
 - `FILE`（positional）: `.htdtproject` / `.htdtcapture` / `.htdt-backup` を開く。installerはこの3拡張子をHTDT.exeへ関連付けます（`.htdt-backup` はpreview表示のみ。復元は別途 `--restore` の明示操作です）
 - `--data-dir <dir>`: user data rootを既定 `%LOCALAPPDATA%\HomeTheaterDigitalTwin` から変更する
 - `--document-id <id>`: 指定document idのprojectを開く（未登録ならprojectとして登録）。通常は最後に開いたprojectが自動で開かれます
-- `--legacy-ui`: workflow shellではなく旧 `OptimizationWorkspaceWindow` 構成で起動（rollback用）
+- ~~`--legacy-ui`~~: 削除済み（REV36-UX140C）。旧 `OptimizationWorkspaceWindow` 構成は撤去され、指定時は日本語エラーで終了します
 - `--safe-mode`: 連携・保存済みlayout・自動オープンintentなしのguarded launchで起動
 
 ## Backup / restore
