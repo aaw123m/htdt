@@ -19,7 +19,6 @@ from .cad_walls import (
     merge_walls,
     move_wall,
     split_wall,
-    wall_length,
 )
 from .room_viewport import (
     RoomViewport3D,
@@ -245,19 +244,34 @@ class RoomGeometryInputController(QObject):
         return changed
 
     def insert_selected_edge_midpoint(self) -> bool:
+        return self.insert_selected_edge_vertex(None)
+
+    def insert_selected_edge_vertex(self, offset_m: float | None) -> bool:
+        """Insert a vertex on the selected edge ``offset_m`` from its start.
+
+        ``None`` resolves to the edge midpoint. With wall topology the call
+        routes through ``split_wall`` so openings and constraint bindings
+        migrate onto the child walls.
+        """
+
         room = self.room
         if room is None or self.selected_edge_index is None:
             return False
-        edge_index = self.selected_edge_index % len(room_vertices(room))
+        vertices = list(room_vertices(room))
+        edge_index = self.selected_edge_index % len(vertices)
+        start = vertices[edge_index]
+        end = vertices[(edge_index + 1) % len(vertices)]
+        edge_length = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+        offset = edge_length * 0.5 if offset_m is None else float(offset_m)
+        if not 1e-9 < offset < edge_length - 1e-9:
+            raise ValueError("分割位置は辺の内側を指定してください")
+        ratio = offset / edge_length
         topology = self.topology
         if topology is None:
-            vertices = list(room_vertices(room))
-            start = vertices[edge_index]
-            end = vertices[(edge_index + 1) % len(vertices)]
             inserted = RoomVertex(
                 vertex_id=f"room-v-{uuid4().hex[:12]}",
-                x_m=(start.x_m + end.x_m) * 0.5,
-                y_m=(start.y_m + end.y_m) * 0.5,
+                x_m=start.x_m + (end.x_m - start.x_m) * ratio,
+                y_m=start.y_m + (end.y_m - start.y_m) * ratio,
             )
             vertices.insert(edge_index + 1, inserted)
             replacement = make_polygon_room(
@@ -269,17 +283,16 @@ class RoomGeometryInputController(QObject):
             if changed:
                 self.selected_vertex_id = inserted.vertex_id
                 self.selected_edge_index = None
-                self._after_geometry_change("辺の中央に頂点を追加しました")
+                self._after_geometry_change("辺に頂点を追加しました")
             return changed
 
         wall = self._wall_for_edge(room, topology, edge_index)
-        length = wall_length(room, wall)
         token = uuid4().hex[:10]
         split_room, split_topology = split_wall(
             room,
             topology,
             wall.wall_id,
-            offset_m=length * 0.5,
+            offset_m=offset,
             new_vertex_id=f"room-v-{token}",
             first_wall_id=f"{wall.wall_id}:a:{token}",
             second_wall_id=f"{wall.wall_id}:b:{token}",
@@ -356,8 +369,6 @@ class RoomGeometryInputController(QObject):
         walls = list(topology.walls)
         index = walls.index(wall)
         next_wall = walls[(index + 1) % len(walls)]
-        if index == len(walls) - 1:
-            raise WallTopologyError("末尾と先頭の壁結合は現在のUIでは未対応です")
         merged_room, merged_topology = merge_walls(
             room,
             topology,

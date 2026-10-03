@@ -25,7 +25,9 @@ from .cad_walls import (
     WallTopologyError,
     add_constraint_binding,
     add_opening,
+    delete_constraint_binding,
     delete_opening,
+    update_constraint_binding,
     update_opening,
     update_wall_thickness,
     wall_length,
@@ -159,12 +161,24 @@ class RoomGeometryPanel(QFrame):
         edge_label = edge_layout.labelForField(self.edge_length)
         if edge_label is not None:
             edge_label.setToolTip(edge_hint)
+        self.split_offset = self._metric_field(0.001, 1000.0, decimals=3)
+        split_offset_hint = "辺の始点からの分割位置（m）· 中点以外に頂点を挿入したい場合に変更"
+        self.split_offset.setToolTip(split_offset_hint)
+        edge_layout.addRow("分割位置", self.split_offset)
+        split_offset_label = edge_layout.labelForField(self.split_offset)
+        if split_offset_label is not None:
+            split_offset_label.setToolTip(split_offset_hint)
         edge_actions = QHBoxLayout()
         self.insert_midpoint_button = QPushButton("中点に頂点追加")
         self.insert_midpoint_button.setToolTip(
             "選択中の辺の中点に新しい頂点を挿入します（L字・凹凸を作れます）"
         )
         self.insert_midpoint_button.clicked.connect(self._insert_midpoint)
+        self.insert_at_offset_button = QPushButton("指定位置に頂点追加")
+        self.insert_at_offset_button.setToolTip(
+            "「分割位置」で指定した地点に新しい頂点を挿入します"
+        )
+        self.insert_at_offset_button.clicked.connect(self._insert_at_offset)
         self.ensure_walls_button = QPushButton("壁編集を有効化")
         self.ensure_walls_button.setToolTip(
             "辺から壁オブジェクトを生成し、厚さ・開口を編集できるようにします"
@@ -173,6 +187,9 @@ class RoomGeometryPanel(QFrame):
         edge_actions.addWidget(self.insert_midpoint_button)
         edge_actions.addWidget(self.ensure_walls_button)
         edge_layout.addRow("", edge_actions)
+        offset_actions = QHBoxLayout()
+        offset_actions.addWidget(self.insert_at_offset_button)
+        edge_layout.addRow("", offset_actions)
         root.addWidget(self.edge_host)
 
         wall_label = QLabel("壁")
@@ -206,9 +223,11 @@ class RoomGeometryPanel(QFrame):
             thickness_label.setToolTip(wall_thickness_hint)
         wall_actions = QHBoxLayout()
         self.merge_wall_button = QPushButton("次の壁と結合")
-        self.merge_wall_button.setToolTip(
-            "この壁と次（時計回り）の壁を1本にまとめます"
+        self._merge_wall_tooltips = (
+            "この壁と次（時計回り）の壁を1本にまとめます",
+            "この壁と先頭の壁を1本にまとめます（境目をまたぐ結合）",
         )
+        self.merge_wall_button.setToolTip(self._merge_wall_tooltips[0])
         self.delete_wall_button = QPushButton("壁を削除")
         self.delete_wall_button.setToolTip("選択中の壁を削除します")
         self.merge_wall_button.clicked.connect(self._merge_wall)
@@ -221,22 +240,47 @@ class RoomGeometryPanel(QFrame):
         )
         self.wall_clearance_count = QLabel("—")
         self.wall_clearance_count.setToolTip("この壁に紐づくクリアランス参照の件数")
+        self.binding_selector = QComboBox()
+        self.binding_selector.setToolTip(
+            "編集するクリアランス参照を選択 ·「新規 / 未選択」では追加モードになります"
+        )
+        self.binding_selector.currentIndexChanged.connect(self._binding_selected)
         self.clearance_value = self._metric_field(0.0, 10.0, decimals=3, step=0.05)
         self.clearance_value.setValue(0.30)
-        self.clearance_value.setToolTip("追加するクリアランスの距離（m）")
-        self.add_clearance_button = QPushButton("クリアランス参照を追加")
+        self.clearance_value.setToolTip("クリアランスの距離（m）")
+        self.add_clearance_button = QPushButton("追加")
         self.add_clearance_button.setToolTip(
             "選択中の壁へクリアランス参照を追加します"
         )
+        self.apply_clearance_button = QPushButton("適用")
+        self.apply_clearance_button.setToolTip(
+            "選択中のクリアランス参照に入力値を反映します"
+        )
+        self.delete_clearance_button = QPushButton("削除")
+        self.delete_clearance_button.setToolTip(
+            "選択中のクリアランス参照を削除します"
+        )
         self.add_clearance_button.clicked.connect(self._add_clearance_binding)
+        self.apply_clearance_button.clicked.connect(self._apply_clearance_binding)
+        self.delete_clearance_button.clicked.connect(self._delete_clearance_binding)
         clearance_actions = QHBoxLayout()
-        clearance_actions.addWidget(self.clearance_value)
         clearance_actions.addWidget(self.add_clearance_button)
+        clearance_actions.addWidget(self.apply_clearance_button)
+        clearance_actions.addWidget(self.delete_clearance_button)
         wall_form.addRow("クリアランス参照", self.wall_clearance_count)
-        wall_form.addRow("追加するクリアランス", clearance_actions)
+        wall_form.addRow("参照の選択", self.binding_selector)
+        wall_form.addRow("クリアランス", self.clearance_value)
+        wall_form.addRow("", clearance_actions)
         clearance_label = wall_form.labelForField(self.wall_clearance_count)
         if clearance_label is not None:
             clearance_label.setToolTip(clearance_hint)
+        for field, hint in (
+            (self.binding_selector, self.binding_selector.toolTip()),
+            (self.clearance_value, self.clearance_value.toolTip()),
+        ):
+            label = wall_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(hint)
         root.addWidget(self.wall_host)
 
         opening_label = QLabel("開口")
@@ -402,7 +446,15 @@ class RoomGeometryPanel(QFrame):
             with QSignalBlocker(self.edge_length):
                 self.edge_length.setValue(hypot(end.x_m - start.x_m, end.y_m - start.y_m))
             self.edge_length.setEnabled(editable)
+            edge_length_value = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+            with QSignalBlocker(self.split_offset):
+                self.split_offset.setMaximum(max(edge_length_value - 0.001, 0.001))
+                self.split_offset.setValue(
+                    min(edge_length_value * 0.5, self.split_offset.maximum())
+                )
+            self.split_offset.setEnabled(editable)
             self.insert_midpoint_button.setEnabled(editable)
+            self.insert_at_offset_button.setEnabled(editable)
         else:
             self.selection_title.setText("選択: なし")
             self.vertex_host.hide()
@@ -426,6 +478,13 @@ class RoomGeometryPanel(QFrame):
         with QSignalBlocker(self.wall_thickness):
             self.wall_thickness.setValue(wall.thickness_m)
         self.wall_thickness.setEnabled(wall_ready)
+        is_last_wall = wall_index == len(topology.walls) - 1
+        self.merge_wall_button.setText(
+            "先頭の壁と結合" if is_last_wall else "次の壁と結合"
+        )
+        self.merge_wall_button.setToolTip(
+            self._merge_wall_tooltips[1 if is_last_wall else 0]
+        )
         self.merge_wall_button.setEnabled(wall_ready)
         self.delete_wall_button.setEnabled(wall_ready)
 
@@ -443,8 +502,23 @@ class RoomGeometryPanel(QFrame):
                 else "はありません"
             )
         )
+        previous_binding = self.binding_selector.currentData()
+        with QSignalBlocker(self.binding_selector):
+            self.binding_selector.clear()
+            self.binding_selector.addItem("新規 / 未選択", None)
+            for item in bindings:
+                label = f"{item.clearance_m:.2f} m"
+                if len(item.wall_ids) > 1:
+                    label += f"（{len(item.wall_ids)}壁）"
+                self.binding_selector.addItem(label, item.binding_id)
+            if previous_binding is not None:
+                index = self.binding_selector.findData(previous_binding)
+                if index >= 0:
+                    self.binding_selector.setCurrentIndex(index)
+        self.binding_selector.setEnabled(wall_ready)
         self.clearance_value.setEnabled(wall_ready)
         self.add_clearance_button.setEnabled(wall_ready)
+        self._binding_selected()
 
         previous = self.opening_selector.currentData()
         openings = tuple(item for item in topology.openings if item.wall_id == wall.wall_id)
@@ -585,6 +659,14 @@ class RoomGeometryPanel(QFrame):
     def _insert_midpoint(self) -> None:
         self._run(self.geometry.insert_selected_edge_midpoint, "頂点を追加しました")
 
+    def _insert_at_offset(self) -> None:
+        self._run(
+            lambda: self.geometry.insert_selected_edge_vertex(
+                self.split_offset.value()
+            ),
+            "頂点を追加しました",
+        )
+
     def _delete_vertex(self) -> None:
         self._run(self.geometry.delete_selected_vertex, "頂点を削除しました")
 
@@ -596,6 +678,61 @@ class RoomGeometryPanel(QFrame):
 
     def _delete_wall(self) -> None:
         self._run(self.geometry.delete_selected_wall, "壁を削除しました")
+
+    def _selected_binding(self) -> WallConstraintBinding | None:
+        topology = self.geometry.topology
+        binding_id = self.binding_selector.currentData()
+        if topology is None or not isinstance(binding_id, str):
+            return None
+        return next(
+            (
+                item
+                for item in topology.constraint_bindings
+                if item.binding_id == binding_id
+            ),
+            None,
+        )
+
+    def _binding_selected(self) -> None:
+        binding = self._selected_binding()
+        enabled = binding is not None
+        self.apply_clearance_button.setEnabled(enabled)
+        self.delete_clearance_button.setEnabled(enabled)
+        if binding is None:
+            return
+        with QSignalBlocker(self.clearance_value):
+            self.clearance_value.setValue(binding.clearance_m)
+
+    def _apply_clearance_binding(self) -> None:
+        room = self.geometry.room
+        topology = self.geometry.topology
+        current = self._selected_binding()
+        if room is None or topology is None or current is None:
+            return
+        replacement = WallConstraintBinding(
+            binding_id=current.binding_id,
+            wall_ids=current.wall_ids,
+            clearance_m=float(self.clearance_value.value()),
+        )
+
+        def operation() -> bool:
+            candidate = update_constraint_binding(room, topology, replacement)
+            return self.controller.replace_room_topology(room, candidate)
+
+        self._run(operation, "クリアランス参照を更新しました")
+
+    def _delete_clearance_binding(self) -> None:
+        room = self.geometry.room
+        topology = self.geometry.topology
+        current = self._selected_binding()
+        if room is None or topology is None or current is None:
+            return
+
+        def operation() -> bool:
+            candidate = delete_constraint_binding(room, topology, current.binding_id)
+            return self.controller.replace_room_topology(room, candidate)
+
+        self._run(operation, "クリアランス参照を削除しました")
 
     def _add_clearance_binding(self) -> None:
         room = self.geometry.room
