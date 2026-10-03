@@ -291,6 +291,7 @@ from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
 from .room_history_panel import RoomHistoryPanel
+from .seat_priority_panel import SeatPriorityPanel
 from .room_video_panel import (
     DisplaySpecDialog,
     ProjectorSpecDialog,
@@ -4380,6 +4381,11 @@ class RoomWorkspace(QWidget):
         self.video_panel.createDisplaySpecRequested.connect(
             self._video_create_display_spec
         )
+        # UX140B: リスニング集団 (seat-priority profile authoring) — the
+        # legacy TheaterEditorWindow dock's workflow mount; it edits the
+        # same seats the placement context owns.
+        self.seat_priority_panel = SeatPriorityPanel(repository, document_id)
+        self.seat_priority_panel.refresh(self.controller.committed_document)
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4387,6 +4393,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.system_expansion_panel)
         placement_layout.addWidget(self.constraints_panel)
         placement_layout.addWidget(self.video_panel)
+        placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addStretch(1)
         self.placement_panel = QScrollArea()
@@ -4460,6 +4467,7 @@ class RoomWorkspace(QWidget):
         if self.current_context == "placement":
             self._sync_constraints_panel()
             self._sync_video_panel()
+            self._sync_seat_priority_panel()
         if self.current_context == "history":
             self._sync_history_panel()
         self._refresh(reset_camera=changed)
@@ -5587,6 +5595,7 @@ class RoomWorkspace(QWidget):
             self.standards_panel.refresh()
             self._sync_constraints_panel()
             self._sync_video_panel()
+            self._sync_seat_priority_panel()
             self.right_stack.setCurrentWidget(self.placement_panel)
         elif context_id == "acoustics":
             self.overlay_controls.acoustics.setChecked(True)
@@ -6319,6 +6328,11 @@ class RoomWorkspace(QWidget):
         self.video_panel.show_message(
             "未設定: " + "、".join(missing) if missing else "評価できます"
         )
+
+    def _sync_seat_priority_panel(self) -> None:
+        # The panel rebuilds its member rows from the committed head —
+        # same contract the legacy TheaterEditorWindow dock followed.
+        self.seat_priority_panel.refresh(self.controller.committed_document)
 
     def _video_evaluate(self, variant_id: object) -> None:
         self._video_bindings_changed()
@@ -7140,6 +7154,7 @@ class RoomWorkspace(QWidget):
         if self.current_context == "placement":
             self._sync_constraints_panel()
             self._sync_video_panel()
+            self._sync_seat_priority_panel()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:

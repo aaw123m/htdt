@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -33,6 +35,7 @@ from PySide6.QtWidgets import (
 from .cad_display_labels import (
     environment_source_kind_label,
     geometry_compatibility_label,
+    solver_reason_label,
     state_token_label,
 )
 from .cad_acoustic_environment import (
@@ -81,6 +84,7 @@ from .cad_room_operating_state_repository import (
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .field_explorer_panel import FieldExplorerPanel
 from .field_tooltips import apply_field_tooltip
 from .cad_scene import (
     acoustic_reference_position,
@@ -115,6 +119,7 @@ from .prediction_interpretation import (
     ProviderEvidence,
     interpret_prediction_results,
 )
+from .prediction_matrix_service import PredictionMatrixService
 from .room_workspace import RoomWorkspaceController
 from .ui_theme import (
     DARK_THEME,
@@ -1457,6 +1462,16 @@ class RoomPredictionPanel(QWidget):
         self.runs.itemSelectionChanged.connect(self._selected)
         body_layout.addWidget(self.runs)
 
+        # UX140B: 音場エクスプローラー — the legacy prediction-workspace
+        # dock's workflow mount; opens for the selected exact-modes run.
+        self.field_explorer_button = QPushButton("音場エクスプローラー…")
+        self.field_explorer_button.setToolTip(
+            "厳密矩形モデルのモード結果を持つ実行選択時に有効になります"
+        )
+        self.field_explorer_button.setEnabled(False)
+        self.field_explorer_button.clicked.connect(self._open_field_explorer)
+        body_layout.addWidget(self.field_explorer_button)
+
         self.advanced_toggle = QToolButton()
         self.advanced_toggle.setText("詳細 · 出典情報")
         self.advanced_toggle.setCheckable(True)
@@ -1469,15 +1484,58 @@ class RoomPredictionPanel(QWidget):
         set_typography_role(self.advanced, TypographyRole.SECONDARY)
         self.advanced.setVisible(False)
         body_layout.addWidget(self.advanced)
+
+        # UX140B: O531 伝達行列 — the persisted source×receiver grid the
+        # legacy prediction-workspace dock rendered; same service and cell
+        # wording (state token + solver reason).
+        matrix_title = QLabel("伝達行列")
+        set_typography_role(matrix_title, TypographyRole.SECONDARY)
+        body_layout.addWidget(matrix_title)
+
+        self.matrix_status_label = QLabel("行列なし")
+        self.matrix_status_label.setWordWrap(True)
+        body_layout.addWidget(self.matrix_status_label)
+
+        self.matrix_table = QTableWidget()
+        self.matrix_table.setMinimumHeight(140)
+        self.matrix_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.matrix_table.setToolTip(
+            "スピーカー(列)×受音点(行)の伝達行列です。"
+            "各セルはその経路の評価値です。行列は測定系の設定から生成されます。"
+        )
+        body_layout.addWidget(self.matrix_table)
+
+        self.matrix_reload_button = QPushButton("行列を再読み込み")
+        self.matrix_reload_button.setToolTip(
+            "保存済みの伝達行列を読み込み直します。測定系の設定を変えた後に使います。"
+        )
+        self.matrix_reload_button.clicked.connect(self.refresh_matrix)
+        body_layout.addWidget(self.matrix_reload_button)
         body_layout.addStretch(1)
 
         scroll.setWidget(body)
         layout.addWidget(scroll, 1)
 
+        self.field_explorer_dialog = QDialog(self)
+        self.field_explorer_dialog.setWindowTitle("音場エクスプローラー")
+        explorer_layout = QVBoxLayout(self.field_explorer_dialog)
+        self.field_explorer_panel = FieldExplorerPanel(
+            controller.scene_repository,
+            controller.prediction_repository,
+            controller.document_id,
+            parent=self.field_explorer_dialog,
+        )
+        explorer_layout.addWidget(self.field_explorer_panel)
+
+        self.matrix_service = PredictionMatrixService(
+            controller.scene_repository, controller.document_id
+        )
+
         controller.stateChanged.connect(self._state_changed)
         controller.resultsChanged.connect(self.refresh)
         controller.runSelected.connect(self.show_selected_results)
         self.refresh()
+        self.refresh_matrix()
 
     def refresh(self) -> None:
         previous = self.controller.selected_run_id
@@ -1693,6 +1751,7 @@ class RoomPredictionPanel(QWidget):
             )
             self.next_steps.setText("")
             self.advanced.setText("")
+            self.field_explorer_button.setEnabled(False)
             self.findingSelected.emit(None)
             return
 
@@ -1744,7 +1803,73 @@ class RoomPredictionPanel(QWidget):
         self.finding_detail.setText(
             "所見を選択すると、根拠と空間リンクを表示します"
         )
+        self.field_explorer_button.setEnabled(
+            any(
+                item.result_kind == "geometry_modes"
+                and item.geometry_compatibility == "exact_for_model_geometry"
+                for item in results
+            )
+        )
         self.findingSelected.emit(None)
+
+    def _open_field_explorer(self) -> None:
+        run_id = self.controller.selected_run_id
+        if run_id is None:
+            return
+        if self.field_explorer_panel.open_for_run(run_id):
+            self.field_explorer_panel.refresh_sessions()
+            self.field_explorer_dialog.show()
+            self.field_explorer_dialog.raise_()
+
+    def refresh_matrix(self) -> None:
+        """O531: render the persisted source×receiver grid (#986)."""
+        presentation = self.matrix_service.matrix_presentation()
+        self.matrix_table.clear()
+        if presentation.spec_id is None:
+            self.matrix_table.setRowCount(0)
+            self.matrix_table.setColumnCount(0)
+            self.matrix_status_label.setText(
+                f"行列なし · {presentation.reason or ''}"
+            )
+            return
+        sources = presentation.source_labels
+        receivers = presentation.receiver_labels
+        self.matrix_table.setColumnCount(len(sources))
+        self.matrix_table.setRowCount(len(receivers))
+        self.matrix_table.setHorizontalHeaderLabels(list(sources))
+        self.matrix_table.setVerticalHeaderLabels(list(receivers))
+        cells = {
+            (cell.matrix_source_id, cell.matrix_receiver_id): cell
+            for cell in presentation.cells
+        }
+        spec = self.matrix_service.repository.get_spec(presentation.spec_id)
+        for row, receiver in enumerate(spec.receivers):
+            for column, source in enumerate(spec.sources):
+                cell = cells.get(
+                    (source.matrix_source_id, receiver.matrix_receiver_id)
+                )
+                text = "" if cell is None else (
+                    state_token_label(cell.state)
+                    + (
+                        f"·{solver_reason_label(cell.blocked_reason)}"
+                        if cell.blocked_reason
+                        else ""
+                    )
+                )
+                self.matrix_table.setItem(
+                    row, column, QTableWidgetItem(text)
+                )
+        parts = [presentation.spec_name]
+        if presentation.run_state is not None:
+            parts.append(
+                f"実行 {presentation.run_attempt}: "
+                f"{state_token_label(presentation.run_state)}"
+            )
+        if presentation.currency_state is not None:
+            parts.append(
+                f"鮮度 {state_token_label(presentation.currency_state)}"
+            )
+        self.matrix_status_label.setText(" · ".join(parts))
 
     def _finding_selected(self) -> None:
         interpretation = self._interpretation

@@ -1,24 +1,18 @@
-"""REV35-UX140 stage (a): workflow-path coverage of legacy UI surfaces.
+"""REV35-UX140: workflow-path coverage of legacy UI surfaces.
 
 ``docs/reviews/rev35-ux140.md`` inventories every surface reachable
 through the legacy ``--legacy-ui`` QMainWindow chain (and the standalone
 ``python -m htdt.native_editor`` / ``room_editor`` / ``wall_editor``
 entry points) and maps each to the workflow-shell surface that owns the
-same capability. These tests pin that parity map so stages (b) and (c)
-can migrate and delete the legacy window + adapter without silently
-dropping a feature.
+same capability. These tests pin that parity map so stage (c) can delete
+the legacy window + adapter without silently dropping a feature.
 
-Three mounts are genuinely unported — the stage-(b) list — and are
-covered by strict ``xfail`` tests at the bottom so they flip loudly the
-moment a workflow mount lands:
-
-* ``SeatPriorityPanel`` (リスニング集団 dock; mounted only by
-  ``theater_editor.py``)
-* ``FieldExplorerPanel`` (音場エクスプローラー dock; mounted only by
-  ``prediction_workspace.py``)
-* the O531 transfer-matrix grid (伝達行列; rendered only by the legacy
-  ``prediction_workspace.py`` dock via
-  ``PredictionMatrixService.matrix_presentation``)
+Stage (b) mounted the last three legacy-only surfaces —
+``SeatPriorityPanel`` (リスニング集団) on the room placement context,
+and ``FieldExplorerPanel`` (音場エクスプローラー) + the O531
+transfer-matrix grid (伝達行列) on ``RoomPredictionPanel`` — the
+tests at the bottom pin their mounts and the unique behaviors the
+legacy docks had.
 """
 
 from __future__ import annotations
@@ -27,10 +21,25 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import pytest  # noqa: E402
+from hashlib import sha256  # noqa: E402
+
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from htdt.cad_scene import F1_DOCUMENT_ID  # noqa: E402
+from htdt.cad_equipment import FrequencyDomain  # noqa: E402
+from htdt.cad_prediction_matrix import (  # noqa: E402
+    MatrixObservableContract,
+    MatrixReceiverRef,
+    MatrixSourceRef,
+    build_prediction_matrix_spec,
+)
+from htdt.cad_prediction_repository import CadPredictionRepository  # noqa: E402
+from htdt.cad_predictions import analyze_native_rectangular_geometry  # noqa: E402
+from htdt.cad_scene import (  # noqa: E402
+    F1_DOCUMENT_ID,
+    Position3,
+    SceneEntity,
+    Size3,
+)
 from htdt.field_explorer_panel import FieldExplorerPanel  # noqa: E402
 from htdt.measurement_page_workspace import MeasurementPageWorkspace  # noqa: E402
 from htdt.measurement_workflow import MeasurementWorkflowController  # noqa: E402
@@ -48,6 +57,8 @@ from htdt.room_prediction import (  # noqa: E402
     RoomPredictionController,
     RoomPredictionPanel,
 )
+from htdt.prediction_matrix_service import PredictionMatrixService  # noqa: E402
+from htdt.r120_geometry_compiler import ExactExternalAuthorityRef  # noqa: E402
 from htdt.room_transform_input import RoomEntityTransformController  # noqa: E402
 from htdt.room_workspace import ROOM_CONTEXT_IDS, RoomWorkspace  # noqa: E402
 from htdt.seat_priority_panel import SeatPriorityPanel  # noqa: E402
@@ -66,10 +77,14 @@ def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def _room_workspace(tmp_path) -> tuple[QApplication, RoomWorkspace]:
+def _room_workspace(
+    tmp_path,
+    repository=None,
+) -> tuple[QApplication, RoomWorkspace]:
     """RoomWorkspace mounted the way ``_make_room`` mounts it."""
     app = _app()
-    repository = _f1_repository(tmp_path)
+    if repository is None:
+        repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -314,59 +329,178 @@ def test_measurement_workspace_covers_legacy_rew_dock(tmp_path) -> None:
         _close(app, workspace)
 
 
-# --- stage-(b) list: surfaces that are legacy-only today ---------------
+# --- stage-(b) mounts: formerly legacy-only surfaces --------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UX140 stage (b) TODO: SeatPriorityPanel (リスニング集団) is mounted "
-        "only by the legacy TheaterEditorWindow; port a SeatPriorityProfile "
-        "authoring surface to the workflow room workspace or document a "
-        "deliberate drop in docs/reviews/rev35-ux140.md"
-    ),
-)
 def test_seat_priority_panel_has_a_workflow_mount(tmp_path) -> None:
+    """リスニング集団: the room placement context owns the seat-priority
+    profile editor the legacy TheaterEditorWindow dock hosted."""
     app, workspace = _room_workspace(tmp_path)
     try:
-        assert workspace.findChild(SeatPriorityPanel) is not None
+        panel = workspace.seat_priority_panel
+        assert isinstance(panel, SeatPriorityPanel)
+        assert workspace.placement_panel.findChild(SeatPriorityPanel) is panel
+        # The F1 fixture carries no seats — the honest empty state, not
+        # fabricated member rows.
+        assert panel.status_label.text().startswith("座席がありません")
     finally:
         _close(app, workspace)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UX140 stage (b) TODO: FieldExplorerPanel (音場エクスプローラー) is "
-        "mounted only by the legacy prediction dock "
-        "(prediction_workspace._open_field_explorer); the workflow "
-        "RoomPredictionPanel has no field-explorer entry"
-    ),
-)
+def test_seat_priority_panel_lists_committed_seats(tmp_path) -> None:
+    """The mount refreshes member rows from the committed head — the same
+    contract the legacy dock followed on every rebuild."""
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    head = repository.current_head(F1_DOCUMENT_ID)
+    seated = head.document.model_copy(
+        update={
+            "entities": head.document.entities
+            + (
+                SceneEntity(
+                    entity_id="seat-mlp",
+                    kind="seat",
+                    name="MLP seat",
+                    position=Position3(x_m=3.0, y_m=3.0, z_m=0.55),
+                    size_m=Size3(x_m=0.6, y_m=0.6, z_m=1.1),
+                ),
+            )
+        }
+    )
+    repository.save(seated, parent_revision_id=head.revision_id)
+    _, workspace = _room_workspace(tmp_path, repository)
+    try:
+        panel = workspace.seat_priority_panel
+        assert "1 座席" in panel.status_label.text()
+        assert panel.member_tree.topLevelItemCount() == 1
+        # Entering/leaving contexts resyncs from the committed head.
+        workspace.set_context("objects")
+        workspace.set_context("placement")
+        assert panel.member_tree.topLevelItemCount() == 1
+    finally:
+        _close(app, workspace)
+
+
 def test_field_explorer_panel_has_a_workflow_mount(tmp_path) -> None:
+    """音場エクスプローラー: RoomPredictionPanel owns the entry the legacy
+    prediction dock's 音場ヒートマップ button opened."""
     app, workspace = _room_workspace(tmp_path)
     try:
-        assert workspace.findChild(FieldExplorerPanel) is not None
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        assert panel is not None
+        assert isinstance(panel.field_explorer_panel, FieldExplorerPanel)
+        # No saved run selected yet — gated off exactly like the legacy
+        # dock's scalar-field button.
+        assert not panel.field_explorer_button.isEnabled()
     finally:
         _close(app, workspace)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UX140 stage (b) TODO: the O531 transfer-matrix grid (伝達行列, "
-        "#986) is rendered only by the legacy prediction dock's "
-        "refresh_matrix_dock via PredictionMatrixService.matrix_presentation; "
-        "no workflow surface renders the persisted spec grid"
-    ),
-)
+def test_field_explorer_opens_for_exact_modes_run(tmp_path) -> None:
+    """Gating + open wiring end-to-end: a saved exact rectangular-modes
+    run enables the entry and prepares the build form."""
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    head = repository.current_head(F1_DOCUMENT_ID)
+    modes, reflections = analyze_native_rectangular_geometry(
+        head, "point-mlp", max_mode_hz=150.0
+    )
+    assert modes.geometry_compatibility == "exact_for_model_geometry"
+    CadPredictionRepository(repository).save_run((modes, reflections))
+    _, workspace = _room_workspace(tmp_path, repository)
+    try:
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        # refresh() auto-selects the newest run — the exact modes run —
+        # so the button lights up like the legacy dock's did.
+        assert panel.field_explorer_button.isEnabled()
+        panel._open_field_explorer()
+        assert panel.field_explorer_dialog.isVisible()
+        assert panel.field_explorer_panel.mode_combo.count() > 0
+        assert (
+            "モード候補"
+            in panel.field_explorer_panel.field_status_label.text()
+        )
+    finally:
+        _close(app, workspace)
+
+
 def test_transfer_matrix_grid_has_a_workflow_mount(tmp_path) -> None:
+    """伝達行列: RoomPredictionPanel renders the persisted spec×cell grid
+    the legacy prediction dock's refresh_matrix_dock produced."""
     app, workspace = _room_workspace(tmp_path)
     try:
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        assert panel is not None
         labels = [
             button.text()
             for button in workspace.findChildren(QPushButton)
         ]
         assert any("行列" in label for label in labels)
+        # No persisted matrix spec yet — honest empty state.
+        assert panel.matrix_table.rowCount() == 0
+        assert panel.matrix_table.columnCount() == 0
+        assert "行列なし" in panel.matrix_status_label.text()
+        panel.matrix_reload_button.click()
+        assert "行列なし" in panel.matrix_status_label.text()
+    finally:
+        _close(app, workspace)
+
+
+def test_transfer_matrix_grid_renders_persisted_spec(tmp_path) -> None:
+    """A saved matrix spec renders its source columns × receiver rows
+    through the workflow mount."""
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    head = repository.current_head(F1_DOCUMENT_ID)
+    spec = build_prediction_matrix_spec(
+        document_id=F1_DOCUMENT_ID,
+        scene_revision_id=head.revision_id,
+        scene_content_hash=head.content_hash,
+        acoustic_scene_snapshot_id="snapshot-test",
+        acoustic_scene_snapshot_sha256=sha256(b"snapshot").hexdigest(),
+        solver_implementation_ref=ExactExternalAuthorityRef(
+            authority_id="solver:test",
+            authority_version="1",
+            semantic_hash_sha256=sha256(b"solver").hexdigest(),
+        ),
+        valid_frequency_domain=FrequencyDomain(
+            minimum_hz=20.0, maximum_hz=200.0
+        ),
+        sources=(
+            MatrixSourceRef(
+                matrix_source_id="source-fl",
+                source_entity_id="speaker-fl",
+                source_binding_sha256=sha256(b"fl").hexdigest(),
+            ),
+            MatrixSourceRef(
+                matrix_source_id="source-c",
+                source_entity_id="speaker-c",
+                source_binding_sha256=sha256(b"c").hexdigest(),
+            ),
+        ),
+        receivers=(
+            MatrixReceiverRef(
+                matrix_receiver_id="seat-mlp",
+                receiver_id="seat-mlp",
+                receiver_entity_id="point-mlp",
+                receiver_binding_sha256=sha256(b"mlp").hexdigest(),
+            ),
+        ),
+        observable_contract=MatrixObservableContract(
+            frequency_axis_hz=(20.0, 100.0, 200.0)
+        ),
+    )
+    PredictionMatrixService(
+        repository, F1_DOCUMENT_ID
+    ).repository.save_spec(spec)
+    _, workspace = _room_workspace(tmp_path, repository)
+    try:
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        assert panel.matrix_table.columnCount() == 2
+        assert panel.matrix_table.rowCount() == 1
+        cell = panel.matrix_table.item(0, 0)
+        assert cell is not None and cell.text()
+        # No result set yet — the status row names the spec only.
+        assert panel.matrix_status_label.text().startswith("matrix ")
     finally:
         _close(app, workspace)
