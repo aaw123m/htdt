@@ -81,7 +81,7 @@ def _room_composition(repository: SceneRepository, monkeypatch) -> object:
     monkeypatch.setattr(
         workflow_application,
         "RoomWorkspace",
-        lambda repo, document_id: RoomWorkspace(
+        lambda repo, document_id, **kwargs: RoomWorkspace(
             repo,
             document_id,
             viewport_factory=lambda parent: FakeRoomViewport(parent),
