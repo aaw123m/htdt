@@ -807,14 +807,13 @@ class MeasurementPageWorkspace(QWidget):
         )
 
         # Dropdown items that carry a status code explain themselves too.
-        for combo in (
-            self.disposition_combo,
-            self.quality_attach_kind_combo,
-            self.batch_attach_kind_combo,
-            self.evidence_combo,
-            self.campaign_purpose_combo,
-        ):
-            explain_combo_items(combo)
+        # Attach-kind, evidence and purpose vocabularies collide with
+        # other surfaces ('calibration', 'unknown') — pass their domain.
+        explain_combo_items(self.evidence_combo, domain='evidence')
+        explain_combo_items(self.quality_attach_kind_combo, domain='attach')
+        explain_combo_items(self.batch_attach_kind_combo, domain='attach')
+        explain_combo_items(self.campaign_purpose_combo, domain='purpose')
+        explain_combo_items(self.disposition_combo)
 
     def _explain_field(self, widget: QWidget, key: str) -> None:
         """Explain a field — the input AND its QFormLayout row label."""
@@ -3343,16 +3342,17 @@ class MeasurementPageWorkspace(QWidget):
             )
             row_tooltips = (
                 None,
-                status_explanation(row.evidence_type),
+                status_explanation(row.evidence_type, domain='evidence'),
                 None,
                 (
                     'データセットの検証に失敗しました'
                     if row.dataset_error
-                    else status_explanation(row.quality_status)
+                    else status_explanation(row.quality_status, domain='quality')
                 ),
-                status_explanation(row.phase_status),
+                status_explanation(row.phase_status, domain='phase'),
                 status_explanation(
-                    _capability_decision(row.common_timing_capability)
+                    _capability_decision(row.common_timing_capability),
+                    domain='capability',
                 ),
                 (
                     '現在のシーンと同じ配置です'
@@ -5063,7 +5063,7 @@ class MeasurementPageWorkspace(QWidget):
                 # survives a dismissed dialog.
                 if (
                     on_retry is not None
-                    and to_user_facing_error(error).code in RETRYABLE_ERROR_CODES
+                    and to_user_facing_error(error, title=error_prefix).code in RETRYABLE_ERROR_CODES
                 ):
                     warn_user(
                         self,

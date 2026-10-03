@@ -173,7 +173,9 @@ def test_field_registry_covers_the_surveyed_surface() -> None:
 
 def test_every_status_code_on_the_surface_has_an_explanation() -> None:
     """Status cells get "意味 · 次にやること" tooltips — the emitted
-    vocabulary must stay covered."""
+    vocabulary must stay covered. Codes shared across vocabularies are
+    resolved per domain ('unknown' alone is emitted by evidence, quality
+    AND phase columns)."""
     emitted = {
         # batch import
         'staged', 'committed', 'reused', 'failed',
@@ -181,11 +183,6 @@ def test_every_status_code_on_the_surface_has_an_explanation() -> None:
         'reuse_existing', 'import_as_new',
         # campaign cells (from _CELL_STATUS_LABELS)
         *_CELL_STATUS_LABELS.keys(),
-        # evidence / quality / phase / capability
-        'measured', 'derived', 'predicted', 'unknown',
-        'PASS', 'FAIL', 'UNKNOWN', 'NOT_EVALUATED',
-        'valid', 'absent', 'invalid',
-        'ALLOWED', 'BLOCKED',
         # placement + report state
         'current', 'stale', 'missing',
         # lifecycle disposition
@@ -200,16 +197,49 @@ def test_every_status_code_on_the_surface_has_an_explanation() -> None:
         'absolute_level_comparable', 'normalized_shape_comparable',
         'diagnostic_only',
         'moved', 'removed', 'added', 'changed',
-        # attachment kinds + check names + campaign purposes
-        'mdat', 'calibration', 'notes', 'other',
+        # check names
         'clipping', 'noise_snr', 'usable_frequency_band',
         'timing_reference', 'polarity', 'ir_window', 'repeatability',
-        *_VARIANT_PURPOSE_LABELS.keys(),
+    }
+    domain_emitted = {
+        'evidence': {'measured', 'derived', 'predicted', 'unverified', 'unknown'},
+        'quality': {'usable', 'warning', 'invalid', 'unknown', 'synthetic_fixture'},
+        'phase': {'valid', 'absent', 'unknown'},
+        'capability': {'ALLOWED', 'BLOCKED', 'UNKNOWN'},
+        'quality_decision': {'PASS', 'FAIL', 'UNKNOWN', 'NOT_EVALUATED'},
+        'attach': {'mdat', 'calibration', 'notes', 'other'},
+        'purpose': set(_VARIANT_PURPOSE_LABELS.keys()),
     }
     missing = {
         code for code in emitted if status_explanation(code) is None
     }
     assert not missing, f"status codes without explanation: {sorted(missing)}"
+    for domain, codes in domain_emitted.items():
+        missing = {
+            code
+            for code in codes
+            if status_explanation(code, domain=domain) is None
+        }
+        assert not missing, f"{domain} codes without explanation: {sorted(missing)}"
+
+
+def test_colliding_status_codes_resolve_per_domain() -> None:
+    """Regression: the same raw code emitted by different columns must
+    explain THAT column's meaning, not a neighbouring vocabulary's.
+    Observed on the live UI: a 品質 cell emitting 'unknown' showed the
+    phase text, and a 共通タイミング cell emitting 'UNKNOWN' showed the
+    quality-decision text."""
+    assert status_explanation('unknown', domain='quality') != status_explanation(
+        'unknown', domain='phase'
+    )
+    assert '品質' in status_explanation('unknown', domain='quality')
+    assert '位相' in status_explanation('unknown', domain='phase')
+    assert '証拠' in status_explanation('unknown', domain='evidence')
+    capability = status_explanation('UNKNOWN', domain='capability')
+    assert capability and '品質レポート' not in capability
+    assert status_explanation('calibration', domain='attach') != status_explanation(
+        'calibration', domain='purpose'
+    )
 
 
 def test_metric_names_have_explanations() -> None:
@@ -481,6 +511,40 @@ def test_error_notice_carries_help_action(tmp_path: Path) -> None:
         # isVisible() false, so assert the explicit hidden flag instead.
         assert not workspace.notice_action.isHidden()
         assert workspace.notice_action.text() == '意味と対処'
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        app.processEvents()
+
+
+def test_retryable_job_error_shows_warn_user_with_help(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: to_user_facing_error requires title= — the retryable
+    branch used to TypeError before warn_user (and its ヘルプ button)
+    ever ran, so no path reached the error-help button."""
+    app = _app()
+    registry = build_help_registry()
+    _, workspace = _workspace(tmp_path, help_registry=registry)
+    try:
+        import htdt.measurement_page_workspace as mpw
+
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            mpw, 'warn_user', lambda *args, **kwargs: calls.append(kwargs)
+        )
+        retried: list[str] = []
+        workspace._job_handlers['job-1'] = (
+            lambda result: None,
+            '一覧の更新に失敗しました',
+            lambda: retried.append('retry'),
+        )
+        # io.error is retryable; before the fix this raised TypeError
+        # inside the branch condition and warn_user never ran.
+        workspace._job_completed('job-1', None, OSError('disk error'))
+        assert len(calls) == 1
+        assert calls[0].get('on_help') is not None
+        assert '一覧の更新に失敗しました' in workspace.notice.text()
     finally:
         workspace.close()
         workspace.deleteLater()

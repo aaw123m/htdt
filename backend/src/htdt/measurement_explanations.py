@@ -462,18 +462,19 @@ def explain_table_columns(
     return applied
 
 
-def explain_combo_items(combo: "QWidget") -> int:
+def explain_combo_items(combo: "QWidget", *, domain: str | None = None) -> int:
     """Give each combo item a tooltip from STATUS_EXPLANATIONS.
 
     Item tooltips show inside the dropdown so a status value like
-    「要再測定」 explains itself where the operator picks it.
+    「要再測定」 explains itself where the operator picks it. ``domain``
+    selects a column-specific vocabulary for colliding codes.
     Returns how many items got tooltips.
     """
     from PySide6.QtCore import Qt
 
     applied = 0
     for index in range(combo.count()):
-        text = status_explanation(str(combo.itemData(index)))
+        text = status_explanation(str(combo.itemData(index)), domain=domain)
         if text is not None:
             combo.setItemData(index, text, Qt.ItemDataRole.ToolTipRole)
             applied += 1
@@ -504,25 +505,6 @@ STATUS_EXPLANATIONS: dict[str, str] = {
     'retake_required': '品質証拠が不足しています。再測定してください。',
     'completed': 'このセルは完了です。',
     'skipped': 'このセルはスキップしました。',
-    # 証拠種別
-    'measured': '実測データです（実際に収録された応答）。',
-    'derived': '他の測定から派生したデータです。',
-    'predicted': '予測で生成したデータです。実測ではありません。',
-    'unverified': '検証されていないデータです。',
-    # 品質
-    'PASS': '品質チェックをすべて通過しています。',
-    'WARN': '注意点があります。品質レポートを確認してください。',
-    'FAIL': '品質チェックに不合格があります。レポートを確認し、再測定を検討してください。',
-    'UNKNOWN': '品質レポートがないか、まだ評価されていません。',
-    # 位相
-    'valid': '有効と確認された位相データがあります。',
-    'absent': '位相データは含まれていません。',
-    'unknown': '位相の有効性は未確認です。',
-    'invalid': '位相データは無効と報告されています。',
-    # 能力判定（位相・共通タイミングなど）
-    'ALLOWED': '条件を満たしています。この用途に使用できます。',
-    'BLOCKED': '証拠が不足または矛盾しています。この用途には使えません。',
-    'NOT_EVALUATED': 'まだ評価されていません。',
     # 配置一致
     'current': '現在のシーンと同じ配置です。',
     'stale': '測定時の配置と現在の配置が異なります。古い測定の可能性があります。',
@@ -555,16 +537,6 @@ STATUS_EXPLANATIONS: dict[str, str] = {
     'removed': 'この実体は現在のシーンから削除されています。',
     'added': 'この実体は現在のシーンで追加されました。',
     'changed': '測定時から内容が変わりました。',
-    # 添付種別（MEASUREMENT_ATTACHMENT_KINDS）
-    'mdat': 'REW の .mdat 測定ファイルです。',
-    'calibration': '校正用途の項目です。',
-    'notes': '設定ノート・メモの添付です。',
-    'other': 'その他の添付ファイルです。',
-    # キャンペーン目的（_VARIANT_PURPOSE_LABELS の語彙）
-    'measurement': '通常の収録測定です。',
-    'holdout': '検証用に取っておく測定です（他の用途には使いません）。',
-    'diagnostic': '問題切り分け用の診断測定です。',
-    'validation': '検証のための測定です。',
     # 品質チェック名（_check_label の語彙）
     'clipping': 'クリッピング（波形の歪み）の有無を評価します。',
     'noise_snr': '信号対雑音比（SNR）を評価します。',
@@ -576,10 +548,79 @@ STATUS_EXPLANATIONS: dict[str, str] = {
 }
 
 
-def status_explanation(code: str | None) -> str | None:
-    """Meaning + next-step text for a raw status code (None = unknown)."""
+# Domain-scoped vocabularies: several surfaces emit the same raw code
+# with different meaning ('unknown' alone is emitted by the evidence
+# column, the quality column AND the phase column; 'UNKNOWN' by both the
+# capability decision and the quality-decision vocabulary; 'calibration'
+# by attachment kinds and campaign purposes). Callers pass the domain of
+# the cell/combo they are filling so colliding codes resolve to the text
+# meant for that column.
+_STATUS_DOMAINS: dict[str, dict[str, str]] = {
+    # 証拠種別 (evidence_type)
+    'evidence': {
+        'measured': '実測データです（実際に収録された応答）。',
+        'derived': '他の測定から派生したデータです。',
+        'predicted': '予測で生成したデータです。実測ではありません。',
+        'unverified': '検証されていないデータです。',
+        'unknown': '証拠の種別は未確認です。',
+    },
+    # 品質列 (record.quality_status: usable/warning/invalid/unknown)
+    'quality': {
+        'usable': '品質上は利用可能と評価されています。',
+        'warning': '注意点があります。品質レポートを確認してください。',
+        'invalid': '品質上の問題が報告されています。再測定を検討してください。',
+        'unknown': '品質はまだ評価されていません。品質確認を実行してください。',
+        'synthetic_fixture': 'テストデータによる状態です。',
+    },
+    # 位相列 (phase_status: valid/absent/unknown)
+    'phase': {
+        'valid': '有効と確認された位相データがあります。',
+        'absent': '位相データは含まれていません。',
+        'unknown': '位相の有効性は未確認です。',
+    },
+    # 能力判定 (ALLOWED/BLOCKED/UNKNOWN — 共通タイミングなど)
+    'capability': {
+        'ALLOWED': '条件を満たしています。この用途に使用できます。',
+        'BLOCKED': '証拠が不足または矛盾しています。この用途には使えません。',
+        'UNKNOWN': '条件を判定する証拠が不足しています。利用可否は未確認です。',
+    },
+    # 品質評価の判定語彙 (QualityDecision: PASS/FAIL/UNKNOWN/NOT_EVALUATED)
+    'quality_decision': {
+        'PASS': '品質チェックをすべて通過しています。',
+        'FAIL': '品質チェックに不合格があります。レポートを確認し、再測定を検討してください。',
+        'UNKNOWN': '品質レポートがないか、まだ評価されていません。',
+        'NOT_EVALUATED': 'まだ評価されていません。',
+    },
+    # 添付種別 (MEASUREMENT_ATTACHMENT_KINDS)
+    'attach': {
+        'mdat': 'REW の .mdat 測定ファイルです。',
+        'calibration': '校正用途のファイル添付です。',
+        'notes': '設定ノート・メモの添付です。',
+        'other': 'その他の添付ファイルです。',
+    },
+    # キャンペーン目的 (_VARIANT_PURPOSE_LABELS の語彙)
+    'purpose': {
+        'measurement': '通常の収録測定です。',
+        'calibration': '校正目的で取得する測定です。',
+        'holdout': '検証用に取っておく測定です（他の用途には使いません）。',
+        'diagnostic': '問題切り分け用の診断測定です。',
+        'validation': '検証のための測定です。',
+    },
+}
+
+
+def status_explanation(code: str | None, *, domain: str | None = None) -> str | None:
+    """Meaning + next-step text for a raw status code (None = unknown).
+
+    ``domain`` selects a column-specific vocabulary when the same raw
+    code carries different meanings across surfaces (e.g. 'unknown').
+    """
     if code is None:
         return None
+    if domain is not None:
+        text = _STATUS_DOMAINS.get(domain, {}).get(code)
+        if text is not None:
+            return text
     return STATUS_EXPLANATIONS.get(code)
 
 
