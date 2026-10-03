@@ -477,6 +477,10 @@ class PlaybackChainDialog(QDialog):
         self.box.rejected.connect(self.reject)
         layout.addWidget(self.box)
 
+        # The QTabWidget would otherwise claim initial focus — a data-entry
+        # dialog should open on its first field so typing works immediately.
+        self.amp_label.setFocus()
+
         self._refresh_amplifier_combo()
         self._refresh_load_combo()
         self._refresh_scenario_inputs()
