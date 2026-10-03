@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
+from htdt.canonical_json import canonical_sha256
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     PairMetrics,
@@ -14,11 +15,14 @@ from htdt.r130d_general3d_validation import (
     analytic_complex_harmonic_spectrum,
     analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
+    classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
     classify_spatial_representation_trend,
     compare_complex_transfer,
     connected_air_domain_node_metrics,
+    dense_frequency_grid,
     interpolation_stencil_diagnostic,
+    load_dense_frequency_diagnostic_plan,
     load_evidence,
     load_spatial_representation_diagnostic_plan,
     load_target_window_diagnostic_plan,
@@ -31,6 +35,7 @@ from htdt.r130d_general3d_validation import (
     target_window_sampling_metadata,
     target_window_clipped_left_rectangle_spectrum,
     target_window_clipped_left_rectangle_transfer,
+    validate_dense_frequency_diagnostic_binding,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -53,6 +58,18 @@ SPATIAL_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_spatial_representation_diagnostic_plan.json'
+)
+DENSE_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_dense_frequency_diagnostic_plan.json'
+)
+RUN76_EVIDENCE = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_spatial_representation_diagnostic_run76_evidence.json'
 )
 PR295_SUMMARY = (
     Path(__file__).parents[2]
@@ -826,3 +843,205 @@ def test_diagnostic_frequency_set_cannot_enter_canonical_acceptance():
         diagnostic['frequency_neighborhood']['diagnostic_only_frequency_hz']
     ).isdisjoint(plan.physical_quantity.frequency_hz)
     assert diagnostic['frequency_neighborhood']['canonical_acceptance_inclusion'] is False
+
+
+def test_dense_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    diagnostic = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    validate_dense_frequency_diagnostic_binding(plan, diagnostic)
+    assert diagnostic['task_start_main_sha'] == (
+        'b6577df1109ad786040d8ae1d3719d2b5cd3456d'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [8.0, 10.0, 12.0]
+    assert diagnostic['frozen_solver_contract']['canonical_frequency_hz'] == [
+        40.0, 80.0
+    ]
+    dense = diagnostic['dense_frequency_neighborhood']
+    grid = dense_frequency_grid(dense['bands'])
+    assert tuple(dense['diagnostic_frequency_hz']) == grid
+    assert len(grid) == 34
+    assert grid[0] == 36.0 and grid[16] == 44.0
+    assert grid[17] == 76.0 and grid[33] == 84.0
+    assert grid[8] == 40.0 and grid[25] == 80.0
+    assert dense['canonical_scored_frequency_hz'] == [40.0, 80.0]
+    assert dense['fixed_floor'] == 1.0e-12
+    assert dense['pairs'] == ['8_to_10', '10_to_12']
+    assert dense['classification']['localized_max_count'] == 11
+    assert dense['classification']['persists_min_count'] == 23
+    assert dense['canonical_acceptance_inclusion'] is False
+    binding = diagnostic['run76_record_binding']
+    assert [item['points_per_wavelength'] for item in binding['levels']] == [
+        8.0, 10.0, 12.0
+    ]
+    assert binding['identical_label'] == 'RUN76_TRACE_IDENTICAL'
+
+
+def test_dense_run76_pins_match_committed_run76_evidence():
+    diagnostic = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    evidence = json.loads(RUN76_EVIDENCE.read_text(encoding='utf-8'))
+    provenance = {
+        float(item['ppw']): item for item in evidence['pffdtd_provenance']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        record = provenance[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == record['pressure_trace_sha256']
+        assert level['source_trace_sha256'] == record['source_trace_sha256']
+
+
+def test_dense_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    diagnostic = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_dense_frequency_diagnostic_binding(plan, stale)
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['dense_frequency_neighborhood'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_dense_frequency_diagnostic_binding(plan, promoted)
+    drift = json.loads(json.dumps(diagnostic))
+    drift['dense_frequency_neighborhood']['diagnostic_frequency_hz'][8] = 41.0
+    with pytest.raises(ValueError, match='band grid'):
+        validate_dense_frequency_diagnostic_binding(plan, drift)
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['post_result_frequency_selection'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_dense_frequency_diagnostic_binding(plan, rewritten)
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_spatial_representation_diagnostic'][
+        'semantic_sha256'
+    ] = '0' * 64
+    with pytest.raises(ValueError, match='spatial diagnostic sha256'):
+        validate_dense_frequency_diagnostic_binding(plan, stale_parent)
+
+
+def test_dense_frequency_grid_expands_inclusive_bands():
+    grid = dense_frequency_grid([
+        {
+            'band_id': 'a',
+            'canonical_center_hz': 40.0,
+            'start_hz': 36.0,
+            'stop_hz': 44.0,
+            'step_hz': 0.5,
+        },
+        {
+            'band_id': 'b',
+            'canonical_center_hz': 80.0,
+            'start_hz': 76.0,
+            'stop_hz': 84.0,
+            'step_hz': 0.5,
+        },
+    ])
+    assert len(grid) == 34
+    with pytest.raises(ValueError, match='evenly'):
+        dense_frequency_grid([{
+            'band_id': 'x',
+            'canonical_center_hz': 40.0,
+            'start_hz': 36.0,
+            'stop_hz': 44.1,
+            'step_hz': 0.5,
+        }])
+    with pytest.raises(ValueError, match='canonical center'):
+        dense_frequency_grid([{
+            'band_id': 'x',
+            'canonical_center_hz': 40.25,
+            'start_hz': 36.0,
+            'stop_hz': 44.0,
+            'step_hz': 0.5,
+        }])
+    with pytest.raises(ValueError, match='repeat'):
+        dense_frequency_grid([
+            {
+                'band_id': 'x',
+                'canonical_center_hz': 40.0,
+                'start_hz': 36.0,
+                'stop_hz': 44.0,
+                'step_hz': 4.0,
+            },
+            {
+                'band_id': 'y',
+                'canonical_center_hz': 40.0,
+                'start_hz': 40.0,
+                'stop_hz': 48.0,
+                'step_hz': 4.0,
+            },
+        ])
+
+
+@pytest.mark.parametrize(
+    ('worsening_count', 'expected'),
+    [
+        (0, 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'),
+        (11, 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'),
+        (12, 'DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'),
+        (22, 'DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'),
+        (23, 'DENSE_NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'),
+        (34, 'DENSE_NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD'),
+    ],
+)
+def test_dense_frequency_classifier_frozen_boundaries(
+    worsening_count, expected
+):
+    d_8_10 = [1.0] * 34
+    d_10_12 = [2.0 if index < worsening_count else 0.5 for index in range(34)]
+    result = classify_dense_frequency_neighborhood(d_8_10, d_10_12)
+    assert result['worsening_count'] == worsening_count
+    assert result['classification'] == expected
+    assert result['worsening_by_frequency'][:worsening_count] == [True] * (
+        worsening_count
+    )
+
+
+def test_dense_diagnostic_sweep_output_is_deterministic_and_hash_bound():
+    diagnostic = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    dense = diagnostic['dense_frequency_neighborhood']
+    grid = dense_frequency_grid(dense['bands'])
+    floor = float(dense['fixed_floor'])
+
+    def sweep():
+        level_by_ppw = {
+            8.0: [complex(1.0 + index, -0.5 * index) for index, _ in enumerate(grid)],
+            10.0: [complex(1.1 + index, -0.5 * index) for index, _ in enumerate(grid)],
+            12.0: [complex(1.2 + index, -0.5 * index) for index, _ in enumerate(grid)],
+        }
+        d_8_10 = [
+            normalized_complex_difference(
+                level_by_ppw[8.0][i], level_by_ppw[10.0][i], fixed_floor=floor
+            )
+            for i in range(len(grid))
+        ]
+        d_10_12 = [
+            normalized_complex_difference(
+                level_by_ppw[10.0][i], level_by_ppw[12.0][i], fixed_floor=floor
+            )
+            for i in range(len(grid))
+        ]
+        classification = classify_dense_frequency_neighborhood(d_8_10, d_10_12)
+        return {
+            'frequency_hz': list(grid),
+            'd_8_10': d_8_10,
+            'd_10_12': d_10_12,
+            **classification,
+        }
+
+    first = sweep()
+    second = sweep()
+    assert first == second
+    assert canonical_sha256(first) == canonical_sha256(second)
+
+
+def test_dense_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    diagnostic = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    dense = diagnostic['dense_frequency_neighborhood']
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert plan.plan_sha256() == (
+        '5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec'
+    )
+    assert tuple(dense['canonical_scored_frequency_hz']) == (40.0, 80.0)
+    assert set(
+        dense['diagnostic_only_frequency_hz']
+    ).isdisjoint(plan.physical_quantity.frequency_hz)
+    assert dense['canonical_acceptance_inclusion'] is False
