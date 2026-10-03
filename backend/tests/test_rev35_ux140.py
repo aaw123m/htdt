@@ -30,6 +30,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
+from htdt.cad_prediction_repository import CadPredictionRepository  # noqa: E402
+from htdt.cad_predictions import analyze_native_rectangular_geometry  # noqa: E402
 from htdt.cad_scene import (  # noqa: E402
     F1_DOCUMENT_ID,
     Position3,
@@ -375,19 +377,45 @@ def test_seat_priority_panel_lists_committed_seats(tmp_path) -> None:
         _close(app, workspace)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UX140 stage (b) TODO: FieldExplorerPanel (音場エクスプローラー) is "
-        "mounted only by the legacy prediction dock "
-        "(prediction_workspace._open_field_explorer); the workflow "
-        "RoomPredictionPanel has no field-explorer entry"
-    ),
-)
 def test_field_explorer_panel_has_a_workflow_mount(tmp_path) -> None:
+    """音場エクスプローラー: RoomPredictionPanel owns the entry the legacy
+    prediction dock's 音場ヒートマップ button opened."""
     app, workspace = _room_workspace(tmp_path)
     try:
-        assert workspace.findChild(FieldExplorerPanel) is not None
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        assert panel is not None
+        assert isinstance(panel.field_explorer_panel, FieldExplorerPanel)
+        # No saved run selected yet — gated off exactly like the legacy
+        # dock's scalar-field button.
+        assert not panel.field_explorer_button.isEnabled()
+    finally:
+        _close(app, workspace)
+
+
+def test_field_explorer_opens_for_exact_modes_run(tmp_path) -> None:
+    """Gating + open wiring end-to-end: a saved exact rectangular-modes
+    run enables the entry and prepares the build form."""
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    head = repository.current_head(F1_DOCUMENT_ID)
+    modes, reflections = analyze_native_rectangular_geometry(
+        head, "point-mlp", max_mode_hz=150.0
+    )
+    assert modes.geometry_compatibility == "exact_for_model_geometry"
+    CadPredictionRepository(repository).save_run((modes, reflections))
+    _, workspace = _room_workspace(tmp_path, repository)
+    try:
+        panel = workspace.acoustics_panel.findChild(RoomPredictionPanel)
+        # refresh() auto-selects the newest run — the exact modes run —
+        # so the button lights up like the legacy dock's did.
+        assert panel.field_explorer_button.isEnabled()
+        panel._open_field_explorer()
+        assert panel.field_explorer_dialog.isVisible()
+        assert panel.field_explorer_panel.mode_combo.count() > 0
+        assert (
+            "モード候補"
+            in panel.field_explorer_panel.field_status_label.text()
+        )
     finally:
         _close(app, workspace)
 
