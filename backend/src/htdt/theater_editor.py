@@ -189,8 +189,6 @@ class TheaterEditorWindow(CadEditorWindow):
         self._invalidate_scene_pick_cache()
         self._remove_gizmo()
         self.viewport.clear()
-        self.viewport.add_axes()
-        self.viewport.show_grid()
         self.tree.clear()
         self.actors.clear()
         self.actor_ids.clear()
@@ -245,6 +243,7 @@ class TheaterEditorWindow(CadEditorWindow):
         seat_priority_panel = getattr(self, 'seat_priority_panel', None)
         if seat_priority_panel is not None:
             seat_priority_panel.refresh(self.working.committed_document)
+        self._add_scene_axes()
         self._update_actions()
         self.viewport.render()
 

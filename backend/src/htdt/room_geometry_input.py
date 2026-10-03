@@ -961,6 +961,10 @@ class RoomGeometryInputController(QObject):
                 ),
                 line_width=2,
                 pickable=False,
+                # pv.Line's 'Distance' scalars would otherwise auto-show a
+                # scalar bar whose first range is ~1e-7 — a stale tick that
+                # only recalibrates once the cursor has real length.
+                show_scalar_bar=False,
                 name="ux120-room-sketch-cursor",
                 render=False,
             )

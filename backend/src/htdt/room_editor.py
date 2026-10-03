@@ -478,8 +478,6 @@ class RoomEditorWindow(NativeEditorWindow):
         self._invalidate_scene_pick_cache()
         self._remove_gizmo()
         self.viewport.clear()
-        self.viewport.add_axes()
-        self.viewport.show_grid()
         self.tree.clear()
         self.actors.clear()
         self.actor_ids.clear()
@@ -522,6 +520,7 @@ class RoomEditorWindow(NativeEditorWindow):
             self._render_room_edit_handles()
         elif self.room_mode == 'sketch':
             self._render_room_sketch_overlay()
+        self._add_scene_axes()
         self._refresh_room_inspector()
         self._update_actions()
 
@@ -619,6 +618,10 @@ class RoomEditorWindow(NativeEditorWindow):
                 cursor_line,
                 line_width=2,
                 pickable=False,
+                # pv.Line's 'Distance' scalars would otherwise auto-show a
+                # scalar bar whose first range is ~1e-7 — a stale tick that
+                # only recalibrates once the cursor has real length.
+                show_scalar_bar=False,
                 name='room-sketch-cursor',
                 render=False,
             )
