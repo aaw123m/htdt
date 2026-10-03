@@ -82,6 +82,45 @@ def add_constraint_binding(
     return validate_wall_topology(room, candidate)
 
 
+def update_constraint_binding(
+    room: RoomPrism,
+    topology: WallTopology,
+    binding: WallConstraintBinding,
+) -> WallTopology:
+    """Replace one existing constraint binding by ID and revalidate."""
+
+    if not any(item.binding_id == binding.binding_id for item in topology.constraint_bindings):
+        raise WallTopologyError(f'unknown constraint binding: {binding.binding_id}')
+    candidate = WallTopology(
+        walls=topology.walls,
+        openings=topology.openings,
+        constraint_bindings=tuple(
+            binding if item.binding_id == binding.binding_id else item
+            for item in topology.constraint_bindings
+        ),
+    )
+    return validate_wall_topology(room, candidate)
+
+
+def delete_constraint_binding(
+    room: RoomPrism,
+    topology: WallTopology,
+    binding_id: str,
+) -> WallTopology:
+    """Delete one constraint binding without changing walls or openings."""
+
+    if not any(item.binding_id == binding_id for item in topology.constraint_bindings):
+        raise WallTopologyError(f'unknown constraint binding: {binding_id}')
+    candidate = WallTopology(
+        walls=topology.walls,
+        openings=topology.openings,
+        constraint_bindings=tuple(
+            item for item in topology.constraint_bindings if item.binding_id != binding_id
+        ),
+    )
+    return validate_wall_topology(room, candidate)
+
+
 def move_wall(
     room: RoomPrism,
     topology: WallTopology,
