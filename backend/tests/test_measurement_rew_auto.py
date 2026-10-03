@@ -7,6 +7,8 @@ from pathlib import Path
 import threading
 import time
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
@@ -269,6 +271,12 @@ def test_auto_job_does_not_block_navigation(tmp_path: Path) -> None:
         _close(app, workspace)
 
 
+def _tick(app: QApplication, workspace: MeasurementPageWorkspace, n: int = 1) -> None:
+    for _ in range(n):
+        workspace._rew_auto_tick()
+        _drain(app, workspace)
+
+
 def test_watch_dir_stages_dropped_file(tmp_path: Path) -> None:
     app = _app()
     watch = tmp_path / 'watch'
@@ -286,11 +294,247 @@ def test_watch_dir_stages_dropped_file(tmp_path: Path) -> None:
         (watch / 'drop.txt').write_text(
             '* Exported with REW\n20 70\n40 71\n', encoding='utf-8'
         )
-        workspace._rew_auto_tick()
-        _drain(app, workspace)
+        # Two ticks: the drop is sighted, then delivered once its
+        # signature survives a second scan (never read mid-write).
+        _tick(app, workspace, 2)
         items = workspace.controller.batch_items()
         assert len(items) == 1
         assert items[0].filename == 'drop.txt'
+    finally:
+        _close(app, workspace)
+
+
+def test_watch_dir_drop_before_scene_stages_after_save(tmp_path: Path) -> None:
+    """A drop during the no-scene window must not be lost: it re-queues
+    and stages once a saved scene exists."""
+    from htdt.cad_scene import (
+        Position3,
+        RoomPrism,
+        SceneDocument,
+        SceneEntity,
+    )
+
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    prefs = ApplicationPreferenceStore(tmp_path / 'prefs.json')
+    prefs.set('integrations.rew_watch_dir', str(watch))
+    client = _FakeRewClient(rows=[])
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    controller = MeasurementWorkflowController(scene_repository, 'doc-x')
+    workspace = MeasurementPageWorkspace(
+        controller, preferences=prefs
+    )
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+
+        (watch / 'early.txt').write_text(
+            '* Exported with REW\n20 70\n40 71\n', encoding='utf-8'
+        )
+        _tick(app, workspace, 3)
+        assert workspace.controller.batch_items() == ()
+        assert '部屋' in workspace.notice.text()
+
+        scene_repository.save(
+            SceneDocument(
+                document_id='doc-x',
+                room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.5),
+                entities=(
+                    SceneEntity(
+                        entity_id='seat-a-entity',
+                        kind='measurement_point',
+                        name='Seat A',
+                        position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
+                    ),
+                ),
+            ),
+            parent_revision_id=None,
+        )
+        # The unmarked file re-pends, then delivers on the next pair.
+        _tick(app, workspace, 3)
+        items = workspace.controller.batch_items()
+        assert [item.filename for item in items] == ['early.txt']
+    finally:
+        _close(app, workspace)
+
+
+def test_watch_dir_stage_failure_retries_drop(tmp_path: Path) -> None:
+    """A stage failure drops the seen marker so the next scans re-queue
+    the file instead of silently losing the drop."""
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    prefs = ApplicationPreferenceStore(tmp_path / 'prefs.json')
+    prefs.set('integrations.rew_watch_dir', str(watch))
+    client = _FakeRewClient(rows=[])
+    controller, workspace = _workspace(tmp_path, client, preferences=prefs)
+    original = controller.stage_rew_text_files
+    calls = {'n': 0}
+
+    def flaky(files):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            raise RuntimeError('simulated stage failure')
+        return original(files)
+
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+        (watch / 'drop.txt').write_text(
+            '* Exported with REW\n20 70\n40 71\n', encoding='utf-8'
+        )
+        controller.stage_rew_text_files = flaky
+        _tick(app, workspace, 2)
+        assert calls['n'] == 1
+        assert workspace.controller.batch_items() == ()
+
+        controller.stage_rew_text_files = original
+        _tick(app, workspace, 2)
+        items = workspace.controller.batch_items()
+        assert [item.filename for item in items] == ['drop.txt']
+    finally:
+        controller.stage_rew_text_files = original
+        _close(app, workspace)
+
+
+def test_snapshot_stage_failure_retries_fetch(tmp_path: Path) -> None:
+    """A snapshot whose staging fails must not be marked seen — the next
+    poll refetches and stages it."""
+    app = _app()
+    client = _FakeRewClient(
+        rows=[{'uuid': 'u1', 'title': 'MLP base'}],
+        snapshots={'u1': _snapshot('u1', 'MLP base', 'm-1')},
+    )
+    controller, workspace = _workspace(tmp_path, client)
+    original = controller.stage_rew_snapshots
+    calls = {'n': 0}
+
+    def flaky(snapshots):
+        calls['n'] += 1
+        if calls['n'] == 1:
+            raise RuntimeError('simulated stage failure')
+        return original(snapshots)
+
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+
+        client.rows.append({'uuid': 'u2', 'title': 'MLP evening'})
+        client.snapshots['u2'] = _snapshot('u2', 'MLP evening', 'm-2')
+        controller.stage_rew_snapshots = flaky
+        _tick(app, workspace)
+        assert calls['n'] == 1
+        assert workspace.controller.batch_items() == ()
+        assert 'u2' not in workspace._rew_seen_uuids
+
+        controller.stage_rew_snapshots = original
+        _tick(app, workspace)
+        items = workspace.controller.batch_items()
+        assert len(items) == 1
+        assert client.fetch_calls.count('u2') == 2
+    finally:
+        controller.stage_rew_snapshots = original
+        _close(app, workspace)
+
+
+def test_auto_assign_failure_reports_instead_of_escaping(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """auto_assign_batch_items raising must not abort the apply (or hit
+    sys.excepthook): the row stays staged and the failure is a notice."""
+    app = _app()
+    client = _FakeRewClient(
+        rows=[{'uuid': 'u1', 'title': 'MLP base'}],
+        snapshots={'u1': _snapshot('u1', 'MLP base', 'm-1')},
+    )
+    controller, workspace = _workspace(tmp_path, client)
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+        monkeypatch.setattr(
+            controller,
+            'auto_assign_batch_items',
+            lambda **kwargs: (_ for _ in ()).throw(
+                RuntimeError('scene read blew up')
+            ),
+        )
+        client.rows.append({'uuid': 'u2', 'title': 'MLP evening'})
+        client.snapshots['u2'] = _snapshot('u2', 'MLP evening', 'm-2')
+        _tick(app, workspace)
+        items = workspace.controller.batch_items()
+        assert len(items) == 1
+        assert items[0].assignment is None
+        # The row is staged and pointed at manual assignment, not lost.
+        assert '割り当て' in workspace.notice.text()
+    finally:
+        _close(app, workspace)
+
+
+def test_start_failure_leaves_no_leaked_auto_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A pool.start raise must not leak the job key — a phantom auto job
+    would undercount _user_busy_count and wedge navigation forever."""
+    app = _app()
+    client = _FakeRewClient(rows=[])
+    controller, workspace = _workspace(tmp_path, client)
+    try:
+        monkeypatch.setattr(
+            workspace._job_pool,
+            'start',
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError('no pool')),
+        )
+        with pytest.raises(RuntimeError):
+            workspace._rew_auto_tick()
+        assert workspace._rew_auto_job_keys == set()
+        assert 'rew_auto' not in workspace._latest_job_key
+        assert workspace._user_busy_count() == 0
+    finally:
+        _close(app, workspace)
+
+
+def test_user_busy_count_never_negative(tmp_path: Path) -> None:
+    app = _app()
+    client = _FakeRewClient(rows=[])
+    controller, workspace = _workspace(tmp_path, client)
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+        # A stale auto key with no running worker must not read as busy.
+        workspace._rew_auto_job_keys.add('phantom')
+        assert workspace._user_busy_count() == 0
+        allowed, _reason = workspace.before_deactivate()
+        assert allowed
+    finally:
+        _close(app, workspace)
+
+
+def test_watch_dir_missing_notice_dedupes(tmp_path: Path) -> None:
+    """A persistent missing watch dir must not rewrite the same warning
+    every tick, and must be able to fire again after it resolves."""
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    prefs = ApplicationPreferenceStore(tmp_path / 'prefs.json')
+    prefs.set('integrations.rew_watch_dir', str(watch))
+    client = _FakeRewClient(rows=[])
+    controller, workspace = _workspace(tmp_path, client, preferences=prefs)
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+
+        watch.rmdir()
+        _tick(app, workspace)
+        assert '監視フォルダーが見つかりません' in workspace.notice.text()
+        assert 'watch_dir_missing' in workspace._rew_auto_notice_keys
+        first = workspace.notice.text()
+        _tick(app, workspace)
+        assert workspace.notice.text() == first  # not re-shouted
+
+        watch.mkdir()
+        _tick(app, workspace)
+        assert workspace._rew_auto_notice_keys == set()
     finally:
         _close(app, workspace)
 
