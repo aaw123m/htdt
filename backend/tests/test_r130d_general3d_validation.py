@@ -10,6 +10,9 @@ from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.canonical_json import canonical_sha256
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
+    RECEIVER_POSITION_CANONICAL_CELL_ID,
+    RECEIVER_POSITION_CELL_IDS,
+    RECEIVER_POSITION_OFFSET_CELLS,
     STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
     STENCIL_SENSITIVITY_VARIANT_IDS,
     TIME_GATE_BAND_CELL_IDS,
@@ -28,6 +31,7 @@ from htdt.r130d_general3d_validation import (
     assess_refinement_series,
     classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
+    classify_receiver_position_sensitivity,
     classify_spatial_representation_trend,
     classify_stencil_sensitivity,
     classify_time_gate_localization,
@@ -38,6 +42,7 @@ from htdt.r130d_general3d_validation import (
     interpolation_stencil_diagnostic,
     load_dense_frequency_diagnostic_plan,
     load_evidence,
+    load_receiver_position_sensitivity_diagnostic_plan,
     load_spatial_representation_diagnostic_plan,
     load_stencil_sensitivity_diagnostic_plan,
     load_target_window_diagnostic_plan,
@@ -48,6 +53,7 @@ from htdt.r130d_general3d_validation import (
     native_window_left_rectangle_transfer,
     normalized_complex_difference,
     plane_distance_metrics,
+    receiver_position_offset_stencil,
     save_evidence,
     stencil_variant_weights,
     target_window_sampling_metadata,
@@ -56,6 +62,7 @@ from htdt.r130d_general3d_validation import (
     validate_dense_frequency_diagnostic_binding,
     validate_exact_binding,
     validate_physical_observable_contract,
+    validate_receiver_position_sensitivity_diagnostic_binding,
     validate_refinement_schedule,
     validate_spatial_representation_diagnostic_binding,
     validate_stencil_sensitivity_diagnostic_binding,
@@ -104,6 +111,12 @@ TIME_GATE_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_time_gate_localization_diagnostic_plan.json'
+)
+RECEIVER_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_receiver_position_sensitivity_diagnostic_plan.json'
 )
 RUN76_EVIDENCE = (
     Path(__file__).parents[2]
@@ -2024,6 +2037,424 @@ def test_time_gate_diagnostic_cannot_enter_canonical_acceptance():
     )
     assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
     assert diagnostic['time_gate_localization']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] is False
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert diagnostic['decision_semantics'][
+        'cross_solver_unblocked_by_diagnostic'
+    ] is False
+
+
+
+
+def test_receiver_position_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_receiver_position_sensitivity_diagnostic_plan(
+        RECEIVER_DIAGNOSTIC_PLAN
+    )
+    validate_receiver_position_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert diagnostic['task_start_main_sha'] == (
+        '98da71aea3958f0ed0e6729c45ad5eff0c44c92f'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [
+        8.0, 10.0, 12.0,
+    ]
+    assert diagnostic['parent_time_gate_localization_diagnostic'][
+        'semantic_sha256'
+    ] == canonical_sha256(
+        load_time_gate_localization_diagnostic_plan(TIME_GATE_DIAGNOSTIC_PLAN)
+    )
+    receiver = diagnostic['receiver_position_sensitivity']
+    offsets = receiver['receiver_offsets']
+    assert [item['cell_id'] for item in offsets] == list(
+        RECEIVER_POSITION_CELL_IDS
+    )
+    assert [bool(item.get('control')) for item in offsets] == [True] + [
+        False
+    ] * (len(RECEIVER_POSITION_CELL_IDS) - 1)
+    for item in offsets:
+        assert item['offset_cells'] == list(
+            RECEIVER_POSITION_OFFSET_CELLS[item['cell_id']]
+        )
+    cell_axis = receiver['cell_axis']
+    assert cell_axis['cells'] == list(RECEIVER_POSITION_CELL_IDS)
+    assert cell_axis['canonical_cell_id'] == (
+        RECEIVER_POSITION_CANONICAL_CELL_ID
+    )
+    evaluation = receiver['evaluation']
+    dense_block = dense['dense_frequency_neighborhood']
+    assert evaluation['normalized_complex_difference_formula'] == dense_block[
+        'normalized_complex_difference_formula'
+    ]
+    assert evaluation['fixed_floor'] == dense_block['fixed_floor']
+    assert evaluation['pairs'] == dense_block['pairs']
+    assert evaluation['per_cell_classification'][
+        'localized_max_count'
+    ] == dense_block['classification']['localized_max_count']
+    assert evaluation['per_cell_classification'][
+        'persists_min_count'
+    ] == dense_block['classification']['persists_min_count']
+    assert evaluation['canonical_acceptance_inclusion'] is False
+
+
+def test_receiver_position_run76_pins_match_dense_authority():
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_receiver_position_sensitivity_diagnostic_plan(
+        RECEIVER_DIAGNOSTIC_PLAN
+    )
+    dense_levels = {
+        float(item['points_per_wavelength']): item
+        for item in dense['run76_record_binding']['levels']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        dense_level = dense_levels[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == dense_level[
+            'pressure_trace_sha256'
+        ]
+        assert level['source_trace_sha256'] == dense_level['source_trace_sha256']
+
+
+def test_receiver_position_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_receiver_position_sensitivity_diagnostic_plan(
+        RECEIVER_DIAGNOSTIC_PLAN
+    )
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, stale, dense
+        )
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['receiver_position_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, promoted, dense
+        )
+    drift = json.loads(json.dumps(diagnostic))
+    drift['receiver_position_sensitivity']['receiver_offsets'][1][
+        'cell_id'
+    ] = 'x_minus_3'
+    with pytest.raises(ValueError, match='not the frozen set'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift, dense
+        )
+    drift_offset = json.loads(json.dumps(diagnostic))
+    drift_offset['receiver_position_sensitivity']['receiver_offsets'][1][
+        'offset_cells'
+    ] = [-3, 0, 0]
+    with pytest.raises(ValueError, match='whole-cell offset'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift_offset, dense
+        )
+    drift_cell = json.loads(json.dumps(diagnostic))
+    drift_cell['receiver_position_sensitivity']['cell_axis'][
+        'canonical_cell_id'
+    ] = 'x_plus_1'
+    with pytest.raises(ValueError, match='canonical cell'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift_cell, dense
+        )
+    drift_metric = json.loads(json.dumps(diagnostic))
+    drift_metric['receiver_position_sensitivity']['evaluation'][
+        'fixed_floor'
+    ] = 1.0e-9
+    with pytest.raises(ValueError, match='fixed floor'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift_metric, dense
+        )
+    drift_labels = json.loads(json.dumps(diagnostic))
+    drift_labels['receiver_position_sensitivity']['evaluation'][
+        'classification'
+    ]['room_global'] = 'RENAMED'
+    with pytest.raises(ValueError, match='classification labels'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift_labels, dense
+        )
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['source_movement'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, rewritten, dense
+        )
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_time_gate_localization_diagnostic'][
+        'semantic_sha256'
+    ] = '0' * 64
+    with pytest.raises(ValueError, match='time-gate diagnostic sha256'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, stale_parent, dense
+        )
+    drift_pin = json.loads(json.dumps(diagnostic))
+    drift_pin['run76_record_binding']['levels'][0]['pressure_trace_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense authority'):
+        validate_receiver_position_sensitivity_diagnostic_binding(
+            plan, drift_pin, dense
+        )
+
+
+def _receiver_stencil_fixture(base=(2, 2, 2)):
+    h = 0.5
+    axes = tuple(np.arange(6, dtype=np.float64) * h for _ in range(3))
+    dims = (6, 6, 6)
+    coords = [
+        (base[0] + dx, base[1] + dy, base[2] + dz)
+        for dz in (0, 1)
+        for dy in (0, 1)
+        for dx in (0, 1)
+    ]
+    ny, nz = dims[1], dims[2]
+    linear = [ix * ny * nz + iy * nz + iz for ix, iy, iz in coords]
+    position = np.asarray(base, dtype=np.float64) * h + np.asarray(
+        [0.15, 0.20, 0.25], dtype=np.float64
+    )
+    fractional = position / h - np.asarray(base, dtype=np.float64)
+    weights = [
+        float(
+            (1.0 - fractional[0] if dx == 0 else fractional[0])
+            * (1.0 - fractional[1] if dy == 0 else fractional[1])
+            * (1.0 - fractional[2] if dz == 0 else fractional[2])
+        )
+        for dx, dy, dz in (
+            (x - base[0], y - base[1], z - base[2]) for x, y, z in coords
+        )
+    ]
+    return axes, dims, h, np.asarray(linear), np.asarray(weights), position
+
+
+def test_receiver_position_offset_stencil_translates_canonical_nodes():
+    axes, dims, h, linear, weights, position = _receiver_stencil_fixture()
+    moved = receiver_position_offset_stencil(
+        cell_id='x_plus_1',
+        xv=axes[0],
+        yv=axes[1],
+        zv=axes[2],
+        canonical_linear_indices=linear,
+        canonical_weights=weights,
+        grid_spacing_m=h,
+        canonical_position_m=position,
+    )
+    expected = linear + np.int64(dims[1] * dims[2])
+    assert moved['moved_linear_indices'] == [int(x) for x in expected]
+    assert moved['moved_position_m'] == [
+        float(position[0] + h), float(position[1]), float(position[2]),
+    ]
+    assert moved['interpolation_weights'] == [float(x) for x in weights]
+    assert moved['reconstruction_error_m'] <= 1.0e-9
+    assert len(moved['stencil_sha256']) == 64
+    canonical = receiver_position_offset_stencil(
+        cell_id='canonical_position',
+        xv=axes[0],
+        yv=axes[1],
+        zv=axes[2],
+        canonical_linear_indices=linear,
+        canonical_weights=weights,
+        grid_spacing_m=h,
+        canonical_position_m=position,
+    )
+    assert canonical['moved_linear_indices'] == [int(x) for x in linear]
+    assert canonical['moved_position_m'] == [float(x) for x in position]
+
+
+def test_receiver_position_offset_stencil_is_fail_closed():
+    axes, dims, h, linear, weights, position = _receiver_stencil_fixture()
+    with pytest.raises(ValueError, match='unknown receiver-position'):
+        receiver_position_offset_stencil(
+            cell_id='x_minus_3',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_linear_indices=linear,
+            canonical_weights=weights,
+            grid_spacing_m=h,
+            canonical_position_m=position,
+        )
+    # z_minus_2 lands the moved cell on the iz=0 absorbing plane.
+    with pytest.raises(ValueError, match='absorbing-layer plane'):
+        receiver_position_offset_stencil(
+            cell_id='z_minus_2',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_linear_indices=linear,
+            canonical_weights=weights,
+            grid_spacing_m=h,
+            canonical_position_m=position,
+        )
+    # From an edge-adjacent canonical cell, x_plus_2 leaves the grid.
+    edge_axes, edge_dims, edge_h, edge_linear, edge_weights, edge_position = (
+        _receiver_stencil_fixture(base=(4, 2, 2))
+    )
+    with pytest.raises(ValueError, match='leaves the grid'):
+        receiver_position_offset_stencil(
+            cell_id='x_plus_2',
+            xv=edge_axes[0],
+            yv=edge_axes[1],
+            zv=edge_axes[2],
+            canonical_linear_indices=edge_linear,
+            canonical_weights=edge_weights,
+            grid_spacing_m=edge_h,
+            canonical_position_m=edge_position,
+        )
+    wrong_weights = np.asarray(weights, dtype=np.float64)
+    wrong_weights[0] += 0.4
+    with pytest.raises(ValueError, match='does not interpolate'):
+        receiver_position_offset_stencil(
+            cell_id='z_minus_1',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_linear_indices=linear,
+            canonical_weights=wrong_weights,
+            grid_spacing_m=h,
+            canonical_position_m=position,
+        )
+    with pytest.raises(ValueError, match='exactly eight nodes'):
+        receiver_position_offset_stencil(
+            cell_id='x_plus_1',
+            xv=axes[0],
+            yv=axes[1],
+            zv=axes[2],
+            canonical_linear_indices=linear[:7],
+            canonical_weights=weights[:7],
+            grid_spacing_m=h,
+            canonical_position_m=position,
+        )
+
+
+def _receiver_cells(vectors, labels):
+    cell_ids = [
+        cell_id
+        for cell_id in RECEIVER_POSITION_CELL_IDS
+        if cell_id != RECEIVER_POSITION_CANONICAL_CELL_ID
+    ]
+    return [
+        {
+            'cell_id': cell_id,
+            'worsening_by_frequency': vectors[index],
+            'classification': labels[index],
+        }
+        for index, cell_id in enumerate(cell_ids)
+    ]
+
+
+def test_receiver_position_classifier_frozen_labels():
+    canonical_vector = [True, False, True, False]
+    identical = [canonical_vector] * 12
+    result = classify_receiver_position_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_receiver_cells(identical, [_MIXED] * 12),
+    )
+    assert result['classification'] == (
+        'RECEIVER_POSITION_WORSENING_PATTERN_INVARIANT'
+    )
+    assert result['identical_vector_cell_count'] == 12
+
+    # Any moved cell localized (worsening gone) -> position-local.
+    shifted = [[False, True, True, False]] * 12
+    labels = [_MIXED] * 12
+    labels[3] = _LOCALIZED
+    labels[7] = _LOCALIZED
+    result = classify_receiver_position_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_receiver_cells(shifted, labels),
+    )
+    assert result['classification'] == (
+        'RECEIVER_POSITION_WORSENING_POSITION_LOCAL'
+    )
+    assert set(result['localized_cell_ids']) == {'x_plus_2', 'y_plus_2'}
+
+    # Every moved cell carries the worsening but vectors shift ->
+    # room-global.
+    result = classify_receiver_position_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_receiver_cells(shifted, [_MIXED] * 12),
+    )
+    assert result['classification'] == (
+        'RECEIVER_POSITION_WORSENING_ROOM_GLOBAL'
+    )
+    assert result['shifted_cell_ids'] == [
+        cell_id
+        for cell_id in RECEIVER_POSITION_CELL_IDS
+        if cell_id != RECEIVER_POSITION_CANONICAL_CELL_ID
+    ]
+    assert result['localized_cell_ids'] == []
+
+    # Hamming distances are recorded per moved cell.
+    vectors = [canonical_vector] * 12
+    vectors[0] = shifted[0]
+    result = classify_receiver_position_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_receiver_cells(vectors, [_MIXED] * 12),
+    )
+    assert result['hamming_distance_by_cell']['x_minus_1'] == 2
+    assert result['hamming_distance_by_cell']['x_plus_1'] == 0
+
+
+def test_receiver_position_classifier_is_fail_closed_on_inputs():
+    canonical_vector = [True, False, True, False]
+    cells = _receiver_cells([canonical_vector] * 12, [_MIXED] * 12)
+    with pytest.raises(ValueError, match='control'):
+        classify_receiver_position_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {
+                    'cell_id': RECEIVER_POSITION_CANONICAL_CELL_ID,
+                    'worsening_by_frequency': canonical_vector,
+                    'classification': _MIXED,
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match='length mismatch'):
+        classify_receiver_position_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {**cells[0], 'worsening_by_frequency': [True]}
+            ]
+            + cells[1:],
+        )
+    with pytest.raises(ValueError, match='frozen non-control cells'):
+        classify_receiver_position_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=cells[:-1],
+        )
+    with pytest.raises(ValueError, match='not in the frozen set'):
+        classify_receiver_position_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {**cells[0], 'cell_id': 'x_minus_3'}
+            ]
+            + cells[1:],
+        )
+
+
+def test_receiver_position_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_receiver_position_sensitivity_diagnostic_plan(
+        RECEIVER_DIAGNOSTIC_PLAN
+    )
+    validate_receiver_position_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert diagnostic['receiver_position_sensitivity']['evaluation'][
         'canonical_acceptance_inclusion'
     ] is False
     assert diagnostic['decision_semantics']['diagnostic_only'] is True
