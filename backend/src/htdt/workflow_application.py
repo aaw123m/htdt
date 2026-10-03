@@ -181,7 +181,7 @@ from .support_diagnostics import (
     package_filename,
     run_health_checks,
 )
-from .workflow_help import HelpDialog
+from .workflow_help import GlossaryDialog, HelpDialog
 from .authority_graph import (
     build_authority_graph,
     measurement_authority_source,
@@ -1833,6 +1833,14 @@ class WorkflowApplicationComposition:
         if topic_id == 'help.palette':
             HelpDialog.palette_usage(parent=self.shell).exec()
             return True
+        if topic_id == 'help.glossary':
+            # REV32-TERMS: the TermId-registry-driven glossary surface.
+            GlossaryDialog(
+                self.help_registry,
+                locale=self._presentation_locale(),
+                parent=self.shell,
+            ).exec()
+            return True
         topic = self.help_registry.get(topic_id)
         if topic is None:
             return False
@@ -3166,6 +3174,8 @@ class WorkflowApplicationComposition:
         mount = _self.build_measurement_workspace_mount(
             controller,
             on_navigate=self._navigate_target,
+            help_registry=self.help_registry,
+            open_help=self._open_help_topic,
         )
         workspace = mount.widget
         original_activate = mount.on_activate

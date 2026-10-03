@@ -250,6 +250,35 @@ class MeasurementEditorWindow(ConstraintEditorWindow):
         self.pattern_list_label.setWordWrap(True)
         layout.addWidget(self.pattern_list_label)
 
+        # REV32-TERMS: every dock field explains itself (meaning + unit +
+        # valid values) via the shared explanation registry — the form
+        # labels get the same tooltip as their inputs.
+        from .measurement_explanations import (
+            apply_explanation,
+            explain_form_row,
+        )
+
+        explain_form_row(form, self.evidence_combo, 'assignment.evidence_type')
+        explain_form_row(form, self.channel_role_field, 'editor.channel_role')
+        apply_explanation(self.rew_combo, 'import.rew_measurement')
+        explain_form_row(compare_form, self.compare_a_combo, 'comparison.dataset_a')
+        explain_form_row(compare_form, self.compare_b_combo, 'comparison.dataset_b')
+        explain_form_row(
+            compare_form, self.compare_low_field, 'comparison.band_low'
+        )
+        explain_form_row(
+            compare_form, self.compare_high_field, 'comparison.band_high'
+        )
+        explain_form_row(
+            pattern_form, self.pattern_anchor_combo, 'editor.pattern_anchor'
+        )
+        explain_form_row(
+            pattern_form, self.pattern_preset_combo, 'campaign.pattern'
+        )
+        explain_form_row(
+            pattern_form, self.pattern_spacing_field, 'editor.pattern_spacing'
+        )
+
         dock = QDockWidget('実測', self)
         dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)

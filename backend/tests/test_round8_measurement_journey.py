@@ -370,11 +370,13 @@ def test_single_import_commit_confirms_duplicate(
 
         calls: list[bool] = []
 
-        def _confirm(*_args, **_kwargs):
+        def _confirm(_self, *_args, **_kwargs):
             calls.append(True)
             return QMessageBox.StandardButton.Yes
 
-        monkeypatch.setattr(QMessageBox, "question", staticmethod(_confirm))
+        # REV32: the duplicate check is an instance QMessageBox with a help
+        # button — the prompt is intercepted through exec() now.
+        monkeypatch.setattr(QMessageBox, "exec", _confirm)
         workspace.set_context("assignment")
         pending_index = -1
         for index in range(workspace.assignment_scope_combo.count()):

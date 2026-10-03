@@ -353,6 +353,7 @@ def warn_user(
     effect: str | None = None,
     on_retry: Callable[[], None] | None = None,
     retry_label: str | None = None,
+    on_help: Callable[[str], None] | None = None,
 ) -> UserFacingError:
     """Present one operation failure as a warning dialog.
 
@@ -365,6 +366,11 @@ def warn_user(
     retryable (``RETRYABLE_ERROR_CODES``) — the dialog never offers a second
     attempt it knows cannot succeed differently. The callback runs after the
     dialog closes; its own failure surfaces through the same error channel.
+
+    ``on_help`` (REV32-TERMS) adds a ヘルプ button that opens the topic
+    bound to the error's code — it receives the code and the warning box
+    re-shows afterwards, so the operator can read the explanation and then
+    still choose OK/retry.
     """
     from PySide6.QtWidgets import QMessageBox
 
@@ -388,7 +394,21 @@ def warn_user(
             retry_label or '再試行', QMessageBox.ButtonRole.ApplyRole
         )
         box.setDefaultButton(QMessageBox.StandardButton.Ok)
-    box.exec()
+    help_button = None
+    if on_help is not None:
+        if not box.buttons():
+            # A HelpRole button alone leaves the box with no way out.
+            box.addButton(QMessageBox.StandardButton.Ok)
+            box.setDefaultButton(QMessageBox.StandardButton.Ok)
+        help_button = box.addButton(
+            'ヘルプ', QMessageBox.ButtonRole.HelpRole
+        )
+    while True:
+        box.exec()
+        if help_button is not None and box.clickedButton() is help_button:
+            on_help(error.code)
+            continue
+        break
     if retry_button is not None and box.clickedButton() is retry_button:
         on_retry()
     return error

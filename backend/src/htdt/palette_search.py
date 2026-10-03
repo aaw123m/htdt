@@ -738,6 +738,13 @@ def help_destinations() -> tuple[_StaticDestination, ...]:
             ("palette", "パレット", "検索", "search", "使い方", "help"),
             "help",
         ),
+        _StaticDestination(
+            "help.glossary",
+            "用語集",
+            "ヘルプ",
+            ("glossary", "用語集", "用語", "term", "意味", "help", "ヘルプ"),
+            "help",
+        ),
     )
 
 

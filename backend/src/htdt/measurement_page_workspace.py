@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -82,6 +81,14 @@ from .measurement_journey import (
     MeasurementJourneyStep,
     current_journey_step,
     evaluate_measurement_journey,
+)
+from .measurement_explanations import (
+    apply_explanation,
+    explain_combo_items,
+    explain_form_row,
+    explain_table_columns,
+    metric_explanation,
+    status_explanation,
 )
 from .measurement_workflow import (
     AcquisitionCapture,
@@ -443,10 +450,17 @@ class MeasurementPageWorkspace(QWidget):
         parent: QWidget | None = None,
         *,
         on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
+        help_registry=None,
+        open_help: Callable[[str], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
         self._on_navigate = on_navigate
+        # REV32-TERMS: help surfaces — the registry drives the glossary
+        # dialog and error→topic resolution; ``open_help`` routes to the
+        # composition's topic opener when mounted inside the shell.
+        self._help_registry = help_registry
+        self._open_help = open_help
         self.current_context_id = "import"
         self._job_pool = NativeWorkerPool(self)
         self.batch_commit_progress.connect(self._on_batch_commit_progress)
@@ -485,11 +499,25 @@ class MeasurementPageWorkspace(QWidget):
 
         # Persistent selection context (#586): the active measurement or
         # comparison identity stays visually tied to the detail/plot below.
+        context_row = QHBoxLayout()
+        context_row.setContentsMargins(24, 8, 24, 4)
         self.context_label = QLabel(self)
         self.context_label.setObjectName("measurementContextLabel")
-        self.context_label.setContentsMargins(24, 8, 24, 4)
         self.context_label.setText("測定未選択")
-        root.addWidget(self.context_label)
+        context_row.addWidget(self.context_label, 1)
+        # REV32-TERMS: a persistent help affordance — the TermId-driven
+        # glossary and topic help are one click away from every page.
+        self.glossary_button = QPushButton("用語集・ヘルプ", self)
+        self.glossary_button.setObjectName("measurementGlossaryButton")
+        self.glossary_button.setToolTip(
+            "フィールドや状態表示の意味を用語集とヘルプで確認できます"
+        )
+        self.glossary_button.clicked.connect(self._show_glossary)
+        self.glossary_button.setVisible(
+            self._help_registry is not None or self._open_help is not None
+        )
+        context_row.addWidget(self.glossary_button)
+        root.addLayout(context_row)
 
         self._last_operation_error_detail: str | None = None
         # Notice + optional next-step action: success text alone still leaves
@@ -558,6 +586,7 @@ class MeasurementPageWorkspace(QWidget):
         self._build_quality_page()
         self._build_comparison_page()
         self._build_calibration_page()
+        self._wire_explanations()
         self.refresh()
 
     # ------------------------------------------------------------------
@@ -613,6 +642,236 @@ class MeasurementPageWorkspace(QWidget):
             self._show_quality_row(index)
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # REV32-TERMS — explanations, glossary and help plumbing
+
+    def _wire_explanations(self) -> None:
+        """Tooltip/WhatsThis on every field, table header and status combo.
+
+        Content lives in ``measurement_explanations`` — this method only
+        binds registry keys to widgets, so a missing key is a no-op rather
+        than a build error.
+        """
+        for widget, key in (
+            (self.rew_combo, 'import.rew_measurement'),
+            (self.batch_attach_kind_combo, 'import.attachment_kind'),
+            (self.assignment_scope_combo, 'assignment.scope'),
+            (self.target_combo, 'assignment.target'),
+            (self.evidence_combo, 'assignment.evidence_type'),
+            (self.channel_combo, 'assignment.channel_role'),
+            (self.radiation_combo, 'assignment.radiation_scope'),
+            (self.routing_combo, 'assignment.routing_evidence'),
+            (
+                self.acquisition_revision_combo,
+                'assignment.acquisition_revision',
+            ),
+            (self.routing_profile_combo, 'assignment.routing_profile'),
+            (self.source_speaker_list, 'assignment.source_speakers'),
+            (self.acquisition_preset_combo, 'acquisition.preset'),
+            (
+                self.mic_orientation_combo,
+                'acquisition.mic_orientation',
+            ),
+            (
+                self.mic_manufacturer_edit,
+                'acquisition.mic_manufacturer',
+            ),
+            (self.mic_model_edit, 'acquisition.mic_model'),
+            (
+                self.mic_serial_edit,
+                'acquisition.mic_serial',
+            ),
+            (
+                self.mic_sample_rate_edit,
+                'acquisition.sample_rate',
+            ),
+            (
+                self.mic_cal_file_edit,
+                'acquisition.calibration_file',
+            ),
+            (
+                self.mic_cal_sha_edit,
+                'acquisition.calibration_sha',
+            ),
+            (
+                self.output_device_edit,
+                'acquisition.output_device',
+            ),
+            (self.avr_model_edit, 'acquisition.avr_model'),
+            (
+                self.avr_volume_edit,
+                'acquisition.avr_volume',
+            ),
+            (
+                self.avr_processing_edit,
+                'acquisition.avr_processing',
+            ),
+            (self.avr_peq_edit, 'acquisition.avr_peq'),
+            (self.campaign_plan_combo, 'campaign.plan'),
+            (self.campaign_source_list, 'campaign.sources'),
+            (self.campaign_target_list, 'campaign.targets'),
+            (self.campaign_purpose_combo, 'campaign.purpose'),
+            (self.campaign_repeat, 'campaign.repeat'),
+            (self.campaign_pattern_combo, 'campaign.pattern'),
+            (self.campaign_variant_combo, 'campaign.variant_plan'),
+            (self.campaign_measurement_combo, 'campaign.measurement'),
+            (self.quality_smoothing_combo, 'quality.smoothing'),
+            (self.quality_target_combo, 'quality.target'),
+            (self.phase_unwrap_check, 'quality.phase_unwrap'),
+            (self.spatial_mode_combo, 'quality.spatial_mode'),
+            (self.disposition_combo, 'quality.disposition'),
+            (self.quality_attach_kind_combo, 'quality.attach_kind'),
+            (self.preset_combo, 'comparison.preset'),
+            (self.measured_combo, 'comparison.dataset_a'),
+            (self.predicted_combo, 'comparison.dataset_b'),
+            (self.compare_low, 'comparison.band_low'),
+            (self.compare_high, 'comparison.band_high'),
+            (self.ref_band_check, 'comparison.reference_band'),
+            (self.ref_low, 'comparison.reference_band'),
+            (self.ref_high, 'comparison.reference_band'),
+            (self.excluded_low, 'comparison.excluded_band'),
+            (self.excluded_high, 'comparison.excluded_band'),
+            (self.smooth_a_combo, 'comparison.smoothing'),
+            (self.smooth_b_combo, 'comparison.smoothing'),
+        ):
+            self._explain_field(widget, key)
+
+        explain_table_columns(
+            self.batch_table,
+            {
+                0: 'import.batch_table.file',
+                1: 'import.batch_table.status',
+                2: 'import.batch_table.band',
+                3: 'import.batch_table.phase',
+                4: 'import.batch_table.duplicate',
+                5: 'import.batch_table.resolution',
+                6: 'import.batch_table.saved',
+            },
+        )
+        explain_table_columns(
+            self.campaign_table,
+            {
+                0: 'campaign.table.channel_role',
+                1: 'campaign.table.target',
+                2: 'campaign.table.repeat',
+                3: 'campaign.table.status',
+                4: 'campaign.table.measurement',
+            },
+        )
+        explain_table_columns(
+            self.quality_table,
+            {
+                0: 'quality.table.channel',
+                1: 'quality.table.evidence',
+                2: 'quality.table.target',
+                3: 'quality.table.quality',
+                4: 'quality.table.phase',
+                5: 'quality.table.timing',
+                6: 'quality.table.placement',
+                7: 'quality.table.band',
+                8: 'quality.table.disposition',
+                9: 'quality.table.retake',
+            },
+        )
+        explain_table_columns(
+            self.comparison_metrics,
+            {0: 'comparison.metrics.name', 1: 'comparison.metrics.value'},
+        )
+        explain_table_columns(
+            self.comparison_history,
+            {
+                0: 'comparison.history.created',
+                1: 'comparison.history.band',
+                2: 'comparison.history.reference',
+                3: 'comparison.history.excluded',
+                4: 'comparison.history.rms',
+                5: 'comparison.history.offset',
+                6: 'comparison.history.shape',
+            },
+        )
+        explain_table_columns(
+            self.excluded_table,
+            {
+                0: 'comparison.excluded_band',
+                1: 'comparison.excluded_band',
+            },
+        )
+        explain_table_columns(
+            self.onboarding_table,
+            {
+                0: 'calibration.table.step',
+                1: 'calibration.table.status',
+                2: 'calibration.table.check',
+            },
+        )
+
+        # Dropdown items that carry a status code explain themselves too.
+        for combo in (
+            self.disposition_combo,
+            self.quality_attach_kind_combo,
+            self.batch_attach_kind_combo,
+            self.evidence_combo,
+            self.campaign_purpose_combo,
+        ):
+            explain_combo_items(combo)
+
+    def _explain_field(self, widget: QWidget, key: str) -> None:
+        """Explain a field — the input AND its QFormLayout row label."""
+        parent = widget.parentWidget()
+        if parent is not None:
+            for form in parent.findChildren(QFormLayout):
+                if form.labelForField(widget) is not None:
+                    explain_form_row(form, widget, key)
+                    return
+        apply_explanation(widget, key)
+
+    def _help_available(self) -> bool:
+        return self._help_registry is not None or self._open_help is not None
+
+    def _show_help_topic(self, topic_id: str) -> None:
+        """Open one help topic — composition route first, registry fallback."""
+        if self._open_help is not None and self._open_help(topic_id):
+            return
+        if self._help_registry is None:
+            return
+        topic = self._help_registry.get(topic_id)
+        if topic is None:
+            return
+        from .localization import PresentationLocale
+        from .workflow_help import HelpDialog
+
+        HelpDialog.topic(
+            topic,
+            locale=PresentationLocale.JAPANESE,
+            command_registry=None,
+            parent=self,
+        ).exec()
+
+    def _show_glossary(self) -> None:
+        """The TermId-registry-driven glossary surface (REV32-TERMS)."""
+        if self._open_help is not None and self._open_help('help.glossary'):
+            return
+        if self._help_registry is None:
+            return
+        from .localization import PresentationLocale
+        from .workflow_help import GlossaryDialog
+
+        GlossaryDialog(
+            self._help_registry,
+            locale=PresentationLocale.JAPANESE,
+            parent=self,
+        ).exec()
+
+    def _open_error_help(self, code: str) -> None:
+        """Resolve an error code to its bound topic (fallback: the generic
+        operation-error topic) and show it."""
+        topic_id = 'trouble.operation_error'
+        if self._help_registry is not None:
+            bound = self._help_registry.topic_for_reason(code)
+            if bound is not None:
+                topic_id = bound.topic_id
+        self._show_help_topic(topic_id)
 
     def refresh(self) -> None:
         # One authoritative listing per refresh: ``measurement_views``
@@ -937,9 +1196,21 @@ class MeasurementPageWorkspace(QWidget):
                 resolution_text,
                 f"{committed_to} · 添付 {attachment_note}",
             )
+            batch_tooltips = (
+                None,
+                status_explanation(item.status),
+                None,
+                None,
+                status_explanation(item.duplicate_kind),
+                status_explanation(item.resolution),
+                None,
+            )
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
                 cell.setData(Qt.ItemDataRole.UserRole, item.item_id)
+                tip = batch_tooltips[column]
+                if tip:
+                    cell.setToolTip(tip)
                 self.batch_table.setItem(row_index, column, cell)
             if (
                 item.status == "staged"
@@ -948,6 +1219,7 @@ class MeasurementPageWorkspace(QWidget):
                 combo = QComboBox(self.batch_table)
                 combo.addItem("既存の測定を利用", "reuse_existing")
                 combo.addItem("別の測定として保存", "import_as_new")
+                explain_combo_items(combo)
                 index = combo.findData(item.resolution)
                 if index >= 0:
                     combo.setCurrentIndex(index)
@@ -1848,7 +2120,18 @@ class MeasurementPageWorkspace(QWidget):
                 "現在の配置として保存", QMessageBox.ButtonRole.DestructiveRole
             )
             box.addButton("保留にする", QMessageBox.ButtonRole.RejectRole)
-            box.exec()
+            divergence_help = box.addButton(
+                "ヘルプ", QMessageBox.ButtonRole.HelpRole
+            )
+            while True:
+                box.exec()
+                if (
+                    box.clickedButton() is divergence_help
+                    and self._help_available()
+                ):
+                    self._show_help_topic('concept.scene_vs_revision')
+                    continue
+                break
             clicked = box.clickedButton()
             if clicked is historical_button:
                 on_divergence = "historical"
@@ -1873,16 +2156,31 @@ class MeasurementPageWorkspace(QWidget):
                 ),
                 pending.duplicate_of_measurement_id,
             )
-            answer = QMessageBox.question(
-                self,
-                "同じ測定が既に保存されています",
+            duplicate_box = QMessageBox(self)
+            duplicate_box.setIcon(QMessageBox.Icon.Question)
+            duplicate_box.setWindowTitle("同じ測定が既に保存されています")
+            duplicate_box.setText(
                 f"{_duplicate_kind_label(pending.duplicate_kind)}の測定が既に"
                 f"保存されています（{duplicate_name}）。\n"
-                "新しい測定としてもう一度保存しますか？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
+                "新しい測定としてもう一度保存しますか？"
             )
-            if answer != QMessageBox.StandardButton.Yes:
+            duplicate_box.addButton(QMessageBox.StandardButton.Yes)
+            duplicate_box.addButton(QMessageBox.StandardButton.No)
+            duplicate_help = duplicate_box.addButton(
+                "ヘルプ", QMessageBox.ButtonRole.HelpRole
+            )
+            duplicate_box.setDefaultButton(QMessageBox.StandardButton.No)
+            while True:
+                duplicate_result = duplicate_box.exec()
+                if (
+                    duplicate_box.clickedButton() is duplicate_help
+                    and self._help_available()
+                ):
+                    # ヘルプを読んだあとで選び直せるよう、ボックスを再表示する。
+                    self._show_help_topic('workflow.measurements')
+                    continue
+                break
+            if duplicate_result != QMessageBox.StandardButton.Yes:
                 self._set_notice(
                     "保存をキャンセルしました。既存の測定はそのままです。",
                     SemanticState.WARNING,
@@ -2088,11 +2386,20 @@ class MeasurementPageWorkspace(QWidget):
                 SemanticState.WARNING,
             )
             return
-        reason, ok = QInputDialog.getText(
+        from .workflow_help import ReasonTextDialog
+
+        reason_dialog = ReasonTextDialog(
             self,
             "割り当ての訂正",
             "訂正の理由を記録してください（監査ログに残ります）:",
+            on_help=(
+                (lambda: self._show_help_topic('workflow.measurements'))
+                if self._help_available()
+                else None
+            ),
         )
+        ok = bool(reason_dialog.exec())
+        reason = reason_dialog.text()
         if not ok or not reason.strip():
             self._set_notice("訂正の理由が必要です", SemanticState.WARNING)
             return
@@ -2394,9 +2701,19 @@ class MeasurementPageWorkspace(QWidget):
                 )
                 or "—",
             )
+            cell_tooltips = (
+                None,
+                None,
+                None,
+                status_explanation(state.status),
+                None,
+            )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, cell.cell_index)
+                tip = cell_tooltips[column]
+                if tip:
+                    item.setToolTip(tip)
                 self.campaign_table.setItem(cell.cell_index, column, item)
 
         progress = self.controller.runner_progress(self._campaign_run_id)
@@ -3024,9 +3341,34 @@ class MeasurementPageWorkspace(QWidget):
                 _disposition_label(row.disposition),
                 _retake_recommendation_label(row.retake_recommendation),
             )
+            row_tooltips = (
+                None,
+                status_explanation(row.evidence_type),
+                None,
+                (
+                    'データセットの検証に失敗しました'
+                    if row.dataset_error
+                    else status_explanation(row.quality_status)
+                ),
+                status_explanation(row.phase_status),
+                status_explanation(
+                    _capability_decision(row.common_timing_capability)
+                ),
+                (
+                    '現在のシーンと同じ配置です'
+                    if row.scene_matches_current
+                    else '測定時の配置と現在の配置が異なります'
+                ),
+                None,
+                status_explanation(row.disposition),
+                status_explanation(row.retake_recommendation),
+            )
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setData(Qt.ItemDataRole.UserRole, row.measurement_id)
+                tip = row_tooltips[column]
+                if tip:
+                    item.setToolTip(tip)
                 self.quality_table.setItem(row_index, column, item)
             if selected_id == row.measurement_id:
                 self.quality_table.selectRow(row_index)
@@ -3493,11 +3835,20 @@ class MeasurementPageWorkspace(QWidget):
         if row is None:
             return
         disposition = str(self.disposition_combo.currentData())
-        reason, ok = QInputDialog.getText(
+        from .workflow_help import ReasonTextDialog
+
+        reason_dialog = ReasonTextDialog(
             self,
             "測定の状態を記録",
             "この状態を記録する理由（監査ログに残ります）:",
+            on_help=(
+                (lambda: self._show_help_topic('concept.lifecycle_states'))
+                if self._help_available()
+                else None
+            ),
         )
+        ok = bool(reason_dialog.exec())
+        reason = reason_dialog.text()
         if not ok or not reason.strip():
             self._set_notice("状態を記録する理由が必要です", SemanticState.WARNING)
             return
@@ -3958,6 +4309,9 @@ class MeasurementPageWorkspace(QWidget):
             title_item = QTableWidgetItem(step.title)
             title_item.setData(_USER_ROLE, step.link)
             status_item = QTableWidgetItem(status_labels[step.status])
+            status_tip = status_explanation(step.status)
+            if status_tip:
+                status_item.setToolTip(status_tip)
             detail_item = QTableWidgetItem(step.detail)
             detail_item.setToolTip(step.detail)
             self.onboarding_table.setItem(row, 0, title_item)
@@ -4440,7 +4794,11 @@ class MeasurementPageWorkspace(QWidget):
         )
         self.comparison_metrics.setRowCount(len(metrics))
         for row_index, (name, value) in enumerate(metrics):
-            self.comparison_metrics.setItem(row_index, 0, QTableWidgetItem(name))
+            name_item = QTableWidgetItem(name)
+            metric_tip = metric_explanation(name)
+            if metric_tip:
+                name_item.setToolTip(metric_tip)
+            self.comparison_metrics.setItem(row_index, 0, name_item)
             value_item = QTableWidgetItem(value)
             value_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -4707,7 +5065,13 @@ class MeasurementPageWorkspace(QWidget):
                     on_retry is not None
                     and to_user_facing_error(error).code in RETRYABLE_ERROR_CODES
                 ):
-                    warn_user(self, error_prefix, error, on_retry=on_retry)
+                    warn_user(
+                        self,
+                        error_prefix,
+                        error,
+                        on_retry=on_retry,
+                        on_help=self._open_error_help,
+                    )
             return
         on_success(result)
 
@@ -4745,7 +5109,15 @@ class MeasurementPageWorkspace(QWidget):
         )
         self._last_operation_error_detail = error.technical_detail
         log_operation_error(error, exc)
-        self._set_notice(error.notice_text(), error.severity)
+        # REV32-TERMS: an error notice carries its own meaning+recovery —
+        # the action opens the help topic bound to this error code.
+        action = None
+        if self._help_available():
+            action = (
+                "意味と対処",
+                lambda code=error.code: self._open_error_help(code),
+            )
+        self._set_notice(error.notice_text(), error.severity, action=action)
 
     @property
     def last_operation_error_detail(self) -> str | None:
@@ -4850,10 +5222,17 @@ def build_measurement_workspace_mount(
     controller: MeasurementWorkflowController,
     *,
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
+    help_registry=None,
+    open_help: Callable[[str], bool] | None = None,
 ) -> WorkspaceMount:
     """Build the shell-owned mount without a legacy QMainWindow/QDockWidget bridge."""
 
-    workspace = MeasurementPageWorkspace(controller, on_navigate=on_navigate)
+    workspace = MeasurementPageWorkspace(
+        controller,
+        on_navigate=on_navigate,
+        help_registry=help_registry,
+        open_help=open_help,
+    )
     return WorkspaceMount.from_widget(
         workspace,
         on_activate=workspace.refresh,
@@ -4871,6 +5250,8 @@ def create_measurement_workspace_factory(
     *,
     rew_client: RewReadSource | None = None,
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
+    help_registry=None,
+    open_help: Callable[[str], bool] | None = None,
 ) -> WorkspaceFactory:
     """Return the lazy factory consumed by build_canonical_workspace_registrations."""
 
@@ -4880,7 +5261,12 @@ def create_measurement_workspace_factory(
             document_id,
             rew_client=rew_client,
         )
-        return build_measurement_workspace_mount(controller, on_navigate=on_navigate)
+        return build_measurement_workspace_mount(
+            controller,
+            on_navigate=on_navigate,
+            help_registry=help_registry,
+            open_help=open_help,
+        )
 
     return build
 

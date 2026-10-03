@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .command_registry import CommandRegistry
-from .help_registry import HelpTopic, shortcut_reference
-from .localization import PresentationLocale
+from .help_registry import HelpRegistry, HelpTopic, shortcut_reference
+from .localization import PresentationLocale, term_text
 from .ui_theme import TypographyRole, set_typography_role
 
 
@@ -95,4 +104,127 @@ class HelpDialog(QDialog):
         return cls(content.title, tuple(lines), parent)
 
 
-__all__ = ["HelpDialog"]
+class GlossaryDialog(QDialog):
+    """TermId-registry-driven glossary surface (REV32-TERMS).
+
+    Every term the app coins lives in the terminology registry; this
+    dialog is its UI: preferred label, meaning, what it is NOT, and the
+    provenance implication — plus the related help topics when the
+    registry links them. A filter box narrows the list as you type.
+    """
+
+    def __init__(
+        self,
+        registry: HelpRegistry,
+        *,
+        locale: PresentationLocale = PresentationLocale.JAPANESE,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("用語集")
+        layout = QVBoxLayout(self)
+        heading = QLabel("用語集", self)
+        set_typography_role(heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(heading)
+        self._filter = QLineEdit(self)
+        self._filter.setPlaceholderText("用語を検索…")
+        layout.addWidget(self._filter)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        host = QWidget(scroll)
+        entries = QVBoxLayout(host)
+        self._entry_widgets: list[tuple[str, QWidget]] = []
+        for term in registry.glossary():
+            body = term.meaning.get(locale) or next(
+                iter(term.meaning.values()), ''
+            )
+            not_this = term.not_this.get(locale) or next(
+                iter(term.not_this.values()), ''
+            )
+            provenance = term.provenance_implication.get(locale) or next(
+                iter(term.provenance_implication.values()), ''
+            )
+            lines = [body]
+            if not_this:
+                lines.append(f"ではないもの: {not_this}")
+            if provenance:
+                lines.append(f"由来の意味: {provenance}")
+            related = [
+                topic.localized(locale).title
+                for topic_id in term.related_topics
+                if (topic := registry.get(topic_id)) is not None
+            ]
+            if related:
+                lines.append("関連ヘルプ: " + "、".join(related))
+            text = "\n".join(line for line in lines if line)
+            card = QWidget(host)
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(0, 0, 0, 8)
+            name = term_text(term.term_id, locale)
+            title_label = QLabel(name, card)
+            set_typography_role(title_label, TypographyRole.SECTION_TITLE)
+            card_layout.addWidget(title_label)
+            body_label = QLabel(text, card)
+            body_label.setWordWrap(True)
+            card_layout.addWidget(body_label)
+            entries.addWidget(card)
+            haystack = f"{name}\n{text}".lower()
+            self._entry_widgets.append((haystack, card))
+        entries.addStretch(1)
+        scroll.setWidget(host)
+        layout.addWidget(scroll)
+        self._filter.textChanged.connect(self._apply_filter)
+        self.resize(520, 480)
+
+    def _apply_filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for haystack, card in self._entry_widgets:
+            card.setVisible(not needle or needle in haystack)
+
+
+class ReasonTextDialog(QDialog):
+    """Text prompt that can carry a help button (REV32-TERMS).
+
+    ``QInputDialog.getText`` has no affordance slot, so audit-reason
+    prompts (訂正理由・状態記録理由) use this instead: a line edit with
+    OK / キャンセル and an optional ヘルプ button that opens the bound
+    help topic without closing the dialog.
+    """
+
+    def __init__(
+        self,
+        parent: QWidget | None,
+        title: str,
+        label: str,
+        *,
+        on_help=None,
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        layout = QVBoxLayout(self)
+        prompt = QLabel(label, self)
+        prompt.setWordWrap(True)
+        layout.addWidget(prompt)
+        self.line_edit = QLineEdit(self)
+        layout.addWidget(self.line_edit)
+        buttons = QHBoxLayout()
+        if on_help is not None:
+            help_button = QPushButton("ヘルプ", self)
+            help_button.clicked.connect(on_help)
+            buttons.addWidget(help_button)
+        buttons.addStretch(1)
+        ok_button = QPushButton("OK", self)
+        ok_button.setDefault(True)
+        ok_button.clicked.connect(self.accept)
+        buttons.addWidget(ok_button)
+        cancel_button = QPushButton("キャンセル", self)
+        cancel_button.clicked.connect(self.reject)
+        buttons.addWidget(cancel_button)
+        layout.addLayout(buttons)
+
+    def text(self) -> str:
+        return self.line_edit.text()
+
+
+__all__ = ["GlossaryDialog", "HelpDialog", "ReasonTextDialog"]
