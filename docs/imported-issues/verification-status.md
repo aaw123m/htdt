@@ -39,16 +39,16 @@ original-issue order. Work through them in batches of ~10.
 | 18 | 876 | 129 | Interactive SBIR & Reflection Diagnosis UX: turn exact path authority into an explorable diagnosis surface | 2 | verified-fixed (see note) |
 | 19 | 886 | 133 | Feature authority batch integration: persist and productize acoustic targets, isolation and listening modes | 2 | verified-fixed |
 | 20 | 887 | 134 | IA v2 project-secondary integration: expose decisions, installation, commissioning and reports surfaces | 2 | verified-fixed |
-| 21 | 920 | 155 | CI red on main: authority audit coverage_gap for htdt_project_* tables | — | open queue |
-| 22 | 933 | 162 | Treatment-aware wave/hybrid gap: R130 rejects all non-empty treatment boundary options | — | open queue |
-| 23 | 938 | 164 | Room prediction execution regression: closed #457 still leaves wave providers non-runnable and hybrid permanently unsupported | — | open queue |
-| 24 | 940 | 166 | Screen-transfer solver integration regression: AcousticScreenTransferAuthority never reaches solver input | — | open queue |
-| 25 | 945 | 169 | Joint optimization execution regression: closed #524 Native Optimize stops at spec authoring | — | open queue |
-| 26 | 953 | 177 | 3D Acoustic Field Explorer product regression: closed #517 has backend authority but no Native explorer workflow | — | open queue |
-| 27 | 964 | 187 | Source applicability gap: directivity and point-source prediction have no radial or band coverage claims | — | open queue |
-| 28 | 966 | 189 | R130 source-model gap: wave solver collapses every loudspeaker to a point monopole | — | open queue |
-| 29 | 968 | 191 | Speaker clearance frame bug: front/rear/side and port checks use world axes instead of speaker-local axes | — | open queue |
-| 30 | 990 | 213 | Spatial-impression diagnostics: derive IACC, lateral-energy and envelopment evidence from computed fields | — | open queue |
+| 21 | 920 | 155 | CI red on main: authority audit coverage_gap for htdt_project_* tables | 3 | verified-fixed |
+| 22 | 933 | 162 | Treatment-aware wave/hybrid gap: R130 rejects all non-empty treatment boundary options | 3 | verified-fixed |
+| 23 | 938 | 164 | Room prediction execution regression: closed #457 still leaves wave providers non-runnable and hybrid permanently unsupported | 3 | verified-fixed |
+| 24 | 940 | 166 | Screen-transfer solver integration regression: AcousticScreenTransferAuthority never reaches solver input | 3 | verified-fixed |
+| 25 | 945 | 169 | Joint optimization execution regression: closed #524 Native Optimize stops at spec authoring | 3 | verified-fixed |
+| 26 | 953 | 177 | 3D Acoustic Field Explorer product regression: closed #517 has backend authority but no Native explorer workflow | 3 | verified-fixed |
+| 27 | 964 | 187 | Source applicability gap: directivity and point-source prediction have no radial or band coverage claims | 3 | verified-fixed |
+| 28 | 966 | 189 | R130 source-model gap: wave solver collapses every loudspeaker to a point monopole | 3 | verified-fixed |
+| 29 | 968 | 191 | Speaker clearance frame bug: front/rear/side and port checks use world axes instead of speaker-local axes | 3 | verified-fixed |
+| 30 | 990 | 213 | Spatial-impression diagnostics: derive IACC, lateral-energy and envelopment evidence from computed fields | 3 | verified-fixed |
 | 31 | 1054 | 274 | Direct-view productization regression: closed #637 remains backend-only while Room surface lacks controls | — | open queue |
 | 32 | 1086 | 306 | Overview vertical overflow: lifecycle/readiness cards can make actions unreachable | — | open queue |
 | 33 | 1087 | 307 | Top context bar responsive overflow: workspace sub-contexts need wrap/overflow handling | — | open queue |
@@ -129,6 +129,46 @@ TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
 → 130 passed
 ```
 
+## Batch 3 — REV35-SKELETON3 (2026-10-03, main @ 9ed9589e)
+
+All ten items verified-fixed on current main; no survivor. Each closing
+commit is an ancestor of `origin/main` and its regression tests still
+pass (169 tests, `-n 4`, basetemp `C:/t/skel-b3b`).
+
+| Orig | GH | Closing commit | Evidence on main |
+|------|----|----------------|------------------|
+| 920 | 155 | f1591a9f447c (Register cad_calibration_* authorities in the native audit coverage registry) | Every persistent table — including the `htdt_project_*` and `cad_calibration_*` families — is registered to an explicit audit coverage mode; `test_registry_covers_every_persisted_table` is a passing completeness invariant and unregistered tables still fail closed with `coverage_gap`. Tests: `test_authority_audit_coverage.py`, `test_cad_schema.py`. |
+| 933 | 162 | 269ab17262a0 (Fix candidate wave treatment fixture: mount panel on planar host surface) | Non-empty treatment boundary overlays compile and bind through the candidate wave execution path — `compile_treatment_boundary_overlays` over `TreatmentBoundaryCompileInput` with the panel mounted on its planar host surface. Tests: `test_cad_candidate_wave_treatment.py`. |
+| 938 | 164 | 82aed1db6c07 (Execute R170A/R170B provider lanes as persisted-evidence Room predictions) | `room_prediction_options` hybrid lane enumerates the persisted R170B catalog and reports capability/evidence verbatim; missing coverage surfaces as explicit UNSUPPORTED entries rather than a permanently-unsupported lane; `cad_provider_response` executes the lanes. Tests: `test_room_prediction_provider_runs.py`. |
+| 940 | 166 | 21f4d6035e3b (Bind exact screen-transfer authority into the acoustic snapshot) | `ScreenTransferSnapshotBinding` binds each `AcousticScreenTransferAuthority` via `ExactExternalAuthorityRef` into the acoustic snapshot (`screen_transfer_ready` gate, `screen_transfer_not_integrated` reason when unintegrated). Tests: `test_cad_acoustic_snapshot.py`. |
+| 945 | 169 | eeab47feffc8 (Joint Optimize: execute persisted specs from the native panel) | `joint_optimization_context.execute_spec` executes persisted `JointOptimizationSpec` records; the native panel drives the run — no longer stops at spec authoring. Tests: `test_joint_optimization_context.py`, `test_joint_optimization_panel.py`. |
+| 953 | 177 | 18e3ba6c5791 (Native 3D field explorer + wave source-model compatibility authority) | `FieldExplorerPanel` lives in a dedicated dock inside `prediction_workspace` (opened from the prediction scalar button), backed by `cad_field_explorer` + `cad_field_explorer_repository`. Tests: `test_cad_field_explorer.py`. |
+| 964 | 187 | c66f903817bc (Declare radial/far-field validity domain for source directivity and direct-level evaluation) | `valid_radial_domain` + `R110RadialDomainAuthority` on the source propagate through `DistanceLevelAuthority(radial_domain=...)` into direct-level evaluation; seats outside the declared domain are flagged. Tests: `test_issue_964_source_radial_domain.py`. |
+| 966 | 189 | 18e3ba6c5791 | `cad_wave_source_model.WaveSourceModelCompatibility` evaluates each bound excitation as `monopole_native` / `collapse_supported` / `collapse_unproven` — collapsing to a point monopole is a claimed, validated operation instead of an assumption. Tests: `test_cad_wave_source_model.py`. |
+| 968 | 191 | aa02a5d3a167 (Make speaker clearance checks cabinet-local instead of world-axis) | `cad_installation_context` measures clearances along cabinet-local axes (local +Y front, -Y rear, ±X sides); vertical checks keep measuring floor/ceiling clearance. Tests: `test_cad_authority_expansion.py`. |
+| 990 | 213 | 4be186e261b3 (SPAT20: derive lateral-energy and envelopment metrics from pinned directional channels) | `cad_spatial_ir_metrics` derives IACC (normalized cross-correlation), early lateral energy fraction J_LF, J_LFC and late lateral level L_J (listener envelopment) from pinned directional channels under ISO 3382 method ids. Tests: `test_cad_spatial_ir_metrics.py`. |
+
+### Scoped verification run
+
+```
+TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
+  C:/devin/python/python.exe -m pytest \
+  backend/tests/test_authority_audit_coverage.py \
+  backend/tests/test_cad_candidate_wave_treatment.py \
+  backend/tests/test_room_prediction_provider_runs.py \
+  backend/tests/test_cad_acoustic_snapshot.py \
+  backend/tests/test_joint_optimization_context.py \
+  backend/tests/test_joint_optimization_panel.py \
+  backend/tests/test_cad_field_explorer.py \
+  backend/tests/test_issue_964_source_radial_domain.py \
+  backend/tests/test_cad_wave_source_model.py \
+  backend/tests/test_cad_authority_expansion.py \
+  backend/tests/test_cad_spatial_ir_metrics.py \
+  backend/tests/test_cad_schema.py \
+  -q -n 4 -p no:warnings --basetemp=C:/t/skel-b3b
+→ 169 passed in 195s
+```
+
 ## Still-open imported issues (all gated epics)
 
 Nine imported issues remain open on GitHub — every one is a
@@ -152,7 +192,7 @@ pending Controller close-out.
 
 ## Next batch
 
-Start at queue row 21 (orig 920 / GH#155). Method per item: read the
+Start at queue row 31 (orig 1054 / GH#274). Method per item: read the
 closing commit from the issue's events, confirm it is an ancestor of
 `origin/main`, run its regression tests, and grep the claimed surface —
 then mark the row verified-fixed / still-present / invalid here and
