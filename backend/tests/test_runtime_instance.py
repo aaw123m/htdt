@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import sysconfig
 
 import pytest
 
@@ -167,8 +168,12 @@ def test_windows_lock_authority_is_byte_range_lock_on_lock_file(tmp_path: Path) 
 
 def test_lock_excludes_other_processes_and_os_releases_on_exit(tmp_path: Path) -> None:
     child_src = (
-        'import os, sys, time\n'
+        'import os, site, sys, time\n'
         'from pathlib import Path\n'
+        'site.addsitedir(sys.argv[2])\n'
+        'if sys.argv[3] != sys.argv[2]:\n'
+        '    site.addsitedir(sys.argv[3])\n'
+        'sys.path.insert(0, sys.argv[4])\n'
         'from htdt.runtime_instance import SingleInstanceGuard\n'
         'guard = SingleInstanceGuard(Path(sys.argv[1]))\n'
         'if not guard.acquire():\n'
@@ -182,8 +187,11 @@ def test_lock_excludes_other_processes_and_os_releases_on_exit(tmp_path: Path) -
     # _base_executable bypasses the venv launcher shim so Popen.pid is the
     # actual interpreter process and terminate() kills the lock holder.
     python = getattr(sys, '_base_executable', sys.executable)
+    # The base interpreter must still use this environment's declared packages.
+    package_paths = sysconfig.get_paths()
     child = subprocess.Popen(
-        [python, '-c', child_src, str(tmp_path)],
+        [python, '-c', child_src, str(tmp_path), package_paths['purelib'],
+         package_paths['platlib'], str(_src_dir())],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
@@ -195,6 +203,7 @@ def test_lock_excludes_other_processes_and_os_releases_on_exit(tmp_path: Path) -
         assert banner[:1] == ['locked'], f'child failed to lock: {child.stderr.read() if child.stderr else ""}'
         child_pid = int(banner[1])
         assert child_pid != os.getpid()
+        assert child_pid == child.pid
 
         contender = SingleInstanceGuard(tmp_path)
         # A holder in a different OS process excludes us through the lock file
