@@ -92,3 +92,36 @@ def test_floor_pick_snap_rounds_to_grid_step(tmp_path) -> None:
     assert geometry._snap_floor(1.12, 2.38) == (1.12, 2.38)
 
     _teardown(app, workspace, geometry)
+
+
+# -- whole-segment wall hit -----------------------------------------------------
+
+def test_hit_handle_selects_wall_along_segment_not_only_midpoint(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    geometry.mode = "edit"
+    # 1 domain metre -> 100 screen pixels; f1 room is 6x4 with edge 0 the
+    # front-left -> front-right wall along y=0.
+    geometry._project = lambda vertex: QPointF(vertex.x_m * 100.0, vertex.y_m * 100.0)
+
+    # 150 px away from the edge midpoint: missed before this port, hits now.
+    assert geometry._hit_handle(QPointF(450.0, 4.0)) == ("edge", 0)
+    # The other walls are reachable the same way.
+    assert geometry._hit_handle(QPointF(604.0, 200.0)) == ("edge", 1)
+
+    _teardown(app, workspace, geometry)
+
+
+def test_hit_handle_vertex_zone_still_wins_near_corner(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    geometry.mode = "edit"
+    geometry._project = lambda vertex: QPointF(vertex.x_m * 100.0, vertex.y_m * 100.0)
+
+    # 9px from front-left: inside the 12px vertex grab, so the segment
+    # candidate is suppressed and the vertex resolves.
+    assert geometry._hit_handle(QPointF(8.0, 5.0)) == ("vertex", 0)
+    # Well off every wall: deselect.
+    assert geometry._hit_handle(QPointF(300.0, 40.0)) is None
+
+    _teardown(app, workspace, geometry)

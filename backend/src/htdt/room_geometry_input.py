@@ -134,7 +134,7 @@ class RoomGeometryInputController(QObject):
         self._view_top()
         self._render_edit_handles()
         self.workspace._set_status(
-            "形状編集中 · 頂点をドラッグ · 辺中央を選択して壁を移動 · Enter で終了"
+            "形状編集中 · 頂点をドラッグ · 壁を選択・ドラッグで移動 · Enter で終了"
         )
 
     def commit(self) -> bool:
@@ -862,6 +862,25 @@ class RoomGeometryInputController(QObject):
         point = self._project(self._sketch[0])
         return hypot(position.x() - point.x(), position.y() - point.y()) <= 12.0
 
+    @staticmethod
+    def _point_segment_distance(
+        position: QPointF,
+        start: QPointF,
+        end: QPointF,
+    ) -> float:
+        """Screen-space distance from ``position`` to segment ``start``-``end``."""
+
+        px, py = position.x(), position.y()
+        ax, ay = start.x(), start.y()
+        bx, by = end.x(), end.y()
+        dx = bx - ax
+        dy = by - ay
+        denom = dx * dx + dy * dy
+        if denom <= 1e-12:
+            return hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
+        return hypot(px - (ax + t * dx), py - (ay + t * dy))
+
     def _hit_handle(self, position: QPointF) -> tuple[str, int] | None:
         room = self.room
         if room is None:
@@ -875,13 +894,18 @@ class RoomGeometryInputController(QObject):
                 hits.append((distance, "vertex", index))
         for index, start in enumerate(vertices):
             end = vertices[(index + 1) % len(vertices)]
-            midpoint = RoomVertex(
-                vertex_id="midpoint",
-                x_m=(start.x_m + end.x_m) * 0.5,
-                y_m=(start.y_m + end.y_m) * 0.5,
+            start_point = self._project(start)
+            end_point = self._project(end)
+            # Legacy wall-mode parity: the whole wall body is selectable, not
+            # just its midpoint handle. Stay clear of the vertex grab zone so
+            # a vertex pick keeps resolving to the vertex handle.
+            endpoint_distance = min(
+                hypot(position.x() - start_point.x(), position.y() - start_point.y()),
+                hypot(position.x() - end_point.x(), position.y() - end_point.y()),
             )
-            point = self._project(midpoint)
-            distance = hypot(position.x() - point.x(), position.y() - point.y())
+            if endpoint_distance <= 14.0:
+                continue
+            distance = self._point_segment_distance(position, start_point, end_point)
             if distance <= 10.0:
                 hits.append((distance, "edge", index))
         if not hits:
