@@ -1398,6 +1398,34 @@ def _load_roomplan_capture_metadata(
                 f"{field}.processed_sha256 conflicts with the manifest"
             )
 
+    # Optional lineage byte counts, when supplied, must match the byte
+    # length the manifest declares for the selected payload (#475/#476).
+    # Emitters that omit the counts stay accepted.
+    raw_byte_count = document.get("raw_byte_count")
+    if (
+        raw_byte_count is not None
+        and declared[raw_payload_path]["bytes"] != raw_byte_count
+    ):
+        raise CaptureIngestionContractError(
+            f"{field}.raw_byte_count is inconsistent with the declared "
+            f"payload at {raw_payload_path!r}"
+        )
+    processed_byte_count = document.get("processed_byte_count")
+    if processed_byte_count is not None:
+        if processed_payload_path is None:
+            raise CaptureIngestionContractError(
+                f"{field}.processed_byte_count has no selected "
+                "processed payload"
+            )
+        if (
+            declared[processed_payload_path]["bytes"]
+            != processed_byte_count
+        ):
+            raise CaptureIngestionContractError(
+                f"{field}.processed_byte_count is inconsistent with "
+                f"the declared payload at {processed_payload_path!r}"
+            )
+
     for key in ("surface_count", "object_count"):
         value = document.get(key)
         if value is not None:
