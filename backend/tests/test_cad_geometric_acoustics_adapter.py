@@ -54,12 +54,14 @@ from htdt.cad_geometric_acoustics_adapter import (
     HtdtPortalDirectEngine,
     HtdtPortalGraphDirectEngine,
     HtdtPortalFirstOrderReflectionEngine,
+    HtdtPortalSpecularChainGraphEngine,
     HtdtPortalSpecularGraphEngine,
     HTDT_PLANAR_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF,
     HTDT_PORTAL_DIRECT_IMPLEMENTATION_REF,
     HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF,
     HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF,
+    HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF,
     HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF,
     NativeImageSource,
     PYROOMACOUSTICS_SOLVER_IMPLEMENTATION_REF,
@@ -1408,12 +1410,16 @@ def _fixture(
         if use_pyroomacoustics
         else (
             (
-                HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF
-                if portal_specular_engine or maximum_reflection_order == 2
+                HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+                if maximum_reflection_order >= 3
                 else (
-                    HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF
-                    if maximum_reflection_order == 1
-                    else HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
+                    HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF
+                    if portal_specular_engine or maximum_reflection_order == 2
+                    else (
+                        HTDT_PORTAL_FIRST_ORDER_IMPLEMENTATION_REF
+                        if maximum_reflection_order == 1
+                        else HTDT_PORTAL_GRAPH_DIRECT_IMPLEMENTATION_REF
+                    )
                 )
             )
             if room_policy == 'general_planar_multi_region_portal_v1'
@@ -1594,16 +1600,21 @@ def _execute(fx, engine=None):
     if engine is None:
         engine = (
             (
-                HtdtPortalSpecularGraphEngine()
+                HtdtPortalSpecularChainGraphEngine()
                 if fx['execution_input'].solver_implementation_ref
-                == HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF
+                == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
                 else (
-                    HtdtPortalFirstOrderReflectionEngine()
-                    if fx['execution_input'].maximum_reflection_order == 1
+                    HtdtPortalSpecularGraphEngine()
+                    if fx['execution_input'].solver_implementation_ref
+                    == HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF
                     else (
-                        HtdtPortalGraphDirectEngine()
-                        if fx['execution_input'].portal_graph is not None
-                        else HtdtPortalDirectEngine()
+                        HtdtPortalFirstOrderReflectionEngine()
+                        if fx['execution_input'].maximum_reflection_order == 1
+                        else (
+                            HtdtPortalGraphDirectEngine()
+                            if fx['execution_input'].portal_graph is not None
+                            else HtdtPortalDirectEngine()
+                        )
                     )
                 )
             )
@@ -3382,6 +3393,338 @@ def test_multi_portal_reflection_save_reopen_and_stale_authority(
         repository.get(artifact.artifact_id)
 
 
+def test_multi_portal_third_order_specular_chains(
+    tmp_path: Path,
+) -> None:
+    fx = _specular_chain_fixture(
+        tmp_path,
+        maximum_reflection_order=3,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    artifact = _execute(fx)
+
+    assert artifact.path_scope == 'multi_portal_third_order_specular'
+    assert (
+        artifact.solver_implementation_ref
+        == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    )
+    surface_by_key = fx['surface_by_key']
+    third_order = {
+        item.ordered_interaction_surface_ids: item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and len(item.ordered_interaction_surface_ids) == 3
+    }
+    assert set(third_order) == {
+        (
+            surface_by_key['chain-ceiling-0'],
+            surface_by_key['chain-left-0'],
+            surface_by_key['chain-floor-1'],
+        ),
+        (
+            surface_by_key['chain-ceiling-0'],
+            surface_by_key['chain-floor-1'],
+            surface_by_key['chain-ceiling-2'],
+        ),
+        (
+            surface_by_key['chain-interface-1-2'],
+            surface_by_key['chain-front-1'],
+            surface_by_key['chain-interface-0-1'],
+        ),
+        (
+            surface_by_key['chain-interface-1-2'],
+            surface_by_key['chain-rear-1'],
+            surface_by_key['chain-interface-0-1'],
+        ),
+        (
+            surface_by_key['chain-interface-1-2'],
+            surface_by_key['chain-floor-1'],
+            surface_by_key['chain-interface-0-1'],
+        ),
+        (
+            surface_by_key['chain-floor-1'],
+            surface_by_key['chain-right-2'],
+            surface_by_key['chain-ceiling-2'],
+        ),
+    }
+
+    chain = third_order[(
+        surface_by_key['chain-ceiling-0'],
+        surface_by_key['chain-floor-1'],
+        surface_by_key['chain-ceiling-2'],
+    )]
+    assert tuple(
+        item.kind for item in chain.ordered_interactions or ()
+    ) == (
+        'reflection',
+        'portal_crossing',
+        'reflection',
+        'portal_crossing',
+        'reflection',
+    )
+    expected_points = (
+        (19.0 / 13.0, 1.5, 2.0),
+        (3.0, 1.5, 0.0),
+        (59.0 / 13.0, 1.5, 2.0),
+    )
+    reflections = [
+        item
+        for item in chain.ordered_interactions or ()
+        if item.kind == 'reflection'
+    ]
+    for interaction, expected in zip(
+        reflections, expected_points, strict=True
+    ):
+        assert interaction.point.x_m == pytest.approx(expected[0])
+        assert interaction.point.y_m == pytest.approx(expected[1])
+        assert interaction.point.z_m == pytest.approx(expected[2])
+    assert tuple(
+        item.region_id for item in chain.region_segment_evidence or ()
+    ) == (
+        'region-0',
+        'region-0',
+        'region-1',
+        'region-1',
+        'region-2',
+        'region-2',
+    )
+    assert isclose(
+        chain.geometric_path_length_m, 6.560487786743, abs_tol=1.0e-5
+    )
+    band_500 = next(
+        item for item in chain.bands if item.center_hz == 500.0
+    )
+    assert band_500.boundary_materials is not None
+    assert tuple(
+        item.source_surface_id for item in band_500.boundary_materials
+    ) == chain.ordered_interaction_surface_ids
+    assert band_500.relative_energy_transport_per_m2 == pytest.approx(
+        0.72**3 / (6.560487786743**2)
+    )
+
+    floor_id = surface_by_key['chain-floor-1']
+    assert any(
+        item.interaction_surface_ids == (floor_id, floor_id, floor_id)
+        and item.decision == 'UNSUPPORTED_GEOMETRY'
+        and 'degenerate specular chain interaction' in item.reason
+        for item in artifact.rejected_candidates
+    )
+
+
+def test_multi_portal_fourth_order_specular_chains(
+    tmp_path: Path,
+) -> None:
+    fx = _specular_chain_fixture(
+        tmp_path,
+        maximum_reflection_order=4,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    artifact = _execute(fx)
+
+    assert artifact.path_scope == 'multi_portal_fourth_order_specular'
+    assert (
+        artifact.solver_implementation_ref
+        == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    )
+    surface_by_key = fx['surface_by_key']
+    fourth_order = {
+        item.ordered_interaction_surface_ids: item
+        for item in artifact.paths
+        if item.path_type == 'specular_reflection'
+        and len(item.ordered_interaction_surface_ids) == 4
+    }
+    assert set(fourth_order) == {
+        (
+            surface_by_key['chain-front-0'],
+            surface_by_key['chain-rear-1'],
+            surface_by_key['chain-front-1'],
+            surface_by_key['chain-rear-2'],
+        ),
+        (
+            surface_by_key['chain-ceiling-0'],
+            surface_by_key['chain-floor-1'],
+            surface_by_key['chain-ceiling-1'],
+            surface_by_key['chain-floor-2'],
+        ),
+        (
+            surface_by_key['chain-floor-0'],
+            surface_by_key['chain-ceiling-1'],
+            surface_by_key['chain-floor-1'],
+            surface_by_key['chain-ceiling-2'],
+        ),
+        (
+            surface_by_key['chain-rear-0'],
+            surface_by_key['chain-front-1'],
+            surface_by_key['chain-rear-1'],
+            surface_by_key['chain-front-2'],
+        ),
+    }
+
+    chain = fourth_order[(
+        surface_by_key['chain-ceiling-0'],
+        surface_by_key['chain-floor-1'],
+        surface_by_key['chain-ceiling-1'],
+        surface_by_key['chain-floor-2'],
+    )]
+    assert tuple(
+        item.kind for item in chain.ordered_interactions or ()
+    ) == (
+        'reflection',
+        'portal_crossing',
+        'reflection',
+        'reflection',
+        'portal_crossing',
+        'reflection',
+    )
+    assert tuple(
+        item.region_id for item in chain.region_segment_evidence or ()
+    ) == (
+        'region-0',
+        'region-0',
+        'region-1',
+        'region-1',
+        'region-1',
+        'region-2',
+        'region-2',
+    )
+    assert isclose(
+        chain.geometric_path_length_m, 8.944271909999, abs_tol=1.0e-5
+    )
+    band_500 = next(
+        item for item in chain.bands if item.center_hz == 500.0
+    )
+    assert band_500.boundary_materials is not None
+    assert len(band_500.boundary_materials) == 4
+    assert band_500.relative_energy_transport_per_m2 == pytest.approx(
+        0.72**4 / (8.944271909999**2)
+    )
+
+
+def test_specular_chain_engine_authority_order_gates(
+    tmp_path: Path,
+) -> None:
+    """Chain ref requires order 3..4; the v2 specular graph ref stays <=2."""
+    fx = _specular_chain_fixture(
+        tmp_path / 'chain',
+        maximum_reflection_order=3,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    demoted = fx['execution_input'].model_copy(
+        update={'maximum_reflection_order': 2}
+    )
+    digest = _semantic_hash(demoted.semantic_payload())
+    fx['execution_input'] = demoted.model_copy(
+        update={
+            'semantic_sha256': digest,
+            'execution_input_id': f'r150-ga-execution-input:{digest}',
+        }
+    )
+    with pytest.raises(
+        DeterministicGaUnsupportedError,
+        match='reflection order of three or four',
+    ) as error:
+        _execute(fx)
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_TOPOLOGY'
+
+    fx = _specular_chain_fixture(
+        tmp_path / 'graph',
+        maximum_reflection_order=2,
+        receiver_position=Position3(x_m=5.0, y_m=0.8, z_m=1.0),
+    )
+    promoted = fx['execution_input'].model_copy(
+        update={'maximum_reflection_order': 3}
+    )
+    digest = _semantic_hash(promoted.semantic_payload())
+    fx['execution_input'] = promoted.model_copy(
+        update={
+            'semantic_sha256': digest,
+            'execution_input_id': f'r150-ga-execution-input:{digest}',
+        }
+    )
+    with pytest.raises(
+        DeterministicGaUnsupportedError,
+        match='bounded to second-order reflection',
+    ) as error:
+        _execute(fx)
+    assert error.value.reason_code == 'UNSUPPORTED_PORTAL_TOPOLOGY'
+
+
+def test_portal_chain_configuration_requires_portal_policy() -> None:
+    configuration = build_deterministic_ga_configuration(
+        frequency_centers_hz=(500.0, 1000.0),
+        room_policy=PORTAL_POLICY,
+        maximum_reflection_order=3,
+        maximum_portal_crossings=4,
+    )
+    assert configuration.maximum_reflection_order == 3
+    configuration = build_deterministic_ga_configuration(
+        frequency_centers_hz=(500.0, 1000.0),
+        room_policy=PORTAL_POLICY,
+        maximum_reflection_order=4,
+        maximum_portal_crossings=4,
+    )
+    assert configuration.maximum_reflection_order == 4
+
+    with pytest.raises(
+        ValueError, match='only by the multi-region Portal geometry policy'
+    ):
+        build_deterministic_ga_configuration(
+            frequency_centers_hz=(500.0, 1000.0),
+            room_policy=GENERAL_POLICY,
+            maximum_reflection_order=3,
+        )
+    with pytest.raises(
+        ValueError, match='only by the multi-region Portal geometry policy'
+    ):
+        build_deterministic_ga_configuration(
+            frequency_centers_hz=(500.0, 1000.0),
+            maximum_reflection_order=4,
+        )
+
+
+def test_specular_chain_artifact_bit_stable_and_reopens(
+    tmp_path: Path,
+) -> None:
+    fx = _specular_chain_fixture(
+        tmp_path,
+        maximum_reflection_order=3,
+        receiver_position=Position3(x_m=5.0, y_m=1.5, z_m=1.4),
+    )
+    artifact = _execute(fx)
+    assert _execute(fx) == artifact
+
+    repository = CadDeterministicPathArtifactRepository(
+        fx['scene_repository'],
+        snapshot_repository=fx['snapshot_repository'],
+        dispatch_repository=fx['dispatch_repository'],
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    repository.save_execution_input(fx['execution_input'])
+    repository.save(artifact)
+
+    reopened_scene = SceneRepository(fx['scene_repository'].path)
+    reopened = CadDeterministicPathArtifactRepository(
+        reopened_scene,
+        snapshot_repository=CadAcousticSnapshotRepository(
+            reopened_scene,
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            authority_resolvers=fx['snapshot_authority_resolvers'],
+        ),
+        dispatch_repository=CadAcousticSolverDispatchRepository(
+            reopened_scene,
+            external_authority_resolver=fx['external_resolver'],
+            fidelity_policy_resolver=fx['fidelity_policy_resolver'],
+            snapshot_authority_resolvers=fx['snapshot_authority_resolvers'],
+        ),
+        configuration_resolver=fx['configuration_resolver'],
+        material_resolver=fx['material_resolver'],
+        geometry_authority_resolver=fx['geometry_resolver'],
+    )
+    assert reopened.get(artifact.artifact_id) == artifact
+
+
 def test_snapshot_read_reresolves_exact_r150_topology_preflight(
     tmp_path: Path,
 ) -> None:
@@ -3958,6 +4301,7 @@ def test_engine_id_version_pairs_are_unique_and_registered() -> None:
         HtdtPortalGraphDirectEngine(),
         HtdtPortalFirstOrderReflectionEngine(),
         HtdtPortalSpecularGraphEngine(),
+        HtdtPortalSpecularChainGraphEngine(),
         PyroomacousticsImageSourceEngine(),
     )
     pairs = [(e.engine_id, e.engine_version) for e in engines]

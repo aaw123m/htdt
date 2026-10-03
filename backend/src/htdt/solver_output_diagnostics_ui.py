@@ -66,6 +66,8 @@ _OBSERVABLE_LABELS = {
     'single_portal_first_order_specular': '単一ポータル1次鏡面',
     'multi_portal_first_order_specular': 'マルチポータル1次鏡面',
     'multi_portal_second_order_specular': 'マルチポータル2次鏡面',
+    'multi_portal_third_order_specular': 'マルチポータル3次鏡面',
+    'multi_portal_fourth_order_specular': 'マルチポータル4次鏡面',
     'single_region_bounded_late_field_energy_v1': '遅延フィールドエネルギー（有界）',
     'late_energy_density_per_m2': '遅延エネルギー密度',
     'late_energy_decay': '遅延エネルギー減衰',
