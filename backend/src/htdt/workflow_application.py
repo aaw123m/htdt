@@ -3198,9 +3198,12 @@ class WorkflowApplicationComposition:
             on_navigate=self._navigate_target,
             help_registry=self.help_registry,
             open_help=self._open_help_topic,
+            preferences=self.preferences,
+            activity_center=self.activity_center,
         )
         workspace = mount.widget
         original_activate = mount.on_activate
+        original_deactivate = mount.on_deactivate
 
         def activate() -> None:
             self._unbind_workspace_commands()
@@ -3214,6 +3217,10 @@ class WorkflowApplicationComposition:
 
         def deactivate() -> None:
             self.registry.unbind("measurements.import_rew")
+            # Chain the mount's own deactivation (REV40-REWAUTO: stops the
+            # REW automation poll while the page is hidden).
+            if original_deactivate is not None:
+                original_deactivate()
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
             if target.primary_id is None:
