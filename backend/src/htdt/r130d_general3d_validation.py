@@ -99,6 +99,43 @@ TIME_GATE_PARTITION_CELL_IDS = (
     'band_late_150_250ms',
 )
 TIME_GATE_PARTITION_MAX_ABS_TOLERANCE = 1.0e-12
+RECEIVER_POSITION_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.receiver-position-sensitivity-diagnostic-plan-1'
+)
+RECEIVER_POSITION_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256 = (
+    'aa984be8893ff1a9b7f7f02b08acbf63e171ed41c27555212566579a9c95d6a7'
+)
+RECEIVER_POSITION_CANONICAL_CELL_ID = 'canonical_position'
+RECEIVER_POSITION_CELL_IDS = (
+    'canonical_position',
+    'x_minus_1',
+    'x_plus_1',
+    'x_minus_2',
+    'x_plus_2',
+    'y_minus_1',
+    'y_plus_1',
+    'y_minus_2',
+    'y_plus_2',
+    'z_minus_1',
+    'z_plus_1',
+    'z_minus_2',
+    'z_plus_2',
+)
+RECEIVER_POSITION_OFFSET_CELLS: dict[str, tuple[int, int, int]] = {
+    'canonical_position': (0, 0, 0),
+    'x_minus_1': (-1, 0, 0),
+    'x_plus_1': (1, 0, 0),
+    'x_minus_2': (-2, 0, 0),
+    'x_plus_2': (2, 0, 0),
+    'y_minus_1': (0, -1, 0),
+    'y_plus_1': (0, 1, 0),
+    'y_minus_2': (0, -2, 0),
+    'y_plus_2': (0, 2, 0),
+    'z_minus_1': (0, 0, -1),
+    'z_plus_1': (0, 0, 1),
+    'z_minus_2': (0, 0, -2),
+    'z_plus_2': (0, 0, 2),
+}
 DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
 DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
 
@@ -215,6 +252,31 @@ def load_time_gate_localization_diagnostic_plan(
         raise ValueError(
             'R130D time-gate localization diagnostic plan differs from the '
             f'frozen pre-run authority: {digest}'
+        )
+    return payload
+
+
+def load_receiver_position_sensitivity_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError(
+            'R130D receiver-position sensitivity diagnostic plan must be a '
+            'JSON object'
+        )
+    if payload.get('schema_version') != (
+        RECEIVER_POSITION_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA
+    ):
+        raise ValueError(
+            'R130D receiver-position sensitivity diagnostic plan schema '
+            'mismatch'
+        )
+    digest = semantic_hash(payload)
+    if digest != RECEIVER_POSITION_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D receiver-position sensitivity diagnostic plan differs '
+            f'from the frozen pre-run authority: {digest}'
         )
     return payload
 
@@ -1005,6 +1067,230 @@ def validate_time_gate_localization_diagnostic_binding(
         )
 
 
+def validate_receiver_position_sensitivity_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+    dense_diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    target_parent = diagnostic.get('parent_target_window_diagnostic', {})
+    spatial_parent = diagnostic.get('parent_spatial_representation_diagnostic', {})
+    dense_parent = diagnostic.get('parent_dense_frequency_diagnostic', {})
+    stencil_parent = diagnostic.get('parent_stencil_sensitivity_diagnostic', {})
+    voxel_parent = diagnostic.get(
+        'parent_voxel_staircase_sensitivity_diagnostic', {}
+    )
+    time_gate_parent = diagnostic.get(
+        'parent_time_gate_localization_diagnostic', {}
+    )
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent target-window diagnostic sha256',
+            target_parent.get('semantic_sha256'),
+            TARGET_WINDOW_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent spatial diagnostic sha256',
+            spatial_parent.get('semantic_sha256'),
+            SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent stencil diagnostic sha256',
+            stencil_parent.get('semantic_sha256'),
+            STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent voxel-staircase diagnostic sha256',
+            voxel_parent.get('semantic_sha256'),
+            VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent time-gate diagnostic sha256',
+            time_gate_parent.get('semantic_sha256'),
+            TIME_GATE_LOCALIZATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'bound dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            semantic_hash(dense_diagnostic),
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                'R130D receiver-position sensitivity diagnostic binding '
+                f'mismatch for {label}: {actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError(
+            'R130D receiver-position diagnostic changes canonical thresholds'
+        )
+    receiver = diagnostic.get('receiver_position_sensitivity', {})
+    offsets = list(receiver.get('receiver_offsets', ()))
+    offset_ids = [str(item.get('cell_id', '')) for item in offsets]
+    if tuple(offset_ids) != RECEIVER_POSITION_CELL_IDS:
+        raise ValueError('receiver-position offset cells are not the frozen set')
+    control_flags = [bool(item.get('control')) for item in offsets]
+    if control_flags != [True] + [False] * (len(RECEIVER_POSITION_CELL_IDS) - 1):
+        raise ValueError('receiver-position offset control flags are not frozen')
+    for item in offsets:
+        cell_id = str(item.get('cell_id', ''))
+        offset = item.get('offset_cells', ())
+        if (
+            not isinstance(offset, list)
+            or len(offset) != 3
+            or tuple(int(v) for v in offset)
+            != RECEIVER_POSITION_OFFSET_CELLS[cell_id]
+        ):
+            raise ValueError(
+                f'receiver-position offset {cell_id!r} is not the frozen '
+                'whole-cell offset'
+            )
+    convention = receiver.get('offset_lattice_convention', {})
+    if not str(convention.get('units', '')).startswith('whole grid cells'):
+        raise ValueError(
+            'receiver-position offsets must be declared in whole grid cells'
+        )
+    cell_axis = receiver.get('cell_axis', {})
+    if tuple(cell_axis.get('cells', ())) != RECEIVER_POSITION_CELL_IDS:
+        raise ValueError('receiver-position cell axis is not frozen')
+    if cell_axis.get('canonical_cell_id') != RECEIVER_POSITION_CANONICAL_CELL_ID:
+        raise ValueError('receiver-position canonical cell is not frozen')
+    evaluation = receiver.get('evaluation', {})
+    dense_block = dense_diagnostic.get('dense_frequency_neighborhood', {})
+    if evaluation.get('normalized_complex_difference_formula') != dense_block.get(
+        'normalized_complex_difference_formula'
+    ):
+        raise ValueError(
+            'receiver-position diagnostic metric formula differs from dense '
+            'authority'
+        )
+    if float(evaluation.get('fixed_floor', math.nan)) != float(
+        dense_block.get('fixed_floor', math.nan)
+    ):
+        raise ValueError(
+            'receiver-position diagnostic fixed floor differs from dense '
+            'authority'
+        )
+    if list(evaluation.get('pairs', ())) != list(dense_block.get('pairs', ())):
+        raise ValueError(
+            'receiver-position diagnostic pairs differ from dense authority'
+        )
+    per_cell = evaluation.get('per_cell_classification', {})
+    dense_classification = dense_block.get('classification', {})
+    if int(per_cell.get('localized_max_count', -1)) != int(
+        dense_classification.get('localized_max_count', -2)
+    ) or int(per_cell.get('persists_min_count', -1)) != int(
+        dense_classification.get('persists_min_count', -2)
+    ):
+        raise ValueError(
+            'receiver-position diagnostic cell thresholds differ from dense '
+            'authority'
+        )
+    classification = evaluation.get('classification', {})
+    if tuple(classification.get(key, '') for key in (
+        'invariant', 'position_local', 'room_global', 'mixed', 'not_evaluated',
+    )) != (
+        'RECEIVER_POSITION_WORSENING_PATTERN_INVARIANT',
+        'RECEIVER_POSITION_WORSENING_POSITION_LOCAL',
+        'RECEIVER_POSITION_WORSENING_ROOM_GLOBAL',
+        'RECEIVER_POSITION_WORSENING_PATTERN_MIXED',
+        'NOT_EVALUATED',
+    ):
+        raise ValueError('receiver-position classification labels are not frozen')
+    if evaluation.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only cells cannot enter canonical acceptance')
+    binding = diagnostic.get('run76_record_binding', {})
+    dense_binding = dense_diagnostic.get('run76_record_binding', {})
+    levels = list(binding.get('levels', ()))
+    dense_levels = list(dense_binding.get('levels', ()))
+    if [float(item.get('points_per_wavelength', math.nan)) for item in levels] != [
+        float(x) for x in plan.pffdtd.points_per_wavelength
+    ]:
+        raise ValueError('run76 record binding levels must match the PPW ladder')
+    for item in levels:
+        for key in ('pressure_trace_sha256', 'source_trace_sha256'):
+            value = str(item.get(key, ''))
+            if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError(f'run76 record binding {key} is not a sha256')
+    for item, dense_item in zip(levels, dense_levels):
+        if (
+            float(item.get('points_per_wavelength', math.nan))
+            != float(dense_item.get('points_per_wavelength', math.nan))
+            or item.get('pressure_trace_sha256')
+            != dense_item.get('pressure_trace_sha256')
+            or item.get('source_trace_sha256')
+            != dense_item.get('source_trace_sha256')
+        ):
+            raise ValueError('run76 record binding pins differ from dense authority')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError(
+            'R130D receiver-position diagnostic forbidden-change flag is on'
+        )
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError(
+            'R130D receiver-position diagnostic decision semantics are not '
+            'fail-closed'
+        )
+
+
 def normalized_complex_difference(
     first: complex,
     second: complex,
@@ -1302,6 +1588,81 @@ def classify_time_gate_localization(
     }
 
 
+def classify_receiver_position_sensitivity(
+    *,
+    canonical_worsening_by_frequency: Sequence[bool],
+    canonical_classification: str,
+    noncanonical_cells: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """Frozen rule for the receiver-position sensitivity axis.
+
+    A moved cell "carries" the worsening iff its per-cell dense
+    classification is not localized (worsening count above the frozen
+    localized maximum). Evaluation order: invariant -> position_local ->
+    room_global -> mixed.
+    """
+    canonical_vector = tuple(bool(x) for x in canonical_worsening_by_frequency)
+    if len(canonical_vector) < 2:
+        raise ValueError(
+            'receiver-position classifier requires the canonical vector'
+        )
+    localized_label = 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
+    hamming: dict[str, int] = {}
+    localized_cell_ids: list[str] = []
+    shifted_cell_ids: list[str] = []
+    identical_cell_count = 0
+    seen_ids: list[str] = []
+    for cell in noncanonical_cells:
+        cell_id = str(cell.get('cell_id', ''))
+        if cell_id == RECEIVER_POSITION_CANONICAL_CELL_ID:
+            raise ValueError('non-canonical cell list must not contain the control')
+        if cell_id not in RECEIVER_POSITION_CELL_IDS:
+            raise ValueError(
+                f'receiver-position cell {cell_id!r} is not in the frozen set'
+            )
+        seen_ids.append(cell_id)
+        vector = tuple(bool(x) for x in cell.get('worsening_by_frequency', ()))
+        if len(vector) != len(canonical_vector):
+            raise ValueError(
+                f'receiver-position cell {cell_id!r} worsening vector length '
+                'mismatch'
+            )
+        distance = sum(a != b for a, b in zip(vector, canonical_vector))
+        hamming[cell_id] = int(distance)
+        classification = str(cell.get('classification', ''))
+        if distance == 0:
+            identical_cell_count += 1
+        if classification == localized_label:
+            localized_cell_ids.append(cell_id)
+        elif distance != 0:
+            shifted_cell_ids.append(cell_id)
+    if set(seen_ids) != (
+        set(RECEIVER_POSITION_CELL_IDS) - {RECEIVER_POSITION_CANONICAL_CELL_ID}
+    ):
+        raise ValueError(
+            'receiver-position classifier requires exactly the frozen '
+            'non-control cells'
+        )
+    if identical_cell_count == len(noncanonical_cells):
+        classification = 'RECEIVER_POSITION_WORSENING_PATTERN_INVARIANT'
+    elif localized_cell_ids:
+        classification = 'RECEIVER_POSITION_WORSENING_POSITION_LOCAL'
+    elif shifted_cell_ids:
+        classification = 'RECEIVER_POSITION_WORSENING_ROOM_GLOBAL'
+    else:
+        classification = 'RECEIVER_POSITION_WORSENING_PATTERN_MIXED'
+    return {
+        'classification': classification,
+        'canonical_cell_id': RECEIVER_POSITION_CANONICAL_CELL_ID,
+        'canonical_dense_classification': canonical_classification,
+        'evaluated_noncanonical_cell_count': len(noncanonical_cells),
+        'identical_vector_cell_count': identical_cell_count,
+        'localized_cell_ids': localized_cell_ids,
+        'shifted_cell_ids': shifted_cell_ids,
+        'hamming_distance_by_cell': hamming,
+    }
+
+
 def classify_spatial_representation_trend(
     levels: Sequence[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -1521,6 +1882,124 @@ def interpolation_stencil_diagnostic(
         'weight_sum': float(np.sum(alpha)),
         'fractional_cell_coordinate': [float(x) for x in fractional],
         'reconstructed_coordinate_m': [float(x) for x in reconstructed],
+        'reconstruction_error_m': reconstruction_error,
+    }
+    return {**core, 'stencil_sha256': semantic_hash(core)}
+
+
+def receiver_position_offset_stencil(
+    *,
+    cell_id: str,
+    xv: Sequence[float],
+    yv: Sequence[float],
+    zv: Sequence[float],
+    canonical_linear_indices: Sequence[int],
+    canonical_weights: Sequence[float],
+    grid_spacing_m: float,
+    canonical_position_m: Sequence[float],
+) -> dict[str, Any]:
+    """Frozen moved-receiver stencil for the receiver-position axis.
+
+    A whole-cell offset translates the canonical trilinear node set rigidly
+    on the level's own uniform cartesian grid: every linear index gains
+    ``kx*Ny*Nz + ky*Nz + kz`` while the node ordering and the canonical
+    trilinear weight row are preserved. Fail-closed gates: the offset must
+    be the frozen offset of the declared cell, every moved node must stay
+    in-grid and off the outer absorbing planes (axis index 0 or N-1), the
+    moved node coordinates must be the canonical coordinates translated by
+    the exact offset vector, and the unchanged canonical weights must still
+    reconstruct the moved exact position.
+    """
+    if cell_id not in RECEIVER_POSITION_OFFSET_CELLS:
+        raise ValueError(f'unknown receiver-position offset cell {cell_id!r}')
+    offset = RECEIVER_POSITION_OFFSET_CELLS[cell_id]
+    axes = tuple(np.asarray(axis, dtype=np.float64) for axis in (xv, yv, zv))
+    dims = tuple(int(axis.size) for axis in axes)
+    if any(size < 2 for size in dims):
+        raise ValueError('receiver stencil grid axes must contain >= two nodes')
+    indices = np.asarray(canonical_linear_indices, dtype=np.int64)
+    alpha = np.asarray(canonical_weights, dtype=np.float64)
+    canonical_position = np.asarray(canonical_position_m, dtype=np.float64)
+    h = float(grid_spacing_m)
+    if indices.shape != (8,) or alpha.shape != (8,):
+        raise ValueError('receiver stencil must contain exactly eight nodes')
+    if canonical_position.shape != (3,) or not np.all(
+        np.isfinite(canonical_position)
+    ):
+        raise ValueError('canonical receiver position must be finite xyz')
+    if not math.isfinite(h) or h <= 0.0:
+        raise ValueError('receiver stencil grid spacing must be finite/positive')
+    if not np.all(np.isfinite(alpha)):
+        raise ValueError('receiver stencil weights must be finite')
+    ngrid = math.prod(dims)
+    if np.any(indices < 0) or np.any(indices >= ngrid):
+        raise ValueError('canonical receiver stencil index outside grid')
+
+    iyz = dims[1] * dims[2]
+
+    def coords(linear: np.ndarray) -> np.ndarray:
+        ix = linear // iyz
+        remainder = linear % iyz
+        iy = remainder // dims[2]
+        iz = remainder % dims[2]
+        return np.column_stack((ix, iy, iz))
+
+    canonical_coords = coords(indices)
+    linear_delta = (
+        offset[0] * iyz + offset[1] * dims[2] + offset[2]
+    )
+    moved_indices = indices + np.int64(linear_delta)
+    if np.any(moved_indices < 0) or np.any(moved_indices >= ngrid):
+        raise ValueError(
+            f'moved receiver stencil for {cell_id!r} leaves the grid'
+        )
+    moved_coords = coords(moved_indices)
+    if not np.array_equal(
+        moved_coords, canonical_coords + np.asarray(offset, dtype=np.int64)
+    ):
+        raise ValueError(
+            f'moved receiver stencil for {cell_id!r} is not a rigid '
+            'whole-cell translation'
+        )
+    for axis_index, size in enumerate(dims):
+        if np.any(moved_coords[:, axis_index] == 0) or np.any(
+            moved_coords[:, axis_index] == size - 1
+        ):
+            raise ValueError(
+                f'moved receiver stencil for {cell_id!r} touches an outer '
+                'absorbing-layer plane'
+            )
+    moved_position = canonical_position + np.asarray(
+        offset, dtype=np.float64
+    ) * h
+    node_positions = np.column_stack(
+        (
+            axes[0][moved_coords[:, 0]],
+            axes[1][moved_coords[:, 1]],
+            axes[2][moved_coords[:, 2]],
+        )
+    )
+    reconstructed = np.sum(alpha[:, None] * node_positions, axis=0)
+    reconstruction_error = float(
+        np.linalg.norm(reconstructed - moved_position)
+    )
+    if reconstruction_error > 1.0e-9:
+        raise ValueError(
+            f'moved receiver stencil for {cell_id!r} does not interpolate '
+            f'the moved position (error {reconstruction_error:.3e} m)'
+        )
+    core = {
+        'cell_id': cell_id,
+        'offset_cells': [int(v) for v in offset],
+        'moved_linear_indices': [int(x) for x in moved_indices],
+        'moved_grid_indices': [
+            [int(v) for v in row] for row in moved_coords
+        ],
+        'moved_position_m': [float(x) for x in moved_position],
+        'node_positions_m': [
+            [float(v) for v in row] for row in node_positions
+        ],
+        'interpolation_weights': [float(x) for x in alpha],
         'reconstruction_error_m': reconstruction_error,
     }
     return {**core, 'stencil_sha256': semantic_hash(core)}
