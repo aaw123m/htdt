@@ -266,6 +266,18 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             default=False,
             description='High-contrast presentation when the OS setting is insufficient.',
         ),
+        PreferenceDefinition(
+            key='display_input.reflection_guidance_overlay',
+            category=PreferenceCategory.DISPLAY_INPUT,
+            value_type=PreferenceValueType.ENUM,
+            default='auto',
+            allowed_values=('off', 'auto', 'on'),
+            description=(
+                'Reflection-guidance viewport overlay policy (#876/REV40): '
+                "'off' never draws guidance markers, 'auto' draws them only "
+                "in the acoustics context, 'on' draws them in every context."
+            ),
+        ),
         # Integrations
         PreferenceDefinition(
             key='integrations.rew_host',

@@ -2714,6 +2714,9 @@ class WorkflowApplicationComposition:
         # #876/REV36: persisted R150 path artifacts replay into ranked
         # reflection guidance — a read-only dock tab next to prediction.
         guidance_panel = _self.ReflectionGuidancePanel(workspace.controller)
+        # REV40: the same replayed view feeds the viewport overlay under
+        # the persisted display_input.reflection_guidance_overlay policy.
+        workspace.bind_reflection_guidance(guidance_panel, preferences)
         workspace.attach_acoustics_panel(
             _self.RoomAcousticsTabs(
                 prediction_panel,
