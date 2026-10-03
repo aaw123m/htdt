@@ -30,7 +30,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from htdt.cad_scene import F1_DOCUMENT_ID  # noqa: E402
+from htdt.cad_scene import (  # noqa: E402
+    F1_DOCUMENT_ID,
+    Position3,
+    SceneEntity,
+    Size3,
+)
 from htdt.field_explorer_panel import FieldExplorerPanel  # noqa: E402
 from htdt.measurement_page_workspace import MeasurementPageWorkspace  # noqa: E402
 from htdt.measurement_workflow import MeasurementWorkflowController  # noqa: E402
@@ -66,10 +71,14 @@ def _app() -> QApplication:
     return QApplication.instance() or QApplication([])
 
 
-def _room_workspace(tmp_path) -> tuple[QApplication, RoomWorkspace]:
+def _room_workspace(
+    tmp_path,
+    repository=None,
+) -> tuple[QApplication, RoomWorkspace]:
     """RoomWorkspace mounted the way ``_make_room`` mounts it."""
     app = _app()
-    repository = _f1_repository(tmp_path)
+    if repository is None:
+        repository = _f1_repository(tmp_path)
     workspace = RoomWorkspace(
         repository,
         F1_DOCUMENT_ID,
@@ -317,19 +326,51 @@ def test_measurement_workspace_covers_legacy_rew_dock(tmp_path) -> None:
 # --- stage-(b) list: surfaces that are legacy-only today ---------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UX140 stage (b) TODO: SeatPriorityPanel (リスニング集団) is mounted "
-        "only by the legacy TheaterEditorWindow; port a SeatPriorityProfile "
-        "authoring surface to the workflow room workspace or document a "
-        "deliberate drop in docs/reviews/rev35-ux140.md"
-    ),
-)
 def test_seat_priority_panel_has_a_workflow_mount(tmp_path) -> None:
+    """リスニング集団: the room placement context owns the seat-priority
+    profile editor the legacy TheaterEditorWindow dock hosted."""
     app, workspace = _room_workspace(tmp_path)
     try:
-        assert workspace.findChild(SeatPriorityPanel) is not None
+        panel = workspace.seat_priority_panel
+        assert isinstance(panel, SeatPriorityPanel)
+        assert workspace.placement_panel.findChild(SeatPriorityPanel) is panel
+        # The F1 fixture carries no seats — the honest empty state, not
+        # fabricated member rows.
+        assert panel.status_label.text().startswith("座席がありません")
+    finally:
+        _close(app, workspace)
+
+
+def test_seat_priority_panel_lists_committed_seats(tmp_path) -> None:
+    """The mount refreshes member rows from the committed head — the same
+    contract the legacy dock followed on every rebuild."""
+    app = _app()
+    repository = _f1_repository(tmp_path)
+    head = repository.current_head(F1_DOCUMENT_ID)
+    seated = head.document.model_copy(
+        update={
+            "entities": head.document.entities
+            + (
+                SceneEntity(
+                    entity_id="seat-mlp",
+                    kind="seat",
+                    name="MLP seat",
+                    position=Position3(x_m=3.0, y_m=3.0, z_m=0.55),
+                    size_m=Size3(x_m=0.6, y_m=0.6, z_m=1.1),
+                ),
+            )
+        }
+    )
+    repository.save(seated, parent_revision_id=head.revision_id)
+    _, workspace = _room_workspace(tmp_path, repository)
+    try:
+        panel = workspace.seat_priority_panel
+        assert "1 座席" in panel.status_label.text()
+        assert panel.member_tree.topLevelItemCount() == 1
+        # Entering/leaving contexts resyncs from the committed head.
+        workspace.set_context("objects")
+        workspace.set_context("placement")
+        assert panel.member_tree.topLevelItemCount() == 1
     finally:
         _close(app, workspace)
 
