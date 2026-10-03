@@ -132,6 +132,9 @@ class PairingDialog(QDialog):
         )
         self.confirm_row.addWidget(self.confirm_code_edit, 1)
         self.confirm_button = QPushButton("確認", self)
+        self.confirm_button.setToolTip(
+            "入力した確認コードがアプリ側と一致するか照合し、ペアリングを確定します。"
+        )
         self.confirm_button.clicked.connect(self._confirm)
         self.confirm_row.addWidget(self.confirm_button)
         layout.addLayout(self.confirm_row)
@@ -149,6 +152,10 @@ class PairingDialog(QDialog):
         )
         layout.addWidget(self.pairing_list)
         self.revoke_button = QPushButton("選択したデバイスを解除", self)
+        self.revoke_button.setToolTip(
+            "一覧で選択したデバイスのペアリングを解除します。"
+            "解除後はそのデバイスからの新しい取り込みを受け付けません。"
+        )
         self.revoke_button.clicked.connect(self._revoke_selected)
         layout.addWidget(self.revoke_button)
 

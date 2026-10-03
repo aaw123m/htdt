@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 
 from .accessible_labels import wire_label_buddies
+from .field_tooltips import apply_field_tooltip
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
 from .mesh_import_authority import format_declared_source_unit
@@ -385,6 +386,11 @@ class GeometryImportDialog(QDialog):
         self.custom_scale.setValue(1.0)
         self.custom_scale.setSuffix(' m/ソース単位')
         self.custom_scale.setEnabled(False)
+        apply_field_tooltip(
+            self.custom_scale,
+            '1ソース単位あたりのメートル数 — 単位に「カスタム」を選んだとき有効',
+            form,
+        )
         form.addRow('カスタム係数', self.custom_scale)
 
         self.up_axis = QComboBox()
@@ -396,6 +402,9 @@ class GeometryImportDialog(QDialog):
         self.handedness = QComboBox()
         for label, value in _HANDEDNESS_ITEMS:
             self.handedness.addItem(label, value)
+        apply_field_tooltip(self.up_axis, 'ソースモデルの上方向として宣言する軸', form)
+        apply_field_tooltip(self.forward_axis, 'ソースモデルの前方向として宣言する軸', form)
+        apply_field_tooltip(self.handedness, 'ソースの座標系の向き（右手系・左手系）', form)
         form.addRow('上方向軸', self.up_axis)
         form.addRow('前方向軸', self.forward_axis)
         form.addRow('座標系の向き', self.handedness)
@@ -403,6 +412,9 @@ class GeometryImportDialog(QDialog):
         self.anchor = QComboBox()
         for label, value in _ANCHOR_ITEMS:
             self.anchor.addItem(label, value)
+        apply_field_tooltip(
+            self.anchor, 'インポート後のローカル原点の置き方', form
+        )
         form.addRow('ローカル原点', self.anchor)
         return group
 
@@ -433,6 +445,9 @@ class GeometryImportDialog(QDialog):
         )
         self.issues_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.issues_table.setToolTip(
+            'ジオメトリ検査の結果一覧 — 深刻度・分類・推奨対処を確認できます'
         )
         self.issues_table.horizontalHeader().setStretchLastSection(True)
         self.issues_table.setMaximumHeight(150)
@@ -508,16 +523,26 @@ class GeometryImportDialog(QDialog):
         self.weld_tolerance.setDecimals(9)
         self.weld_tolerance.setRange(1e-12, 1e6)
         self.weld_tolerance.setValue(1e-6)
+        self.weld_tolerance.setToolTip(
+            '近接頂点を結合する許容誤差（ソース単位）— 溶接修復を選んだとき有効'
+        )
+        self.weld_tolerance.lineEdit().setToolTip(self.weld_tolerance.toolTip())
         weld_row.addWidget(self.weld_tolerance)
         weld_row.addStretch(1)
         layout.addLayout(weld_row)
 
         preview_row = QHBoxLayout()
         self.preview_button = QPushButton('修復をプレビュー')
+        self.preview_button.setToolTip(
+            '選択した修復操作をプレビュー実行し、前後の頂点・面数を確認します'
+        )
         set_control_size(self.preview_button, ControlSize.COMPACT)
         self.preview_button.clicked.connect(self._preview_repair)
         preview_row.addWidget(self.preview_button)
         self.use_repaired = QCheckBox('修復済みメッシュを使用')
+        self.use_repaired.setToolTip(
+            'プレビューした修復済みメッシュをインポートに使います'
+        )
         self.use_repaired.setEnabled(False)
         preview_row.addWidget(self.use_repaired)
         preview_row.addStretch(1)
@@ -626,7 +651,13 @@ class GeometryImportDialog(QDialog):
             self.entity_radio.setChecked(True)
         layout.addWidget(self.entity_radio)
 
+        self.entity_radio.setToolTip(
+            'インポート結果を選択中オブジェクトのボディとして取り込みます'
+        )
         self.room_radio = QRadioButton('部屋の音響ジオメトリ（R120 ソルバー契約）')
+        self.room_radio.setToolTip(
+            'インポート結果を部屋の音響ジオメトリとして取り込みます'
+        )
         self.room_radio.setChecked(self._entity_target is None)
         self.room_radio.toggled.connect(lambda _on: self._sync_surface_combo())
         layout.addWidget(self.room_radio)
@@ -636,8 +667,14 @@ class GeometryImportDialog(QDialog):
         self.surface_class = QComboBox()
         for label, value in _SURFACE_CLASS_ITEMS:
             self.surface_class.addItem(label, value)
+        self.surface_class.setToolTip(
+            '取り込む全ての面に付ける意味分類（部屋ジオメトリ向け）'
+        )
         surface_row.addWidget(self.surface_class, 1)
         evaluate = QPushButton('ソルバー適性を評価')
+        evaluate.setToolTip(
+            'インポート実行時と同じ変換でソルバー適性を事前評価します'
+        )
         set_control_size(evaluate, ControlSize.COMPACT)
         evaluate.clicked.connect(self._evaluate_readiness)
         surface_row.addWidget(evaluate)

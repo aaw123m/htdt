@@ -67,6 +67,7 @@ from .cad_display_units import (
 from .cad_repository import SceneRevision
 from .cad_scene_history import diff_scene_documents, diff_summary_lines
 from .cad_measure import format_measure_result
+from .field_tooltips import apply_field_tooltip
 from .cad_snap import AxisName
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .cad_video_geometry import (
@@ -7549,6 +7550,21 @@ class SeatingLayoutDialog(QDialog):
             if idx >= 0:
                 self.riser_field.setCurrentIndex(idx)
         form.addRow("ライザー参照 (全列)", self.riser_field)
+
+        for field, tip in (
+            (self.name_field, "この座席ブロックの表示名"),
+            (self.rows_field, "前から後ろへの列数（1–20）"),
+            (self.count_field, "1列に並ぶ座席の数（1–40）"),
+            (self.spacing_field, "同じ列内の座席間隔（0.3–3 m）"),
+            (self.row_spacing_field, "列と列の間隔（0.5–5 m）"),
+            (self.stagger_field, "偶数列を半ピッチずらして前後の視線を確保します"),
+            (self.aisle_field, "通路の位置と幅（任意）— 「座席番号:幅m」を ; 区切りで（例: 2:0.9; 5:0.9）"),
+            (self.facing_field, "座席が向く方向（前面=スクリーン向き）"),
+            (self.anchor_x_field, "座席ブロックの起点X座標（m）"),
+            (self.anchor_y_field, "座席ブロックの起点Y座標（m）"),
+            (self.riser_field, "全列を載せるライザー（段床）エンティティ · なし=床置き"),
+        ):
+            apply_field_tooltip(field, tip, form)
 
         if existing is not None:
             uniform = {

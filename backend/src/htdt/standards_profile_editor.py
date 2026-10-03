@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from . import file_dialog_memory
 from .accessible_labels import wire_label_buddies
 from .export_io import write_text_atomic
+from .field_tooltips import apply_field_tooltip
 from .user_facing_error import warn_user
 from .cad_standards import (
     CriterionDefinition,
@@ -182,12 +183,21 @@ class StandardsProfileEditorDialog(QDialog):
         top = QHBoxLayout()
         top.addWidget(QLabel("プロファイル"))
         self.profile_combo = QComboBox()
+        self.profile_combo.setToolTip(
+            "編集するプロファイル — 「（新規）」は空のプロファイルを作ります"
+        )
         self.profile_combo.currentIndexChanged.connect(self._load_profile)
         top.addWidget(self.profile_combo, 1)
         self.import_button = QPushButton("JSONインポート…")
+        self.import_button.setToolTip(
+            "プロファイルJSONファイルを読み込み、ライブラリに保存します"
+        )
         self.import_button.clicked.connect(self._import_profile)
         top.addWidget(self.import_button)
         self.export_button = QPushButton("JSONエクスポート…")
+        self.export_button.setToolTip(
+            "選択中のプロファイルをそのままJSONファイルに書き出します"
+        )
         self.export_button.clicked.connect(self._export_profile)
         top.addWidget(self.export_button)
         layout.addLayout(top)
@@ -196,10 +206,18 @@ class StandardsProfileEditorDialog(QDialog):
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("例: マイルーム基準")
         name_row.addRow("プロファイル名（必須）", self.name_edit)
+        apply_field_tooltip(
+            self.name_edit,
+            "このプロファイルの表示名（必須）— 保存時の名前になります",
+            name_row,
+        )
         layout.addLayout(name_row)
 
         self.criteria_table = QTableWidget(0, 2)
         self.criteria_table.setAccessibleName("基準一覧")
+        self.criteria_table.setToolTip(
+            "プロファイルに含まれる基準の一覧 — 選択すると下のフォームに読み込まれます"
+        )
         self.criteria_table.setHorizontalHeaderLabels(["基準ID", "ルール"])
         self.criteria_table.horizontalHeader().setStretchLastSection(True)
         self.criteria_table.itemSelectionChanged.connect(
@@ -240,6 +258,12 @@ class StandardsProfileEditorDialog(QDialog):
         bounds.addWidget(QLabel("期待値"))
         bounds.addWidget(self.expected_edit)
         criterion_form.addRow("境界", bounds)
+        for field, tip in (
+            (self.minimum_spin, "ルールの下限値 · min/range で有効（「なし」は未設定）"),
+            (self.maximum_spin, "ルールの上限値 · max/range で有効（「なし」は未設定）"),
+            (self.expected_edit, "演算子が equals のときの期待値"),
+        ):
+            apply_field_tooltip(field, tip)
         self.domains_edit = QLineEdit()
         self.domains_edit.setPlaceholderText(
             "適用ドメイン（空白区切り）: " + " ".join(_DOMAINS)
@@ -256,6 +280,20 @@ class StandardsProfileEditorDialog(QDialog):
         criterion_form.addRow("文書バージョン（必須）", self.doc_version_edit)
         self.reference_edit = QLineEdit()
         criterion_form.addRow("参照（必須）", self.reference_edit)
+        for field, tip in (
+            (self.criterion_id_edit, "基準を識別するID（必須）— 同じIDを追加すると上書き更新になります"),
+            (self.criterion_name_edit, "基準の表示名（必須）"),
+            (self.criterion_quantity_edit, "評価する量の名前（必須、例: viewing_angle）"),
+            (self.criterion_unit_edit, "量の単位（必須、例: deg / m / dB SPL）"),
+            (self.operator_combo, "基準の比較方法 — 最小値≥ / 最大値≤ / 範囲 / 等しい"),
+            (self.domains_edit, "この基準が適用される領域（必須、空白区切り）"),
+            (self.required_inputs_edit, "この基準の評価に必要な入力名（空白区切り）"),
+            (self.publisher_edit, "基準値の出典者（必須）"),
+            (self.doc_title_edit, "出典文書のタイトル（必須）"),
+            (self.doc_version_edit, "出典文書のバージョン（必須）"),
+            (self.reference_edit, "出典内の参照位置（必須 — ページ・項目名）"),
+        ):
+            apply_field_tooltip(field, tip, criterion_form)
         layout.addLayout(criterion_form)
 
         criterion_buttons = QHBoxLayout()
@@ -264,6 +302,12 @@ class StandardsProfileEditorDialog(QDialog):
         self.remove_criterion_button = QPushButton("基準を削除")
         self.remove_criterion_button.setEnabled(False)
         self.remove_criterion_button.clicked.connect(self._remove_criterion)
+        self.add_criterion_button.setToolTip(
+            "フォームの内容を基準として追加（同じ基準IDなら更新）します"
+        )
+        self.remove_criterion_button.setToolTip(
+            "一覧で選択中の基準をプロファイルから削除します"
+        )
         criterion_buttons.addWidget(self.add_criterion_button)
         criterion_buttons.addWidget(self.remove_criterion_button)
         criterion_buttons.addStretch(1)
@@ -276,6 +320,16 @@ class StandardsProfileEditorDialog(QDialog):
         self.clone_button.clicked.connect(self._save_clone)
         self.save_version_button = QPushButton("新バージョンとして保存")
         self.save_version_button.clicked.connect(self._save_version)
+        self.save_new_button.setToolTip(
+            "現在の基準一覧を新しいユーザー定義プロファイルとして保存します"
+        )
+        self.clone_button.setToolTip(
+            "選択中のプロファイル（組み込み含む）を複製し、ユーザー定義として保存します"
+        )
+        self.save_version_button.setToolTip(
+            "選択中のユーザー定義プロファイルの新バージョンとして保存します"
+            "（組み込みには使えません）"
+        )
         save_row.addWidget(self.save_new_button)
         save_row.addWidget(self.clone_button)
         save_row.addWidget(self.save_version_button)

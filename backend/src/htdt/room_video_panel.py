@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from .cad_screen_transfer import TIER_LABELS
 from .cad_video_workspace import VideoGeometryWorkspace
+from .field_tooltips import apply_field_tooltip
 from .ui_theme import TypographyRole, set_typography_role
 
 _DISPLAY_CLASS_ITEMS: tuple[tuple[str, str], ...] = (
@@ -273,6 +274,17 @@ class ScreenTransferDialog(QDialog):
         form.addRow("サンプル", self.samples)
         self.notes = QLineEdit()
         form.addRow("備考", self.notes)
+        for field, tip in (
+            (self.label, "このスクリーン伝達権威の表示名（例: メインスクリーン AT-2000）"),
+            (self.tier, "スクリーンの透過性能ティア — 未測定なら UNKNOWN / AT_CLAIM"),
+            (self.freq_min, "この権威が有効な周波数の下限（1–20000 Hz）"),
+            (self.freq_max, "この権威が有効な周波数の上限（1–24000 Hz）"),
+            (self.condition, "測定条件（例: 法線入射, free-field）"),
+            (self.provenance, "この値の出典（必須 — メーカー測定・現場実測など）"),
+            (self.samples, "周波数依存特性 — 1行1点: freq_hz[,angle_deg[,magnitude[,phase_deg[,reflection]]]]\nサンプル付きティアを選んだ場合に必須"),
+            (self.notes, "任意の備考メモ"),
+        ):
+            apply_field_tooltip(field, tip, form)
         layout.addLayout(form)
         hint = QLabel(
             "tierに見合わない係数は保存されません — 測定されていない透過特性は"
@@ -408,6 +420,20 @@ class DisplaySpecDialog(QDialog):
         form.addRow("有効画域高さ", self.active_height)
         form.addRow("出典", self.source_name)
         form.addRow("参照", self.source_reference)
+        for field, tip in (
+            (self.spec_id, "この仕様を識別するID（必須、例: my-display-model）"),
+            (self.version, "仕様の版番号 · 同じIDの更新は新しいバージョンとして記録されます"),
+            (self.user_label, "画面の表示名（必須、例: リビングのテレビ）"),
+            (self.display_class, "ディスプレイの種別（LCD / OLED / Mini LED / Micro LED）· 不明なら「不明」"),
+            (self.chassis_width, "筐体の幅（0.1–10 m）"),
+            (self.chassis_depth, "筐体の奥行き（0.005–2 m）"),
+            (self.chassis_height, "筐体の高さ（0.05–5 m）"),
+            (self.active_width, "映像が表示される有効画域の幅（0.1–10 m）"),
+            (self.active_height, "映像が表示される有効画域の高さ（0.05–5 m）"),
+            (self.source_name, "この仕様値の出典・測定者"),
+            (self.source_reference, "出典内の参照位置（ページ・メモなど）"),
+        ):
+            apply_field_tooltip(field, tip, form)
         layout.addLayout(form)
         hint = QLabel(
             "ユーザー定義の仕様は user_defined 証拠として記録されます — "

@@ -10,6 +10,23 @@ those controls to the nearest scrollable ancestor, so the wheel always
 scrolls the page. Fields are still editable via typing, arrow keys, and
 the spin buttons. Controls outside any scroll area keep Qt's default
 wheel behavior (wheel-adjust works there because nothing else scrolls).
+
+Dialogs (REV34-DIALOGUX decision — kept, not extended)
+-----------------------------------------------------
+The filter is installed on the QApplication, so it already sees wheel
+events inside dialogs and wizards — there is no dialog carve-out in the
+code. The visible outcome differs by structure, and that difference is
+deliberate:
+
+* A control inside a scroll area hosted in a dialog forwards its wheel
+  events to that viewport exactly like a page — verified empirically.
+  Scrollable dialog content gets the same protection for free.
+* A control in a fixed (non-scrolling) dialog keeps Qt's wheel-adjust.
+  The hazard this guard exists for is scroll *intent* being misread as
+  an edit; a modal form has no page to scroll, so a wheel event over a
+  control is an unambiguous deliberate adjustment — and dense numeric
+  dialogs (display specs, seating layouts) benefit from keeping it.
+
 """
 
 from __future__ import annotations

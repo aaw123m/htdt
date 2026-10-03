@@ -56,6 +56,7 @@ from .cad_equipment import EquipmentDataProvenance, FrequencyDomain
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_repository import SceneRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
+from .field_tooltips import apply_field_tooltip
 from .user_facing_error import warn_user
 
 
@@ -476,6 +477,10 @@ class PlaybackChainDialog(QDialog):
         self.box.rejected.connect(self.reject)
         layout.addWidget(self.box)
 
+        # The QTabWidget would otherwise claim initial focus — a data-entry
+        # dialog should open on its first field so typing works immediately.
+        self.amp_label.setFocus()
+
         self._refresh_amplifier_combo()
         self._refresh_load_combo()
         self._refresh_scenario_inputs()
@@ -539,7 +544,30 @@ class PlaybackChainDialog(QDialog):
         self.amp_status = QLabel()
         self.amp_status.setWordWrap(True)
         form.addRow(self.amp_status)
+        for field, tip in (
+            (self.amp_existing, "保存済みアンプ能力の一覧（表示のみ）"),
+            (self.amp_label, "このアンプ能力の表示名（必須）"),
+            (self.amp_manufacturer, "アンプのメーカー名（任意）"),
+            (self.amp_model, "アンプのモデル名（任意）"),
+            (self.amp_output_id, "この出力を識別するID（必須・例: front-l）— シナリオのルーティングで使います"),
+            (self.amp_min_load, "この出力が駆動できる負荷の下限（1–32 Ω）"),
+            (self.amp_max_load, "この出力が駆動できる負荷の上限（1–64 Ω）"),
+            (self.amp_continuous_v, "連続定格出力電圧 V RMS · 「不明」のままなら不明として扱われます"),
+            (self.amp_continuous_s, "連続出力の持続時間（秒）· 「不明」のままなら不明として扱われます"),
+            (self.amp_peak_v, "ピーク出力電圧 V RMS · 「不明」のままなら不明として扱われます"),
+            (self.amp_gain, "アンプのゲイン dB · 0は「不明」として扱われます"),
+            (self.amp_channels, "この定格が有効な同時駆動チャンネル数 · 2ch以上には共有電源証拠が必要です"),
+            (self.amp_shared_supply, "共有電源の証拠がある場合にオン · 1ch定格を多ch定格へ推定しません"),
+            (self.amp_source_name, "この能力値の出典名（必須 — メーカー仕様書・実測など）"),
+            (self.amp_source_version, "出典の版・日付（必須）"),
+            (self.amp_source_reference, "出典内の参照位置（必須 — ページ・項目名）"),
+            (self.amp_save_button, "入力したアンプ能力をライブラリに保存します"),
+        ):
+            apply_field_tooltip(field, tip, form)
         self.tabs.addTab(tab, "アンプ能力")
+        self.tabs.setTabToolTip(
+            self.tabs.count() - 1, "アンプの出力能力を登録します"
+        )
 
     def _refresh_amplifier_combo(self) -> None:
         self.amp_existing.clear()
@@ -627,7 +655,21 @@ class PlaybackChainDialog(QDialog):
         self.load_status = QLabel()
         self.load_status.setWordWrap(True)
         form.addRow(self.load_status)
+        for field, tip in (
+            (self.load_existing, "保存済みスピーカー負荷の一覧（表示のみ）"),
+            (self.load_equipment, "この負荷を適用する機器定義 — 機器ライブラリの登録済み定義から選びます"),
+            (self.load_semantics, "負荷値の意味 — 実測抵抗なら「正確な抵抗基準」、公称値だけなら「公称インピーダンスのみ」"),
+            (self.load_resistance, "抵抗または公称インピーダンス（0.1–100 Ω）"),
+            (self.load_source_name, "この負荷値の出典名（必須 — メーカー仕様書・実測など）"),
+            (self.load_source_version, "出典の版・日付（必須）"),
+            (self.load_source_reference, "出典内の参照位置（必須 — ページ・項目名）"),
+            (self.load_save_button, "入力したスピーカー負荷をライブラリに保存します"),
+        ):
+            apply_field_tooltip(field, tip, form)
         self.tabs.addTab(tab, "スピーカー負荷")
+        self.tabs.setTabToolTip(
+            self.tabs.count() - 1, "スピーカーの電気的負荷を登録します"
+        )
 
     def _refresh_load_combo(self) -> None:
         self.load_existing.clear()
@@ -723,7 +765,30 @@ class PlaybackChainDialog(QDialog):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
         form.addRow(self.result_label)
+        for field, tip in (
+            (self.variant_combo, "評価対象のシステムバリアント提案"),
+            (self.entity_combo, "音源となるシーン内のスピーカーエンティティ"),
+            (self.role_edit, "チャンネル役割（例: FL, FR, C）— ルーティングに使います"),
+            (self.source_combo, "音源機器の定義 — 機器ライブラリの登録済み定義から選びます"),
+            (self.scenario_amp, "このシナリオで使うアンプ能力 — 先に「アンプ能力」タブで保存します"),
+            (self.scenario_load, "このシナリオで使うスピーカー負荷 — 未選択なら負荷は「不明」として評価されます"),
+            (self.simultaneous_edit, "同時に駆動する他の出力ID（空白区切り）— ルーティング先は自動で追加されます"),
+            (self.target_spl, "到達したい音圧レベル（40–130 dB SPL）"),
+            (self.target_distance, "ターゲットSPLを評価する距離（0.1–20 m）"),
+            (self.target_mode, "ターゲットを連続定格に対して評価するか、ピーク定格に対して評価するか"),
+            (self.requested_continuous, "アンプに要求する連続出力電圧（0.01–200 V RMS）"),
+            (self.requested_peak, "アンプに要求するピーク出力電圧（0.01–300 V RMS）"),
+            (self.continuous_duration, "連続出力の持続時間（秒）"),
+            (self.peak_duration, "ピーク出力の持続時間（秒）"),
+            (self.requested_input, "アンプへの入力レベル（V RMS）"),
+            (self.evaluate_button, "シナリオを保存し、アンプとスピーカーのヘッドルームを評価します"),
+        ):
+            apply_field_tooltip(field, tip, form)
         self.tabs.addTab(tab, "シナリオ / 評価")
+        self.tabs.setTabToolTip(
+            self.tabs.count() - 1,
+            "機器・アンプ・負荷を組み合わせてヘッドルームを評価します",
+        )
 
     def _refresh_scenario_inputs(self) -> None:
         self.variant_combo.clear()

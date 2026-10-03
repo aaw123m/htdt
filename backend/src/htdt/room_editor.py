@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import numpy as np
 import pyvista as pv
+from shapely.geometry import Polygon
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
@@ -689,6 +690,17 @@ class RoomEditorWindow(NativeEditorWindow):
             return
         if len(self.room_sketch_vertices) < 3:
             self.statusBar().showMessage('閉合には頂点が3つ以上必要です')
+            return
+        # The domain validator reports English diagnostics, which the
+        # error mapper renders as a generic 'データを処理できませんでした'
+        # — surface the two drawable failures (stacked vertices,
+        # self-intersection) explicitly instead.
+        coords = tuple((vertex.x_m, vertex.y_m) for vertex in self.room_sketch_vertices)
+        if len(set(coords)) != len(coords):
+            self.statusBar().showMessage('部屋を閉合できません · 頂点が重なっています · Esc で描き直してください')
+            return
+        if not Polygon(coords).is_valid:
+            self.statusBar().showMessage('部屋を閉合できません · 外形が自己交差しています · 頂点を時計回りに置くか Esc で描き直してください')
             return
         existing = self._current_room()
         height_m = existing.height_m if existing is not None else 2.4
