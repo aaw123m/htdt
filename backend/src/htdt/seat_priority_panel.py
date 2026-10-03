@@ -95,6 +95,7 @@ class SeatPriorityPanel(QWidget):
         layout.addWidget(save)
 
         self.saved_tree = QTreeWidget()
+        self.saved_tree.setAccessibleName('保存済みプロファイル一覧')
         self.saved_tree.setColumnCount(1)
         self.saved_tree.setHeaderLabels(['保存済みプロファイル'])
         self.saved_tree.setToolTip(
