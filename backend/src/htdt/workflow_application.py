@@ -2670,7 +2670,11 @@ class WorkflowApplicationComposition:
 
     def _make_room(self) -> WorkspaceMount:
         _self = sys.modules[__name__]
-        workspace = _self.RoomWorkspace(self.repository, self.document_id)
+        workspace = _self.RoomWorkspace(
+            self.repository,
+            self.document_id,
+            on_navigate=self._navigate_target,
+        )
         if not isinstance(workspace.viewport, _self.RoomViewport3D):
             raise TypeError("UX120 Room workspace requires RoomViewport3D")
 
