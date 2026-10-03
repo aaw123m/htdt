@@ -2384,6 +2384,18 @@ class ObjectPalette(QFrame):
         ("measurement_point", "測定点"),
     )
 
+    KIND_HINTS = {
+        "speaker": "音を出す機器 · 追加後、右パネルの「役割」（FL/C/SUBなど）を設定します",
+        "seat": "視聴位置 · 音響予測や配置評価の受音点になります",
+        "screen": "プロジェクターの映写面（スクリーン）",
+        "display": "テレビなどの表示機器",
+        "projector": "映写機 · スロー比やレンズシフトの仕様を設定できます",
+        "riser": "後段座席用の段差（ひな段）",
+        "furniture": "ソファ・棚などの家具",
+        "av_equipment": "アンプ・プレーヤーなどのAV機器",
+        "measurement_point": "音響測定を行う位置のマーカー",
+    }
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("roomObjectPalette")
@@ -2396,12 +2408,14 @@ class ObjectPalette(QFrame):
         title = QLabel("追加")
         set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
-        subtitle = QLabel("部屋へ配置する項目")
+        subtitle = QLabel("部屋へ配置する項目（クリックで3D上に追加）")
+        subtitle.setWordWrap(True)
         set_typography_role(subtitle, TypographyRole.SECONDARY)
         layout.addWidget(subtitle)
         for kind, label in self.ITEMS:
             button = QPushButton(label)
             button.setProperty("objectKind", kind)
+            button.setToolTip(self.KIND_HINTS.get(kind, ""))
             set_control_size(button, ControlSize.STANDARD)
             button.clicked.connect(
                 lambda checked=False, object_kind=kind: self.addRequested.emit(object_kind)
@@ -2883,6 +2897,14 @@ class SelectionInspector(QFrame):
         self.name_field = QLineEdit()
         identity_form.addRow("種類", self.kind_label)
         identity_form.addRow("名前", self.name_field)
+        self._hint(
+            identity_form, self.kind_label,
+            "物体の種類 · 追加したときに決まり、後から変更はできません",
+        )
+        self._hint(
+            identity_form, self.name_field,
+            "一覧・ラベル・差分表示に使う表示名 · 自由に変更できます",
+        )
         self.identity_section.body_layout.addLayout(identity_form)
         form_layout.addWidget(self.identity_section)
 
@@ -2893,6 +2915,11 @@ class SelectionInspector(QFrame):
         self.position_editor = Vector3Editor()
         self.position_fields = self.position_editor.fields
         transform_form.addRow("位置", self.position_editor)
+        self._hint(
+            transform_form, self.position_editor,
+            "物体中心の部屋座標 · +X=部屋右、+Y=部屋奥（後方）、+Z=床から上 · "
+            "表示単位は設定で変更できます",
+        )
         # Numeric physical orientation (#470), backed by the exact persisted
         # quaternion; one field commit is one Undo transaction. #660: the
         # displayed angles use the same installation-facing vocabulary as the
@@ -2944,17 +2971,35 @@ class SelectionInspector(QFrame):
         self.size_editor = Vector3Editor(minimum_m=0.001)
         self.size_fields = self.size_editor.fields
         geometry_form.addRow("寸法", self.size_editor)
+        self._hint(
+            geometry_form, self.size_editor,
+            "物体の外形サイズ（X=幅・Y=奥行・Z=高さ、物体ローカル座標）",
+        )
         self._shape_label = QLabel("形状")
         self.shape_field = QComboBox()
         for shape_kind, shape_label in BODY_SHAPE_ITEMS:
             self.shape_field.addItem(shape_label, userData=shape_kind)
+        shape_tooltip = (
+            "外形の表現方法 · 直方体（包絡）は寸法そのまま · 円柱は半径 · "
+            "多角形はフットプリント · メッシュは外部3Dモデル"
+        )
+        self._shape_label.setToolTip(shape_tooltip)
+        self.shape_field.setToolTip(shape_tooltip)
         geometry_form.addRow(self._shape_label, self.shape_field)
         self._radius_label = QLabel("半径")
+        self._radius_label.setToolTip("円柱の底面半径（m）")
         self.radius_field = self._metric_field(minimum=0.001)
+        self.radius_field.setToolTip("円柱の底面半径（m）")
         geometry_form.addRow(self._radius_label, self.radius_field)
         self._footprint_label = QLabel("フットプリント")
         self.footprint_field = QLineEdit()
         self.footprint_field.setPlaceholderText("x,y; x,y; …（物体ローカル m）")
+        footprint_tooltip = (
+            "物体ローカルXYの多角形頂点を「x,y; x,y; …」（m）で入力 · "
+            "3頂点以上 · 入力した形が高さZ全体に押し出されます"
+        )
+        self._footprint_label.setToolTip(footprint_tooltip)
+        self.footprint_field.setToolTip(footprint_tooltip)
         geometry_form.addRow(self._footprint_label, self.footprint_field)
         self._mesh_label = QLabel("メッシュ")
         self.mesh_summary = QLabel("未設定")
@@ -2969,10 +3014,19 @@ class SelectionInspector(QFrame):
         mesh_row_layout.addWidget(self.mesh_summary, 1)
         mesh_row_layout.addWidget(self.mesh_button)
         self.mesh_row = mesh_row
+        mesh_tooltip = "外部3Dモデルを外形として割り当てます · 寸法値で拡大縮小されます"
+        self._mesh_label.setToolTip(mesh_tooltip)
+        self.mesh_button.setToolTip(mesh_tooltip)
         geometry_form.addRow(self._mesh_label, mesh_row)
         self._basis_label = QLabel("衝突・クリアランス")
         self.basis_value = QLabel("—")
         self.basis_value.setWordWrap(True)
+        basis_tooltip = (
+            "衝突判定・離隔制約の計算に使う外形 · 「実形状（厳密）」は定義した"
+            "形状のまま、「包絡近似」は直方体として評価します"
+        )
+        self._basis_label.setToolTip(basis_tooltip)
+        self.basis_value.setToolTip(basis_tooltip)
         set_typography_role(self.basis_value, TypographyRole.SECONDARY)
         geometry_form.addRow(self._basis_label, self.basis_value)
         self.geometry_section.body_layout.addLayout(geometry_form)
@@ -2990,6 +3044,11 @@ class SelectionInspector(QFrame):
         role_edit = self.role_field.lineEdit()
         if role_edit is not None:
             role_edit.setPlaceholderText("役割を選択または入力（例: FL / C / TFL）")
+        self._hint(
+            speaker_form, self.role_field,
+            "スピーカーのチャンネル役割（FL=前方左、C=センター、SL/SR=左右サラウンド、"
+            "SUB=サブウーファー、T**=天井など）· 自由入力も可 · 配置評価・提案に使われます",
+        )
         speaker_form.addRow("役割", self.role_field)
         self.speaker_section.body_layout.addLayout(speaker_form)
 
@@ -3072,6 +3131,7 @@ class SelectionInspector(QFrame):
         self.id_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
+        self.id_label.setToolTip("シーン内部で物体を一意に識別するID（読み取り専用）")
         set_typography_role(self.id_label, TypographyRole.SECONDARY)
         advanced_form.addRow("ID", self.id_label)
         self.orientation_detail = QLabel("—")
@@ -3147,6 +3207,14 @@ class SelectionInspector(QFrame):
         layout.addStretch(1)
         self.form_host = form_host
         self.set_entity(None, editable=False)
+
+    @staticmethod
+    def _hint(form: QFormLayout, field: QWidget, text: str) -> None:
+        """Attach an explanation to a field and its auto-created row label."""
+        field.setToolTip(text)
+        label = form.labelForField(field)
+        if label is not None:
+            label.setToolTip(text)
 
     @staticmethod
     def _metric_field(*, minimum: float = -1000.0) -> MetricSpinBox:
@@ -3832,6 +3900,40 @@ class ContextToolStrip(QFrame):
         "history": (("fit-scene", "全体表示"),),
     }
 
+    ACTION_HINTS = {
+        "draw-room": "部屋の外形を3D上でクリックして描き始めます（Escで中止）",
+        "edit-room": "既存の部屋の頂点・辺・壁・開口を編集モードで調整します",
+        "show-palette": "物体追加パレットを開きます · 種類を選ぶと3D上でクリック配置できます",
+        "measure": "3D上で2点間の距離などを計ります（結果は保存されません）",
+        "delete-selection": "選択中の物体を削除します（Ctrl+Zで元に戻せます）",
+        "view-menu": "表示設定（グリッド・吸着・カメラ操作）を開きます",
+        "focus-selection": "選択した物体にカメラを合わせます",
+        "fit-scene": "部屋全体が見えるようカメラを調整します",
+        "toggle-acoustics": "音響予測結果の3Dオーバーレイ表示を切り替えます",
+    }
+
+    GUIDANCE = {
+        "geometry": (
+            "このタブで部屋の形を作ります · 「部屋を描く」で外形をクリック入力し、"
+            "「形状を編集」で頂点・壁・開口を調整 → つぎは「物体」タブで機器を配置"
+        ),
+        "objects": (
+            "物体を置くタブです · 左の「追加」から種類を選んで3D上でクリック配置。"
+            "選ぶと右パネルで位置・寸法・向きを編集 → つぎは「スピーカー・座席」タブへ"
+        ),
+        "placement": (
+            "スピーカーと座席の位置・向きを整えるタブです · 3D上でドラッグ、"
+            "または右パネルの値を直接編集。配置制約と自動提案もここで扱います → つぎは「音響」タブへ"
+        ),
+        "acoustics": (
+            "壁材・吸音処理と音響予測のタブです · 右パネルで材質と予測条件を設定して実行。"
+            "保存した版の確認は「履歴」タブで"
+        ),
+        "history": (
+            "保存した版の履歴です · リビジョンを選ぶと差分・3Dプレビュー・復元ができます"
+        ),
+    }
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         set_surface_role(self, SurfaceRole.RAISED)
@@ -3839,17 +3941,26 @@ class ContextToolStrip(QFrame):
         self.pages: dict[str, QWidget] = {}
         for context_id in ROOM_CONTEXT_IDS:
             page = QWidget()
-            row = QHBoxLayout(page)
-            row.setContentsMargins(0, 0, 0, 0)
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(0, 0, 0, 0)
+            page_layout.setSpacing(2)
+            row = QHBoxLayout()
             row.setSpacing(6)
             for tool_id, label in self.DEFINITIONS[context_id]:
                 button = QPushButton(label)
+                button.setProperty("actionId", tool_id)
+                button.setToolTip(self.ACTION_HINTS.get(tool_id, ""))
                 set_control_size(button, ControlSize.COMPACT)
                 button.clicked.connect(
                     lambda checked=False, target=tool_id: self.toolRequested.emit(target)
                 )
                 row.addWidget(button)
             row.addStretch(1)
+            page_layout.addLayout(row)
+            guidance = QLabel(self.GUIDANCE[context_id])
+            guidance.setWordWrap(True)
+            set_typography_role(guidance, TypographyRole.SECONDARY)
+            page_layout.addWidget(guidance)
             self.pages[context_id] = page
             self.stack.addWidget(page)
         layout = QHBoxLayout(self)
@@ -3875,9 +3986,13 @@ class OverlayControls(QFrame):
         self._layout.setContentsMargins(10, 6, 10, 6)
         self._layout.setSpacing(10)
         self.grid = QCheckBox("グリッド")
+        self.grid.setToolTip("床面に寸法目盛のグリッドを表示します")
         self.labels = QCheckBox("ラベル")
+        self.labels.setToolTip("物体名・寸法線などのラベルを3D上に表示します")
         self.acoustics = QCheckBox("音響")
+        self.acoustics.setToolTip("音響予測結果（音圧分布など）を3D上に重ねて表示します")
         self.focus = QCheckBox("選択に集中")
+        self.focus.setToolTip("選択中の物体以外を薄く表示し、編集対象に集中しやすくします")
         self.grid.setChecked(True)
         for toggle in (self.grid, self.labels, self.acoustics, self.focus):
             toggle.toggled.connect(lambda checked=False: self.changed.emit())
@@ -3913,12 +4028,17 @@ class OverlayControls(QFrame):
         self._layout.addWidget(self.navigation_hint, 1)
 
         self.more_button = QPushButton("表示…")
+        self.more_button.setToolTip(
+            "表示オーバーレイと吸着（スナップ）の詳細設定を開きます"
+        )
         set_control_size(self.more_button, ControlSize.COMPACT)
         self.more_menu = QMenu(self.more_button)
         self.labels_action = self.more_menu.addAction("ラベル")
         self.labels_action.setCheckable(True)
+        self.labels_action.setToolTip("物体名・寸法線などのラベルを3D上に表示します")
         self.focus_action = self.more_menu.addAction("選択に集中")
         self.focus_action.setCheckable(True)
+        self.focus_action.setToolTip("選択中の物体以外を薄く表示します")
         self.labels_action.toggled.connect(self.labels.setChecked)
         self.focus_action.toggled.connect(self.focus.setChecked)
         self.labels.toggled.connect(self.labels_action.setChecked)
@@ -3926,8 +4046,14 @@ class OverlayControls(QFrame):
         self.more_menu.addSeparator()
         self.grid_snap_action = self.more_menu.addAction("グリッド吸着")
         self.grid_snap_action.setCheckable(True)
+        self.grid_snap_action.setToolTip(
+            "ドラッグ中に位置を下の「グリッド刻み」単位に丸めます"
+        )
         self.angle_snap_action = self.more_menu.addAction("角度吸着")
         self.angle_snap_action.setCheckable(True)
+        self.angle_snap_action.setToolTip(
+            "回転中に向きを下の「角度刻み」単位に丸めます"
+        )
         self.grid_snap_action.toggled.connect(
             lambda checked=False: self.snapChanged.emit()
         )
@@ -3944,6 +4070,7 @@ class OverlayControls(QFrame):
         self.grid_step_spin.setSingleStep(0.01)
         self.grid_step_spin.setDecimals(3)
         self.grid_step_spin.setSuffix(" m")
+        self.grid_step_spin.setToolTip("グリッド吸着の刻み幅（m）")
         self.grid_step_spin.setValue(0.05)
         self.grid_step_spin.valueChanged.connect(
             lambda _v: self.snapChanged.emit()
@@ -3961,6 +4088,7 @@ class OverlayControls(QFrame):
         self.angle_step_spin.setRange(1.0, 90.0)
         self.angle_step_spin.setSingleStep(5.0)
         self.angle_step_spin.setSuffix("°")
+        self.angle_step_spin.setToolTip("角度吸着の刻み幅（°）")
         self.angle_step_spin.setValue(15.0)
         self.angle_step_spin.valueChanged.connect(
             lambda _v: self.snapChanged.emit()
@@ -4018,7 +4146,9 @@ class RecoveryBanner(QFrame):
         message.setWordWrap(True)
         layout.addWidget(message, 1)
         recover = QPushButton("復旧")
+        recover.setToolTip("保存前の下書きを読み込んで編集を再開します")
         discard = QPushButton("破棄")
+        discard.setToolTip("下書きを削除して現在の保存版に戻します")
         set_primary_action(recover)
         recover.clicked.connect(lambda checked=False: self.recoverRequested.emit())
         discard.clicked.connect(lambda checked=False: self.discardRequested.emit())

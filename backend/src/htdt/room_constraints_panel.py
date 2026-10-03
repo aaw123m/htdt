@@ -46,6 +46,9 @@ class RoomConstraintsPanel(QWidget):
 
         self.heading = QLabel("配置制約（ハード制約）")
         set_typography_role(self.heading, TypographyRole.SECTION_TITLE)
+        self.heading.setToolTip(
+            '破ってはいけない配置ルール · 違反する移動はブロックされ、最適化の候補からも外れます'
+        )
         layout.addWidget(self.heading)
 
         self.summary_label = QLabel("制約なし")
@@ -55,9 +58,21 @@ class RoomConstraintsPanel(QWidget):
         add_row = QHBoxLayout()
         add_row.setSpacing(4)
         self.add_walkway_button = QPushButton("通路")
+        self.add_walkway_button.setToolTip(
+            '選択物体を中心に人が通る余地（除外領域）を追加します'
+        )
         self.add_allowed_button = QPushButton("許可領域")
+        self.add_allowed_button.setToolTip(
+            '選択物体が置いてよい範囲を追加します（その範囲外には置けません）'
+        )
         self.add_wall_button = QPushButton("壁離隔")
+        self.add_wall_button.setToolTip(
+            '選択物体と壁の間に最低限の離隔を設けます（下の最小距離・対象壁を使用）'
+        )
         self.add_pair_button = QPushButton("物体間離隔")
+        self.add_pair_button.setToolTip(
+            '選択した2物体の間に最低限の水平離隔を設けます（先に2つを選択）'
+        )
         for button in (
             self.add_walkway_button,
             self.add_allowed_button,
@@ -74,19 +89,38 @@ class RoomConstraintsPanel(QWidget):
         self.distance_field.setSingleStep(0.05)
         self.distance_field.setSuffix(" m")
         self.distance_field.setValue(0.50)
+        self.distance_field.setToolTip(
+            '「壁離隔」「物体間離隔」で使う最小の間隔（m）'
+        )
         form.addRow("最小距離", self.distance_field)
         self.wall_combo = QComboBox()
+        self.wall_combo.setToolTip(
+            '離隔の対象となる壁 · 空欄は最も近い壁を自動で選びます'
+        )
         form.addRow("対象壁（空=最近）", self.wall_combo)
+        for field in (self.distance_field, self.wall_combo):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         layout.addLayout(form)
 
         self.delete_button = QPushButton("選択した制約を削除")
+        self.delete_button.setToolTip('一覧で選択した制約を削除します')
         layout.addWidget(self.delete_button)
         self.optimize_button = QPushButton("最適化で確認")
+        self.optimize_button.setToolTip(
+            'この制約を含めた配置探索の結果を「最適化」ワークスペースで確認します'
+        )
         layout.addWidget(self.optimize_button)
 
         self.results_tree = QTreeWidget()
         self.results_tree.setAccessibleName("配置制約一覧")
         self.results_tree.setHeaderLabels(("制約", "対象", "状態"))
+        header = self.results_tree.headerItem()
+        if header is not None:
+            header.setToolTip(0, '制約の種類と名前')
+            header.setToolTip(1, '制約が適用される物体')
+            header.setToolTip(2, '現在の評価 · ✓=満たしている / ✕=違反（実測値つき）')
         self.results_tree.setRootIsDecorated(False)
         self.results_tree.setUniformRowHeights(True)
         layout.addWidget(self.results_tree, stretch=1)

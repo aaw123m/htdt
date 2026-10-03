@@ -74,7 +74,11 @@ class RoomGeometryPanel(QFrame):
 
         mode_row = QHBoxLayout()
         self.edit_button = QPushButton("形状編集")
+        self.edit_button.setToolTip(
+            "編集モードに入り、3D上で頂点・辺・壁を選んで調整できるようにします"
+        )
         self.finish_button = QPushButton("編集終了")
+        self.finish_button.setToolTip("形状編集モードを終了します")
         self.edit_button.clicked.connect(self.geometry.start_edit)
         self.finish_button.clicked.connect(self.geometry.cancel)
         mode_row.addWidget(self.edit_button)
@@ -83,8 +87,12 @@ class RoomGeometryPanel(QFrame):
 
         room_form = QFormLayout()
         self.height = self._metric_field(0.1, 20.0, decimals=3, step=0.05)
+        self.height.setToolTip("床から天井までの高さ（m）· すべての壁に共通です")
         self.height.editingFinished.connect(self._height_edited)
         room_form.addRow("天井高", self.height)
+        height_label = room_form.labelForField(self.height)
+        if height_label is not None:
+            height_label.setToolTip(self.height.toolTip())
         root.addLayout(room_form)
 
         self.selection_title = QLabel("選択: なし")
@@ -96,11 +104,21 @@ class RoomGeometryPanel(QFrame):
         vertex_layout.setContentsMargins(0, 0, 0, 0)
         self.vertex_x = self._metric_field(-1000.0, 1000.0, decimals=4)
         self.vertex_y = self._metric_field(-1000.0, 1000.0, decimals=4)
+        vertex_hint = "選択中の頂点の部屋座標（m）· +X=部屋右、+Y=部屋奥"
+        self.vertex_x.setToolTip(vertex_hint)
+        self.vertex_y.setToolTip(vertex_hint)
         self.vertex_x.editingFinished.connect(self._vertex_edited)
         self.vertex_y.editingFinished.connect(self._vertex_edited)
         vertex_layout.addRow("頂点 X", self.vertex_x)
         vertex_layout.addRow("頂点 Y", self.vertex_y)
+        for field in (self.vertex_x, self.vertex_y):
+            label = vertex_layout.labelForField(field)
+            if label is not None:
+                label.setToolTip(vertex_hint)
         self.delete_vertex_button = QPushButton("頂点を削除")
+        self.delete_vertex_button.setToolTip(
+            "選択中の頂点を削除します（両隣の頂点が直線で結ばれます）"
+        )
         self.delete_vertex_button.clicked.connect(self._delete_vertex)
         vertex_layout.addRow("", self.delete_vertex_button)
         root.addWidget(self.vertex_host)
@@ -109,12 +127,23 @@ class RoomGeometryPanel(QFrame):
         edge_layout = QFormLayout(self.edge_host)
         edge_layout.setContentsMargins(0, 0, 0, 0)
         self.edge_length = self._metric_field(0.001, 1000.0, decimals=4)
+        edge_hint = "選択中の辺の長さ（m）· 変更すると終点側の頂点が移動します"
+        self.edge_length.setToolTip(edge_hint)
         self.edge_length.editingFinished.connect(self._edge_length_edited)
         edge_layout.addRow("辺の長さ", self.edge_length)
+        edge_label = edge_layout.labelForField(self.edge_length)
+        if edge_label is not None:
+            edge_label.setToolTip(edge_hint)
         edge_actions = QHBoxLayout()
         self.insert_midpoint_button = QPushButton("中点に頂点追加")
+        self.insert_midpoint_button.setToolTip(
+            "選択中の辺の中点に新しい頂点を挿入します（L字・凹凸を作れます）"
+        )
         self.insert_midpoint_button.clicked.connect(self._insert_midpoint)
         self.ensure_walls_button = QPushButton("壁編集を有効化")
+        self.ensure_walls_button.setToolTip(
+            "辺から壁オブジェクトを生成し、厚さ・開口を編集できるようにします"
+        )
         self.ensure_walls_button.clicked.connect(self._ensure_topology)
         edge_actions.addWidget(self.insert_midpoint_button)
         edge_actions.addWidget(self.ensure_walls_button)
@@ -123,21 +152,40 @@ class RoomGeometryPanel(QFrame):
 
         wall_label = QLabel("壁")
         set_typography_role(wall_label, TypographyRole.SECTION_TITLE)
+        wall_label.setToolTip("部屋の外周を構成する壁 · 「形状編集」モードで辺/壁を選ぶと編集できます")
         root.addWidget(wall_label)
+
+        self.wall_hint = QLabel(
+            "「形状編集」モードで3D上の辺・壁を選ぶと、ここに厚さと結合/削除の設定が表示されます"
+        )
+        self.wall_hint.setWordWrap(True)
+        set_typography_role(self.wall_hint, TypographyRole.SECONDARY)
+        root.addWidget(self.wall_hint)
 
         self.wall_host = QWidget()
         wall_form = QFormLayout(self.wall_host)
         wall_form.setContentsMargins(0, 0, 0, 0)
         self.wall_id = QLabel("—")
+        self.wall_id.setToolTip("選択中の壁の番号（部屋の外周を時計回りに採番）")
         self.wall_length = QLabel("—")
+        self.wall_length.setToolTip("選択中の壁の長さ（m）· 読み取り専用")
         self.wall_thickness = self._metric_field(0.001, 5.0, decimals=3)
+        wall_thickness_hint = "壁の厚さ（m）· 遮音・構造の表現に使われます"
+        self.wall_thickness.setToolTip(wall_thickness_hint)
         self.wall_thickness.editingFinished.connect(self._wall_thickness_edited)
         wall_form.addRow("壁", self.wall_id)
         wall_form.addRow("長さ", self.wall_length)
         wall_form.addRow("厚さ", self.wall_thickness)
+        thickness_label = wall_form.labelForField(self.wall_thickness)
+        if thickness_label is not None:
+            thickness_label.setToolTip(wall_thickness_hint)
         wall_actions = QHBoxLayout()
         self.merge_wall_button = QPushButton("次の壁と結合")
+        self.merge_wall_button.setToolTip(
+            "この壁と次（時計回り）の壁を1本にまとめます"
+        )
         self.delete_wall_button = QPushButton("壁を削除")
+        self.delete_wall_button.setToolTip("選択中の壁を削除します")
         self.merge_wall_button.clicked.connect(self._merge_wall)
         self.delete_wall_button.clicked.connect(self._delete_wall)
         wall_actions.addWidget(self.merge_wall_button)
@@ -147,12 +195,23 @@ class RoomGeometryPanel(QFrame):
 
         opening_label = QLabel("開口")
         set_typography_role(opening_label, TypographyRole.SECTION_TITLE)
+        opening_label.setToolTip("壁の開いた部分（ドア・窓・通路）")
         root.addWidget(opening_label)
+
+        self.opening_hint = QLabel(
+            "壁を選択すると開口の追加・編集ができます"
+        )
+        self.opening_hint.setWordWrap(True)
+        set_typography_role(self.opening_hint, TypographyRole.SECONDARY)
+        root.addWidget(self.opening_hint)
 
         self.opening_host = QWidget()
         opening_form = QFormLayout(self.opening_host)
         opening_form.setContentsMargins(0, 0, 0, 0)
         self.opening_selector = QComboBox()
+        self.opening_selector.setToolTip(
+            "編集する開口を選択 ·「新規 / 未選択」の状態で「追加」を押すと新しい開口を作成します"
+        )
         self.opening_selector.currentIndexChanged.connect(self._opening_selected)
         self.opening_kind = QComboBox()
         for value, label in (
@@ -162,11 +221,29 @@ class RoomGeometryPanel(QFrame):
             ("other", "その他"),
         ):
             self.opening_kind.addItem(label, value)
+        self.opening_kind.setToolTip(
+            "開口の種類 · 通路は常に開放扱い、ドア・窓は閉じた開口として音響計算されます"
+        )
         self.opening_offset = self._metric_field(0.0, 1000.0, decimals=3)
         self.opening_width = self._metric_field(0.001, 1000.0, decimals=3)
         self.opening_sill = self._metric_field(0.0, 20.0, decimals=3)
         self.opening_height = self._metric_field(0.001, 20.0, decimals=3)
         self.opening_open = QCheckBox("開放として扱う")
+        opening_hints = {
+            "開口": "編集する開口を選択 ·「新規 / 未選択」では追加モードになります",
+            "種類": self.opening_kind.toolTip(),
+            "開始位置": "壁の始点から開口の開始端までの距離（m）",
+            "幅": "開口の幅（m）",
+            "床から": "床から開口下端までの高さ（m）· 窓の場合は腰壁の高さ",
+            "高さ": "開口の高さ（m）",
+        }
+        self.opening_offset.setToolTip(opening_hints["開始位置"])
+        self.opening_width.setToolTip(opening_hints["幅"])
+        self.opening_sill.setToolTip(opening_hints["床から"])
+        self.opening_height.setToolTip(opening_hints["高さ"])
+        self.opening_open.setToolTip(
+            "扉・仕切りのない常時開いた開口として扱います（通路と同じ扱い）"
+        )
         opening_form.addRow("開口", self.opening_selector)
         opening_form.addRow("種類", self.opening_kind)
         opening_form.addRow("開始位置", self.opening_offset)
@@ -174,11 +251,27 @@ class RoomGeometryPanel(QFrame):
         opening_form.addRow("床から", self.opening_sill)
         opening_form.addRow("高さ", self.opening_height)
         opening_form.addRow("", self.opening_open)
+        for field, hint in (
+            (self.opening_selector, opening_hints["開口"]),
+            (self.opening_kind, opening_hints["種類"]),
+            (self.opening_offset, opening_hints["開始位置"]),
+            (self.opening_width, opening_hints["幅"]),
+            (self.opening_sill, opening_hints["床から"]),
+            (self.opening_height, opening_hints["高さ"]),
+        ):
+            label = opening_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(hint)
 
         opening_actions = QHBoxLayout()
         self.add_opening_button = QPushButton("追加")
+        self.add_opening_button.setToolTip(
+            "入力した種類・寸法でこの壁に新しい開口を作成します"
+        )
         self.apply_opening_button = QPushButton("適用")
+        self.apply_opening_button.setToolTip("選択中の開口に入力値を反映します")
         self.delete_opening_button = QPushButton("削除")
+        self.delete_opening_button.setToolTip("選択中の開口を削除します")
         self.add_opening_button.clicked.connect(self._add_opening)
         self.apply_opening_button.clicked.connect(self._apply_opening)
         self.delete_opening_button.clicked.connect(self._delete_opening)
@@ -230,6 +323,8 @@ class RoomGeometryPanel(QFrame):
             self.edge_host.hide()
             self.wall_host.hide()
             self.opening_host.hide()
+            self.wall_hint.hide()
+            self.opening_hint.hide()
             return
 
         min_x, min_y, max_x, max_y = room.bounds_m
@@ -273,6 +368,8 @@ class RoomGeometryPanel(QFrame):
         wall_ready = editable and wall is not None and topology is not None
         self.wall_host.setVisible(wall is not None)
         self.opening_host.setVisible(wall is not None)
+        self.wall_hint.setVisible(wall is None)
+        self.opening_hint.setVisible(wall is None)
 
         if wall is None or topology is None:
             return

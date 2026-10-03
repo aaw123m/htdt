@@ -699,6 +699,8 @@ class TopContextBar(QFrame):
         for context in registration.contexts:
             button = QPushButton(context.label)
             button.setCheckable(True)
+            if context.hint:
+                button.setToolTip(context.hint)
             set_control_size(button, ControlSize.COMPACT)
             button.clicked.connect(
                 lambda checked=False, context_id=context.context_id: self._on_context_selected(context_id)

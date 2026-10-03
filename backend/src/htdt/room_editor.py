@@ -103,17 +103,23 @@ class RoomEditorWindow(NativeEditorWindow):
         self.addToolBar(room_toolbar)
         self.addToolBarBreak()
         self.draw_room_action = QAction('部屋を作図', self)
+        self.draw_room_action.setToolTip('部屋の外形を3D上でクリックして描き始めます')
         self.draw_room_action.triggered.connect(self.start_room_sketch)
         self.edit_room_action = QAction('部屋を編集', self)
+        self.edit_room_action.setToolTip('既存の部屋の頂点・辺を編集モードで調整します')
         self.edit_room_action.triggered.connect(self.start_room_edit)
         self.close_room_action = QAction('部屋を閉じる', self)
+        self.close_room_action.setToolTip('描画中の輪郭を閉じて部屋を確定します')
         self.close_room_action.triggered.connect(self.close_room_sketch)
         self.done_room_action = QAction('部屋編集を終了', self)
+        self.done_room_action.setToolTip('部屋の編集モードを終了します')
         self.done_room_action.triggered.connect(self.finish_room_edit)
         self.insert_vertex_action = QAction('頂点を挿入', self)
+        self.insert_vertex_action.setToolTip('ONの間、辺をクリックするとその位置に頂点を挿入します')
         self.insert_vertex_action.setCheckable(True)
         self.insert_vertex_action.toggled.connect(self._insert_vertex_toggled)
         self.delete_vertex_action = QAction('頂点を削除', self)
+        self.delete_vertex_action.setToolTip('選択中の頂点を削除します')
         self.delete_vertex_action.triggered.connect(self.delete_room_vertex)
         room_toolbar.addActions(
             (
@@ -169,6 +175,23 @@ class RoomEditorWindow(NativeEditorWindow):
         self.room_height.editingFinished.connect(self._numeric_room_height_edited)
         room_form.addRow('天井高', self.room_height)
 
+        room_field_hints = {
+            '頂点 X': '選択中の頂点のX座標（m、部屋座標）· +X=部屋右',
+            '頂点 Y': '選択中の頂点のY座標（m、部屋座標）· +Y=部屋奥',
+            '辺の長さ': '選択中の辺の長さ（m）· 変更すると終点側の頂点が移動します',
+            '天井高': '床から天井までの高さ（m）· すべての壁に共通です',
+        }
+        for row_text, field in (
+            ('頂点 X', self.room_vertex_x),
+            ('頂点 Y', self.room_vertex_y),
+            ('辺の長さ', self.room_edge_length),
+            ('天井高', self.room_height),
+        ):
+            field.setToolTip(room_field_hints[row_text])
+            label = room_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(room_field_hints[row_text])
+
         room_form.addRow(QLabel('— 音響トリートメント —'))
         self.treatment_name_field = QLineEdit()
         self.treatment_name_field.setPlaceholderText('例: 60x120 吸音材')
@@ -215,7 +238,38 @@ class RoomEditorWindow(NativeEditorWindow):
         self.treatment_pos_z.setValue(1.2)
         self.treatment_pos_z.setSuffix(' m')
         room_form.addRow('位置 Z', self.treatment_pos_z)
+        treatment_hints = {
+            'トリートメント名': '吸音処理の表示名（例: 60x120 吸音材）',
+            '種類': '吸音処理の構造種別（多孔質・バストラップ・拡散など）',
+            '幅': 'パネルの幅（m）',
+            '高さ': 'パネルの高さ（m）',
+            '厚さ': '吸音材の厚さ（m）',
+            'エアギャップ': 'パネル背面と壁の間の空気層（m）· 低音域の吸音に効きます',
+            '設置面': '処理を取り付ける壁・天井の面',
+            '位置 X': '設置位置のX座標（m、部屋座標）',
+            '位置 Y': '設置位置のY座標（m、部屋座標）',
+            '位置 Z': '設置位置の高さ（m、床基準）',
+            '比較': 'A/B比較セットにつける名前（例: ベースライン vs A）',
+        }
+        treatment_fields = {
+            'トリートメント名': self.treatment_name_field,
+            '種類': self.treatment_type_combo,
+            '幅': self.treatment_width,
+            '高さ': self.treatment_height,
+            '厚さ': self.treatment_thickness,
+            'エアギャップ': self.treatment_air_gap,
+            '設置面': self.treatment_surface_combo,
+            '位置 X': self.treatment_pos_x,
+            '位置 Y': self.treatment_pos_y,
+            '位置 Z': self.treatment_pos_z,
+        }
+        for row_text, field in treatment_fields.items():
+            field.setToolTip(treatment_hints[row_text])
+            label = room_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(treatment_hints[row_text])
         treatment_button = QPushButton('定義して配置')
+        treatment_button.setToolTip('上の内容で吸音処理を定義し、指定位置に配置します')
         treatment_button.clicked.connect(self._create_and_place_treatment)
         room_form.addRow(treatment_button)
         self.treatment_list_label = QLabel('トリートメントなし')
@@ -223,8 +277,10 @@ class RoomEditorWindow(NativeEditorWindow):
         room_form.addRow(self.treatment_list_label)
         self.treatment_compare_name = QLineEdit()
         self.treatment_compare_name.setPlaceholderText('例: ベースライン vs A')
+        self.treatment_compare_name.setToolTip(treatment_hints['比較'])
         room_form.addRow('比較', self.treatment_compare_name)
         compare_button = QPushButton('A/B比較を作成')
+        compare_button.setToolTip('現在の配置を名前つき比較候補として記録します')
         compare_button.clicked.connect(self._create_treatment_comparison)
         room_form.addRow(compare_button)
 

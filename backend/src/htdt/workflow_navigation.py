@@ -71,6 +71,9 @@ def normalize_destination_id(value: DestinationId | str) -> DestinationId:
 class WorkspaceContext:
     context_id: str
     label: str
+    #: One-line Japanese explanation of what the context is for; rendered as
+    #: the context tab's tooltip. Empty means no tooltip.
+    hint: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,11 +177,11 @@ APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
 CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = {
     WorkspaceId.OVERVIEW: (),
     WorkspaceId.ROOM: (
-        WorkspaceContext("geometry", "形状"),
-        WorkspaceContext("objects", "物体"),
-        WorkspaceContext("placement", "スピーカー・座席"),
-        WorkspaceContext("acoustics", "音響"),
-        WorkspaceContext("history", "履歴"),
+        WorkspaceContext("geometry", "形状", "部屋の外形を描き、天井高・壁・開口を設定します"),
+        WorkspaceContext("objects", "物体", "部屋に置く物体（スピーカー・座席・家具など）を追加・編集します"),
+        WorkspaceContext("placement", "スピーカー・座席", "スピーカーと座席の位置・向きを調整し、配置制約や提案を扱います"),
+        WorkspaceContext("acoustics", "音響", "壁材・吸音処理を設定し、音響予測を実行します"),
+        WorkspaceContext("history", "履歴", "保存した版の履歴を確認し、差分比較や復元を行います"),
     ),
     WorkspaceId.MEASUREMENT: (
         WorkspaceContext("import", "読み込み"),

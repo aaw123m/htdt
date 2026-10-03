@@ -117,6 +117,38 @@ class ProjectorSpecDialog(QDialog):
         self.shift_v_max.setRange(-1.0, 1.0)
         self.shift_v_max.setSingleStep(0.05)
         self.shift_v_max.setValue(0.5)
+        spec_hints = {
+            "仕様ID": "この仕様を識別するID（例: my-projector-model）",
+            "バージョン": "仕様の版番号 · 同じIDの更新は新しいバージョンとして記録されます",
+            "記録者": "この仕様を記録した人",
+            "出典者": "仕様値の測定者・出典",
+            "出典タイトル": "出典資料のタイトル（測定メモ・資料名など）",
+            "参照": "出典内の参照位置（ページ・セクション）",
+            "出典引用": "出典の一文引用（例: 2026-09-23 現場実測）",
+            "スロー比最小": "投射距離÷画面幅の最小値 · 小さいほど短焦点",
+            "スロー比最大": "投射距離÷画面幅の最大値",
+            "水平レンズシフト": "レンズを水平にずらせるか · 不明なら判定不能として扱われます",
+            "水平シフト最小": "画域幅に対する水平シフトの最小値（負=左）",
+            "水平シフト最大": "画域幅に対する水平シフトの最大値（正=右）",
+            "垂直レンズシフト": "レンズを垂直にずらせるか · 不明なら判定不能として扱われます",
+            "垂直シフト最小": "画域高さに対する垂直シフトの最小値（負=下）",
+            "垂直シフト最大": "画域高さに対する垂直シフトの最大値（正=上）",
+        }
+        self.spec_id.setToolTip(spec_hints["仕様ID"])
+        self.version.setToolTip(spec_hints["バージョン"])
+        self.actor.setToolTip(spec_hints["記録者"])
+        self.publisher.setToolTip(spec_hints["出典者"])
+        self.doc_title.setToolTip(spec_hints["出典タイトル"])
+        self.reference.setToolTip(spec_hints["参照"])
+        self.citation.setToolTip(spec_hints["出典引用"])
+        self.throw_min.setToolTip(spec_hints["スロー比最小"])
+        self.throw_max.setToolTip(spec_hints["スロー比最大"])
+        self.shift_h_enabled.setToolTip(spec_hints["水平レンズシフト"])
+        self.shift_h_min.setToolTip(spec_hints["水平シフト最小"])
+        self.shift_h_max.setToolTip(spec_hints["水平シフト最大"])
+        self.shift_v_enabled.setToolTip(spec_hints["垂直レンズシフト"])
+        self.shift_v_min.setToolTip(spec_hints["垂直シフト最小"])
+        self.shift_v_max.setToolTip(spec_hints["垂直シフト最大"])
         form.addRow("仕様ID", self.spec_id)
         form.addRow("バージョン", self.version)
         form.addRow("記録者", self.actor)
@@ -132,6 +164,16 @@ class ProjectorSpecDialog(QDialog):
         form.addRow("垂直レンズシフト", self.shift_v_enabled)
         form.addRow("垂直シフト最小", self.shift_v_min)
         form.addRow("垂直シフト最大", self.shift_v_max)
+        for field in (
+            self.spec_id, self.version, self.actor, self.publisher,
+            self.doc_title, self.reference, self.citation,
+            self.throw_min, self.throw_max,
+            self.shift_h_enabled, self.shift_h_min, self.shift_h_max,
+            self.shift_v_enabled, self.shift_v_min, self.shift_v_max,
+        ):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         layout.addLayout(form)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -465,6 +507,10 @@ class RoomVideoPanel(QWidget):
         target_row.setSpacing(4)
         target_row.addWidget(QLabel("ターゲット"))
         self.target_combo = QComboBox()
+        self.target_combo.setToolTip(
+            'この部屋の映像方式 · プロジェクター＋スクリーンか直視ディスプレイかで'
+            '評価項目と設定欄が変わります'
+        )
         self.target_combo.addItem("プロジェクター＋スクリーン", 'projection')
         self.target_combo.addItem("ディスプレイ", 'direct_view')
         target_row.addWidget(self.target_combo, stretch=1)
@@ -481,6 +527,7 @@ class RoomVideoPanel(QWidget):
         proj_row.setSpacing(4)
         proj_row.addWidget(QLabel("プロジェクター"))
         self.projector_combo = QComboBox()
+        self.projector_combo.setToolTip('評価対象にする部屋内のプロジェクター物体')
         proj_row.addWidget(self.projector_combo, stretch=1)
         projection_layout.addLayout(proj_row)
 
@@ -488,8 +535,14 @@ class RoomVideoPanel(QWidget):
         spec_row.setSpacing(4)
         spec_row.addWidget(QLabel("仕様"))
         self.spec_combo = QComboBox()
+        self.spec_combo.setToolTip(
+            'プロジェクターのスロー比・レンズシフト仕様（結び付けた評価権威）'
+        )
         spec_row.addWidget(self.spec_combo, stretch=1)
         self.new_spec_button = QPushButton("登録…")
+        self.new_spec_button.setToolTip(
+            'プロジェクター仕様権威を新規登録します（ユーザー定義証拠）'
+        )
         spec_row.addWidget(self.new_spec_button)
         projection_layout.addLayout(spec_row)
 
@@ -503,22 +556,33 @@ class RoomVideoPanel(QWidget):
         self.screen_width.setRange(0.5, 20.0)
         self.screen_width.setSingleStep(0.05)
         self.screen_width.setSuffix(' m')
+        self.screen_width.setToolTip('スクリーン有効画域の幅（m）')
         self.screen_height = QDoubleSpinBox()
         self.screen_height.setRange(0.3, 10.0)
         self.screen_height.setSingleStep(0.05)
         self.screen_height.setSuffix(' m')
+        self.screen_height.setToolTip('スクリーン有効画域の高さ（m）')
         self.screen_offset_x = QDoubleSpinBox()
         self.screen_offset_x.setRange(-5.0, 5.0)
         self.screen_offset_x.setSingleStep(0.05)
         self.screen_offset_x.setSuffix(' m')
+        self.screen_offset_x.setToolTip(
+            '画域中心の左右オフセット（m）· スクリーン物体の中心基準'
+        )
         self.screen_offset_z = QDoubleSpinBox()
         self.screen_offset_z.setRange(-5.0, 5.0)
         self.screen_offset_z.setSingleStep(0.05)
         self.screen_offset_z.setSuffix(' m')
+        self.screen_offset_z.setToolTip(
+            '画域中心の上下オフセット（m）· スクリーン物体の中心基準'
+        )
         self.frame_clearance = QDoubleSpinBox()
         self.frame_clearance.setRange(0.0, 2.0)
         self.frame_clearance.setSingleStep(0.01)
         self.frame_clearance.setSuffix(' m')
+        self.frame_clearance.setToolTip(
+            '画域の周囲に必要なフレームの余白（m）'
+        )
         self.transfer_combo = QComboBox()
         self.transfer_combo.addItem("不明（伝達権威なし）", None)
         self.transfer_combo.setToolTip(
@@ -552,6 +616,7 @@ class RoomVideoPanel(QWidget):
         display_row.setSpacing(4)
         display_row.addWidget(QLabel("ディスプレイ"))
         self.display_combo = QComboBox()
+        self.display_combo.setToolTip('評価対象にする部屋内のディスプレイ物体')
         display_row.addWidget(self.display_combo, stretch=1)
         display_layout.addLayout(display_row)
 
@@ -559,6 +624,9 @@ class RoomVideoPanel(QWidget):
         display_spec_row.setSpacing(4)
         display_spec_row.addWidget(QLabel("仕様"))
         self.display_spec_combo = QComboBox()
+        self.display_spec_combo.setToolTip(
+            'ディスプレイの画域・性能仕様（結び付けた評価権威）'
+        )
         display_spec_row.addWidget(self.display_spec_combo, stretch=1)
         self.new_display_spec_button = QPushButton("登録…")
         self.new_display_spec_button.setToolTip(
@@ -577,26 +645,38 @@ class RoomVideoPanel(QWidget):
         self.display_width.setSingleStep(0.01)
         self.display_width.setDecimals(3)
         self.display_width.setSuffix(' m')
+        self.display_width.setToolTip('ディスプレイ有効画域の幅（m）')
         self.display_height = QDoubleSpinBox()
         self.display_height.setRange(0.05, 5.0)
         self.display_height.setSingleStep(0.01)
         self.display_height.setDecimals(3)
         self.display_height.setSuffix(' m')
+        self.display_height.setToolTip('ディスプレイ有効画域の高さ（m）')
         self.display_offset_x = QDoubleSpinBox()
         self.display_offset_x.setRange(-5.0, 5.0)
         self.display_offset_x.setSingleStep(0.01)
         self.display_offset_x.setDecimals(3)
         self.display_offset_x.setSuffix(' m')
+        self.display_offset_x.setToolTip(
+            '画域中心の左右オフセット（m）· ディスプレイ物体の中心基準'
+        )
         self.display_offset_z = QDoubleSpinBox()
         self.display_offset_z.setRange(-5.0, 5.0)
         self.display_offset_z.setSingleStep(0.01)
         self.display_offset_z.setDecimals(3)
         self.display_offset_z.setSuffix(' m')
+        self.display_offset_z.setToolTip(
+            '画域中心の上下オフセット（m）· ディスプレイ物体の中心基準'
+        )
         self.display_frame_clearance = QDoubleSpinBox()
         self.display_frame_clearance.setRange(0.0, 2.0)
         self.display_frame_clearance.setSingleStep(0.01)
         self.display_frame_clearance.setSuffix(' m')
+        self.display_frame_clearance.setToolTip(
+            '画域の周囲に必要なフレームの余白（m）'
+        )
         self.display_mounting = QComboBox()
+        self.display_mounting.setToolTip('ディスプレイの設置方式（壁掛け・スタンドなど）')
         for value, label in _DISPLAY_MOUNTING_ITEMS:
             self.display_mounting.addItem(label, value)
         display_form.addRow("有効画域幅", self.display_width)
@@ -631,21 +711,35 @@ class RoomVideoPanel(QWidget):
         self.sightline_clearance.setRange(0.0, 1.0)
         self.sightline_clearance.setSingleStep(0.01)
         self.sightline_clearance.setSuffix(' m')
+        self.sightline_clearance.setToolTip(
+            '視線（目から画域への線）が障害物と保つべき余裕（m）'
+        )
         self.max_axis_deviation = QDoubleSpinBox()
         self.max_axis_deviation.setRange(0.0, 90.0)
         self.max_axis_deviation.setSingleStep(1.0)
         self.max_axis_deviation.setSuffix('°')
         self.max_axis_deviation.setValue(30.0)
+        self.max_axis_deviation.setToolTip(
+            '座席の視線方向と画域中心を結ぶ線の許容ズレ角（°）'
+        )
         policy_form.addRow("視線クリアランス", self.sightline_clearance)
         policy_form.addRow("光軸ズレ上限", self.max_axis_deviation)
+        for field in (self.sightline_clearance, self.max_axis_deviation):
+            label = policy_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         layout.addLayout(policy_form)
 
         # --- evaluation ----------------------------------------------------------
         eval_row = QHBoxLayout()
         eval_row.setSpacing(4)
         self.evaluate_button = QPushButton("評価")
+        self.evaluate_button.setToolTip(
+            'バインドとポリシーの条件で映像ジオメトリ（画域・視線・光軸）を評価します'
+        )
         self.variant_combo = QComboBox()
         self.variant_combo.setAccessibleName("評価バリアント")
+        self.variant_combo.setToolTip('評価の対象にするシステムバリアント（提案）')
         self.variant_combo.addItem("ベースライン（現在の保存版）", None)
         eval_row.addWidget(self.evaluate_button)
         eval_row.addWidget(self.variant_combo, stretch=1)
@@ -658,6 +752,10 @@ class RoomVideoPanel(QWidget):
 
         self.results_tree = QTreeWidget()
         self.results_tree.setHeaderLabels(("項目", "状態"))
+        results_header = self.results_tree.headerItem()
+        if results_header is not None:
+            results_header.setToolTip(0, '評価した項目（画域・視線・光軸など）')
+            results_header.setToolTip(1, '適合/不適合/不明 と根拠')
         self.results_tree.setRootIsDecorated(False)
         self.results_tree.setUniformRowHeights(True)
         layout.addWidget(self.results_tree, stretch=1)
@@ -666,8 +764,13 @@ class RoomVideoPanel(QWidget):
         seat_view_row.setSpacing(4)
         seat_view_row.addWidget(QLabel("座席視点:"))
         self.seat_view_combo = QComboBox()
+        self.seat_view_combo.setToolTip('視点をシミュレートする座席')
         self.view_seat_button = QPushButton("座席から見る")
+        self.view_seat_button.setToolTip(
+            '選んだ座席の目線位置からの見え方を3Dでシミュレートします'
+        )
         self.restore_camera_button = QPushButton("カメラを戻す")
+        self.restore_camera_button.setToolTip('座席視点を解除して通常のカメラに戻します')
         seat_view_row.addWidget(self.seat_view_combo, stretch=1)
         seat_view_row.addWidget(self.view_seat_button)
         seat_view_row.addWidget(self.restore_camera_button)

@@ -137,6 +137,9 @@ class _ProposalSpeakerRow(QFrame):
         header.setSpacing(4)
         self.role_combo = QComboBox()
         self.role_combo.setAccessibleName('役割')
+        self.role_combo.setToolTip(
+            '追加するスピーカーのチャンネル役割（例: SL / TRL）· 自由入力も可'
+        )
         self.role_combo.setEditable(True)
         self.role_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.role_combo.addItems(PROPOSED_ROLE_SUGGESTIONS)
@@ -149,6 +152,9 @@ class _ProposalSpeakerRow(QFrame):
         )
         self.equipment_combo = QComboBox()
         self.equipment_combo.setAccessibleName('機器')
+        self.equipment_combo.setToolTip(
+            'この役割に使う機器モデル（機器・音源ライブラリの定義から選択）'
+        )
         self.remove_button = QPushButton("削除")
         set_control_size(self.remove_button, ControlSize.COMPACT)
         self.remove_button.setToolTip("この追加スピーカー行を提案から外す")
@@ -164,6 +170,9 @@ class _ProposalSpeakerRow(QFrame):
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         form.setContentsMargins(0, 0, 0, 0)
         self.zone_name = QLineEdit("設置エリア")
+        self.zone_name.setToolTip(
+            'このスピーカーを置いてよい範囲の名前（表示用のラベル）'
+        )
         self.min_x = _metric_field()
         self.min_x.setAccessibleName('X 最小値 m')
         self.max_x = _metric_field()
@@ -176,20 +185,46 @@ class _ProposalSpeakerRow(QFrame):
         self.min_z.setAccessibleName('高さZ 最小値 m')
         self.max_z = _metric_field()
         self.max_z.setAccessibleName('高さZ 最大値 m')
+        zone_hint = (
+            '設置可能領域の範囲（m、部屋座標）· +X=部屋右、+Y=部屋奥、+Z=床から上'
+        )
+        for field in (
+            self.min_x, self.max_x, self.min_y, self.max_y, self.min_z, self.max_z,
+        ):
+            field.setToolTip(zone_hint)
+        x_pair = _field_pair(self.min_x, self.max_x)
+        y_pair = _field_pair(self.min_y, self.max_y)
+        z_pair = _field_pair(self.min_z, self.max_z)
         form.addRow("設置可能領域", self.zone_name)
-        form.addRow("X 最小/最大 m", _field_pair(self.min_x, self.max_x))
-        form.addRow("Y 最小/最大 m", _field_pair(self.min_y, self.max_y))
-        form.addRow("高さZ 最小/最大 m", _field_pair(self.min_z, self.max_z))
+        form.addRow("X 最小/最大 m", x_pair)
+        form.addRow("Y 最小/最大 m", y_pair)
+        form.addRow("高さZ 最小/最大 m", z_pair)
+        zone_label = form.labelForField(self.zone_name)
+        if zone_label is not None:
+            zone_label.setToolTip(self.zone_name.toolTip())
+        for pair in (x_pair, y_pair, z_pair):
+            label = form.labelForField(pair)
+            if label is not None:
+                label.setToolTip(zone_hint)
         layout.addLayout(form)
 
         self.advanced_button = QPushButton("詳細")
         self.advanced_button.setCheckable(True)
+        self.advanced_button.setToolTip(
+            'オプション扱い・照準角の探索範囲などの詳細設定を開きます'
+        )
         set_control_size(self.advanced_button, ControlSize.COMPACT)
         self.advanced_area = QWidget()
         advanced = QFormLayout(self.advanced_area)
         advanced.setContentsMargins(0, 0, 0, 0)
         self.optional_check = QCheckBox("オプションロールとして扱う")
+        self.optional_check.setToolTip(
+            'この役割が見つからなくても提案を成立させます（必須ではない追加チャンネル）'
+        )
         self.aim_enabled = QCheckBox("照準ヨー範囲を探索")
+        self.aim_enabled.setToolTip(
+            '位置だけでなく音響照準の水平角も探索対象にします'
+        )
         self.aim_min = _degree_field()
         self.aim_min.setAccessibleName('照準ヨー最小 deg')
         self.aim_max = _degree_field()
@@ -198,13 +233,21 @@ class _ProposalSpeakerRow(QFrame):
         self.aim_max.setValue(15.0)
         self.aim_step = _degree_field(minimum=0.5, maximum=180.0)
         self.aim_step.setValue(5.0)
+        aim_hint = '音響照準の水平角の範囲（°）· 0°=部屋後方、正値=部屋右方向'
+        self.aim_min.setToolTip(aim_hint)
+        self.aim_max.setToolTip(aim_hint)
+        self.aim_step.setToolTip('照準角を何度刻みで試すか（°）')
+        aim_pair = _field_pair(self.aim_min, self.aim_max)
         advanced.addRow(self.optional_check)
         advanced.addRow(self.aim_enabled)
-        advanced.addRow(
-            "照準ヨー最小/最大 deg",
-            _field_pair(self.aim_min, self.aim_max),
-        )
+        advanced.addRow("照準ヨー最小/最大 deg", aim_pair)
         advanced.addRow("照準ヨー刻み deg", self.aim_step)
+        aim_min_max_label = advanced.labelForField(aim_pair)
+        if aim_min_max_label is not None:
+            aim_min_max_label.setToolTip(aim_hint)
+        aim_step_label = advanced.labelForField(self.aim_step)
+        if aim_step_label is not None:
+            aim_step_label.setToolTip(self.aim_step.toolTip())
         self.advanced_area.hide()
         self.advanced_button.toggled.connect(self.advanced_area.setVisible)
         layout.addWidget(self.advanced_button)
@@ -276,9 +319,15 @@ class _ProposalLinkRow(QFrame):
         relation_row.setSpacing(4)
         self.master_combo = QComboBox()
         self.relation_combo = QComboBox()
+        self.relation_combo.setToolTip(
+            '2台の位置関係 · ミラー=左右対称、同一座標=同じ値に揃え、'
+            '同一変位=片方を動かすともう片方も同じだけ動きます'
+        )
         for code, label in _LINK_RELATION_CHOICES:
             self.relation_combo.addItem(label, code)
         self.slave_combo = QComboBox()
+        self.master_combo.setToolTip('基準側のスピーカー行')
+        self.slave_combo.setToolTip('基準に連動させるスピーカー行')
         relation_row.addWidget(self.master_combo, 1)
         relation_row.addWidget(self.relation_combo, 2)
         relation_row.addWidget(self.slave_combo, 1)
@@ -288,8 +337,12 @@ class _ProposalLinkRow(QFrame):
         option_row.setContentsMargins(0, 0, 0, 0)
         option_row.setSpacing(4)
         self.mirror_center = QCheckBox("部屋中央でミラー")
+        self.mirror_center.setToolTip(
+            '部屋の左右中央（X=部屋中央）を対称軸にします · OFFで任意の軸位置を指定'
+        )
         self.mirror_center.setChecked(True)
         self.mirror_axis = QDoubleSpinBox()
+        self.mirror_axis.setToolTip('ミラー対称軸のX座標（m）')
         self.mirror_axis.setRange(-1000.0, 1000.0)
         self.mirror_axis.setDecimals(3)
         self.mirror_axis.setSingleStep(0.1)
@@ -489,7 +542,11 @@ class SystemExpansionRoomPanel(QFrame):
 
         self.proposal_name = QLineEdit()
         self.proposal_name.setPlaceholderText("例: 5.0.2 A")
+        self.proposal_name.setToolTip('提案につける名前（例: 5.0.2 A）')
         self.zone_step = _metric_field(minimum=0.01)
+        self.zone_step.setToolTip(
+            '設置可能領域の中で位置候補を試す間隔（m）· 小さいほど精密で時間がかかります'
+        )
         self.zone_step.setValue(0.25)
 
         proposal_form = QFormLayout()
@@ -499,6 +556,10 @@ class SystemExpansionRoomPanel(QFrame):
         )
         proposal_form.addRow("提案名", self.proposal_name)
         proposal_form.addRow("探索刻み m", self.zone_step)
+        for field in (self.proposal_name, self.zone_step):
+            label = proposal_form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         author_layout.addLayout(proposal_form)
 
         speaker_header = QHBoxLayout()
@@ -549,6 +610,9 @@ class SystemExpansionRoomPanel(QFrame):
 
         self.existing_button = QPushButton("既存スピーカーの削除 / 機器変更")
         self.existing_button.setCheckable(True)
+        self.existing_button.setToolTip(
+            '提案に現在のスピーカーの削除・機器モデル変更を含めます'
+        )
         set_control_size(self.existing_button, ControlSize.COMPACT)
         self.existing_area = QWidget()
         self.existing_layout = QVBoxLayout(self.existing_area)
@@ -619,6 +683,16 @@ class SystemExpansionRoomPanel(QFrame):
         self.entity_tree.setHeaderLabels(
             ["追加スピーカー / チャンネル", "役割", "状態", "機器", "設置可能領域", "理由"]
         )
+        for column, hint in (
+            (1, '提案に含まれるチャンネル役割'),
+            (2, '提案=未設置の新規スピーカー / 既存=現在の部屋にある機器'),
+            (3, 'その役割に使う機器モデル'),
+            (4, '位置を探索できる許可範囲'),
+            (5, '採用・却下・評価の理由'),
+        ):
+            header_item = self.entity_tree.headerItem()
+            if header_item is not None:
+                header_item.setToolTip(column, hint)
         header = self.entity_tree.header()
         header.setMinimumSectionSize(0)
         for index in range(self.entity_tree.columnCount()):

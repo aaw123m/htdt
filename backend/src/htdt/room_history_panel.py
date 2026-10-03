@@ -50,12 +50,27 @@ class RoomHistoryPanel(QWidget):
         set_typography_role(heading, TypographyRole.SECTION_TITLE)
         layout.addWidget(heading)
 
+        intro = QLabel(
+            "保存のたびに部屋全体の版（リビジョン）が記録されます。"
+            "ラベルで目印を付け、過去版の3Dプレビュー・差分確認・復元ができます。"
+        )
+        intro.setWordWrap(True)
+        set_typography_role(intro, TypographyRole.SECONDARY)
+        layout.addWidget(intro)
+
         self.summary = QLabel("リビジョンなし")
         set_typography_role(self.summary, TypographyRole.SECONDARY)
         layout.addWidget(self.summary)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(("時刻", "ラベル", "内容"))
+        header = self.tree.headerItem()
+        if header is not None:
+            header.setToolTip(
+                0, '保存日時（UTC）· ●HEAD=現在の最新版 · ◇detached=本線から分岐した版'
+            )
+            header.setToolTip(1, 'その版につけた目印ラベル')
+            header.setToolTip(2, 'その版に含まれる物体の内訳')
         self.tree.header().setSectionResizeMode(
             0, QHeaderView.ResizeMode.ResizeToContents
         )
@@ -72,10 +87,15 @@ class RoomHistoryPanel(QWidget):
         self.label_field = QLineEdit()
         self.label_field.setPlaceholderText("ラベル（例: v2 候補）")
         self.label_field.setAccessibleName("ラベル")
+        self.label_field.setToolTip(
+            '選択中のリビジョンに付ける目印（例: v2 候補）· 履歴そのものは変わりません'
+        )
         self.note_field = QLineEdit()
         self.note_field.setPlaceholderText("メモ（任意）")
         self.note_field.setAccessibleName("メモ")
+        self.note_field.setToolTip('ラベルに添える自由メモ')
         self.label_button = QPushButton("ラベル保存")
+        self.label_button.setToolTip('選択中のリビジョンにラベルとメモを保存します')
         label_row.addWidget(self.label_field, stretch=1)
         label_row.addWidget(self.note_field, stretch=1)
         label_row.addWidget(self.label_button)
@@ -85,8 +105,15 @@ class RoomHistoryPanel(QWidget):
         button_row.setSpacing(4)
         self.preview_button = QPushButton("3Dプレビュー")
         self.preview_button.setCheckable(True)
+        self.preview_button.setToolTip(
+            '選択した版を3D上に半透明で重ねて表示します（読み取り専用・再クリックで解除）'
+        )
         self.diff_button = QPushButton("差分を表示")
+        self.diff_button.setToolTip('選択した版と現在の差分を下に表示します')
         self.restore_button = QPushButton("この版に復元")
+        self.restore_button.setToolTip(
+            '選択した版の内容を新しいリビジョンとして復元します（履歴は消えません）'
+        )
         for button in (self.preview_button, self.diff_button, self.restore_button):
             button_row.addWidget(button)
         button_row.addStretch(1)

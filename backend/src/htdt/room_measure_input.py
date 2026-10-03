@@ -259,22 +259,53 @@ class RoomMeasurePanel(QWidget):
 
         row = QHBoxLayout()
         self.mode_combo = QComboBox()
-        for mode, label in MEASURE_MODE_LABELS.items():
+        self.mode_combo.setToolTip(
+            '計測の種類 · 距離=2点間の長さと成分・方位角、角度=3点がなす角'
+        )
+        mode_hints = {
+            'distance': '2点をクリックして距離・XYZ成分・方位角/仰角を計ります',
+            'angle': '3点をクリックして、中間の点での角度を計ります',
+        }
+        for index, (mode, label) in enumerate(MEASURE_MODE_LABELS.items()):
             self.mode_combo.addItem(label, mode)
+            hint = mode_hints.get(mode)
+            if hint:
+                self.mode_combo.setItemData(
+                    index, hint, Qt.ItemDataRole.ToolTipRole
+                )
         self.reference_combo = QComboBox()
         self.reference_combo.setAccessibleName('計測基準')
+        self.reference_combo.setToolTip(
+            '物体上のどの位置を計測点にするか選びます'
+        )
+        reference_hints = {
+            'position': '物体の原点（位置フィールドの座標）を計測点にします',
+            'acoustic_reference': 'スピーカー・座席の音響基準点（音の発生/評価位置）を計測点にします',
+            'snap_point': '頂点・辺・中点などのスナップ位置を計測点にします',
+        }
         for kind, label in MEASURE_REFERENCE_LABELS.items():
             if kind != 'free_point':
+                index = self.reference_combo.count()
                 self.reference_combo.addItem(label, kind)
+                hint = reference_hints.get(kind)
+                if hint:
+                    self.reference_combo.setItemData(
+                        index, hint, Qt.ItemDataRole.ToolTipRole
+                    )
         row.addWidget(self.mode_combo)
         row.addWidget(self.reference_combo)
         layout.addLayout(row)
 
         button_row = QHBoxLayout()
         self.start_button = QPushButton("計測開始")
+        self.start_button.setToolTip(
+            "計測を開始し、3D上で点をクリックして確定します（Escで中止）"
+        )
         self.copy_button = QPushButton("コピー")
+        self.copy_button.setToolTip("計測結果をクリップボードにコピーします")
         self.copy_button.setEnabled(False)
         self.cancel_button = QPushButton("中止")
+        self.cancel_button.setToolTip("計測中の操作を中止します")
         for button in (self.start_button, self.copy_button, self.cancel_button):
             button_row.addWidget(button)
         layout.addLayout(button_row)

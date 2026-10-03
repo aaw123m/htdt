@@ -108,12 +108,16 @@ class MaterialDialog(QDialog):
         form = QFormLayout()
         self.label = QLineEdit()
         self.label.setPlaceholderText('例: 25mmグラスウール')
+        self.label.setToolTip('このマテリアルの表示名')
         form.addRow('名称', self.label)
         self.wave_model = QComboBox()
         for value, label_text in WAVE_MODEL_LABELS.items():
             self.wave_model.addItem(f'{value} — {label_text}', value)
         self.wave_model.setCurrentIndex(
             list(WAVE_MODEL_LABELS).index('unsupported')
+        )
+        self.wave_model.setToolTip(
+            '低域（波動）計算でこのマテリアルを扱える精度 · 不明なら unsupported'
         )
         form.addRow('波動対応', self.wave_model)
         self.impedance = QPlainTextEdit()
@@ -122,6 +126,10 @@ class MaterialDialog(QDialog):
             '(specific_impedance_tableのみ)'
         )
         self.impedance.setMaximumHeight(60)
+        self.impedance.setToolTip(
+            '周波数ごとの表面インピーダンス（波動計算の入力）· '
+            '「波動対応」が specific_impedance_table のときだけ使われます'
+        )
         form.addRow('インピーダンス', self.impedance)
         self.geometric_model = QComboBox()
         for value, label_text in GEOMETRIC_MODEL_LABELS.items():
@@ -129,16 +137,31 @@ class MaterialDialog(QDialog):
         self.geometric_model.setCurrentIndex(
             list(GEOMETRIC_MODEL_LABELS).index('unsupported')
         )
+        self.geometric_model.setToolTip(
+            '中高域（幾何音響）計算でこのマテリアルを扱える精度'
+        )
         form.addRow('幾何対応', self.geometric_model)
         self.bands = QPlainTextEdit()
         self.bands.setPlaceholderText(
             'バンド — 1行1点: center_hz,absorption,scattering (bandedのみ)'
         )
         self.bands.setMaximumHeight(60)
+        self.bands.setToolTip(
+            '帯域ごとの吸音率・散乱率（幾何音響の入力）· '
+            '「幾何対応」が banded のときだけ使われます'
+        )
         form.addRow('バンド', self.bands)
         self.provenance = QLineEdit()
         self.provenance.setPlaceholderText('出典（例: メーカー公表値 / 現場実測）')
+        self.provenance.setToolTip('このマテリアル値の出典（公表値・実測など）')
         form.addRow('出典', self.provenance)
+        for field in (
+            self.label, self.wave_model, self.impedance,
+            self.geometric_model, self.bands, self.provenance,
+        ):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip() or 'このマテリアルの表示名')
         layout.addLayout(form)
         hint = QLabel(
             '波動と幾何の能力は別々の権威です — '
@@ -240,10 +263,15 @@ class TreatmentDefinitionDialog(QDialog):
         form = QFormLayout()
         self.name = QLineEdit()
         self.name.setPlaceholderText('例: 50mm多孔質パネル')
+        self.name.setToolTip('この吸音処理の表示名')
         form.addRow('名称', self.name)
         self.version = QLineEdit('1')
+        self.version.setToolTip('同じ名前の定義を更新する際の版番号')
         form.addRow('バージョン', self.version)
         self.treatment_type = QComboBox()
+        self.treatment_type.setToolTip(
+            '吸音処理の構造種別（多孔質・空気層つき・バストラップ・拡散など）'
+        )
         for value in (
             'porous_absorber',
             'absorber_with_air_gap',
@@ -271,17 +299,37 @@ class TreatmentDefinitionDialog(QDialog):
         self.air_gap = QDoubleSpinBox()
         self.air_gap.setRange(0.0, 2.0)
         self.air_gap.setDecimals(3)
+        self.width_m.setToolTip('処理パネルの幅（m）')
+        self.height_m.setToolTip('処理パネルの高さ（m）')
+        self.thickness.setToolTip('吸音材の厚さ（m）· 低音ほど厚さが効きます')
+        self.air_gap.setToolTip(
+            'パネル背面と壁の間の空気層の厚さ（m）· 低音域の吸音に効きます'
+        )
         form.addRow('幅 (m)', self.width_m)
         form.addRow('高さ (m)', self.height_m)
         form.addRow('厚さ (m)', self.thickness)
         form.addRow('空気層 (m)', self.air_gap)
         self.layer_material = QLineEdit()
         self.layer_material.setPlaceholderText('層1 材質名 (例: グラスウール)')
+        self.layer_material.setToolTip(
+            '表面側から数えた第1層の材質名（例: グラスウール）'
+        )
         form.addRow('層1 材質', self.layer_material)
         self.layer_density = QDoubleSpinBox()
         self.layer_density.setRange(0.0, 2000.0)
         self.layer_density.setSpecialValueText('不明')
+        self.layer_density.setToolTip(
+            '第1層材質の密度（kg/m³）· 0または「不明」のままなら不明として記録されます'
+        )
         form.addRow('層1 密度 kg/m³', self.layer_density)
+        for field in (
+            self.name, self.version, self.treatment_type,
+            self.width_m, self.height_m, self.thickness, self.air_gap,
+            self.layer_material, self.layer_density,
+        ):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         layout.addLayout(form)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -337,15 +385,23 @@ class SurfaceMaterialPanel(QWidget):
 
         header = QLabel('マテリアル / 境界ライブラリ')
         set_typography_role(header, TypographyRole.SECTION_TITLE)
+        header.setToolTip('壁・天井・床の表面材質（吸音・反射特性）の定義と割り当て')
         layout.addWidget(header)
         material_row = QHBoxLayout()
         self.materials = QComboBox()
+        self.materials.setToolTip(
+            '登録済みの音響マテリアル · 選ぶと能力と下の面一覧で割り当てできます'
+        )
         self.materials.currentIndexChanged.connect(self._material_selected)
         material_row.addWidget(self.materials, stretch=1)
         self.material_new = QPushButton('新規…')
+        self.material_new.setToolTip('新しい音響マテリアルを登録します')
         self.material_new.clicked.connect(self._new_material)
         material_row.addWidget(self.material_new)
         self.material_apply_all = QPushButton('全部屋境界面へ適用')
+        self.material_apply_all.setToolTip(
+            '選択中のマテリアルを全ての部屋境界面（壁・天井・床）に割り当てます'
+        )
         self.material_apply_all.clicked.connect(self._apply_to_all_boundaries)
         material_row.addWidget(self.material_apply_all)
         layout.addLayout(material_row)
@@ -359,6 +415,10 @@ class SurfaceMaterialPanel(QWidget):
         layout.addWidget(surfaces_header)
         self.surface_tree = QTreeWidget()
         self.surface_tree.setHeaderLabels(('面', 'マテリアル'))
+        tree_header = self.surface_tree.headerItem()
+        if tree_header is not None:
+            tree_header.setToolTip(0, '部屋を構成する面（壁・天井・床・開口など）')
+            tree_header.setToolTip(1, 'その面に割り当てる音響マテリアル')
         self.surface_tree.itemChanged.connect(self._surface_item_changed)
         layout.addWidget(self.surface_tree, stretch=1)
         self.readiness = QLabel('')
@@ -580,12 +640,22 @@ class RoomTreatmentPanel(QWidget):
 
         header = QLabel('音響処理 (AcousticTreatment)')
         set_typography_role(header, TypographyRole.SECTION_TITLE)
+        header.setToolTip(
+            '吸音パネル・バストラップ・拡散板などの定義と壁面への配置'
+        )
         layout.addWidget(header)
         self.definitions = QTreeWidget()
         self.definitions.setHeaderLabels(('定義', '種類'))
+        definitions_header = self.definitions.headerItem()
+        if definitions_header is not None:
+            definitions_header.setToolTip(0, '登録済みの吸音処理の定義')
+            definitions_header.setToolTip(1, '構造種別')
         layout.addWidget(self.definitions)
         definition_row = QHBoxLayout()
         self.new_definition = QPushButton('定義を新規…')
+        self.new_definition.setToolTip(
+            '新しい吸音処理の定義（寸法・材質・種別）を作成します'
+        )
         self.new_definition.clicked.connect(self._new_definition)
         definition_row.addWidget(self.new_definition)
         layout.addLayout(definition_row)
@@ -595,27 +665,48 @@ class RoomTreatmentPanel(QWidget):
         layout.addWidget(place_header)
         form = QFormLayout()
         self.place_definition = QComboBox()
+        self.place_definition.setToolTip('配置する吸音処理の定義を選択')
         form.addRow('定義', self.place_definition)
         self.place_surface = QComboBox()
+        self.place_surface.setToolTip('処理を取り付ける壁・天井・床の面')
         form.addRow('ホスト面', self.place_surface)
         self.place_width = QDoubleSpinBox()
         self.place_width.setRange(0.01, 20.0)
         self.place_width.setValue(0.6)
+        self.place_width.setToolTip('その面で実際に覆う幅（m）')
         self.place_height = QDoubleSpinBox()
         self.place_height.setRange(0.01, 20.0)
         self.place_height.setValue(1.2)
+        self.place_height.setToolTip('その面で実際に覆う高さ（m）')
         form.addRow('カバー幅 (m)', self.place_width)
         form.addRow('カバー高 (m)', self.place_height)
+        for field in (
+            self.place_definition, self.place_surface,
+            self.place_width, self.place_height,
+        ):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         layout.addLayout(form)
         self.place_button = QPushButton('提案として配置')
+        self.place_button.setToolTip(
+            '選択した定義を面に「提案」状態で配置します（まだ設置済みではありません）'
+        )
         self.place_button.clicked.connect(self._place)
         layout.addWidget(self.place_button)
 
         self.placements = QTreeWidget()
         self.placements.setAccessibleName('配置一覧')
         self.placements.setHeaderLabels(('配置', '状態'))
+        placements_header = self.placements.headerItem()
+        if placements_header is not None:
+            placements_header.setToolTip(0, '配置した吸音処理')
+            placements_header.setToolTip(1, '提案=まだ未確定 / 設置済み=確定して反映')
         layout.addWidget(self.placements, stretch=1)
         self.install_button = QPushButton('選択配置を設置済みにする')
+        self.install_button.setToolTip(
+            '選択した「提案」配置を「設置済み」に確定します'
+        )
         self.install_button.clicked.connect(self._install_selected)
         layout.addWidget(self.install_button)
 
@@ -624,13 +715,21 @@ class RoomTreatmentPanel(QWidget):
         layout.addWidget(compare_header)
         self.compare_name = QLineEdit()
         self.compare_name.setPlaceholderText('比較名（例: バストラップA/B）')
+        self.compare_name.setToolTip('A/B比較セットにつける名前')
         layout.addWidget(self.compare_name)
         self.compare_button = QPushButton('現在の配置で比較を記録')
+        self.compare_button.setToolTip(
+            '今の配置状態を名前つき比較の1候補として記録します（複数記録してA/B比較）'
+        )
         self.compare_button.clicked.connect(self._record_comparison)
         layout.addWidget(self.compare_button)
         self.comparisons = QTreeWidget()
         self.comparisons.setAccessibleName('比較一覧')
         self.comparisons.setHeaderLabels(('比較', '候補'))
+        comparisons_header = self.comparisons.headerItem()
+        if comparisons_header is not None:
+            comparisons_header.setToolTip(0, '記録した比較セット')
+            comparisons_header.setToolTip(1, 'セット内の候補数')
         layout.addWidget(self.comparisons)
         self.status = QLabel('')
         self.status.setWordWrap(True)

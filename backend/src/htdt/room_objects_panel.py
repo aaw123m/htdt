@@ -52,6 +52,15 @@ class RoomObjectsPanel(QWidget):
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(("名前", "種類", "表示", "ロック"))
+        header = self.tree.headerItem()
+        if header is not None:
+            header.setToolTip(0, "物体の表示名 · ▶は選択中の主対象")
+            header.setToolTip(1, "物体の種類（スピーカー・座席・家具など）")
+            header.setToolTip(2, "3D上の表示状態 · ●=表示中、—=非表示（削除ではありません）")
+            header.setToolTip(3, "ロック中は誤って移動・編集できないよう保護されます")
+        self.tree.setToolTip(
+            "部屋に置いた物体の一覧 · クリックで選択、Ctrl+クリックで複数選択"
+        )
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
@@ -61,10 +70,21 @@ class RoomObjectsPanel(QWidget):
         button_row = QHBoxLayout()
         button_row.setSpacing(4)
         self.hide_button = QPushButton("隠す")
+        self.hide_button.setToolTip(
+            "選択した物体を3D上で非表示にします（一覧には残ります）"
+        )
         self.show_button = QPushButton("表示")
+        self.show_button.setToolTip("非表示の物体を3D上に再表示します")
         self.lock_button = QPushButton("ロック")
+        self.lock_button.setToolTip(
+            "選択した物体をロックし、誤った移動・編集を防ぎます"
+        )
         self.unlock_button = QPushButton("解除")
+        self.unlock_button.setToolTip("ロックを解除して編集可能に戻します")
         self.delete_button = QPushButton("削除")
+        self.delete_button.setToolTip(
+            "選択した物体を削除します（Ctrl+Zで元に戻せます）"
+        )
         for button in (
             self.hide_button,
             self.show_button,

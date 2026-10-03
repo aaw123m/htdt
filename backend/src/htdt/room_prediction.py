@@ -1321,6 +1321,10 @@ class RoomPredictionPanel(QWidget):
         )
         self.model.currentIndexChanged.connect(self._option_changed)
         form.addRow("モデル", self.model)
+        self.model.setToolTip(
+            '予測に使う計算モデル（ルームモード・音場推定など）· '
+            'モデルごとに扱える周波数帯と出力が違います'
+        )
         self.receiver = QComboBox()
         self.receiver.setMinimumContentsLength(12)
         self.receiver.setSizeAdjustPolicy(
@@ -1328,10 +1332,16 @@ class RoomPredictionPanel(QWidget):
         )
         self.receiver.currentIndexChanged.connect(self._option_changed)
         form.addRow("受音点", self.receiver)
+        self.receiver.setToolTip(
+            '音を評価する位置 · 座席または測定点の音響基準点を選びます'
+        )
         self.max_mode = QDoubleSpinBox()
         self.max_mode.setRange(20.0, 1000.0)
         self.max_mode.setValue(300.0)
         self.max_mode.setSuffix(" Hz")
+        self.max_mode.setToolTip(
+            '計算する部屋モードの上限周波数（Hz）· 高いほど細かいが計算が重くなります'
+        )
         form.addRow("モード上限", self.max_mode)
         self.environment = QComboBox()
         self.environment.setMinimumContentsLength(12)
@@ -1340,12 +1350,22 @@ class RoomPredictionPanel(QWidget):
         )
         self.environment.currentIndexChanged.connect(self._environment_changed)
         form.addRow("環境", self.environment)
+        self.environment.setToolTip(
+            '温度・音速などの環境条件プロファイル（音速は温度に依存します）'
+        )
         env_row = QHBoxLayout()
         self.environment_new = QPushButton("環境プロファイル新規…")
+        self.environment_new.setToolTip(
+            '測定日・温度・音速などを記録した環境プロファイルを新規作成します'
+        )
         self.environment_new.clicked.connect(self._new_environment_profile)
         env_row.addWidget(self.environment_new)
         env_row.addStretch(1)
         form.addRow("", env_row)
+        for field in (self.model, self.receiver, self.max_mode, self.environment):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setToolTip(field.toolTip())
         self.source_receiver = QCheckBox(
             "診断: 音源を受音点として使う"
         )
@@ -1368,7 +1388,11 @@ class RoomPredictionPanel(QWidget):
 
         action_row = QHBoxLayout()
         self.run_button = QPushButton("予測実行")
+        self.run_button.setToolTip(
+            '上の条件で予測を実行し、結果を所見と3Dオーバーレイに表示します'
+        )
         self.cancel_button = QPushButton("キャンセル")
+        self.cancel_button.setToolTip('実行中の予測を中止します')
         self.cancel_button.setEnabled(False)
         self.run_button.clicked.connect(self.run_prediction)
         self.cancel_button.clicked.connect(controller.cancel)
@@ -1398,6 +1422,9 @@ class RoomPredictionPanel(QWidget):
         body_layout.addWidget(findings_title)
 
         self.findings = QListWidget()
+        self.findings.setToolTip(
+            '予測から導かれた所見（課題と根拠）· 選ぶと関連する空間位置にフォーカスします'
+        )
         self.findings.setMinimumHeight(80)
         self.findings.setMaximumHeight(170)
         self.findings.itemSelectionChanged.connect(self._finding_selected)
@@ -1421,6 +1448,10 @@ class RoomPredictionPanel(QWidget):
 
         self.runs = QTreeWidget()
         self.runs.setHeaderLabels(["予測", "状態"])
+        runs_header = self.runs.headerItem()
+        if runs_header is not None:
+            runs_header.setToolTip(0, '実行・保存した予測')
+            runs_header.setToolTip(1, '最新=現在の部屋に対応 / 古い=部屋更新前の結果')
         self.runs.setMinimumHeight(150)
         self.runs.itemSelectionChanged.connect(self._selected)
         body_layout.addWidget(self.runs)
