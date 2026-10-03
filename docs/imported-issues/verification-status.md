@@ -15,7 +15,9 @@ An item counts as verified when either:
 
 The unverified residual = imported issues that were closed by a commit
 reference alone (no verification comment): **34 items**, listed in
-original-issue order. Work through them in batches of ~10.
+original-issue order. All 34 were re-checked against main across
+batches 1-4 (REV35-SKELETON through SKELETON4, 2026-10-03) — the queue
+is COMPLETE.
 
 | # | Orig | GH | Item | Batch | Verdict |
 |---|------|----|------|-------|---------|
@@ -49,10 +51,10 @@ original-issue order. Work through them in batches of ~10.
 | 28 | 966 | 189 | R130 source-model gap: wave solver collapses every loudspeaker to a point monopole | 3 | verified-fixed |
 | 29 | 968 | 191 | Speaker clearance frame bug: front/rear/side and port checks use world axes instead of speaker-local axes | 3 | verified-fixed |
 | 30 | 990 | 213 | Spatial-impression diagnostics: derive IACC, lateral-energy and envelopment evidence from computed fields | 3 | verified-fixed |
-| 31 | 1054 | 274 | Direct-view productization regression: closed #637 remains backend-only while Room surface lacks controls | — | open queue |
-| 32 | 1086 | 306 | Overview vertical overflow: lifecycle/readiness cards can make actions unreachable | — | open queue |
-| 33 | 1087 | 307 | Top context bar responsive overflow: workspace sub-contexts need wrap/overflow handling | — | open queue |
-| 34 | 1088 | 308 | Optimize candidate triage UX: add filtering/sorting and selection continuity before polish passes | — | open queue |
+| 31 | 1054 | 274 | Direct-view productization regression: closed #637 remains backend-only while Room surface lacks controls | 4 | verified-fixed |
+| 32 | 1086 | 306 | Overview vertical overflow: lifecycle/readiness cards can make actions unreachable | 4 | verified-fixed |
+| 33 | 1087 | 307 | Top context bar responsive overflow: workspace sub-contexts need wrap/overflow handling | 4 | verified-fixed |
+| 34 | 1088 | 308 | Optimize candidate triage UX: add filtering/sorting and selection continuity before polish passes | 4 | verified-fixed |
 
 ## Batch 1 — REV35-SKELETON (2026-10-03, main @ ee094d8e)
 
@@ -169,6 +171,44 @@ TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
 → 169 passed in 195s
 ```
 
+## Batch 4 — REV35-SKELETON4 (2026-10-03, main @ b90aa594)
+
+All four items verified-fixed on current main; no survivor. Each closing
+commit is an ancestor of `origin/main` and its regression tests still
+pass (87 tests, `-n 4`, basetemp `C:/t/skel-b4b`).
+
+| Orig | GH | Closing commit | Evidence on main |
+|------|----|----------------|------------------|
+| 1054 | 274 | 688a194727ea (Room Video: productize direct-view display target) | `room_video_panel.target_combo` carries a ディスプレイ (`direct_view`) target type with its own `display_section`; `RoomWorkspaceController.evaluate_video` routes direct-view workspaces to `evaluate_direct_view_geometry` via `build_direct_view_request_from_workspace` — no projector specification required; `CadDirectViewRepository` persists `cad_direct_view_specifications`/`cad_direct_view_evaluations` (audit- + row-integrity-registered); specs register through a user_defined-provenance dialog (`build_direct_view_display_specification`, manufacturer/model always None); seat camera targets the display image centre. Tests: `test_cad_direct_view.py`, `test_room_workspace.py` direct-view cases. |
+| 1086 | 306 | 9c0511cbaf78 (IA v2 integration — restored T18 overview overflow fix) | `overview_workspace.cards_scroll`: lifecycle/readiness cards live in a frameless `QScrollArea`; title, summary and the primary `next_button` are pinned outside the scroll region so the action stays reachable at constrained heights / high DPI. Tests: `test_t18_workspace_ux.py::test_overview_keeps_next_action_reachable_when_short`. |
+| 1087 | 307 | 9c0511cbaf78 | `workflow_shell.TopContextBar._context_scroll` (`workflowContextScroll`) hosts the sub-context buttons in a horizontal `QScrollArea`; `_update_context_min_width` pins the container at its natural width so overflow scrolls instead of compressing buttons into slivers. Tests: `test_t18_workspace_ux.py::test_context_bar_overflows_into_scroll_area`, `test_workflow_shell.py::test_workflow_shell_layout_profiles_do_not_clip_context_navigation`. |
+| 1088 | 308 | 9c0511cbaf78 | Candidate triage exists on the Optimize page: `CandidateTreeItem` sorts the 番号 column numerically, `search_candidate_filter_field` (番号・位置で絞り込み) + `_candidate_matches_filter` filter rows in place with a `search_candidate_filter_note` count, and `search_selected_candidate_id` is preserved across a regenerated candidate page (hidden rows keep the selection too). Tests: `test_t18_workspace_ux.py::test_candidate_tree_filters_and_sorts`, `test_search_task_completed_preserves_selection_on_page`; also exercised in `test_round14_search.py`/`test_round20_search.py`. |
+
+### Scoped verification run
+
+```
+TMPDIR=/c/t PYTHONIOENCODING=utf-8 QT_QPA_PLATFORM=offscreen \
+  C:/devin/python/python.exe -m pytest \
+  backend/tests/test_cad_direct_view.py \
+  backend/tests/test_room_workspace.py \
+  backend/tests/test_t18_workspace_ux.py \
+  backend/tests/test_workflow_shell.py \
+  backend/tests/test_round14_search.py \
+  backend/tests/test_round20_search.py \
+  -q -n 4 -p no:warnings --basetemp=C:/t/skel-b4b
+→ 87 passed
+```
+
+## Queue outcome — 300/309 verified-fixed (97%)
+
+With batch 4 the 34-row residual queue is COMPLETE: all 34
+commit-closed residuals were re-verified against main (30 in batches
+1-3, 4 here) with zero survivors. Combined with the ~266 imported issues
+that already carried "Verified satisfied on main …" comments, **300 of
+the 309 imported issues (97%) are verified-fixed**; the 9 remainder are
+the still-open gated epics listed below — none is a one-session
+software fix.
+
 ## Still-open imported issues (all gated epics)
 
 Nine imported issues remain open on GitHub — every one is a
@@ -190,10 +230,10 @@ Non-imported open issues #471/#472/#475/#476 were verified-fixed by the
 REV34-FEATUREAUDIT session (`docs/reviews/rev34-featureaudit.md`) and are
 pending Controller close-out.
 
-## Next batch
+## Queue status
 
-Start at queue row 31 (orig 1054 / GH#274). Method per item: read the
-closing commit from the issue's events, confirm it is an ancestor of
-`origin/main`, run its regression tests, and grep the claimed surface —
-then mark the row verified-fixed / still-present / invalid here and
-comment on the issue.
+COMPLETE as of batch 4 (REV35-SKELETON4, 2026-10-03, main @ b90aa594).
+Method used per item: read the closing commit from the issue's events,
+confirm it is an ancestor of `origin/main`, run its regression tests,
+and grep the claimed surface — marked verified-fixed here and commented
+on the issue.
