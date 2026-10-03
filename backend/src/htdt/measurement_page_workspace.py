@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -9,12 +9,18 @@ import os
 from pathlib import Path
 import tempfile
 from threading import Event
-from typing import Any
+from time import monotonic
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from .application_preferences import ApplicationPreferenceStore
+    from .rew_auto import RewInstall
 
 import pyqtgraph as pg
 from pyqtgraph.exporters import ImageExporter
-from PySide6.QtCore import Qt, Signal, Slot
+from PySide6.QtCore import Qt, QTimer, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -101,6 +107,11 @@ from .measurement_workflow import (
     RewReadSource,
 )
 from .native_worker import WORKER_CANCELLED, NativeWorkerPool
+from .rew_auto import (
+    find_rew_install,
+    launch_rew,
+    scan_rew_watch_dir,
+)
 from .scientific_plot_style import (
     PlotCursor,
     TraceSemantic,
@@ -452,6 +463,11 @@ class MeasurementPageWorkspace(QWidget):
         on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
         help_registry=None,
         open_help: Callable[[str], bool] | None = None,
+        preferences: 'ApplicationPreferenceStore | None' = None,
+        activity_center=None,
+        rew_launcher: Callable[..., Any] | None = None,
+        rew_auto_interval_ms: int = 15_000,
+        rew_launch_timeout_s: float = 90.0,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
@@ -474,6 +490,25 @@ class MeasurementPageWorkspace(QWidget):
         self._job_purpose: dict[str, str] = {}
         self._latest_job_key: dict[str, str] = {}
         self._disposed = False
+        # REV40-REWAUTO: REW automation state. Auto jobs share the worker
+        # pool but are excluded from the deactivation/dirty busy gate via
+        # ``_rew_auto_job_keys`` — a background poll must never trap the
+        # operator on this page.
+        self._preferences = preferences
+        self._activity_center = activity_center
+        self._rew_launcher = rew_launcher if rew_launcher is not None else launch_rew
+        self._rew_auto_interval_ms = rew_auto_interval_ms
+        self._rew_launch_timeout_s = rew_launch_timeout_s
+        self._rew_state = 'connecting'
+        self._rew_seen_uuids: set[str] = set()
+        self._rew_uuids_known = False
+        self._rew_watch_seen: MutableMapping[str, tuple[int, int]] = {}
+        self._rew_install: 'RewInstall | None' = None
+        self._rew_launch_deadline: float | None = None
+        self._rew_auto_job_keys: set[str] = set()
+        self._rew_timer = QTimer(self)
+        self._rew_timer.setInterval(rew_auto_interval_ms)
+        self._rew_timer.timeout.connect(self._rew_auto_tick)
         self._rew_rows: list[dict[str, Any]] = []
         self._quality_views: tuple[MeasurementView, ...] = ()
         self._commit_job_key: str | None = None
@@ -1272,6 +1307,31 @@ class MeasurementPageWorkspace(QWidget):
         self.rew_read_button.clicked.connect(self._read_rew_async)
         rew_row.addWidget(self.rew_read_button)
         source_layout.addLayout(rew_row)
+
+        # REV40-REWAUTO: live connection state + one-click launch — the
+        # automation status line replaces the old implicit "press 更新 and
+        # hope" contract; the launch button only appears when the API is
+        # unreachable AND a local REW install was found.
+        rew_status_row = QHBoxLayout()
+        self.rew_status_label = QLabel(
+            "REWとの接続を確認しています…", source_card
+        )
+        self.rew_status_label.setObjectName("rewAutoStatusLabel")
+        set_typography_role(self.rew_status_label, TypographyRole.SECONDARY)
+        self.rew_status_label.setWordWrap(True)
+        rew_status_row.addWidget(self.rew_status_label, 1)
+        self.rew_launch_button = QPushButton("REWを起動して接続", source_card)
+        self.rew_launch_button.setObjectName("rewLaunchButton")
+        self.rew_launch_button.setToolTip(
+            "このPCのREWをAPI有効で起動します。起動後は新しい測定を自動で読み込みます。"
+        )
+        self.rew_launch_button.setWhatsThis(
+            "このPCのREWをAPI有効で起動します。起動後は新しい測定を自動で読み込みます。"
+        )
+        self.rew_launch_button.clicked.connect(self._launch_rew_clicked)
+        self.rew_launch_button.setVisible(False)
+        rew_status_row.addWidget(self.rew_launch_button)
+        source_layout.addLayout(rew_status_row)
         layout.addWidget(source_card)
 
         pending_card, pending_layout = _card("読み込み内容", host)
@@ -1371,7 +1431,7 @@ class MeasurementPageWorkspace(QWidget):
             purpose="rew_list",
         )
 
-    def _apply_rew_list(self, value: object) -> None:
+    def _apply_rew_list(self, value: object, *, announce: bool = True) -> None:
         rows = value if isinstance(value, list) else []
         self._rew_rows = [item for item in rows if isinstance(item, dict)]
         previous = self.rew_combo.currentData()
@@ -1390,10 +1450,11 @@ class MeasurementPageWorkspace(QWidget):
             index = self.rew_combo.findData(previous)
             if index >= 0:
                 self.rew_combo.setCurrentIndex(index)
-        self._set_notice(
-            f"REWから {self.rew_combo.count()} 件を確認しました。",
-            SemanticState.SUCCESS,
-        )
+        if announce:
+            self._set_notice(
+                f"REWから {self.rew_combo.count()} 件を確認しました。",
+                SemanticState.SUCCESS,
+            )
 
     def _read_rew_async(self) -> None:
         measurement_uuid = self.rew_combo.currentData()
@@ -1422,6 +1483,345 @@ class MeasurementPageWorkspace(QWidget):
             SemanticState.SUCCESS,
         )
         self.refresh()
+
+    # -- REV40-REWAUTO: REW automation loop ------------------------------
+    #
+    # The loop polls the REW API while this page is mounted and automates
+    # the steps the operator used to click by hand: detecting that REW is
+    # up (status line), offering a one-click API-enabled launch, staging
+    # new measurements into the batch queue, and name-matching a target
+    # when exactly one fits. Staged items go through the exact same
+    # stage→evidence promotion gate as manual imports — automation covers
+    # the clicking, not the authority.
+
+    def mount_activated(self) -> None:
+        """Mount on_activate: refresh + (re)start the REW automation loop."""
+        self.refresh()
+        self._start_rew_auto()
+
+    def deactivate_rew_auto(self) -> None:
+        """Mount on_deactivate: stop polling — the page is not visible."""
+        self._rew_timer.stop()
+
+    def _pref(self, key: str, default: object) -> object:
+        store = self._preferences
+        if store is None:
+            return default
+        try:
+            return store.get(key)
+        except Exception:
+            return default
+
+    def _rew_port(self) -> int:
+        client = getattr(self.controller, 'rew_client', None)
+        base_url = getattr(client, 'base_url', None)
+        if isinstance(base_url, str):
+            port = urlparse(base_url).port
+            if isinstance(port, int):
+                return port
+        pref_port = self._pref('integrations.rew_port', 4735)
+        return pref_port if isinstance(pref_port, int) else 4735
+
+    def _start_rew_auto(self) -> None:
+        if self._disposed or getattr(self.controller, 'rew_client', None) is None:
+            self._set_rew_state('unavailable')
+            return
+        if self._rew_state not in ('launching',):
+            self._set_rew_state('connecting')
+        if not self._rew_timer.isActive():
+            self._rew_timer.start()
+        self._rew_auto_tick()
+
+    def _resolve_rew_install(self) -> 'RewInstall | None':
+        self._rew_install = find_rew_install(
+            install_path=str(
+                self._pref('integrations.rew_install_path', '') or ''
+            )
+        )
+        return self._rew_install
+
+    def _set_rew_state(self, state: str) -> None:
+        self._rew_state = state
+        auto_ingest = bool(self._pref('integrations.rew_auto_ingest', True))
+        if state == 'connected':
+            text = (
+                "REW接続中 — 新しい測定は自動で読み込みキューへ追加します"
+                if auto_ingest
+                else "REW接続中 — 自動読み込みは設定でオフです"
+            )
+            self.rew_status_label.setText(text)
+            set_semantic_state(self.rew_status_label, SemanticState.SUCCESS)
+            self.rew_launch_button.setVisible(False)
+        elif state == 'launching':
+            self.rew_status_label.setText(
+                "REWを起動しました — 接続を確認しています…"
+            )
+            set_semantic_state(self.rew_status_label, None)
+            self.rew_launch_button.setVisible(False)
+        elif state == 'connecting':
+            self.rew_status_label.setText("REWとの接続を確認しています…")
+            set_semantic_state(self.rew_status_label, None)
+            self.rew_launch_button.setVisible(False)
+        elif state == 'launchable':
+            install_name = (
+                self._rew_install.display if self._rew_install else 'REW'
+            )
+            self.rew_status_label.setText(
+                f"REWが起動していません — 「{self.rew_launch_button.text()}」で"
+                f"{install_name}をAPI有効で起動できます"
+            )
+            set_semantic_state(self.rew_status_label, SemanticState.WARNING)
+            self.rew_launch_button.setVisible(True)
+        else:  # 'unavailable'
+            self.rew_status_label.setText(
+                "REWが見つかりません — REWを起動してAPIを有効にするか、"
+                "設定の「REWのインストール場所」で場所を指定してください"
+            )
+            set_semantic_state(self.rew_status_label, SemanticState.WARNING)
+            self.rew_launch_button.setVisible(False)
+
+    def _launch_rew_clicked(self) -> None:
+        install = self._rew_install or self._resolve_rew_install()
+        if install is None:
+            self._set_notice(
+                "REWのインストール場所が見つかりません。設定の「REWのインストール場所」で指定してください。",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            self._rew_launcher(install, port=self._rew_port())
+        except Exception as exc:
+            self._operation_error_notice("REWの起動に失敗しました", exc)
+            return
+        self._rew_launch_deadline = monotonic() + self._rew_launch_timeout_s
+        self._set_rew_state('launching')
+        # Poll faster while waiting for the freshly-launched API to come up.
+        self._rew_timer.setInterval(1500)
+        if not self._rew_timer.isActive():
+            self._rew_timer.start()
+        self._rew_auto_tick()
+
+    def _start_rew_auto_job(self, call: Callable[[Event], object]) -> None:
+        """Register a background auto job — same pool, excluded from the
+        navigation busy gate, errors folded into the result dict so the
+        generic retry-modal path never fires for a background poll."""
+        if self._disposed:
+            return
+        key = uuid4().hex
+        self._rew_auto_job_keys.add(key)
+        self._job_handlers[key] = (self._apply_rew_auto_result, '', None)
+        self._job_purpose[key] = 'rew_auto'
+        self._latest_job_key['rew_auto'] = key
+        self._job_pool.start(
+            key,
+            lambda cancel_event: call(cancel_event),
+            self._job_completed,
+        )
+
+    def _rew_auto_tick(self) -> None:
+        if self._disposed or getattr(self.controller, 'rew_client', None) is None:
+            return
+        if self._rew_auto_job_keys:
+            return  # one auto poll in flight at a time
+        if (
+            self._rew_state == 'launching'
+            and self._rew_launch_deadline is not None
+            and monotonic() > self._rew_launch_deadline
+        ):
+            # Launch never produced a reachable API — back to the offer.
+            self._rew_launch_deadline = None
+            self._rew_timer.setInterval(self._rew_auto_interval_ms)
+            self._set_rew_state('launchable')
+        auto_ingest = bool(self._pref('integrations.rew_auto_ingest', True))
+        watch_dir = str(self._pref('integrations.rew_watch_dir', '') or '').strip()
+        seen_uuids = self._rew_seen_uuids
+        uuids_known = self._rew_uuids_known
+        watch_seen = self._rew_watch_seen
+        controller = self.controller
+
+        def work(cancel_event: Event) -> dict[str, Any]:
+            result: dict[str, Any] = {
+                'rows': None,
+                'error': None,
+                'snapshots': (),
+                'fetched_uuids': (),
+                'watch_files': (),
+                'watch_skipped': (),
+                'needs_scene': False,
+                'watch_dir_missing': False,
+            }
+            if watch_dir:
+                try:
+                    files, skipped = scan_rew_watch_dir(watch_dir, watch_seen)
+                except OSError:
+                    result['watch_dir_missing'] = True
+                else:
+                    result['watch_files'] = files
+                    result['watch_skipped'] = skipped
+            try:
+                rows = controller.list_rew_measurements(
+                    cancel_event=cancel_event
+                )
+            except Exception as exc:
+                result['error'] = exc
+                return result
+            result['rows'] = rows
+            if auto_ingest and uuids_known:
+                new_uuids = [
+                    str(row.get('uuid'))
+                    for row in rows
+                    if isinstance(row, dict)
+                    and isinstance(row.get('uuid'), str)
+                    and row.get('uuid')
+                    and str(row.get('uuid')) not in seen_uuids
+                ]
+                if new_uuids:
+                    try:
+                        controller.latest_revision()
+                    except Exception:
+                        # Staging pins the current scene head — without a
+                        # saved room there is nothing honest to stage into.
+                        result['needs_scene'] = True
+                    else:
+                        snapshots = []
+                        fetched: list[str] = []
+                        for measurement_uuid in new_uuids:
+                            if cancel_event.is_set():
+                                break
+                            try:
+                                snapshots.append(
+                                    controller.fetch_rew_snapshot(
+                                        measurement_uuid,
+                                        cancel_event=cancel_event,
+                                    )
+                                )
+                                fetched.append(measurement_uuid)
+                            except Exception:
+                                # Leave unseen so the next tick retries.
+                                continue
+                        result['snapshots'] = tuple(snapshots)
+                        result['fetched_uuids'] = tuple(fetched)
+            return result
+
+        self._start_rew_auto_job(work)
+
+    def _apply_rew_auto_result(self, value: object) -> None:
+        result = value if isinstance(value, dict) else {}
+        rows = result.get('rows')
+        error = result.get('error')
+        if rows is not None:
+            first_list = not self._rew_uuids_known
+            self._rew_uuids_known = True
+            listed = {
+                str(row.get('uuid'))
+                for row in rows
+                if isinstance(row, dict)
+                and isinstance(row.get('uuid'), str)
+                and row.get('uuid')
+            }
+            if first_list:
+                # Baseline: only measurements appearing *after* the watch
+                # started are 'new' — the existing REW library must never
+                # silently flood the queue.
+                self._rew_seen_uuids.update(listed)
+            self._rew_seen_uuids.update(result.get('fetched_uuids') or ())
+            self._apply_rew_list(rows, announce=False)
+            self._set_rew_state('connected')
+            self._rew_timer.setInterval(self._rew_auto_interval_ms)
+        elif error is not None:
+            if self._rew_state == 'launching':
+                # Deadline enforcement happens at tick start; still waiting.
+                pass
+            elif (
+                bool(self._pref('integrations.rew_auto_launch', True))
+                and self._resolve_rew_install() is not None
+            ):
+                self._set_rew_state('launchable')
+            else:
+                self._set_rew_state('unavailable')
+
+        staged_labels: list[str] = []
+        applied_count = 0
+        unresolved_count = 0
+        snapshots = result.get('snapshots') or ()
+        if snapshots:
+            try:
+                items = self.controller.stage_rew_snapshots(snapshots)
+            except Exception as exc:
+                self._operation_error_notice(
+                    "REW測定の自動読み込みに失敗しました", exc
+                )
+            else:
+                applied, unresolved = self.controller.auto_assign_batch_items(
+                    item_ids=[item.item_id for item in items]
+                )
+                applied_count += applied
+                unresolved_count += unresolved
+                staged_labels.extend(
+                    f"REW「{item.filename}」" for item in items
+                )
+        watch_files = result.get('watch_files') or ()
+        if watch_files:
+            try:
+                items = self.controller.stage_rew_text_files(watch_files)
+            except Exception as exc:
+                self._operation_error_notice(
+                    "監視フォルダーのREWテキスト読み込みに失敗しました", exc
+                )
+            else:
+                applied, unresolved = self.controller.auto_assign_batch_items(
+                    item_ids=[item.item_id for item in items]
+                )
+                applied_count += applied
+                unresolved_count += unresolved
+                staged_labels.extend(item.filename for item in items)
+
+        if staged_labels:
+            detail = f"新しい測定 {len(staged_labels)} 件を読み込みキューへ追加しました"
+            if applied_count:
+                detail += f"（{applied_count} 件は測定点を自動割り当て）"
+            if unresolved_count:
+                detail += f"・{unresolved_count} 件は「割り当て」で測定点を確認してください"
+            self._set_notice(detail + "。", SemanticState.SUCCESS)
+            self._report_auto_ingest(
+                f"REW自動取り込み: {len(staged_labels)} 件",
+                detail,
+            )
+            self.refresh()
+        elif result.get('needs_scene'):
+            self._set_notice(
+                "新しいREW測定を検出しましたが、保存済みの部屋がありません。"
+                "部屋を保存すると次回の確認で自動で読み込みます。",
+                SemanticState.WARNING,
+            )
+        elif result.get('watch_dir_missing'):
+            self._set_notice(
+                "REW監視フォルダーが見つかりません。設定の「REWテキストの監視フォルダー」を確認してください。",
+                SemanticState.WARNING,
+            )
+
+    def _report_auto_ingest(self, title: str, summary: str) -> None:
+        """Surface the automated staging in the activity center (#activity).
+
+        Best-effort: the batch rows themselves are the durable surface, so
+        a missing or rejecting center never blocks the ingest.
+        """
+        center = self._activity_center
+        if center is None:
+            return
+        try:
+            from .activity_center import OperationClass
+
+            operation_id = center.submit(
+                operation_kind='rew_auto_ingest',
+                operation_class=OperationClass.EXTERNAL_IO,
+                title=title,
+                deep_link=WorkspaceDeepLink(WorkspaceId.MEASUREMENT, 'import'),
+            )
+            center.mark_running(operation_id)
+            center.complete(operation_id, result_summary=summary)
+        except Exception:
+            pass
 
     def _refresh_pending(self) -> None:
         pending = self.controller.pending_import
@@ -5064,6 +5464,7 @@ class MeasurementPageWorkspace(QWidget):
     @Slot(object, object, object)
     def _job_completed(self, key: object, result: object, error: object) -> None:
         key_str = str(key)
+        self._rew_auto_job_keys.discard(key_str)
         handler = self._job_handlers.pop(key_str, None)
         purpose = self._job_purpose.pop(key_str, None)
         if handler is None or self._disposed:
@@ -5188,8 +5589,15 @@ class MeasurementPageWorkspace(QWidget):
         ).encode('utf-8')
         return sha256(blob).hexdigest()
 
+    def _user_busy_count(self) -> int:
+        """In-flight jobs excluding REW automation polls (REV40-REWAUTO).
+
+        A background poll must never hold the operator on this page — only
+        user-initiated work gates navigation."""
+        return self._job_pool.active_count - len(self._rew_auto_job_keys)
+
     def before_deactivate(self) -> tuple[bool, str | None]:
-        if self._job_pool.active_count:
+        if self._user_busy_count():
             return False, "バックグラウンド処理が完了してから画面を切り替えてください"
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
@@ -5198,7 +5606,7 @@ class MeasurementPageWorkspace(QWidget):
 
     def dirty_state(self) -> WorkspaceDirtyState:
         """#610: the staged import joins the deactivation contract."""
-        if self._job_pool.active_count:
+        if self._user_busy_count():
             return 'busy'
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
@@ -5230,6 +5638,7 @@ class MeasurementPageWorkspace(QWidget):
             self._job_handlers.clear()
             self._job_purpose.clear()
             self._latest_job_key.clear()
+            self._rew_auto_job_keys.clear()
             self._commit_job_key = None
             self._set_batch_committing(False)
             self.refresh()
@@ -5240,9 +5649,11 @@ class MeasurementPageWorkspace(QWidget):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._disposed = True
+        self._rew_timer.stop()
         report = self._job_pool.shutdown()
         self._job_handlers.clear()
         self._job_purpose.clear()
+        self._rew_auto_job_keys.clear()
         if not report.all_stopped:
             self._set_notice(
                 "バックグラウンド処理の停止が遅延しています · 遅延結果は適用しません",
@@ -5257,6 +5668,8 @@ def build_measurement_workspace_mount(
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     help_registry=None,
     open_help: Callable[[str], bool] | None = None,
+    preferences: 'ApplicationPreferenceStore | None' = None,
+    activity_center=None,
 ) -> WorkspaceMount:
     """Build the shell-owned mount without a legacy QMainWindow/QDockWidget bridge."""
 
@@ -5265,10 +5678,13 @@ def build_measurement_workspace_mount(
         on_navigate=on_navigate,
         help_registry=help_registry,
         open_help=open_help,
+        preferences=preferences,
+        activity_center=activity_center,
     )
     return WorkspaceMount.from_widget(
         workspace,
-        on_activate=workspace.refresh,
+        on_activate=workspace.mount_activated,
+        on_deactivate=workspace.deactivate_rew_auto,
         before_deactivate=workspace.before_deactivate,
         dirty_state=workspace.dirty_state,
         resolve_dirty_state=workspace.resolve_dirty_state,
@@ -5285,6 +5701,8 @@ def create_measurement_workspace_factory(
     on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     help_registry=None,
     open_help: Callable[[str], bool] | None = None,
+    preferences: 'ApplicationPreferenceStore | None' = None,
+    activity_center=None,
 ) -> WorkspaceFactory:
     """Return the lazy factory consumed by build_canonical_workspace_registrations."""
 
@@ -5299,6 +5717,8 @@ def create_measurement_workspace_factory(
             on_navigate=on_navigate,
             help_registry=help_registry,
             open_help=open_help,
+            preferences=preferences,
+            activity_center=activity_center,
         )
 
     return build

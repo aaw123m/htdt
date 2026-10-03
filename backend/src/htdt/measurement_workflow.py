@@ -112,6 +112,7 @@ from .cad_scene import (
 )
 from .comparison import FrequencyResponse, compare_frequency_responses
 from .rew_api import RewFrequencyResponseSnapshot
+from .rew_auto import propose_assignment_target
 from .rew_parser import parse_rew_frequency_response
 from .user_facing_error import operation_error_message
 
@@ -2548,6 +2549,52 @@ class MeasurementWorkflowController:
         if entry.pending is None:
             raise MeasurementWorkflowError("解析に失敗した項目には割り当てできません")
         entry.assignment = assignment
+
+    def auto_assign_batch_items(
+        self,
+        *,
+        item_ids: Iterable[str] | None = None,
+    ) -> tuple[int, int]:
+        """Name-match unassigned batch items to measurement targets (REV40).
+
+        For every uncommitted, parseable, still-unassigned entry, the
+        single eligible target whose normalized name appears in the
+        entry's source label is applied. Entries matching zero or several
+        targets keep ``assignment=None`` — the user resolves them on the
+        assignment path exactly as before. Items the user already assigned
+        are never overwritten.
+
+        Returns ``(applied, unresolved)``: how many entries received an
+        assignment and how many eligible entries could not be matched.
+        """
+        targets = self.assignment_targets()
+        if not targets:
+            return 0, 0
+        selected = (
+            list(self._batch.values())
+            if item_ids is None
+            else [self._batch[i] for i in item_ids if i in self._batch]
+        )
+        applied = 0
+        unresolved = 0
+        for entry in selected:
+            if (
+                entry.committed
+                or entry.pending is None
+                or entry.assignment is not None
+            ):
+                continue
+            chosen, _candidates = propose_assignment_target(
+                entry.source_label, targets
+            )
+            if chosen is None:
+                unresolved += 1
+                continue
+            entry.assignment = MeasurementAssignment(
+                measurement_entity_id=chosen.entity_id
+            )
+            applied += 1
+        return applied, unresolved
 
     def attach_to_batch_item(
         self,
