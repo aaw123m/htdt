@@ -1,0 +1,305 @@
+{
+ "schema_version": "htdt.r130d.source-position-sensitivity-diagnostic-plan-1",
+ "diagnostic_id": "r130d-general3d-source-position-sensitivity-2026-10-03",
+ "purpose": "Diagnose the source-position sensitivity of the PFFDTD dense sub-band worsening pattern: re-execute the three canonical PFFDTD legs under the frozen solver contract with the source comms stencil moved over a frozen whole-cell offset lattice on the unchanged cartesian grid, re-derive the finite-record transfers on the unchanged 34-frequency dense grid under the same metric/pairs/thresholds, and record whether the 10->12 worsening vector moves with source position. Predeclared verbatim by docs/R130D_GENERAL3D_RECEIVER_POSITION_SENSITIVITY_RESULT_2026-10-03.md as the next pre-fixed numerical experiment.",
+ "task_start_main_sha": "aecf6842cabe91535781534156390b2ee247e844",
+ "parent_general3d_plan": {
+  "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec"
+ },
+ "parent_target_window_diagnostic": {
+  "diagnostic_id": "r130d-general3d-target-window-clipped-left-rectangle-2026-09-20",
+  "semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+  "authoritative_run_id": 35540693380,
+  "artifact_id": 10614827536,
+  "artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f"
+ },
+ "parent_spatial_representation_diagnostic": {
+  "diagnostic_id": "r130d-general3d-spatial-representation-stencil-neighborhood-2026-09-21",
+  "semantic_sha256": "7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4",
+  "authoritative_run_id": 35545706871,
+  "artifact_id": 10616239750,
+  "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f"
+ },
+ "parent_dense_frequency_diagnostic": {
+  "diagnostic_id": "r130d-general3d-dense-frequency-neighborhood-2026-10-03",
+  "semantic_sha256": "5922d03be22b86634c9397d94d15b1164b00c7a9c3e012d9628fd3a63dd3c80a"
+ },
+ "parent_stencil_sensitivity_diagnostic": {
+  "diagnostic_id": "r130d-general3d-stencil-discretization-sensitivity-2026-10-03",
+  "semantic_sha256": "25229cb1a1c4778bba64ffb0b1a57ed6cc92d87c056b312aa7c061c04406a914"
+ },
+ "parent_voxel_staircase_sensitivity_diagnostic": {
+  "diagnostic_id": "r130d-general3d-voxel-staircase-sensitivity-2026-10-03",
+  "semantic_sha256": "0e39ec4222d352b4f66560241c05825ce7c9b3792a410a60ac7e16cd6c45af9b"
+ },
+ "parent_time_gate_localization_diagnostic": {
+  "diagnostic_id": "r130d-general3d-time-gate-worsening-localization-2026-10-03",
+  "semantic_sha256": "32200abe7c7b35e3af82b871793fe417a59b2b911071bfdea4dcd2dede63f89e"
+ },
+ "parent_receiver_position_sensitivity_diagnostic": {
+  "diagnostic_id": "r130d-general3d-receiver-position-sensitivity-2026-10-03",
+  "semantic_sha256": "aa984be8893ff1a9b7f7f02b08acbf63e171ed41c27555212566579a9c95d6a7"
+ },
+ "frozen_solver_contract": {
+  "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+  "geometry_kind": "explicit_polyhedral",
+  "source_position_m": [
+   1.5,
+   2.0,
+   2.0
+  ],
+  "receiver_position_m": [
+   2.5,
+   2.0,
+   2.0
+  ],
+  "density_kg_m3": 1.2,
+  "sound_speed_m_s": 343.2,
+  "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "pffdtd_backend": "Python/Numba CPU",
+  "pffdtd_ppw": [
+   8.0,
+   10.0,
+   12.0
+  ],
+  "requested_duration_s": 0.25,
+  "canonical_frequency_hz": [
+   40.0,
+   80.0
+  ],
+  "canonical_window_function": "rectangular_no_taper",
+  "canonical_record_interval": "[0,T)",
+  "canonical_phasor_convention": "exp(-i*omega*t)",
+  "canonical_analysis_fourier_kernel": "exp(+i*omega*t)",
+  "magnitude_mask_relative_db": -50.0,
+  "pffdtd_self_convergence_thresholds": {
+   "complex_rms_relative_max": 0.2,
+   "magnitude_max_relative": 0.25,
+   "phase_max_deg": 15.0
+  }
+ },
+ "forbidden_changes": {
+  "additional_ppw": false,
+  "receiver_movement": false,
+  "geometry_fitting": false,
+  "time_window_replacement": false,
+  "amplitude_phase_fitting": false,
+  "post_result_frequency_selection": false,
+  "canonical_observable_change": false,
+  "threshold_change": false
+ },
+ "run76_record_binding": {
+  "binding_rule": "the canonical cell evaluates the same persisted pressure/source records as authoritative run #76; a run that re-executes the pinned PFFDTD contract binds to those records by comparing the semantic sha256 of the recombined pressure trace and the unit discrete volume-velocity impulse source trace at every predeclared PPW level; only the canonical cell is bound to run-76 records, every moved-source cell is a re-executed variant leg with its own recorded trace digests",
+  "authoritative_run_id": 35545706871,
+  "artifact_id": 10616239750,
+  "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f",
+  "identical_label": "RUN76_TRACE_IDENTICAL",
+  "nonidentical_label": "REEXECUTED_TRACE_DIFFERS",
+  "on_nonidentical": "the computed sweep values are still emitted, but evaluation_state becomes NOT_EVALUATED_RECORD_BINDING_MISMATCH and the frozen classification is withheld so the result cannot be read as the run-76 experiment",
+  "levels": [
+   {
+    "points_per_wavelength": 8.0,
+    "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+    "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444"
+   },
+   {
+    "points_per_wavelength": 10.0,
+    "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+    "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49"
+   },
+   {
+    "points_per_wavelength": 12.0,
+    "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+    "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0"
+   }
+  ]
+ },
+ "source_position_sensitivity": {
+  "axis": "source-position sensitivity of the dense sub-band worsening: move only the source comms stencil over the frozen whole-cell offset lattice on each level's own cartesian grid and re-execute the pinned SimEngine on byte-copied sim asset sets; receiver stencil and readout weights, the injected signal rows, geometry, cartesian grid, boundary/staircase representation, materials, time sampling, duration, and the scored contract are unchanged",
+  "offset_lattice_convention": {
+   "units": "whole grid cells on the level's own uniform cartesian grid; an offset (kx,ky,kz) moves the source exact position by (kx*h, ky*h, kz*h) at that level's grid spacing h",
+   "moved_position_rule": "the moved stencil is the trilinear stencil of the moved exact position p' = source_position_m + offset_cells*h on that level's own grid; for whole-cell offsets this is exactly the canonical eight-node in_ixyz set rigidly translated by the offset vector with the canonical per-node injected-signal rows in_sigs (and hence the trilinear source weight row they encode) unchanged",
+   "fail_closed_gates": "a moved cell is only executable iff every moved in_ixyz node is inside the grid, no moved node sits on an outer absorbing-layer plane (any axis index 0 or N-1), and every moved node is air-connected under the frozen six-neighbor cartesian BFS of the canonical boundary representation; a cell that fails any gate blocks the diagnostic as fail-closed (ValidationBlocked)",
+   "determinism": "the offset lattice is declared in whole cells and applied identically at every level; no fractional-cell offsets, no in_sigs reweighting, no receiver-stencil move, and no boundary/grid/constants change is permitted"
+  },
+  "source_offsets": [
+   {
+    "cell_id": "canonical_position",
+    "offset_cells": [0, 0, 0],
+    "control": true,
+    "rule": "the unchanged canonical source stencil: the control cell that reproduces the canonical dense worsening vector and binds the run-76 records"
+   },
+   {
+    "cell_id": "x_minus_1",
+    "offset_cells": [-1, 0, 0],
+    "control": false,
+    "rule": "source moved one cell along -x, away from the receiver (~0.43 m at PPW 8)"
+   },
+   {
+    "cell_id": "x_plus_1",
+    "offset_cells": [1, 0, 0],
+    "control": false,
+    "rule": "source moved one cell along +x, toward the receiver"
+   },
+   {
+    "cell_id": "x_minus_2",
+    "offset_cells": [-2, 0, 0],
+    "control": false,
+    "rule": "source moved two cells along -x, away from the receiver"
+   },
+   {
+    "cell_id": "x_plus_2",
+    "offset_cells": [2, 0, 0],
+    "control": false,
+    "rule": "source moved two cells along +x, toward the receiver"
+   },
+   {
+    "cell_id": "y_minus_1",
+    "offset_cells": [0, -1, 0],
+    "control": false,
+    "rule": "source moved one cell along -y, lateral"
+   },
+   {
+    "cell_id": "y_plus_1",
+    "offset_cells": [0, 1, 0],
+    "control": false,
+    "rule": "source moved one cell along +y, lateral toward the sloped ceiling side"
+   },
+   {
+    "cell_id": "y_minus_2",
+    "offset_cells": [0, -2, 0],
+    "control": false,
+    "rule": "source moved two cells along -y, lateral"
+   },
+   {
+    "cell_id": "y_plus_2",
+    "offset_cells": [0, 2, 0],
+    "control": false,
+    "rule": "source moved two cells along +y, lateral toward the sloped ceiling side"
+   },
+   {
+    "cell_id": "z_minus_1",
+    "offset_cells": [0, 0, -1],
+    "control": false,
+    "rule": "source moved one cell along -z, away from the sloped ceiling"
+   },
+   {
+    "cell_id": "z_plus_1",
+    "offset_cells": [0, 0, 1],
+    "control": false,
+    "rule": "source moved one cell along +z, toward the sloped ceiling"
+   },
+   {
+    "cell_id": "z_minus_2",
+    "offset_cells": [0, 0, -2],
+    "control": false,
+    "rule": "source moved two cells along -z, toward the floor"
+   },
+   {
+    "cell_id": "z_plus_2",
+    "offset_cells": [0, 0, 2],
+    "control": false,
+    "rule": "source moved two cells along +z, toward the sloped ceiling"
+   }
+  ],
+  "cell_axis": {
+   "cells": [
+    "canonical_position",
+    "x_minus_1",
+    "x_plus_1",
+    "x_minus_2",
+    "x_plus_2",
+    "y_minus_1",
+    "y_plus_1",
+    "y_minus_2",
+    "y_plus_2",
+    "z_minus_1",
+    "z_plus_1",
+    "z_minus_2",
+    "z_plus_2"
+   ],
+   "canonical_cell_id": "canonical_position"
+  },
+  "execution": {
+   "solver_executions": "the three canonical binding legs plus one re-executed variant leg per non-control cell per level on a byte-copied sim asset set (vox_out.h5, comms_out.h5, sim_consts.h5, sim_mats.h5) with only the comms in_ixyz node set replaced by the moved stencil; out_ixyz, out_alpha, in_sigs, Ns, Nr and Nt are unchanged",
+   "canonical_cell_rule": "reuse the canonical leg outputs that bind run76_record_binding",
+   "contract_invariant": "every variant leg must preserve the frozen contract byte-identically except the moved in_ixyz set: vox static authority (xv/yv/zv/h/Nx/Ny/Nz), sim consts, sim mats, out_ixyz, out_alpha, in_sigs, Ns, Nr and Nt are sha256-verified identical to the canonical leg, and the rewritten in_ixyz must equal the frozen moved stencil exactly",
+   "source_injection_rule": "the variant run injects the unchanged canonical in_sigs rows at the moved nodes — the same trilinear source weight row applied at the moved position — and the variant pressure record is recombined from the re-executed u_out with the unchanged canonical out_alpha row, then converted with the frozen p=rho*d(phi)/dt second-order convention and analyzed against the unchanged unit-impulse source spectrum on the dense grid"
+  },
+  "rejected_axes": [
+   {
+    "axis": "fractional or sub-cell source offsets",
+    "reason": "a non-integer offset changes the trilinear source weight row encoded in in_sigs and confounds source position with the already-executed stencil-weight axis; only whole-cell moves keep the injected-signal rows identical across variants"
+   },
+   {
+    "axis": "meter-fixed offsets instead of whole-cell offsets",
+    "reason": "a meter-fixed offset lands on different fractional cell coordinates at different PPW levels and changes the weight row per level; whole-cell offsets preserve the canonical stencil shape on every level's own grid"
+   },
+   {
+    "axis": "moving the receiver stencil or the source-receiver pair jointly",
+    "reason": "the axis isolates source-position sensitivity of the measurement pair; the receiver stencil, out_alpha and readout stay byte-identical to the canonical leg"
+   },
+   {
+    "axis": "in_sigs reweighting or stencil-shape changes at the moved nodes",
+    "reason": "the moved stencil keeps the canonical injected-signal rows; weight perturbations were already measured by the parent stencil-sensitivity axis"
+   },
+   {
+    "axis": "multi-source injection or source-count changes",
+    "reason": "Ns stays 8 with the canonical eight-node stencil shape; a different injection topology would change the observable under test"
+   },
+   {
+    "axis": "boundary, material, time-sampling or solver-constant changes",
+    "reason": "those axes are covered by the voxel-staircase and time-gate diagnostics; this axis only moves the injection stencil on the unchanged executed grid"
+   }
+  ],
+  "evaluation": {
+   "frequency_grid_ref": "the dense_frequency_neighborhood band grid of the bound parent dense diagnostic plan (34 frequencies, 36.0-44.0/76.0-84.0 Hz at 0.5 Hz)",
+   "normalized_complex_difference_formula": "|H_b-H_a| / max(|H_b|, |H_a|, fixed_floor)",
+   "fixed_floor": 1e-12,
+   "pairs": [
+    "8_to_10",
+    "10_to_12"
+   ],
+   "worsening_rule": "worsening at frequency f iff d_10_12(f) > d_8_10(f); the complete predeclared grid is evaluated for every cell with no post-result selection",
+   "per_cell_classification": {
+    "rule": "the dense worsening-count thresholds of the bound parent dense diagnostic plan applied to each cell independently",
+    "localized_max_count": 11,
+    "persists_min_count": 23
+   },
+   "carries_worsening_rule": "a moved cell carries the worsening iff its worsening count exceeds localized_max_count, i.e. its per-cell dense classification is MIXED or PERSISTS rather than LOCALIZED",
+   "pattern_metric": "per-cell 34-frequency worsening vector compared to the canonical cell's vector; hamming_distance = count of frequencies whose worsening bit differs",
+   "classification": {
+    "rule": "evaluate in order: (1) invariant iff every evaluated non-control cell reproduces the canonical worsening vector exactly; (2) position_local iff at least one evaluated non-control cell does not carry the worsening (its per-cell dense classification is localized); (3) receiver_local iff no non-control cell is localized, i.e. every moved source cell carries the worsening somewhere on the dense grid — the worsening is then a property of the receiver readout location rather than of the source-receiver pair; otherwise mixed",
+    "invariant": "SOURCE_POSITION_WORSENING_PATTERN_INVARIANT",
+    "position_local": "SOURCE_POSITION_WORSENING_POSITION_LOCAL",
+    "receiver_local": "SOURCE_POSITION_WORSENING_RECEIVER_LOCAL",
+    "mixed": "SOURCE_POSITION_WORSENING_PATTERN_MIXED",
+    "not_evaluated": "NOT_EVALUATED"
+   },
+   "canonical_acceptance_inclusion": false
+  }
+ },
+ "canonical_reproduction": {
+  "baseline_evidence": "benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json",
+  "required_ppw": [
+   8.0,
+   10.0,
+   12.0
+  ],
+  "required_frequency_hz": [
+   40.0,
+   80.0
+  ],
+  "max_abs_complex_component_tolerance": 1e-09,
+  "instrumentation_change_blocks_on_mismatch": true
+ },
+ "decision_semantics": {
+  "diagnostic_only": true,
+  "canonical_solver_execution_unchanged": true,
+  "canonical_pr295_reproduction_required": true,
+  "canonical_self_convergence_unchanged": true,
+  "cross_solver_unblocked_by_diagnostic": false,
+  "general_3d_validation_promoted_by_diagnostic": false
+ }
+}
