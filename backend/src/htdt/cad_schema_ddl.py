@@ -123,6 +123,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_stochastic_receiver_estimate_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, execution_id TEXT NOT NULL, execution_provenance_authority_id TEXT NOT NULL, execution_input_id TEXT NOT NULL, snapshot_id TEXT NOT NULL, prediction_request_id TEXT NOT NULL, dispatch_binding_id TEXT NOT NULL, r120_compiled_geometry_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_direct_level_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL )
     """
     ,
@@ -991,6 +995,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_deterministic_path_request_seq ON cad_deterministic_path_artifacts( prediction_request_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stochastic_receiver_estimate_request_seq ON cad_stochastic_receiver_estimate_artifacts( prediction_request_id, seq ASC )
     """
     ,
     """
@@ -2319,6 +2327,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_standards_profiles',
     'cad_standards_source_authorities',
     'cad_stimulus_profiles',
+    'cad_stochastic_receiver_estimate_artifacts',
     'cad_surface_material_assignments',
     'cad_system_variant_applications',
     'cad_system_variant_as_built',
