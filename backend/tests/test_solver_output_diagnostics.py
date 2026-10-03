@@ -274,6 +274,31 @@ def _seed_solver_stack(connection, revision_id: str) -> None:
     )
     _insert(
         connection,
+        'INSERT INTO cad_late_decay_estimate_artifacts (artifact_id, '
+        'semantic_sha256, execution_id, execution_provenance_authority_id, '
+        'execution_input_id, snapshot_id, prediction_request_id, '
+        'dispatch_binding_id, r120_compiled_geometry_id, payload_json, '
+        'recorded_at_utc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        f'late-decay-estimate-artifact:{SHA}',
+        SHA,
+        'r150-late-decay-estimate-execution:' + 'b' * 16,
+        'r150-late-decay-estimate-execution-provenance:' + 'c' * 16,
+        f'deterministic-ga-execution-input:{SHA}',
+        f'acoustic-scene-snapshot:{SHA}',
+        f'acoustic-prediction-request:{SHA}',
+        f'acoustic-solver-dispatch:{SHA}',
+        f'r120-compiled-geometry:{SHA}',
+        _payload(
+            estimation_scope='single_region_analytic_sabine_decay_estimate_v1',
+            capability_record={
+                'energy_semantics': 'analytic_estimate_not_measured',
+            },
+            estimates=[{'center_hz': 500.0}, {'center_hz': 1000.0}],
+        ),
+        NOW,
+    )
+    _insert(
+        connection,
         'INSERT INTO r160_late_energy_decay_artifacts (artifact_id, '
         'semantic_sha256, late_field_input_id, payload_json) '
         'VALUES (?, ?, ?, ?)',

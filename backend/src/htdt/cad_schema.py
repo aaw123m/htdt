@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 14
+NATIVE_SCHEMA_VERSION = 15
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1186,6 +1186,13 @@ def _migrate_13_to_14(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_14_to_15(connection: sqlite3.Connection) -> None:
+    # Install the R150 late-decay estimate artifact table: a new append-only
+    # authority the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1201,6 +1208,7 @@ _MIGRATIONS = {
     12: _migrate_11_to_12,
     13: _migrate_12_to_13,
     14: _migrate_13_to_14,
+    15: _migrate_14_to_15,
 }
 
 
