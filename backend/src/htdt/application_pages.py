@@ -300,9 +300,20 @@ class ProjectLibraryPage(QWidget):
         )
         self.table = QTableWidget(0, 5)
         self.table.setAccessibleName("プロジェクト一覧")
+        self.table.setToolTip(
+            "保存済みプロジェクトの一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+        )
         self.table.setHorizontalHeaderLabels(
             ("プロジェクト", "作成日時", "リビジョン数", "現在", "状態")
         )
+        for _col, _tip in enumerate((
+            "プロジェクトの表示名",
+            "プロジェクトを作成した日時",
+            "保存されている版（リビジョン）の数",
+            "現在開いているプロジェクトには ● が付きます",
+            "アクティブ / アーカイブ済み の状態",
+        )):
+            self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -367,6 +378,8 @@ class ProjectLibraryPage(QWidget):
         actions.addStretch(1)
         layout.addLayout(actions)
         self.new_button = QPushButton("新規プロジェクト…")
+        self.new_button.setToolTip("新しいプロジェクトの作成を開始します（作成ウィザードが開きます）")
+        self.new_button.setWhatsThis("新しいプロジェクトの作成を開始します（作成ウィザードが開きます）")
         self.new_button.clicked.connect(lambda: self.commission_requested.emit())
         layout.addWidget(self.new_button)
         self.refresh()
@@ -694,9 +707,20 @@ class CaptureInboxPage(QWidget):
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, 5)
         self.table.setAccessibleName("取り込み一覧")
+        self.table.setToolTip(
+            "受け取ったキャプチャ配送の一覧です。行を選ぶと詳細と操作が下に表示されます。"
+        )
         self.table.setHorizontalHeaderLabels(
             ("スコープ", "シリーズ", "分類", "状態", "到着数")
         )
+        for _col, _tip in enumerate((
+            "届いたデータの対象スコープ（プロジェクトまたは受信機）",
+            "同じ測定系列に属するグループ名",
+            "内容の種類（周波数応答・写真・メモなど）",
+            "取り込みの処理状態（保留・延期・却下など）",
+            "その系列で届いた項目の数",
+        )):
+            self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -719,21 +743,33 @@ class CaptureInboxPage(QWidget):
         detail_layout.addWidget(self.detail, 1)
         actions = QHBoxLayout()
         self.defer_button = QPushButton("延期…")
+        self.defer_button.setToolTip("選択項目の判断をあとに回します（一覧から一時的に外れます）")
+        self.defer_button.setWhatsThis("選択項目の判断をあとに回します（一覧から一時的に外れます）")
         self.defer_button.clicked.connect(lambda: self._dispose("defer"))
         actions.addWidget(self.defer_button)
         self.reject_button = QPushButton("却下…")
+        self.reject_button.setToolTip("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
+        self.reject_button.setWhatsThis("選択項目を取り込まずに破棄します（理由を確認してから実行されます）")
         self.reject_button.clicked.connect(lambda: self._dispose("reject"))
         actions.addWidget(self.reject_button)
         self.resume_button = QPushButton("再開")
+        self.resume_button.setToolTip("延期・却下した項目を再度「保留」に戻して検討対象にします")
+        self.resume_button.setWhatsThis("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.clicked.connect(lambda: self._dispose("resume"))
         actions.addWidget(self.resume_button)
         self.scope_combo = QComboBox()
+        self.scope_combo.setToolTip("選択項目を取り込む先のプロジェクトを選びます")
+        self.scope_combo.setWhatsThis("選択項目を取り込む先のプロジェクトを選びます")
         actions.addWidget(QLabel("プロジェクト:"))
         actions.addWidget(self.scope_combo, 1)
         self.scope_button = QPushButton("割り当て")
+        self.scope_button.setToolTip("選択項目を左で選んだプロジェクトに取り込み（関連付け）ます")
+        self.scope_button.setWhatsThis("選択項目を左で選んだプロジェクトに取り込み（関連付け）ます")
         self.scope_button.clicked.connect(self._apply_scope)
         actions.addWidget(self.scope_button)
         link = QPushButton("測定ワークスペースを開く")
+        link.setToolTip("測定ワークスペースの「読み込み」ページへ移動します")
+        link.setWhatsThis("測定ワークスペースの「読み込み」ページへ移動します")
         link.clicked.connect(
             lambda: self._on_navigate(
                 WorkspaceDeepLink(WorkspaceId.MEASUREMENT, "import")
@@ -1018,9 +1054,18 @@ class ActivityPage(QWidget):
             )
             layout.addWidget(operations_heading)
             self.operations_table = QTableWidget(0, 3)
+            self.operations_table.setToolTip(
+                "実行中・実行済みの操作（バックアップ・復元など）の一覧です。"
+            )
             self.operations_table.setHorizontalHeaderLabels(
                 ("状態", "操作", "更新時刻")
             )
+            for _col, _tip in enumerate((
+                "操作の進行状態（実行中・完了・失敗など）",
+                "行われた操作の種類（バックアップ・復元・インポートなど）",
+                "状態が最後に更新された時刻",
+            )):
+                self.operations_table.horizontalHeaderItem(_col).setToolTip(_tip)
             self.operations_table.horizontalHeader().setSectionResizeMode(
                 1, QHeaderView.ResizeMode.Stretch
             )
@@ -1040,9 +1085,18 @@ class ActivityPage(QWidget):
             )
             layout.addWidget(timeline_heading)
             self.events_table = QTableWidget(0, 3)
+            self.events_table.setToolTip(
+                "プロジェクトで起きた出来事の記録です。行をダブルクリックすると該当画面へ移動できます。"
+            )
             self.events_table.setHorizontalHeaderLabels(
                 ("時刻", "内容", "詳細")
             )
+            for _col, _tip in enumerate((
+                "記録された時刻（新しい順）",
+                "プロジェクトで起きた出来事の概要",
+                "対象の詳細（ダブルクリックで該当画面へ移動できます）",
+            )):
+                self.events_table.horizontalHeaderItem(_col).setToolTip(_tip)
             self.events_table.horizontalHeader().setSectionResizeMode(
                 1, QHeaderView.ResizeMode.Stretch
             )
@@ -1061,7 +1115,16 @@ class ActivityPage(QWidget):
         set_typography_role(revisions_heading, TypographyRole.SECTION_TITLE)
         layout.addWidget(revisions_heading)
         self.table = QTableWidget(0, 3)
+        self.table.setToolTip(
+            "保存された版（リビジョン）の履歴一覧です。"
+        )
         self.table.setHorizontalHeaderLabels(("時刻", "プロジェクト", "リビジョン"))
+        for _col, _tip in enumerate((
+            "版（リビジョン）が保存された時刻",
+            "対象のプロジェクト名",
+            "保存された版の識別子（履歴・差分比較で使われます）",
+        )):
+            self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -1196,7 +1259,16 @@ class ReferenceLibraryPage(QWidget):
             "機材・ソース定義のライブラリです（プロジェクト共通）。",
         )
         self.table = QTableWidget(0, 3)
+        self.table.setToolTip(
+            "登録済みの機材・ソース定義の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+        )
         self.table.setHorizontalHeaderLabels(("メーカー", "モデル", "バージョン"))
+        for _col, _tip in enumerate((
+            "機材の製造メーカー名",
+            "機材のモデル・型番名",
+            "登録されている定義のバージョン",
+        )):
+            self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -1213,6 +1285,8 @@ class ReferenceLibraryPage(QWidget):
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label)
         manage = QPushButton("機材ライブラリを管理…")
+        manage.setToolTip("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
+        manage.setWhatsThis("機材・素材・ソース定義の登録・編集を行う管理画面を開きます")
         manage.clicked.connect(lambda: self.manage_requested.emit())
         layout.addWidget(manage)
 
@@ -1225,9 +1299,19 @@ class ReferenceLibraryPage(QWidget):
                 )
                 set_typography_role(header, TypographyRole.SECTION_TITLE)
                 table = QTableWidget(0, 4, self)
+                table.setToolTip(
+                    "この区分で登録されている項目の一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+                )
                 table.setHorizontalHeaderLabels(
                     ("名前", "区分", "スコープ", "バージョン")
                 )
+                for _col, _tip in enumerate((
+                    "登録されている項目の名前",
+                    "項目の種類・区分",
+                    "この項目が有効な範囲（プロジェクト共通など）",
+                    "登録されている定義のバージョン",
+                )):
+                    table.horizontalHeaderItem(_col).setToolTip(_tip)
                 table.horizontalHeader().setSectionResizeMode(
                     0, QHeaderView.ResizeMode.Stretch
                 )
@@ -1358,6 +1442,8 @@ class SupportPage(QWidget):
         layout.addWidget(note)
         if self._open_authority_graph is not None:
             self.authority_button = QPushButton("権威グラフを開く", self)
+            self.authority_button.setToolTip("データの由来（どの定義・設定から生成されたか）を辿れるグラフ画面を開きます")
+            self.authority_button.setWhatsThis("データの由来（どの定義・設定から生成されたか）を辿れるグラフ画面を開きます")
             self.authority_button.setObjectName("supportOpenAuthorityGraph")
             self.authority_button.clicked.connect(
                 lambda: self._open_authority_graph(self)
@@ -1367,6 +1453,8 @@ class SupportPage(QWidget):
             self.authority_button = None
         if self._open_solver_diagnostics is not None:
             self.solver_button = QPushButton("ソルバー出力の診断", self)
+            self.solver_button.setToolTip("音響ソルバーが出力した計算結果の内部診断情報を確認します")
+            self.solver_button.setWhatsThis("音響ソルバーが出力した計算結果の内部診断情報を確認します")
             self.solver_button.setObjectName("supportOpenSolverDiagnostics")
             self.solver_button.clicked.connect(
                 lambda: self._open_solver_diagnostics(self)
@@ -1376,6 +1464,8 @@ class SupportPage(QWidget):
             self.solver_button = None
         if self._export_diagnostics is not None:
             self.export_button = QPushButton("診断パッケージをエクスポート", self)
+            self.export_button.setToolTip("サポート共有用の診断情報（ログ・設定の概要など）を1つのファイルにまとめて書き出します")
+            self.export_button.setWhatsThis("サポート共有用の診断情報（ログ・設定の概要など）を1つのファイルにまとめて書き出します")
             self.export_button.setObjectName("supportExportDiagnostics")
             self.export_button.clicked.connect(self._run_export)
             layout.addWidget(self.export_button)

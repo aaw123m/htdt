@@ -33,7 +33,13 @@ from htdt.cad_constraint_models import (
     CadWallClearanceConstraint,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene, room_vertices
+from htdt.cad_scene import (
+    F1_DOCUMENT_ID,
+    RoomVertex,
+    make_f1_scene,
+    make_polygon_room,
+    room_vertices,
+)
 from htdt.constraint_editor import ConstraintEditorWindow
 from htdt.native_editor import ROLE
 from htdt.room_editor import RoomEditorWindow
@@ -111,6 +117,69 @@ def test_room_editor_edit_lifecycle_and_vertex_mutation(tmp_path) -> None:
 
     window.finish_room_edit()
     assert window.room_mode == 'idle'
+    window.deleteLater()
+
+
+def _repository_with_room(tmp_path, room) -> SceneRepository:
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    scene = make_f1_scene().model_copy(update={"room": room})
+    repository.save(scene, parent_revision_id=None)
+    return repository
+
+
+def test_room_height_focus_out_with_display_noise_does_not_commit(tmp_path) -> None:
+    # A stored value with finer precision than the field's decimals used to
+    # commit display-rounding noise as a silent "部屋形状を変更" entry on
+    # focus-out (e.g. exiting 形状編集 while the field was focused).
+    room = make_polygon_room(
+        (
+            RoomVertex(vertex_id="v1", x_m=0.0, y_m=0.0),
+            RoomVertex(vertex_id="v2", x_m=6.0, y_m=0.0),
+            RoomVertex(vertex_id="v3", x_m=6.0, y_m=4.0),
+            RoomVertex(vertex_id="v4", x_m=0.0, y_m=4.0),
+        ),
+        height_m=2.7000004,
+    )
+    window = _window(_repository_with_room(tmp_path, room), RoomEditorWindow)
+    window.start_room_edit()
+    assert not window.working.can_undo
+
+    window._numeric_room_height_edited()
+    assert not window.working.can_undo
+    assert window._current_room().height_m == pytest.approx(2.7000004)
+
+    # A user-meaningful change still commits and becomes undoable.
+    window.room_height.setValue(3.0)
+    window._numeric_room_height_edited()
+    assert window.working.can_undo
+    assert window._current_room().height_m == pytest.approx(3.0)
+    window.deleteLater()
+
+
+def test_room_vertex_focus_out_with_display_noise_does_not_commit(tmp_path) -> None:
+    noisy_x = 1.23456789
+    room = make_polygon_room(
+        (
+            RoomVertex(vertex_id="v1", x_m=0.0, y_m=0.0),
+            RoomVertex(vertex_id="v2", x_m=6.0, y_m=0.0),
+            RoomVertex(vertex_id="v3", x_m=6.0, y_m=4.0),
+            RoomVertex(vertex_id="v4", x_m=noisy_x, y_m=4.0),
+        ),
+        height_m=2.4,
+    )
+    window = _window(_repository_with_room(tmp_path, room), RoomEditorWindow)
+    window.start_room_edit()
+    window.selected_room_vertex_id = "v4"
+    window._refresh_room_inspector()
+
+    window._numeric_room_vertex_edited()
+    assert not window.working.can_undo
+    edited = next(v for v in room_vertices(window._current_room()) if v.vertex_id == "v4")
+    assert edited.x_m == pytest.approx(noisy_x)
+
+    window.room_vertex_x.setValue(2.0)
+    window._numeric_room_vertex_edited()
+    assert window.working.can_undo
     window.deleteLater()
 
 

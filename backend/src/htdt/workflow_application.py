@@ -191,6 +191,7 @@ from .authority_graph import (
 )
 from .authority_inspector_ui import AuthorityInspectorDialog
 from .workflow_navigation import (
+    APPLICATION_DESTINATION_HINTS,
     APPLICATION_DESTINATION_LABELS,
     ApplicationDestinationId,
     WorkspaceDeepLink,
@@ -1559,12 +1560,14 @@ class WorkflowApplicationComposition:
             WorkspaceRegistration(
                 workspace_id=ApplicationDestinationId.PROJECTS,
                 label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.PROJECTS],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.PROJECTS],
                 factory=self._make_projects,
                 focus_kinds=frozenset({NavigationTargetKind.PROJECT}),
             ),
             WorkspaceRegistration(
                 workspace_id=ApplicationDestinationId.INBOX,
                 label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.INBOX],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.INBOX],
                 factory=self._make_inbox,
                 focus_kinds=frozenset({
                     NavigationTargetKind.CAPTURE_DELIVERY,
@@ -1574,6 +1577,7 @@ class WorkflowApplicationComposition:
             WorkspaceRegistration(
                 workspace_id=ApplicationDestinationId.ACTIVITY,
                 label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.ACTIVITY],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.ACTIVITY],
                 factory=self._make_activity,
                 focus_kinds=frozenset({
                     NavigationTargetKind.ACTIVITY_JOB,
@@ -1590,12 +1594,14 @@ class WorkflowApplicationComposition:
             WorkspaceRegistration(
                 workspace_id=ApplicationDestinationId.LIBRARY,
                 label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.LIBRARY],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.LIBRARY],
                 factory=self._make_library,
                 focus_kinds=frozenset({NavigationTargetKind.EQUIPMENT_DEFINITION}),
             ),
             WorkspaceRegistration(
                 workspace_id=ApplicationDestinationId.SUPPORT,
                 label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.SUPPORT],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.SUPPORT],
                 factory=self._make_support,
                 focus_kinds=frozenset({NavigationTargetKind.HELP_TOPIC}),
             ),

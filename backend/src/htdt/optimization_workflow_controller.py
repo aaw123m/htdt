@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QDoubleSpinBox,
     QLabel,
@@ -1305,6 +1306,12 @@ class OptimizationWorkflowController(
             if widget is not None:
                 widget.setToolTip(text)
                 widget.setWhatsThis(text)
+                # Qt does not propagate a spin box's tooltip to its embedded
+                # line edit — the cursor sits on the line edit, so mirror the
+                # text there or the text area shows nothing.
+                line_edit = widget.lineEdit() if isinstance(widget, QAbstractSpinBox) else None
+                if line_edit is not None:
+                    line_edit.setToolTip(text)
 
         for code, combo in self.campaign_applicability_state.items():
             combo.setToolTip(

@@ -137,11 +137,14 @@ def _scroll_page(body: QWidget) -> QScrollArea:
     return scroll
 
 
-def _button(label: str, callback, *, primary: bool = False) -> QPushButton:
+def _button(label: str, callback, *, primary: bool = False, tip: str | None = None) -> QPushButton:
     button = QPushButton(label)
     set_control_size(button, ControlSize.STANDARD)
     if primary:
         set_primary_action(button)
+    if tip is not None:
+        button.setToolTip(tip)
+        button.setWhatsThis(tip)
     button.clicked.connect(callback)
     return button
 
@@ -162,6 +165,8 @@ def _advanced_block(
     toggle = QPushButton(label)
     toggle.setCheckable(True)
     toggle.setChecked(expanded)
+    toggle.setToolTip(f"{description}（クリックで設定項目を展開・折りたたみ）")
+    toggle.setWhatsThis(f"{description}（クリックで設定項目を展開・折りたたみ）")
     set_control_size(toggle, ControlSize.COMPACT)
     layout.addWidget(toggle)
 
@@ -631,8 +636,20 @@ class OptimizationWorkflowWorkspace(QWidget):
         search.addLayout(form)
 
         axis_actions = QHBoxLayout()
-        axis_actions.addWidget(_button("軸を追加 / 更新", self.add_search_axis))
-        axis_actions.addWidget(_button("選択軸を削除", self.remove_selected_search_axis))
+        axis_actions.addWidget(
+            _button(
+                "軸を追加 / 更新",
+                self.add_search_axis,
+                tip="上のフォーム（可動物体・プリセット・詳細指定）の内容を探索軸として登録・更新します。",
+            )
+        )
+        axis_actions.addWidget(
+            _button(
+                "選択軸を削除",
+                self.remove_selected_search_axis,
+                tip="一覧で選択中の探索軸を削除します。候補生成には残った軸だけが使われます。",
+            )
+        )
         axis_actions.addStretch(1)
         search.addLayout(axis_actions)
         search.addWidget(_required(self.search_axis_tree, "search_axis_tree"))
@@ -753,10 +770,18 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         extended_axis_actions = QHBoxLayout()
         extended_axis_actions.addWidget(
-            _button("軸を追加 / 更新", self.add_or_update_extended_axis)
+            _button(
+                "軸を追加 / 更新",
+                self.add_or_update_extended_axis,
+                tip="上のフォーム（パラメーター・スピーカー・範囲）の内容を拡張探索軸として登録・更新します。",
+            )
         )
         extended_axis_actions.addWidget(
-            _button("選択軸を削除", self.remove_selected_extended_axis)
+            _button(
+                "選択軸を削除",
+                self.remove_selected_extended_axis,
+                tip="一覧で選択中の拡張探索軸を削除します。候補生成には残った軸だけが使われます。",
+            )
         )
         extended_axis_actions.addStretch(1)
         extended_layout.addLayout(extended_axis_actions)

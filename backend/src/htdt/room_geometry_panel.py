@@ -43,6 +43,30 @@ if TYPE_CHECKING:
     from .room_geometry_input import RoomGeometryInputController
 
 
+class _TooltipForwardingSpinBox(QDoubleSpinBox):
+    """Spin box whose tooltip also shows over the embedded line edit.
+
+    Qt does not propagate a spin box's tooltip to its internal QLineEdit —
+    the cursor sits on the line edit, so the panel's tooltips would never
+    appear over the text area without this mirror.
+    """
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(text)
+        self.lineEdit().setToolTip(text)
+
+
+def _spin_value_changed(field: QDoubleSpinBox, stored: float) -> bool:
+    """Whether the field holds a user-meaningful change from ``stored``.
+
+    QDoubleSpinBox.value() is rounded to the field's decimals, so a stored
+    value with finer precision (sketched floats, imported documents) would
+    otherwise commit display-rounding noise as a silent edit on focus-out.
+    """
+    tolerance = 0.5 * 10 ** -field.decimals()
+    return abs(float(field.value()) - stored) > tolerance
+
+
 class RoomGeometryPanel(QFrame):
     """Context-only geometry inspector backed by existing N30a/N30b authority."""
 
@@ -298,7 +322,7 @@ class RoomGeometryPanel(QFrame):
         decimals: int,
         step: float = 0.01,
     ) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = _TooltipForwardingSpinBox()
         field.setRange(minimum, maximum)
         field.setDecimals(decimals)
         field.setSingleStep(step)
@@ -474,12 +498,26 @@ class RoomGeometryPanel(QFrame):
         self.refresh()
 
     def _height_edited(self) -> None:
+        room = self.geometry.room
+        if room is None:
+            return
+        if not _spin_value_changed(self.height, room.height_m):
+            self.refresh()
+            return
         self._run(
             lambda: self.geometry.set_room_height(self.height.value()),
             "天井高を更新しました",
         )
 
     def _vertex_edited(self) -> None:
+        selected = self.geometry.selected_vertex
+        if selected is None:
+            return
+        if not _spin_value_changed(
+            self.vertex_x, selected.x_m
+        ) and not _spin_value_changed(self.vertex_y, selected.y_m):
+            self.refresh()
+            return
         self._run(
             lambda: self.geometry.set_selected_vertex_coordinates(
                 x_m=self.vertex_x.value(),
@@ -489,6 +527,17 @@ class RoomGeometryPanel(QFrame):
         )
 
     def _edge_length_edited(self) -> None:
+        room = self.geometry.room
+        if room is None or self.geometry.selected_edge_index is None:
+            return
+        vertices = list(room_vertices(room))
+        index = self.geometry.selected_edge_index % len(vertices)
+        start = vertices[index]
+        end = vertices[(index + 1) % len(vertices)]
+        current_length = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+        if not _spin_value_changed(self.edge_length, current_length):
+            self.refresh()
+            return
         self._run(
             lambda: self.geometry.set_selected_edge_length(self.edge_length.value()),
             "辺の長さを更新しました",
@@ -514,6 +563,9 @@ class RoomGeometryPanel(QFrame):
         topology = self.geometry.topology
         wall = self.geometry.selected_wall
         if room is None or topology is None or wall is None:
+            return
+        if not _spin_value_changed(self.wall_thickness, wall.thickness_m):
+            self.refresh()
             return
 
         def operation() -> bool:

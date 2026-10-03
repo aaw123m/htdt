@@ -44,6 +44,7 @@ from .navigation_target import (
 )
 from .workflow_navigation import (
     CANONICAL_WORKSPACE_CONTEXTS,
+    CANONICAL_WORKSPACE_HINTS,
     CANONICAL_WORKSPACE_LABELS,
     DestinationId,
     NavigationScope,
@@ -143,6 +144,7 @@ class WorkspaceRegistration:
     label: str
     factory: WorkspaceFactory
     contexts: tuple[WorkspaceContext, ...] = ()
+    hint: str = ""
     scope: NavigationScope = NavigationScope.PROJECT
     focus_kinds: frozenset[NavigationTargetKind] = field(
         default_factory=frozenset
@@ -166,6 +168,7 @@ def build_canonical_workspace_registrations(
             workspace_id=workspace_id,
             label=CANONICAL_WORKSPACE_LABELS[workspace_id],
             contexts=CANONICAL_WORKSPACE_CONTEXTS[workspace_id],
+            hint=CANONICAL_WORKSPACE_HINTS[workspace_id],
             factory=factories[workspace_id],
         )
         for workspace_id in WorkspaceId
@@ -536,6 +539,9 @@ class WorkflowRail(QFrame):
             # Compact mode truncates the text to one glyph; the accessible
             # name keeps the full destination label.
             button.setAccessibleName(registration.label)
+            if registration.hint:
+                button.setToolTip(registration.hint)
+                button.setWhatsThis(registration.hint)
             button.setProperty("workspaceId", registration.workspace_id.value)
             set_control_size(button, ControlSize.STANDARD)
             button.clicked.connect(
@@ -552,6 +558,8 @@ class WorkflowRail(QFrame):
 
         self.settings_button = QPushButton("設定")
         self.settings_button.setAccessibleName("設定")
+        self.settings_button.setToolTip("データ管理・バックアップ・受信機などアプリ全体の設定を開きます")
+        self.settings_button.setWhatsThis("データ管理・バックアップ・受信機などアプリ全体の設定を開きます")
         self.settings_button.setObjectName("workflowSettingsButton")
         set_control_size(self.settings_button, ControlSize.STANDARD)
         if on_settings is not None:
@@ -701,6 +709,7 @@ class TopContextBar(QFrame):
             button.setCheckable(True)
             if context.hint:
                 button.setToolTip(context.hint)
+                button.setWhatsThis(context.hint)
             set_control_size(button, ControlSize.COMPACT)
             button.clicked.connect(
                 lambda checked=False, context_id=context.context_id: self._on_context_selected(context_id)

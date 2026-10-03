@@ -17,7 +17,11 @@ from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 from htdt.cad_repository import SceneRepository  # noqa: E402
-from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene  # noqa: E402
+from htdt.cad_scene import (  # noqa: E402
+    F1_DOCUMENT_ID,
+    make_f1_scene,
+    room_vertices,
+)
 from htdt.room_constraints_panel import RoomConstraintsPanel  # noqa: E402
 from htdt.room_geometry_input import RoomGeometryInputController  # noqa: E402
 from htdt.room_geometry_panel import RoomGeometryPanel  # noqa: E402
@@ -127,6 +131,50 @@ def test_geometry_panel_explains_fields_and_empty_sections(tmp_path) -> None:
         panel.delete_opening_button,
     ):
         assert widget.toolTip(), f"{widget.objectName() or widget!r} lacks a tooltip"
+
+
+def test_height_focus_out_with_display_noise_does_not_commit(tmp_path) -> None:
+    """Workflow-panel path: focusing 天井高 and leaving with no real change
+    must not commit display-rounding noise as a phantom edit."""
+    _app, workspace = _workspace(tmp_path)
+    geometry = RoomGeometryInputController(workspace, workspace.viewport)
+    workspace.attach_geometry_input(geometry)
+    panel = RoomGeometryPanel(geometry)
+    workspace.attach_geometry_panel(panel)
+
+    assert geometry.set_room_height(2.7000004) is True
+    panel.refresh()
+    history_before = workspace.controller.working.history_length
+
+    panel.height.editingFinished.emit()
+    assert workspace.controller.working.history_length == history_before
+
+    panel.height.setValue(3.05)
+    panel.height.editingFinished.emit()
+    assert workspace.controller.working.history_length == history_before + 1
+
+    geometry.dispose()
+
+
+def test_vertex_focus_out_with_display_noise_does_not_commit(tmp_path) -> None:
+    _app, workspace = _workspace(tmp_path)
+    geometry = RoomGeometryInputController(workspace, workspace.viewport)
+    workspace.attach_geometry_input(geometry)
+    panel = RoomGeometryPanel(geometry)
+    workspace.attach_geometry_panel(panel)
+    geometry.mode = "edit"
+    vertex = next(iter(room_vertices(geometry.room)))
+    geometry.select_vertex(vertex.vertex_id)
+    assert geometry.set_selected_vertex_coordinates(
+        x_m=vertex.x_m + 0.00000004, y_m=vertex.y_m
+    ) is True
+    panel.refresh()
+    history_before = workspace.controller.working.history_length
+
+    panel.vertex_x.editingFinished.emit()
+    assert workspace.controller.working.history_length == history_before
+
+    geometry.dispose()
 
 
 def test_inspector_row_labels_carry_the_field_hint() -> None:

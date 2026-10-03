@@ -532,6 +532,8 @@ class MeasurementPageWorkspace(QWidget):
         self.notice.setWordWrap(True)
         notice_row_layout.addWidget(self.notice, 1)
         self.notice_action = QPushButton(self.notice_row)
+        self.notice_action.setToolTip("この通知に対応する画面・操作へ移動します。")
+        self.notice_action.setWhatsThis("この通知に対応する画面・操作へ移動します。")
         self.notice_action.setObjectName("measurementWorkspaceNoticeAction")
         self.notice_action.setVisible(False)
         notice_row_layout.addWidget(self.notice_action)
@@ -570,6 +572,8 @@ class MeasurementPageWorkspace(QWidget):
         set_typography_role(self.journey_hint, TypographyRole.SECONDARY)
         journey_hint_row.addWidget(self.journey_hint, 1)
         self.journey_open = QPushButton("現在の手順を開く", self.journey_card)
+        self.journey_open.setToolTip("手順の進行状態に応じた、次に開くべきページへ移動します。")
+        self.journey_open.setWhatsThis("手順の進行状態に応じた、次に開くべきページへ移動します。")
         self.journey_open.setObjectName("measurementJourneyOpen")
         self.journey_open.clicked.connect(self._open_current_journey_step)
         journey_hint_row.addWidget(self.journey_open)
@@ -1243,10 +1247,14 @@ class MeasurementPageWorkspace(QWidget):
         button_row = QHBoxLayout()
         self.text_import_button = QPushButton("REWテキストを選ぶ", source_card)
         set_primary_action(self.text_import_button)
+        self.text_import_button.setToolTip("PC上のREW周波数応答テキスト (.txt/.mdat) を選んで一時領域へ読み込みます。")
+        self.text_import_button.setWhatsThis("PC上のREW周波数応答テキスト (.txt/.mdat) を選んで一時領域へ読み込みます。")
         self.text_import_button.clicked.connect(self.import_rew_text_dialog)
         button_row.addWidget(self.text_import_button)
 
         self.rew_refresh_button = QPushButton("REW一覧を更新", source_card)
+        self.rew_refresh_button.setToolTip("REWアプリが公開している測定一覧を最新状態に読み直します。REW側で測定を追加した直後に押してください。")
+        self.rew_refresh_button.setWhatsThis("REWアプリが公開している測定一覧を最新状態に読み直します。REW側で測定を追加した直後に押してください。")
         self.rew_refresh_button.clicked.connect(self._refresh_rew_async)
         button_row.addWidget(self.rew_refresh_button)
         button_row.addStretch(1)
@@ -1255,8 +1263,12 @@ class MeasurementPageWorkspace(QWidget):
         rew_row = QHBoxLayout()
         self.rew_combo = QComboBox(source_card)
         self.rew_combo.setMinimumContentsLength(32)
+        self.rew_combo.setToolTip("REWアプリが公開している測定の一覧です。読み込むものを選んでください。")
+        self.rew_combo.setWhatsThis("REWアプリが公開している測定の一覧です。読み込むものを選んでください。")
         rew_row.addWidget(self.rew_combo, 1)
         self.rew_read_button = QPushButton("選択したREWを読み込む", source_card)
+        self.rew_read_button.setToolTip("左の一覧で選択中のREW測定を一時領域へ読み込みます。プレビューで内容を確認できます。")
+        self.rew_read_button.setWhatsThis("左の一覧で選択中のREW測定を一時領域へ読み込みます。プレビューで内容を確認できます。")
         self.rew_read_button.clicked.connect(self._read_rew_async)
         rew_row.addWidget(self.rew_read_button)
         source_layout.addLayout(rew_row)
@@ -1287,17 +1299,25 @@ class MeasurementPageWorkspace(QWidget):
 
         batch_buttons = QHBoxLayout()
         self.batch_add_button = QPushButton("REWテキストを追加（複数可）", batch_card)
+        self.batch_add_button.setToolTip("複数のREWテキストファイルを一度に選んで読み込みキューへ追加します。保存前に各行の状態を確認できます。")
+        self.batch_add_button.setWhatsThis("複数のREWテキストファイルを一度に選んで読み込みキューへ追加します。保存前に各行の状態を確認できます。")
         self.batch_add_button.clicked.connect(self.import_rew_batch_dialog)
         batch_buttons.addWidget(self.batch_add_button)
         self.batch_attach_kind_combo = QComboBox(batch_card)
         self.batch_attach_kind_combo.setAccessibleName("添付種別")
+        self.batch_attach_kind_combo.setToolTip("「選択項目に添付を追加」で付けるファイルの種別を選びます。")
+        self.batch_attach_kind_combo.setWhatsThis("「選択項目に添付を追加」で付けるファイルの種別を選びます。")
         for kind in MEASUREMENT_ATTACHMENT_KINDS:
             self.batch_attach_kind_combo.addItem(_attachment_kind_label(kind), kind)
         batch_buttons.addWidget(self.batch_attach_kind_combo)
         self.batch_attach_button = QPushButton("選択項目に添付を追加", batch_card)
+        self.batch_attach_button.setToolTip("一覧で選択中の行に、左の種別の添付ファイル（写真・メモなど）を追加します。")
+        self.batch_attach_button.setWhatsThis("一覧で選択中の行に、左の種別の添付ファイル（写真・メモなど）を追加します。")
         self.batch_attach_button.clicked.connect(self._attach_to_selected_batch_item)
         batch_buttons.addWidget(self.batch_attach_button)
         self.batch_clear_button = QPushButton("保存済みをクリア", batch_card)
+        self.batch_clear_button.setToolTip("すでに保存済みとして確定した行を一覧から取り除きます（保存したデータ自体は削除されません）。")
+        self.batch_clear_button.setWhatsThis("すでに保存済みとして確定した行を一覧から取り除きます（保存したデータ自体は削除されません）。")
         self.batch_clear_button.clicked.connect(self._clear_committed_batch)
         batch_buttons.addWidget(self.batch_clear_button)
         self.batch_cancel_button = QPushButton("保存をキャンセル", batch_card)
@@ -1308,9 +1328,22 @@ class MeasurementPageWorkspace(QWidget):
         batch_layout.addLayout(batch_buttons)
 
         self.batch_table = QTableWidget(0, 7, batch_card)
+        self.batch_table.setToolTip(
+            "読み込みキューの一覧です。列の見出しにカーソルを合わせると各列の説明が表示されます。"
+        )
         self.batch_table.setHorizontalHeaderLabels(
             ["ファイル", "状態", "帯域", "位相", "重複", "解決", "保存先"]
         )
+        for _col, _tip in enumerate((
+            "読み込んだREWファイル名",
+            "行の状態（読み込み済み/エラー/保存済みなど）",
+            "測定の周波数帯域（Hz）",
+            "位相情報の有無",
+            "保存済みデータとの重複の有無",
+            "重複時の扱い（上書き・別名保存・スキップ）を選びます",
+            "割り当て先の測定点・座席",
+        )):
+            self.batch_table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.batch_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
         )

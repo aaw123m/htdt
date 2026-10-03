@@ -65,6 +65,10 @@ _LAZY_EXPORTS = {
     'QApplication': ('PySide6.QtWidgets', 'QApplication'),
     'QIcon': ('PySide6.QtGui', 'QIcon'),
     'apply_dark_theme': ('.ui_theme', 'apply_dark_theme'),
+    'install_wheel_scroll_guard': (
+        '.wheel_scroll_guard',
+        'install_wheel_scroll_guard',
+    ),
     'SceneRepository': ('.cad_repository', 'SceneRepository'),
     'ProjectLibraryRepository': (
         '.project_library_repository',
@@ -788,6 +792,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
     QApplication = _self.QApplication
     QIcon = _self.QIcon
     apply_dark_theme = _self.apply_dark_theme
+    install_wheel_scroll_guard = _self.install_wheel_scroll_guard
     SceneRepository = _self.SceneRepository
     log_default_document_classification = (
         _self.log_default_document_classification
@@ -811,6 +816,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         if icon_path is not None:
             app.setWindowIcon(QIcon(str(icon_path)))
         apply_dark_theme(app)
+        install_wheel_scroll_guard(app)
         # #739: Recovery Launch — decide from concrete previous-session
         # evidence and bounded launch history BEFORE repeating risky
         # initialization. The launch record is written up front so a

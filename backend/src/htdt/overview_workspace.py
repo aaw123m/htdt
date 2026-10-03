@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -30,7 +31,7 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
-from .workflow_navigation import WorkspaceDeepLink
+from .workflow_navigation import WorkspaceDeepLink, deeplink_hint
 
 
 _SEVERITY_ICON: dict[str, str] = {
@@ -170,6 +171,9 @@ class OverviewWorkspace(QWidget):
         self.next_button.setVisible(view.next_action is not None)
         if view.next_action is not None:
             self.next_button.setText(view.next_action.label)
+            _hint = deeplink_hint(view.next_action.target)
+            self.next_button.setToolTip(_hint)
+            self.next_button.setWhatsThis(_hint)
 
     def _add_notice(self, notice: OverviewNotice) -> None:
         """One card per notice: icon + text state label + message + action (#443)."""
@@ -203,6 +207,12 @@ class OverviewWorkspace(QWidget):
             button = QPushButton(notice.action.label, card)
             button.setObjectName(f"overviewAction:{notice.action.action_id}")
             button.setProperty("deeplink", notice.action.target.as_uri())
+            _hint = deeplink_hint(notice.action.target)
+            button.setToolTip(_hint)
+            button.setWhatsThis(_hint)
+            # Qt hides tooltips on disabled buttons — a disabled action
+            # still needs to explain what it would do.
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=notice.action.target: self.navigate(target)
             )
@@ -234,6 +244,10 @@ class OverviewWorkspace(QWidget):
         if state.action is not None:
             button = QPushButton(state.action.label, card)
             button.setObjectName(f"overviewAction:{state.action.action_id}")
+            _hint = deeplink_hint(state.action.target)
+            button.setToolTip(_hint)
+            button.setWhatsThis(_hint)
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=state.action.target: self.navigate(target)
             )
@@ -263,6 +277,10 @@ class OverviewWorkspace(QWidget):
             button = QPushButton(domain.action.label, card)
             button.setObjectName(f"overviewDomainAction:{domain.action.action_id}")
             button.setProperty("deeplink", domain.action.target.as_uri())
+            _hint = deeplink_hint(domain.action.target)
+            button.setToolTip(_hint)
+            button.setWhatsThis(_hint)
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
             button.clicked.connect(
                 lambda checked=False, target=domain.action.target: self.navigate(target)
             )
