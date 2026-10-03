@@ -829,7 +829,23 @@ class RoomGeometryInputController(QObject):
             return None
         fraction = -float(near[2]) / float(ray[2])
         point = near + ray * fraction
-        return float(point[0]), -float(point[1])
+        return self._snap_floor(float(point[0]), -float(point[1]))
+
+    def _snap_floor(self, x_m: float, y_m: float) -> tuple[float, float]:
+        """Grid-snap a floor-plane pick (legacy room_editor parity).
+
+        The workflow toggle/step live on the same view_state the transform
+        path uses; honoring them here keeps sketch picks, vertex drags, and
+        wall drags on the grid the user asked for.
+        """
+
+        view_state = self.workspace.controller.view_state
+        if not view_state.grid_snap_enabled:
+            return x_m, y_m
+        step = float(view_state.grid_step_m)
+        if step <= 0.0:
+            return x_m, y_m
+        return (round(x_m / step) * step, round(y_m / step) * step)
 
     def _project(self, vertex: RoomVertex) -> QPointF:
         renderer = self.viewport.plotter.renderer
