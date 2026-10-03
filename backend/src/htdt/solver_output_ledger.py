@@ -165,6 +165,12 @@ _SPECS: tuple[_TableSpec, ...] = (
         'snapshot:snapshot_id',
     ),
     _TableSpec(
+        'cad_stochastic_receiver_estimate_artifacts',
+        'stochastic_ray_estimate',
+        'artifact_id',
+        'snapshot:snapshot_id',
+    ),
+    _TableSpec(
         'r150_path_frequency_response_artifacts',
         'path_frequency_response',
         'artifact_id',
@@ -297,6 +303,8 @@ def _observables(kind: str, payload: dict[str, Any]) -> tuple[str, ...]:
         return _strings(payload.get('requested_observables'))
     if kind in ('path_artifact', 'late_field'):
         return _strings(payload.get('path_scope'))
+    if kind == 'stochastic_ray_estimate':
+        return _strings(payload.get('estimation_scope'))
     if kind == 'late_energy_decay':
         return _strings(payload.get('quantity')) + ('late_energy_decay',)
     if kind in ('path_frequency_response', 'numerical_hybrid_response'):
@@ -318,7 +326,13 @@ def _produced_by(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str | 
             return None
         return value if isinstance(value, str) else None
 
-    if kind in ('solver_result', 'path_artifact', 'late_field', 'execution_input'):
+    if kind in (
+        'solver_result',
+        'path_artifact',
+        'late_field',
+        'stochastic_ray_estimate',
+        'execution_input',
+    ):
         return _col('execution_id') or _col('execution_input_id')
     if kind == 'solver_adapter':
         adapter_id, version = _col('adapter_id'), _col('adapter_version')
@@ -365,7 +379,7 @@ def _provenance_ref(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str
     if kind == 'solver_result':
         value = _at(payload, 'execution_provenance_ref', 'authority_id')
         return value if isinstance(value, str) else None
-    if kind in ('path_artifact', 'late_field'):
+    if kind in ('path_artifact', 'late_field', 'stochastic_ray_estimate'):
         return _col('execution_provenance_authority_id')
     if kind == 'late_energy_decay':
         value = _at(payload, 'deterministic_path_artifact_ref', 'authority_id')
@@ -411,7 +425,7 @@ def _capability(kind: str, row: sqlite3.Row, payload: dict[str, Any]) -> str | N
             return None
         return value if isinstance(value, str) else None
 
-    if kind == 'late_field':
+    if kind in ('late_field', 'stochastic_ray_estimate'):
         value = _at(payload, 'capability_record', 'energy_semantics')
         return value if isinstance(value, str) else None
     if kind == 'late_energy_decay':
@@ -446,6 +460,7 @@ _ITEM_LIST_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
     'solver_result': (('artifacts',),),
     'path_artifact': (('paths',),),
     'late_field': (('path_contributions',),),
+    'stochastic_ray_estimate': (('estimates',), ('rejected_candidates',)),
     'late_energy_decay': (('bands',),),
     'stitched_response': (('samples',), ('responses',)),
     'numerical_hybrid_response': (('samples',),),
