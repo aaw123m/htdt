@@ -12,17 +12,25 @@ from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
     STENCIL_SENSITIVITY_VARIANT_IDS,
+    TIME_GATE_BAND_CELL_IDS,
+    TIME_GATE_CANONICAL_CELL_ID,
+    TIME_GATE_CELL_IDS,
+    TIME_GATE_PARTITION_CELL_IDS,
+    TIME_GATE_PREFIX_CELL_IDS,
+    TIME_GATE_TAIL_CELL_IDS,
     VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID,
     VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS,
     PairMetrics,
     ObservableContractMismatch,
     analytic_complex_harmonic_spectrum,
+    apply_time_gate,
     analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
     classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
     classify_spatial_representation_trend,
     classify_stencil_sensitivity,
+    classify_time_gate_localization,
     classify_voxel_staircase_sensitivity,
     compare_complex_transfer,
     connected_air_domain_node_metrics,
@@ -33,6 +41,7 @@ from htdt.r130d_general3d_validation import (
     load_spatial_representation_diagnostic_plan,
     load_stencil_sensitivity_diagnostic_plan,
     load_target_window_diagnostic_plan,
+    load_time_gate_localization_diagnostic_plan,
     load_validation_plan,
     load_voxel_staircase_sensitivity_diagnostic_plan,
     native_window_left_rectangle_spectrum,
@@ -50,6 +59,7 @@ from htdt.r130d_general3d_validation import (
     validate_refinement_schedule,
     validate_spatial_representation_diagnostic_binding,
     validate_stencil_sensitivity_diagnostic_binding,
+    validate_time_gate_localization_diagnostic_binding,
     validate_voxel_staircase_sensitivity_diagnostic_binding,
     validation_decision,
     validation_decision_v2,
@@ -88,6 +98,12 @@ VOXEL_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_voxel_staircase_sensitivity_diagnostic_plan.json'
+)
+TIME_GATE_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_time_gate_localization_diagnostic_plan.json'
 )
 RUN76_EVIDENCE = (
     Path(__file__).parents[2]
@@ -1657,6 +1673,357 @@ def test_voxel_diagnostic_cannot_enter_canonical_acceptance():
     )
     assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
     assert diagnostic['voxel_staircase_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] is False
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert diagnostic['decision_semantics'][
+        'cross_solver_unblocked_by_diagnostic'
+    ] is False
+
+
+
+
+def test_time_gate_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_time_gate_localization_diagnostic_plan(
+        TIME_GATE_DIAGNOSTIC_PLAN
+    )
+    validate_time_gate_localization_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert diagnostic['task_start_main_sha'] == (
+        'ede5eff8be6b4bef552e52c78582df19287d0d3c'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [
+        8.0, 10.0, 12.0,
+    ]
+    assert diagnostic['parent_voxel_staircase_sensitivity_diagnostic'][
+        'semantic_sha256'
+    ] == canonical_sha256(
+        load_voxel_staircase_sensitivity_diagnostic_plan(VOXEL_DIAGNOSTIC_PLAN)
+    )
+    time_gate = diagnostic['time_gate_localization']
+    gates = time_gate['gates']
+    assert [item['gate_id'] for item in gates] == list(TIME_GATE_CELL_IDS)
+    assert [bool(item.get('control')) for item in gates] == [True] + [
+        False
+    ] * (len(TIME_GATE_CELL_IDS) - 1)
+    duration = float(plan.physical_quantity.duration_s)
+    assert gates[0]['interval_s'] == [0.0, duration]
+    for item in gates[1:]:
+        t_start, t_end = item['interval_s']
+        assert 0.0 <= t_start < t_end <= duration
+        if item['kind'] == 'prefix':
+            assert t_start == 0.0
+        if item['kind'] == 'tail':
+            assert t_end == duration
+    cell_axis = time_gate['cell_axis']
+    assert cell_axis['cells'] == list(TIME_GATE_CELL_IDS)
+    assert cell_axis['canonical_cell_id'] == TIME_GATE_CANONICAL_CELL_ID
+    evaluation = time_gate['evaluation']
+    dense_block = dense['dense_frequency_neighborhood']
+    assert evaluation['normalized_complex_difference_formula'] == dense_block[
+        'normalized_complex_difference_formula'
+    ]
+    assert evaluation['fixed_floor'] == dense_block['fixed_floor']
+    assert evaluation['pairs'] == dense_block['pairs']
+    assert evaluation['per_cell_classification'][
+        'localized_max_count'
+    ] == dense_block['classification']['localized_max_count']
+    assert evaluation['per_cell_classification'][
+        'persists_min_count'
+    ] == dense_block['classification']['persists_min_count']
+    assert evaluation['partition_identity_check']['partition_cells'] == list(
+        TIME_GATE_PARTITION_CELL_IDS
+    )
+    assert evaluation['canonical_acceptance_inclusion'] is False
+
+
+def test_time_gate_run76_pins_match_dense_authority():
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_time_gate_localization_diagnostic_plan(
+        TIME_GATE_DIAGNOSTIC_PLAN
+    )
+    dense_levels = {
+        float(item['points_per_wavelength']): item
+        for item in dense['run76_record_binding']['levels']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        dense_level = dense_levels[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == dense_level[
+            'pressure_trace_sha256'
+        ]
+        assert level['source_trace_sha256'] == dense_level['source_trace_sha256']
+
+
+def test_time_gate_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_time_gate_localization_diagnostic_plan(
+        TIME_GATE_DIAGNOSTIC_PLAN
+    )
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_time_gate_localization_diagnostic_binding(plan, stale, dense)
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['time_gate_localization']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, promoted, dense
+        )
+    drift = json.loads(json.dumps(diagnostic))
+    drift['time_gate_localization']['gates'][1]['gate_id'] = 'prefix_12ms'
+    with pytest.raises(ValueError, match='not the frozen set'):
+        validate_time_gate_localization_diagnostic_binding(plan, drift, dense)
+    drift_interval = json.loads(json.dumps(diagnostic))
+    drift_interval['time_gate_localization']['gates'][1]['interval_s'] = [
+        0.0,
+        0.30,
+    ]
+    with pytest.raises(ValueError, match='outside the frozen record'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_interval, dense
+        )
+    drift_partition = json.loads(json.dumps(diagnostic))
+    drift_partition['time_gate_localization']['gates'][9]['interval_s'] = [
+        0.050,
+        0.140,
+    ]
+    with pytest.raises(ValueError, match='tile'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_partition, dense
+        )
+    drift_cell = json.loads(json.dumps(diagnostic))
+    drift_cell['time_gate_localization']['cell_axis'][
+        'canonical_cell_id'
+    ] = 'prefix_50ms'
+    with pytest.raises(ValueError, match='canonical cell'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_cell, dense
+        )
+    drift_metric = json.loads(json.dumps(diagnostic))
+    drift_metric['time_gate_localization']['evaluation']['fixed_floor'] = (
+        1.0e-9
+    )
+    with pytest.raises(ValueError, match='fixed floor'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_metric, dense
+        )
+    drift_labels = json.loads(json.dumps(diagnostic))
+    drift_labels['time_gate_localization']['evaluation']['classification'][
+        'broadband'
+    ] = 'RENAMED'
+    with pytest.raises(ValueError, match='classification labels'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_labels, dense
+        )
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['time_window_replacement'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, rewritten, dense
+        )
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_voxel_staircase_sensitivity_diagnostic'][
+        'semantic_sha256'
+    ] = '0' * 64
+    with pytest.raises(ValueError, match='voxel-staircase diagnostic sha256'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, stale_parent, dense
+        )
+    drift_pin = json.loads(json.dumps(diagnostic))
+    drift_pin['run76_record_binding']['levels'][0]['pressure_trace_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense authority'):
+        validate_time_gate_localization_diagnostic_binding(
+            plan, drift_pin, dense
+        )
+
+
+def test_apply_time_gate_masks_outside_half_open_interval():
+    ts = 0.001
+    record = np.arange(20, dtype=np.float64) + 1.0
+    gated = apply_time_gate(record, time_step_s=ts, interval_s=[0.005, 0.012])
+    expected = np.zeros(20, dtype=np.float64)
+    expected[5:12] = record[5:12]
+    assert np.array_equal(gated, expected)
+    assert record[0] == 1.0
+    prefix = apply_time_gate(record, time_step_s=ts, interval_s=[0.0, 0.004])
+    assert np.array_equal(prefix[:4], record[:4])
+    assert not np.any(prefix[4:])
+    tail = apply_time_gate(record, time_step_s=ts, interval_s=[0.004, 0.020])
+    assert not np.any(tail[:4])
+    assert np.array_equal(tail[4:], record[4:])
+
+
+def test_apply_time_gate_partition_decomposes_transfer_additively():
+    rng = np.random.default_rng(20261003)
+    ts = 0.0005
+    record = rng.standard_normal(500)
+    source = np.zeros(record.size)
+    source[0] = 1.0
+    frequencies = np.asarray([36.0, 40.5, 77.0], dtype=np.float64)
+    full = finite_record_pressure_transfer(
+        record, source, time_step_s=ts, frequency_hz=frequencies
+    )
+    partition_sum = sum(
+        finite_record_pressure_transfer(
+            apply_time_gate(record, time_step_s=ts, interval_s=interval),
+            source,
+            time_step_s=ts,
+            frequency_hz=frequencies,
+        )
+        for interval in ([0.0, 0.05], [0.05, 0.15], [0.15, 0.25])
+    )
+    assert np.max(np.abs(partition_sum - full)) <= 1.0e-12
+
+
+def test_apply_time_gate_is_fail_closed_on_inputs():
+    record = np.ones(10, dtype=np.float64)
+    with pytest.raises(ValueError, match='outside the record'):
+        apply_time_gate(record, time_step_s=0.001, interval_s=[0.0, 0.02])
+    with pytest.raises(ValueError, match='selects no record samples'):
+        apply_time_gate(record, time_step_s=0.001, interval_s=[0.0055, 0.0059])
+    with pytest.raises(ValueError, match='finite and positive'):
+        apply_time_gate(record, time_step_s=0.0, interval_s=[0.0, 0.01])
+    with pytest.raises(ValueError, match='must be finite'):
+        apply_time_gate(
+            np.full(10, np.nan), time_step_s=0.001, interval_s=[0.0, 0.01]
+        )
+
+
+_LOCALIZED = 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
+_MIXED = 'DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'
+
+
+def _time_gate_cells(vectors, labels):
+    cell_ids = [
+        cell_id
+        for cell_id in TIME_GATE_CELL_IDS
+        if cell_id != TIME_GATE_CANONICAL_CELL_ID
+    ]
+    return [
+        {
+            'cell_id': cell_id,
+            'worsening_by_frequency': vectors[index],
+            'classification': labels[index],
+        }
+        for index, cell_id in enumerate(cell_ids)
+    ]
+
+
+def test_time_gate_classifier_frozen_labels():
+    canonical_vector = [True, False, True, False]
+    identical = [canonical_vector] * 10
+    shifted = [[False, True, True, False]] * 10
+    result = classify_time_gate_localization(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_time_gate_cells(identical, [_MIXED] * 10),
+    )
+    assert result['classification'] == 'TIME_GATE_WORSENING_PATTERN_INVARIANT'
+    assert result['identical_vector_cell_count'] == 10
+
+    # Every tail localized (count <= 11) and one prefix reproduces the
+    # canonical vector -> early-carried.
+    vectors = [shifted[0]] * 10
+    labels = [_MIXED] * 4 + [_LOCALIZED] * 6
+    vectors[0] = canonical_vector
+    result = classify_time_gate_localization(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_time_gate_cells(vectors, labels),
+    )
+    assert result['classification'] == 'TIME_GATE_WORSENING_EARLY_CARRIED'
+    assert result['prefix_exact_reproduction_cell_ids'] == ['prefix_10ms']
+    assert result['all_tail_cells_localized'] is True
+
+    # Every prefix localized and one tail reproduces the canonical vector
+    # -> late-carried.
+    vectors = [shifted[0]] * 10
+    labels = [_LOCALIZED] * 4 + [_MIXED] * 6
+    vectors[4] = canonical_vector
+    result = classify_time_gate_localization(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_time_gate_cells(vectors, labels),
+    )
+    assert result['classification'] == 'TIME_GATE_WORSENING_LATE_CARRIED'
+    assert result['tail_exact_reproduction_cell_ids'] == ['tail_10ms']
+    assert result['all_prefix_cells_localized'] is True
+
+    # At least one prefix carries and at least one tail carries -> broadband.
+    vectors = [shifted[0]] * 10
+    labels = [_MIXED] * 10
+    result = classify_time_gate_localization(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_time_gate_cells(vectors, labels),
+    )
+    assert result['classification'] == 'TIME_GATE_WORSENING_BROADBAND'
+    assert result['prefix_carrying_cell_ids'] == list(TIME_GATE_PREFIX_CELL_IDS)
+    assert result['tail_carrying_cell_ids'] == list(TIME_GATE_TAIL_CELL_IDS)
+
+    # Tails all localized but no prefix reproduces the canonical vector
+    # -> mixed.
+    vectors = [shifted[0]] * 10
+    labels = [_MIXED] * 4 + [_LOCALIZED] * 6
+    result = classify_time_gate_localization(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification=_MIXED,
+        noncanonical_cells=_time_gate_cells(vectors, labels),
+    )
+    assert result['classification'] == 'TIME_GATE_WORSENING_PATTERN_MIXED'
+
+
+def test_time_gate_classifier_is_fail_closed_on_inputs():
+    canonical_vector = [True, False, True, False]
+    cells = _time_gate_cells([canonical_vector] * 10, [_MIXED] * 10)
+    with pytest.raises(ValueError, match='control'):
+        classify_time_gate_localization(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {
+                    'cell_id': TIME_GATE_CANONICAL_CELL_ID,
+                    'worsening_by_frequency': canonical_vector,
+                    'classification': _MIXED,
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match='length mismatch'):
+        classify_time_gate_localization(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=[
+                {**cells[0], 'worsening_by_frequency': [True]}
+            ]
+            + cells[1:],
+        )
+    with pytest.raises(ValueError, match='frozen non-control cells'):
+        classify_time_gate_localization(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification=_MIXED,
+            noncanonical_cells=cells[:-1],
+        )
+
+
+def test_time_gate_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_time_gate_localization_diagnostic_plan(
+        TIME_GATE_DIAGNOSTIC_PLAN
+    )
+    validate_time_gate_localization_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert diagnostic['time_gate_localization']['evaluation'][
         'canonical_acceptance_inclusion'
     ] is False
     assert diagnostic['decision_semantics']['diagnostic_only'] is True
