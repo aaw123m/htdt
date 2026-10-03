@@ -15,6 +15,7 @@ from .cad_repository import (
     SceneRevision,
     _LIVE_REPOSITORIES,
     _SharedReadConnection,
+    _reopen_fences_for,
 )
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_scene import SceneDocument, scene_content_hash
@@ -100,6 +101,9 @@ class CadSystemVariantRepository:
         ] = OrderedDict()
         self._read_connections: dict[int, _SharedReadConnection] = {}
         self._read_connections_lock = threading.Lock()
+        # Re-open fences key on this root — the same directory the file-swap
+        # layers fence via fenced_read_reopens_under/release_read_handles_under.
+        self._data_root = self.path.parent.resolve()
         _LIVE_REPOSITORIES.add(self)
         self._initialize()
 
@@ -108,14 +112,31 @@ class CadSystemVariantRepository:
 
     def _read(self) -> sqlite3.Connection:
         ident = threading.get_ident()
-        with self._read_connections_lock:
-            connection = self._read_connections.get(ident)
-            if connection is None:
-                connection = _SharedReadConnection(
-                    lambda: connect_sqlite(self.path, check_same_thread=False)
-                )
-                self._read_connections[ident] = connection
-        return connection
+        # Same contract as SceneRepository._read: a swap layer fencing this
+        # root makes a fresh pooled handle wait — opening it now would hold
+        # the swap target open mid-rename (WinError 32). The held() recheck
+        # inside the lock keeps a fence taken between the wait and the
+        # borrow from slipping a new handle past the release snapshot.
+        fences = _reopen_fences_for(self._data_root)
+        while True:
+            for fence in fences:
+                fence.wait()
+            with self._read_connections_lock:
+                if any(
+                    fence.held()
+                    for fence in _reopen_fences_for(self._data_root)
+                ):
+                    continue
+                connection = self._read_connections.get(ident)
+                if connection is None:
+                    connection = _SharedReadConnection(
+                        lambda: connect_sqlite(
+                            self.path, check_same_thread=False
+                        ),
+                        reopen_root=self._data_root,
+                    )
+                    self._read_connections[ident] = connection
+                return connection
 
     def close(self) -> None:
         """Release every pooled read connection this repository holds.

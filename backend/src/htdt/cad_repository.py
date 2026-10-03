@@ -26,6 +26,7 @@ from .cad_schema import (
     connect_sqlite,
 )
 from .content_blobs import (
+    CONTENT_BLOB_TABLE,
     content_blob_exists,
     ensure_content_blob_store,
     read_content_blob,
@@ -257,6 +258,21 @@ def release_read_handles_under(data_dir: Path) -> int:
             repository.close()
             released += 1
     return released
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    """Read-only schema probe for optional stores.
+
+    Read paths use this instead of the ``ensure_*`` DDL helpers so a pooled
+    read connection never attempts a schema write.
+    """
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        is not None
+    )
 
 
 # Editor view state is disposable UI convenience state (selection, hidden and
@@ -1034,16 +1050,18 @@ class SceneRepository:
     def read_blob(self, payload_sha256: str) -> bytes | None:
         """Return canonical blob bytes for a digest, or ``None`` when absent."""
 
-        with closing(self._connect()) as connection:
-            ensure_content_blob_store(connection)
+        with closing(self._read()) as connection, connection:
+            if not _table_exists(connection, CONTENT_BLOB_TABLE):
+                return None
             return read_content_blob(connection, payload_sha256)
 
     def has_blob(self, payload_sha256: str) -> bool:
         """Cheap presence probe — callers use it to report missing data
         honestly without paying for a full verified read."""
 
-        with closing(self._connect()) as connection:
-            ensure_content_blob_store(connection)
+        with closing(self._read()) as connection, connection:
+            if not _table_exists(connection, CONTENT_BLOB_TABLE):
+                return False
             return content_blob_exists(connection, payload_sha256)
 
     def save_view_state(
