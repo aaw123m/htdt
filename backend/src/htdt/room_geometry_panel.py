@@ -20,9 +20,10 @@ from PySide6.QtWidgets import (
 
 from .cad_document import EditStateError
 from .cad_scene import room_vertices
-from .cad_wall_models import WallOpening
+from .cad_wall_models import WallConstraintBinding, WallOpening
 from .cad_walls import (
     WallTopologyError,
+    add_constraint_binding,
     add_opening,
     delete_opening,
     update_opening,
@@ -180,7 +181,7 @@ class RoomGeometryPanel(QFrame):
         root.addWidget(wall_label)
 
         self.wall_hint = QLabel(
-            "「形状編集」モードで3D上の辺・壁を選ぶと、ここに厚さと結合/削除の設定が表示されます"
+            "「形状編集」モードで3D上の辺・壁を選ぶと、ここに厚さ・結合/削除・クリアランス参照の設定が表示されます"
         )
         self.wall_hint.setWordWrap(True)
         set_typography_role(self.wall_hint, TypographyRole.SECONDARY)
@@ -215,6 +216,27 @@ class RoomGeometryPanel(QFrame):
         wall_actions.addWidget(self.merge_wall_button)
         wall_actions.addWidget(self.delete_wall_button)
         wall_form.addRow("", wall_actions)
+        clearance_hint = (
+            "選択中の壁に対するクリアランス参照（自動配置との境界条件）"
+        )
+        self.wall_clearance_count = QLabel("—")
+        self.wall_clearance_count.setToolTip("この壁に紐づくクリアランス参照の件数")
+        self.clearance_value = self._metric_field(0.0, 10.0, decimals=3, step=0.05)
+        self.clearance_value.setValue(0.30)
+        self.clearance_value.setToolTip("追加するクリアランスの距離（m）")
+        self.add_clearance_button = QPushButton("クリアランス参照を追加")
+        self.add_clearance_button.setToolTip(
+            "選択中の壁へクリアランス参照を追加します"
+        )
+        self.add_clearance_button.clicked.connect(self._add_clearance_binding)
+        clearance_actions = QHBoxLayout()
+        clearance_actions.addWidget(self.clearance_value)
+        clearance_actions.addWidget(self.add_clearance_button)
+        wall_form.addRow("クリアランス参照", self.wall_clearance_count)
+        wall_form.addRow("追加するクリアランス", clearance_actions)
+        clearance_label = wall_form.labelForField(self.wall_clearance_count)
+        if clearance_label is not None:
+            clearance_label.setToolTip(clearance_hint)
         root.addWidget(self.wall_host)
 
         opening_label = QLabel("開口")
@@ -407,6 +429,23 @@ class RoomGeometryPanel(QFrame):
         self.merge_wall_button.setEnabled(wall_ready)
         self.delete_wall_button.setEnabled(wall_ready)
 
+        bindings = tuple(
+            item
+            for item in topology.constraint_bindings
+            if wall.wall_id in item.wall_ids
+        )
+        self.wall_clearance_count.setText(f"{len(bindings)} 件")
+        self.wall_clearance_count.setToolTip(
+            "この壁に紐づくクリアランス参照"
+            + (
+                "（" + ", ".join(f"{item.clearance_m:.2f} m" for item in bindings) + "）"
+                if bindings
+                else "はありません"
+            )
+        )
+        self.clearance_value.setEnabled(wall_ready)
+        self.add_clearance_button.setEnabled(wall_ready)
+
         previous = self.opening_selector.currentData()
         openings = tuple(item for item in topology.openings if item.wall_id == wall.wall_id)
         with QSignalBlocker(self.opening_selector):
@@ -557,6 +596,24 @@ class RoomGeometryPanel(QFrame):
 
     def _delete_wall(self) -> None:
         self._run(self.geometry.delete_selected_wall, "壁を削除しました")
+
+    def _add_clearance_binding(self) -> None:
+        room = self.geometry.room
+        topology = self.geometry.topology
+        wall = self.geometry.selected_wall
+        if room is None or topology is None or wall is None:
+            return
+        binding = WallConstraintBinding(
+            binding_id=f"clearance-{uuid4().hex[:10]}",
+            wall_ids=(wall.wall_id,),
+            clearance_m=float(self.clearance_value.value()),
+        )
+
+        def operation() -> bool:
+            candidate = add_constraint_binding(room, topology, binding)
+            return self.controller.replace_room_topology(room, candidate)
+
+        self._run(operation, "クリアランス参照を追加しました")
 
     def _wall_thickness_edited(self) -> None:
         room = self.geometry.room

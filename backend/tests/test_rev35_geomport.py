@@ -202,3 +202,66 @@ def test_opening_markers_render_without_any_selection(tmp_path) -> None:
     )
 
     _teardown(app, workspace, geometry)
+
+
+# -- clearance binding authoring --------------------------------------------------
+
+def test_clearance_binding_add_from_panel_and_undo(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    panel = RoomGeometryPanel(geometry)
+    workspace.attach_geometry_panel(panel)
+    geometry.mode = "edit"
+    geometry.select_edge(0)
+    assert geometry.ensure_wall_topology() is True
+    panel.refresh()
+
+    assert panel.wall_clearance_count.text() == "0 件"
+    assert panel.add_clearance_button.isEnabled()
+
+    panel.clearance_value.setValue(0.45)
+    panel.add_clearance_button.click()
+    app.processEvents()
+
+    topology = workspace.controller.committed_document.wall_topology
+    assert topology is not None
+    assert len(topology.constraint_bindings) == 1
+    binding = topology.constraint_bindings[0]
+    assert binding.kind == "clearance"
+    assert binding.clearance_m == pytest.approx(0.45)
+    assert binding.wall_ids == (geometry.selected_wall.wall_id,)
+    assert panel.wall_clearance_count.text() == "1 件"
+
+    # Parity guard: a bound wall refuses deletion rather than orphaning the
+    # reference — same fail-closed contract the legacy editor relies on.
+    with pytest.raises(WallTopologyError):
+        geometry.delete_selected_wall()
+
+    assert workspace.undo() is True
+    topology = workspace.controller.committed_document.wall_topology
+    assert topology is not None
+    assert topology.constraint_bindings == ()
+
+    _teardown(app, workspace, geometry)
+
+
+def test_clearance_widgets_follow_selection_state(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path)
+    geometry = _geometry(workspace)
+    panel = RoomGeometryPanel(geometry)
+    workspace.attach_geometry_panel(panel)
+    geometry.mode = "edit"
+    geometry.select_edge(0)
+    assert geometry.ensure_wall_topology() is True
+    panel.refresh()
+
+    geometry.select_vertex("front-left")
+    panel.refresh()
+    assert panel.wall_host.isHidden()
+
+    geometry.select_edge(1)
+    panel.refresh()
+    assert not panel.wall_host.isHidden()
+    assert panel.add_clearance_button.isEnabled()
+
+    _teardown(app, workspace, geometry)
