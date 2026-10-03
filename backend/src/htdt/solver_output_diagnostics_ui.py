@@ -70,6 +70,8 @@ _OBSERVABLE_LABELS = {
     'multi_portal_second_order_specular': 'マルチポータル2次鏡面',
     'multi_portal_third_order_specular': 'マルチポータル3次鏡面',
     'multi_portal_fourth_order_specular': 'マルチポータル4次鏡面',
+    'multi_portal_fifth_order_specular': 'マルチポータル5次鏡面',
+    'multi_portal_sixth_order_specular': 'マルチポータル6次鏡面',
     'single_region_bounded_late_field_energy_v1': '遅延フィールドエネルギー（有界）',
     'bounded_stochastic_ray_receiver_estimate_v1': '確率レイ受信推定（有界）',
     'stochastic_receiver_estimate': '確率レイ受信推定',
