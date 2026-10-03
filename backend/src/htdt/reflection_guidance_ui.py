@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from contextlib import closing
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -48,6 +48,8 @@ from .cad_reflection_guidance import (
 from .cad_scene import Position3
 from .cad_schema import connect_sqlite, ensure_native_schema
 from .reflection_guidance_presentation import (
+    GUIDANCE_CONFIDENCE_LABELS as _CONFIDENCE_LABELS,
+    GUIDANCE_KIND_LABELS as _KIND_LABELS,
     ReflectionGuidanceEntry,
     ReflectionGuidanceIssue,
     ReflectionGuidanceView,
@@ -60,19 +62,6 @@ from .ui_theme import (
     set_typography_role,
 )
 
-
-_KIND_LABELS = {
-    'treat_reflection_zone': '一次反射ゾーンの処理',
-    'reposition_source': '音源の再配置',
-    'verify_with_measurement': '測定による検証',
-    'resolve_ambiguity': '曖昧性の解消',
-}
-
-_CONFIDENCE_LABELS = {
-    'authority_backed': '権威裏付けあり',
-    'measured_supported': '測定裏付けあり',
-    'unverified_hypothesis': '未検証の仮説',
-}
 
 _STATUS_LABELS = {
     'actionable': '対応可能',
@@ -128,7 +117,12 @@ class ReflectionGuidancePanel(QWidget):
 
     ``room_controller`` supplies the document id, the CAD database path
     and the committed scene used to resolve entity display names.
+
+    ``guidanceViewChanged`` fires at the end of every ``refresh()`` so
+    overlay consumers (REV40) can re-project the persisted view.
     """
+
+    guidanceViewChanged = Signal()
 
     def __init__(self, room_controller, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -327,6 +321,13 @@ class ReflectionGuidancePanel(QWidget):
             )
         self._refresh_revision_combo()
         self._refresh_entries()
+        self.guidanceViewChanged.emit()
+
+    @property
+    def guidance_view(self) -> ReflectionGuidanceView:
+        """The projection ``refresh()`` last replayed from the store."""
+
+        return self._view
 
     def _entity_label(self, entity_id: str) -> str:
         try:

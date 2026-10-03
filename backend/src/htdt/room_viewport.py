@@ -4,7 +4,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass
 from math import hypot, isfinite, radians, tan
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 import pyvista as pv
@@ -36,6 +36,11 @@ from .cad_scene import (
     scene_content_hash,
 )
 from .ui_theme import DARK_THEME, SurfaceRole, set_surface_role
+
+if TYPE_CHECKING:
+    from .reflection_guidance_presentation import (
+        ReflectionGuidanceOverlayMarker,
+    )
 
 
 #: Camera framing used when the scene has no usable bounds yet — a
@@ -1039,6 +1044,7 @@ class RoomViewport3D(QFrame):
         'history-ghost-',
         'search-domain-',
         'snap-feedback-',
+        'guidance-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1326,6 +1332,88 @@ class RoomViewport3D(QFrame):
                 name="prediction-focus-marker",
                 render=False,
             )
+        self._render()
+
+    def render_reflection_guidance_overlay(
+        self,
+        markers: tuple['ReflectionGuidanceOverlayMarker', ...],
+    ) -> None:
+        """Draw persisted-artifact reflection-guidance markers (REV40).
+
+        Every anchor is replayed deterministic path authority (see
+        ``reflection_guidance_presentation.guidance_overlay_markers``):
+        the treat-zone sphere sits on the proven first-reflection point,
+        the source sphere on the snapshot-pinned source reference point,
+        and the legs trace the proven source → reflection → receiver
+        path. Nothing is synthesized — an empty tuple draws nothing.
+        """
+
+        if not markers:
+            return
+        label_points: list[tuple[float, float, float]] = []
+        label_texts: list[str] = []
+        for index, marker in enumerate(markers):
+            zone = domain_to_render(marker.zone_anchor)
+            zone_color = (
+                DARK_THEME.scientific.measured.hex
+                if marker.confidence
+                in ('authority_backed', 'measured_supported')
+                else DARK_THEME.semantic.warning.hex
+            )
+            for leg, (start, end) in enumerate(
+                zip(marker.path_points, marker.path_points[1:])
+            ):
+                self.plotter.add_mesh(
+                    pv.Line(domain_to_render(start), domain_to_render(end)),
+                    color=DARK_THEME.scientific.secondary_trace.hex,
+                    line_width=2,
+                    opacity=0.55,
+                    pickable=False,
+                    name=f"guidance-path-{index}-{leg}",
+                    render=False,
+                )
+            self.plotter.add_mesh(
+                pv.Sphere(radius=0.05, center=zone),
+                color=zone_color,
+                pickable=False,
+                name=f"guidance-zone-{index}",
+                render=False,
+            )
+            label_points.append(zone)
+            label_texts.append(marker.label)
+            if marker.source_anchor is not None:
+                source = domain_to_render(marker.source_anchor)
+                self.plotter.add_mesh(
+                    pv.Sphere(radius=0.045, center=source),
+                    color=DARK_THEME.scientific.primary_trace.hex,
+                    pickable=False,
+                    name=f"guidance-source-{index}",
+                    render=False,
+                )
+                if marker.source_label:
+                    label_points.append(source)
+                    label_texts.append(marker.source_label)
+        if label_points:
+            self.plotter.add_point_labels(
+                np.asarray(label_points, dtype=float),
+                label_texts,
+                text_color=DARK_THEME.text.primary.hex,
+                shape_color=DARK_THEME.surfaces.overlay.hex,
+                shape_opacity=0.88,
+                font_size=10,
+                point_size=0,
+                always_visible=True,
+                name="guidance-labels",
+                render=False,
+            )
+        self.plotter.add_text(
+            "反射ガイダンス · 確定的パス権威（R150）",
+            name="guidance-overlay-label",
+            position="lower_right",
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            render=False,
+        )
         self._render()
 
     def _render_labels(self, document: SceneDocument, selected_id: str | None) -> None:

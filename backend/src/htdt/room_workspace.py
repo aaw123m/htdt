@@ -256,6 +256,10 @@ from .room_underlay import (
     underlay_snap_points,
     utc_now_iso,
 )
+from .reflection_guidance_presentation import (
+    ReflectionGuidanceView,
+    guidance_overlay_markers,
+)
 from .room_viewport import (
     GuideRenderItem,
     RoomOverlayState,
@@ -4217,6 +4221,11 @@ class RoomWorkspace(QWidget):
         self._pre_isolation_hidden: set[str] | None = None
         self._clipboard = None  # LayoutClipboard, set by layout tools (#613)
         self._guides_visible = True
+        # REV40: persisted display_input.reflection_guidance_overlay policy.
+        # 'off' until bind_reflection_guidance resolves the stored value —
+        # an unbound workspace hides markers rather than guessing a policy.
+        self._guidance_view: ReflectionGuidanceView | None = None
+        self._guidance_overlay_mode: str = 'off'
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -5408,6 +5417,66 @@ class RoomWorkspace(QWidget):
             )
         self._refresh_underlay_ui()
         self._set_status(f"破損した拘束を{removed}件削除しました")
+
+    def bind_reflection_guidance(self, panel, preferences) -> None:
+        """Bind the reflection-guidance overlay to its panel + preference.
+
+        ``panel`` is the ``ReflectionGuidancePanel`` mounted in the
+        acoustics dock: its ``guidanceViewChanged`` signal re-projects the
+        persisted path artifacts into viewport markers. ``preferences``
+        supplies ``display_input.reflection_guidance_overlay``
+        ('off' | 'auto' | 'on'); 'auto' draws markers only while the
+        acoustics context is active — the context that owns the guidance
+        panel — matching the app's convention that entering acoustics
+        auto-enables its overlay. The store listener live-applies changes
+        without a restart; it is released on destruction (the store
+        outlives the composition).
+        """
+
+        key = 'display_input.reflection_guidance_overlay'
+        self._guidance_overlay_mode = str(preferences.get(key))
+
+        def _on_pref(change) -> None:
+            if change.key == key:
+                self._guidance_overlay_mode = str(change.new)
+                self._render()
+
+        preferences.subscribe(_on_pref)
+        # Bound-method listeners can't receive ``destroyed`` (same PySide6
+        # caveat as PreferencesWidget), so release goes through a lambda.
+        self.destroyed.connect(
+            lambda: preferences.unsubscribe(_on_pref)
+        )
+        panel.guidanceViewChanged.connect(
+            lambda: self._on_guidance_view_changed(panel)
+        )
+        # The panel refreshed before this binding existed — pull its
+        # already-loaded view so markers are honest from the first render.
+        self._on_guidance_view_changed(panel)
+
+    def _on_guidance_view_changed(self, panel) -> None:
+        view = getattr(panel, 'guidance_view', None)
+        self._guidance_view = (
+            view if isinstance(view, ReflectionGuidanceView) else None
+        )
+        self._render()
+
+    def _visible_guidance_markers(self, overlays: RoomOverlayState) -> tuple:
+        """Markers the current overlay policy makes visible (REV40).
+
+        The ガイド toggle (``guides_visible``) suppresses guidance markers
+        alongside construction guides — a guides-hidden viewport stays
+        clean even when the policy is 'on'.
+        """
+
+        if not overlays.guides_visible or self._guidance_view is None:
+            return ()
+        mode = self._guidance_overlay_mode
+        if mode == 'off':
+            return ()
+        if mode == 'auto' and self.current_context != 'acoustics':
+            return ()
+        return guidance_overlay_markers(self._guidance_view)
 
     def toggle_guides(self) -> bool:
         self._guides_visible = not self._guides_visible
@@ -7429,6 +7498,13 @@ class RoomWorkspace(QWidget):
                         self.prediction_results,
                         highlight=self.prediction_focus,
                     )
+            # REV40: persisted-artifact reflection-guidance markers ride
+            # the same render; the setting resolves to () when hidden.
+            render_guidance = getattr(
+                self.viewport, "render_reflection_guidance_overlay", None
+            )
+            if callable(render_guidance):
+                render_guidance(self._visible_guidance_markers(overlays))
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)

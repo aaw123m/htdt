@@ -56,6 +56,21 @@ from .cad_scene import Position3
 
 EnvironmentBindingState = Literal['bound', 'absent', 'unreadable']
 
+#: JA display labels shared by the dock panel and the viewport overlay
+#: (REV40) — one vocabulary so both surfaces name items identically.
+GUIDANCE_KIND_LABELS: dict[str, str] = {
+    'treat_reflection_zone': '一次反射ゾーンの処理',
+    'reposition_source': '音源の再配置',
+    'verify_with_measurement': '測定による検証',
+    'resolve_ambiguity': '曖昧性の解消',
+}
+
+GUIDANCE_CONFIDENCE_LABELS: dict[str, str] = {
+    'authority_backed': '権威裏付けあり',
+    'measured_supported': '測定裏付けあり',
+    'unverified_hypothesis': '未検証の仮説',
+}
+
 IssueKind = Literal[
     'unreadable_artifact',
     'binding_mismatch',
@@ -170,6 +185,106 @@ class ReflectionGuidanceView:
             for entry in self.entries
             if entry.scene_revision_id == revision_id
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ReflectionGuidanceOverlayMarker:
+    """Viewport-overlay projection of one guidance entry (REV40).
+
+    Every anchor is replayed persisted authority — ``zone_anchor`` is the
+    proven first-reflection point (the treat-zone centroid the report
+    names), ``source_anchor`` the snapshot-pinned source reference point
+    behind a ``reposition_source`` item, and ``path_points`` the proven
+    source → reflection point → receiver legs. Fields stay ``None``/empty
+    when the snapshot binding could not supply them — nothing is invented.
+    All positions are domain coordinates; the viewport maps to render
+    space.
+    """
+
+    surface_id: str
+    label: str
+    confidence: str
+    zone_anchor: Position3
+    source_label: str | None
+    source_anchor: Position3 | None
+    path_points: tuple[Position3, ...]
+
+
+def guidance_overlay_markers(
+    view: ReflectionGuidanceView,
+) -> tuple[ReflectionGuidanceOverlayMarker, ...]:
+    """Project a guidance view into drawable viewport markers.
+
+    One marker per entry whose report carries items — a ``blocked`` report
+    has nothing to act on, so it honestly draws nothing. Each marker names
+    the report's top-ranked item and surfaces the reposition anchor only
+    when a ``reposition_source`` item exists AND the snapshot binding
+    resolved the source reference point.
+    """
+
+    markers: list[ReflectionGuidanceOverlayMarker] = []
+    for entry in view.entries:
+        items = entry.report.items
+        if not items:
+            continue
+        top = items[0]
+        zone_item = next(
+            (
+                item
+                for item in items
+                if item.kind == 'treat_reflection_zone'
+                and item.reflection_point is not None
+            ),
+            None,
+        )
+        zone_anchor = (
+            zone_item.reflection_point
+            if zone_item is not None
+            else entry.plane_point
+        )
+        reposition = next(
+            (item for item in items if item.kind == 'reposition_source'),
+            None,
+        )
+        source_anchor = (
+            entry.source_reference_point
+            if reposition is not None
+            else None
+        )
+        source_label = (
+            None
+            if reposition is None or source_anchor is None
+            else (
+                f'{reposition.rank}. '
+                f'{GUIDANCE_KIND_LABELS.get(reposition.kind, reposition.kind)}'
+            )
+        )
+        path_points: tuple[Position3, ...] = ()
+        if (
+            entry.source_reference_point is not None
+            and entry.receiver_position is not None
+        ):
+            path_points = (
+                entry.source_reference_point,
+                entry.plane_point,
+                entry.receiver_position,
+            )
+        markers.append(
+            ReflectionGuidanceOverlayMarker(
+                surface_id=entry.surface_id,
+                label=(
+                    f'{top.rank}. '
+                    f'{GUIDANCE_KIND_LABELS.get(top.kind, top.kind)}'
+                    f' · {entry.surface_id}'
+                ),
+                confidence=top.confidence,
+                zone_anchor=zone_anchor,
+                source_label=source_label,
+                source_anchor=source_anchor,
+                path_points=path_points,
+            )
+        )
+    return tuple(markers)
 
 
 def _snapshot_payload_dict(payload_json: str | None) -> dict[str, Any] | None:

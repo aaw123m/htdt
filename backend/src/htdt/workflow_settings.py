@@ -63,6 +63,7 @@ _PREFERENCE_LABELS: dict[str, str] = {
     'display_input.theme': '外観テーマ',
     'display_input.reduced_motion': '視覚効果を減らす',
     'display_input.high_contrast': 'ハイコントラスト表示',
+    'display_input.reflection_guidance_overlay': '反射ガイダンスのオーバーレイ',
     'integrations.rew_host': 'REW APIホスト',
     'integrations.rew_port': 'REW APIポート',
     'integrations.capture_receiver_enabled': 'キャプチャレシーバーを有効化',
@@ -88,6 +89,7 @@ _PREFERENCE_DESCRIPTIONS: dict[str, str] = {
     'display_input.theme': '外観テーマのポリシーです。',
     'display_input.reduced_motion': 'OS設定で不十分な場合にアニメーション等を抑えます。',
     'display_input.high_contrast': 'OS設定で不十分な場合にコントラストを上げます。',
+    'display_input.reflection_guidance_overlay': '確定的パス権威が実証した一次反射ゾーンと音源再配置マーカーを3Dビューに表示するかどうかです。「自動」は音響コンテキストを開いている間だけ表示します。',
     'integrations.rew_host': 'REW APIの接続先ホストです（ループバックのみ）。',
     'integrations.rew_port': 'REW APIの接続ポートです。',
     'integrations.capture_receiver_enabled': 'ネイティブキャプチャレシーバーを有効にします。',
@@ -126,6 +128,11 @@ _PREFERENCE_VALUE_LABELS: dict[str, dict[object, str]] = {
         'auto': '自動',
         'cpu': 'CPU',
         'gpu_when_validated': 'GPU（検証済みのみ）',
+    },
+    'display_input.reflection_guidance_overlay': {
+        'off': '表示しない',
+        'auto': '自動（音響コンテキストのみ）',
+        'on': '常に表示',
     },
 }
 
@@ -228,13 +235,14 @@ class PreferencesWidget(QWidget):
             text += "（再起動が必要）"
         label = QLabel(text)
         if definition.key in PENDING_PREFERENCE_KEYS:
-            label.setToolTip(
-                "この設定はまだ実装されていないため、現在は変更できません。"
-            )
+            hint = "この設定はまだ実装されていないため、現在は変更できません。"
         elif definition.description:
-            label.setToolTip(
-                _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
-            )
+            hint = _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
+        else:
+            hint = ''
+        if hint:
+            label.setToolTip(hint)
+            label.setWhatsThis(hint)
         return label
 
     def _build_editor(self, definition: PreferenceDefinition) -> QWidget:
@@ -290,13 +298,13 @@ class PreferencesWidget(QWidget):
             # Persisted value still loads, but no production consumer reads
             # it yet — show it, disabled, instead of a working-looking no-op.
             editor.setEnabled(False)
-            editor.setToolTip(
-                "この設定はまだ実装されていないため、現在は変更できません。"
-            )
+            hint = "この設定はまだ実装されていないため、現在は変更できません。"
+            editor.setToolTip(hint)
+            editor.setWhatsThis(hint)
         elif definition.description:
-            editor.setToolTip(
-                _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
-            )
+            hint = _PREFERENCE_DESCRIPTIONS.get(definition.key, definition.description)
+            editor.setToolTip(hint)
+            editor.setWhatsThis(hint)
         self._editors[key] = editor
         return editor
 
