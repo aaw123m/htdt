@@ -161,6 +161,34 @@ def _normalize_label(value: str) -> str:
     return ' '.join(value.casefold().split())
 
 
+#: Characters that must not touch a name match — a name embedded inside a
+#: longer ASCII run-on (``seat1`` inside ``seat10``, ``seat`` inside
+#: ``seat_1``) is a different token, not the named target. Punctuation and
+#: non-ASCII text do not count as run-on characters, so Japanese compound
+#: names and dash-separated labels still match.
+_NAME_RUN_CHARS = frozenset('abcdefghijklmnopqrstuvwxyz0123456789_')
+
+
+def _name_within_label(name: str, label: str) -> bool:
+    """True when normalized ``name`` appears in normalized ``label`` as a
+    whole token, not embedded inside a longer ASCII letter/digit run.
+
+    ``seat1`` matches inside ``fl seat1 up`` but never inside ``seat10`` —
+    the run-on would bind the measurement to a different seat.
+    """
+    start = 0
+    while True:
+        index = label.find(name, start)
+        if index < 0:
+            return False
+        before = label[index - 1] if index > 0 else ' '
+        after_index = index + len(name)
+        after = label[after_index] if after_index < len(label) else ' '
+        if before not in _NAME_RUN_CHARS and after not in _NAME_RUN_CHARS:
+            return True
+        start = index + 1
+
+
 def propose_assignment_target(
     label: str,
     targets: tuple[Any, ...],
@@ -172,17 +200,19 @@ def propose_assignment_target(
     exactly one surviving candidate yields ``chosen``; zero or several
     leave the decision to the user.
 
-    A candidate's normalized name must appear as a substring of the
+    A candidate's normalized name must appear as a whole token of the
     normalized label (REW titles like ``FL seat1 up`` match a target named
-    ``seat1``). Nested matches collapse to the longest name — ``seat1``
-    resolves even when a ``seat`` target also exists, while genuinely
-    competing names (``seat1`` *and* ``seat2``) stay flagged as ambiguous.
-    One-character names never auto-match: everything contains them.
+    ``seat1``; ``seat10`` does not). Nested matches collapse to the longest
+    name — ``seat1`` resolves even when a ``seat`` target also exists,
+    while genuinely competing names (``seat1`` *and* ``seat2``) stay
+    flagged as ambiguous. One-character names never auto-match: everything
+    contains them.
     """
     normalized = _normalize_label(label)
     if not normalized:
         return None, ()
     matched: list[Any] = []
+    matched_names: list[str] = []
     for target in targets:
         name = getattr(target, 'name', None)
         if not isinstance(name, str):
@@ -190,8 +220,9 @@ def propose_assignment_target(
         normalized_name = _normalize_label(name)
         if len(normalized_name) < 2:
             continue
-        if normalized_name in normalized:
+        if _name_within_label(normalized_name, normalized):
             matched.append(target)
+            matched_names.append(normalized_name)
     if not matched:
         return None, ()
     if len(matched) == 1:
@@ -199,16 +230,12 @@ def propose_assignment_target(
     # Nested-name collapse: drop every candidate whose name is a substring
     # of another candidate's name — 'seat' loses to 'seat1' when the label
     # actually said 'seat1'.
-    names = {
-        target: _normalize_label(getattr(target, 'name', ''))
-        for target in matched
-    }
     survivors = tuple(
         target
-        for target in matched
+        for target, name in zip(matched, matched_names)
         if not any(
-            names[target] != other_name and names[target] in other_name
-            for other_name in names.values()
+            name != other_name and name in other_name
+            for other_name in matched_names
         )
     )
     if len(survivors) == 1:
@@ -224,17 +251,27 @@ _SCANNED_SENTINEL = '\x00scanned'
 def scan_rew_watch_dir(
     directory: str | Path,
     seen: MutableMapping[str, tuple[int, int]],
+    pending: MutableMapping[str, tuple[int, int]],
 ) -> tuple[list[tuple[bytes, str]], list[str]]:
     """Scan an opted-in folder for new REW text drops.
 
-    ``seen`` maps ``str(path) -> (mtime_ns, size)`` across calls and is
-    updated in place. The first call establishes the baseline — files that
-    pre-date watching are marked seen but NOT staged (the opt-in contract
-    is *new drops*, not a bulk import of whatever was already there).
-    Returns ``(files, skipped_names)``: files as ``(raw, filename)`` pairs
-    ready for ``stage_rew_text_files``; skipped names are files that failed
-    the bounded read (oversized, unreadable) — they are marked seen so a
-    wedged file does not retry every tick.
+    ``seen`` maps ``str(path) -> (mtime_ns, size)`` for baseline and
+    already-delivered files; ``pending`` does the same for candidates
+    sighted exactly once. Both persist across calls and are updated in
+    place. The first call establishes the baseline — files that pre-date
+    watching are marked seen but NOT staged (the opt-in contract is
+    *new drops*, not a bulk import of whatever was already there).
+
+    A new or changed signature is only *delivered* once it survives
+    unchanged into the following scan: a file still being copied defers
+    instead of staging a truncated read, and a file that keeps changing
+    stays pending until it settles. A file delivered but whose staging
+    failed can be re-queued by removing its ``seen`` marker — the next
+    scan re-enters it as a candidate. Returns ``(files, skipped_names)``:
+    files as ``(raw, filename)`` pairs ready for ``stage_rew_text_files``;
+    skipped names are delivered files that failed the bounded read
+    (oversized, unreadable) — they are marked seen so a wedged file does
+    not retry every tick.
     """
     root = Path(directory)
     entries = sorted(root.iterdir())
@@ -242,6 +279,7 @@ def scan_rew_watch_dir(
     seen[_SCANNED_SENTINEL] = (0, 0)
     files: list[tuple[bytes, str]] = []
     skipped: list[str] = []
+    observed: set[str] = set()
     for entry in entries:
         if not entry.is_file() or entry.suffix.lower() not in REW_TEXT_SUFFIXES:
             continue
@@ -250,12 +288,25 @@ def scan_rew_watch_dir(
         except OSError:
             continue
         key = str(entry)
+        observed.add(key)
         signature = (stat.st_mtime_ns, stat.st_size)
         if seen.get(key) == signature:
+            pending.pop(key, None)
             continue
-        seen[key] = signature
         if first_scan:
+            # Baseline: pre-existing files are marked, never staged.
+            seen[key] = signature
+            pending.pop(key, None)
             continue
+        if pending.get(key) != signature:
+            # First sighting — or the signature is still changing because
+            # the copy is in flight. Hold one scan so a mid-write file is
+            # never read truncated.
+            pending[key] = signature
+            continue
+        # Same signature on two consecutive scans: the write has settled.
+        pending.pop(key, None)
+        seen[key] = signature
         try:
             raw = read_file_bounded(
                 entry,
@@ -266,6 +317,8 @@ def scan_rew_watch_dir(
             skipped.append(entry.name)
             continue
         files.append((raw, entry.name))
+    for stale_key in [key for key in pending if key not in observed]:
+        del pending[stale_key]
     return files, skipped
 
 
