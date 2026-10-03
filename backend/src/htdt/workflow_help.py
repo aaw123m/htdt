@@ -121,6 +121,8 @@ class GlossaryDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._registry = registry
+        self._locale = locale
         self.setWindowTitle("用語集")
         layout = QVBoxLayout(self)
         heading = QLabel("用語集", self)
@@ -153,12 +155,10 @@ class GlossaryDialog(QDialog):
             if provenance:
                 lines.append(f"由来の意味: {provenance}")
             related = [
-                topic.localized(locale).title
+                (topic_id, topic.localized(locale).title)
                 for topic_id in term.related_topics
                 if (topic := registry.get(topic_id)) is not None
             ]
-            if related:
-                lines.append("関連ヘルプ: " + "、".join(related))
             text = "\n".join(line for line in lines if line)
             card = QWidget(host)
             card_layout = QVBoxLayout(card)
@@ -170,14 +170,38 @@ class GlossaryDialog(QDialog):
             body_label = QLabel(text, card)
             body_label.setWordWrap(True)
             card_layout.addWidget(body_label)
+            if related:
+                # Related topics are reachable in one click — a text-only
+                # mention would force the user to re-search the title.
+                links = "、".join(
+                    f'<a href="htdt-topic:{topic_id}">{title}</a>'
+                    for topic_id, title in related
+                )
+                related_label = QLabel(f"関連ヘルプ: {links}", card)
+                related_label.setWordWrap(True)
+                related_label.setOpenExternalLinks(False)
+                related_label.linkActivated.connect(self._open_related_topic)
+                card_layout.addWidget(related_label)
             entries.addWidget(card)
-            haystack = f"{name}\n{text}".lower()
+            haystack = (
+                f"{name}\n{text}\n"
+                + "、".join(title for _, title in related)
+            ).lower()
             self._entry_widgets.append((haystack, card))
         entries.addStretch(1)
         scroll.setWidget(host)
         layout.addWidget(scroll)
         self._filter.textChanged.connect(self._apply_filter)
         self.resize(520, 480)
+
+    def _open_related_topic(self, link: str) -> None:
+        """Open the registry topic a 関連ヘルプ link points at."""
+        if not link.startswith('htdt-topic:'):
+            return
+        topic = self._registry.get(link.removeprefix('htdt-topic:'))
+        if topic is None:
+            return
+        HelpDialog.topic(topic, locale=self._locale, parent=self).exec()
 
     def _apply_filter(self, text: str) -> None:
         needle = text.strip().lower()

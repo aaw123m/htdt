@@ -14,9 +14,13 @@ os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 from PySide6.QtWidgets import QApplication, QLabel
 
 from htdt.command_registry import CommandDefinition, CommandRegistry
-from htdt.help_registry import HelpTopic, LocalizedTopicContent
+from htdt.help_registry import (
+    HelpTopic,
+    LocalizedTopicContent,
+    build_help_registry,
+)
 from htdt.localization import PresentationLocale
-from htdt.workflow_help import HelpDialog
+from htdt.workflow_help import GlossaryDialog, HelpDialog
 
 
 def _app() -> QApplication:
@@ -128,3 +132,60 @@ def test_topic_related_commands_render_display_names() -> None:
     texts = [label.text() for label in dialog.findChildren(QLabel)]
     related = [text for text in texts if text.startswith('関連操作:')]
     assert related == ['関連操作: 部屋, 保存, unknown.command']
+
+
+def test_glossary_related_topics_are_clickable_links() -> None:
+    """REV34-HELPDESK: 関連ヘルプ must be reachable, not just named.
+
+    A text-only related-topics line forced the user to re-type the title
+    into the palette — effectively a dead-end affordance. Each related
+    topic now renders an ``htdt-topic:`` anchor wired to the dialog's
+    topic opener.
+    """
+    _app()
+    registry = build_help_registry()
+    dialog = GlossaryDialog(registry)
+    anchors = [
+        label.text()
+        for label in dialog.findChildren(QLabel)
+        if 'htdt-topic:' in label.text()
+    ]
+    expected = {
+        topic_id
+        for term in registry.glossary()
+        for topic_id in term.related_topics
+        if registry.get(topic_id) is not None
+    }
+    rendered = {
+        part.split('htdt-topic:', 1)[1].split('"', 1)[0]
+        for text in anchors
+        for part in text.split('<a href=')[1:]
+    }
+    assert rendered == expected, (
+        f'related topics without a rendered link: {expected - rendered}'
+    )
+
+
+def test_glossary_link_opens_the_bound_help_topic(monkeypatch) -> None:
+    """A 関連ヘルプ click resolves the topic id and opens its HelpDialog."""
+    _app()
+    registry = build_help_registry()
+    dialog = GlossaryDialog(registry)
+    opened: list[str] = []
+
+    def _fake_topic(topic, **kwargs):
+        opened.append(topic.topic_id)
+
+        class _FakeDialog:
+            def exec(self) -> int:
+                return 0
+
+        return _FakeDialog()
+
+    monkeypatch.setattr(HelpDialog, 'topic', staticmethod(_fake_topic))
+    dialog._open_related_topic('htdt-topic:workflow.measurements')
+    assert opened == ['workflow.measurements']
+    # Unknown/foreign links are ignored, never crash.
+    dialog._open_related_topic('htdt-topic:no.such')
+    dialog._open_related_topic('https://example.com')
+    assert opened == ['workflow.measurements']

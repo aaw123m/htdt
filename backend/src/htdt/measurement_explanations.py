@@ -64,6 +64,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'import.rew_measurement': FieldExplanation(
         'REW アプリケーション内の測定エントリです。「REWから一覧を更新」で'
         'REW が起動中の場合に取得できます。',
+        term=TermId.REW,
         topic='workflow.measurements',
     ),
     'import.attachment_kind': FieldExplanation(
@@ -80,9 +81,11 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'import.batch_table.band': FieldExplanation(
         '測定の周波数応答が有効な帯域です。',
         unit='Hz',
+        term=TermId.FREQUENCY_RESPONSE,
     ),
     'import.batch_table.phase': FieldExplanation(
         '位相データ（波形の位相成分）が測定に含まれるかを示します。',
+        term=TermId.PHASE,
     ),
     'import.batch_table.duplicate': FieldExplanation(
         '既存の測定との重複判定です。同じ内容や同じ取得条件の測定が'
@@ -102,6 +105,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     ),
     'assignment.target': FieldExplanation(
         '測定位置・受音位置です。マイクを置いたシーン上の実体を選びます。',
+        term=TermId.LISTENING_POSITION,
     ),
     'assignment.evidence_type': FieldExplanation(
         '証拠種別です。実測は収録された応答、予測はシミュレーション結果、'
@@ -116,6 +120,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'assignment.radiation_scope': FieldExplanation(
         '放射範囲です。この測定が単一音源だけの応答か、'
         'バスマネジメントなど複数音源の合成応答かを示します。',
+        term=TermId.BASS_MANAGEMENT,
     ),
     'assignment.routing_evidence': FieldExplanation(
         'ルーティング根拠です。信号経路が検証済みか、手動設定か、'
@@ -166,10 +171,12 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     ),
     'acquisition.calibration_file': FieldExplanation(
         'マイク校正ファイルの名前です。周波数特性の補正に使います。',
+        term=TermId.CALIBRATION,
     ),
     'acquisition.calibration_sha': FieldExplanation(
         '校正ファイルの SHA-256 ハッシュです。'
         'ファイルが同一かどうかを確認するための指紋です。',
+        term=TermId.CALIBRATION,
         valid='妥当値: 64 桁の 16 進数',
     ),
     'acquisition.output_device': FieldExplanation(
@@ -178,19 +185,23 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     ),
     'acquisition.avr_model': FieldExplanation(
         '測定に使った AV アンプ・レシーバーのモデル名です。',
+        term=TermId.AVR,
     ),
     'acquisition.avr_volume': FieldExplanation(
         '測定時の AVR ボリューム設定です。再現性確認に使います。',
+        term=TermId.AVR,
         unit='dB',
         valid='妥当値: AVR の表示範囲（例: -80 ～ 0）',
     ),
     'acquisition.avr_processing': FieldExplanation(
         '測定時の AVR 処理モードです（ステレオ / ダイレクト / '
         'サラウンドなど）。処理の有無が測定結果に影響します。',
+        term=TermId.AVR,
     ),
     'acquisition.avr_peq': FieldExplanation(
         'AVR のパラメトリック EQ モードです。EQ が有効だと'
         '測定結果に反映されます。',
+        term=TermId.PEQ,
     ),
     # --- Campaign page ---------------------------------------------------
     'campaign.plan': FieldExplanation(
@@ -205,6 +216,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'campaign.targets': FieldExplanation(
         '計画に含める測定位置です。チェックした位置ごとに'
         '測定セルが作られます。',
+        term=TermId.LISTENING_POSITION,
     ),
     'campaign.purpose': FieldExplanation(
         'セルの目的です。測定=通常の収録、校正=校正用、'
@@ -232,6 +244,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     ),
     'campaign.table.target': FieldExplanation(
         'このセルの測定位置です。',
+        term=TermId.LISTENING_POSITION,
     ),
     'campaign.table.repeat': FieldExplanation(
         '何回目の測定かを示します（リピート回数内の番号）。',
@@ -261,10 +274,12 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     ),
     'quality.table.phase': FieldExplanation(
         '位相データの有効性です。位相比較に使えるかを示します。',
+        term=TermId.PHASE,
     ),
     'quality.table.timing': FieldExplanation(
         '共通タイミング基準の判定です。測定間で時間軸を'
         '揃えられるかを示します。',
+        term=TermId.TIMING_REFERENCE,
     ),
     'quality.table.placement': FieldExplanation(
         '配置の一致です。測定時の配置と現在のシーン配置が'
@@ -274,6 +289,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'quality.table.band': FieldExplanation(
         '有効周波数帯域です。',
         unit='Hz',
+        term=TermId.FREQUENCY_RESPONSE,
     ),
     'quality.table.disposition': FieldExplanation(
         'ライフサイクル状態です（有効 / 除外 / 誤割り当て / '
@@ -287,6 +303,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'quality.smoothing': FieldExplanation(
         '表示用の 1/N オクターブ平滑化です。見やすくするだけで'
         'データ自体は変更しません。',
+        term=TermId.SMOOTHING,
         valid='妥当値: OFF / 1/3 / 1/6 / 1/12 / 1/24 オクターブ',
     ),
     'quality.target': FieldExplanation(
@@ -295,6 +312,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'quality.phase_unwrap': FieldExplanation(
         '位相の ±180° の折返しを解除して連続した位相として'
         '表示します。',
+        term=TermId.PHASE,
     ),
     'quality.spatial_mode': FieldExplanation(
         '空間表示のモードです。測定時の配置そのままか、'
@@ -344,6 +362,7 @@ FIELD_EXPLANATIONS: dict[str, FieldExplanation] = {
     'comparison.smoothing': FieldExplanation(
         '比較表示用の平滑化です。見やすくするだけで'
         'データは変更しません。',
+        term=TermId.SMOOTHING,
     ),
     'comparison.metrics.name': FieldExplanation(
         '指標の名前です。',
