@@ -24,12 +24,18 @@ from PySide6.QtWidgets import (
 from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
+from .cad_search import search_spec_current_working
 from .comparison_context_strip import ComparisonContextStrip
 from .developer_mode import developer_mode_enabled
 from .intervention_planner import InterventionPlanner
 from .intervention_planner_panel import InterventionPlannerPanel
 from .joint_optimization_context import JointOptimizationContext
 from .joint_optimization_panel import JointOptimizationPanel
+from .optimization_journey import (
+    OptimizationJourneyStep,
+    current_journey_step,
+    evaluate_optimization_journey,
+)
 from .optimization_search_domain import SearchDomainPreview
 from .optimization_workflow_controller import OptimizationWorkflowController
 from .robustness_authoring_context import RobustnessAuthoringContext
@@ -37,10 +43,12 @@ from .robustness_authoring_panel import RobustnessAuthoringPanel
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .ui_theme import (
     ControlSize,
+    SemanticState,
     SurfaceRole,
     TypographyRole,
     set_control_size,
     set_primary_action,
+    set_semantic_state,
     set_surface_role,
     set_typography_role,
 )
@@ -219,6 +227,14 @@ class OptimizationWorkflowWorkspace(QWidget):
             repository, document_id, rew_client=rew_client
         )
         self.controller.statusChanged.connect(self._set_status)
+        # Every persisted mutation path (spec save/re-author, candidate apply,
+        # plan record, campaign/evaluation/validation writes) ends with a
+        # controller statusBar message — statusChanged is the universal
+        # post-mutation pulse, so the numbered strip re-evaluates on it. The
+        # queries it runs are bounded and cheap.
+        self.controller.statusChanged.connect(
+            lambda _message: self._refresh_journey()
+        )
         self.system_expansion = SystemExpansionWorkflowService(repository, document_id)
         self.system_expansion.apply_guard = self._system_expansion_apply_block_reason
         self._on_navigate = on_navigate
@@ -228,6 +244,8 @@ class OptimizationWorkflowWorkspace(QWidget):
             objective_repository=self.controller.objective_repository,
         )
         self._system_variant_robustness_variant_id: str | None = None
+        self._journey_steps: tuple[OptimizationJourneyStep, ...] = ()
+        self._journey_buttons: dict[str, QPushButton] = {}
 
         self._optimization_stack = QStackedWidget()
         self._optimization_pages: dict[str, QWidget] = {}
@@ -268,6 +286,45 @@ class OptimizationWorkflowWorkspace(QWidget):
         # stays visible across every Optimize subpage.
         self.comparison_context_strip = ComparisonContextStrip(self)
         root_layout.addWidget(self.comparison_context_strip)
+
+        # Numbered journey strip (REV33): the six page tabs are flat siblings
+        # that never express the canonical first-run order, so a state-driven
+        # step list stays pinned above the page stack — each number opens the
+        # page that owns the step.
+        self.journey_card = QFrame(self)
+        self.journey_card.setObjectName("optimizationJourneyCard")
+        set_surface_role(self.journey_card, SurfaceRole.RAISED)
+        journey_layout = QVBoxLayout(self.journey_card)
+        journey_layout.setContentsMargins(16, 10, 16, 10)
+        journey_layout.setSpacing(6)
+        journey_head = QHBoxLayout()
+        journey_head.setSpacing(8)
+        journey_title = QLabel("最適化の手順", self.journey_card)
+        set_typography_role(journey_title, TypographyRole.SECTION_TITLE)
+        journey_head.addWidget(journey_title)
+        journey_head.addStretch(1)
+        self.journey_progress = QLabel(self.journey_card)
+        self.journey_progress.setObjectName("optimizationJourneyProgress")
+        set_typography_role(self.journey_progress, TypographyRole.SECONDARY)
+        journey_head.addWidget(self.journey_progress)
+        journey_layout.addLayout(journey_head)
+        self.journey_steps_row = QHBoxLayout()
+        self.journey_steps_row.setSpacing(6)
+        journey_layout.addLayout(self.journey_steps_row)
+        journey_hint_row = QHBoxLayout()
+        journey_hint_row.setSpacing(8)
+        self.journey_hint = QLabel(self.journey_card)
+        self.journey_hint.setObjectName("optimizationJourneyHint")
+        self.journey_hint.setWordWrap(True)
+        set_typography_role(self.journey_hint, TypographyRole.SECONDARY)
+        journey_hint_row.addWidget(self.journey_hint, 1)
+        self.journey_open = QPushButton("現在の手順を開く", self.journey_card)
+        self.journey_open.setObjectName("optimizationJourneyOpen")
+        self.journey_open.clicked.connect(self._open_current_journey_step)
+        journey_hint_row.addWidget(self.journey_open)
+        journey_layout.addLayout(journey_hint_row)
+        root_layout.addWidget(self.journey_card)
+
         root_layout.addWidget(self._optimization_stack, 1)
 
         pages = {
@@ -354,6 +411,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
     def activate(self) -> None:
         self.controller.activate()
+        self._refresh_journey()
 
     def before_deactivate(self) -> tuple[bool, str | None]:
         if getattr(self, 'joint_optimization_panel', None) is not None and (
@@ -449,6 +507,9 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.controller.refresh_adaptive_plans()
             self.controller.refresh_adaptive_extended_plans()
             self.controller._refresh_campaign_measurement_points()
+        # The page switch lands the user on a new page — re-evaluate so the
+        # strip's progress and next-step hint always match what they see.
+        self._refresh_journey()
 
     def _open_variant_measurements(self) -> None:
         if self._on_navigate is None or not self._on_navigate(
@@ -502,6 +563,210 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.system_expansion_robustness_panel.refresh()
         if hasattr(self, "intervention_planner_panel"):
             self.intervention_planner_panel.refresh()
+        self._refresh_journey()
+
+    # ------------------------------------------------------------------
+    # REV33 — numbered journey guidance
+
+    def _refresh_journey(self) -> None:
+        """Re-evaluate the numbered journey strip from persisted state.
+
+        Every repository call degrades to an empty signal: a guide that
+        silently drops to step 1 is annoying, but a guide that kills the
+        whole workspace refresh is a regression.
+        """
+        if not hasattr(self, "journey_steps_row"):
+            # statusChanged can fire while __init__ is still building pages —
+            # before the strip exists there is nothing to refresh.
+            return
+        controller = self.controller
+        try:
+            head = controller.repository.latest(controller.document_id)
+        except Exception:  # noqa: BLE001 — head unreadable → step 1
+            head = None
+        scene_saved = head is not None
+        specs: tuple = ()
+        if scene_saved:
+            try:
+                specs = controller.search_repository.list_specs(
+                    controller.document_id
+                )
+            except Exception:  # noqa: BLE001 — spec state unreadable
+                specs = ()
+        # Per-spec queries are bounded — an extreme spec count must not turn
+        # a guide refresh into a scan.
+        inspected = specs[:16]
+        spec_current_count = 0
+        working = getattr(controller, 'working', None)
+        constraint_set = getattr(controller, 'constraint_set', None)
+        if working is not None and constraint_set is not None:
+            for spec in inspected:
+                try:
+                    if search_spec_current_working(
+                        spec,
+                        working,
+                        constraint_set,
+                        current_document_id=controller.document_id,
+                    ):
+                        spec_current_count += 1
+                except Exception:  # noqa: BLE001 — spec freshness unreadable
+                    pass
+
+        # An applied candidate persists as either a measurement plan (a plan
+        # can only be built over an applied revision) or a head revision that
+        # descends from a spec's source revision.
+        applied = False
+        if head is not None and specs:
+            source_ids = {
+                spec.scene_revision_id for spec in inspected
+            }
+            seen: set[str] = set()
+            cursor = head
+            for _hop in range(32):
+                parent_id = cursor.parent_revision_id
+                if parent_id is None or parent_id in seen:
+                    break
+                seen.add(parent_id)
+                if parent_id in source_ids:
+                    applied = True
+                    break
+                try:
+                    cursor = controller.repository.get(parent_id)
+                except Exception:  # noqa: BLE001 — lineage unreadable
+                    break
+                if cursor is None:
+                    break
+
+        plan_count = 0
+        plans_measured = 0
+        campaign_count = 0
+        evaluation_count = 0
+        pareto_set_count = 0
+        validation_count = 0
+        for spec in inspected:
+            spec_id = spec.search_spec_id
+            try:
+                plans = controller.measurement_repository.latest_measurement_plans(
+                    spec_id
+                )
+                plan_count += len(plans)
+                plans_measured += sum(
+                    1 for plan in plans if plan.status == 'measured'
+                )
+            except Exception:  # noqa: BLE001 — plan state unreadable
+                pass
+            try:
+                campaign_count += len(
+                    controller.campaign_repository.list_for_search_spec(spec_id)
+                )
+            except Exception:  # noqa: BLE001 — campaign state unreadable
+                pass
+            try:
+                evaluation_count += len(
+                    controller.objective_repository.list_evaluations(spec_id)
+                )
+            except Exception:  # noqa: BLE001 — evidence state unreadable
+                pass
+            try:
+                pareto_set_count += len(
+                    controller.objective_repository.list_pareto_sets(spec_id)
+                )
+            except Exception:  # noqa: BLE001 — comparison state unreadable
+                pass
+            try:
+                # The browse path skips per-record evidence re-attestation —
+                # a stale record must not blank the whole guide.
+                validation_count += len(
+                    controller.validation_repository.inspect_for_search_spec(
+                        spec_id
+                    )
+                )
+            except Exception:  # noqa: BLE001 — validation state unreadable
+                pass
+        applied = applied or plan_count > 0
+
+        steps = evaluate_optimization_journey(
+            scene_saved=scene_saved,
+            spec_count=len(specs),
+            spec_current_count=spec_current_count,
+            applied=applied,
+            plan_count=plan_count,
+            plans_measured=plans_measured,
+            campaign_count=campaign_count,
+            evaluation_count=evaluation_count,
+            pareto_set_count=pareto_set_count,
+            validation_count=validation_count,
+        )
+        self._journey_steps = steps
+
+        while self.journey_steps_row.count():
+            item = self.journey_steps_row.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._journey_buttons.clear()
+        done_count = sum(1 for step in steps if step.status == "done")
+        self.journey_progress.setText(f"{done_count}/6")
+        for step in steps:
+            label = f"{step.number} {step.title}"
+            if step.status == "done":
+                label += " ✓"
+            button = QPushButton(label, self.journey_card)
+            button.setObjectName(f"optimizationJourneyStep_{step.key}")
+            button.setFlat(True)
+            button.setToolTip(step.detail)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if step.status == "current":
+                set_primary_action(button)
+            elif step.status == "done":
+                set_semantic_state(button, SemanticState.SUCCESS)
+            button.clicked.connect(
+                lambda checked=False, key=step.key: self._open_journey_step(key)
+            )
+            self.journey_steps_row.addWidget(button)
+            self._journey_buttons[step.key] = button
+        self.journey_steps_row.addStretch(1)
+
+        current = current_journey_step(steps)
+        if current is None:
+            self.journey_hint.setText(
+                "すべての手順が完了しています。「比較」「ばらつき耐性」"
+                "「介入プランナー」でさらに候補を確かめられます。"
+            )
+            self.journey_open.setVisible(False)
+        else:
+            self.journey_hint.setText(
+                f"次にやること — {current.number} {current.title}: {current.detail}"
+            )
+            self.journey_open.setVisible(True)
+
+    def _open_journey_step(self, key: str) -> None:
+        step = next(
+            (step for step in self._journey_steps if step.key == key), None
+        )
+        if step is None:
+            return
+        # Deep links keep the shell's context bar and router in sync with
+        # the page switch; bare select_section is the standalone fallback.
+        if step.context_id is not None:
+            if self._on_navigate is not None:
+                self._on_navigate(
+                    WorkspaceDeepLink(
+                        WorkspaceId.OPTIMIZATION, step.context_id
+                    )
+                )
+            else:
+                self.select_section(step.context_id)
+            return
+        if step.workspace == "room" and self._on_navigate is not None:
+            self._on_navigate(
+                WorkspaceDeepLink(WorkspaceId.ROOM, "geometry")
+            )
+
+    def _open_current_journey_step(self) -> None:
+        step = current_journey_step(self._journey_steps)
+        if step is not None:
+            self._open_journey_step(step.key)
 
     def _render_scene(self, reset_camera: bool = False) -> None:
         self.viewport_widget.render_document(
