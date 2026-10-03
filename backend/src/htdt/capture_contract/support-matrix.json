@@ -102,13 +102,15 @@
       "documents": {
         "1.0.0": "entities",
         "1.1.0": "entities-1.1.0",
-        "1.2.0": "entities-1.2.0"
+        "1.2.0": "entities-1.2.0",
+        "1.3.0": "entities-1.3.0"
       },
-      "emitted": "1.2.0",
+      "emitted": "1.3.0",
       "read": [
         "1.0.0",
         "1.1.0",
-        "1.2.0"
+        "1.2.0",
+        "1.3.0"
       ]
     },
     "measurements": {
@@ -171,11 +173,13 @@
         "quality/capture-advisory.json"
       ],
       "documents": {
-        "1.0.0": "capture-advisory"
+        "1.0.0": "capture-advisory",
+        "1.1.0": "capture-advisory-1.1.0"
       },
-      "emitted": "1.0.0",
+      "emitted": "1.1.0",
       "read": [
-        "1.0.0"
+        "1.0.0",
+        "1.1.0"
       ]
     },
     "advisory-notes": {
@@ -236,11 +240,13 @@
         "session/capture-task-plan.json"
       ],
       "documents": {
-        "1.0.0": "capture-task-plan"
+        "1.0.0": "capture-task-plan",
+        "2.0.0": "capture-task-plan-2.0.0"
       },
-      "emitted": "1.0.0",
+      "emitted": "2.0.0",
       "read": [
-        "1.0.0"
+        "1.0.0",
+        "2.0.0"
       ]
     },
     "task-plan-status": {
@@ -526,6 +532,34 @@
       "read": [
         "1.0.0"
       ]
+    },
+    "as-built-plan": {
+      "schema_id": "htdt.as-built-plan",
+      "paths": [
+        "session/as-built-plan.json"
+      ],
+      "documents": {
+        "1.0.0": "as-built-plan-1.0.0"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "Verbatim HTDT-side as-built plan imported as workflow input; persisted as imported reference."
+    },
+    "repair-task-link": {
+      "schema_id": "htdt.capture-repair-task-link",
+      "paths": [
+        "session/repair-task-link.json"
+      ],
+      "documents": {
+        "1.0.0": "repair-task-link-1.0.0"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "Repair-revision provenance link back to the source capture revision and repair plan."
     }
   }
 }

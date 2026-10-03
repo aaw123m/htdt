@@ -191,6 +191,34 @@ class TestManagedAssetBoundedReads:
 
 
 class TestReceiverTlsBoundedRead:
+    @pytest.mark.parametrize(
+        ('credential', 'label'),
+        [('receiver-cert.pem', 'TLS certificate'), ('receiver-key.pem', 'TLS private key')],
+    )
+    def test_oversized_pair_rejected_before_ssl_or_regeneration(
+        self, tmp_path: Path, monkeypatch, credential: str, label: str
+    ):
+        import htdt.capture_receiver as receiver
+
+        scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+        service = CaptureReceiverService(scene_repository, data_dir=tmp_path / 'receiver')
+        cert_path = service._data_dir / 'receiver-cert.pem'
+        key_path = service._data_dir / 'receiver-key.pem'
+        cert_path.write_bytes(b'c')
+        key_path.write_bytes(b'k')
+        oversized = service._data_dir / credential
+        oversized.write_bytes(b'x' * (TLS_CREDENTIAL_MAX_BYTES + 1))
+        original = (cert_path.read_bytes(), key_path.read_bytes())
+
+        def unexpected(*args, **kwargs):
+            pytest.fail('oversized credentials reached SSL parsing or regeneration')
+
+        monkeypatch.setattr(receiver.ssl, 'SSLContext', unexpected)
+        monkeypatch.setattr(receiver, 'generate_self_signed_cert', unexpected)
+        with pytest.raises(CaptureReceiverError, match=label):
+            service._ensure_certificate()
+        assert (cert_path.read_bytes(), key_path.read_bytes()) == original
+
     def test_oversized_certificate_rejected(self, tmp_path: Path):
         scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
         service = CaptureReceiverService(
