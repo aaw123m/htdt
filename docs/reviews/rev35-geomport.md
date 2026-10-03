@@ -45,6 +45,27 @@ Already ported before this session (verified, no change forced):
 | Acoustic treatment authoring | `room_editor.py` acoustic treatment dock | `room_acoustics_panel.py::RoomTreatmentPanel` (#451 — separate ported surface, out of this scope) |
 | Wall clearance **solver** constraint | — (bindings are dormant data) | `room_constraints_panel.py` + `CadWallClearanceConstraint` — the live constraint system solvers read; `WallConstraintBinding` remains the topology payload this task ports |
 
+## REV36-GEOMPORT2 — final parity state
+
+Follow-up wave landed the remaining implementable items (PR pending, branch
+`devin/*-rev36-geomport2`):
+
+| Item | Resolution |
+|---|---|
+| E2 binding delete authority | `cad_walls::delete_constraint_binding` + panel selector/削除 — bound walls are deletable once the binding is removed |
+| E3 wrap-around merge | `merge_walls` accepts the last→first pair (seam vertex dropped, merged wall becomes the last boundary edge); panel relabels 「先頭の壁と結合」 on the last wall |
+| E4 arbitrary-offset split | `insert_selected_edge_vertex(offset_m)` on the controller (midpoint is now `None`); panel 「分割位置」 spin + 「指定位置に頂点追加」 |
+| E5 binding edit | `cad_walls::update_constraint_binding` + panel 適用 (clearance value only; `wall_ids` membership editing stays out of scope — no UI can create multi-wall bindings yet) |
+| E1 always-on overlay | **Skipped intentionally** — legacy draws prisms/openings into the normal render, workflow deliberately keeps normal view uncluttered and edit mode already draws all openings (#494). Toggle vs always-on is a product/UX call, not a port |
+
+Regression coverage: `backend/tests/test_rev36_geomport2.py` (14 tests) —
+wrap merge (collinear seam, non-collinear refusal, opening/binding
+migration, triangle guard, controller path), binding update/delete
+(targeted removal, unknown-id refusal, unblocked wall delete, dangling
+refusal), offset split (position, out-of-range, opening side-migration),
+and panel coverage for the spin bounds, merge relabel, selector
+apply/delete.
+
 ## Unported items — scoped for next wave
 
 ### E1 — Always-on wall prism + opening overlay in normal view (MEDIUM, ~1 session)
@@ -71,7 +92,7 @@ Decomposition:
 
 Effort: 0.5–1 session depending on the toggle decision.
 
-### E2 — `WallConstraintBinding` delete/update authority (SMALL-MEDIUM, ~0.5 session)
+### E2 — `WallConstraintBinding` delete/update authority (SMALL-MEDIUM, ~0.5 session) — **DONE in REV36**
 
 `cad_walls.py` has `add_constraint_binding` but **no delete or update** —
 nothing anywhere can remove a binding, and `delete_wall` fail-closes on
@@ -93,7 +114,7 @@ Decomposition:
 Effort: 0.5 session. Recommend doing before any UI that creates bindings
 at volume — currently only one button exists so urgency is moderate.
 
-### E3 — Wrap-around merge (last ↔ first wall) (SMALL, ~0.5 session)
+### E3 — Wrap-around merge (last ↔ first wall) (SMALL, ~0.5 session) — **DONE in REV36**
 
 Domain `merge_walls` requires *ordered* neighbors and both UIs refuse the
 wrap pair — legacy: 「この壁には順方向の結合対象がありません」; workflow:
@@ -112,7 +133,7 @@ Decomposition:
 
 Effort: 0.5 session; the domain change is the risky half (offset math).
 
-### E4 — Arbitrary-offset wall split (SMALL, ~0.5 session)
+### E4 — Arbitrary-offset wall split (SMALL, ~0.5 session) — **DONE in REV36**
 
 `split_wall(room, topology, wall_id, offset_m=...)` accepts any strictly
 interior offset; both UIs expose only midpoint (`_insert_room_vertex` /
@@ -124,7 +145,7 @@ on the edge/wall host → pass through to `split_wall`; opening migration is
 already by-side in the domain; test boundary offsets and opening-crossing
 refusal. Effort: 0.5 session, mostly UI.
 
-### E5 — Binding editing beyond add/delete (SMALL, ~0.5 session, follow-on to E2)
+### E5 — Binding editing beyond add/delete (SMALL, ~0.5 session, follow-on to E2) — **DONE in REV36** (clearance only; multi-wall membership editing deferred — nothing can author such bindings)
 
 Legacy had no binding edit either, but a complete inspector wants
 clearance value updates + multi-wall membership. Needs domain `update`
