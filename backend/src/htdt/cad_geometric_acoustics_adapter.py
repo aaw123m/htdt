@@ -269,6 +269,41 @@ HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
 )
 
 
+HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_ENGINE_VERSION = '4'
+
+# Declared enumeration bound for the order-5/6 lane: the exact number of
+# (order, plane-sequence) candidates the engine may enumerate per
+# source/receiver pair before it fails closed. 2^21 admits the declared
+# test-scale scenes while larger scenes fail instead of running unbounded.
+HTDT_PORTAL_HIGH_ORDER_CHAIN_MAXIMUM_EVALUATIONS = 2097152
+
+HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r150-explicit-portal-first-order',
+    authority_version=HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_ENGINE_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'implementation': HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
+            'version': HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_ENGINE_VERSION,
+            'construction': (
+                'exact_bounded_directed_portal_graph_interleaved_'
+                'bounded_order_specular_reflection_chain'
+            ),
+            'traversal_policy': 'simple_region_path_v1',
+            'repeated_region_traversal': False,
+            'repeated_portal_traversal': False,
+            'maximum_portal_crossings_range': [1, 16],
+            'maximum_search_states': 4096,
+            'maximum_reflection_order_range': [5, 6],
+            'maximum_chain_sequence_evaluations': (
+                HTDT_PORTAL_HIGH_ORDER_CHAIN_MAXIMUM_EVALUATIONS
+            ),
+            'portal_surface_reflection': 'bounded_exact_finite_triangles_only',
+            'coherent_phase': 'delegated_to_r150_path_response_authority',
+        }
+    ),
+)
+
+
 HTDT_PLANAR_SECOND_ORDER_IMAGE_SOURCE_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
     authority_id='adapter-kernel:htdt-r150-general-planar-second-order',
     authority_version=HTDT_PLANAR_SECOND_ORDER_ENGINE_VERSION,
@@ -426,7 +461,7 @@ class DeterministicGaConfiguration(BaseModel):
     configuration_id: str = Field(pattern=r'^r150-ga-configuration:[0-9a-f]{64}$')
     semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
 
-    maximum_reflection_order: Literal[0, 1, 2, 3, 4] = 1
+    maximum_reflection_order: Literal[0, 1, 2, 3, 4, 5, 6] = 1
     maximum_portal_crossings: int | None = None
     portal_traversal_policy: Literal['simple_region_path_v1'] | None = None
     frequency_centers_hz: tuple[float, ...] = Field(min_length=1)
@@ -535,7 +570,7 @@ def build_deterministic_ga_configuration(
     engine_image_match_tolerance_m: float = 1.0e-8,
     identity_decimal_places: int = 12,
     room_policy: GeometryPolicy = 'exact_axis_aligned_closed_shoebox_v1',
-    maximum_reflection_order: Literal[0, 1, 2, 3, 4] = 1,
+    maximum_reflection_order: Literal[0, 1, 2, 3, 4, 5, 6] = 1,
     maximum_portal_crossings: int | None = None,
     incidence_exact_angle_tolerance_deg: float = 1.0,
 ) -> DeterministicGaConfiguration:
@@ -728,7 +763,7 @@ class DeterministicGaExecutionInput(BaseModel):
     geometric_tolerance_m: float = Field(gt=0.0)
     engine_image_match_tolerance_m: float = Field(gt=0.0)
     identity_decimal_places: int = Field(ge=6, le=15)
-    maximum_reflection_order: Literal[0, 1, 2, 3, 4] | None = None
+    maximum_reflection_order: Literal[0, 1, 2, 3, 4, 5, 6] | None = None
     incidence_exact_angle_tolerance_deg: float | None = Field(
         default=None, gt=0.0, le=45.0
     )
@@ -996,10 +1031,10 @@ class DeterministicAcousticPath(BaseModel):
         if self.path_type == 'direct':
             if interaction_count:
                 raise ValueError('direct path cannot carry interaction surfaces')
-        elif not 1 <= interaction_count <= 4:
+        elif not 1 <= interaction_count <= 6:
             raise ValueError(
                 'bounded specular reflection requires ordered surfaces within '
-                'the declared four-order bound'
+                'the declared six-order bound'
             )
 
         if self.ordered_interactions is not None:
@@ -1221,6 +1256,8 @@ class DeterministicPathArtifact(BaseModel):
         'multi_portal_second_order_specular',
         'multi_portal_third_order_specular',
         'multi_portal_fourth_order_specular',
+        'multi_portal_fifth_order_specular',
+        'multi_portal_sixth_order_specular',
     ] = 'direct_and_first_order_specular'
     coherent_phase_authority: Literal['UNAVAILABLE_NOT_SYNTHESIZED'] = (
         'UNAVAILABLE_NOT_SYNTHESIZED'
@@ -1478,6 +1515,31 @@ class HtdtPortalSpecularChainGraphEngine:
         )
 
 
+class HtdtPortalHighOrderSpecularChainGraphEngine:
+    """Exact engine marker for bounded order-5/6 specular chains on the
+    directed Portal graph, under the declared enumeration bound."""
+
+    engine_id = HTDT_PORTAL_FIRST_ORDER_ENGINE_ID
+    engine_version = HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_ENGINE_VERSION
+    candidate_source_commit = None
+    solver_implementation_ref = (
+        HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    )
+
+    def execute_shoebox(
+        self,
+        *,
+        dimensions_m: tuple[float, float, float],
+        source_local_m: tuple[float, float, float],
+        receiver_local_m: tuple[float, float, float],
+    ) -> tuple[NativeImageSource, ...]:
+        del dimensions_m, source_local_m, receiver_local_m
+        raise RuntimeError(
+            'explicit Portal graph high-order specular chain engine does not '
+            'execute a shoebox'
+        )
+
+
 # ``engine_id`` is the engine-family id: several implementations share one
 # family and are distinguished by ``engine_version``. The (id, version)
 # pair — not the id alone — names one exact solver implementation, and
@@ -1511,6 +1573,10 @@ _ENGINE_SOLVER_REF_BY_ID_VERSION = {
         HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
         HTDT_PORTAL_SPECULAR_CHAIN_ENGINE_VERSION,
     ): HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF,
+    (
+        HTDT_PORTAL_FIRST_ORDER_ENGINE_ID,
+        HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_ENGINE_VERSION,
+    ): HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF,
     (
         PYROOMACOUSTICS_ENGINE_ID,
         PYROOMACOUSTICS_ENGINE_VERSION,
@@ -2122,11 +2188,11 @@ def _compile_multi_region_portal_execution_input(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
             'multi-Portal deterministic GA supports simple_region_path_v1 only',
         )
-    if configuration.maximum_reflection_order not in (0, 1, 2, 3, 4):
+    if configuration.maximum_reflection_order not in (0, 1, 2, 3, 4, 5, 6):
         raise DeterministicGaUnsupportedError(
             'UNSUPPORTED_PORTAL_TOPOLOGY',
             'Portal graph propagation supports direct order 0 or bounded '
-            'specular reflection within declared order four',
+            'specular reflection within declared order six',
         )
     if configuration.maximum_reflection_order >= 1:
         if (
@@ -2162,11 +2228,22 @@ def _compile_multi_region_portal_execution_input(
             dispatch.solver_implementation_ref
             == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
         ):
-            if configuration.maximum_reflection_order < 3:
+            if not 3 <= configuration.maximum_reflection_order <= 4:
                 raise DeterministicGaUnsupportedError(
                     'UNSUPPORTED_PORTAL_TOPOLOGY',
                     'bounded specular chain Portal engine authority requires a '
                     'declared reflection order of three or four',
+                )
+        elif (
+            dispatch.solver_implementation_ref
+            == HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF
+        ):
+            if configuration.maximum_reflection_order < 5:
+                raise DeterministicGaUnsupportedError(
+                    'UNSUPPORTED_PORTAL_TOPOLOGY',
+                    'bounded high-order specular chain Portal engine '
+                    'authority requires a declared reflection order of five '
+                    'or six',
                 )
         else:
             raise DeterministicGaUnsupportedError(
@@ -2427,6 +2504,7 @@ def _compile_multi_region_portal_execution_input(
         if dispatch.solver_implementation_ref in (
             HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF,
             HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF,
+            HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF,
         ):
             # The Portal graph specular engines also admit exact finite
             # reflection on Portal surfaces where triangles physically exist.
@@ -2639,8 +2717,8 @@ def compile_deterministic_ga_execution_input(
         raise DeterministicGaUnsupportedError(
             'UNSUPPORTED_GEOMETRY',
             'single-region deterministic GA specular reflection is bounded to '
-            'second order; third/fourth-order chains require the multi-region '
-            'Portal lane',
+            'second order; third-order and higher chains require the '
+            'multi-region Portal lane',
         )
     if configuration.maximum_reflection_order == 2 and not general_geometry:
         raise ValueError(
@@ -4532,7 +4610,7 @@ def _append_portal_graph_reflections(
     constraints.
     """
 
-    if execution_input.maximum_reflection_order not in (1, 2, 3, 4):
+    if execution_input.maximum_reflection_order not in (1, 2, 3, 4, 5, 6):
         return
     if (
         execution_input.solver_implementation_ref
@@ -4551,9 +4629,9 @@ def _append_portal_graph_reflections(
             region_shell_cache=region_shell_cache,
         )
         return
-    specular_chain = (
-        execution_input.solver_implementation_ref
-        == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    specular_chain = execution_input.solver_implementation_ref in (
+        HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF,
+        HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF,
     )
     if (
         execution_input.solver_implementation_ref
@@ -4565,12 +4643,25 @@ def _append_portal_graph_reflections(
                 'Portal graph specular engine authority is bounded to '
                 'second-order reflection',
             )
-    elif specular_chain:
-        if execution_input.maximum_reflection_order < 3:
+    elif (
+        execution_input.solver_implementation_ref
+        == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    ):
+        if not 3 <= execution_input.maximum_reflection_order <= 4:
             raise DeterministicGaUnsupportedError(
                 'UNSUPPORTED_PORTAL_TOPOLOGY',
                 'bounded specular chain engine authority requires a declared '
                 'reflection order of three or four',
+            )
+    elif (
+        execution_input.solver_implementation_ref
+        == HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF
+    ):
+        if execution_input.maximum_reflection_order < 5:
+            raise DeterministicGaUnsupportedError(
+                'UNSUPPORTED_PORTAL_TOPOLOGY',
+                'bounded high-order specular chain engine authority requires '
+                'a declared reflection order of five or six',
             )
     else:
         raise DeterministicGaUnsupportedError(
@@ -4622,6 +4713,7 @@ def _append_portal_graph_reflections(
     second_order_pair_evals: dict[tuple[str, str], tuple] = {}
     specular_chain_evals: dict[tuple[str, ...], tuple] = {}
     emitted_rejections: set[tuple[tuple[str, ...], str, str]] = set()
+    chain_sequence_evaluations = 0
 
     def reject(
         surface_ids: tuple[str, ...],
@@ -5464,6 +5556,21 @@ def _append_portal_graph_reflections(
             3, int(execution_input.maximum_reflection_order) + 1
         ):
             for sequence in product(ordered_planes, repeat=chain_order):
+                if (
+                    execution_input.solver_implementation_ref
+                    == HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF
+                ):
+                    chain_sequence_evaluations += 1
+                    if (
+                        chain_sequence_evaluations
+                        > HTDT_PORTAL_HIGH_ORDER_CHAIN_MAXIMUM_EVALUATIONS
+                    ):
+                        raise DeterministicGaUnsupportedError(
+                            'UNSUPPORTED_PORTAL_TOPOLOGY',
+                            'bounded high-order specular chain engine '
+                            'exceeded the declared sequence-evaluation bound '
+                            f'{HTDT_PORTAL_HIGH_ORDER_CHAIN_MAXIMUM_EVALUATIONS}',
+                        )
                 surface_ids = tuple(
                     plane.source_surface_id for plane in sequence
                 )
@@ -7041,11 +7148,17 @@ def execute_deterministic_ga(
         'frequency_domain': execution_input.frequency_domain.model_dump(mode='json'),
         'path_scope': (
             (
-                'multi_portal_fourth_order_specular'
-                if execution_input.maximum_reflection_order == 4
+                'multi_portal_sixth_order_specular'
+                if execution_input.maximum_reflection_order == 6
                 else (
-                    'multi_portal_third_order_specular'
-                    if execution_input.maximum_reflection_order == 3
+                    'multi_portal_fifth_order_specular'
+                    if execution_input.maximum_reflection_order == 5
+                    else (
+                        'multi_portal_fourth_order_specular'
+                        if execution_input.maximum_reflection_order == 4
+                        else 'multi_portal_third_order_specular'
+                    )
+                    if execution_input.maximum_reflection_order >= 3
                     else (
                         'multi_portal_second_order_specular'
                         if execution_input.maximum_reflection_order == 2
@@ -7548,6 +7661,8 @@ class CadDeterministicPathArtifactRepository:
             'multi_portal_second_order_specular',
             'multi_portal_third_order_specular',
             'multi_portal_fourth_order_specular',
+            'multi_portal_fifth_order_specular',
+            'multi_portal_sixth_order_specular',
         ):
             resolved_datasets = resolved_bundle.get('datasets')
             datasets_by_sha = (
@@ -7572,11 +7687,16 @@ class CadDeterministicPathArtifactRepository:
                 datasets.append(dataset)
             if (
                 artifact.solver_implementation_ref
-                == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+                == HTDT_PORTAL_HIGH_ORDER_SPECULAR_CHAIN_IMPLEMENTATION_REF
             ):
                 engine: DeterministicImageSourceEngine = (
-                    HtdtPortalSpecularChainGraphEngine()
+                    HtdtPortalHighOrderSpecularChainGraphEngine()
                 )
+            elif (
+                artifact.solver_implementation_ref
+                == HTDT_PORTAL_SPECULAR_CHAIN_IMPLEMENTATION_REF
+            ):
+                engine = HtdtPortalSpecularChainGraphEngine()
             elif (
                 artifact.solver_implementation_ref
                 == HTDT_PORTAL_SPECULAR_GRAPH_IMPLEMENTATION_REF

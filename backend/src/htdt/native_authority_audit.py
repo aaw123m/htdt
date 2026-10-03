@@ -2747,6 +2747,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'IR analysis spec authority; canonical replay path pending — '
         'strongest verification is schema + payload parse',
     ),
+    'cad_late_decay_estimate_artifacts': (
+        'STRUCTURAL_ONLY',
+        'late-decay estimate artifact authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_late_field_artifacts': (
         'STRUCTURAL_ONLY',
         'late-field energy artifact authority; canonical replay path '

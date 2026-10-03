@@ -1104,6 +1104,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_joint_candidate_selections',
     'cad_joint_candidates',
     'cad_joint_optimization_specs',
+    'cad_late_decay_estimate_artifacts',
     'cad_late_field_artifacts',
     'cad_layout_profiles',
     'cad_line_level_stages',
