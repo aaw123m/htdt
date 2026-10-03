@@ -32,6 +32,20 @@ DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SCHEMA = (
 DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256 = (
     '5922d03be22b86634c9397d94d15b1164b00c7a9c3e012d9628fd3a63dd3c80a'
 )
+STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.stencil-sensitivity-diagnostic-plan-1'
+)
+STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256 = (
+    '25229cb1a1c4778bba64ffb0b1a57ed6cc92d87c056b312aa7c061c04406a914'
+)
+STENCIL_SENSITIVITY_VARIANT_IDS = (
+    'canonical_trilinear',
+    'nearest_node',
+    'uniform_eight_node',
+)
+STENCIL_SENSITIVITY_CANONICAL_CELL_ID = (
+    'canonical_trilinear|canonical_trilinear'
+)
 DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
 DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
 
@@ -84,6 +98,23 @@ def load_dense_frequency_diagnostic_plan(
     if digest != DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256:
         raise ValueError(
             'R130D dense frequency diagnostic plan differs from the frozen '
+            f'pre-run authority: {digest}'
+        )
+    return payload
+
+
+def load_stencil_sensitivity_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError('R130D stencil sensitivity diagnostic plan must be a JSON object')
+    if payload.get('schema_version') != STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA:
+        raise ValueError('R130D stencil sensitivity diagnostic plan schema mismatch')
+    digest = semantic_hash(payload)
+    if digest != STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D stencil sensitivity diagnostic plan differs from the frozen '
             f'pre-run authority: {digest}'
         )
     return payload
@@ -329,6 +360,157 @@ def validate_dense_frequency_diagnostic_binding(
         raise ValueError('R130D dense diagnostic decision semantics are not fail-closed')
 
 
+def validate_stencil_sensitivity_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+    dense_diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    spatial_parent = diagnostic.get('parent_spatial_representation_diagnostic', {})
+    dense_parent = diagnostic.get('parent_dense_frequency_diagnostic', {})
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent spatial diagnostic sha256',
+            spatial_parent.get('semantic_sha256'),
+            SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'bound dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            semantic_hash(dense_diagnostic),
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                f'R130D stencil sensitivity diagnostic binding mismatch for {label}: '
+                f'{actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError('R130D stencil diagnostic changes canonical thresholds')
+    stencil = diagnostic.get('stencil_sensitivity', {})
+    variants = list(stencil.get('stencil_variants', ()))
+    variant_ids = [str(item.get('variant_id', '')) for item in variants]
+    if tuple(variant_ids) != STENCIL_SENSITIVITY_VARIANT_IDS:
+        raise ValueError('stencil sensitivity variants are not the frozen set')
+    control_flags = [bool(item.get('control')) for item in variants]
+    if control_flags != [True, False, False]:
+        raise ValueError('stencil sensitivity control flags are not frozen')
+    matrix = stencil.get('cell_matrix', {})
+    if tuple(matrix.get('source_variants', ())) != STENCIL_SENSITIVITY_VARIANT_IDS:
+        raise ValueError('stencil sensitivity source variants are not frozen')
+    if tuple(matrix.get('receiver_variants', ())) != STENCIL_SENSITIVITY_VARIANT_IDS:
+        raise ValueError('stencil sensitivity receiver variants are not frozen')
+    if matrix.get('canonical_cell_id') != STENCIL_SENSITIVITY_CANONICAL_CELL_ID:
+        raise ValueError('stencil sensitivity canonical cell is not frozen')
+    evaluation = stencil.get('evaluation', {})
+    dense_block = dense_diagnostic.get('dense_frequency_neighborhood', {})
+    if evaluation.get('normalized_complex_difference_formula') != dense_block.get(
+        'normalized_complex_difference_formula'
+    ):
+        raise ValueError('stencil diagnostic metric formula differs from dense authority')
+    if float(evaluation.get('fixed_floor', math.nan)) != float(
+        dense_block.get('fixed_floor', math.nan)
+    ):
+        raise ValueError('stencil diagnostic fixed floor differs from dense authority')
+    if list(evaluation.get('pairs', ())) != list(dense_block.get('pairs', ())):
+        raise ValueError('stencil diagnostic pairs differ from dense authority')
+    per_cell = evaluation.get('per_cell_classification', {})
+    dense_classification = dense_block.get('classification', {})
+    if int(per_cell.get('localized_max_count', -1)) != int(
+        dense_classification.get('localized_max_count', -2)
+    ) or int(per_cell.get('persists_min_count', -1)) != int(
+        dense_classification.get('persists_min_count', -2)
+    ):
+        raise ValueError('stencil diagnostic cell thresholds differ from dense authority')
+    if evaluation.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only cells cannot enter canonical acceptance')
+    binding = diagnostic.get('run76_record_binding', {})
+    dense_binding = dense_diagnostic.get('run76_record_binding', {})
+    levels = list(binding.get('levels', ()))
+    dense_levels = list(dense_binding.get('levels', ()))
+    if [float(item.get('points_per_wavelength', math.nan)) for item in levels] != [
+        float(x) for x in plan.pffdtd.points_per_wavelength
+    ]:
+        raise ValueError('run76 record binding levels must match the PPW ladder')
+    for item in levels:
+        for key in ('pressure_trace_sha256', 'source_trace_sha256'):
+            value = str(item.get(key, ''))
+            if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError(f'run76 record binding {key} is not a sha256')
+    for item, dense_item in zip(levels, dense_levels):
+        if (
+            float(item.get('points_per_wavelength', math.nan))
+            != float(dense_item.get('points_per_wavelength', math.nan))
+            or item.get('pressure_trace_sha256')
+            != dense_item.get('pressure_trace_sha256')
+            or item.get('source_trace_sha256')
+            != dense_item.get('source_trace_sha256')
+        ):
+            raise ValueError('run76 record binding pins differ from dense authority')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError('R130D stencil diagnostic forbidden-change flag is on')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError('R130D stencil diagnostic decision semantics are not fail-closed')
+
+
 def normalized_complex_difference(
     first: complex,
     second: complex,
@@ -397,6 +579,55 @@ def classify_dense_frequency_neighborhood(
     }
 
 
+def classify_stencil_sensitivity(
+    *,
+    canonical_worsening_by_frequency: Sequence[bool],
+    canonical_classification: str,
+    noncanonical_cells: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    canonical_vector = tuple(bool(x) for x in canonical_worsening_by_frequency)
+    if len(canonical_vector) < 2:
+        raise ValueError('stencil sensitivity classifier requires the canonical vector')
+    hamming: dict[str, int] = {}
+    shifted_cell_ids: list[str] = []
+    reclassified_cell_ids: list[str] = []
+    identical_cell_count = 0
+    for cell in noncanonical_cells:
+        cell_id = str(cell.get('cell_id', ''))
+        if cell_id == STENCIL_SENSITIVITY_CANONICAL_CELL_ID:
+            raise ValueError('non-canonical cell list must not contain the control')
+        vector = tuple(bool(x) for x in cell.get('worsening_by_frequency', ()))
+        if len(vector) != len(canonical_vector):
+            raise ValueError(
+                f'stencil cell {cell_id!r} worsening vector length mismatch'
+            )
+        distance = sum(a != b for a, b in zip(vector, canonical_vector))
+        hamming[cell_id] = int(distance)
+        classification = str(cell.get('classification', ''))
+        if distance == 0:
+            identical_cell_count += 1
+        elif classification == canonical_classification:
+            shifted_cell_ids.append(cell_id)
+        else:
+            reclassified_cell_ids.append(cell_id)
+    if reclassified_cell_ids:
+        classification = 'STENCIL_WORSENING_PATTERN_RECLASSIFIED'
+    elif shifted_cell_ids:
+        classification = 'STENCIL_WORSENING_PATTERN_SHIFTED'
+    else:
+        classification = 'STENCIL_WORSENING_PATTERN_INVARIANT'
+    return {
+        'classification': classification,
+        'canonical_cell_id': STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
+        'canonical_dense_classification': canonical_classification,
+        'evaluated_noncanonical_cell_count': len(noncanonical_cells),
+        'identical_vector_cell_count': identical_cell_count,
+        'shifted_cell_ids': shifted_cell_ids,
+        'reclassified_cell_ids': reclassified_cell_ids,
+        'hamming_distance_by_cell': hamming,
+    }
+
+
 def classify_spatial_representation_trend(
     levels: Sequence[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -421,6 +652,42 @@ def classify_spatial_representation_trend(
         'ten_to_twelve_volume_worsened': volume[2] > volume[1],
         'ten_to_twelve_plane_rms_worsened': plane[2] > plane[1],
     }
+
+
+def stencil_variant_weights(
+    *,
+    variant_id: str,
+    canonical_weights: Sequence[float],
+    node_positions_m: Sequence[Sequence[float]],
+    exact_position_m: Sequence[float],
+) -> np.ndarray:
+    if variant_id not in STENCIL_SENSITIVITY_VARIANT_IDS:
+        raise ValueError(f'unknown stencil weight variant {variant_id!r}')
+    alpha = np.asarray(canonical_weights, dtype=np.float64)
+    positions = np.asarray(node_positions_m, dtype=np.float64)
+    target = np.asarray(exact_position_m, dtype=np.float64)
+    if alpha.ndim != 1 or alpha.size < 1:
+        raise ValueError('stencil canonical weights must be a nonempty vector')
+    if positions.ndim != 2 or positions.shape != (alpha.size, 3):
+        raise ValueError('stencil node positions must be an (n,3) matrix')
+    if target.shape != (3,) or not np.all(np.isfinite(target)):
+        raise ValueError('stencil exact position must be finite xyz')
+    if not np.all(np.isfinite(alpha)) or not np.all(np.isfinite(positions)):
+        raise ValueError('stencil weights/node positions must be finite')
+    if variant_id == 'canonical_trilinear':
+        return alpha.copy()
+    if variant_id == 'nearest_node':
+        distance = np.sum((positions - target[None, :]) ** 2, axis=1)
+        nearest = int(np.argmin(distance))
+        variant = np.zeros(alpha.size, dtype=np.float64)
+        variant[nearest] = 1.0
+    else:
+        variant = np.full(alpha.size, 1.0 / alpha.size, dtype=np.float64)
+    if not math.isclose(
+        float(np.sum(variant)), 1.0, rel_tol=0.0, abs_tol=1.0e-12
+    ):
+        raise ValueError('stencil variant weights must sum to one')
+    return variant
 
 
 def interpolation_stencil_diagnostic(
