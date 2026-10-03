@@ -1,0 +1,136 @@
+{
+  "canonical_pr295_reproduction": {
+    "baseline_artifact_digest_sha256": "62a57fc08bb983ca4d5f5ead6ae86a8ab87819a255d75fe082c4a01570195b9f",
+    "baseline_artifact_id": 10614827536,
+    "baseline_authoritative_run_id": 35540693380,
+    "max_abs_complex_component_error_all_six_levels": 4.263256414560601e-13,
+    "max_abs_complex_component_tolerance": 1e-09,
+    "mfem": [],
+    "pffdtd": [
+      {
+        "max_abs_complex_component_error": 9.947598300641403e-14,
+        "points_per_wavelength": 8.0
+      },
+      {
+        "max_abs_complex_component_error": 4.263256414560601e-13,
+        "points_per_wavelength": 10.0
+      },
+      {
+        "max_abs_complex_component_error": 7.105427357601002e-14,
+        "points_per_wavelength": 12.0
+      }
+    ],
+    "state": "PASS"
+  },
+  "decision": {
+    "canonical_pr295_reproduction": "PASS",
+    "canonical_self_convergence_unchanged": true,
+    "canonical_solver_execution_unchanged": true,
+    "cross_solver_unblocked_by_diagnostic": false,
+    "diagnostic_only": true,
+    "general_3d_validation_promoted_by_diagnostic": false,
+    "run76_record_binding": "RUN76_TRACE_IDENTICAL",
+    "voxel_staircase_worsening_pattern": "VOXEL_STAIRCASE_WORSENING_PATTERN_RECLASSIFIED"
+  },
+  "frozen_authority": {
+    "dense_diagnostic_sha256": "5922d03be22b86634c9397d94d15b1164b00c7a9c3e012d9628fd3a63dd3c80a",
+    "general3d_plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+    "general3d_plan_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+    "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+    "ppw": [
+      8.0,
+      10.0,
+      12.0
+    ],
+    "spatial_diagnostic_sha256": "7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4",
+    "stencil_diagnostic_id": "r130d-general3d-stencil-discretization-sensitivity-2026-10-03",
+    "stencil_diagnostic_sha256": "25229cb1a1c4778bba64ffb0b1a57ed6cc92d87c056b312aa7c061c04406a914",
+    "target_window_diagnostic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db",
+    "voxel_staircase_diagnostic_id": "r130d-general3d-voxel-staircase-sensitivity-2026-10-03",
+    "voxel_staircase_diagnostic_sha256": "0e39ec4222d352b4f66560241c05825ce7c9b3792a410a60ac7e16cd6c45af9b"
+  },
+  "provenance_by_ppw": [
+    {
+      "ppw": 8.0,
+      "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+      "run76_trace_binding": "RUN76_TRACE_IDENTICAL",
+      "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444",
+      "time_step_count": 347,
+      "time_step_s": 0.0007209661486505452
+    },
+    {
+      "ppw": 10.0,
+      "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+      "run76_trace_binding": "RUN76_TRACE_IDENTICAL",
+      "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49",
+      "time_step_count": 434,
+      "time_step_s": 0.0005767729189204362
+    },
+    {
+      "ppw": 12.0,
+      "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+      "run76_trace_binding": "RUN76_TRACE_IDENTICAL",
+      "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0",
+      "time_step_count": 521,
+      "time_step_s": 0.0004806440991003634
+    }
+  ],
+  "schema_version": "htdt.r130d.voxel-staircase-sensitivity-diagnostic-committed-summary-1",
+  "voxel_staircase_sensitivity": {
+    "canonical_cell_id": "canonical_voxelization",
+    "cells": [
+      {
+        "cell_id": "canonical_voxelization",
+        "classification": "DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY",
+        "hamming_distance_to_canonical": 0,
+        "worsening_count": 18
+      },
+      {
+        "cell_id": "dilated_boundary_layer",
+        "classification": "DENSE_NON_MONOTONICITY_PERSISTS_NEIGHBORHOOD",
+        "hamming_distance_to_canonical": 16,
+        "worsening_count": 34
+      },
+      {
+        "cell_id": "near_boundary_nodes_as_air",
+        "classification": "DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY",
+        "hamming_distance_to_canonical": 0,
+        "worsening_count": 18
+      },
+      {
+        "cell_id": "open_boundary_as_air",
+        "classification": "DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS",
+        "hamming_distance_to_canonical": 19,
+        "worsening_count": 3
+      },
+      {
+        "cell_id": "fully_blocked_boundary",
+        "classification": "DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY",
+        "hamming_distance_to_canonical": 16,
+        "worsening_count": 20
+      }
+    ],
+    "evaluation_state": "EVALUATED",
+    "pattern_classification": {
+      "canonical_cell_id": "canonical_voxelization",
+      "canonical_dense_classification": "DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY",
+      "classification": "VOXEL_STAIRCASE_WORSENING_PATTERN_RECLASSIFIED",
+      "evaluated_noncanonical_cell_count": 4,
+      "hamming_distance_by_cell": {
+        "dilated_boundary_layer": 16,
+        "fully_blocked_boundary": 16,
+        "near_boundary_nodes_as_air": 0,
+        "open_boundary_as_air": 19
+      },
+      "identical_vector_cell_count": 1,
+      "reclassified_cell_ids": [
+        "dilated_boundary_layer",
+        "open_boundary_as_air"
+      ],
+      "shifted_cell_ids": [
+        "fully_blocked_boundary"
+      ]
+    },
+    "run76_record_binding": "RUN76_TRACE_IDENTICAL"
+  }
+}
