@@ -30,7 +30,8 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import dataclass
-from typing import Literal
+from math import sqrt
+from typing import Any, Literal
 
 from .cad_acoustic_snapshot import SnapshotEnvironmentAuthorityRef
 from .cad_geometric_acoustics_adapter import (
@@ -40,13 +41,17 @@ from .cad_geometric_acoustics_adapter import (
 from .cad_reflection_diagnostic import (
     DEFAULT_SPEED_OF_SOUND_M_S,
     InterferenceHypothesis,
+    ReflectionDiagnosticRequest,
     build_interference_hypothesis,
     build_reflection_diagnostic_request,
 )
 from .cad_reflection_guidance import (
     ReflectionGuidanceReport,
+    ReflectionGuidanceSession,
     build_reflection_guidance,
+    open_guidance_session,
 )
+from .cad_scene import Position3
 
 
 EnvironmentBindingState = Literal['bound', 'absent', 'unreadable']
@@ -55,6 +60,19 @@ IssueKind = Literal[
     'unreadable_artifact',
     'binding_mismatch',
     'derivation_failed',
+]
+
+# Why an entry cannot open an interactive scrub session. The committed
+# report stays displayable — the blocker only gates the interactive lane,
+# so a degraded snapshot binding surfaces its reason instead of silently
+# dropping the feature.
+ScrubUnavailableReason = Literal[
+    'snapshot_payload_unreadable',
+    'receiver_binding_missing',
+    'receiver_binding_unreadable',
+    'source_binding_missing',
+    'source_binding_unreadable',
+    'plane_derivation_failed',
 ]
 
 
@@ -84,6 +102,40 @@ class ReflectionGuidanceEntry:
     environment_state: EnvironmentBindingState
     hypothesis: InterferenceHypothesis | None
     report: ReflectionGuidanceReport
+    # Scrub-session authority: the exact request/path pair the report was
+    # derived from, plus the snapshot-pinned geometry the interactive
+    # preview needs (receiver world position, the committed source
+    # reference point, and the specular plane implied by the proven path).
+    request: ReflectionDiagnosticRequest
+    direct_path: DeterministicAcousticPath
+    reflection_path: DeterministicAcousticPath
+    plane_point: Position3
+    plane_normal: tuple[float, float, float] | None
+    receiver_position: Position3 | None
+    source_reference_point: Position3 | None
+    scrub_unavailable_reason: ScrubUnavailableReason | None
+
+    def open_scrub_session(self) -> ReflectionGuidanceSession:
+        """Open the interactive scrub session pinned to this pair.
+
+        The session replays the request's pinned plane through exact
+        image-method geometry — never a new solver claim. Raises
+        ``ValueError`` when the snapshot bindings could not be resolved.
+        """
+        if self.scrub_unavailable_reason is not None:
+            raise ValueError(
+                f'scrub session unavailable: {self.scrub_unavailable_reason}'
+            )
+        if self.receiver_position is None or self.plane_normal is None:
+            raise ValueError('scrub session geometry was not resolved')
+        return open_guidance_session(
+            self.request,
+            self.direct_path,
+            self.reflection_path,
+            receiver_position=self.receiver_position,
+            plane_point=self.plane_point,
+            plane_normal=self.plane_normal,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +170,103 @@ class ReflectionGuidanceView:
             for entry in self.entries
             if entry.scene_revision_id == revision_id
         )
+
+
+def _snapshot_payload_dict(payload_json: str | None) -> dict[str, Any] | None:
+    """Parsed snapshot payload for the light-read seam; None when absent
+    or unparseable — callers map that to an honest blocker, not a guess.
+    """
+    if not payload_json:
+        return None
+    try:
+        raw = json.loads(payload_json)
+    except (TypeError, ValueError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _receiver_position(
+    payload: dict[str, Any] | None,
+    *,
+    receiver_id: str,
+    receiver_entity_id: str,
+) -> tuple[Position3 | None, ScrubUnavailableReason | None]:
+    """Receiver world position from the snapshot's receiver bindings.
+
+    The light-read seam re-validates only the fields the scrub consumes:
+    the binding must name both the receiver id and entity id the path
+    authority pins, and ``world_position`` must parse as a ``Position3``.
+    """
+    if payload is None:
+        return None, 'snapshot_payload_unreadable'
+    receivers = payload.get('receivers')
+    if not isinstance(receivers, list):
+        return None, 'receiver_binding_missing'
+    for raw in receivers:
+        if not isinstance(raw, dict):
+            continue
+        if (
+            raw.get('receiver_id') != receiver_id
+            or raw.get('entity_id') != receiver_entity_id
+        ):
+            continue
+        try:
+            return Position3.model_validate(raw.get('world_position')), None
+        except ValueError:
+            return None, 'receiver_binding_unreadable'
+    return None, 'receiver_binding_missing'
+
+
+def _source_reference_point(
+    payload: dict[str, Any] | None,
+    *,
+    source_entity_id: str,
+) -> tuple[Position3 | None, ScrubUnavailableReason | None]:
+    """Committed source reference point — the scrub's honest baseline."""
+    if payload is None:
+        return None, 'snapshot_payload_unreadable'
+    sources = payload.get('sources')
+    if not isinstance(sources, list):
+        return None, 'source_binding_missing'
+    for raw in sources:
+        if not isinstance(raw, dict):
+            continue
+        if raw.get('source_entity_id') != source_entity_id:
+            continue
+        try:
+            return Position3.model_validate(
+                raw.get('source_reference_point')
+            ), None
+        except ValueError:
+            return None, 'source_binding_unreadable'
+    return None, 'source_binding_missing'
+
+
+def _specular_plane_normal(
+    reflection_path: DeterministicAcousticPath,
+) -> tuple[float, float, float] | None:
+    """Specular plane normal implied by the proven path directions.
+
+    For a first-order specular path the departure direction (source →
+    interaction point) and arrival direction (interaction point →
+    receiver) pin one plane through the interaction point: the unit
+    normal is ``departure − arrival`` normalized. This is the plane the
+    image-method preview must stay consistent with — it is derived from
+    solver authority, never assumed from live scene geometry.
+    """
+    dx = float(reflection_path.departure_direction.x) - float(
+        reflection_path.arrival_direction.x
+    )
+    dy = float(reflection_path.departure_direction.y) - float(
+        reflection_path.arrival_direction.y
+    )
+    dz = float(reflection_path.departure_direction.z) - float(
+        reflection_path.arrival_direction.z
+    )
+    norm = sqrt(dx * dx + dy * dy + dz * dz)
+    if norm <= 1e-12:
+        return None
+    return (dx / norm, dy / norm, dz / norm)
 
 
 def _snapshot_environment(
@@ -162,6 +311,7 @@ def _derive_entry(
     speed_of_sound_m_s: float,
     environment_state: EnvironmentBindingState,
     recorded_at_utc: str | None,
+    snapshot_payload: dict[str, Any] | None,
     direct: DeterministicAcousticPath,
     specular: DeterministicAcousticPath,
 ) -> ReflectionGuidanceEntry:
@@ -184,6 +334,30 @@ def _derive_entry(
         (specular,),
         hypotheses=(hypothesis,),
     )
+    receiver_position, receiver_reason = _receiver_position(
+        snapshot_payload,
+        receiver_id=specular.receiver_id,
+        receiver_entity_id=specular.receiver_entity_id,
+    )
+    source_reference_point, source_reason = _source_reference_point(
+        snapshot_payload,
+        source_entity_id=specular.source_entity_id,
+    )
+    plane_normal = _specular_plane_normal(specular)
+    if receiver_reason == 'snapshot_payload_unreadable':
+        scrub_unavailable_reason: ScrubUnavailableReason | None = (
+            'snapshot_payload_unreadable'
+        )
+    else:
+        scrub_unavailable_reason = (
+            receiver_reason
+            or source_reason
+            or (
+                None
+                if plane_normal is not None
+                else 'plane_derivation_failed'
+            )
+        )
     return ReflectionGuidanceEntry(
         artifact_id=artifact.artifact_id,
         snapshot_id=snapshot_id,
@@ -201,6 +375,14 @@ def _derive_entry(
         environment_state=environment_state,
         hypothesis=hypothesis,
         report=report,
+        request=request,
+        direct_path=direct,
+        reflection_path=specular,
+        plane_point=specular.ordered_interaction_points[0],
+        plane_normal=plane_normal,
+        receiver_position=receiver_position,
+        source_reference_point=source_reference_point,
+        scrub_unavailable_reason=scrub_unavailable_reason,
     )
 
 
@@ -298,6 +480,7 @@ def load_reflection_guidance_view(
         speed, environment_state = _snapshot_environment(
             row['snapshot_payload']
         )
+        snapshot_payload = _snapshot_payload_dict(row['snapshot_payload'])
 
         # Canonical path ordering already groups by (source, receiver):
         # one direct path plus its first-order specular siblings form the
@@ -335,6 +518,7 @@ def load_reflection_guidance_view(
                             speed_of_sound_m_s=speed,
                             environment_state=environment_state,
                             recorded_at_utc=row['recorded_at_utc'],
+                            snapshot_payload=snapshot_payload,
                             direct=direct,
                             specular=specular,
                         )
@@ -366,5 +550,6 @@ __all__ = [
     'ReflectionGuidanceEntry',
     'ReflectionGuidanceIssue',
     'ReflectionGuidanceView',
+    'ScrubUnavailableReason',
     'load_reflection_guidance_view',
 ]

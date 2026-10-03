@@ -34,6 +34,7 @@ from htdt.cad_scene import (
 )
 from htdt.cad_schema import connect_sqlite
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
+from htdt.cad_reflection_guidance import scrub_source
 from htdt.reflection_guidance_presentation import (
     load_reflection_guidance_view,
 )
@@ -120,6 +121,8 @@ def _path(
     source_entity_id: str = 'speaker-fl',
     receiver_id: str = 'seat-1',
     receiver_entity_id: str = 'point-mlp',
+    departure: Direction3 | None = None,
+    arrival: Direction3 | None = None,
 ) -> DeterministicAcousticPath:
     kwargs = dict(
         source_entity_id=source_entity_id,
@@ -134,8 +137,16 @@ def _path(
         ),
         geometric_path_length_m=length_m,
         propagation_delay_s=delay_s,
-        departure_direction=Direction3(x=1.0, y=0.0, z=0.0),
-        arrival_direction=Direction3(x=-1.0, y=0.0, z=0.0),
+        departure_direction=(
+            departure
+            if departure is not None
+            else Direction3(x=1.0, y=0.0, z=0.0)
+        ),
+        arrival_direction=(
+            arrival
+            if arrival is not None
+            else Direction3(x=-1.0, y=0.0, z=0.0)
+        ),
         bands=(_band(surface_id),),
         solver_implementation_ref=SOLVER_REF,
     )
@@ -197,7 +208,15 @@ def _artifact(
     )
 
 
-def _snapshot_payload(speed: float | None = 343.0) -> str:
+RECEIVER_POSITION = Position3(x_m=1.0, y_m=0.0, z_m=1.0)
+SOURCE_REFERENCE_POINT = Position3(x_m=-1.0, y_m=2.0, z_m=1.0)
+
+
+def _snapshot_payload(
+    speed: float | None = 343.0,
+    *,
+    include_geometry: bool = True,
+) -> str:
     environment = (
         None
         if speed is None
@@ -215,8 +234,29 @@ def _snapshot_payload(speed: float | None = 343.0) -> str:
             },
         }
     )
+    payload: dict[str, object] = {'environment': environment}
+    if include_geometry:
+        payload['receivers'] = [
+            {
+                'receiver_id': 'seat-1',
+                'entity_id': 'point-mlp',
+                'world_position': RECEIVER_POSITION.model_dump(mode='json'),
+                'acoustic_reference_semantics': (
+                    'scene_acoustic_reference_position'
+                ),
+                'requested_output_capabilities': ['impulse_response'],
+            }
+        ]
+        payload['sources'] = [
+            {
+                'source_entity_id': 'speaker-fl',
+                'source_reference_point': SOURCE_REFERENCE_POINT.model_dump(
+                    mode='json'
+                ),
+            }
+        ]
     return json.dumps(
-        {'environment': environment},
+        payload,
         ensure_ascii=False,
         sort_keys=True,
     )
@@ -258,6 +298,7 @@ def _insert_snapshot(
     document_id: str,
     revision_id: str,
     speed: float | None = 343.0,
+    payload: str | None = None,
 ) -> None:
     _insert_compiled_geometry(
         connection, revision_id=revision_id
@@ -278,7 +319,7 @@ def _insert_snapshot(
             f'r120-compiled-geometry:{SHA}',
             SHA,
             SHA,
-            _snapshot_payload(speed),
+            payload if payload is not None else _snapshot_payload(speed),
             NOW,
         ),
     )
@@ -315,6 +356,10 @@ def _seed_guidance(
     revision_id: str,
     surfaces: tuple[str, ...] = ('wall-left', 'floor'),
     speed: float | None = 343.0,
+    include_geometry: bool = True,
+    snapshot_payload: str | None = None,
+    specular_points: tuple[Position3, ...] | None = None,
+    specular_length_m: float = 7.0,
 ) -> tuple[str, str]:
     snapshot_id = f'acoustic-scene-snapshot:{_hash("snap" + revision_id)}'
     snapshot_sha256 = _hash(f'snapshot-sha-{snapshot_id}')
@@ -325,6 +370,8 @@ def _seed_guidance(
         document_id=document_id,
         revision_id=revision_id,
         speed=speed,
+        payload=snapshot_payload
+        or _snapshot_payload(speed, include_geometry=include_geometry),
     )
     direct = _path(path_type='direct', length_m=5.0, delay_s=5.0 / 343.0)
     # DeterministicPathArtifact validates canonical path ordering: direct
@@ -334,10 +381,16 @@ def _seed_guidance(
             (
                 _path(
                     path_type='specular_reflection',
-                    length_m=7.0 + index,
-                    delay_s=(7.0 + index) / 343.0,
+                    length_m=specular_length_m + index,
+                    delay_s=(specular_length_m + index) / 343.0,
                     surface_id=surface,
-                    point=Position3(x_m=float(index), y_m=2.0, z_m=1.0),
+                    point=(
+                        specular_points[index]
+                        if specular_points is not None
+                        else Position3(
+                            x_m=float(index), y_m=2.0, z_m=1.0
+                        )
+                    ),
                 )
                 for index, surface in enumerate(surfaces)
             ),
@@ -548,3 +601,243 @@ def test_guidance_panel_surfaces_unreadable_rows(tmp_path) -> None:
     assert panel.item_list.count() == 0
     assert '読み取り不可' in panel.issue_label.text()
     assert '読み飛ばし' in panel.summary_label.text()
+
+
+# --- REV37-GUIDANCE-SCRUB -------------------------------------------------
+
+
+def _seed_scrub_geometry(connection, *, revision_id: str) -> None:
+    """One pair on plane x=3: candidates reproduce the module's scrub
+    directions — (−1, 2, 1) lengthens the specular leg (improves),
+    (2.5, 2, 1) shortens it (worsens)."""
+    _seed_guidance(
+        connection,
+        document_id=F1_DOCUMENT_ID,
+        revision_id=revision_id,
+        surfaces=('wall-left',),
+        specular_points=(Position3(x_m=3.0, y_m=2.0, z_m=1.0),),
+    )
+
+
+def test_guidance_entry_carries_scrub_authority(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_scrub_geometry(connection, revision_id=revision_id)
+    view = _load(repository, F1_DOCUMENT_ID)
+    assert len(view.entries) == 1
+    entry = view.entries[0]
+    assert entry.scrub_unavailable_reason is None
+    # Snapshot-pinned geometry resolved, never invented.
+    assert entry.receiver_position == RECEIVER_POSITION
+    assert entry.source_reference_point == SOURCE_REFERENCE_POINT
+    assert entry.plane_point == Position3(x_m=3.0, y_m=2.0, z_m=1.0)
+    # departure (1,0,0) − arrival (−1,0,0) → implied plane normal (1,0,0).
+    assert entry.plane_normal == pytest.approx((1.0, 0.0, 0.0))
+    session = entry.open_scrub_session()
+    assert session.request is entry.request
+    assert session.direct_path is entry.direct_path
+    assert session.reflection_path is entry.reflection_path
+    assert session.baseline_excess_delay_s == pytest.approx(2.0 / 343.0)
+    # Scrub frames recompute exact image-method geometry under the
+    # pinned plane — the committed request never mutates.
+    scrubbed = scrub_source(
+        session, Position3(x_m=-1.0, y_m=2.0, z_m=1.0)
+    )
+    assert len(scrubbed.frames) == 1
+    assert scrubbed.frames[0].direction == 'improves'
+    assert scrubbed.frames[0].preview.excess_delay_s > (
+        session.baseline_excess_delay_s
+    )
+
+
+def test_guidance_entry_scrub_blocked_without_bindings(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_guidance(
+            connection,
+            document_id=F1_DOCUMENT_ID,
+            revision_id=revision_id,
+            include_geometry=False,
+        )
+    view = _load(repository, F1_DOCUMENT_ID)
+    assert len(view.entries) == 2
+    for entry in view.entries:
+        assert entry.scrub_unavailable_reason == 'receiver_binding_missing'
+        assert entry.receiver_position is None
+        with pytest.raises(ValueError, match='scrub session unavailable'):
+            entry.open_scrub_session()
+
+
+def test_guidance_entry_scrub_blocked_by_unreadable_binding(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    payload = json.dumps(
+        {
+            'environment': None,
+            'receivers': [
+                {
+                    'receiver_id': 'seat-1',
+                    'entity_id': 'point-mlp',
+                    'world_position': {'x_m': 'not-a-position'},
+                }
+            ],
+            'sources': [
+                {
+                    'source_entity_id': 'speaker-fl',
+                    'source_reference_point': SOURCE_REFERENCE_POINT.model_dump(
+                        mode='json'
+                    ),
+                }
+            ],
+        }
+    )
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_guidance(
+            connection,
+            document_id=F1_DOCUMENT_ID,
+            revision_id=revision_id,
+            snapshot_payload=payload,
+        )
+    view = _load(repository, F1_DOCUMENT_ID)
+    assert [entry.scrub_unavailable_reason for entry in view.entries] == [
+        'receiver_binding_unreadable'
+    ] * len(view.entries)
+
+
+def test_guidance_entry_scrub_blocked_by_missing_source(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    payload = json.dumps(
+        {
+            'environment': None,
+            'receivers': [
+                {
+                    'receiver_id': 'seat-1',
+                    'entity_id': 'point-mlp',
+                    'world_position': RECEIVER_POSITION.model_dump(mode='json'),
+                }
+            ],
+            'sources': [],
+        }
+    )
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_guidance(
+            connection,
+            document_id=F1_DOCUMENT_ID,
+            revision_id=revision_id,
+            snapshot_payload=payload,
+        )
+    view = _load(repository, F1_DOCUMENT_ID)
+    assert [entry.scrub_unavailable_reason for entry in view.entries] == [
+        'source_binding_missing'
+    ] * len(view.entries)
+
+
+def test_guidance_panel_scrub_updates_frames(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_scrub_geometry(connection, revision_id=revision_id)
+    panel = _panel(tmp_path)
+    # The spins open on the committed source reference point, and the
+    # baseline readout explains the lane before any frame exists.
+    assert panel.scrub_button.isEnabled()
+    assert panel.scrub_x.value() == pytest.approx(-1.0)
+    assert panel.scrub_y.value() == pytest.approx(2.0)
+    assert panel.scrub_z.value() == pytest.approx(1.0)
+    assert '基準の過剰遅延' in panel.scrub_result_label.text()
+
+    # A candidate farther off the boundary lengthens the excess delay.
+    panel.scrub_button.click()
+    text = panel.scrub_result_label.text()
+    assert 'フレーム 1' in text
+    assert '改善' in text
+    assert '新しい反射点' in text
+    assert 'パス長' in text
+    session = panel._scrub_session
+    assert session is not None and len(session.frames) == 1
+    assert session.frames[0].preview.direct_length_m > 0.0
+    # The committed report is provenance — the scrub never reorders it.
+    entry = panel._current_entry()
+    assert entry is not None
+    assert [item.rank for item in entry.report.items] == [1, 2, 3]
+    assert panel.item_list.count() == 3
+
+    # A candidate pushed toward the boundary worsens the delay.
+    panel.scrub_x.setValue(2.5)
+    panel.scrub_button.click()
+    assert 'フレーム 2' in panel.scrub_result_label.text()
+    assert '悪化' in panel.scrub_result_label.text()
+    assert len(panel._scrub_session.frames) == 2
+    # The frames are proposals — the pinned request authority is intact.
+    assert panel._scrub_session.request is entry.request
+
+    # 確定位置に戻す restores the snapshot-pinned baseline.
+    panel.scrub_reset_button.click()
+    assert panel.scrub_x.value() == pytest.approx(-1.0)
+
+
+def test_guidance_panel_scrub_blocked_shows_reason(tmp_path) -> None:
+    repository, revision_id = _seed_document(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        _seed_guidance(
+            connection,
+            document_id=F1_DOCUMENT_ID,
+            revision_id=revision_id,
+            include_geometry=False,
+        )
+    panel = _panel(tmp_path)
+    # The report still lists; only the interactive lane reports its
+    # blocker — nothing is silently disabled.
+    assert panel.item_list.count() == 3
+    assert not panel.scrub_button.isEnabled()
+    assert not panel.scrub_x.isEnabled()
+    assert '利用できません' in panel.scrub_result_label.text()
+    assert panel._scrub_session is None
+
+
+def test_guidance_panel_scrub_empty_without_entries(tmp_path) -> None:
+    _seed_document(tmp_path)
+    panel = _panel(tmp_path)
+    assert not panel.scrub_button.isEnabled()
+    assert '診断ペアを選択' in panel.scrub_result_label.text()
+
+
+def test_guidance_entry_scrub_blocked_by_degenerate_plane(tmp_path) -> None:
+    """A specular pair whose proven directions imply no plane cannot
+    scrub — the blocker is reported, never guessed around."""
+    repository, revision_id = _seed_document(tmp_path)
+    with connect_sqlite(repository.path) as connection, connection:
+        snapshot_id = f'acoustic-scene-snapshot:{_hash("snap" + revision_id)}'
+        _insert_snapshot(
+            connection,
+            snapshot_id=snapshot_id,
+            snapshot_sha256=_hash(f'snapshot-sha-{snapshot_id}'),
+            document_id=F1_DOCUMENT_ID,
+            revision_id=revision_id,
+        )
+        direct = _path(
+            path_type='direct', length_m=5.0, delay_s=5.0 / 343.0
+        )
+        # departure == arrival → no specular plane can be implied.
+        degenerate = _path(
+            path_type='specular_reflection',
+            length_m=7.0,
+            delay_s=7.0 / 343.0,
+            surface_id='wall-left',
+            point=Position3(x_m=3.0, y_m=2.0, z_m=1.0),
+            departure=Direction3(x=1.0, y=0.0, z=0.0),
+            arrival=Direction3(x=1.0, y=0.0, z=0.0),
+        )
+        _insert_artifact(
+            connection,
+            _artifact(
+                (direct, degenerate),
+                snapshot_id=snapshot_id,
+                snapshot_sha256=_hash(f'snapshot-sha-{snapshot_id}'),
+            ),
+        )
+    view = _load(repository, F1_DOCUMENT_ID)
+    assert len(view.entries) == 1
+    entry = view.entries[0]
+    assert entry.scrub_unavailable_reason == 'plane_derivation_failed'
+    assert entry.plane_normal is None
+    with pytest.raises(ValueError, match='scrub session unavailable'):
+        entry.open_scrub_session()
