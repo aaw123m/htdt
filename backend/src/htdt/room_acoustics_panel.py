@@ -988,23 +988,28 @@ class RoomTreatmentPanel(QWidget):
 
 
 class RoomAcousticsTabs(QTabWidget):
-    """Acoustics-context tab container: prediction + materials + treatments."""
+    """Acoustics-context tab container: prediction + materials + treatments
+    + reflection guidance."""
 
     def __init__(
         self,
         prediction_panel: QWidget,
         material_panel: QWidget,
         treatment_panel: QWidget,
+        guidance_panel: QWidget | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setAccessibleName('音響コンテキスト')
-        self._panels = (prediction_panel, material_panel, treatment_panel)
-        for panel, label in (
+        panels = [
             (prediction_panel, '予測'),
             (material_panel, 'マテリアル'),
             (treatment_panel, '音響処理'),
-        ):
+        ]
+        if guidance_panel is not None:
+            panels.append((guidance_panel, 'ガイダンス'))
+        self._panels = tuple(panel for panel, _ in panels)
+        for panel, label in panels:
             self.addTab(self._scroll_page(panel), label)
 
     @staticmethod

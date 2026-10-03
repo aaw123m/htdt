@@ -278,6 +278,10 @@ _LAZY_IMPORTS = {
     'RoomAcousticsTabs': ('.room_acoustics_panel', 'RoomAcousticsTabs'),
     'RoomTreatmentPanel': ('.room_acoustics_panel', 'RoomTreatmentPanel'),
     'SurfaceMaterialPanel': ('.room_acoustics_panel', 'SurfaceMaterialPanel'),
+    'ReflectionGuidancePanel': (
+        '.reflection_guidance_ui',
+        'ReflectionGuidancePanel',
+    ),
     'RoomEntityTransformController': (
         '.room_transform_input',
         'RoomEntityTransformController',
@@ -2707,8 +2711,16 @@ class WorkflowApplicationComposition:
         prediction_panel = _self.RoomPredictionPanel(prediction)
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
+        # #876/REV36: persisted R150 path artifacts replay into ranked
+        # reflection guidance — a read-only dock tab next to prediction.
+        guidance_panel = _self.ReflectionGuidancePanel(workspace.controller)
         workspace.attach_acoustics_panel(
-            _self.RoomAcousticsTabs(prediction_panel, material_panel, treatment_panel)
+            _self.RoomAcousticsTabs(
+                prediction_panel,
+                material_panel,
+                treatment_panel,
+                guidance_panel,
+            )
         )
 
         def show_prediction_overlay(results: object) -> None:
