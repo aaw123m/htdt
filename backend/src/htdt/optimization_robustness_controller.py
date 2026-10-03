@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem
 
 from .cad_robustness_repository import CadRobustnessRepository
 from .cad_search_models import constraint_workspace_snapshot
-from .native_editor import ROLE
+from .tree_item_role import ROLE
 from .optimization_robustness_overlay import build_robustness_overlay_model
 from .user_facing_error import operation_error_message
 from .optimization_robustness_presenter import (

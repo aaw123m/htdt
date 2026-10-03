@@ -62,7 +62,6 @@ from .cad_search_models import (
     CadSearchSpec,
 )
 from .cad_search_repository import CadSearchRepository
-from .measurement_workspace import _MeasurementScrollArea
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_model_validation_service import CadModelValidationService
@@ -79,7 +78,7 @@ from .cad_validation_campaign import (
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .cad_validation_metrics import CadApplicabilityCheck
-from .native_editor import ROLE
+from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED
 from .user_facing_error import operation_error_message
 

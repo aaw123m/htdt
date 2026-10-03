@@ -20,7 +20,7 @@ from htdt.cad_objective_repository import CadObjectiveRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_roomsim_repository import CadRoomSimRepository
 from htdt.cad_search_repository import CadSearchRepository
-from htdt.measurement_editor import measurement_evidence_label, measurement_is_synthetic
+from htdt.cad_measurement_models import measurement_evidence_label, measurement_is_synthetic
 from htdt.cad_synthetic_demo import (
     SYNTHETIC_DEMO_DOCUMENT_ID,
     seed_synthetic_optimization_demo,

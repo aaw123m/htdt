@@ -50,7 +50,7 @@ from .cad_search_models import CadCandidateSetPage, constraint_workspace_snapsho
 from .cad_search_repository import CadSearchRepository
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
-from .native_editor import ROLE
+from .tree_item_role import ROLE
 from .native_worker import WORKER_CANCELLED, NativeWorker, NativeWorkerPool
 from .optimization_adaptive_controller import AdaptiveControllerMixin
 from .optimization_adaptive_extended_controller import AdaptiveExtendedControllerMixin

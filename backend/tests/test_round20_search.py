@@ -24,7 +24,7 @@ from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, make_empty_scene, make_f1_scene
 from htdt.cad_search_models import CadCandidate, CadCandidateSetPage
 from htdt.commissioning_wizard import CommissioningWizard
-from htdt.native_editor import ROLE
+from htdt.tree_item_role import ROLE
 from htdt.optimization_search_controller import (
     CandidateTreeItem,
     _candidate_matches_filter,

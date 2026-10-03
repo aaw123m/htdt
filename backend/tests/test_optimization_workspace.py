@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from htdt.cad_search_models import CadCandidate, CadCandidateSetPage
-from htdt.optimization_workspace import candidate_cloud_points
+from htdt.optimization_search_controller import candidate_cloud_points
 
 
 def test_candidate_cloud_uses_one_primary_entity_point_per_visible_candidate() -> None:

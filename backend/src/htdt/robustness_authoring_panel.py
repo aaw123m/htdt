@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .native_editor import ROLE
+from .tree_item_role import ROLE
 from .native_worker import (
     WORKER_CANCELLED,
     NativeWorkerPool,

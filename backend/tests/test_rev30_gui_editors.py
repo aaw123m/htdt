@@ -41,7 +41,7 @@ from htdt.cad_scene import (
     room_vertices,
 )
 from htdt.constraint_editor import ConstraintEditorWindow
-from htdt.native_editor import ROLE
+from htdt.tree_item_role import ROLE
 from htdt.room_editor import RoomEditorWindow
 from htdt.theater_editor import TheaterEditorWindow
 from htdt.wall_editor import WallEditorWindow
