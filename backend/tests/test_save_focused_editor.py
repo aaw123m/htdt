@@ -14,8 +14,8 @@ import htdt.workflow_application as workflow_application
 from htdt.application_preferences import ApplicationPreferenceStore
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import F1_DOCUMENT_ID, is_unassigned_speaker_role, make_f1_scene, room_vertices
+from htdt.command_palette import CommandShortcutBinder
 from htdt.command_registry import CommandRegistry, register_default_commands
-from htdt.native_editor import NativeEditorWindow
 from htdt.room_geometry_input import RoomGeometryInputController
 from htdt.room_geometry_panel import RoomGeometryPanel
 from htdt.room_workspace import RoomWorkspace
@@ -344,51 +344,12 @@ def test_pending_commit_creates_single_undo_entry(tmp_path) -> None:
     app.processEvents()
 
 
-def test_native_editor_save_commits_focused_position_field(tmp_path) -> None:
+def test_focus_changed_disconnects_when_binder_window_is_destroyed(tmp_path) -> None:
+    """The app-level focusChanged hook must die with its window: a stale
+    connection (e.g. an unowned lambda) would keep invoking the handler on a
+    deleted C++ object — RuntimeError on every focus change. The workflow
+    path's only app-level hook lives in CommandShortcutBinder."""
     app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
-    repository.save(make_f1_scene(), parent_revision_id=None)
-    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
-    window.show()
-    app.processEvents()
-    original = repository.latest(F1_DOCUMENT_ID)
-    assert original is not None
-    assert not window.save_action.isEnabled()
-
-    window.view_state.set_selection(("speaker-fl",), primary_id="speaker-fl")
-    window.selected_id = "speaker-fl"
-    window._inspect("speaker-fl")
-
-    field = window.position_fields["X"]
-    _pending_text(field, "2.34")
-    app.processEvents()
-    assert not window.working.is_dirty
-    # Save (toolbar click and Ctrl+S share save_action) stays reachable while
-    # the field holds the pending edit.
-    assert window.save_action.isEnabled()
-
-    window.save_action.trigger()
-    app.processEvents()
-
-    saved = repository.latest(F1_DOCUMENT_ID)
-    assert saved.revision_id != original.revision_id
-    assert saved.document.entity("speaker-fl").position.x_m == pytest.approx(2.34)
-    assert not window.working.is_dirty
-    # Focus is restored to the field so the user can keep editing after Save.
-    assert app.focusWidget() is field
-
-    window.close()
-    window.deleteLater()
-    app.processEvents()
-
-
-def test_focus_changed_disconnects_when_editor_is_destroyed(tmp_path) -> None:
-    """The app-level focusChanged hook must die with the window: a stale
-    connection (e.g. an unowned lambda) would keep calling _update_actions
-    on the deleted C++ object — RuntimeError on every focus change."""
-    app = _app()
-    repository = SceneRepository(tmp_path / "scenes.sqlite3")
-    repository.save(make_f1_scene(), parent_revision_id=None)
 
     # Earlier tests leave deleteLater() windows queued but unflushed; drain
     # pending deferred deletes first so the baseline counts only live ones.
@@ -397,7 +358,10 @@ def test_focus_changed_disconnects_when_editor_is_destroyed(tmp_path) -> None:
 
     signal = SIGNAL("focusChanged(QWidget*,QWidget*)")
     baseline = app.receivers(signal)
-    window = NativeEditorWindow(repository, F1_DOCUMENT_ID)
+    registry = CommandRegistry()
+    register_default_commands(registry)
+    window = QFrame()
+    CommandShortcutBinder(window, registry, command_ids=())
     window.show()
     app.processEvents()
     assert app.receivers(signal) == baseline + 1

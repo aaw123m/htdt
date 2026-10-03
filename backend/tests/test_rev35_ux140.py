@@ -1,11 +1,12 @@
 """REV35-UX140: workflow-path coverage of legacy UI surfaces.
 
-``docs/reviews/rev35-ux140.md`` inventories every surface reachable
+``docs/reviews/rev35-ux140.md`` inventories every surface that was reachable
 through the legacy ``--legacy-ui`` QMainWindow chain (and the standalone
 ``python -m htdt.native_editor`` / ``room_editor`` / ``wall_editor``
 entry points) and maps each to the workflow-shell surface that owns the
-same capability. These tests pin that parity map so stage (c) can delete
-the legacy window + adapter without silently dropping a feature.
+same capability. These tests pinned that parity map so stage (c)
+(REV36-UX140C) could delete the legacy window + adapter without silently
+dropping a feature.
 
 Stage (b) mounted the last three legacy-only surfaces —
 ``SeatPriorityPanel`` (リスニング集団) on the room placement context,

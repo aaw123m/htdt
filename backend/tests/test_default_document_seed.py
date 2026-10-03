@@ -44,10 +44,10 @@ from htdt.default_document import (
     classify_default_document,
     log_default_document_classification,
 )
-from htdt.native_editor import NativeEditorWindow
+
 from htdt.overview_readiness import OverviewReadinessService
 from htdt.room_workspace import RoomWorkspaceController
-from htdt.theater_workflow import TheaterWorkflowWindow
+
 
 
 def _app() -> QApplication:
@@ -121,25 +121,6 @@ def test_unknown_document_opens_empty_scene_without_alias(tmp_path) -> None:
     assert controller.committed_document.room is None
     # Opening another document never creates or claims the F1 identity.
     assert repository.latest(F1_DOCUMENT_ID) is None
-
-
-def test_legacy_editor_windows_open_fresh_default_document_empty(tmp_path) -> None:
-    """Both windowed startup paths seed empty content, not the fixture."""
-
-    app = _app()
-    for window_type in (NativeEditorWindow, TheaterWorkflowWindow):
-        repository = SceneRepository(tmp_path / f"{window_type.__name__}.sqlite3")
-        window = window_type(repository, F1_DOCUMENT_ID)
-        try:
-            revision = repository.latest(F1_DOCUMENT_ID)
-            assert revision is not None
-            assert revision.document.room is None
-            assert revision.document.entities == ()
-            assert window.working.committed_document == revision.document
-        finally:
-            window.close()
-            window.deleteLater()
-            app.processEvents()
 
 
 # --- Explicit synthetic demo stays available under its own identity -----------

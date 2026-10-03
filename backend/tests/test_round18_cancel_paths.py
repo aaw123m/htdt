@@ -24,7 +24,6 @@ from htdt.data_management import (
 )
 from htdt.data_management_ui import build_data_management_component
 from htdt.data_relocation import plan_data_relocation
-from htdt.measurement_editor import MeasurementEditorWindow
 from htdt.room_prediction import RoomPredictionController, RoomPredictionPanel
 from htdt.room_workspace import RoomWorkspaceController
 from htdt.workflow_application import WorkflowApplicationComposition
@@ -80,88 +79,9 @@ def test_run_button_stays_disabled_while_prediction_runs(tmp_path) -> None:
     app.processEvents()
 
 
-# --- F-B: cancel_rew_read cancels the worker and reports "cancelled" ---------
-
-
-def _measurement_window(tmp_path: Path) -> MeasurementEditorWindow:
-    return MeasurementEditorWindow(_repository(tmp_path), F1_DOCUMENT_ID)
-
-
-def _submit_fake_rew_read(
-    window: MeasurementEditorWindow,
-    monkeypatch,
-    pool_cancels: list[str],
-) -> str:
-    """Submit a REW read token with no real worker; return its job_id."""
-
-    window.selected_id = "point-mlp"
-    window.rew_combo.addItem("REW A", "rew-uuid-1")
-    # Never start — the read stays "in flight" for the unhappy path.
-    monkeypatch.setattr(window, "_start_rew_task", lambda *a, **k: None)
-    window.read_selected_rew_async()
-
-    job_id = next(iter(window._rew_tokens.keys()))
-    original_cancel = window._rew_pool.cancel
-
-    def recorded_cancel(key: str) -> bool:
-        pool_cancels.append(key)
-        return original_cancel(key)
-
-    monkeypatch.setattr(window._rew_pool, "cancel", recorded_cancel)
-    return job_id
-
-
-def test_cancel_rew_read_cancels_worker_and_labels_cancel(tmp_path, monkeypatch) -> None:
-    app = _app()
-    window = _measurement_window(tmp_path)
-    window.show()
-    app.processEvents()
-    pool_cancels: list[str] = []
-
-    job_id = _submit_fake_rew_read(window, monkeypatch, pool_cancels)
-    token = window._rew_tokens[job_id]
-
-    window.cancel_rew_read()
-
-    # The pool cancel reaches the worker record so a queued read never
-    # starts and a finishing read reports WORKER_CANCELLED.
-    assert pool_cancels == [job_id]
-    assert window.rew_job_guard.is_cancelled(token)
-    assert "待機をやめました" in window.statusBar().currentMessage()
-
-    # The late successful result is discarded as a CANCEL — not blamed on
-    # a revision/constraint change that never happened.
-    window._rew_task_completed(job_id, object(), None)
-    message = window.statusBar().currentMessage()
-    assert "キャンセル" in message
-    assert "制約が変更" not in message
-    assert "revision/document" not in message
-    # Nothing applied.
-    assert window.measurement_repository.list_measurements(F1_DOCUMENT_ID) == ()
-
-    window.close()
-    window.deleteLater()
-    app.processEvents()
-
-
-def test_cancelled_rew_worker_error_is_silent(tmp_path, monkeypatch) -> None:
-    """A WORKER_CANCELLED completion must not surface a failure message."""
-    app = _app()
-    window = _measurement_window(tmp_path)
-    window.show()
-    app.processEvents()
-    pool_cancels: list[str] = []
-
-    job_id = _submit_fake_rew_read(window, monkeypatch, pool_cancels)
-    window.cancel_rew_read()
-    window.statusBar().clearMessage()
-
-    window._rew_task_completed(job_id, None, "cancelled")
-    assert window.statusBar().currentMessage() == ""
-
-    window.close()
-    window.deleteLater()
-    app.processEvents()
+# --- F-B (legacy): the REW-read cancel button tests moved with the legacy
+# measurement dock — the workflow path cancels via _job_pool / WORKER_CANCELLED
+# silence, pinned in measurement page workspace tests.
 
 
 # --- F-C: project-switch close uses the project_switch context ----------------
