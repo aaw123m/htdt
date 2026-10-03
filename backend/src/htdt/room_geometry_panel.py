@@ -206,9 +206,11 @@ class RoomGeometryPanel(QFrame):
             thickness_label.setToolTip(wall_thickness_hint)
         wall_actions = QHBoxLayout()
         self.merge_wall_button = QPushButton("次の壁と結合")
-        self.merge_wall_button.setToolTip(
-            "この壁と次（時計回り）の壁を1本にまとめます"
+        self._merge_wall_tooltips = (
+            "この壁と次（時計回り）の壁を1本にまとめます",
+            "この壁と先頭の壁を1本にまとめます（境目をまたぐ結合）",
         )
+        self.merge_wall_button.setToolTip(self._merge_wall_tooltips[0])
         self.delete_wall_button = QPushButton("壁を削除")
         self.delete_wall_button.setToolTip("選択中の壁を削除します")
         self.merge_wall_button.clicked.connect(self._merge_wall)
@@ -426,6 +428,13 @@ class RoomGeometryPanel(QFrame):
         with QSignalBlocker(self.wall_thickness):
             self.wall_thickness.setValue(wall.thickness_m)
         self.wall_thickness.setEnabled(wall_ready)
+        is_last_wall = wall_index == len(topology.walls) - 1
+        self.merge_wall_button.setText(
+            "先頭の壁と結合" if is_last_wall else "次の壁と結合"
+        )
+        self.merge_wall_button.setToolTip(
+            self._merge_wall_tooltips[1 if is_last_wall else 0]
+        )
         self.merge_wall_button.setEnabled(wall_ready)
         self.delete_wall_button.setEnabled(wall_ready)
 

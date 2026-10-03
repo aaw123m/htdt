@@ -356,8 +356,6 @@ class RoomGeometryInputController(QObject):
         walls = list(topology.walls)
         index = walls.index(wall)
         next_wall = walls[(index + 1) % len(walls)]
-        if index == len(walls) - 1:
-            raise WallTopologyError("末尾と先頭の壁結合は現在のUIでは未対応です")
         merged_room, merged_topology = merge_walls(
             room,
             topology,

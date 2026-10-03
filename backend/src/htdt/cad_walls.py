@@ -207,6 +207,8 @@ def merge_walls(
     second = _wall(topology, second_wall_id)
     if first.to_vertex_id != second.from_vertex_id:
         raise WallTopologyError('walls must be ordered neighbors to merge')
+    if len(room_vertices(room)) <= 3:
+        raise WallTopologyError('a room must keep at least three walls')
     if abs(first.thickness_m - second.thickness_m) > 1e-9:
         raise WallTopologyError('walls with different thickness cannot be merged implicitly')
 
@@ -236,9 +238,15 @@ def merge_walls(
     walls = list(topology.walls)
     first_index = walls.index(first)
     second_index = walls.index(second)
-    if second_index != first_index + 1:
+    if second_index == first_index + 1:
+        walls[first_index:second_index + 1] = [merged]
+    elif first_index == len(walls) - 1 and second_index == 0:
+        # Wrap-around pair across the boundary seam: dropping the shared
+        # vertex reindexes the polygon so the merged wall becomes the last
+        # boundary edge.
+        walls = walls[1:-1] + [merged]
+    else:
         raise WallTopologyError('walls must be adjacent in topology order to merge')
-    walls[first_index:second_index + 1] = [merged]
 
     migrated_openings: list[WallOpening] = []
     for opening in topology.openings:
