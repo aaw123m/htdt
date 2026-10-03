@@ -16,6 +16,7 @@ from htdt.capture_bundle import (
     MAX_SOURCE_REFS_TOTAL,
     PROVENANCE,
     SOURCE_REF_SENTINELS,
+    CaptureBundleError,
     FrozenBundle,
     canonical_json_bytes,
     parse_json_bytes,
@@ -54,6 +55,44 @@ FRAME_DESCRIPTOR_SUFFIX = ".json"
 # Quality ruleset versions this ingestor can evaluate the readiness gate
 # against. A finalized bundle produced under any other ruleset fails closed.
 SUPPORTED_QUALITY_RULESETS = {"1.0.0", "1.1.0", "1.2.0"}
+
+# Supplemental semantic/workflow authorities newer Capture bundles persist
+# alongside annotations/measurements (#564). The ingestion transaction keeps a
+# typed handoff for every *supported* kind; the canonical kind -> path map is
+# defined here (the producer side) so `build_ingestion_plan` can emit the
+# handoffs it used to leave as raw source evidence.
+SUPPLEMENTAL_DOCUMENT_DOMAIN = "htdt.capture.supplemental-document.v1"
+
+SUPPORTED_SUPPLEMENTAL_KINDS = frozenset({
+    "capture_task_plan",
+    "task_plan_status",
+    "connected_spaces",
+    "reference_targets",
+    "derived_geometry_candidates",
+    "as_built_verification",
+})
+
+SUPPLEMENTAL_DOCUMENT_PATHS = {
+    "capture_task_plan": "session/capture-task-plan.json",
+    "task_plan_status": "session/task-plan-status.json",
+    "connected_spaces": "session/connected-spaces.json",
+    "reference_targets": "evidence/reference-targets.json",
+    "derived_geometry_candidates": "derived/geometry-candidates.json",
+    "as_built_verification": "verification/as-built.json",
+}
+
+
+def _supplemental_handoff_id(
+    bundle_digest: str,
+    path: str,
+    payload_sha256: str,
+) -> str:
+    return _hash_parts(
+        SUPPLEMENTAL_DOCUMENT_DOMAIN,
+        bundle_digest,
+        path,
+        payload_sha256,
+    )
 
 
 class CaptureIngestionContractError(ValueError):
@@ -2641,6 +2680,113 @@ def _build_authority_records(
     return result
 
 
+_SUPPLEMENTAL_SESSION_KEYS = frozenset(
+    {"capture_session_id", "capture_session_ids"}
+)
+_SUPPLEMENTAL_SPACE_KEYS = frozenset(
+    {"coordinate_space_id", "coordinate_space_ids"}
+)
+
+
+def _collect_dependency_ids(
+    value,
+    session_ids: set,
+    space_ids: set,
+) -> None:
+    """Collect session/space dependency ids a supplemental document
+    declares, wherever they appear in its JSON body."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in _SUPPLEMENTAL_SESSION_KEYS:
+                for entry in (
+                    item if isinstance(item, list) else [item]
+                ):
+                    if isinstance(entry, str):
+                        session_ids.add(entry)
+            elif key in _SUPPLEMENTAL_SPACE_KEYS:
+                for entry in (
+                    item if isinstance(item, list) else [item]
+                ):
+                    if isinstance(entry, str):
+                        space_ids.add(entry)
+            else:
+                _collect_dependency_ids(item, session_ids, space_ids)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_dependency_ids(item, session_ids, space_ids)
+
+
+def _build_supplemental_documents(
+    reader,
+    bundle_digest: str,
+    source_by_path: dict,
+) -> list:
+    """Emit typed handoffs for every supported supplemental document the
+    bundle actually carries (#564).
+
+    Declared supplemental paths used to land only as hash-verified raw
+    source evidence — the typed ``CaptureSupplementalDocument`` layer was
+    reachable solely by tests injecting it. Deriving the handoff here
+    makes every shipped entry point (file import, LAN receiver, launch
+    router) produce the same typed preservation the transaction model
+    and replay verification already understand.
+    """
+    path_to_kind = {
+        path: kind
+        for kind, path in SUPPLEMENTAL_DOCUMENT_PATHS.items()
+    }
+    documents = []
+    for path, source in source_by_path.items():
+        kind = path_to_kind.get(path)
+        if kind is None:
+            continue
+        payload = reader.read(path)
+        try:
+            document = parse_json_bytes(payload)
+        except CaptureBundleError as exc:
+            raise CaptureIngestionContractError(
+                f"supplemental document {path} is not valid JSON: {exc}"
+            ) from exc
+        if not isinstance(document, dict):
+            raise CaptureIngestionContractError(
+                f"supplemental document {path} is not a JSON object"
+            )
+        schema = document.get("schema")
+        schema_version = document.get("schema_version")
+        if (
+            not isinstance(schema, str)
+            or not schema
+            or not isinstance(schema_version, str)
+            or not schema_version
+        ):
+            raise CaptureIngestionContractError(
+                f"supplemental document {path} lacks a schema identity"
+            )
+        session_ids: set = set()
+        space_ids: set = set()
+        _collect_dependency_ids(document, session_ids, space_ids)
+        documents.append(
+            {
+                "supplemental_document_handoff_id":
+                    _supplemental_handoff_id(
+                        bundle_digest, path, source["payload_sha256"]
+                    ),
+                "document_kind": kind,
+                "validation_state": "supported",
+                "schema": schema,
+                "schema_version": schema_version,
+                "path": path,
+                "source_evidence_id": source["source_evidence_id"],
+                "source_payload_sha256": source["payload_sha256"],
+                "coordinate_space_ids": sorted(space_ids),
+                "capture_session_ids": sorted(session_ids),
+                "plan_payload_sha256": None,
+            }
+        )
+    documents.sort(key=lambda item: item["path"])
+    return documents
+
+
 def _derive_sections(
     reader,
     manifest: dict,
@@ -2709,6 +2855,11 @@ def _derive_sections(
         },
         frame_registry,
     )
+    supplemental_documents = _build_supplemental_documents(
+        reader,
+        bundle_digest,
+        source_by_path,
+    )
 
     return {
         "source_records": source_records,
@@ -2716,6 +2867,7 @@ def _derive_sections(
         "roomplan_capture_metadata": roomplan_metadata,
         "raw_visual_mesh_handoffs": raw_mesh_handoffs,
         "authority_records": authority_records,
+        "supplemental_documents": supplemental_documents,
         "quality_document": quality_document,
     }
 
@@ -2730,6 +2882,7 @@ def build_ingestion_plan(reader: FrozenBundle) -> dict:
     roomplan_metadata = sections["roomplan_capture_metadata"]
     raw_mesh_handoffs = sections["raw_visual_mesh_handoffs"]
     authority_records = sections["authority_records"]
+    supplemental_documents = sections["supplemental_documents"]
 
     configuration_digest = hashlib.sha256(
         canonical_json_bytes(CONFIGURATION)
@@ -2750,6 +2903,11 @@ def build_ingestion_plan(reader: FrozenBundle) -> dict:
             for record in authority_records
         ),
     }
+    if supplemental_documents:
+        lineage_projection["supplemental_document_ids"] = sorted(
+            document["supplemental_document_handoff_id"]
+            for document in supplemental_documents
+        )
     lineage_digest = hashlib.sha256(
         canonical_json_bytes(lineage_projection)
     ).hexdigest()
@@ -2779,6 +2937,11 @@ def build_ingestion_plan(reader: FrozenBundle) -> dict:
         "authority_records": authority_records,
         "lineage_digest": lineage_digest,
     }
+    if supplemental_documents:
+        # Older plans carry no supplemental set — keep the key absent
+        # when empty so plan bytes stay identical for bundles without
+        # supplemental authorities.
+        plan["supplemental_documents"] = supplemental_documents
     canonical_plan_bytes(plan)
     return plan
 

@@ -75,7 +75,7 @@ COORDINATE_AUTHORITY_ID_RE = re.compile(
 SOURCE_EVIDENCE_DOMAIN = 'htdt.capture.source-evidence.v1'
 RAW_MESH_HANDOFF_DOMAIN = 'htdt.capture.raw-visual-mesh-handoff.v1'
 AUTHORITY_HANDOFF_DOMAIN = 'htdt.capture.authority-record.v1'
-SUPPLEMENTAL_DOCUMENT_DOMAIN = 'htdt.capture.supplemental-document.v1'
+SUPPLEMENTAL_DOCUMENT_DOMAIN = capture_reference.SUPPLEMENTAL_DOCUMENT_DOMAIN
 INGESTION_RUN_DOMAIN = 'htdt.capture.ingestion-run.v1'
 COORDINATE_AUTHORITY_DOMAIN = 'htdt.capture.coordinate-authority.v1'
 INGESTOR_CONFIGURATION_DIGEST = (
@@ -695,24 +695,11 @@ class CaptureAuthorityRecord(BaseModel):
 # alongside annotations/measurements (#564). A *supported* kind gets a typed
 # handoff; any other declared kind is retained verbatim as 'unsupported' so a
 # newer producer's payload never silently disappears at the ingestion
-# boundary. Preservation does not require widening a record_kind enum.
-SUPPORTED_SUPPLEMENTAL_KINDS = frozenset({
-    'capture_task_plan',
-    'task_plan_status',
-    'connected_spaces',
-    'reference_targets',
-    'derived_geometry_candidates',
-    'as_built_verification',
-})
-
-SUPPLEMENTAL_DOCUMENT_PATHS = {
-    'capture_task_plan': 'session/capture-task-plan.json',
-    'task_plan_status': 'session/task-plan-status.json',
-    'connected_spaces': 'session/connected-spaces.json',
-    'reference_targets': 'evidence/reference-targets.json',
-    'derived_geometry_candidates': 'derived/geometry-candidates.json',
-    'as_built_verification': 'verification/as-built.json',
-}
+# boundary. Preservation does not require widening a record_kind enum. The
+# canonical kind/path maps live in capture_reference (the producer side that
+# emits the handoffs) and are re-exported here for plan validation.
+SUPPORTED_SUPPLEMENTAL_KINDS = capture_reference.SUPPORTED_SUPPLEMENTAL_KINDS
+SUPPLEMENTAL_DOCUMENT_PATHS = capture_reference.SUPPLEMENTAL_DOCUMENT_PATHS
 
 
 class CaptureSupplementalDocument(BaseModel):
@@ -3960,6 +3947,26 @@ class CaptureIngestionRepository:
             raise CapturePayloadContractError(
                 'declared authority records do not match the rederived '
                 'exact annotation/measurement contract'
+            )
+
+        # Supplemental handoffs: the rederive emits them for every
+        # supported supplemental path the manifest declares. Compare only
+        # 'supported' entries — an 'unsupported' handoff preserves a
+        # future producer's document the ingestor cannot interpret, so
+        # nothing can be rederived for it; its payload is still
+        # hash-bound through source evidence.
+        expected_supplemental = _canonical_rows(
+            item.model_dump(mode='json')
+            for item in typed.supplemental_documents
+            if item.validation_state == 'supported'
+        )
+        recomputed_supplemental = _canonical_rows(
+            sections['supplemental_documents']
+        )
+        if expected_supplemental != recomputed_supplemental:
+            raise CapturePayloadContractError(
+                'declared supplemental documents do not match the '
+                'rederived exact payload contract'
             )
 
         quality_document = sections['quality_document']

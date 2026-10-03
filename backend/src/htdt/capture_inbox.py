@@ -412,6 +412,13 @@ def plan_authority_kinds(
         for evidence in plan.source_evidence
     ):
         kinds.add('connected_space')
+    if any(
+        document.document_kind == 'reference_targets'
+        for document in plan.supplemental_documents
+    ):
+        kinds.add('reference_targets')
+    if plan.supplemental_documents:
+        kinds.add('supplemental_authority')
     return frozenset(kinds)
 
 
