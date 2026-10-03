@@ -173,7 +173,10 @@ class FieldExplorerPanel(QWidget):
 
         session_row = QHBoxLayout()
         self.session_combo = QComboBox()
-        self.session_combo.setMinimumContentsLength(24)
+        self.session_combo.setMinimumContentsLength(12)
+        self.session_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.session_combo.setToolTip(
             '表示する予測実行（音場セッション）を選びます。'
         )
@@ -192,6 +195,9 @@ class FieldExplorerPanel(QWidget):
         form = QFormLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumContentsLength(18)
+        self.mode_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.mode_combo.setToolTip(
             '音場を計算する室モード（部屋の固有振動の次数）を選びます。'
         )
@@ -219,6 +225,10 @@ class FieldExplorerPanel(QWidget):
 
         view_form = QFormLayout()
         self.plane_combo = QComboBox()
+        self.plane_combo.setMinimumContentsLength(12)
+        self.plane_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         for plane in ('xy', 'xz', 'yz'):
             self.plane_combo.addItem(_PLANE_LABELS[plane], plane)
         self.plane_combo.setToolTip(
@@ -228,6 +238,10 @@ class FieldExplorerPanel(QWidget):
         view_form.addRow('断面', self.plane_combo)
 
         self.coordinate_combo = QComboBox()
+        self.coordinate_combo.setMinimumContentsLength(12)
+        self.coordinate_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.coordinate_combo.setToolTip(
             '断面を切る高さ・位置の座標です。'
         )
@@ -235,6 +249,10 @@ class FieldExplorerPanel(QWidget):
         view_form.addRow('断面位置', self.coordinate_combo)
 
         self.quantity_combo = QComboBox()
+        self.quantity_combo.setMinimumContentsLength(12)
+        self.quantity_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.quantity_combo.setToolTip(
             '断面に表示する物理量（音圧レベルなど）です。'
         )
@@ -285,6 +303,10 @@ class FieldExplorerPanel(QWidget):
         probe_form.addRow('プローブ位置 (x,y,z)', probe_row)
 
         self.interpolate_combo = QComboBox()
+        self.interpolate_combo.setMinimumContentsLength(12)
+        self.interpolate_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.interpolate_combo.addItem('最近傍サンプル (補間なし)', 'exact_samples')
         self.interpolate_combo.addItem('3次元線形補間', 'trilinear')
         self.interpolate_combo.setToolTip(
