@@ -64,6 +64,41 @@ VOXEL_STAIRCASE_NEIGHBOR_DIRECTIONS = (
     (1, 0, 0), (-1, 0, 0), (0, 1, 0),
     (0, -1, 0), (0, 0, 1), (0, 0, -1),
 )
+TIME_GATE_LOCALIZATION_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.time-gate-localization-diagnostic-plan-1'
+)
+TIME_GATE_LOCALIZATION_DIAGNOSTIC_PLAN_SHA256 = (
+    '32200abe7c7b35e3af82b871793fe417a59b2b911071bfdea4dcd2dede63f89e'
+)
+TIME_GATE_CANONICAL_CELL_ID = 'full_record'
+TIME_GATE_PREFIX_CELL_IDS = (
+    'prefix_10ms',
+    'prefix_25ms',
+    'prefix_50ms',
+    'prefix_100ms',
+)
+TIME_GATE_TAIL_CELL_IDS = (
+    'tail_10ms',
+    'tail_25ms',
+    'tail_50ms',
+    'tail_100ms',
+)
+TIME_GATE_BAND_CELL_IDS = (
+    'band_mid_50_150ms',
+    'band_late_150_250ms',
+)
+TIME_GATE_CELL_IDS = (
+    TIME_GATE_CANONICAL_CELL_ID,
+    *TIME_GATE_PREFIX_CELL_IDS,
+    *TIME_GATE_TAIL_CELL_IDS,
+    *TIME_GATE_BAND_CELL_IDS,
+)
+TIME_GATE_PARTITION_CELL_IDS = (
+    'prefix_50ms',
+    'band_mid_50_150ms',
+    'band_late_150_250ms',
+)
+TIME_GATE_PARTITION_MAX_ABS_TOLERANCE = 1.0e-12
 DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
 DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
 
@@ -156,6 +191,29 @@ def load_voxel_staircase_sensitivity_diagnostic_plan(
     if digest != VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256:
         raise ValueError(
             'R130D voxel-staircase sensitivity diagnostic plan differs from the '
+            f'frozen pre-run authority: {digest}'
+        )
+    return payload
+
+
+def load_time_gate_localization_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError(
+            'R130D time-gate localization diagnostic plan must be a JSON object'
+        )
+    if payload.get('schema_version') != (
+        TIME_GATE_LOCALIZATION_DIAGNOSTIC_PLAN_SCHEMA
+    ):
+        raise ValueError(
+            'R130D time-gate localization diagnostic plan schema mismatch'
+        )
+    digest = semantic_hash(payload)
+    if digest != TIME_GATE_LOCALIZATION_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D time-gate localization diagnostic plan differs from the '
             f'frozen pre-run authority: {digest}'
         )
     return payload
@@ -719,6 +777,234 @@ def validate_voxel_staircase_sensitivity_diagnostic_binding(
         )
 
 
+def validate_time_gate_localization_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+    dense_diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    spatial_parent = diagnostic.get('parent_spatial_representation_diagnostic', {})
+    dense_parent = diagnostic.get('parent_dense_frequency_diagnostic', {})
+    stencil_parent = diagnostic.get('parent_stencil_sensitivity_diagnostic', {})
+    voxel_parent = diagnostic.get(
+        'parent_voxel_staircase_sensitivity_diagnostic', {}
+    )
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent spatial diagnostic sha256',
+            spatial_parent.get('semantic_sha256'),
+            SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent stencil diagnostic sha256',
+            stencil_parent.get('semantic_sha256'),
+            STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent voxel-staircase diagnostic sha256',
+            voxel_parent.get('semantic_sha256'),
+            VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'bound dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            semantic_hash(dense_diagnostic),
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                'R130D time-gate localization diagnostic binding mismatch for '
+                f'{label}: {actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError('R130D time-gate diagnostic changes canonical thresholds')
+    time_gate = diagnostic.get('time_gate_localization', {})
+    gates = list(time_gate.get('gates', ()))
+    gate_ids = [str(item.get('gate_id', '')) for item in gates]
+    if tuple(gate_ids) != TIME_GATE_CELL_IDS:
+        raise ValueError('time-gate localization gates are not the frozen set')
+    control_flags = [bool(item.get('control')) for item in gates]
+    if control_flags != [True] + [False] * (len(TIME_GATE_CELL_IDS) - 1):
+        raise ValueError('time-gate localization control flags are not frozen')
+    duration_s = float(plan.physical_quantity.duration_s)
+    partition_intervals: list[tuple[float, float]] = []
+    for item in gates:
+        interval = item.get('interval_s', ())
+        if (
+            not isinstance(interval, list)
+            or len(interval) != 2
+            or not all(math.isfinite(float(x)) for x in interval)
+        ):
+            raise ValueError('time-gate interval must be a [start,end) pair')
+        t_start, t_end = float(interval[0]), float(interval[1])
+        if not (0.0 <= t_start < t_end <= duration_s):
+            raise ValueError(
+                f'time-gate interval {interval!r} is outside the frozen record'
+            )
+        kind = str(item.get('kind', ''))
+        gate_id = str(item.get('gate_id', ''))
+        if kind == 'control' and (t_start, t_end) != (0.0, duration_s):
+            raise ValueError('time-gate control cell must span the whole record')
+        if kind == 'prefix' and t_start != 0.0:
+            raise ValueError('time-gate prefix cell must start at t=0')
+        if kind == 'tail' and t_end != duration_s:
+            raise ValueError('time-gate tail cell must end at T')
+        if kind not in ('control', 'prefix', 'tail', 'band'):
+            raise ValueError(f'time-gate cell {gate_id!r} has unknown kind')
+        if gate_id in TIME_GATE_PARTITION_CELL_IDS:
+            partition_intervals.append((t_start, t_end))
+    edges = sorted({0.0, duration_s} | {x for pair in partition_intervals for x in pair})
+    partition_union = [
+        (edges[i], edges[i + 1]) for i in range(len(edges) - 1)
+    ]
+    if sorted(partition_intervals) != partition_union:
+        raise ValueError(
+            'time-gate partition cells must tile [0,T) disjointly and exactly'
+        )
+    cell_axis = time_gate.get('cell_axis', {})
+    if tuple(cell_axis.get('cells', ())) != TIME_GATE_CELL_IDS:
+        raise ValueError('time-gate localization cell axis is not frozen')
+    if cell_axis.get('canonical_cell_id') != TIME_GATE_CANONICAL_CELL_ID:
+        raise ValueError('time-gate localization canonical cell is not frozen')
+    evaluation = time_gate.get('evaluation', {})
+    dense_block = dense_diagnostic.get('dense_frequency_neighborhood', {})
+    if evaluation.get('normalized_complex_difference_formula') != dense_block.get(
+        'normalized_complex_difference_formula'
+    ):
+        raise ValueError(
+            'time-gate diagnostic metric formula differs from dense authority'
+        )
+    if float(evaluation.get('fixed_floor', math.nan)) != float(
+        dense_block.get('fixed_floor', math.nan)
+    ):
+        raise ValueError(
+            'time-gate diagnostic fixed floor differs from dense authority'
+        )
+    if list(evaluation.get('pairs', ())) != list(dense_block.get('pairs', ())):
+        raise ValueError('time-gate diagnostic pairs differ from dense authority')
+    per_cell = evaluation.get('per_cell_classification', {})
+    dense_classification = dense_block.get('classification', {})
+    if int(per_cell.get('localized_max_count', -1)) != int(
+        dense_classification.get('localized_max_count', -2)
+    ) or int(per_cell.get('persists_min_count', -1)) != int(
+        dense_classification.get('persists_min_count', -2)
+    ):
+        raise ValueError(
+            'time-gate diagnostic cell thresholds differ from dense authority'
+        )
+    partition_check = evaluation.get('partition_identity_check', {})
+    if tuple(partition_check.get('partition_cells', ())) != (
+        TIME_GATE_PARTITION_CELL_IDS
+    ):
+        raise ValueError('time-gate partition check cells are not frozen')
+    if float(partition_check.get('max_abs_complex_component_tolerance', math.nan)) != (
+        TIME_GATE_PARTITION_MAX_ABS_TOLERANCE
+    ):
+        raise ValueError('time-gate partition tolerance is not the frozen 1e-12')
+    classification = evaluation.get('classification', {})
+    if tuple(classification.get(key, '') for key in (
+        'invariant', 'early_carried', 'late_carried', 'broadband', 'mixed',
+        'not_evaluated',
+    )) != (
+        'TIME_GATE_WORSENING_PATTERN_INVARIANT',
+        'TIME_GATE_WORSENING_EARLY_CARRIED',
+        'TIME_GATE_WORSENING_LATE_CARRIED',
+        'TIME_GATE_WORSENING_BROADBAND',
+        'TIME_GATE_WORSENING_PATTERN_MIXED',
+        'NOT_EVALUATED',
+    ):
+        raise ValueError('time-gate classification labels are not frozen')
+    if evaluation.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only cells cannot enter canonical acceptance')
+    binding = diagnostic.get('run76_record_binding', {})
+    dense_binding = dense_diagnostic.get('run76_record_binding', {})
+    levels = list(binding.get('levels', ()))
+    dense_levels = list(dense_binding.get('levels', ()))
+    if [float(item.get('points_per_wavelength', math.nan)) for item in levels] != [
+        float(x) for x in plan.pffdtd.points_per_wavelength
+    ]:
+        raise ValueError('run76 record binding levels must match the PPW ladder')
+    for item in levels:
+        for key in ('pressure_trace_sha256', 'source_trace_sha256'):
+            value = str(item.get(key, ''))
+            if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError(f'run76 record binding {key} is not a sha256')
+    for item, dense_item in zip(levels, dense_levels):
+        if (
+            float(item.get('points_per_wavelength', math.nan))
+            != float(dense_item.get('points_per_wavelength', math.nan))
+            or item.get('pressure_trace_sha256')
+            != dense_item.get('pressure_trace_sha256')
+            or item.get('source_trace_sha256')
+            != dense_item.get('source_trace_sha256')
+        ):
+            raise ValueError('run76 record binding pins differ from dense authority')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError('R130D time-gate diagnostic forbidden-change flag is on')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError(
+            'R130D time-gate diagnostic decision semantics are not fail-closed'
+        )
+
+
 def normalized_complex_difference(
     first: complex,
     second: complex,
@@ -733,6 +1019,49 @@ def normalized_complex_difference(
     if not all(math.isfinite(x) for x in (a.real, a.imag, b.real, b.imag)):
         raise ValueError('normalized complex difference inputs must be finite')
     return float(abs(b - a) / max(abs(a), abs(b), floor))
+
+
+def apply_time_gate(
+    record: np.ndarray,
+    *,
+    time_step_s: float,
+    interval_s: Sequence[float],
+) -> np.ndarray:
+    """Apply a frozen half-open causal time gate to a bound raw record.
+
+    The gated record keeps the samples n with
+    ``t_start_s <= n * time_step_s < t_end_s`` and is zero outside the gate;
+    the solver time grid itself is unchanged, so disjoint gates that tile
+    ``[0, T)`` decompose the finite-record transform additively.
+    """
+    samples = np.asarray(record, dtype=np.float64)
+    if samples.ndim != 1 or samples.size < 2:
+        raise ValueError('time gate requires a 1D record of at least two samples')
+    if not np.all(np.isfinite(samples)):
+        raise ValueError('time gate record must be finite')
+    if not math.isfinite(time_step_s) or time_step_s <= 0.0:
+        raise ValueError('time gate time_step_s must be finite and positive')
+    if (
+        not isinstance(interval_s, Sequence)
+        or len(interval_s) != 2
+        or not all(math.isfinite(float(x)) for x in interval_s)
+    ):
+        raise ValueError('time gate interval must be a [start,end) pair')
+    t_start = float(interval_s[0])
+    t_end = float(interval_s[1])
+    record_end = samples.size * float(time_step_s)
+    if not (0.0 <= t_start < t_end <= record_end):
+        raise ValueError(
+            f'time gate interval {(t_start, t_end)!r} is outside the record '
+            f'[0,{record_end})'
+        )
+    times = np.arange(samples.size, dtype=np.float64) * float(time_step_s)
+    mask = (times >= t_start) & (times < t_end)
+    if not np.any(mask):
+        raise ValueError(
+            f'time gate interval {(t_start, t_end)!r} selects no record samples'
+        )
+    return samples * mask
 
 
 def classify_frequency_neighborhood(
@@ -883,6 +1212,92 @@ def classify_voxel_staircase_sensitivity(
         'identical_vector_cell_count': identical_cell_count,
         'shifted_cell_ids': shifted_cell_ids,
         'reclassified_cell_ids': reclassified_cell_ids,
+        'hamming_distance_by_cell': hamming,
+    }
+
+
+def classify_time_gate_localization(
+    *,
+    canonical_worsening_by_frequency: Sequence[bool],
+    canonical_classification: str,
+    noncanonical_cells: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    """Frozen rule for the causal time-gate axis.
+
+    A gate "carries" the worsening iff its per-cell dense classification is
+    not localized (worsening count above the frozen localized maximum).
+    Evaluation order: invariant -> early_carried -> late_carried -> broadband
+    -> mixed.
+    """
+    canonical_vector = tuple(bool(x) for x in canonical_worsening_by_frequency)
+    if len(canonical_vector) < 2:
+        raise ValueError('time-gate classifier requires the canonical vector')
+    hamming: dict[str, int] = {}
+    prefix_exact: list[str] = []
+    tail_exact: list[str] = []
+    prefix_localized = True
+    tail_localized = True
+    prefix_carries: list[str] = []
+    tail_carries: list[str] = []
+    identical_cell_count = 0
+    localized_label = 'DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'
+    seen_ids: list[str] = []
+    for cell in noncanonical_cells:
+        cell_id = str(cell.get('cell_id', ''))
+        if cell_id == TIME_GATE_CANONICAL_CELL_ID:
+            raise ValueError('non-canonical cell list must not contain the control')
+        if cell_id not in TIME_GATE_CELL_IDS:
+            raise ValueError(f'time-gate cell {cell_id!r} is not in the frozen set')
+        seen_ids.append(cell_id)
+        vector = tuple(bool(x) for x in cell.get('worsening_by_frequency', ()))
+        if len(vector) != len(canonical_vector):
+            raise ValueError(
+                f'time-gate cell {cell_id!r} worsening vector length mismatch'
+            )
+        distance = sum(a != b for a, b in zip(vector, canonical_vector))
+        hamming[cell_id] = int(distance)
+        classification = str(cell.get('classification', ''))
+        carries = classification != localized_label
+        if distance == 0:
+            identical_cell_count += 1
+        if cell_id in TIME_GATE_PREFIX_CELL_IDS:
+            if distance == 0:
+                prefix_exact.append(cell_id)
+            if carries:
+                prefix_carries.append(cell_id)
+                prefix_localized = False
+        elif cell_id in TIME_GATE_TAIL_CELL_IDS:
+            if distance == 0:
+                tail_exact.append(cell_id)
+            if carries:
+                tail_carries.append(cell_id)
+                tail_localized = False
+    if set(seen_ids) != set(TIME_GATE_CELL_IDS) - {TIME_GATE_CANONICAL_CELL_ID}:
+        raise ValueError(
+            'time-gate classifier requires exactly the frozen non-control cells'
+        )
+    if identical_cell_count == len(noncanonical_cells):
+        classification = 'TIME_GATE_WORSENING_PATTERN_INVARIANT'
+    elif tail_localized and prefix_exact:
+        classification = 'TIME_GATE_WORSENING_EARLY_CARRIED'
+    elif prefix_localized and tail_exact:
+        classification = 'TIME_GATE_WORSENING_LATE_CARRIED'
+    elif prefix_carries and tail_carries:
+        classification = 'TIME_GATE_WORSENING_BROADBAND'
+    else:
+        classification = 'TIME_GATE_WORSENING_PATTERN_MIXED'
+    return {
+        'classification': classification,
+        'canonical_cell_id': TIME_GATE_CANONICAL_CELL_ID,
+        'canonical_dense_classification': canonical_classification,
+        'evaluated_noncanonical_cell_count': len(noncanonical_cells),
+        'identical_vector_cell_count': identical_cell_count,
+        'all_prefix_cells_localized': prefix_localized,
+        'all_tail_cells_localized': tail_localized,
+        'prefix_exact_reproduction_cell_ids': prefix_exact,
+        'tail_exact_reproduction_cell_ids': tail_exact,
+        'prefix_carrying_cell_ids': prefix_carries,
+        'tail_carrying_cell_ids': tail_carries,
         'hamming_distance_by_cell': hamming,
     }
 
