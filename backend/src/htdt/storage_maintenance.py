@@ -47,6 +47,7 @@ from pathlib import Path
 import re
 import sqlite3
 import time
+from typing import TypeVar
 
 from .cad_schema import require_native_tables, connect_sqlite
 from .clock import utc_now_iso as _utc_now
@@ -450,6 +451,33 @@ def _begin_immediate(
             time.sleep(0.05 * (attempt + 1))
 
 
+_PassResult = TypeVar('_PassResult')
+
+
+def _run_write_pass(
+    body: Callable[[], _PassResult], *, attempts: int = 3
+) -> _PassResult:
+    """Retry a whole ``BEGIN IMMEDIATE``→``COMMIT`` unit on lock errors.
+
+    ``_begin_immediate`` only bounds BEGIN-time starvation; a ``COMMIT``
+    that cannot upgrade RESERVED to EXCLUSIVE while readers hold SHARED
+    also fails ``database is locked`` — rolling the pass back and
+    surfacing a retryable error to the caller. Re-running the whole pass
+    a bounded number of times rides out a sustained burst. Every attempt
+    re-proves reachability, pending state and file identity from scratch,
+    so a retried pass can never delete on stale information; the pending
+    ledger keeps an interrupted pass resumable by the next run.
+    """
+    for attempt in range(attempts):
+        try:
+            return body()
+        except sqlite3.OperationalError as exc:
+            if 'locked' not in str(exc) or attempt == attempts - 1:
+                raise
+            time.sleep(0.1 * (attempt + 1))
+    raise AssertionError('unreachable')
+
+
 def run_storage_gc(
     data_dir: Path,
     *,
@@ -464,7 +492,11 @@ def run_storage_gc(
     inside it, so a writer whose reference committed between the two
     transactions has its registry row restored — never a
     ``missing_referenced`` dangling over a deleted file. Worst partial
-    state stays the pending row: retryable on the next pass.
+    state stays the pending row: retryable on the next pass. Each
+    transaction is re-run a bounded number of times when a ``database is
+    locked`` escapes the begin retry (a commit losing the EXCLUSIVE
+    upgrade to saturated readers); every attempt re-proves everything
+    from the live database, so retries stay fail-closed.
     """
 
     data_dir = Path(data_dir)
@@ -483,83 +515,96 @@ def run_storage_gc(
     # The pending ledger is what makes a post-commit crash retryable:
     # registry row and pending row commit together, so a file delete that
     # fails or a process that dies mid-pass resumes on the next run.
-    deleted_rows = 0
-    deleted_digests: set[str] = set()
-    deleted_registry_rows: dict[str, sqlite3.Row] = {}
-    skipped: list[str] = []
-    with closing(_connect(db_path)) as connection:
-        _begin_immediate(connection)
-        try:
-            require_native_tables(connection, GC_PENDING_TABLE)
-            live_digests = referenced_asset_digests(connection)
-            registry = _asset_registry(connection)
-            pending_rows = _gc_pending(connection)
-            now = _utc_now()
-            for digest in sorted(candidates):
-                _raise_if_storage_cancelled(is_cancelled)
-                # Re-validation immediately before delete: if the digest
-                # became reachable since the scan, keep it.
-                if digest in live_digests:
-                    skipped.append(digest)
-                    continue
-                candidate = candidates[digest]
-                row = registry.get(digest)
-                pending_row = pending_rows.get(digest)
-                if row is None and pending_row is None:
-                    continue
-                size_bytes = int(
-                    row['size_bytes']
-                    if row is not None
-                    else pending_row['size_bytes']
-                )
-                # Content verification: a file whose bytes do not hash to
-                # its digest name is an integrity anomaly — keep the row
-                # and the file, skip the delete.
-                if not _file_matches_digest(
-                    candidate.path, digest, size_bytes
-                ):
-                    skipped.append(digest)
-                    logger.warning(
-                        'storage gc: orphan asset %s failed content '
-                        'verification; leaving it registered',
-                        digest,
+    def _delete_rows_pass() -> tuple[
+        int, set[str], dict[str, sqlite3.Row], list[str]
+    ]:
+        deleted_rows = 0
+        deleted_digests: set[str] = set()
+        deleted_registry_rows: dict[str, sqlite3.Row] = {}
+        skipped: list[str] = []
+        with closing(_connect(db_path)) as connection:
+            _begin_immediate(connection)
+            try:
+                require_native_tables(connection, GC_PENDING_TABLE)
+                live_digests = referenced_asset_digests(connection)
+                registry = _asset_registry(connection)
+                pending_rows = _gc_pending(connection)
+                now = _utc_now()
+                for digest in sorted(candidates):
+                    _raise_if_storage_cancelled(is_cancelled)
+                    # Re-validation immediately before delete: if the
+                    # digest became reachable since the scan, keep it.
+                    if digest in live_digests:
+                        skipped.append(digest)
+                        continue
+                    candidate = candidates[digest]
+                    row = registry.get(digest)
+                    pending_row = pending_rows.get(digest)
+                    if row is None and pending_row is None:
+                        continue
+                    size_bytes = int(
+                        row['size_bytes']
+                        if row is not None
+                        else pending_row['size_bytes']
                     )
-                    continue
-                if pending_row is None:
-                    connection.execute(
-                        f'INSERT INTO {GC_PENDING_TABLE}('
-                        'sha256, size_bytes, queued_at_utc'
-                        ') VALUES (?, ?, ?)',
-                        (digest, size_bytes, now),
-                    )
-                if row is not None:
-                    connection.execute(
-                        'DELETE FROM cad_measurement_assets WHERE sha256=?',
-                        (digest,),
-                    )
-                    deleted_rows += 1
-                    deleted_registry_rows[digest] = row
-                deleted_digests.add(digest)
-            # Sweep pending rows that can no longer produce a delete: the
-            # file vanished out-of-band (clear it) or the digest became
-            # referenced again (keep the file, clear the row).
-            for digest, pending_row in pending_rows.items():
-                if digest in deleted_digests:
-                    continue
-                if digest in live_digests or not (
-                    data_dir
-                    / MANAGED_ASSETS_DIRNAME
-                    / digest
-                ).is_file():
-                    connection.execute(
-                        f'DELETE FROM {GC_PENDING_TABLE} WHERE sha256=?',
-                        (digest,),
-                    )
-        except Exception:
-            connection.rollback()
-            raise
-        else:
-            connection.commit()
+                    # Content verification: a file whose bytes do not hash
+                    # to its digest name is an integrity anomaly — keep
+                    # the row and the file, skip the delete.
+                    if not _file_matches_digest(
+                        candidate.path, digest, size_bytes
+                    ):
+                        skipped.append(digest)
+                        logger.warning(
+                            'storage gc: orphan asset %s failed content '
+                            'verification; leaving it registered',
+                            digest,
+                        )
+                        continue
+                    if pending_row is None:
+                        connection.execute(
+                            f'INSERT INTO {GC_PENDING_TABLE}('
+                            'sha256, size_bytes, queued_at_utc'
+                            ') VALUES (?, ?, ?)',
+                            (digest, size_bytes, now),
+                        )
+                    if row is not None:
+                        connection.execute(
+                            'DELETE FROM cad_measurement_assets '
+                            'WHERE sha256=?',
+                            (digest,),
+                        )
+                        deleted_rows += 1
+                        deleted_registry_rows[digest] = row
+                    deleted_digests.add(digest)
+                # Sweep pending rows that can no longer produce a delete:
+                # the file vanished out-of-band (clear it) or the digest
+                # became referenced again (keep the file, clear the row).
+                for digest, pending_row in pending_rows.items():
+                    if digest in deleted_digests:
+                        continue
+                    if digest in live_digests or not (
+                        data_dir
+                        / MANAGED_ASSETS_DIRNAME
+                        / digest
+                    ).is_file():
+                        connection.execute(
+                            f'DELETE FROM {GC_PENDING_TABLE} '
+                            'WHERE sha256=?',
+                            (digest,),
+                        )
+            except Exception:
+                connection.rollback()
+                raise
+            else:
+                connection.commit()
+        return deleted_rows, deleted_digests, deleted_registry_rows, skipped
+
+    (
+        deleted_rows,
+        deleted_digests,
+        deleted_registry_rows,
+        skipped,
+    ) = _run_write_pass(_delete_rows_pass)
 
     # Second exclusion window: re-prove unreachability, then unlink while
     # still holding the write lock that publishes the pending-ledger
@@ -571,9 +616,11 @@ def run_storage_gc(
     # installs bytes under BEGIN IMMEDIATE), so neither ordering can
     # leave a committed reference over a deleted file. Unlink OSError
     # keeps the pending row: the next pass retries it.
-    freed = 0
-    deleted_files = 0
-    if deleted_digests:
+    def _unlink_pass() -> tuple[int, int, int, list[str]]:
+        freed = 0
+        deleted_files = 0
+        restored_rows = 0
+        skipped: list[str] = []
         with closing(_connect(db_path)) as connection:
             _begin_immediate(connection)
             try:
@@ -598,7 +645,7 @@ def run_storage_gc(
                                     row['size_bytes'],
                                 ),
                             )
-                            deleted_rows -= 1
+                            restored_rows += 1
                         connection.execute(
                             f'DELETE FROM {GC_PENDING_TABLE} WHERE sha256=?',
                             (digest,),
@@ -635,6 +682,16 @@ def run_storage_gc(
                 raise
             else:
                 connection.commit()
+        return freed, deleted_files, restored_rows, skipped
+
+    freed = 0
+    deleted_files = 0
+    if deleted_digests:
+        freed, deleted_files, restored_rows, unlink_skipped = (
+            _run_write_pass(_unlink_pass)
+        )
+        deleted_rows -= restored_rows
+        skipped.extend(unlink_skipped)
 
     logger.info(
         'storage gc complete: files=%d rows=%d freed_bytes=%d skipped=%d',
