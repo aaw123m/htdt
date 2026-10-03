@@ -46,6 +46,24 @@ STENCIL_SENSITIVITY_VARIANT_IDS = (
 STENCIL_SENSITIVITY_CANONICAL_CELL_ID = (
     'canonical_trilinear|canonical_trilinear'
 )
+VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.voxel-staircase-sensitivity-diagnostic-plan-1'
+)
+VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256 = (
+    '0e39ec4222d352b4f66560241c05825ce7c9b3792a410a60ac7e16cd6c45af9b'
+)
+VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS = (
+    'canonical_voxelization',
+    'dilated_boundary_layer',
+    'near_boundary_nodes_as_air',
+    'open_boundary_as_air',
+    'fully_blocked_boundary',
+)
+VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID = 'canonical_voxelization'
+VOXEL_STAIRCASE_NEIGHBOR_DIRECTIONS = (
+    (1, 0, 0), (-1, 0, 0), (0, 1, 0),
+    (0, -1, 0), (0, 0, 1), (0, 0, -1),
+)
 DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
 DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
 
@@ -116,6 +134,29 @@ def load_stencil_sensitivity_diagnostic_plan(
         raise ValueError(
             'R130D stencil sensitivity diagnostic plan differs from the frozen '
             f'pre-run authority: {digest}'
+        )
+    return payload
+
+
+def load_voxel_staircase_sensitivity_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError(
+            'R130D voxel-staircase sensitivity diagnostic plan must be a JSON object'
+        )
+    if payload.get('schema_version') != (
+        VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SCHEMA
+    ):
+        raise ValueError(
+            'R130D voxel-staircase sensitivity diagnostic plan schema mismatch'
+        )
+    digest = semantic_hash(payload)
+    if digest != VOXEL_STAIRCASE_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D voxel-staircase sensitivity diagnostic plan differs from the '
+            f'frozen pre-run authority: {digest}'
         )
     return payload
 
@@ -511,6 +552,173 @@ def validate_stencil_sensitivity_diagnostic_binding(
         raise ValueError('R130D stencil diagnostic decision semantics are not fail-closed')
 
 
+def validate_voxel_staircase_sensitivity_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+    dense_diagnostic: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    spatial_parent = diagnostic.get('parent_spatial_representation_diagnostic', {})
+    dense_parent = diagnostic.get('parent_dense_frequency_diagnostic', {})
+    stencil_parent = diagnostic.get('parent_stencil_sensitivity_diagnostic', {})
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent spatial diagnostic sha256',
+            spatial_parent.get('semantic_sha256'),
+            SPATIAL_REPRESENTATION_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'parent stencil diagnostic sha256',
+            stencil_parent.get('semantic_sha256'),
+            STENCIL_SENSITIVITY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'bound dense diagnostic sha256',
+            dense_parent.get('semantic_sha256'),
+            semantic_hash(dense_diagnostic),
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+        (
+            'duration',
+            float(frozen.get('requested_duration_s', math.nan)),
+            float(plan.physical_quantity.duration_s),
+        ),
+        (
+            'canonical frequencies',
+            tuple(float(x) for x in frozen.get('canonical_frequency_hz', ())),
+            tuple(float(x) for x in plan.physical_quantity.frequency_hz),
+        ),
+        (
+            'magnitude mask',
+            float(frozen.get('magnitude_mask_relative_db', math.nan)),
+            float(plan.acceptance.magnitude_mask_relative_db),
+        ),
+    )
+    for label, actual, expected in checks:
+        if actual != expected:
+            raise ValueError(
+                'R130D voxel-staircase sensitivity diagnostic binding mismatch for '
+                f'{label}: {actual!r} != {expected!r}'
+            )
+    expected_thresholds = plan.acceptance.pffdtd_self_convergence.model_dump(
+        mode='json', exclude_none=True
+    )
+    if frozen.get('pffdtd_self_convergence_thresholds') != expected_thresholds:
+        raise ValueError('R130D voxel-staircase diagnostic changes canonical thresholds')
+    voxel = diagnostic.get('voxel_staircase_sensitivity', {})
+    variants = list(voxel.get('boundary_variants', ()))
+    variant_ids = [str(item.get('variant_id', '')) for item in variants]
+    if tuple(variant_ids) != VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS:
+        raise ValueError('voxel-staircase sensitivity variants are not the frozen set')
+    control_flags = [bool(item.get('control')) for item in variants]
+    if control_flags != [True, False, False, False, False]:
+        raise ValueError('voxel-staircase sensitivity control flags are not frozen')
+    cell_axis = voxel.get('cell_axis', {})
+    if tuple(cell_axis.get('cells', ())) != VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS:
+        raise ValueError('voxel-staircase sensitivity cell axis is not frozen')
+    if cell_axis.get('canonical_cell_id') != (
+        VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID
+    ):
+        raise ValueError('voxel-staircase sensitivity canonical cell is not frozen')
+    evaluation = voxel.get('evaluation', {})
+    dense_block = dense_diagnostic.get('dense_frequency_neighborhood', {})
+    if evaluation.get('normalized_complex_difference_formula') != dense_block.get(
+        'normalized_complex_difference_formula'
+    ):
+        raise ValueError(
+            'voxel-staircase diagnostic metric formula differs from dense authority'
+        )
+    if float(evaluation.get('fixed_floor', math.nan)) != float(
+        dense_block.get('fixed_floor', math.nan)
+    ):
+        raise ValueError(
+            'voxel-staircase diagnostic fixed floor differs from dense authority'
+        )
+    if list(evaluation.get('pairs', ())) != list(dense_block.get('pairs', ())):
+        raise ValueError(
+            'voxel-staircase diagnostic pairs differ from dense authority'
+        )
+    per_cell = evaluation.get('per_cell_classification', {})
+    dense_classification = dense_block.get('classification', {})
+    if int(per_cell.get('localized_max_count', -1)) != int(
+        dense_classification.get('localized_max_count', -2)
+    ) or int(per_cell.get('persists_min_count', -1)) != int(
+        dense_classification.get('persists_min_count', -2)
+    ):
+        raise ValueError(
+            'voxel-staircase diagnostic cell thresholds differ from dense authority'
+        )
+    if evaluation.get('canonical_acceptance_inclusion') is not False:
+        raise ValueError('diagnostic-only cells cannot enter canonical acceptance')
+    binding = diagnostic.get('run76_record_binding', {})
+    dense_binding = dense_diagnostic.get('run76_record_binding', {})
+    levels = list(binding.get('levels', ()))
+    dense_levels = list(dense_binding.get('levels', ()))
+    if [float(item.get('points_per_wavelength', math.nan)) for item in levels] != [
+        float(x) for x in plan.pffdtd.points_per_wavelength
+    ]:
+        raise ValueError('run76 record binding levels must match the PPW ladder')
+    for item in levels:
+        for key in ('pressure_trace_sha256', 'source_trace_sha256'):
+            value = str(item.get(key, ''))
+            if len(value) != 64 or any(c not in '0123456789abcdef' for c in value):
+                raise ValueError(f'run76 record binding {key} is not a sha256')
+    for item, dense_item in zip(levels, dense_levels):
+        if (
+            float(item.get('points_per_wavelength', math.nan))
+            != float(dense_item.get('points_per_wavelength', math.nan))
+            or item.get('pressure_trace_sha256')
+            != dense_item.get('pressure_trace_sha256')
+            or item.get('source_trace_sha256')
+            != dense_item.get('source_trace_sha256')
+        ):
+            raise ValueError('run76 record binding pins differ from dense authority')
+    forbidden = diagnostic.get('forbidden_changes', {})
+    if any(bool(value) for value in forbidden.values()):
+        raise ValueError('R130D voxel-staircase diagnostic forbidden-change flag is on')
+    decision = diagnostic.get('decision_semantics', {})
+    if not (
+        decision.get('diagnostic_only') is True
+        and decision.get('canonical_solver_execution_unchanged') is True
+        and decision.get('canonical_pr295_reproduction_required') is True
+        and decision.get('canonical_self_convergence_unchanged') is True
+        and decision.get('cross_solver_unblocked_by_diagnostic') is False
+        and decision.get('general_3d_validation_promoted_by_diagnostic') is False
+    ):
+        raise ValueError(
+            'R130D voxel-staircase diagnostic decision semantics are not fail-closed'
+        )
+
+
 def normalized_complex_difference(
     first: complex,
     second: complex,
@@ -628,6 +836,57 @@ def classify_stencil_sensitivity(
     }
 
 
+def classify_voxel_staircase_sensitivity(
+    *,
+    canonical_worsening_by_frequency: Sequence[bool],
+    canonical_classification: str,
+    noncanonical_cells: Sequence[dict[str, Any]],
+) -> dict[str, Any]:
+    canonical_vector = tuple(bool(x) for x in canonical_worsening_by_frequency)
+    if len(canonical_vector) < 2:
+        raise ValueError(
+            'voxel-staircase sensitivity classifier requires the canonical vector'
+        )
+    hamming: dict[str, int] = {}
+    shifted_cell_ids: list[str] = []
+    reclassified_cell_ids: list[str] = []
+    identical_cell_count = 0
+    for cell in noncanonical_cells:
+        cell_id = str(cell.get('cell_id', ''))
+        if cell_id == VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID:
+            raise ValueError('non-canonical cell list must not contain the control')
+        vector = tuple(bool(x) for x in cell.get('worsening_by_frequency', ()))
+        if len(vector) != len(canonical_vector):
+            raise ValueError(
+                f'voxel-staircase cell {cell_id!r} worsening vector length mismatch'
+            )
+        distance = sum(a != b for a, b in zip(vector, canonical_vector))
+        hamming[cell_id] = int(distance)
+        classification = str(cell.get('classification', ''))
+        if distance == 0:
+            identical_cell_count += 1
+        elif classification == canonical_classification:
+            shifted_cell_ids.append(cell_id)
+        else:
+            reclassified_cell_ids.append(cell_id)
+    if reclassified_cell_ids:
+        classification = 'VOXEL_STAIRCASE_WORSENING_PATTERN_RECLASSIFIED'
+    elif shifted_cell_ids:
+        classification = 'VOXEL_STAIRCASE_WORSENING_PATTERN_SHIFTED'
+    else:
+        classification = 'VOXEL_STAIRCASE_WORSENING_PATTERN_INVARIANT'
+    return {
+        'classification': classification,
+        'canonical_cell_id': VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID,
+        'canonical_dense_classification': canonical_classification,
+        'evaluated_noncanonical_cell_count': len(noncanonical_cells),
+        'identical_vector_cell_count': identical_cell_count,
+        'shifted_cell_ids': shifted_cell_ids,
+        'reclassified_cell_ids': reclassified_cell_ids,
+        'hamming_distance_by_cell': hamming,
+    }
+
+
 def classify_spatial_representation_trend(
     levels: Sequence[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -688,6 +947,108 @@ def stencil_variant_weights(
     ):
         raise ValueError('stencil variant weights must sum to one')
     return variant
+
+
+def voxel_staircase_boundary_variant(
+    *,
+    variant_id: str,
+    dimensions: Sequence[int],
+    boundary_linear_indices: Sequence[int],
+    boundary_adjacency: Any,
+) -> dict[str, Any]:
+    if variant_id not in VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS:
+        raise ValueError(f'unknown voxel-staircase variant {variant_id!r}')
+    dims = tuple(int(x) for x in dimensions)
+    if len(dims) != 3 or any(x <= 0 for x in dims):
+        raise ValueError('voxel-staircase dimensions must be three positive ints')
+    nx, ny, nz = dims
+    total = nx * ny * nz
+    bn = np.asarray(boundary_linear_indices, dtype=np.int64).ravel()
+    adj = np.asarray(boundary_adjacency, dtype=bool)
+    if adj.shape != (bn.size, len(VOXEL_STAIRCASE_NEIGHBOR_DIRECTIONS)):
+        raise ValueError(
+            'voxel-staircase adjacency must be an (Nb,6) array matching bn_ixyz'
+        )
+    if bn.size and (int(bn.min()) < 0 or int(bn.max()) >= total):
+        raise ValueError('voxel-staircase boundary indices out of grid range')
+    if int(np.unique(bn).size) != int(bn.size):
+        raise ValueError('voxel-staircase boundary indices must be unique')
+
+    report: dict[str, Any] = {
+        'variant_id': variant_id,
+        'canonical_boundary_node_count': int(bn.size),
+        'dropped_boundary_node_count': 0,
+        'appended_boundary_node_count': 0,
+    }
+    kept = np.arange(bn.size, dtype=np.int64)
+    if variant_id == 'canonical_voxelization':
+        new_bn = bn.copy()
+        new_adj = adj.copy()
+    elif variant_id == 'near_boundary_nodes_as_air':
+        keep_mask = adj.any(axis=1)
+        kept = np.flatnonzero(keep_mask).astype(np.int64)
+        new_bn = bn[keep_mask]
+        new_adj = adj[keep_mask]
+        report['dropped_boundary_node_count'] = int(bn.size - new_bn.size)
+    elif variant_id == 'open_boundary_as_air':
+        new_bn = bn.copy()
+        new_adj = np.ones_like(adj)
+    elif variant_id == 'fully_blocked_boundary':
+        new_bn = bn.copy()
+        new_adj = np.zeros_like(adj)
+    else:  # dilated_boundary_layer
+        offsets = (
+            ny * nz, -ny * nz, nz, -nz, 1, -1,
+        )
+
+        def on_halo(index: int) -> bool:
+            iz = index % nz
+            iy = (index // nz) % ny
+            ix = index // (ny * nz)
+            return (
+                ix in (0, nx - 1)
+                or iy in (0, ny - 1)
+                or iz in (0, nz - 1)
+            )
+
+        bn_set = set(int(x) for x in bn)
+        parent_by_candidate: dict[int, int] = {}
+        for row in range(bn.size):
+            if not adj[row].any():
+                continue
+            for column, offset in enumerate(offsets):
+                if not adj[row, column]:
+                    continue
+                candidate = int(bn[row]) + offset
+                if candidate < 0 or candidate >= total:
+                    continue
+                if candidate in bn_set or on_halo(candidate):
+                    continue
+                current = parent_by_candidate.get(candidate)
+                if current is None or int(bn[row]) < int(bn[current]):
+                    parent_by_candidate[candidate] = row
+        appended = sorted(parent_by_candidate)
+        new_bn = np.concatenate([bn, np.asarray(appended, dtype=np.int64)])
+        new_adj = np.concatenate(
+            [
+                adj,
+                np.asarray(
+                    [adj[parent_by_candidate[c]] for c in appended],
+                    dtype=bool,
+                ).reshape(-1, len(VOXEL_STAIRCASE_NEIGHBOR_DIRECTIONS)),
+            ]
+        )
+        report['appended_boundary_node_count'] = len(appended)
+        report['appended_linear_index_sha256'] = semantic_hash(appended)
+    report['boundary_node_count'] = int(new_bn.size)
+    report['boundary_set_sha256'] = semantic_hash([int(x) for x in new_bn])
+    report['adjacency_open_edge_count'] = int(np.sum(new_adj))
+    return {
+        'bn_ixyz': new_bn,
+        'adj_bn': new_adj,
+        'canonical_row_indices': kept,
+        'report': report,
+    }
 
 
 def interpolation_stencil_diagnostic(
