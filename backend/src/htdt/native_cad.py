@@ -38,25 +38,6 @@ from .runtime_instance import (
 # ``--migrate-legacy-data``, ``--version``) or by the single-instance
 # forwarding path.
 _LAZY_EXPORTS = {
-    'CadEditorWindow': ('.cad_composition', 'CadEditorWindow'),
-    'ConstraintEditorWindow': ('.constraint_editor', 'ConstraintEditorWindow'),
-    'MeasurementEditorWindow': (
-        '.measurement_editor',
-        'MeasurementEditorWindow',
-    ),
-    'MeasurementWorkspaceWindow': (
-        '.measurement_workspace',
-        'MeasurementWorkspaceWindow',
-    ),
-    'OptimizationWorkspaceWindow': (
-        '.optimization_workspace',
-        'OptimizationWorkspaceWindow',
-    ),
-    'PredictionWorkspaceWindow': (
-        '.prediction_workspace',
-        'PredictionWorkspaceWindow',
-    ),
-    'TheaterWorkflowWindow': ('.theater_workflow', 'TheaterWorkflowWindow'),
     'WorkflowShellWindow': ('.workflow_shell', 'WorkflowShellWindow'),
     'build_workflow_application': (
         '.workflow_application',
@@ -117,15 +98,7 @@ _LAZY_EXPORTS = {
 
 
 def __getattr__(name: str):
-    # Preserve the public theater-editor alias while the concrete product
-    # composition advances through N80. N40-N70 behavior remains inherited
-    # unchanged.
-    target = (
-        'OptimizationWorkspaceWindow'
-        if name == 'TheaterEditorWindow'
-        else name
-    )
-    entry = _LAZY_EXPORTS.get(target)
+    entry = _LAZY_EXPORTS.get(name)
     if entry is None:
         raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
     module_name, attribute = entry
@@ -142,17 +115,9 @@ def __getattr__(name: str):
 
 
 def __dir__():
-    return sorted([*globals(), *_LAZY_EXPORTS, 'TheaterEditorWindow'])
+    return sorted([*globals(), *_LAZY_EXPORTS])
 
 __all__ = [
-    "CadEditorWindow",
-    "TheaterEditorWindow",
-    "TheaterWorkflowWindow",
-    "ConstraintEditorWindow",
-    "MeasurementEditorWindow",
-    "MeasurementWorkspaceWindow",
-    "PredictionWorkspaceWindow",
-    "OptimizationWorkspaceWindow",
     "WorkflowShellWindow",
     "build_workflow_shell",
     "main",
@@ -968,8 +933,7 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         # (untouched synthetic fixture vs. real user project) in diagnostics.
         # Read-only; the report never alters persisted data.
         log_default_document_classification(repository, diagnostics.logger)
-        composition = "legacy-optimization" if args.legacy_ui else "workflow-shell"
-        diagnostics.logger.info("root composition: %s", composition)
+        diagnostics.logger.info("root composition: workflow-shell")
         # #612: launch intents passed on the command line (e.g. a Windows
         # file-association launch) may name the project to open.
         # Safe Mode (#739) does not auto-open them: repeating the same
@@ -1042,52 +1006,47 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             diagnostics.logger.exception('launch record annotation failed')
         # #926: the Capture receiver is one application-scoped service owned
         # by the data root — the workflow shell composes it and the app exit
-        # stops it. The legacy fallback window deliberately runs without it.
+        # stops it.
         capture_receiver = None
         preferences = None
         _splash_status(splash, app, '連携サービスを初期化しています…')
-        if not args.legacy_ui:
-            try:
-                from .application_preferences import ApplicationPreferenceStore
+        try:
+            from .application_preferences import ApplicationPreferenceStore
 
-                preferences = ApplicationPreferenceStore.for_data_dir(
-                    args.data_dir
-                )
-                if (
-                    safe_mode_policy is not None
-                    and not safe_mode_policy.live_integrations
-                ):
-                    # Safe Mode policy: live integrations stay off so the
-                    # capture listener cannot repeat the failure on record.
-                    diagnostics.logger.info(
-                        'safe mode: capture receiver not started '
-                        '(live_integrations=False)'
-                    )
-                else:
-                    from .capture_receiver_controller import (
-                        CaptureReceiverController,
-                    )
-
-                    capture_receiver = CaptureReceiverController(
-                        repository, preferences
-                    )
-            except Exception:
-                diagnostics.logger.exception(
-                    'capture receiver controller init failed; '
-                    'receiver stays disabled'
-                )
-        _splash_status(splash, app, 'ウィンドウを構築しています…')
-        window = (
-            _self.OptimizationWorkspaceWindow(repository, project_entry.document_id)
-            if args.legacy_ui
-            else build_workflow_shell(
-                repository,
-                project_entry.document_id,
-                project_library,
-                capture_receiver=capture_receiver,
-                preferences=preferences,
-                safe_mode=safe_mode_policy is not None,
+            preferences = ApplicationPreferenceStore.for_data_dir(
+                args.data_dir
             )
+            if (
+                safe_mode_policy is not None
+                and not safe_mode_policy.live_integrations
+            ):
+                # Safe Mode policy: live integrations stay off so the
+                # capture listener cannot repeat the failure on record.
+                diagnostics.logger.info(
+                    'safe mode: capture receiver not started '
+                    '(live_integrations=False)'
+                )
+            else:
+                from .capture_receiver_controller import (
+                    CaptureReceiverController,
+                )
+
+                capture_receiver = CaptureReceiverController(
+                    repository, preferences
+                )
+        except Exception:
+            diagnostics.logger.exception(
+                'capture receiver controller init failed; '
+                'receiver stays disabled'
+            )
+        _splash_status(splash, app, 'ウィンドウを構築しています…')
+        window = build_workflow_shell(
+            repository,
+            project_entry.document_id,
+            project_library,
+            capture_receiver=capture_receiver,
+            preferences=preferences,
+            safe_mode=safe_mode_policy is not None,
         )
         window.show()
         if splash is not None:
@@ -1329,10 +1288,14 @@ def main(argv: list[str] | None = None) -> int:
         help="開くプロジェクト (.htdtproject)、キャプチャ (.htdtcapture) "
         "またはバックアップ (.htdt-backup) ファイル",
     )
+    # The legacy QMainWindow composition was removed (REV36-UX140C): the
+    # workflow shell is the only UI path. The flag stays accepted so stale
+    # shortcuts/scripts fail with a clear message instead of an argparse
+    # "unrecognized arguments" error — see the post-parse check below.
     parser.add_argument(
         "--legacy-ui",
         action="store_true",
-        help="既定のワークフローシェルの代わりに旧 OptimizationWorkspaceWindow 構成で起動（ロールバック用）",
+        help=argparse.SUPPRESS,
     )
     # #739: an explicit Safe Mode entry point — the only way to reach the
     # guarded launch when a crash loop is too fast to use the dialog.
@@ -1401,8 +1364,10 @@ def main(argv: list[str] | None = None) -> int:
     # the same version recorded in installer AppVersion and backup manifests.
     parser.add_argument("--version", action="version", version=f"%(prog)s {version_string()}")
     args = parser.parse_args(argv)
-    if args.workflow_shell and args.legacy_ui:
-        parser.error("--workflow-shell と --legacy-ui は併用できません")
+    if args.legacy_ui:
+        parser.error(
+            "--legacy-ui は削除されました。HTDT はワークフローシェル構成のみで起動します。"
+        )
     if args.backup_allow_stale and args.backup is None:
         parser.error("--backup-allow-stale は --backup と併用してください")
 

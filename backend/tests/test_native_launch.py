@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import htdt.native_cad as native_cad
@@ -56,7 +58,7 @@ class _FakeWindow:
         self.shown = True
 
 
-def _stub_gui(monkeypatch, *, workflow_cls=_FakeWindow, legacy_cls=_FakeWindow):
+def _stub_gui(monkeypatch, *, workflow_cls=_FakeWindow):
     app = _FakeApplication(['htdt'])
     created: dict[str, object] = {}
     monkeypatch.setattr(native_cad, 'QApplication', lambda _argv: app)
@@ -67,11 +69,6 @@ def _stub_gui(monkeypatch, *, workflow_cls=_FakeWindow, legacy_cls=_FakeWindow):
         native_cad,
         'build_workflow_shell',
         lambda repository, document_id, project_library=None, **_kwargs: created.setdefault('workflow', workflow_cls(repository, document_id)),
-    )
-    monkeypatch.setattr(
-        native_cad,
-        'OptimizationWorkspaceWindow',
-        lambda repository, document_id: created.setdefault('legacy', legacy_cls(repository, document_id)),
     )
     monkeypatch.setattr(
         native_cad,
@@ -86,22 +83,22 @@ def test_default_launch_builds_workflow_shell(tmp_path: Path, monkeypatch) -> No
 
     assert native_cad.main(['--data-dir', str(tmp_path)]) == 0
 
-    assert 'workflow' in created and 'legacy' not in created
+    assert 'workflow' in created
     assert created['workflow'].shown
     assert app.theme_applied
     # Normal launches keep the most-recent-project behavior.
     assert _FakeProjectLibraryRepository.calls[-1]['skip_last_opened'] is False
 
 
-def test_legacy_ui_flag_selects_legacy_composition(tmp_path: Path, monkeypatch) -> None:
-    app, created = _stub_gui(monkeypatch)
+def test_legacy_ui_flag_is_retired_with_clear_message(tmp_path: Path, capsys) -> None:
+    # REV36-UX140C: the legacy QMainWindow composition is gone; the flag is
+    # still accepted so stale shortcuts fail with a JA explanation (exit 2)
+    # rather than an opaque argparse "unrecognized arguments" error.
+    with pytest.raises(SystemExit) as excinfo:
+        native_cad.main(['--data-dir', str(tmp_path), '--legacy-ui'])
 
-    assert native_cad.main(['--data-dir', str(tmp_path), '--legacy-ui']) == 0
-
-    assert 'legacy' in created and 'workflow' not in created
-    assert created['legacy'].shown
-    # The bundled dark theme applies to every composition, not just the shell.
-    assert app.theme_applied
+    assert excinfo.value.code == 2
+    assert 'ワークフローシェル構成のみで起動します' in capsys.readouterr().err
 
 
 def test_deprecated_workflow_shell_flag_still_accepted(tmp_path: Path, monkeypatch) -> None:

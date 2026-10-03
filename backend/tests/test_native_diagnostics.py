@@ -291,7 +291,6 @@ def test_successful_gui_startup_unchanged(
     monkeypatch.setattr(native_cad, "QApplication", _FakeApplication)
     monkeypatch.setattr(native_cad, "SceneRepository", _FakeRepository)
     monkeypatch.setattr(native_cad, "apply_dark_theme", lambda _app: None)
-    monkeypatch.setattr(native_cad, "OptimizationWorkspaceWindow", _FakeWindow)
     monkeypatch.setattr(native_cad, "build_workflow_shell", _FakeWindow)
     monkeypatch.setattr(
         native_cad,
