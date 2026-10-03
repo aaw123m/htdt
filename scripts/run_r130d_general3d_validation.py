@@ -40,11 +40,14 @@ from htdt.r130d_general3d_validation import (
     analytic_complex_harmonic_spectrum,
     analytic_sampled_complex_harmonic_left_rectangle_spectrum,
     assess_refinement_series,
+    classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
     classify_spatial_representation_trend,
     compare_complex_transfer,
     connected_air_domain_node_metrics,
+    dense_frequency_grid,
     interpolation_stencil_diagnostic,
+    load_dense_frequency_diagnostic_plan,
     load_spatial_representation_diagnostic_plan,
     load_target_window_diagnostic_plan,
     load_validation_plan,
@@ -55,6 +58,7 @@ from htdt.r130d_general3d_validation import (
     semantic_hash,
     target_window_sampling_metadata,
     target_window_clipped_left_rectangle_transfer,
+    validate_dense_frequency_diagnostic_binding,
     validate_exact_binding,
     validate_physical_observable_contract,
     validate_refinement_schedule,
@@ -1171,6 +1175,7 @@ def _run_pffdtd_level(
     rigid_boundary_ref,
     ppw: float,
     spatial_diagnostic: dict[str, Any],
+    dense_diagnostic: dict[str, Any],
 ) -> dict[str, Any]:
     base = fixture['configuration']
     configuration = build_pffdtd_candidate_configuration(
@@ -1405,6 +1410,33 @@ def _run_pffdtd_level(
         time_step_s=time_step_s,
         frequency_hz=diagnostic_frequencies,
     )
+    dense_frequencies = np.asarray(
+        dense_diagnostic['dense_frequency_neighborhood'][
+            'diagnostic_frequency_hz'
+        ],
+        dtype=np.float64,
+    )
+    dense_transfer = pffdtd_finite_record_pressure_transfer(
+        pressure_trace,
+        source_trace,
+        time_step_s=time_step_s,
+        frequency_hz=dense_frequencies,
+    )
+    pressure_trace_sha256 = semantic_hash([float(x) for x in pressure_trace])
+    source_trace_sha256 = semantic_hash([float(x) for x in source_trace])
+    run76_binding = dense_diagnostic['run76_record_binding']
+    run76_pin = {
+        float(item['points_per_wavelength']): item
+        for item in run76_binding['levels']
+    }[float(ppw)]
+    run76_trace_binding = (
+        run76_binding['identical_label']
+        if (
+            pressure_trace_sha256 == run76_pin['pressure_trace_sha256']
+            and source_trace_sha256 == run76_pin['source_trace_sha256']
+        )
+        else run76_binding['nonidentical_label']
+    )
     spatial_metrics = _read_pffdtd_spatial_representation_diagnostic(
         plan,
         spatial_diagnostic,
@@ -1517,6 +1549,16 @@ def _run_pffdtd_level(
         'diagnostic_neighborhood_transfer_sha256': semantic_hash(
             _complex_pairs(neighborhood_transfer)
         ),
+        'dense_diagnostic_frequency_hz': [
+            float(x) for x in dense_frequencies
+        ],
+        'dense_neighborhood_transfer_pa_per_m3_s': _complex_pairs(
+            dense_transfer
+        ),
+        'dense_neighborhood_transfer_sha256': semantic_hash(
+            _complex_pairs(dense_transfer)
+        ),
+        'run76_trace_binding': run76_trace_binding,
         'spatial_representation_diagnostic': {
             **{
                 key: value
@@ -1536,12 +1578,8 @@ def _run_pffdtd_level(
         'diagnostic_raw_trace': {
             'sim_outs_sha256': _sha256_file(raw_output_path),
             'comms_out_sha256': _sha256_file(comms_path),
-            'pressure_trace_sha256': semantic_hash(
-                [float(x) for x in pressure_trace]
-            ),
-            'source_trace_sha256': semantic_hash(
-                [float(x) for x in source_trace]
-            ),
+            'pressure_trace_sha256': pressure_trace_sha256,
+            'source_trace_sha256': source_trace_sha256,
         },
     }
 
@@ -1756,6 +1794,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument('--plan', required=True, type=Path)
     parser.add_argument('--diagnostic-plan', required=True, type=Path)
     parser.add_argument('--spatial-diagnostic-plan', required=True, type=Path)
+    parser.add_argument('--dense-diagnostic-plan', required=True, type=Path)
     parser.add_argument('--pr286-summary', required=True, type=Path)
     parser.add_argument('--pr295-summary', required=True, type=Path)
     parser.add_argument('--mfem-root', type=Path)
@@ -1777,6 +1816,10 @@ def main(argv: list[str] | None = None) -> int:
         args.spatial_diagnostic_plan
     )
     validate_spatial_representation_diagnostic_binding(plan, spatial_diagnostic)
+    dense_diagnostic = load_dense_frequency_diagnostic_plan(
+        args.dense_diagnostic_plan
+    )
+    validate_dense_frequency_diagnostic_binding(plan, dense_diagnostic)
     observation_operator_fixture = _run_observation_operator_fixture(diagnostic)
     repository_head = os.environ.get('HTDT_PR_HEAD_SHA', '').strip().lower()
     if not repository_head:
@@ -1918,6 +1961,7 @@ def main(argv: list[str] | None = None) -> int:
                     rigid_boundary_ref=rigid_boundary_ref,
                     ppw=ppw,
                     spatial_diagnostic=spatial_diagnostic,
+                    dense_diagnostic=dense_diagnostic,
                 )
             )
 
@@ -2026,6 +2070,70 @@ def main(argv: list[str] | None = None) -> int:
         ]
         spatial_classification = classify_spatial_representation_trend(
             spatial_levels
+        )
+
+        dense_block = dense_diagnostic['dense_frequency_neighborhood']
+        dense_frequency_hz = tuple(
+            float(x) for x in dense_block['diagnostic_frequency_hz']
+        )
+        dense_level_by_ppw = {
+            float(level['points_per_wavelength']): np.asarray(
+                [
+                    complex(float(pair[0]), float(pair[1]))
+                    for pair in level[
+                        'dense_neighborhood_transfer_pa_per_m3_s'
+                    ]
+                ],
+                dtype=np.complex128,
+            )
+            for level in pffdtd_levels
+        }
+        if set(dense_level_by_ppw) != {8.0, 10.0, 12.0}:
+            raise ValidationBlocked('dense neighborhood lacks exact 8/10/12 levels')
+        dense_fixed_floor = float(dense_block['fixed_floor'])
+        dense_d_8_10 = [
+            normalized_complex_difference(
+                dense_level_by_ppw[8.0][index],
+                dense_level_by_ppw[10.0][index],
+                fixed_floor=dense_fixed_floor,
+            )
+            for index in range(len(dense_frequency_hz))
+        ]
+        dense_d_10_12 = [
+            normalized_complex_difference(
+                dense_level_by_ppw[10.0][index],
+                dense_level_by_ppw[12.0][index],
+                fixed_floor=dense_fixed_floor,
+            )
+            for index in range(len(dense_frequency_hz))
+        ]
+        run76_binding = dense_diagnostic['run76_record_binding']
+        identical_label = run76_binding['identical_label']
+        run76_record_binding_state = (
+            identical_label
+            if all(
+                level['run76_trace_binding'] == identical_label
+                for level in pffdtd_levels
+            )
+            else run76_binding['nonidentical_label']
+        )
+        dense_classification = classify_dense_frequency_neighborhood(
+            dense_d_8_10, dense_d_10_12
+        )
+        dense_evaluation_state = 'EVALUATED'
+        if run76_record_binding_state != identical_label:
+            dense_evaluation_state = 'NOT_EVALUATED_RECORD_BINDING_MISMATCH'
+            dense_classification = {
+                **dense_classification,
+                'classification': dense_block['classification']['not_evaluated'],
+            }
+        dense_band_of: dict[float, str] = {}
+        for band in dense_block['bands']:
+            for frequency in dense_frequency_grid([band]):
+                dense_band_of[frequency] = str(band['band_id'])
+        dense_gap = [b - a for a, b in zip(dense_d_8_10, dense_d_10_12)]
+        dense_argmax_index = max(
+            range(len(dense_gap)), key=lambda index: dense_gap[index]
         )
 
         reference_pair_metrics = []
@@ -2170,6 +2278,12 @@ def main(argv: list[str] | None = None) -> int:
                 'semantic_sha256': semantic_hash(spatial_diagnostic),
                 'decision_semantics': spatial_diagnostic['decision_semantics'],
             },
+            'dense_diagnostic_plan': {
+                'diagnostic_id': dense_diagnostic['diagnostic_id'],
+                'schema_version': dense_diagnostic['schema_version'],
+                'semantic_sha256': semantic_hash(dense_diagnostic),
+                'decision_semantics': dense_diagnostic['decision_semantics'],
+            },
             'canonical_pr295_reproduction': canonical_pr295_reproduction,
             'spatial_representation_trend': {
                 'levels': spatial_levels,
@@ -2219,6 +2333,63 @@ def main(argv: list[str] | None = None) -> int:
                     for index, frequency in enumerate(diagnostic_frequency_hz)
                 ],
                 **neighborhood_classification,
+                'diagnostic_only': True,
+                'canonical_acceptance_inclusion': False,
+            },
+            'dense_frequency_neighborhood_diagnostic': {
+                'frequency_hz': list(dense_frequency_hz),
+                'canonical_scored_frequency_hz': list(
+                    dense_block['canonical_scored_frequency_hz']
+                ),
+                'diagnostic_only_frequency_hz': list(
+                    dense_block['diagnostic_only_frequency_hz']
+                ),
+                'normalized_complex_difference_formula': dense_block[
+                    'normalized_complex_difference_formula'
+                ],
+                'fixed_floor': dense_fixed_floor,
+                'levels': [
+                    {
+                        'points_per_wavelength': level['points_per_wavelength'],
+                        'transfer_pa_per_m3_s': level[
+                            'dense_neighborhood_transfer_pa_per_m3_s'
+                        ],
+                        'transfer_sha256': level[
+                            'dense_neighborhood_transfer_sha256'
+                        ],
+                        'run76_trace_binding': level['run76_trace_binding'],
+                    }
+                    for level in pffdtd_levels
+                ],
+                'd_8_10': dense_d_8_10,
+                'd_10_12': dense_d_10_12,
+                'per_frequency': [
+                    {
+                        'frequency_hz': frequency,
+                        'band_id': dense_band_of[frequency],
+                        'd_8_10': dense_d_8_10[index],
+                        'd_10_12': dense_d_10_12[index],
+                        'worsening': bool(
+                            dense_d_10_12[index] > dense_d_8_10[index]
+                        ),
+                    }
+                    for index, frequency in enumerate(dense_frequency_hz)
+                ],
+                'band_worsening_counts': {
+                    str(band['band_id']): sum(
+                        1
+                        for index, frequency in enumerate(dense_frequency_hz)
+                        if dense_band_of[frequency] == band['band_id']
+                        and dense_d_10_12[index] > dense_d_8_10[index]
+                    )
+                    for band in dense_block['bands']
+                },
+                'argmax_worsening_gap_frequency_hz': float(
+                    dense_frequency_hz[dense_argmax_index]
+                ),
+                'run76_record_binding': run76_record_binding_state,
+                'evaluation_state': dense_evaluation_state,
+                **dense_classification,
                 'diagnostic_only': True,
                 'canonical_acceptance_inclusion': False,
             },
@@ -2316,6 +2487,10 @@ def main(argv: list[str] | None = None) -> int:
                 'frequency_neighborhood_sensitivity': (
                     neighborhood_classification['classification']
                 ),
+                'dense_frequency_neighborhood_sensitivity': (
+                    dense_classification['classification']
+                ),
+                'dense_frequency_record_binding': run76_record_binding_state,
                 'interpolation_stencil_diagnostic': 'RECORDED',
                 'aligned_reference_self_convergence': (
                     reference_aligned_assessment.state
