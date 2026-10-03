@@ -134,7 +134,7 @@ class RoomGeometryInputController(QObject):
         self._view_top()
         self._render_edit_handles()
         self.workspace._set_status(
-            "形状編集中 · 頂点をドラッグ · 辺中央を選択して壁を移動 · Enter で終了"
+            "形状編集中 · 頂点をドラッグ · 壁を選択・ドラッグで移動 · Enter で終了"
         )
 
     def commit(self) -> bool:
@@ -829,7 +829,23 @@ class RoomGeometryInputController(QObject):
             return None
         fraction = -float(near[2]) / float(ray[2])
         point = near + ray * fraction
-        return float(point[0]), -float(point[1])
+        return self._snap_floor(float(point[0]), -float(point[1]))
+
+    def _snap_floor(self, x_m: float, y_m: float) -> tuple[float, float]:
+        """Grid-snap a floor-plane pick (legacy room_editor parity).
+
+        The workflow toggle/step live on the same view_state the transform
+        path uses; honoring them here keeps sketch picks, vertex drags, and
+        wall drags on the grid the user asked for.
+        """
+
+        view_state = self.workspace.controller.view_state
+        if not view_state.grid_snap_enabled:
+            return x_m, y_m
+        step = float(view_state.grid_step_m)
+        if step <= 0.0:
+            return x_m, y_m
+        return (round(x_m / step) * step, round(y_m / step) * step)
 
     def _project(self, vertex: RoomVertex) -> QPointF:
         renderer = self.viewport.plotter.renderer
@@ -846,6 +862,25 @@ class RoomGeometryInputController(QObject):
         point = self._project(self._sketch[0])
         return hypot(position.x() - point.x(), position.y() - point.y()) <= 12.0
 
+    @staticmethod
+    def _point_segment_distance(
+        position: QPointF,
+        start: QPointF,
+        end: QPointF,
+    ) -> float:
+        """Screen-space distance from ``position`` to segment ``start``-``end``."""
+
+        px, py = position.x(), position.y()
+        ax, ay = start.x(), start.y()
+        bx, by = end.x(), end.y()
+        dx = bx - ax
+        dy = by - ay
+        denom = dx * dx + dy * dy
+        if denom <= 1e-12:
+            return hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / denom))
+        return hypot(px - (ax + t * dx), py - (ay + t * dy))
+
     def _hit_handle(self, position: QPointF) -> tuple[str, int] | None:
         room = self.room
         if room is None:
@@ -859,13 +894,18 @@ class RoomGeometryInputController(QObject):
                 hits.append((distance, "vertex", index))
         for index, start in enumerate(vertices):
             end = vertices[(index + 1) % len(vertices)]
-            midpoint = RoomVertex(
-                vertex_id="midpoint",
-                x_m=(start.x_m + end.x_m) * 0.5,
-                y_m=(start.y_m + end.y_m) * 0.5,
+            start_point = self._project(start)
+            end_point = self._project(end)
+            # Legacy wall-mode parity: the whole wall body is selectable, not
+            # just its midpoint handle. Stay clear of the vertex grab zone so
+            # a vertex pick keeps resolving to the vertex handle.
+            endpoint_distance = min(
+                hypot(position.x() - start_point.x(), position.y() - start_point.y()),
+                hypot(position.x() - end_point.x(), position.y() - end_point.y()),
             )
-            point = self._project(midpoint)
-            distance = hypot(position.x() - point.x(), position.y() - point.y())
+            if endpoint_distance <= 14.0:
+                continue
+            distance = self._point_segment_distance(position, start_point, end_point)
             if distance <= 10.0:
                 hits.append((distance, "edge", index))
         if not hits:
@@ -1018,56 +1058,77 @@ class RoomGeometryInputController(QObject):
                 name="ux120-room-edit-selected-wall",
                 render=False,
             )
-            topology = self._wall_drag_preview_topology or self.topology
-            if topology is not None:
+
+        # Legacy wall-mode parity: every opening is drawn, not only the
+        # selected wall's. The selected wall keeps the accent color; other
+        # walls render muted so the selection still stands out. Endpoints
+        # resolve against the preview vertex set so a shared-vertex drag or a
+        # wall move keeps the outlines tracking the geometry.
+        topology = self._wall_drag_preview_topology or self.topology
+        if topology is not None and values:
+            selected_wall_id: str | None = None
+            if self.selected_edge_index is not None:
                 try:
-                    wall = self._wall_for_edge(
+                    selected_wall = self._wall_for_edge(
                         make_polygon_room(
                             values,
                             height_m=room.height_m,
                             room_id=room.room_id,
                         ),
                         topology,
-                        index,
+                        self.selected_edge_index % len(values),
                     )
                 except (ValueError, WallTopologyError):
-                    wall = None
-                if wall is not None:
-                    dx = end.x_m - start.x_m
-                    dy = end.y_m - start.y_m
-                    length = hypot(dx, dy)
-                    if length > 1e-12:
-                        ux, uy = dx / length, dy / length
-                        for opening in topology.openings:
-                            if opening.wall_id != wall.wall_id:
-                                continue
-                            x0 = start.x_m + ux * opening.offset_m
-                            y0 = start.y_m + uy * opening.offset_m
-                            x1 = start.x_m + ux * (opening.offset_m + opening.width_m)
-                            y1 = start.y_m + uy * (opening.offset_m + opening.width_m)
-                            z0 = opening.sill_m
-                            z1 = opening.sill_m + opening.height_m
-                            points = np.asarray(
-                                [
-                                    (x0, -y0, z0),
-                                    (x1, -y1, z0),
-                                    (x1, -y1, z1),
-                                    (x0, -y0, z1),
-                                    (x0, -y0, z0),
-                                ],
-                                dtype=float,
-                            )
-                            name = f"ux120-room-opening-{opening.opening_id}"
-                            self._opening_actor_names.add(name)
-                            self.viewport.plotter.add_mesh(
-                                pv.lines_from_points(points, close=False),
-                                color=DARK_THEME.viewport.selection_outline.hex,
-                                line_width=3,
-                                opacity=0.82,
-                                pickable=False,
-                                name=name,
-                                render=False,
-                            )
+                    selected_wall = None
+                if selected_wall is not None:
+                    selected_wall_id = selected_wall.wall_id
+            by_vertex_id = {vertex.vertex_id: vertex for vertex in values}
+            for wall in topology.walls:
+                start = by_vertex_id.get(wall.from_vertex_id)
+                end = by_vertex_id.get(wall.to_vertex_id)
+                if start is None or end is None:
+                    continue
+                dx = end.x_m - start.x_m
+                dy = end.y_m - start.y_m
+                length = hypot(dx, dy)
+                if length <= 1e-12:
+                    continue
+                ux, uy = dx / length, dy / length
+                color = (
+                    DARK_THEME.viewport.selection_outline.hex
+                    if wall.wall_id == selected_wall_id
+                    else DARK_THEME.viewport.geometry_edge.hex
+                )
+                for opening in topology.openings:
+                    if opening.wall_id != wall.wall_id:
+                        continue
+                    x0 = start.x_m + ux * opening.offset_m
+                    y0 = start.y_m + uy * opening.offset_m
+                    x1 = start.x_m + ux * (opening.offset_m + opening.width_m)
+                    y1 = start.y_m + uy * (opening.offset_m + opening.width_m)
+                    z0 = opening.sill_m
+                    z1 = opening.sill_m + opening.height_m
+                    points = np.asarray(
+                        [
+                            (x0, -y0, z0),
+                            (x1, -y1, z0),
+                            (x1, -y1, z1),
+                            (x0, -y0, z1),
+                            (x0, -y0, z0),
+                        ],
+                        dtype=float,
+                    )
+                    name = f"ux120-room-opening-{opening.opening_id}"
+                    self._opening_actor_names.add(name)
+                    self.viewport.plotter.add_mesh(
+                        pv.lines_from_points(points, close=False),
+                        color=color,
+                        line_width=3,
+                        opacity=0.82,
+                        pickable=False,
+                        name=name,
+                        render=False,
+                    )
         self.viewport.plotter.render()
 
 
