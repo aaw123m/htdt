@@ -12,6 +12,8 @@ from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
     STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
     STENCIL_SENSITIVITY_VARIANT_IDS,
+    VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID,
+    VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS,
     PairMetrics,
     ObservableContractMismatch,
     analytic_complex_harmonic_spectrum,
@@ -21,6 +23,7 @@ from htdt.r130d_general3d_validation import (
     classify_frequency_neighborhood,
     classify_spatial_representation_trend,
     classify_stencil_sensitivity,
+    classify_voxel_staircase_sensitivity,
     compare_complex_transfer,
     connected_air_domain_node_metrics,
     dense_frequency_grid,
@@ -31,6 +34,7 @@ from htdt.r130d_general3d_validation import (
     load_stencil_sensitivity_diagnostic_plan,
     load_target_window_diagnostic_plan,
     load_validation_plan,
+    load_voxel_staircase_sensitivity_diagnostic_plan,
     native_window_left_rectangle_spectrum,
     native_window_left_rectangle_transfer,
     normalized_complex_difference,
@@ -46,8 +50,10 @@ from htdt.r130d_general3d_validation import (
     validate_refinement_schedule,
     validate_spatial_representation_diagnostic_binding,
     validate_stencil_sensitivity_diagnostic_binding,
+    validate_voxel_staircase_sensitivity_diagnostic_binding,
     validation_decision,
     validation_decision_v2,
+    voxel_staircase_boundary_variant,
 )
 
 
@@ -76,6 +82,12 @@ STENCIL_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_stencil_sensitivity_diagnostic_plan.json'
+)
+VOXEL_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_voxel_staircase_sensitivity_diagnostic_plan.json'
 )
 RUN76_EVIDENCE = (
     Path(__file__).parents[2]
@@ -1302,6 +1314,349 @@ def test_stencil_diagnostic_cannot_enter_canonical_acceptance():
     validate_stencil_sensitivity_diagnostic_binding(plan, diagnostic, dense)
     assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
     assert diagnostic['stencil_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] is False
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert diagnostic['decision_semantics'][
+        'cross_solver_unblocked_by_diagnostic'
+    ] is False
+
+
+def test_voxel_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_voxel_staircase_sensitivity_diagnostic_plan(
+        VOXEL_DIAGNOSTIC_PLAN
+    )
+    validate_voxel_staircase_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert diagnostic['task_start_main_sha'] == (
+        '1131897041951af001ce16cf33220db923afc3b3'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [8.0, 10.0, 12.0]
+    voxel = diagnostic['voxel_staircase_sensitivity']
+    assert [
+        item['variant_id'] for item in voxel['boundary_variants']
+    ] == list(VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS)
+    cell_axis = voxel['cell_axis']
+    assert cell_axis['cells'] == list(VOXEL_STAIRCASE_SENSITIVITY_VARIANT_IDS)
+    assert cell_axis['canonical_cell_id'] == (
+        VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID
+    )
+    evaluation = voxel['evaluation']
+    dense_block = dense['dense_frequency_neighborhood']
+    assert evaluation['normalized_complex_difference_formula'] == dense_block[
+        'normalized_complex_difference_formula'
+    ]
+    assert evaluation['fixed_floor'] == dense_block['fixed_floor']
+    assert evaluation['pairs'] == dense_block['pairs']
+    assert evaluation['per_cell_classification'][
+        'localized_max_count'
+    ] == dense_block['classification']['localized_max_count']
+    assert evaluation['per_cell_classification'][
+        'persists_min_count'
+    ] == dense_block['classification']['persists_min_count']
+    assert evaluation['canonical_acceptance_inclusion'] is False
+
+
+def test_voxel_run76_pins_match_dense_authority():
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_voxel_staircase_sensitivity_diagnostic_plan(
+        VOXEL_DIAGNOSTIC_PLAN
+    )
+    dense_levels = {
+        float(item['points_per_wavelength']): item
+        for item in dense['run76_record_binding']['levels']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        dense_level = dense_levels[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == dense_level[
+            'pressure_trace_sha256'
+        ]
+        assert level['source_trace_sha256'] == dense_level['source_trace_sha256']
+
+
+def test_voxel_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_voxel_staircase_sensitivity_diagnostic_plan(
+        VOXEL_DIAGNOSTIC_PLAN
+    )
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, stale, dense
+        )
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['voxel_staircase_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, promoted, dense
+        )
+    drift = json.loads(json.dumps(diagnostic))
+    drift['voxel_staircase_sensitivity']['boundary_variants'][1][
+        'variant_id'
+    ] = 'refined_twice'
+    with pytest.raises(ValueError, match='variants are not the frozen set'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, drift, dense
+        )
+    drift_cell = json.loads(json.dumps(diagnostic))
+    drift_cell['voxel_staircase_sensitivity']['cell_axis'][
+        'canonical_cell_id'
+    ] = 'open_boundary_as_air'
+    with pytest.raises(ValueError, match='canonical cell'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, drift_cell, dense
+        )
+    drift_metric = json.loads(json.dumps(diagnostic))
+    drift_metric['voxel_staircase_sensitivity']['evaluation'][
+        'fixed_floor'
+    ] = 1.0e-9
+    with pytest.raises(ValueError, match='fixed floor'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, drift_metric, dense
+        )
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['source_receiver_movement'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, rewritten, dense
+        )
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_dense_frequency_diagnostic']['semantic_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense diagnostic sha256'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, stale_parent, dense
+        )
+    stale_stencil = json.loads(json.dumps(diagnostic))
+    stale_stencil['parent_stencil_sensitivity_diagnostic'][
+        'semantic_sha256'
+    ] = '0' * 64
+    with pytest.raises(ValueError, match='stencil diagnostic sha256'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, stale_stencil, dense
+        )
+    drift_pin = json.loads(json.dumps(diagnostic))
+    drift_pin['run76_record_binding']['levels'][0]['pressure_trace_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense authority'):
+        validate_voxel_staircase_sensitivity_diagnostic_binding(
+            plan, drift_pin, dense
+        )
+
+
+def test_voxel_boundary_variant_reproduces_canonical():
+    bn = np.asarray([50, 70], dtype=np.int64)
+    adj = np.asarray(
+        [
+            [True, True, True, True, True, False],
+            [False, True, True, True, True, True],
+        ],
+        dtype=bool,
+    )
+    result = voxel_staircase_boundary_variant(
+        variant_id='canonical_voxelization',
+        dimensions=(6, 5, 4),
+        boundary_linear_indices=bn,
+        boundary_adjacency=adj,
+    )
+    assert np.array_equal(result['bn_ixyz'], bn)
+    assert np.array_equal(result['adj_bn'], adj)
+    assert np.array_equal(
+        result['canonical_row_indices'], np.arange(2, dtype=np.int64)
+    )
+    report = result['report']
+    assert report['boundary_node_count'] == 2
+    assert report['appended_boundary_node_count'] == 0
+    assert report['dropped_boundary_node_count'] == 0
+    result['bn_ixyz'][0] = 99
+    assert bn[0] != 99
+
+
+def test_voxel_boundary_variant_rules():
+    dims = (6, 5, 4)
+    bn = np.asarray([50, 70, 31], dtype=np.int64)
+    adj = np.asarray(
+        [
+            [True, True, True, True, True, False],
+            [False, True, True, True, True, True],
+            [False, False, False, False, False, False],
+        ],
+        dtype=bool,
+    )
+    dropped = voxel_staircase_boundary_variant(
+        variant_id='near_boundary_nodes_as_air',
+        dimensions=dims,
+        boundary_linear_indices=bn,
+        boundary_adjacency=adj,
+    )
+    assert np.array_equal(dropped['bn_ixyz'], np.asarray([50, 70]))
+    assert np.array_equal(
+        dropped['canonical_row_indices'], np.asarray([0, 1])
+    )
+    assert dropped['report']['dropped_boundary_node_count'] == 1
+    opened = voxel_staircase_boundary_variant(
+        variant_id='open_boundary_as_air',
+        dimensions=dims,
+        boundary_linear_indices=bn,
+        boundary_adjacency=adj,
+    )
+    assert np.all(opened['adj_bn'])
+    assert np.array_equal(opened['bn_ixyz'], bn)
+    blocked = voxel_staircase_boundary_variant(
+        variant_id='fully_blocked_boundary',
+        dimensions=dims,
+        boundary_linear_indices=bn,
+        boundary_adjacency=adj,
+    )
+    assert not np.any(blocked['adj_bn'])
+    assert np.array_equal(blocked['bn_ixyz'], bn)
+    with pytest.raises(ValueError, match='unknown voxel-staircase variant'):
+        voxel_staircase_boundary_variant(
+            variant_id='refined_twice',
+            dimensions=dims,
+            boundary_linear_indices=bn,
+            boundary_adjacency=adj,
+        )
+    with pytest.raises(ValueError, match='Nb,6'):
+        voxel_staircase_boundary_variant(
+            variant_id='canonical_voxelization',
+            dimensions=dims,
+            boundary_linear_indices=bn,
+            boundary_adjacency=adj[:, :5],
+        )
+
+
+def test_voxel_boundary_variant_dilation_appends_open_neighbors():
+    dims = (6, 5, 4)
+    bn = np.asarray([50, 70], dtype=np.int64)
+    adj = np.asarray(
+        [
+            [True, True, True, True, True, False],
+            [False, True, True, True, True, True],
+        ],
+        dtype=bool,
+    )
+    result = voxel_staircase_boundary_variant(
+        variant_id='dilated_boundary_layer',
+        dimensions=dims,
+        boundary_linear_indices=bn,
+        boundary_adjacency=adj,
+    )
+    # node 50 at (2,2,2): open neighbors +x=70 (already boundary), -x=30,
+    # +y=54, -y=46, +z=51 (halo shell iz=3=Nz-1, excluded); -z blocked.
+    # node 70 at (3,2,2): +x blocked, -x=50 (boundary), +y=74, -y=66,
+    # +z=71 (halo shell, excluded), -z=69.
+    appended = sorted(set(int(x) for x in result['bn_ixyz']) - {50, 70})
+    assert appended == [30, 46, 54, 66, 69, 74]
+    assert result['report']['appended_boundary_node_count'] == 6
+    rows = {int(v): i for i, v in enumerate(result['bn_ixyz'])}
+    for index in (30, 46, 54):
+        assert np.array_equal(result['adj_bn'][rows[index]], adj[0])
+    for index in (66, 69, 74):
+        assert np.array_equal(result['adj_bn'][rows[index]], adj[1])
+    assert np.array_equal(
+        result['canonical_row_indices'], np.asarray([0, 1])
+    )
+
+
+@pytest.mark.parametrize(
+    ('cell_vectors', 'cell_labels', 'expected'),
+    [
+        (
+            [[True, False, True, False]] * 4,
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 4,
+            'VOXEL_STAIRCASE_WORSENING_PATTERN_INVARIANT',
+        ),
+        (
+            [[True, False, True, False]] * 3 + [[False, False, True, False]],
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 4,
+            'VOXEL_STAIRCASE_WORSENING_PATTERN_SHIFTED',
+        ),
+        (
+            [[True, False, True, False]] * 3 + [[False, False, True, False]],
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 3
+            + ['DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'],
+            'VOXEL_STAIRCASE_WORSENING_PATTERN_RECLASSIFIED',
+        ),
+    ],
+)
+def test_voxel_classifier_frozen_labels(cell_vectors, cell_labels, expected):
+    canonical_vector = [True, False, True, False]
+    cells = [
+        {
+            'cell_id': f'cell{index}',
+            'worsening_by_frequency': vector,
+            'classification': cell_labels[index],
+        }
+        for index, vector in enumerate(cell_vectors)
+    ]
+    result = classify_voxel_staircase_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification='DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY',
+        noncanonical_cells=cells,
+    )
+    assert result['classification'] == expected
+    assert result['canonical_cell_id'] == (
+        VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID
+    )
+    if expected == 'VOXEL_STAIRCASE_WORSENING_PATTERN_INVARIANT':
+        assert result['identical_vector_cell_count'] == 4
+        assert all(
+            distance == 0
+            for distance in result['hamming_distance_by_cell'].values()
+        )
+    if expected == 'VOXEL_STAIRCASE_WORSENING_PATTERN_RECLASSIFIED':
+        assert result['reclassified_cell_ids'] == ['cell3']
+
+
+def test_voxel_classifier_is_fail_closed_on_inputs():
+    canonical_vector = [True, False, True, False]
+    with pytest.raises(ValueError, match='control'):
+        classify_voxel_staircase_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification='X',
+            noncanonical_cells=[
+                {
+                    'cell_id': VOXEL_STAIRCASE_SENSITIVITY_CANONICAL_CELL_ID,
+                    'worsening_by_frequency': canonical_vector,
+                    'classification': 'X',
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match='length mismatch'):
+        classify_voxel_staircase_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification='X',
+            noncanonical_cells=[
+                {
+                    'cell_id': 'short',
+                    'worsening_by_frequency': [True],
+                    'classification': 'X',
+                }
+            ],
+        )
+
+
+def test_voxel_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_voxel_staircase_sensitivity_diagnostic_plan(
+        VOXEL_DIAGNOSTIC_PLAN
+    )
+    validate_voxel_staircase_sensitivity_diagnostic_binding(
+        plan, diagnostic, dense
+    )
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert diagnostic['voxel_staircase_sensitivity']['evaluation'][
         'canonical_acceptance_inclusion'
     ] is False
     assert diagnostic['decision_semantics']['diagnostic_only'] is True
