@@ -159,12 +159,24 @@ class RoomGeometryPanel(QFrame):
         edge_label = edge_layout.labelForField(self.edge_length)
         if edge_label is not None:
             edge_label.setToolTip(edge_hint)
+        self.split_offset = self._metric_field(0.001, 1000.0, decimals=3)
+        split_offset_hint = "辺の始点からの分割位置（m）· 中点以外に頂点を挿入したい場合に変更"
+        self.split_offset.setToolTip(split_offset_hint)
+        edge_layout.addRow("分割位置", self.split_offset)
+        split_offset_label = edge_layout.labelForField(self.split_offset)
+        if split_offset_label is not None:
+            split_offset_label.setToolTip(split_offset_hint)
         edge_actions = QHBoxLayout()
         self.insert_midpoint_button = QPushButton("中点に頂点追加")
         self.insert_midpoint_button.setToolTip(
             "選択中の辺の中点に新しい頂点を挿入します（L字・凹凸を作れます）"
         )
         self.insert_midpoint_button.clicked.connect(self._insert_midpoint)
+        self.insert_at_offset_button = QPushButton("指定位置に頂点追加")
+        self.insert_at_offset_button.setToolTip(
+            "「分割位置」で指定した地点に新しい頂点を挿入します"
+        )
+        self.insert_at_offset_button.clicked.connect(self._insert_at_offset)
         self.ensure_walls_button = QPushButton("壁編集を有効化")
         self.ensure_walls_button.setToolTip(
             "辺から壁オブジェクトを生成し、厚さ・開口を編集できるようにします"
@@ -173,6 +185,9 @@ class RoomGeometryPanel(QFrame):
         edge_actions.addWidget(self.insert_midpoint_button)
         edge_actions.addWidget(self.ensure_walls_button)
         edge_layout.addRow("", edge_actions)
+        offset_actions = QHBoxLayout()
+        offset_actions.addWidget(self.insert_at_offset_button)
+        edge_layout.addRow("", offset_actions)
         root.addWidget(self.edge_host)
 
         wall_label = QLabel("壁")
@@ -404,7 +419,15 @@ class RoomGeometryPanel(QFrame):
             with QSignalBlocker(self.edge_length):
                 self.edge_length.setValue(hypot(end.x_m - start.x_m, end.y_m - start.y_m))
             self.edge_length.setEnabled(editable)
+            edge_length_value = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+            with QSignalBlocker(self.split_offset):
+                self.split_offset.setMaximum(max(edge_length_value - 0.001, 0.001))
+                self.split_offset.setValue(
+                    min(edge_length_value * 0.5, self.split_offset.maximum())
+                )
+            self.split_offset.setEnabled(editable)
             self.insert_midpoint_button.setEnabled(editable)
+            self.insert_at_offset_button.setEnabled(editable)
         else:
             self.selection_title.setText("選択: なし")
             self.vertex_host.hide()
@@ -593,6 +616,14 @@ class RoomGeometryPanel(QFrame):
 
     def _insert_midpoint(self) -> None:
         self._run(self.geometry.insert_selected_edge_midpoint, "頂点を追加しました")
+
+    def _insert_at_offset(self) -> None:
+        self._run(
+            lambda: self.geometry.insert_selected_edge_vertex(
+                self.split_offset.value()
+            ),
+            "頂点を追加しました",
+        )
 
     def _delete_vertex(self) -> None:
         self._run(self.geometry.delete_selected_vertex, "頂点を削除しました")
