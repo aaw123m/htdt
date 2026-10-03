@@ -55,7 +55,14 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .cad_acoustic_solver_result import AcousticSolverObservableArtifact
+from .cad_acoustic_snapshot import AcousticPredictionRequest
+from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
+from .cad_acoustic_solver_result import (
+    AcousticSolverArtifactManifest,
+    AcousticSolverObservableArtifact,
+    AcousticSolverResultEnvelope,
+    build_acoustic_solver_result_envelope,
+)
 from .cad_equipment import FrequencyDomain
 from .cad_geometric_acoustics_adapter import (
     BoundaryMaterialContribution,
@@ -110,6 +117,27 @@ R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF = ExactExternalAuthorityRef(
             'quantity': 'late_energy_density_per_m2',
             'decay_model': LATE_ENERGY_DECAY_MODEL,
             'phase_capability': 'NOT_APPLICABLE',
+        }
+    ),
+)
+
+
+R160_LATE_ENERGY_DECAY_SOLVER_ROLE = 'r160-late-energy-decay'
+R160_LATE_ENERGY_DECAY_ADAPTER_ID = 'htdt.r160.late-energy-decay'
+R160_LATE_ENERGY_DECAY_SOLVER_IMPLEMENTATION_REF = ExactExternalAuthorityRef(
+    authority_id='adapter-kernel:htdt-r160-late-energy-decay',
+    authority_version=R160_LATE_ENERGY_ARTIFACT_VERSION,
+    semantic_hash_sha256=_semantic_hash(
+        {
+            'solver_role': R160_LATE_ENERGY_DECAY_SOLVER_ROLE,
+            'observable': LATE_ENERGY_DECAY_OBSERVABLE,
+            'encoding_schema_ref': (
+                R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF.authority_id
+            ),
+            'contract': 'bounded_exponential_decay_composition_v1',
+            'decay_model': LATE_ENERGY_DECAY_MODEL,
+            'energy_semantics': 'declared_decay_law_not_statistical_inference',
+            'execution': 'pure_composition_over_exact_authorities',
         }
     ),
 )
@@ -374,6 +402,82 @@ def build_late_energy_decay_law(
     )
 
 
+def _provenance_band_decays(
+    band_decay_times: Mapping[float, float] | Sequence[tuple[float, float]],
+    *,
+    provenance: LateDecayProvenance,
+) -> tuple[LateFieldBandDecay, ...]:
+    items = (
+        band_decay_times.items()
+        if isinstance(band_decay_times, Mapping)
+        else band_decay_times
+    )
+    return tuple(
+        LateFieldBandDecay(
+            center_hz=float(center_hz),
+            decay_time_s=float(decay_time_s),
+            provenance=provenance,
+        )
+        for center_hz, decay_time_s in items
+    )
+
+
+def declared_late_decay_law(
+    *,
+    band_decay_times: Mapping[float, float] | Sequence[tuple[float, float]],
+    decay_time_grid_s: Sequence[float],
+    rationale: str,
+    evidence_ref: ExactExternalAuthorityRef | None = None,
+) -> LateEnergyDecayLaw:
+    """Declared-model decay law.
+
+    ``declared_model`` provenance means every band decay constant is a
+    caller-declared model value — an authored constant, not derived from
+    measured or analytic evidence. ``evidence_ref`` is optional: a declared
+    model may stand alone or bind an external authority for its constants.
+    """
+    return build_late_energy_decay_law(
+        bands=_provenance_band_decays(
+            band_decay_times,
+            provenance='declared_model',
+        ),
+        decay_time_grid_s=decay_time_grid_s,
+        evidence_ref=evidence_ref,
+        rationale=rationale,
+    )
+
+
+def measured_late_decay_law(
+    *,
+    band_decay_times: Mapping[float, float] | Sequence[tuple[float, float]],
+    decay_time_grid_s: Sequence[float],
+    evidence_ref: ExactExternalAuthorityRef,
+    rationale: str,
+) -> LateEnergyDecayLaw:
+    """Measured decay law bound to exact measured evidence.
+
+    ``measured`` provenance means the band decay constants derive from
+    measured decay evidence (for example an impulse-response decay metric
+    or a measurement campaign). That claim must be evidenced: the law pins
+    the exact measured authority in ``evidence_ref`` and fails closed
+    without it — an unevidenced ``measured`` claim is a fabricated
+    measurement.
+    """
+    if evidence_ref is None:
+        raise ValueError(
+            'measured decay law requires exact measured-evidence binding'
+        )
+    return build_late_energy_decay_law(
+        bands=_provenance_band_decays(
+            band_decay_times,
+            provenance='measured',
+        ),
+        decay_time_grid_s=decay_time_grid_s,
+        evidence_ref=evidence_ref,
+        rationale=rationale,
+    )
+
+
 class LateEnergyDecaySample(BaseModel):
     model_config = ConfigDict(frozen=True, extra='forbid')
 
@@ -533,12 +637,120 @@ class LateEnergyDecayArtifact(BaseModel):
             valid_frequency_domain=self.valid_frequency_domain,
         )
 
+    @property
+    def execution_id(self) -> str:
+        """Deterministic composition-execution identity.
+
+        The late-energy decay solve is a pure composition over exact
+        authorities — re-running ``solve_late_energy_decay`` on the same
+        exact inputs reproduces the artifact byte-identically, so the
+        execution id derives from the artifact's own semantic hash rather
+        than a fabricated run record.
+        """
+        return f'r160-late-energy-decay-execution:{self.semantic_sha256}'
+
+    def execution_provenance_ref(self) -> ExactExternalAuthorityRef:
+        """Exact provenance binding for the composition execution."""
+        digest = _semantic_hash(
+            {
+                'execution_id': self.execution_id,
+                'execution_lane': 'r160-late-energy-decay-composition',
+                'decay_model': LATE_ENERGY_DECAY_MODEL,
+                'deterministic_path_artifact_ref': (
+                    self.deterministic_path_artifact_ref.model_dump(
+                        mode='json'
+                    )
+                ),
+                'late_field_input_ref': (
+                    self.late_field_input_ref.model_dump(mode='json')
+                ),
+                'decay_law_ref': (
+                    self.decay_law.as_external_ref().model_dump(mode='json')
+                ),
+                'artifact_id': self.artifact_id,
+            }
+        )
+        return ExactExternalAuthorityRef(
+            authority_id=(
+                'r160-late-energy-decay-execution-provenance:' + digest
+            ),
+            authority_version=self.authority_version,
+            semantic_hash_sha256=digest,
+        )
+
 
 def late_energy_decay_observable_manifest(
     artifact: LateEnergyDecayArtifact,
 ) -> AcousticSolverObservableArtifact:
     """Expose a persisted decay artifact as the R160 late-energy observable."""
     return artifact.as_solver_observable()
+
+
+def build_late_energy_decay_result_envelope(
+    *,
+    dispatch: AcousticSolverDispatchBinding,
+    request: AcousticPredictionRequest,
+    artifact: LateEnergyDecayArtifact,
+    completed_at_utc: str,
+    artifact_manifest_resolver=None,
+) -> AcousticSolverResultEnvelope:
+    """Bind the decay artifact to its exact READY dispatch as a solver result.
+
+    The request must declare the ``late_energy_decay`` observable; the
+    envelope authority enforces the exact observable-set match. Only a
+    ``SUPPORTED`` decay artifact may be bound: an ``UNSUPPORTED`` artifact
+    carries no decay samples, so promoting it would fabricate the
+    ``LateEnergyDecay`` component — fail closed instead.
+    """
+    artifact = LateEnergyDecayArtifact.model_validate(
+        artifact.model_dump(mode='python')
+    )
+    if artifact.capability_state != 'SUPPORTED':
+        raise ValueError(
+            'unsupported late-energy decay artifact cannot bind a '
+            'solver result'
+        )
+    manifest = late_energy_decay_observable_manifest(artifact)
+    provenance = artifact.execution_provenance_ref()
+    return build_acoustic_solver_result_envelope(
+        dispatch=dispatch,
+        request=request,
+        execution_id=artifact.execution_id,
+        execution_provenance_ref=provenance,
+        artifacts=(manifest,),
+        completed_at_utc=completed_at_utc,
+        artifact_manifest_resolver=(
+            artifact_manifest_resolver
+            if artifact_manifest_resolver is not None
+            else lambda ref: (
+                AcousticSolverArtifactManifest(
+                    artifact_ref=ref,
+                    observable=LATE_ENERGY_DECAY_OBSERVABLE,
+                    encoding_schema_ref=R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF,
+                    valid_frequency_domain=artifact.valid_frequency_domain,
+                    solver_lineage={
+                        'execution_id': artifact.execution_id,
+                        'deterministic_path_artifact_id': (
+                            artifact.deterministic_path_artifact_ref.authority_id
+                        ),
+                        'deterministic_path_artifact_sha256': (
+                            artifact.deterministic_path_artifact_ref.semantic_hash_sha256
+                        ),
+                        'late_field_input_id': (
+                            artifact.late_field_input_ref.authority_id
+                        ),
+                        'late_field_input_sha256': (
+                            artifact.late_field_input_ref.semantic_hash_sha256
+                        ),
+                        'decay_law_id': artifact.decay_law.law_id,
+                        'decay_law_sha256': artifact.decay_law.semantic_sha256,
+                    },
+                )
+                if ref == artifact.as_external_ref()
+                else None
+            )
+        ),
+    )
 
 
 def _band_materials(
@@ -995,7 +1207,11 @@ __all__ = [
     'CadLateEnergyDecayRepository',
     'LATE_ENERGY_DECAY_MODEL',
     'LATE_ENERGY_DECAY_OBSERVABLE',
+    'LateDecayProvenance',
     'R160_LATE_ENERGY_ARTIFACT_SCHEMA_REF',
+    'R160_LATE_ENERGY_DECAY_ADAPTER_ID',
+    'R160_LATE_ENERGY_DECAY_SOLVER_IMPLEMENTATION_REF',
+    'R160_LATE_ENERGY_DECAY_SOLVER_ROLE',
     'LateEnergyBandResult',
     'LateEnergyDecayArtifact',
     'LateEnergyDecayLaw',
@@ -1011,8 +1227,11 @@ __all__ = [
     'R160_LATE_ENERGY_ARTIFACT_VERSION',
     'R160_LATE_FIELD_INPUT_VERSION',
     'build_late_energy_decay_law',
+    'build_late_energy_decay_result_envelope',
     'build_late_field_input_authority',
+    'declared_late_decay_law',
     'late_energy_decay_observable_manifest',
+    'measured_late_decay_law',
     'solve_late_energy_decay',
     'surface_scattering_evidence_ref',
 ]
