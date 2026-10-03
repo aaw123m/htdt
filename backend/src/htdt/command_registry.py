@@ -760,7 +760,11 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             command_id='room.edit.commit',
             display_name='操作を確定',
             contexts=frozenset({CommandContext.ROOM}),
+            # 'Enter' parses to Qt.Key_Enter (numpad only); the main keyboard
+            # emits Qt.Key_Return, which needs an explicit alias or the
+            # advertised 「Enter で閉じる」 sketch commit never fires.
             shortcut='Enter',
+            shortcut_aliases=('Return',),
             shortcut_behavior=ShortcutBehavior.FOCUS_SAFE,
             keywords=('commit', 'confirm', '確定'),
         ),

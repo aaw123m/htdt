@@ -12,7 +12,7 @@ import numpy as np
 import pyvista as pv
 from shapely.geometry import Polygon
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -43,6 +43,7 @@ from .cad_scene import (
     make_polygon_room,
     room_vertices,
 )
+from .command_palette import is_text_input_widget
 from .native_editor import NativeEditorWindow, ROLE, default_data_dir
 from .user_facing_error import operation_error_message
 from .wheel_scroll_guard import install_wheel_scroll_guard
@@ -302,6 +303,27 @@ class RoomEditorWindow(NativeEditorWindow):
         room_dock = QDockWidget('部屋', self)
         room_dock.setWidget(room_inspector)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, room_dock)
+
+        # 「Enter で閉じる」/Esc keys: the QVTK interactor never takes Qt
+        # focus, so the interactor eventFilter never sees these keys — bind
+        # real QShortcuts on the window instead. Enabled only while a room
+        # mode owns the keys and no text input is focused (FOCUS_SAFE,
+        # matching the workflow shell's room.edit.commit/cancel contract).
+        self._room_mode_shortcuts: list[tuple[QShortcut, frozenset[str]]] = []
+        for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            shortcut = QShortcut(QKeySequence(key), self, activated=self._commit_room_key)
+            self._room_mode_shortcuts.append((shortcut, frozenset({'sketch'})))
+        cancel_shortcut = QShortcut(
+            QKeySequence(Qt.Key.Key_Escape), self, activated=self._cancel_room_key
+        )
+        self._room_mode_shortcuts.append((cancel_shortcut, frozenset({'sketch', 'edit'})))
+        for shortcut, _modes in self._room_mode_shortcuts:
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._refresh_room_mode_shortcuts)
+        self._refresh_room_mode_shortcuts()
+
         self._refresh_room_inspector()
         self._refresh_treatments()
         self._update_actions()
@@ -975,8 +997,24 @@ class RoomEditorWindow(NativeEditorWindow):
                 self.room_edge_length.setValue(hypot(end.x_m - start.x_m, end.y_m - start.y_m))
             self.room_edge_length.setEnabled(editable)
 
+    def _commit_room_key(self) -> None:
+        if self.room_mode == 'sketch':
+            self.close_room_sketch()
+
+    def _cancel_room_key(self) -> None:
+        if self.room_mode in {'sketch', 'edit'}:
+            self.cancel_preview()
+
+    def _refresh_room_mode_shortcuts(self, *_args: object) -> None:
+        if not hasattr(self, '_room_mode_shortcuts'):
+            return
+        text_focused = is_text_input_widget(QApplication.focusWidget())
+        for shortcut, modes in self._room_mode_shortcuts:
+            shortcut.setEnabled(self.room_mode in modes and not text_focused)
+
     def _update_actions(self) -> None:
         super()._update_actions()
+        self._refresh_room_mode_shortcuts()
         if not hasattr(self, 'draw_room_action'):
             return
         blocked = self.recovery_candidate is not None or self.working is None
