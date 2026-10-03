@@ -10,6 +10,8 @@ from htdt.acoustic_pffdtd_adapter import finite_record_pressure_transfer
 from htdt.canonical_json import canonical_sha256
 from htdt.r130d_general3d_validation import (
     EVIDENCE_SCHEMA,
+    STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
+    STENCIL_SENSITIVITY_VARIANT_IDS,
     PairMetrics,
     ObservableContractMismatch,
     analytic_complex_harmonic_spectrum,
@@ -18,6 +20,7 @@ from htdt.r130d_general3d_validation import (
     classify_dense_frequency_neighborhood,
     classify_frequency_neighborhood,
     classify_spatial_representation_trend,
+    classify_stencil_sensitivity,
     compare_complex_transfer,
     connected_air_domain_node_metrics,
     dense_frequency_grid,
@@ -25,6 +28,7 @@ from htdt.r130d_general3d_validation import (
     load_dense_frequency_diagnostic_plan,
     load_evidence,
     load_spatial_representation_diagnostic_plan,
+    load_stencil_sensitivity_diagnostic_plan,
     load_target_window_diagnostic_plan,
     load_validation_plan,
     native_window_left_rectangle_spectrum,
@@ -32,6 +36,7 @@ from htdt.r130d_general3d_validation import (
     normalized_complex_difference,
     plane_distance_metrics,
     save_evidence,
+    stencil_variant_weights,
     target_window_sampling_metadata,
     target_window_clipped_left_rectangle_spectrum,
     target_window_clipped_left_rectangle_transfer,
@@ -40,6 +45,7 @@ from htdt.r130d_general3d_validation import (
     validate_physical_observable_contract,
     validate_refinement_schedule,
     validate_spatial_representation_diagnostic_binding,
+    validate_stencil_sensitivity_diagnostic_binding,
     validation_decision,
     validation_decision_v2,
 )
@@ -64,6 +70,12 @@ DENSE_DIAGNOSTIC_PLAN = (
     / 'benchmarks'
     / 'acoustics'
     / 'r130d_dense_frequency_diagnostic_plan.json'
+)
+STENCIL_DIAGNOSTIC_PLAN = (
+    Path(__file__).parents[2]
+    / 'benchmarks'
+    / 'acoustics'
+    / 'r130d_stencil_sensitivity_diagnostic_plan.json'
 )
 RUN76_EVIDENCE = (
     Path(__file__).parents[2]
@@ -1045,3 +1057,254 @@ def test_dense_diagnostic_cannot_enter_canonical_acceptance():
         dense['diagnostic_only_frequency_hz']
     ).isdisjoint(plan.physical_quantity.frequency_hz)
     assert dense['canonical_acceptance_inclusion'] is False
+
+
+def test_stencil_diagnostic_plan_hash_binding_and_canonical_contract_are_frozen():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_stencil_sensitivity_diagnostic_plan(STENCIL_DIAGNOSTIC_PLAN)
+    validate_stencil_sensitivity_diagnostic_binding(plan, diagnostic, dense)
+    assert diagnostic['task_start_main_sha'] == (
+        '6ee4f4a71954df10aa6ab02096662c9db695025b'
+    )
+    assert diagnostic['frozen_solver_contract']['pffdtd_ppw'] == [8.0, 10.0, 12.0]
+    stencil = diagnostic['stencil_sensitivity']
+    assert [
+        item['variant_id'] for item in stencil['stencil_variants']
+    ] == list(STENCIL_SENSITIVITY_VARIANT_IDS)
+    matrix = stencil['cell_matrix']
+    assert matrix['source_variants'] == list(STENCIL_SENSITIVITY_VARIANT_IDS)
+    assert matrix['receiver_variants'] == list(STENCIL_SENSITIVITY_VARIANT_IDS)
+    assert matrix['canonical_cell_id'] == STENCIL_SENSITIVITY_CANONICAL_CELL_ID
+    evaluation = stencil['evaluation']
+    dense_block = dense['dense_frequency_neighborhood']
+    assert evaluation['normalized_complex_difference_formula'] == dense_block[
+        'normalized_complex_difference_formula'
+    ]
+    assert evaluation['fixed_floor'] == dense_block['fixed_floor']
+    assert evaluation['pairs'] == dense_block['pairs']
+    assert evaluation['per_cell_classification'][
+        'localized_max_count'
+    ] == dense_block['classification']['localized_max_count']
+    assert evaluation['per_cell_classification'][
+        'persists_min_count'
+    ] == dense_block['classification']['persists_min_count']
+    assert evaluation['canonical_acceptance_inclusion'] is False
+
+
+def test_stencil_run76_pins_match_dense_authority():
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_stencil_sensitivity_diagnostic_plan(STENCIL_DIAGNOSTIC_PLAN)
+    dense_levels = {
+        float(item['points_per_wavelength']): item
+        for item in dense['run76_record_binding']['levels']
+    }
+    for level in diagnostic['run76_record_binding']['levels']:
+        dense_level = dense_levels[float(level['points_per_wavelength'])]
+        assert level['pressure_trace_sha256'] == dense_level[
+            'pressure_trace_sha256'
+        ]
+        assert level['source_trace_sha256'] == dense_level['source_trace_sha256']
+
+
+def test_stencil_diagnostic_binding_rejects_mutations():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_stencil_sensitivity_diagnostic_plan(STENCIL_DIAGNOSTIC_PLAN)
+    stale = json.loads(json.dumps(diagnostic))
+    stale['frozen_solver_contract']['fixture_id'] = 'stale-fixture'
+    with pytest.raises(ValueError, match='fixture id'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, stale, dense)
+    promoted = json.loads(json.dumps(diagnostic))
+    promoted['stencil_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] = True
+    with pytest.raises(ValueError, match='canonical acceptance'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, promoted, dense)
+    drift = json.loads(json.dumps(diagnostic))
+    drift['stencil_sensitivity']['stencil_variants'][1]['variant_id'] = 'bilinear'
+    with pytest.raises(ValueError, match='variants are not the frozen set'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, drift, dense)
+    drift_cell = json.loads(json.dumps(diagnostic))
+    drift_cell['stencil_sensitivity']['cell_matrix'][
+        'canonical_cell_id'
+    ] = 'nearest_node|canonical_trilinear'
+    with pytest.raises(ValueError, match='canonical cell'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, drift_cell, dense)
+    drift_metric = json.loads(json.dumps(diagnostic))
+    drift_metric['stencil_sensitivity']['evaluation']['fixed_floor'] = 1.0e-9
+    with pytest.raises(ValueError, match='fixed floor'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, drift_metric, dense)
+    rewritten = json.loads(json.dumps(diagnostic))
+    rewritten['forbidden_changes']['source_receiver_movement'] = True
+    with pytest.raises(ValueError, match='forbidden-change'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, rewritten, dense)
+    stale_parent = json.loads(json.dumps(diagnostic))
+    stale_parent['parent_dense_frequency_diagnostic']['semantic_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense diagnostic sha256'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, stale_parent, dense)
+    drift_pin = json.loads(json.dumps(diagnostic))
+    drift_pin['run76_record_binding']['levels'][0]['pressure_trace_sha256'] = (
+        '0' * 64
+    )
+    with pytest.raises(ValueError, match='dense authority'):
+        validate_stencil_sensitivity_diagnostic_binding(plan, drift_pin, dense)
+
+
+def test_stencil_variant_weights_reproduce_canonical_and_normalize():
+    canonical = [0.3, 0.1, 0.2, 0.4, 0.05, 0.25, 0.15, -0.45]
+    canonical = [x / sum(canonical) for x in canonical]
+    positions = [
+        [1.0, 2.0, 2.0],
+        [1.5, 2.0, 2.0],
+        [1.0, 2.5, 2.0],
+        [1.5, 2.5, 2.0],
+        [1.0, 2.0, 2.5],
+        [1.5, 2.0, 2.5],
+        [1.0, 2.5, 2.5],
+        [1.5, 2.5, 2.5],
+    ]
+    target = [1.4, 2.05, 2.05]
+    copied = stencil_variant_weights(
+        variant_id='canonical_trilinear',
+        canonical_weights=canonical,
+        node_positions_m=positions,
+        exact_position_m=target,
+    )
+    assert np.array_equal(copied, np.asarray(canonical))
+    copied[0] = 99.0
+    assert canonical[0] != 99.0
+    nearest = stencil_variant_weights(
+        variant_id='nearest_node',
+        canonical_weights=canonical,
+        node_positions_m=positions,
+        exact_position_m=target,
+    )
+    assert int(np.argmax(nearest)) == 1
+    assert nearest.sum() == pytest.approx(1.0)
+    uniform = stencil_variant_weights(
+        variant_id='uniform_eight_node',
+        canonical_weights=canonical,
+        node_positions_m=positions,
+        exact_position_m=target,
+    )
+    assert np.allclose(uniform, 0.125)
+    with pytest.raises(ValueError, match='unknown stencil weight variant'):
+        stencil_variant_weights(
+            variant_id='cubic',
+            canonical_weights=canonical,
+            node_positions_m=positions,
+            exact_position_m=target,
+        )
+    with pytest.raises(ValueError, match='node positions'):
+        stencil_variant_weights(
+            variant_id='nearest_node',
+            canonical_weights=canonical,
+            node_positions_m=positions[:-1],
+            exact_position_m=target,
+        )
+
+
+def test_stencil_variant_nearest_node_tie_breaks_to_lowest_row():
+    positions = [[float(index), 0.0, 0.0] for index in range(8)]
+    weights = stencil_variant_weights(
+        variant_id='nearest_node',
+        canonical_weights=[0.125] * 8,
+        node_positions_m=positions,
+        exact_position_m=[2.5, 0.0, 0.0],
+    )
+    assert int(np.argmax(weights)) == 2
+    assert weights.sum() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    ('cell_vectors', 'cell_labels', 'expected'),
+    [
+        (
+            [[True, False, True, False]] * 8,
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 8,
+            'STENCIL_WORSENING_PATTERN_INVARIANT',
+        ),
+        (
+            [[True, False, True, False]] * 7 + [[False, False, True, False]],
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 8,
+            'STENCIL_WORSENING_PATTERN_SHIFTED',
+        ),
+        (
+            [[True, False, True, False]] * 7 + [[False, False, True, False]],
+            ['DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY'] * 7
+            + ['DENSE_NON_MONOTONICITY_LOCALIZED_TO_CANONICAL_BINS'],
+            'STENCIL_WORSENING_PATTERN_RECLASSIFIED',
+        ),
+    ],
+)
+def test_stencil_classifier_frozen_labels(cell_vectors, cell_labels, expected):
+    canonical_vector = [True, False, True, False]
+    cells = [
+        {
+            'cell_id': f'cell{index}',
+            'worsening_by_frequency': vector,
+            'classification': cell_labels[index],
+        }
+        for index, vector in enumerate(cell_vectors)
+    ]
+    result = classify_stencil_sensitivity(
+        canonical_worsening_by_frequency=canonical_vector,
+        canonical_classification='DENSE_MIXED_NEIGHBORHOOD_SENSITIVITY',
+        noncanonical_cells=cells,
+    )
+    assert result['classification'] == expected
+    assert result['canonical_cell_id'] == STENCIL_SENSITIVITY_CANONICAL_CELL_ID
+    if expected == 'STENCIL_WORSENING_PATTERN_INVARIANT':
+        assert result['identical_vector_cell_count'] == 8
+        assert all(
+            distance == 0
+            for distance in result['hamming_distance_by_cell'].values()
+        )
+    if expected == 'STENCIL_WORSENING_PATTERN_RECLASSIFIED':
+        assert result['reclassified_cell_ids'] == ['cell7']
+
+
+def test_stencil_classifier_is_fail_closed_on_inputs():
+    canonical_vector = [True, False, True, False]
+    with pytest.raises(ValueError, match='control'):
+        classify_stencil_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification='X',
+            noncanonical_cells=[
+                {
+                    'cell_id': STENCIL_SENSITIVITY_CANONICAL_CELL_ID,
+                    'worsening_by_frequency': canonical_vector,
+                    'classification': 'X',
+                }
+            ],
+        )
+    with pytest.raises(ValueError, match='length mismatch'):
+        classify_stencil_sensitivity(
+            canonical_worsening_by_frequency=canonical_vector,
+            canonical_classification='X',
+            noncanonical_cells=[
+                {
+                    'cell_id': 'short',
+                    'worsening_by_frequency': [True],
+                    'classification': 'X',
+                }
+            ],
+        )
+
+
+def test_stencil_diagnostic_cannot_enter_canonical_acceptance():
+    plan = _plan()
+    dense = load_dense_frequency_diagnostic_plan(DENSE_DIAGNOSTIC_PLAN)
+    diagnostic = load_stencil_sensitivity_diagnostic_plan(STENCIL_DIAGNOSTIC_PLAN)
+    validate_stencil_sensitivity_diagnostic_binding(plan, diagnostic, dense)
+    assert tuple(plan.physical_quantity.frequency_hz) == (40.0, 80.0)
+    assert diagnostic['stencil_sensitivity']['evaluation'][
+        'canonical_acceptance_inclusion'
+    ] is False
+    assert diagnostic['decision_semantics']['diagnostic_only'] is True
+    assert diagnostic['decision_semantics'][
+        'cross_solver_unblocked_by_diagnostic'
+    ] is False
