@@ -20,9 +20,11 @@ from PySide6.QtGui import QWheelEvent
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QDoubleSpinBox,
     QFormLayout,
     QScrollArea,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -120,3 +122,47 @@ def test_keyboard_editing_still_works(app) -> None:
 
     assert spin.value() == pytest.approx(43.5)
     area.deleteLater()
+
+
+def test_wheel_over_spinbox_inside_dialog_scroll_area_scrolls_it(app) -> None:
+    """Dialog scroll areas are guarded too — the filter is app-wide and
+    has no dialog carve-out (REV34-DIALOGUX)."""
+    install_wheel_scroll_guard(app)
+    dialog = QDialog()
+    layout = QVBoxLayout(dialog)
+    spin = QDoubleSpinBox()
+    spin.setRange(0.0, 100.0)
+    spin.setValue(50.0)
+    area = _scroll_area_with(spin)
+    layout.addWidget(area)
+    dialog.resize(360, 300)
+    dialog.show()
+    app.processEvents()
+
+    scrollbar = area.verticalScrollBar()
+    assert scrollbar.maximum() > 0
+
+    QApplication.sendEvent(spin, _wheel_event(spin))
+
+    assert spin.value() == pytest.approx(50.0)
+    assert scrollbar.value() > 0
+    dialog.deleteLater()
+
+
+def test_wheel_over_spinbox_in_fixed_dialog_keeps_wheel_adjust(app) -> None:
+    """A control in a non-scrolling dialog has no page to scroll — wheel
+    stays a deliberate adjustment (REV34-DIALOGUX decision)."""
+    install_wheel_scroll_guard(app)
+    dialog = QDialog()
+    layout = QFormLayout(dialog)
+    spin = QDoubleSpinBox()
+    spin.setRange(0.0, 100.0)
+    spin.setValue(50.0)
+    layout.addRow(spin)
+    dialog.show()
+    app.processEvents()
+
+    QApplication.sendEvent(spin, _wheel_event(spin, angle_delta=120))
+
+    assert spin.value() != pytest.approx(50.0)
+    dialog.deleteLater()
