@@ -100,6 +100,9 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         form = QFormLayout()
         self.prediction_receiver_combo = QComboBox()
         self.prediction_receiver_combo.setMinimumContentsLength(18)
+        self.prediction_receiver_combo.setToolTip(
+            '予測を計算する聴取位置（部屋内の測定点）です。'
+        )
         form.addRow('受音点', self.prediction_receiver_combo)
 
         self.prediction_max_mode_field = QDoubleSpinBox()
@@ -107,6 +110,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_max_mode_field.setDecimals(1)
         self.prediction_max_mode_field.setValue(300.0)
         self.prediction_max_mode_field.setSuffix(' Hz')
+        self.prediction_max_mode_field.setToolTip(
+            'この周波数までの室モード（部屋の固有振動）を列挙します。'
+            '低域ほどモードが支配的で、高域では意味を持たなくなります。'
+        )
         form.addRow('モード上限', self.prediction_max_mode_field)
 
         self.prediction_sound_speed_field = QDoubleSpinBox()
@@ -114,6 +121,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_sound_speed_field.setDecimals(2)
         self.prediction_sound_speed_field.setValue(343.0)
         self.prediction_sound_speed_field.setSuffix(' m/s')
+        self.prediction_sound_speed_field.setToolTip(
+            '計算に使う音速です（m/s）。20°Cの空気で約343 m/s。'
+            '気温が高いほど音速は速くなります。'
+        )
         form.addRow('音速', self.prediction_sound_speed_field)
         layout.addLayout(form)
 
@@ -132,6 +143,9 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
 
         self.prediction_reflection_checkbox = QCheckBox('一次反射パスを3D表示')
         self.prediction_reflection_checkbox.setChecked(True)
+        self.prediction_reflection_checkbox.setToolTip(
+            'スピーカーから壁・天井・床で1回だけ反射して受音点に届く音の経路を3Dに描きます。'
+        )
         self.prediction_reflection_checkbox.toggled.connect(lambda _checked: self._rebuild())
         layout.addWidget(self.prediction_reflection_checkbox)
 
@@ -146,6 +160,10 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.prediction_tree = QTreeWidget()
         self.prediction_tree.setHeaderLabels(['予測結果', '入力版'])
         self.prediction_tree.setMinimumHeight(220)
+        self.prediction_tree.setToolTip(
+            '実行済み予測の一覧です。「入力版」は計算に使った部屋・設定の版で、'
+            '部屋を編集すると古い版の結果は「古い」表示になります。'
+        )
         self.prediction_tree.itemSelectionChanged.connect(self._prediction_tree_selected)
         layout.addWidget(self.prediction_tree)
 
@@ -163,8 +181,15 @@ class PredictionWorkspaceWindow(MeasurementWorkspaceWindow):
         self.matrix_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
+        self.matrix_table.setToolTip(
+            'スピーカー(列)×受音点(行)の伝達行列です。'
+            '各セルはその経路の評価値です。行列は測定系の設定から生成されます。'
+        )
         layout.addWidget(self.matrix_table)
         matrix_refresh_button = QPushButton('行列を再読み込み')
+        matrix_refresh_button.setToolTip(
+            '保存済みの伝達行列を読み込み直します。測定系の設定を変えた後に使います。'
+        )
         matrix_refresh_button.clicked.connect(self.refresh_matrix_dock)
         layout.addWidget(matrix_refresh_button)
         self.refresh_matrix_dock()

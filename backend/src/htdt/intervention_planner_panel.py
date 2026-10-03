@@ -167,12 +167,21 @@ class InterventionPlannerPanel(QFrame):
         self.finding_detail_field.setPlaceholderText(
             "例: 中域の座席でレベルが落ちる"
         )
+        self.finding_detail_field.setToolTip(
+            "改善したい課題を自由記述で書きます。スタディ名として一覧に表示されます。"
+        )
         form.addRow("課題", self.finding_detail_field)
         self.observable_combo = QComboBox()
         self.observable_combo.setEditable(True)
         self.observable_combo.addItem("magnitude_response")
+        self.observable_combo.setToolTip(
+            "改善対象として観測する物理量です。magnitude_response は周波数特性（音圧レベル）です。"
+        )
         form.addRow("観測量", self.observable_combo)
         self.band_enabled_check = QCheckBox("帯域を指定")
+        self.band_enabled_check.setToolTip(
+            "オンにすると、課題の対象を特定の周波数帯に限定します。"
+        )
         form.addRow("", self.band_enabled_check)
         band_row = QHBoxLayout()
         self.band_low_field = QDoubleSpinBox()
@@ -182,6 +191,8 @@ class InterventionPlannerPanel(QFrame):
         self.band_high_field.setAccessibleName('帯域上限 Hz')
         self.band_high_field.setRange(2.0, 22000.0)
         self.band_high_field.setValue(160.0)
+        self.band_low_field.setToolTip('課題対象とする周波数帯の下限です（Hz）。')
+        self.band_high_field.setToolTip('課題対象とする周波数帯の上限です（Hz）。')
         band_row.addWidget(self.band_low_field)
         band_row.addWidget(QLabel("〜"))
         band_row.addWidget(self.band_high_field)
@@ -190,14 +201,24 @@ class InterventionPlannerPanel(QFrame):
         band_widget.setLayout(band_row)
         form.addRow("帯域 Hz", band_widget)
         self.fidelity_field = QLineEdit("native")
+        self.fidelity_field.setToolTip(
+            "評価に使うモデルの忠実度ラベルです。native はソフト内蔵の予測モデルです。"
+        )
         form.addRow("忠実度ラベル", self.fidelity_field)
         self.candidate_budget_field = QSpinBox()
         self.candidate_budget_field.setRange(1, 50_000)
         self.candidate_budget_field.setValue(64)
+        self.candidate_budget_field.setToolTip(
+            "スタディで生成・評価する介入案の最大数です。"
+        )
         form.addRow("候補予算", self.candidate_budget_field)
         self.evidence_floor_combo = QComboBox()
         for state, label in _EVIDENCE_LABELS.items():
             self.evidence_floor_combo.addItem(label, state)
+        self.evidence_floor_combo.setToolTip(
+            "介入案を採用するのに必要な証拠の最低水準です。"
+            "この水準未満の証拠しかない案は候補に出ません。"
+        )
         form.addRow("証拠状態の下限", self.evidence_floor_combo)
         create_layout.addLayout(form)
 
@@ -235,6 +256,17 @@ class InterventionPlannerPanel(QFrame):
         self.study_tree.setHeaderLabels(
             ["課題 / 観測量", "族", "基準リビジョン", "状態"]
         )
+        self.study_tree.setToolTip(
+            "発行済みの介入スタディです。課題ごとに生成された介入案を比較できます。"
+        )
+        _study_header = self.study_tree.headerItem()
+        for _c, _t in {
+            0: 'スタディの課題と観測対象',
+            1: '使用した介入案の種類（配置変更・DSP・機材変更など）',
+            2: 'スタディ作成時の部屋リビジョン',
+            3: 'スタディの進行状態',
+        }.items():
+            _study_header.setToolTip(_c, _t)
         self.study_tree.itemSelectionChanged.connect(
             self._on_study_selection
         )
@@ -262,6 +294,19 @@ class InterventionPlannerPanel(QFrame):
         self.alternative_tree.setHeaderLabels(
             ["族", "差分", "証拠状態", "評価網羅", "ガードレール回帰"]
         )
+        self.alternative_tree.setToolTip(
+            "このスタディで生成された介入案の比較です。"
+            "選択すると差分・指標・根拠を確認でき、適用または検証測定へ進めます。"
+        )
+        _alt_header = self.alternative_tree.headerItem()
+        for _c, _t in {
+            0: '介入案の種類（配置変更・DSP・機材変更など）',
+            1: '基準に対する変化の内容',
+            2: 'この案を裏付ける証拠の水準',
+            3: '観測量・帯域の評価がどれだけ網羅されているか',
+            4: '安全制約（ガードレール）を逸脱しないかの確認結果',
+        }.items():
+            _alt_header.setToolTip(_c, _t)
         self.alternative_tree.itemSelectionChanged.connect(
             self._on_alternative_selection
         )
@@ -276,9 +321,15 @@ class InterventionPlannerPanel(QFrame):
         self.apply_button = QPushButton("選択した介入案を適用")
         set_control_size(self.apply_button, ControlSize.STANDARD)
         self.apply_button.setEnabled(False)
+        self.apply_button.setToolTip(
+            '選択した介入案を部屋に適用します。'
+        )
         self.apply_button.clicked.connect(self._apply_selected)
         self.verify_button = QPushButton("検証測定へ")
         set_control_size(self.verify_button, ControlSize.STANDARD)
+        self.verify_button.setToolTip(
+            '適用した変更の効果を実測で確認するため、測定ワークフローへ進みます。'
+        )
         self.verify_button.clicked.connect(self._open_verification)
         action_row.addWidget(self.apply_button)
         action_row.addWidget(self.verify_button)

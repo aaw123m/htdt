@@ -174,11 +174,17 @@ class FieldExplorerPanel(QWidget):
         session_row = QHBoxLayout()
         self.session_combo = QComboBox()
         self.session_combo.setMinimumContentsLength(24)
+        self.session_combo.setToolTip(
+            '表示する予測実行（音場セッション）を選びます。'
+        )
         self.session_combo.currentIndexChanged.connect(
             self._session_combo_changed
         )
         session_row.addWidget(self.session_combo, 1)
         self.session_reload_button = QPushButton('再読み込み')
+        self.session_reload_button.setToolTip(
+            '予測実行の一覧を読み込み直します。'
+        )
         self.session_reload_button.clicked.connect(self.refresh_sessions)
         session_row.addWidget(self.session_reload_button)
         layout.addLayout(session_row)
@@ -186,6 +192,9 @@ class FieldExplorerPanel(QWidget):
         form = QFormLayout()
         self.mode_combo = QComboBox()
         self.mode_combo.setMinimumContentsLength(18)
+        self.mode_combo.setToolTip(
+            '音場を計算する室モード（部屋の固有振動の次数）を選びます。'
+        )
         form.addRow('モード', self.mode_combo)
 
         self.stride_field = QDoubleSpinBox()
@@ -194,9 +203,16 @@ class FieldExplorerPanel(QWidget):
         self.stride_field.setDecimals(3)
         self.stride_field.setValue(0.1)
         self.stride_field.setSuffix(' m')
+        self.stride_field.setToolTip(
+            '音場を計算する格子点の間隔です（m）。'
+            '小さいほど細かく描けますが生成に時間がかかります。'
+        )
         form.addRow('グリッド間隔', self.stride_field)
 
         self.build_button = QPushButton('選択モードの音場を生成')
+        self.build_button.setToolTip(
+            '選択したモードの音場を格子点で計算して表示します。'
+        )
         self.build_button.clicked.connect(self._build_session)
         form.addRow(self.build_button)
         layout.addLayout(form)
@@ -205,14 +221,23 @@ class FieldExplorerPanel(QWidget):
         self.plane_combo = QComboBox()
         for plane in ('xy', 'xz', 'yz'):
             self.plane_combo.addItem(_PLANE_LABELS[plane], plane)
+        self.plane_combo.setToolTip(
+            '音場を表示する切断面です。XY=水平面（上から見た図）、XZ・YZ=垂直断面です。'
+        )
         self.plane_combo.currentIndexChanged.connect(self._plane_changed)
         view_form.addRow('断面', self.plane_combo)
 
         self.coordinate_combo = QComboBox()
+        self.coordinate_combo.setToolTip(
+            '断面を切る高さ・位置の座標です。'
+        )
         self.coordinate_combo.currentIndexChanged.connect(self._refresh_view)
         view_form.addRow('断面位置', self.coordinate_combo)
 
         self.quantity_combo = QComboBox()
+        self.quantity_combo.setToolTip(
+            '断面に表示する物理量（音圧レベルなど）です。'
+        )
         self.quantity_combo.currentIndexChanged.connect(self._refresh_view)
         view_form.addRow('表示量', self.quantity_combo)
         layout.addLayout(view_form)
@@ -244,19 +269,34 @@ class FieldExplorerPanel(QWidget):
         self.probe_x = QDoubleSpinBox()
         self.probe_y = QDoubleSpinBox()
         self.probe_z = QDoubleSpinBox()
-        for axis_spin in (self.probe_x, self.probe_y, self.probe_z):
+        _axis_tips = (
+            'プローブ位置のX座標です（m、幅方向）。',
+            'プローブ位置のY座標です（m、奥行き方向）。',
+            'プローブ位置のZ座標です（m、高さ方向）。',
+        )
+        for axis_spin, _tip in zip(
+            (self.probe_x, self.probe_y, self.probe_z), _axis_tips
+        ):
             axis_spin.setRange(-1000.0, 1000.0)
             axis_spin.setDecimals(3)
             axis_spin.setSingleStep(0.05)
+            axis_spin.setToolTip(_tip)
             probe_row.addWidget(axis_spin)
         probe_form.addRow('プローブ位置 (x,y,z)', probe_row)
 
         self.interpolate_combo = QComboBox()
         self.interpolate_combo.addItem('最近傍サンプル (補間なし)', 'exact_samples')
         self.interpolate_combo.addItem('3次元線形補間', 'trilinear')
+        self.interpolate_combo.setToolTip(
+            '格子点の間の値の読み方です。最近傍=計算した格子点そのまま、'
+            '3次元線形補間=周囲の格子点から滑らかに推定します。'
+        )
         probe_form.addRow('プローブ補間', self.interpolate_combo)
 
         self.probe_button = QPushButton('プローブ')
+        self.probe_button.setToolTip(
+            '指定した位置での音場の値を読み出します。'
+        )
         self.probe_button.clicked.connect(self._run_probe)
         probe_form.addRow(self.probe_button)
         layout.addLayout(probe_form)

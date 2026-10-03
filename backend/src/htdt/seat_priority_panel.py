@@ -64,6 +64,18 @@ class SeatPriorityPanel(QWidget):
         self.member_tree = QTreeWidget()
         self.member_tree.setColumnCount(4)
         self.member_tree.setHeaderLabels(['座席', '役割', '必須', '重み'])
+        self.member_tree.setToolTip(
+            '聴取対象の座席とその優先度です。必須座席は必ず評価対象になり、'
+            '重みは評価スコアへの寄与の大きさです。'
+        )
+        _seat_header = self.member_tree.headerItem()
+        for _c, _t in {
+            0: '聴取位置（座席）の名前',
+            1: '座席の役割（主聴取位置・補助座席など）',
+            2: '評価に必ず含めるかどうか',
+            3: '評価スコアへの相対的な寄与度',
+        }.items():
+            _seat_header.setToolTip(_c, _t)
         self.member_tree.setRootIsDecorated(False)
         layout.addWidget(self.member_tree)
 
@@ -85,6 +97,9 @@ class SeatPriorityPanel(QWidget):
         self.saved_tree = QTreeWidget()
         self.saved_tree.setColumnCount(1)
         self.saved_tree.setHeaderLabels(['保存済みプロファイル'])
+        self.saved_tree.setToolTip(
+            '保存したリスニング集団の一覧です。現在のリビジョンに紐付いています。'
+        )
         self.saved_tree.setRootIsDecorated(False)
         self.saved_tree.setMaximumHeight(140)
         layout.addWidget(self.saved_tree)
@@ -115,8 +130,15 @@ class SeatPriorityPanel(QWidget):
             role_combo = QComboBox()
             for role, label in _ROLE_LABELS:
                 role_combo.addItem(label, role)
+            role_combo.setToolTip(
+                'この座席の役割です。主聴取位置（MLP）は最も優先される席、'
+                '補助座席は副次的な聴取位置です。'
+            )
             required_check = QCheckBox()
             required_check.setChecked(True)
+            required_check.setToolTip(
+                'オンにすると評価に必ず含まれます。オフの座席は参考程度に評価されます。'
+            )
             weight_spin = QDoubleSpinBox()
             weight_spin.setRange(0.01, 100.0)
             weight_spin.setDecimals(2)

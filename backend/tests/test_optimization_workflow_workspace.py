@@ -330,3 +330,96 @@ def test_ux140_builder_exposes_shell_mount_contract(monkeypatch) -> None:
     workspace.close()
     workspace.deleteLater()
     app.processEvents()
+
+
+def test_rev32_controls_and_column_headers_have_japanese_explanations(tmp_path) -> None:
+    """Every interactive control explains its meaning in plain Japanese.
+
+    The user-facing contract: hovering a field, button, tree, or table
+    column must say what the item means — never a bare internal name.
+    """
+    app = _app()
+    repository = SceneRepository(tmp_path / "scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    workspace = OptimizationWorkflowWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeOptimizationViewport(parent),
+    )
+    controller = workspace.controller
+
+    explained_widgets = [
+        controller.search_name_field,
+        controller.search_entity_combo,
+        controller.search_axis_combo,
+        controller.search_min_field,
+        controller.search_max_field,
+        controller.search_step_field,
+        controller.search_limit_field,
+        controller.search_preset_combo,
+        controller.linked_master_combo,
+        controller.linked_slave_combo,
+        controller.linked_relation_combo,
+        controller.linked_mirror_field,
+        controller.search_spec_tree,
+        controller.search_generate_button,
+        controller.search_candidate_tree,
+        controller.search_apply_button,
+        controller.measurement_plan_tree,
+        controller.objective_list,
+        controller.pareto_refresh_button,
+        controller.pareto_tree,
+        controller.campaign_model_version_field,
+        controller.campaign_low_field,
+        controller.campaign_high_field,
+        controller.campaign_residual_field,
+        controller.campaign_tree,
+        controller.validation_tree,
+        controller.adaptive_length_scale_field,
+        controller.adaptive_build_button,
+        controller.extended_capability_combo,
+        controller.extended_parameter_combo,
+        controller.extended_min_field,
+        controller.extended_max_field,
+        controller.extended_limit_field,
+        controller.extended_spec_tree,
+        controller.extended_candidate_tree,
+        controller.rew_combo,
+        controller.rew_channel_role_field,
+        controller.campaign_measurement_point_combo,
+        controller.robustness_tree,
+        controller.robustness_comparison_tree,
+    ]
+    for widget in explained_widgets:
+        assert widget is not None
+        assert widget.toolTip(), f"{widget.objectName() or widget!r} has no tooltip"
+        assert not widget.toolTip().isascii(), (
+            f"tooltip must be Japanese: {widget.toolTip()}"
+        )
+
+    column_explained_trees = [
+        controller.search_axis_tree,
+        controller.search_spec_tree,
+        controller.search_candidate_tree,
+        controller.measurement_plan_tree,
+        controller.pareto_tree,
+        controller.campaign_tree,
+        controller.validation_tree,
+        controller.adaptive_tree,
+        controller.extended_axis_tree,
+        controller.extended_spec_tree,
+        controller.extended_candidate_tree,
+        controller.adaptive_extended_tree,
+        controller.robustness_tree,
+    ]
+    for tree in column_explained_trees:
+        header = tree.headerItem()
+        assert header is not None
+        for column in range(tree.columnCount()):
+            assert header.toolTip(column), (
+                f"{tree.accessibleName() or tree!r} column {column} unexplained"
+            )
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()

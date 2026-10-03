@@ -78,6 +78,9 @@ class RobustnessAuthoringPanel(QWidget):
 
         form = QFormLayout()
         self.candidate_combo = QComboBox(self)
+        self.candidate_combo.setToolTip(
+            'ばらつき評価の対象にする候補（既に評価済みのもの）です。'
+        )
         self.candidate_combo.currentIndexChanged.connect(
             self._candidate_changed
         )
@@ -88,6 +91,10 @@ class RobustnessAuthoringPanel(QWidget):
         self.delta_m_spin.setSingleStep(0.01)
         self.delta_m_spin.setValue(DEFAULT_POSITION_DELTA_M)
         self.delta_m_spin.setSuffix(' m')
+        self.delta_m_spin.setToolTip(
+            '評価点を基準位置からどれだけずらすか（m）。'
+            '現実の設置誤差を想定した値を指定します。'
+        )
         form.addRow('位置の揺らぎ ±', self.delta_m_spin)
         self.delta_deg_spin = QDoubleSpinBox(self)
         self.delta_deg_spin.setRange(0.1, 45.0)
@@ -95,6 +102,10 @@ class RobustnessAuthoringPanel(QWidget):
         self.delta_deg_spin.setSingleStep(0.5)
         self.delta_deg_spin.setValue(DEFAULT_ANGLE_DELTA_DEG)
         self.delta_deg_spin.setSuffix(' °')
+        self.delta_deg_spin.setToolTip(
+            '評価点を基準角度からどれだけずらすか（°）。'
+            'スピーカーの向きの誤差を想定した値を指定します。'
+        )
         form.addRow('角度の揺らぎ ±', self.delta_deg_spin)
         layout.addLayout(form)
 
@@ -107,12 +118,22 @@ class RobustnessAuthoringPanel(QWidget):
 
         self.axis_tree = QTreeWidget(self)
         self.axis_tree.setHeaderLabels(('軸', '基準値'))
+        self.axis_tree.setToolTip(
+            'ばらつかせる軸の一覧です。チェックした軸について、'
+            '基準値の±揺らぎの位置で評価点を生成します。'
+        )
+        _axis_header = self.axis_tree.headerItem()
+        _axis_header.setToolTip(0, 'ばらつかせる方向・角度の軸')
+        _axis_header.setToolTip(1, 'その軸の基準配置での値')
         self.axis_tree.setRootIsDecorated(False)
         self.axis_tree.itemChanged.connect(self._axis_changed)
         layout.addWidget(self.axis_tree)
 
         actions = QHBoxLayout()
         self.run_button = QPushButton('ばらつき評価を作成・実行', self)
+        self.run_button.setToolTip(
+            '指定した揺らぎ範囲で評価点を生成し、指標がどれだけ変わるか計算します。'
+        )
         self.run_button.clicked.connect(self._run)
         actions.addWidget(self.run_button)
         self.cancel_button = QPushButton('中止', self)
