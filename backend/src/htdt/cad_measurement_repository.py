@@ -147,6 +147,17 @@ class CadMeasurementRepository:
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
 
+    def _read(self) -> sqlite3.Connection:
+        """Pooled per-thread read handle shared with the scene repository.
+
+        Same database file, so borrowing ``scene_repository._read()`` gives
+        read paths the pooled connection, the borrow lock that serializes a
+        cross-thread ``close()`` against in-flight reads, and the reopen
+        fences file-swap layers hold — a fresh ``connect_sqlite`` pays the
+        ~2-4ms open cost per call and sits outside all three protections.
+        """
+        return self.scene_repository._read()
+
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
             require_native_tables(connection, 'cad_measurement_assets', 'cad_measurements', 'cad_frequency_responses', 'cad_measurement_comparisons', 'cad_measurement_plans', 'cad_impulse_responses', 'cad_measurement_attachments')
@@ -312,7 +323,7 @@ class CadMeasurementRepository:
         # connection per lookup. Rows never persist in the memo across calls.
         if measurements is not None and measurement_id in measurements:
             return measurements[measurement_id]
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_measurements WHERE measurement_id=?',
                 (measurement_id,),
@@ -336,7 +347,7 @@ class CadMeasurementRepository:
         # re-verifying — integrity is still proven once per outer operation.
         if datasets is not None and dataset_id in datasets:
             return datasets[dataset_id]
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 f'{self._DATASET_SELECT} WHERE d.dataset_id=?',
                 (dataset_id,),
@@ -356,7 +367,7 @@ class CadMeasurementRepository:
         # earlier in this operation and skips the row query entirely.
         if bound is not None and measurement_id in bound:
             return bound[measurement_id]
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 f'{self._DATASET_SELECT} WHERE d.measurement_id=?',
                 (measurement_id,),
@@ -388,7 +399,7 @@ class CadMeasurementRepository:
         """
         verified: dict[str, CadFrequencyResponseDataset] = {}
         errors: dict[str, BaseException] = {}
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 f'{self._DATASET_SELECT} WHERE m.document_id=?',
                 (document_id,),
@@ -416,7 +427,7 @@ class CadMeasurementRepository:
         return verified, errors
 
     def list_measurements(self, document_id: str) -> tuple[CadMeasurementRecord, ...]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_measurements WHERE document_id=? ORDER BY imported_at DESC, measurement_id',
                 (document_id,),
@@ -429,7 +440,7 @@ class CadMeasurementRepository:
         source_sha256: str,
     ) -> str | None:
         """First measurement whose bound dataset was imported from these bytes."""
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 '''SELECT d.measurement_id FROM cad_frequency_responses d
                    JOIN cad_measurements m ON m.measurement_id=d.measurement_id
@@ -444,7 +455,7 @@ class CadMeasurementRepository:
         document_id: str,
         external_source_id: str,
     ) -> str | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 '''SELECT measurement_id FROM cad_measurements
                    WHERE document_id=? AND external_source_id=?
@@ -463,7 +474,7 @@ class CadMeasurementRepository:
         instead of paying an O(document) scan per staged file. Keep-first
         ordering matches ``measurement_id_by_source_sha256`` exactly.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 '''SELECT d.source_sha256, d.measurement_id
                    FROM cad_frequency_responses d
@@ -487,7 +498,7 @@ class CadMeasurementRepository:
 
         Keep-first ordering matches ``measurement_id_by_external_source``.
         """
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 '''SELECT external_source_id, measurement_id FROM cad_measurements
                    WHERE document_id=? AND external_source_id IS NOT NULL
@@ -579,7 +590,7 @@ class CadMeasurementRepository:
         return attachment
 
     def list_attachments(self, measurement_id: str) -> tuple[CadMeasurementAttachment, ...]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 '''SELECT * FROM cad_measurement_attachments
                    WHERE measurement_id=? ORDER BY seq ASC''',
@@ -591,7 +602,7 @@ class CadMeasurementRepository:
         self,
         document_id: str,
     ) -> tuple[CadMeasurementAttachment, ...]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 '''SELECT * FROM cad_measurement_attachments
                    WHERE document_id=? ORDER BY seq ASC''',
@@ -754,7 +765,7 @@ class CadMeasurementRepository:
         whose evidence was altered or removed fails closed instead of
         silently serving stale comparison values.
         """
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection, connection:
             evidence = []
             for dataset_id in (comparison.dataset_a_id, comparison.dataset_b_id):
                 row = self._comparison_evidence_row(connection, dataset_id)
@@ -794,7 +805,7 @@ class CadMeasurementRepository:
         return comparison
 
     def get_comparison(self, comparison_id: str) -> CadMeasurementComparison | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT * FROM cad_measurement_comparisons WHERE comparison_id=?',
                 (comparison_id,),
@@ -804,7 +815,7 @@ class CadMeasurementRepository:
         return self._validate_current_comparison(self._row_to_comparison(row))
 
     def list_comparisons(self, document_id: str) -> tuple[CadMeasurementComparison, ...]:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_measurement_comparisons WHERE document_id=? ORDER BY created_at DESC, comparison_id',
                 (document_id,),
@@ -844,7 +855,7 @@ class CadMeasurementRepository:
         return CadMeasurementRecord.model_validate(payload)
 
     def _asset_row_for_digest(self, digest: str) -> sqlite3.Row:
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 '''SELECT sha256, filename, relative_path, size_bytes
                    FROM cad_measurement_assets WHERE sha256=?''',
@@ -979,7 +990,7 @@ class CadMeasurementRepository:
         ``KeyError``; a missing, misplaced or corrupted raw asset raises
         ``ManagedAssetError``.
         """
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 'SELECT source_sha256 FROM cad_frequency_responses WHERE dataset_id=?',
                 (dataset_id,),
@@ -1056,7 +1067,7 @@ class CadMeasurementRepository:
         record = self.get_measurement(measurement_id)
         if record is None:
             raise KeyError(measurement_id)
-        with closing(self._connect()) as connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 f'{self._DATASET_SELECT} WHERE d.measurement_id=?',
                 (measurement_id,),
@@ -1321,7 +1332,7 @@ class CadMeasurementRepository:
         return dataset, asset
 
     def get_ir_dataset(self, dataset_id: str) -> CadImpulseResponseDataset | None:
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             row = connection.execute(
                 f'{self._IR_DATASET_SELECT} WHERE dataset_id=?',
                 (dataset_id,),
@@ -1332,7 +1343,7 @@ class CadMeasurementRepository:
         self, measurement_id: str
     ) -> tuple[CadImpulseResponseDataset, ...]:
         """All persisted impulse-response datasets bound to a measurement."""
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 f'{self._IR_DATASET_SELECT} WHERE measurement_id=? '
                 'ORDER BY dataset_id',
@@ -1507,7 +1518,7 @@ class CadMeasurementRepository:
         a measured terminal is surfaced as ``ValueError`` rather than guessed.
         """
         from .cad_measurement_loop import CadMeasurementPlan
-        with closing(self._connect()) as connection, connection:
+        with closing(self._read()) as connection, connection:
             rows = connection.execute(
                 'SELECT * FROM cad_measurement_plans WHERE search_spec_id=? ORDER BY seq ASC',
                 (search_spec_id,),

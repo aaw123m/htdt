@@ -10,13 +10,16 @@ import time
 import pytest
 
 from htdt.cad_document import WorkingDocument
+from htdt.cad_measurement_repository import CadMeasurementRepository
 from htdt.cad_repository import (
     SceneRepository,
     SceneRevisionConflictError,
+    _LIVE_REPOSITORIES,
     _reopen_fence,
     fenced_read_reopens_under,
     release_read_handles_under,
 )
+from htdt.cad_system_variant_repository import CadSystemVariantRepository
 from htdt.cad_scene import (
     Position3,
     SceneDocument,
@@ -1086,3 +1089,85 @@ def test_fenced_release_allows_swap_under_reopening_reader(
     assert errors == []
     # Reads resumed normally after the swap windows closed.
     assert repository.get(revision.revision_id) is not None
+
+
+def test_blob_reads_do_not_create_store(tmp_path: Path) -> None:
+    """read_blob/has_blob answer through the pooled read without running
+    the blob store's DDL — a read against a database whose content_blob
+    table is absent (an older schema) must not mutate it (REV34
+    UI-thread-read migration)."""
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    drop = sqlite3.connect(repository.path)
+    try:
+        drop.execute('DROP TABLE IF EXISTS htdt_content_blobs')
+        drop.commit()
+    finally:
+        drop.close()
+    assert repository.read_blob('0' * 64) is None
+    assert repository.has_blob('0' * 64) is False
+    probe = sqlite3.connect(repository.path)
+    try:
+        assert probe.execute(
+            "SELECT COUNT(*) FROM sqlite_master "
+            "WHERE name='htdt_content_blobs'"
+        ).fetchone()[0] == 0
+    finally:
+        probe.close()
+
+
+def test_blob_reads_roundtrip_through_pooled_connection(
+    tmp_path: Path,
+) -> None:
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    digest = 'a' * 64
+    assert repository.read_blob(digest) is None
+    assert repository.has_blob(digest) is False
+    # The read ran on the per-thread pooled handle, not a fresh connect.
+    assert len(repository._read_connections) == 1
+    assert repository._read() is repository._read()
+
+
+def test_variant_repository_read_waits_under_reopen_fence(
+    tmp_path: Path,
+) -> None:
+    """CadSystemVariantRepository._read honours the same swap fence as
+    SceneRepository._read: a fresh pooled handle taken mid-fence would
+    hold the swap target open and turn the rename into WinError 32
+    (REV34). The read must wait for the fence, then work on the
+    swapped-in file."""
+    data_dir = tmp_path / 'data'
+    data_dir.mkdir()
+    scene_repository = SceneRepository(data_dir / 'cad-scenes.sqlite3')
+    repository = CadSystemVariantRepository(scene_repository)
+    assert repository in _LIVE_REPOSITORIES
+
+    acquired: list[sqlite3.Connection] = []
+    done = threading.Event()
+
+    def reader() -> None:
+        acquired.append(repository._read())
+        done.set()
+
+    with fenced_read_reopens_under(data_dir):
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        time.sleep(0.05)
+        assert not done.is_set()
+    thread.join(timeout=10)
+    assert done.is_set()
+    acquired[0].execute('SELECT 1').fetchone()
+    repository.close()
+    scene_repository.close()
+
+
+def test_measurement_repository_read_shares_scene_pool(
+    tmp_path: Path,
+) -> None:
+    """CadMeasurementRepository._read delegates to the scene repository's
+    pooled per-thread connection — one borrow covers both repositories'
+    reads on the UI thread (REV34)."""
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    repository = CadMeasurementRepository(scene_repository)
+    assert repository._read() is scene_repository._read()
+    scene_repository.close()
