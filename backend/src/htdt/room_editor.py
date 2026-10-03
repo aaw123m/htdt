@@ -44,9 +44,23 @@ from .cad_scene import (
 )
 from .native_editor import NativeEditorWindow, ROLE, default_data_dir
 from .user_facing_error import operation_error_message
+from .wheel_scroll_guard import install_wheel_scroll_guard
 
 
 RoomMode = Literal['idle', 'sketch', 'edit']
+
+
+def _spin_value_changed(field: QDoubleSpinBox, stored: float) -> bool:
+    """Whether the field holds a user-meaningful change from ``stored``.
+
+    QDoubleSpinBox.value() is rounded to the field's decimals, so a stored
+    value with finer precision (sketched floats, imported documents) would
+    otherwise commit display-rounding noise as a silent edit on focus-out.
+    Users cannot type fractions of one display step, so anything within half
+    a step is necessarily rounding noise rather than an intended change.
+    """
+    tolerance = 0.5 * 10 ** -field.decimals()
+    return abs(float(field.value()) - stored) > tolerance
 
 
 def _room_wireframe(room: RoomPrism) -> pv.PolyData:
@@ -824,14 +838,23 @@ class RoomEditorWindow(NativeEditorWindow):
         if self.room_mode != 'edit' or room is None or self.selected_room_vertex_id is None:
             return
         vertices = list(room_vertices(room))
-        for index, vertex in enumerate(vertices):
-            if vertex.vertex_id == self.selected_room_vertex_id:
-                vertices[index] = RoomVertex(
-                    vertex_id=vertex.vertex_id,
-                    x_m=self.room_vertex_x.value(),
-                    y_m=self.room_vertex_y.value(),
-                )
-                break
+        selected_index = next(
+            (index for index, vertex in enumerate(vertices) if vertex.vertex_id == self.selected_room_vertex_id),
+            None,
+        )
+        if selected_index is None:
+            return
+        vertex = vertices[selected_index]
+        if not _spin_value_changed(self.room_vertex_x, vertex.x_m) and not _spin_value_changed(
+            self.room_vertex_y, vertex.y_m
+        ):
+            self._refresh_room_inspector()
+            return
+        vertices[selected_index] = RoomVertex(
+            vertex_id=vertex.vertex_id,
+            x_m=self.room_vertex_x.value(),
+            y_m=self.room_vertex_y.value(),
+        )
         try:
             replacement = make_polygon_room(vertices, height_m=room.height_m, room_id=room.room_id)
         except ValueError as exc:
@@ -859,6 +882,9 @@ class RoomEditorWindow(NativeEditorWindow):
         current_length = hypot(dx, dy)
         if current_length <= 1e-12:
             return
+        if not _spin_value_changed(self.room_edge_length, current_length):
+            self._refresh_room_inspector()
+            return
         requested = self.room_edge_length.value()
         scale = requested / current_length
         vertices[end_index] = RoomVertex(
@@ -882,6 +908,9 @@ class RoomEditorWindow(NativeEditorWindow):
     def _numeric_room_height_edited(self) -> None:
         room = self._current_room()
         if self.room_mode != 'edit' or room is None:
+            return
+        if not _spin_value_changed(self.room_height, room.height_m):
+            self._refresh_room_inspector()
             return
         replacement = room.model_copy(update={'height_m': float(self.room_height.value())})
         replacement = RoomPrism.model_validate(replacement.model_dump(mode='python'))
@@ -1087,6 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--document-id', default=F1_DOCUMENT_ID)
     args = parser.parse_args(argv)
     app = QApplication([sys.argv[0]])
+    install_wheel_scroll_guard(app)
     repository = SceneRepository(args.data_dir / 'cad-scenes.sqlite3')
     window = RoomEditorWindow(repository, args.document_id)
     window.show()

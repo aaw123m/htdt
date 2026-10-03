@@ -48,6 +48,7 @@ from .room_viewport import _entity_mesh as _scene_entity_mesh
 from .accessible_labels import wire_status_announcements
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .user_facing_error import operation_error_message, warn_user
+from .wheel_scroll_guard import install_wheel_scroll_guard
 
 ROLE = int(Qt.ItemDataRole.UserRole)
 AXIS_NAMES: tuple[Literal['x', 'y', 'z'], ...] = ('x', 'y', 'z')
@@ -1327,6 +1328,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--document-id', default=F1_DOCUMENT_ID)
     args = parser.parse_args(argv)
     app = QApplication([sys.argv[0]])
+    install_wheel_scroll_guard(app)
     repository = SceneRepository(args.data_dir / 'cad-scenes.sqlite3')
     window = NativeEditorWindow(repository, args.document_id)
     window.show()

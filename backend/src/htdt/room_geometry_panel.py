@@ -43,6 +43,19 @@ if TYPE_CHECKING:
     from .room_geometry_input import RoomGeometryInputController
 
 
+class _TooltipForwardingSpinBox(QDoubleSpinBox):
+    """Spin box whose tooltip also shows over the embedded line edit.
+
+    Qt does not propagate a spin box's tooltip to its internal QLineEdit —
+    the cursor sits on the line edit, so the panel's tooltips would never
+    appear over the text area without this mirror.
+    """
+
+    def setToolTip(self, text: str) -> None:
+        super().setToolTip(text)
+        self.lineEdit().setToolTip(text)
+
+
 class RoomGeometryPanel(QFrame):
     """Context-only geometry inspector backed by existing N30a/N30b authority."""
 
@@ -298,7 +311,7 @@ class RoomGeometryPanel(QFrame):
         decimals: int,
         step: float = 0.01,
     ) -> QDoubleSpinBox:
-        field = QDoubleSpinBox()
+        field = _TooltipForwardingSpinBox()
         field.setRange(minimum, maximum)
         field.setDecimals(decimals)
         field.setSingleStep(step)

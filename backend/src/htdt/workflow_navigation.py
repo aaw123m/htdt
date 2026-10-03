@@ -165,6 +165,25 @@ CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
 }
 
 
+#: One-line Japanese purpose of each workspace/destination; rendered as the
+#: rail button's tooltip so navigation explains itself.
+CANONICAL_WORKSPACE_HINTS: dict[WorkspaceId, str] = {
+    WorkspaceId.OVERVIEW: "プロジェクト全体の進行状況と、次にやるべきことを確認します",
+    WorkspaceId.ROOM: "部屋の形状・配置・壁材を設定し、音響予測を行います",
+    WorkspaceId.MEASUREMENT: "REW等の測定の計画・取り込み・品質確認を行います",
+    WorkspaceId.OPTIMIZATION: "スピーカー配置や設定の探索候補を生成し、比較・検証します",
+}
+
+
+APPLICATION_DESTINATION_HINTS: dict[ApplicationDestinationId, str] = {
+    ApplicationDestinationId.PROJECTS: "保存済みプロジェクトの一覧・切替・管理を行います",
+    ApplicationDestinationId.INBOX: "外部から受け取った測定・ファイルの割り当て待ち一覧です",
+    ApplicationDestinationId.ACTIVITY: "アプリ内で行われた操作・処理の記録を確認します",
+    ApplicationDestinationId.LIBRARY: "機材・素材などの参照データ（マスタ情報）を管理します",
+    ApplicationDestinationId.SUPPORT: "診断情報の出力や、権威グラフなどの内部確認を行います",
+}
+
+
 APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.PROJECTS: "プロジェクト",
     ApplicationDestinationId.INBOX: "取り込み",
@@ -184,22 +203,22 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("history", "履歴", "保存した版の履歴を確認し、差分比較や復元を行います"),
     ),
     WorkspaceId.MEASUREMENT: (
-        WorkspaceContext("import", "読み込み"),
-        WorkspaceContext("assignment", "割り当て"),
-        WorkspaceContext("campaign", "キャンペーン"),
-        WorkspaceContext("quality", "品質"),
-        WorkspaceContext("comparison", "比較"),
+        WorkspaceContext("import", "読み込み", "REWなどの測定ファイルを取り込みます"),
+        WorkspaceContext("assignment", "割り当て", "取り込んだ測定を座席や計画の測定点に割り当てます"),
+        WorkspaceContext("campaign", "キャンペーン", "どこを・何を測るかの測定計画を立てます"),
+        WorkspaceContext("quality", "品質", "測定結果の品質（SN比・残差など）を確認します"),
+        WorkspaceContext("comparison", "比較", "複数の測定や候補を並べて比較します"),
         # Instrument onboarding/checklist page; reached last in the bar since
         # it guides the first capture rather than describing a workflow stage.
-        WorkspaceContext("calibration", "機器の準備"),
+        WorkspaceContext("calibration", "機器の準備", "測定機器の準備手順と確認項目を案内します"),
     ),
     WorkspaceId.OPTIMIZATION: (
-        WorkspaceContext("setup", "探索設定"),
-        WorkspaceContext("candidates", "候補"),
-        WorkspaceContext("comparison", "比較"),
-        WorkspaceContext("interventions", "介入計画"),
-        WorkspaceContext("robustness", "ばらつき耐性"),
-        WorkspaceContext("validation", "測定・検証"),
+        WorkspaceContext("setup", "探索設定", "どのパラメータをどの範囲で動かすか（探索軸）を設定します"),
+        WorkspaceContext("candidates", "候補", "生成された配置・設定の候補一覧を確認します"),
+        WorkspaceContext("comparison", "比較", "候補どうしの性能を並べて比較します"),
+        WorkspaceContext("interventions", "介入計画", "物理的な変更案（スピーカー移動・吸音材追加など）を計画します"),
+        WorkspaceContext("robustness", "ばらつき耐性", "候補が実際のばらつき（測定誤差・個体差）に耐えるかを評価します"),
+        WorkspaceContext("validation", "測定・検証", "選んだ候補を実測で検証する計画を立てます"),
     ),
 }
 
@@ -252,10 +271,37 @@ def workspace_context_label(
     return context_id
 
 
+def deeplink_hint(link: WorkspaceDeepLink) -> str:
+    """Japanese explanation of where a deep link leads, for action tooltips.
+
+    Section-scoped links describe the target context (then the workspace);
+    unscoped links describe the destination itself. Unknown targets fall
+    back to a generic "opens X" phrase so the tooltip is never empty.
+    """
+    workspace = link.workspace
+    section = link.section
+    if isinstance(workspace, WorkspaceId):
+        workspace_label = CANONICAL_WORKSPACE_LABELS.get(workspace, workspace.value)
+        if section is not None:
+            canonical = normalize_workspace_context(workspace, section)
+            for context in CANONICAL_WORKSPACE_CONTEXTS.get(workspace, ()):
+                if context.context_id == canonical:
+                    if context.hint:
+                        return f"「{workspace_label}」の「{context.label}」ページを開きます。{context.hint}"
+                    return f"「{workspace_label}」の「{context.label}」ページを開きます"
+        hint = CANONICAL_WORKSPACE_HINTS.get(workspace, "")
+        return f"「{workspace_label}」を開きます。{hint}" if hint else f"「{workspace_label}」を開きます"
+    label = APPLICATION_DESTINATION_LABELS.get(workspace, workspace.value)
+    hint = APPLICATION_DESTINATION_HINTS.get(workspace, "")
+    return f"「{label}」を開きます。{hint}" if hint else f"「{label}」を開きます"
+
+
 __all__ = [
+    "APPLICATION_DESTINATION_HINTS",
     "APPLICATION_DESTINATION_LABELS",
     "ApplicationDestinationId",
     "CANONICAL_WORKSPACE_CONTEXTS",
+    "CANONICAL_WORKSPACE_HINTS",
     "CANONICAL_WORKSPACE_LABELS",
     "DestinationId",
     "NavigationScope",
@@ -263,6 +309,7 @@ __all__ = [
     "WORKSPACE_CONTEXT_ALIASES",
     "WorkspaceContext",
     "WorkspaceDeepLink",
+    "deeplink_hint",
     "WorkspaceId",
     "destination_label",
     "destination_scope",
