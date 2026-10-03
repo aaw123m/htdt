@@ -886,6 +886,26 @@ def _observable_readiness(
             reasons=tuple(wave_reasons),
         )
 
+    if observable in {
+        'late_decay_estimate',
+        'late_energy_decay',
+    }:
+        # Geometric-acoustics domain observables: the bounded decay lanes
+        # consume deterministic paths and late-field capability, so they
+        # carry the full GA readiness gates (including environment and
+        # frequency-domain coverage, which the deterministic_paths lane
+        # explicitly waives) minus the wave-side screen-transfer gate.
+        late_reasons = [
+            reason
+            for reason in ga_reasons
+            if reason != 'screen_transfer_not_integrated'
+        ]
+        return ObservableReadiness(
+            observable=observable,
+            state='READY' if not late_reasons else 'BLOCKED',
+            reasons=tuple(late_reasons),
+        )
+
     return ObservableReadiness(
         observable=observable,
         state='UNSUPPORTED',
