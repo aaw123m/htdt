@@ -292,6 +292,8 @@ class FieldExplorerPanel(QWidget):
             'プローブ位置のY座標です（m、奥行き方向）。',
             'プローブ位置のZ座標です（m、高さ方向）。',
         )
+        self.probe_y.setAccessibleName('プローブ位置 Y座標')
+        self.probe_z.setAccessibleName('プローブ位置 Z座標')
         for axis_spin, _tip in zip(
             (self.probe_x, self.probe_y, self.probe_z), _axis_tips
         ):
