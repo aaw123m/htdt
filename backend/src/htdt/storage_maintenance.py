@@ -491,12 +491,16 @@ def run_storage_gc(
     re-proves unreachability under a fresh write exclusion and unlinks
     inside it, so a writer whose reference committed between the two
     transactions has its registry row restored — never a
-    ``missing_referenced`` dangling over a deleted file. Worst partial
-    state stays the pending row: retryable on the next pass. Each
-    transaction is re-run a bounded number of times when a ``database is
-    locked`` escapes the begin retry (a commit losing the EXCLUSIVE
-    upgrade to saturated readers); every attempt re-proves everything
-    from the live database, so retries stay fail-closed.
+    ``missing_referenced`` dangling over a deleted file. The second pass
+    also requires each digest's ledger row to still be present before it
+    unlinks: if it is gone, the database underneath is not the one this
+    pass committed against (a db-only swap), and deleting the file could
+    strand a resurrected registry row — skip and let the next pass
+    re-plan. Worst partial state stays the pending row: retryable on the
+    next pass. Each transaction is re-run a bounded number of times when
+    a ``database is locked`` escapes the begin retry (a commit losing
+    the EXCLUSIVE upgrade to saturated readers); every attempt re-proves
+    everything from the live database, so retries stay fail-closed.
     """
 
     data_dir = Path(data_dir)
@@ -625,6 +629,7 @@ def run_storage_gc(
             _begin_immediate(connection)
             try:
                 live_digests = referenced_asset_digests(connection)
+                pending_rows = _gc_pending(connection)
                 for digest in sorted(deleted_digests):
                     _raise_if_storage_cancelled(is_cancelled)
                     target = candidates[digest].path
@@ -650,6 +655,20 @@ def run_storage_gc(
                             f'DELETE FROM {GC_PENDING_TABLE} WHERE sha256=?',
                             (digest,),
                         )
+                        skipped.append(digest)
+                        continue
+                    if digest not in pending_rows:
+                        # The ledger row the first pass committed is not
+                        # in this database — a db-only swap (or a
+                        # completed sibling pass) replaced the file
+                        # underneath GC between the transactions.
+                        # Unlinking against a registry this pass never
+                        # committed to could strand a resurrected
+                        # cad_measurement_assets row over a missing file
+                        # (a permanent missing_referenced integrity
+                        # failure), so the delete is refused and left
+                        # for the next pass to re-plan against the live
+                        # database.
                         skipped.append(digest)
                         continue
                     try:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -593,6 +594,51 @@ def test_shared_asset_retained_until_last_reference_gone(tmp_path):
     report = scan_storage(data_dir)
     assert report.orphan_candidates == ()
     assert (data_dir / MANAGED_ASSETS_DIRNAME / referenced).is_file()
+
+
+def test_gc_refuses_unlink_after_db_only_swap(tmp_path, monkeypatch):
+    """A db-only file swap between the two transactions removes the
+    pending-ledger rows the first pass committed. Unlinking against a
+    database this pass never committed to could strand a resurrected
+    registry row over a missing file — a permanent missing_referenced
+    integrity failure — so the delete is refused and left for the next
+    pass to re-plan (REV34)."""
+
+    _repo, data_dir, _referenced, orphan = _seed_measurement(
+        tmp_path, orphan_raw=b'orphaned-failed-import-bytes'
+    )
+    db_path = data_dir / 'cad-scenes.sqlite3'
+    pre_gc = tmp_path / 'pre-gc.sqlite3'
+    shutil.copy2(db_path, pre_gc)
+    real_begin = storage_maintenance._begin_immediate
+    begins = {'n': 0}
+
+    def _swap_before_second_begin(connection, **kwargs):
+        begins['n'] += 1
+        if begins['n'] == 2:
+            # The db-only swap: same path, different file — the swapped-in
+            # database still carries the registry row but none of the
+            # pending rows the first pass committed.
+            shutil.copy2(pre_gc, db_path)
+        return real_begin(connection, **kwargs)
+
+    monkeypatch.setattr(
+        storage_maintenance, '_begin_immediate', _swap_before_second_begin
+    )
+    result = run_storage_gc(data_dir)
+
+    assert result.deleted_files == 0
+    assert orphan in result.skipped_digests
+    assert (data_dir / MANAGED_ASSETS_DIRNAME / orphan).is_file()
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM cad_measurement_assets WHERE sha256=?',
+            (orphan,),
+        ).fetchone()[0] == 1
+    finally:
+        connection.close()
+    assert scan_storage(data_dir).missing_referenced == ()
 
 
 class _FlakyCommit:
