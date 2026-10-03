@@ -125,3 +125,80 @@ def test_hit_handle_vertex_zone_still_wins_near_corner(tmp_path) -> None:
     assert geometry._hit_handle(QPointF(300.0, 40.0)) is None
 
     _teardown(app, workspace, geometry)
+
+
+# -- openings render for every wall ---------------------------------------------
+
+def test_opening_markers_render_for_all_walls_in_edit_mode(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path, viewport_cls=RecordingViewport)
+    geometry = _geometry(workspace)
+    geometry.mode = "edit"
+    assert geometry.ensure_wall_topology() is True
+
+    room = geometry.room
+    topology = geometry.topology
+    assert room is not None and topology is not None
+    first_wall, last_wall = topology.walls[0], topology.walls[-1]
+    for wall in (first_wall, last_wall):
+        opening = WallOpening(
+            opening_id=f"opening-on-{wall.wall_id}",
+            wall_id=wall.wall_id,
+            offset_m=1.0,
+            width_m=0.9,
+            sill_m=0.0,
+            height_m=2.0,
+            kind="door",
+        )
+        topology = add_opening(room, topology, opening)
+        assert workspace.controller.replace_room_topology(room, topology)
+
+    geometry.select_edge(0)
+    geometry._render_edit_handles()
+
+    meshes = workspace.viewport.plotter.meshes
+    selected_name = f"ux120-room-opening-opening-on-{first_wall.wall_id}"
+    other_name = f"ux120-room-opening-opening-on-{last_wall.wall_id}"
+    assert selected_name in meshes
+    assert other_name in meshes
+    assert (
+        meshes[selected_name]["color"]
+        == DARK_THEME.viewport.selection_outline.hex
+    )
+    assert (
+        meshes[other_name]["color"] == DARK_THEME.viewport.geometry_edge.hex
+    )
+
+    _teardown(app, workspace, geometry)
+
+
+def test_opening_markers_render_without_any_selection(tmp_path) -> None:
+    app, workspace = _workspace(tmp_path, viewport_cls=RecordingViewport)
+    geometry = _geometry(workspace)
+    geometry.mode = "edit"
+    assert geometry.ensure_wall_topology() is True
+
+    room = geometry.room
+    topology = geometry.topology
+    wall = topology.walls[0]
+    topology = add_opening(
+        room,
+        topology,
+        WallOpening(
+            opening_id="opening-solo",
+            wall_id=wall.wall_id,
+            offset_m=1.0,
+            width_m=0.9,
+            sill_m=0.0,
+            height_m=2.0,
+        ),
+    )
+    assert workspace.controller.replace_room_topology(room, topology)
+
+    geometry._render_edit_handles()
+
+    assert (
+        "ux120-room-opening-opening-solo"
+        in workspace.viewport.plotter.meshes
+    )
+
+    _teardown(app, workspace, geometry)
