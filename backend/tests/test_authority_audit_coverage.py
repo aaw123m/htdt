@@ -524,11 +524,24 @@ def test_branched_authoring_constraint_lineage_fails(tmp_path: Path) -> None:
     scene.save_authoring_constraints(_DOC, {'constraints': [{'id': 'c2'}]})
     lineage = scene.list_authoring_constraint_revisions(_DOC)
     assert len(lineage) == 2
+    # Forge a sibling of the existing successor: target a revision that
+    # already has a successor so the row branches the lineage regardless
+    # of listing order — created_at_utc ties fall back to UUID ordering
+    # on coarse-clock platforms (Windows timer granularity), which made
+    # ``lineage[-1]`` nondeterministically resolve to the head revision.
+    parent = next(
+        record
+        for record in lineage
+        if any(
+            successor.supersedes_id == record.constraint_revision_id
+            for successor in lineage
+        )
+    )
     forged = AuthoringConstraintRevision.build(
         document_id=_DOC,
         payload={'constraints': [{'id': 'forged-branch'}]},
-        supersedes_id=lineage[-1].constraint_revision_id,
-        scene_revision_id=lineage[-1].scene_revision_id,
+        supersedes_id=parent.constraint_revision_id,
+        scene_revision_id=parent.scene_revision_id,
     )
     _insert(
         data_dir,
