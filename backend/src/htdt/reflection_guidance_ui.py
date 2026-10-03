@@ -6,14 +6,19 @@ path artifacts (R150) are listed with JA labels — treat-zone, reposition,
 verify and disambiguate actions ordered by rank, each bound to the exact
 path/snapshot/request authority it was derived from.
 
-The panel is read-only v1: the interactive scrub session
-(``open_guidance_session``/``scrub_source``) needs candidate-source
-geometry input that the dock does not collect yet, so items render their
-provenance instead of opening a scrub gesture. Entries come from
+The panel also wires the interactive scrub session
+(``open_guidance_session``/``scrub_source``): the selected 診断ペア
+supplies the pinned request/path pair, the snapshot payload supplies the
+receiver position and the committed source reference point, and the
+specular plane is the one the proven departure/arrival directions imply.
+The user edits a candidate source position and each スクラブ実行 appends
+one exact image-method preview frame — a proposal over committed
+authority that never mutates the scene. Entries come from
 :func:`reflection_guidance_presentation.load_reflection_guidance_view`
 — nothing is synthesized: without persisted path artifacts the panel
-shows the honest empty state, and rows that fail replay are listed as
-issues rather than skipped.
+shows the honest empty state, rows that fail replay are listed as
+issues, and pairs whose snapshot geometry cannot be resolved disable the
+scrub lane with its blocker reason rather than guessing.
 """
 
 from __future__ import annotations
@@ -23,16 +28,24 @@ from contextlib import closing
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from .accessible_labels import wire_label_buddies
 from .cad_display_labels import revision_display_label, saved_label
+from .cad_reflection_guidance import (
+    ReflectionGuidanceSession,
+    scrub_source,
+)
+from .cad_scene import Position3
 from .cad_schema import connect_sqlite, ensure_native_schema
 from .reflection_guidance_presentation import (
     ReflectionGuidanceEntry,
@@ -77,6 +90,34 @@ _ISSUE_LABELS = {
     'unreadable_artifact': '読み取り不可のパス成果物',
     'binding_mismatch': 'スナップショット束縛不一致',
     'derivation_failed': 'ガイダンス導出失敗',
+}
+
+_SCRUB_DIRECTION_LABELS = {
+    'improves': '改善（過剰遅延が増加）',
+    'worsens': '悪化（過剰遅延が減少）',
+    'unchanged': '変化なし',
+}
+
+_SCRUB_BLOCKER_LABELS = {
+    'snapshot_payload_unreadable': (
+        'スナップショットの幾何権威を読み取れないため、'
+        'スクラブは利用できません。'
+    ),
+    'receiver_binding_missing': (
+        '受音点のスナップショット束縛がないため、スクラブは利用できません。'
+    ),
+    'receiver_binding_unreadable': (
+        '受音点束縛を検証できないため、スクラブは利用できません。'
+    ),
+    'source_binding_missing': (
+        '音源の参照点束縛がないため、スクラブは利用できません。'
+    ),
+    'source_binding_unreadable': (
+        '音源束縛を検証できないため、スクラブは利用できません。'
+    ),
+    'plane_derivation_failed': (
+        'パス権威から反射面を導出できないため、スクラブは利用できません。'
+    ),
 }
 
 _ALL_REVISIONS = '__all_revisions__'
@@ -188,6 +229,61 @@ class ReflectionGuidancePanel(QWidget):
         form_layout.addRow('権威参照:', self.authority_label)
         layout.addWidget(form)
 
+        scrub_title = QLabel('音源スクラブ（プレビュー）')
+        set_typography_role(scrub_title, TypographyRole.SECTION_TITLE)
+        layout.addWidget(scrub_title)
+
+        scrub_hint = QLabel(
+            '診断ペアの確定権威に固定された反射面で、候補の音源位置が'
+            '過剰遅延と処理ゾーン（新しい反射点）に与える変化を試算します。'
+            'コミット済みレポートとシーン権威は変更されません。'
+        )
+        scrub_hint.setObjectName('guidanceScrubHint')
+        scrub_hint.setWordWrap(True)
+        set_typography_role(scrub_hint, TypographyRole.SECONDARY)
+        layout.addWidget(scrub_hint)
+
+        self._scrub_session: ReflectionGuidanceSession | None = None
+
+        candidate_row = QHBoxLayout()
+        candidate_row.setContentsMargins(0, 0, 0, 0)
+        self.scrub_x = self._position_spin('候補音源位置 X')
+        self.scrub_y = self._position_spin('候補音源位置 Y')
+        self.scrub_z = self._position_spin('候補音源位置 Z')
+        for axis, spin in (
+            ('X', self.scrub_x),
+            ('Y', self.scrub_y),
+            ('Z', self.scrub_z),
+        ):
+            axis_label = QLabel(f'{axis}:')
+            candidate_row.addWidget(axis_label)
+            candidate_row.addWidget(spin)
+        layout.addLayout(candidate_row)
+
+        scrub_buttons = QHBoxLayout()
+        scrub_buttons.setContentsMargins(0, 0, 0, 0)
+        self.scrub_reset_button = QPushButton('確定位置に戻す')
+        self.scrub_reset_button.setObjectName('guidanceScrubReset')
+        self.scrub_reset_button.setToolTip(
+            '候補位置をスナップショット確定の音源参照点に戻します'
+        )
+        self.scrub_button = QPushButton('スクラブ実行')
+        self.scrub_button.setObjectName('guidanceScrubRun')
+        self.scrub_button.setToolTip(
+            '候補位置で鏡像法プレビューを1フレーム計算します'
+        )
+        scrub_buttons.addWidget(self.scrub_reset_button)
+        scrub_buttons.addWidget(self.scrub_button)
+        layout.addLayout(scrub_buttons)
+
+        self.scrub_result_label = QLabel('')
+        self.scrub_result_label.setObjectName('guidanceScrubResult')
+        self.scrub_result_label.setWordWrap(True)
+        self.scrub_result_label.setToolTip(
+            'スクラブフレームの試算結果 — 方向・過剰遅延・新しい反射点'
+        )
+        layout.addWidget(self.scrub_result_label)
+
         self.empty_label = QLabel('')
         self.empty_label.setObjectName('guidanceEmptyLabel')
         self.empty_label.setWordWrap(True)
@@ -200,6 +296,10 @@ class ReflectionGuidancePanel(QWidget):
         )
         self.entry_combo.currentIndexChanged.connect(self._refresh_items)
         self.item_list.itemSelectionChanged.connect(self._refresh_detail)
+        self.scrub_button.clicked.connect(self._run_scrub)
+        self.scrub_reset_button.clicked.connect(
+            self._reset_scrub_position
+        )
 
         self.refresh()
         wire_label_buddies(self)
@@ -345,6 +445,7 @@ class ReflectionGuidancePanel(QWidget):
         if entry is not None and entry.report.items:
             self.item_list.setCurrentRow(0)
         self._refresh_detail()
+        self._open_scrub(entry)
 
     def _refresh_detail(self) -> None:
         entry = self._current_entry()
@@ -408,6 +509,139 @@ class ReflectionGuidancePanel(QWidget):
             f'リクエスト: {report.request_semantic_sha256[:16]}…'
         )
         self.authority_label.setText('\n'.join(authority_lines))
+
+    # --- scrub session --------------------------------------------------
+
+    @staticmethod
+    def _position_spin(accessible_name: str) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(-200.0, 200.0)
+        spin.setDecimals(3)
+        spin.setSingleStep(0.1)
+        spin.setSuffix(' m')
+        spin.setAccessibleName(accessible_name)
+        spin.setToolTip(
+            '候補音源位置（世界座標 m）— 確定権威は変更しません'
+        )
+        return spin
+
+    def _set_scrub_position(self, point: Position3) -> None:
+        self.scrub_x.setValue(point.x_m)
+        self.scrub_y.setValue(point.y_m)
+        self.scrub_z.setValue(point.z_m)
+
+    def _open_scrub(
+        self, entry: ReflectionGuidanceEntry | None
+    ) -> None:
+        """(Re)open the scrub session for the selected diagnostic pair.
+
+        The session is pinned to the entry's committed request/path
+        authority; the spins default to the snapshot's source reference
+        point so the first candidate is the proven baseline.
+        """
+        self._scrub_session = None
+        if (
+            entry is not None
+            and entry.scrub_unavailable_reason is None
+        ):
+            self._scrub_session = entry.open_scrub_session()
+        ready = self._scrub_session is not None
+        for widget in (
+            self.scrub_x,
+            self.scrub_y,
+            self.scrub_z,
+            self.scrub_button,
+            self.scrub_reset_button,
+        ):
+            widget.setEnabled(ready)
+        if ready and entry is not None:
+            if entry.source_reference_point is not None:
+                self._set_scrub_position(entry.source_reference_point)
+            baseline_ms = (
+                self._scrub_session.baseline_excess_delay_s * 1e3
+            )
+            self.scrub_result_label.setText(
+                f'基準の過剰遅延: {baseline_ms:.2f} ms — '
+                '候補位置を調整して「スクラブ実行」を押してください。'
+            )
+            set_semantic_state(self.scrub_result_label, None)
+        elif entry is None:
+            self.scrub_result_label.setText(
+                '診断ペアを選択してください。'
+            )
+            set_semantic_state(self.scrub_result_label, None)
+        else:
+            reason = entry.scrub_unavailable_reason
+            self.scrub_result_label.setText(
+                _SCRUB_BLOCKER_LABELS.get(reason, reason or '')
+            )
+            set_semantic_state(
+                self.scrub_result_label, SemanticState.WARNING
+            )
+
+    def _reset_scrub_position(self) -> None:
+        entry = self._current_entry()
+        if entry is None or entry.source_reference_point is None:
+            return
+        self._set_scrub_position(entry.source_reference_point)
+
+    def _run_scrub(self) -> None:
+        if self._scrub_session is None:
+            return
+        candidate = Position3(
+            x_m=self.scrub_x.value(),
+            y_m=self.scrub_y.value(),
+            z_m=self.scrub_z.value(),
+        )
+        try:
+            self._scrub_session = scrub_source(
+                self._scrub_session, candidate
+            )
+        except ValueError as exc:
+            self.scrub_result_label.setText(
+                f'スクラブを計算できませんでした: {exc}'
+            )
+            set_semantic_state(
+                self.scrub_result_label, SemanticState.WARNING
+            )
+            return
+        frame = self._scrub_session.frames[-1]
+        preview = frame.preview
+        direction = _SCRUB_DIRECTION_LABELS[frame.direction]
+        point = preview.reflection_point
+        self.scrub_result_label.setText(
+            '\n'.join(
+                [
+                    f'フレーム {frame.frame_index + 1}: {direction}',
+                    (
+                        f'過剰遅延 {preview.excess_delay_s * 1e3:.2f} ms '
+                        f'（基準比 {frame.excess_delay_delta_s * 1e3:+.2f} ms）'
+                    ),
+                    (
+                        '新しい反射点（処理ゾーンの中心候補）: '
+                        f'({point.x_m:.2f}, {point.y_m:.2f}, '
+                        f'{point.z_m:.2f}) m'
+                    ),
+                    (
+                        f'パス長 — 直接 {preview.direct_length_m:.2f} m · '
+                        f'一次反射 {preview.specular_length_m:.2f} m'
+                    ),
+                    f'フレーム累計: {len(self._scrub_session.frames)}',
+                ]
+            )
+        )
+        set_semantic_state(
+            self.scrub_result_label,
+            (
+                SemanticState.SUCCESS
+                if frame.direction == 'improves'
+                else (
+                    SemanticState.WARNING
+                    if frame.direction == 'worsens'
+                    else None
+                )
+            ),
+        )
 
 
 __all__ = [
