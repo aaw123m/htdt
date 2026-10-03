@@ -198,10 +198,12 @@ from .cad_scene import (
     Size3,
     Direction3,
     domain_to_render,
+    duplicated_speaker_roles,
     quaternion_to_matrix3,
     is_unassigned_speaker_role,
     make_empty_scene,
     next_unassigned_speaker_role,
+    room_vertices,
     scene_content_hash,
     quaternion_from_euler_deg,
     quaternion_to_euler_deg,
@@ -279,6 +281,7 @@ from .user_facing_error import (
     warn_user,
 )
 from .workflow_shell import WorkspaceMount
+from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
@@ -292,6 +295,12 @@ from .room_video_panel import (
     ProjectorSpecDialog,
     RoomVideoPanel,
     ScreenTransferDialog,
+)
+from .cad_prediction_repository import CadPredictionRepository
+from .room_journey import (
+    RoomJourneyStep,
+    current_journey_step,
+    evaluate_room_journey,
 )
 
 
@@ -4169,6 +4178,7 @@ class RoomWorkspace(QWidget):
         parent: QWidget | None = None,
         *,
         viewport_factory: ViewportFactory | None = None,
+        on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("roomWorkspace")
@@ -4180,6 +4190,8 @@ class RoomWorkspace(QWidget):
         self.screen_transfer_repository = CadScreenTransferRepository(
             repository.path, repository
         )
+        self.prediction_repository = CadPredictionRepository(repository)
+        self._on_navigate = on_navigate
         self.current_context = "geometry"
         self.active_axis_constraint: str | None = None
         self.geometry_input = None
@@ -4216,6 +4228,49 @@ class RoomWorkspace(QWidget):
         self.tools = ContextToolStrip()
         self.tools.toolRequested.connect(self._tool_requested)
         root.addWidget(self.tools)
+
+        # Numbered journey strip (REV34): the five context tabs are flat
+        # siblings that never express the canonical first-build order, so a
+        # state-driven step list stays pinned under the tab bar — each
+        # number opens the context that owns the step.
+        self.journey_card = QFrame(self)
+        self.journey_card.setObjectName("roomJourneyCard")
+        set_surface_role(self.journey_card, SurfaceRole.RAISED)
+        journey_layout = QVBoxLayout(self.journey_card)
+        journey_layout.setContentsMargins(16, 10, 16, 10)
+        journey_layout.setSpacing(6)
+        journey_head = QHBoxLayout()
+        journey_head.setSpacing(8)
+        journey_title = QLabel("部屋づくりの手順", self.journey_card)
+        set_typography_role(journey_title, TypographyRole.SECTION_TITLE)
+        journey_head.addWidget(journey_title)
+        journey_head.addStretch(1)
+        self.journey_progress = QLabel(self.journey_card)
+        self.journey_progress.setObjectName("roomJourneyProgress")
+        set_typography_role(self.journey_progress, TypographyRole.SECONDARY)
+        journey_head.addWidget(self.journey_progress)
+        journey_layout.addLayout(journey_head)
+        # Steps live in a grid so the strip can reflow to 3-per-row under
+        # the responsive-compact breakpoint instead of pinning a wide
+        # minimum width on the whole workspace.
+        self.journey_steps_grid = QGridLayout()
+        self.journey_steps_grid.setSpacing(6)
+        journey_layout.addLayout(self.journey_steps_grid)
+        journey_hint_row = QHBoxLayout()
+        journey_hint_row.setSpacing(8)
+        self.journey_hint = QLabel(self.journey_card)
+        self.journey_hint.setObjectName("roomJourneyHint")
+        self.journey_hint.setWordWrap(True)
+        set_typography_role(self.journey_hint, TypographyRole.SECONDARY)
+        journey_hint_row.addWidget(self.journey_hint, 1)
+        self.journey_open = QPushButton("現在の手順を開く", self.journey_card)
+        self.journey_open.setObjectName("roomJourneyOpen")
+        self.journey_open.clicked.connect(self._open_current_journey_step)
+        journey_hint_row.addWidget(self.journey_open)
+        journey_layout.addLayout(journey_hint_row)
+        root.addWidget(self.journey_card)
+        self._journey_steps: tuple[RoomJourneyStep, ...] = ()
+        self._journey_buttons: dict[str, QPushButton] = {}
 
         content = QHBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
@@ -5547,6 +5602,7 @@ class RoomWorkspace(QWidget):
             self.right_stack.setCurrentWidget(self.history_page)
         else:
             self.right_stack.setCurrentWidget(self.objects_page)
+        self._refresh_journey()
         self._render()
 
     def _proposal_variant_changed(self, variant_id: str) -> None:
@@ -6683,6 +6739,7 @@ class RoomWorkspace(QWidget):
             and (not compact or self._palette_user_open)
         )
         self.object_palette.setVisible(show_palette)
+        self._layout_journey_steps()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -7076,6 +7133,7 @@ class RoomWorkspace(QWidget):
                 "拘束が破損しました: " + "、".join(broken_labels), error=True
             )
         self.recovery_banner.setVisible(self.controller.recovery_candidate is not None)
+        self._refresh_journey()
         self._refresh_inspector()
         self._sync_objects_panel()
         if self.current_context == "placement":
@@ -7102,6 +7160,166 @@ class RoomWorkspace(QWidget):
             self.dirty_status_label,
             SemanticState.WARNING if self.controller.is_dirty else None,
         )
+
+    def _refresh_journey(self) -> None:
+        """Re-evaluate the numbered journey strip from persisted state.
+
+        Every signal comes from the saved head revision plus document
+        sidecars — never the working draft — so a step only completes when
+        the saved room proves it. Runs from _refresh (the universal
+        mutation funnel) and from set_context, since acoustics-panel
+        sidecar writes bypass _refresh. Individual reads degrade to zero
+        rather than take down the whole workspace refresh.
+        """
+        if not hasattr(self, "journey_steps_grid"):
+            # _refresh/set_context can run while __init__ is still building —
+            # before the strip exists there is nothing to refresh.
+            return
+        try:
+            head = self.controller.repository.latest(
+                self.controller.document_id
+            )
+        except Exception:  # noqa: BLE001 — head unreadable → step 1
+            head = None
+        document = head.document if head is not None else None
+        room = document.room if document is not None else None
+        entities = document.entities if document is not None else ()
+        topology = document.wall_topology if document is not None else None
+        document_id = self.controller.document_id
+        speakers = tuple(
+            entity for entity in entities if entity.kind == "speaker"
+        )
+        try:
+            pose_count = len(
+                self.listener_pose_repository.selections_for_document(
+                    document_id
+                )
+            )
+        except Exception:  # noqa: BLE001 — pose state unreadable
+            pose_count = 0
+        try:
+            material_count = len(
+                self.controller.material_repository.assignments_for_document(
+                    document_id
+                )
+            )
+        except Exception:  # noqa: BLE001 — material state unreadable
+            material_count = 0
+        try:
+            treatment_count = len(
+                self.controller.treatment_repository.proposed_placement_ids(
+                    document_id
+                )
+            )
+        except Exception:  # noqa: BLE001 — treatment state unreadable
+            treatment_count = 0
+        try:
+            prediction_count = len(
+                self.prediction_repository.list_results(document_id)
+            )
+        except Exception:  # noqa: BLE001 — prediction state unreadable
+            prediction_count = 0
+        steps = evaluate_room_journey(
+            room_saved=room is not None,
+            vertex_count=(
+                len(room_vertices(room)) if room is not None else 0
+            ),
+            wall_count=len(topology.walls) if topology is not None else 0,
+            opening_count=(
+                len(topology.openings) if topology is not None else 0
+            ),
+            speaker_count=len(speakers),
+            unassigned_speaker_count=sum(
+                1
+                for entity in speakers
+                if is_unassigned_speaker_role(entity.speaker_role)
+            ),
+            duplicate_role_count=len(duplicated_speaker_roles(entities)),
+            equipment_count=sum(
+                1
+                for entity in entities
+                if entity.kind
+                in ("screen", "display", "projector", "av_equipment")
+            ),
+            seat_count=sum(
+                1 for entity in entities if entity.kind == "seat"
+            ),
+            pose_count=pose_count,
+            material_count=material_count,
+            treatment_count=treatment_count,
+            prediction_count=prediction_count,
+        )
+        self._journey_steps = steps
+
+        for button in self._journey_buttons.values():
+            button.deleteLater()
+        self._journey_buttons.clear()
+        done_count = sum(1 for step in steps if step.status == "done")
+        self.journey_progress.setText(f"{done_count}/{len(steps)}")
+        for step in steps:
+            label = f"{step.number} {step.title}"
+            if step.status == "done":
+                label += " ✓"
+            button = QPushButton(label, self.journey_card)
+            button.setObjectName(f"roomJourneyStep_{step.key}")
+            button.setFlat(True)
+            button.setToolTip(step.detail)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if step.status == "current":
+                set_primary_action(button)
+            elif step.status == "done":
+                set_semantic_state(button, SemanticState.SUCCESS)
+            button.clicked.connect(
+                lambda checked=False, key=step.key: self._open_journey_step(key)
+            )
+            self._journey_buttons[step.key] = button
+        self._layout_journey_steps()
+
+        current = current_journey_step(steps)
+        if current is None:
+            self.journey_hint.setText(
+                "すべての手順が完了しています。「履歴」で版の確認・復元が"
+                "できます。測定や最適化へ進む準備ができています。"
+            )
+            self.journey_open.setVisible(False)
+        else:
+            self.journey_hint.setText(
+                f"次にやること — {current.number} {current.title}: {current.detail}"
+            )
+            self.journey_open.setVisible(True)
+
+    def _layout_journey_steps(self) -> None:
+        """Reflow journey buttons: one row normally, 3-per-row when compact."""
+        while self.journey_steps_grid.count():
+            self.journey_steps_grid.takeAt(0)
+        columns = 3 if self._responsive_compact else max(1, len(self._journey_steps))
+        for index, step in enumerate(self._journey_steps):
+            button = self._journey_buttons.get(step.key)
+            if button is None:
+                continue
+            row, column = divmod(index, columns)
+            self.journey_steps_grid.addWidget(button, row, column)
+        self.journey_steps_grid.setColumnStretch(columns, 1)
+
+    def _open_journey_step(self, key: str) -> None:
+        step = next(
+            (step for step in self._journey_steps if step.key == key), None
+        )
+        if step is None or step.context_id is None:
+            return
+        # Deep links keep the shell's context bar and router in sync with
+        # the context switch; bare set_context is the standalone fallback.
+        if self._on_navigate is not None:
+            self._on_navigate(
+                WorkspaceDeepLink(WorkspaceId.ROOM, step.context_id)
+            )
+        else:
+            self.set_context(step.context_id)
+
+    def _open_current_journey_step(self) -> None:
+        step = current_journey_step(self._journey_steps)
+        if step is not None:
+            self._open_journey_step(step.key)
 
     def _refresh_inspector(self) -> None:
         entity = None
@@ -7436,6 +7654,7 @@ def build_room_workspace_mount(
     document_id: str,
     *,
     viewport_factory: ViewportFactory | None = None,
+    on_navigate: Callable[[WorkspaceDeepLink], bool] | None = None,
 ) -> WorkspaceMount:
     """Return the UX110 shell mount contract without modifying workflow_shell.py."""
 
@@ -7443,6 +7662,7 @@ def build_room_workspace_mount(
         repository,
         document_id,
         viewport_factory=viewport_factory,
+        on_navigate=on_navigate,
     )
     return WorkspaceMount.from_widget(
         workspace,
