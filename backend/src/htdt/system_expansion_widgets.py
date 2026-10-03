@@ -380,7 +380,16 @@ class _VariantSelector(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         self.combo = QComboBox()
         self.combo.setAccessibleName("システムバリアント提案")
+        self.combo.setToolTip(
+            "操作対象のシステムバリアント提案を選びます。"
+            "提案はスピーカー追加や配置変更のたたき台で、選ぶと下の検証・測定計画が対象を切り替えます。"
+        )
+        self.combo.setWhatsThis(self.combo.toolTip())
         self.refresh_button = QPushButton("更新")
+        self.refresh_button.setToolTip(
+            "提案の一覧を最新状態に読み直します。別画面で提案を保存・削除した直後に押してください。"
+        )
+        self.refresh_button.setWhatsThis(self.refresh_button.toolTip())
         set_control_size(self.refresh_button, ControlSize.COMPACT)
         row.addWidget(QLabel("提案"))
         row.addWidget(self.combo, 1)
