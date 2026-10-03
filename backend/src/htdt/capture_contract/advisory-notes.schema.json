@@ -45,7 +45,10 @@
               "revisit_flag_resolution",
               "mission_bound",
               "task_profile_change",
-              "privacy_flag"
+              "privacy_flag",
+              "privacy_flag_cleared",
+              "roomplan_rescan",
+              "roomplan_session_ended"
             ]
           },
           "session_timestamp_seconds": {

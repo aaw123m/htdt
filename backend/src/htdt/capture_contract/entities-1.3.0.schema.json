@@ -1,0 +1,1058 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/entities-1.3.0.schema.json",
+  "title": "HTDT Capture Entities v1.3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "entities",
+    "relations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.entities"
+    },
+    "schema_version": {
+      "const": "1.3.0"
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entity"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relation"
+      }
+    }
+  },
+  "$defs": {
+    "vector3f": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "number"
+      }
+    },
+    "uuidV4": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "utcTimestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "physicalEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "width_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "height_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "depth_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "provenance": {
+          "enum": [
+            "user_measured",
+            "equipment_catalog_derived",
+            "roomplan_derived",
+            "imported_reference",
+            "other"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "width_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "height_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "depth_m": {
+                "enum": [
+                  null
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "width_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "width_m"
+            ]
+          }
+        }
+      ]
+    },
+    "spatialUncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "basis"
+      ],
+      "properties": {
+        "isotropic_m": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "per_axis_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "angular_rad": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "basis": {
+          "enum": [
+            "user_stated",
+            "instrument_stated",
+            "app_estimated",
+            "other"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "isotropic_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "per_axis_m": {
+                "enum": [
+                  null
+                ]
+              },
+              "angular_rad": {
+                "enum": [
+                  null
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "isotropic_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "isotropic_m"
+            ]
+          }
+        }
+      ]
+    },
+    "authorityComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "evidence_refs"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "unverified",
+            "user_attested",
+            "evidence_linked"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "authorityComponents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "placement"
+      ],
+      "properties": {
+        "placement": {
+          "$ref": "#/$defs/authorityComponent"
+        },
+        "orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "equipment": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "reference_point": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        },
+        "semantic_role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponent"
+            }
+          ]
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created_at_utc"
+      ],
+      "properties": {
+        "created_at_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "updated_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "observed_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "source_created_at_utc": {
+          "$ref": "#/$defs/utcTimestamp"
+        },
+        "supersedes_entity_id": {
+          "$ref": "#/$defs/uuidV4"
+        }
+      }
+    },
+    "referencePointAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "construction",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "construction": {
+          "enum": [
+            "direct_placement",
+            "surface_hit_confirmed",
+            "offset_from_surface",
+            "imported_reference"
+          ]
+        },
+        "offset_m": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/vector3f"
+            }
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representation",
+        "values"
+      ],
+      "properties": {
+        "representation": {
+          "const": "column_major_4x4_f32"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "orientation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "front_axis_local",
+        "up_axis_local"
+      ],
+      "properties": {
+        "front_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "up_axis_local": {
+          "$ref": "#/$defs/vector3f"
+        }
+      }
+    },
+    "acousticCenter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset_local_m",
+        "authority_ref"
+      ],
+      "properties": {
+        "offset_local_m": {
+          "$ref": "#/$defs/vector3f"
+        },
+        "authority_ref": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "source_evidence_refs"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "manual_numeric",
+            "raycast",
+            "mesh_hit_test",
+            "roomplan_binding",
+            "imported_reference",
+            "other"
+          ]
+        },
+        "source_semantic_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_mesh_anchor_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "source_roomplan_object_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "raycast": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "target_type"
+          ],
+          "properties": {
+            "target_type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hit_distance_m": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "hit_anchor_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "T_world_from_hit": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/$defs/matrix4f"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity_id",
+        "type",
+        "coordinate_space_id",
+        "T_world_from_annotation",
+        "reference_point_semantics",
+        "label",
+        "provenance_class",
+        "verification_state",
+        "placement",
+        "evidence_refs"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "type": {
+          "enum": [
+            "speaker",
+            "subwoofer",
+            "display",
+            "projection_screen",
+            "projector",
+            "listening_position",
+            "seat",
+            "acoustic_treatment",
+            "equipment_rack",
+            "reference_point",
+            "custom",
+            "measurement_point"
+          ]
+        },
+        "coordinate_space_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "T_world_from_annotation": {
+          "$ref": "#/$defs/matrix4f"
+        },
+        "reference_point_semantics": {
+          "oneOf": [
+            {
+              "enum": [
+                "cabinet_reference_point",
+                "acoustic_center",
+                "ear_center",
+                "screen_center",
+                "display_center",
+                "seat_reference_point",
+                "user_reference_point",
+                "projector_body_reference",
+                "projector_lens_center",
+                "microphone_capsule"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^x_[a-z0-9_]+$"
+            }
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provenance_class": {
+          "enum": [
+            "user_annotation",
+            "imported_reference",
+            "capture_app_derived"
+          ]
+        },
+        "verification_state": {
+          "enum": [
+            "unverified",
+            "user_attested",
+            "evidence_linked"
+          ]
+        },
+        "placement": {
+          "$ref": "#/$defs/placement"
+        },
+        "orientation": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/orientation"
+            }
+          ]
+        },
+        "channel_role": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "enum": [
+                "L",
+                "C",
+                "R",
+                "SL",
+                "SR",
+                "SBL",
+                "SBR",
+                "LFE",
+                "TFL",
+                "TFR",
+                "TML",
+                "TMR",
+                "TRL",
+                "TRR",
+                "LFE1",
+                "LFE2",
+                "LFE3",
+                "LFE4"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^X_[A-Z0-9_]+$"
+            }
+          ]
+        },
+        "acoustic_center": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/acousticCenter"
+            }
+          ]
+        },
+        "equipment_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/equipmentRef"
+            }
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "physical_envelope": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/physicalEnvelope"
+            }
+          ]
+        },
+        "listening_role": {
+          "enum": [
+            "primary",
+            "secondary",
+            "measurement_reference",
+            null
+          ]
+        },
+        "uncertainty": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/spatialUncertainty"
+            }
+          ]
+        },
+        "authority": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/authorityComponents"
+            }
+          ]
+        },
+        "lifecycle": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/lifecycle"
+            }
+          ]
+        },
+        "reference_point": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/referencePointAuthority"
+            }
+          ]
+        },
+        "lineage": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/entityLineage"
+            }
+          ]
+        },
+        "author_operator_id": {
+          "$ref": "#/$defs/uuidV4"
+        },
+        "role_binding": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/roleBinding"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "subwoofer"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "channel_role"
+            ],
+            "properties": {
+              "channel_role": {
+                "oneOf": [
+                  {
+                    "enum": [
+                      "L",
+                      "C",
+                      "R",
+                      "SL",
+                      "SR",
+                      "SBL",
+                      "SBR",
+                      "LFE",
+                      "TFL",
+                      "TFR",
+                      "TML",
+                      "TMR",
+                      "TRL",
+                      "TRR",
+                      "LFE1",
+                      "LFE2",
+                      "LFE3",
+                      "LFE4"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^X_[A-Z0-9_]+$"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "equipmentRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "equipment_id",
+        "equipment_version",
+        "equipment_hash"
+      ],
+      "properties": {
+        "equipment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equipment_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authority_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "entityLineageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_revision_id",
+        "entity_id"
+      ],
+      "properties": {
+        "capture_revision_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "entity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        }
+      }
+    },
+    "entityLineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation"
+      ],
+      "properties": {
+        "stable_entity_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "relation": {
+          "enum": [
+            "same_physical_entity",
+            "replaced_entity",
+            "new_entity",
+            "relation_unknown"
+          ]
+        },
+        "parent_entity_ref": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/entityLineageRef"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "relation"
+            ],
+            "properties": {
+              "relation": {
+                "enum": [
+                  "same_physical_entity",
+                  "replaced_entity"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "parent_entity_ref"
+            ],
+            "properties": {
+              "parent_entity_ref": {
+                "$ref": "#/$defs/entityLineageRef"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "relation"
+            ],
+            "properties": {
+              "relation": {
+                "enum": [
+                  "new_entity",
+                  "relation_unknown"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parent_entity_ref": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "relationEndpoint": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*:[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+        }
+      ]
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relation_id",
+        "relation_type",
+        "subject_ref",
+        "object_refs",
+        "provenance_class",
+        "verification_state",
+        "evidence_refs"
+      ],
+      "properties": {
+        "relation_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "relation_type": {
+          "oneOf": [
+            {
+              "enum": [
+                "mounted_on",
+                "member_of_rack",
+                "listener_point_for_seat",
+                "eye_point_for_seat",
+                "supported_by",
+                "behind_screen",
+                "terminates_at",
+                "corresponds_to_planned_target",
+                "logical_role_binding",
+                "routes_to_physical_source",
+                "same_physical_equipment"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^x_[a-z0-9_]+$"
+            }
+          ]
+        },
+        "subject_ref": {
+          "$ref": "#/$defs/relationEndpoint"
+        },
+        "object_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/relationEndpoint"
+          }
+        },
+        "provenance_class": {
+          "enum": [
+            "user_annotation",
+            "imported_reference",
+            "capture_app_derived"
+          ]
+        },
+        "verification_state": {
+          "enum": [
+            "unverified",
+            "user_attested",
+            "evidence_linked"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "created_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        },
+        "updated_at_utc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+        }
+      }
+    },
+    "roleBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "profile_version",
+        "role_id"
+      ],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "profile_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

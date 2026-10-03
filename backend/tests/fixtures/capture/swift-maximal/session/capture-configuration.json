@@ -1,0 +1,1 @@
+{"autofocus_enabled":true,"capture_mode":"roomplan_mesh","frame_semantics":["scene_depth"],"plane_detection":["horizontal","vertical"],"roomplan":{},"scene_reconstruction":"mesh_with_classification","schema":"htdt.capture.configuration","schema_version":"1.0.0","video_format":{"frames_per_second":60,"height":1440,"width":1920},"world_alignment":"gravity"}

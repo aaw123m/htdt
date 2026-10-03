@@ -119,7 +119,7 @@ def _ingestion_fixture(
                 anchor['coordinate_space_id'] = mapped
         json_overrides = {'mesh/anchors.json': anchors_doc}
     if extra_source is not None:
-        files[extra_source['path']] = {
+        spec = {
             'bytes': extra_source['payload'],
             'media_type': extra_source.get(
                 'media_type',
@@ -131,6 +131,9 @@ def _ingestion_fixture(
             'provenance_class': extra_source['provenance_class'],
             'role': extra_source['role'],
         }
+        if extra_source.get('source_refs') is not None:
+            spec['source_refs'] = list(extra_source['source_refs'])
+        files[extra_source['path']] = spec
     plan, payloads, _manifest = support.plan_and_payloads(
         Path(tempfile.mkdtemp()),
         files=files,
@@ -752,6 +755,7 @@ def test_provenance_trust_separates_asserted_labels_from_verified_origin(
         'payload': b'{"claimed":"backend-derived"}',
         'provenance_class': 'backend_derived',
         'role': 'derived',
+        'source_refs': ['path:session/capture-session.json'],
     }
     plan, payloads = _ingestion_fixture(extra_source=forged)
     capture.ingest(plan, payloads)

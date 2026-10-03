@@ -223,6 +223,16 @@ def _authority_record_handoff_id(
     )
 
 
+# Readable document versions per schema, mirroring the capture bundle
+# support matrix's `read` sets (entities 1.0.0–1.3.0, measurements
+# 1.0.0–1.1.0 ship in capture_contract/). Schemas not listed here
+# accept only "1.0.0".
+SUPPORTED_DOCUMENT_VERSIONS = {
+    "htdt.capture.entities": {"1.0.0", "1.1.0", "1.2.0", "1.3.0"},
+    "htdt.capture.measurements": {"1.0.0", "1.1.0"},
+}
+
+
 def _require_schema(document: dict, schema: str) -> None:
     if not isinstance(document, dict):
         raise CaptureIngestionContractError(f"{schema} document root must be an object")
@@ -231,7 +241,8 @@ def _require_schema(document: dict, schema: str) -> None:
             f"unexpected document schema: expected {schema!r}, "
             f"got {document.get('schema')!r}"
         )
-    if document.get("schema_version") != "1.0.0":
+    versions = SUPPORTED_DOCUMENT_VERSIONS.get(schema, {"1.0.0"})
+    if document.get("schema_version") not in versions:
         raise CaptureIngestionContractError(
             f"unsupported {schema} schema version: "
             f"{document.get('schema_version')!r}"
@@ -461,7 +472,10 @@ def _validate_quality_document(document: dict, field: str) -> None:
             "benchmark_refs",
             "diagnostics",
         },
-        optional=set(),
+        optional={
+            "usable_mesh_anchor_count",
+            "usable_depth_sample_count",
+        },
         field=field,
     )
 
@@ -491,8 +505,11 @@ def _validate_quality_document(document: dict, field: str) -> None:
         "active_mesh_anchor_count",
         "evidence_frame_count",
         "depth_evidence_count",
+        "usable_mesh_anchor_count",
+        "usable_depth_sample_count",
     ):
-        _require_non_negative_int(document[key], f"{field}.{key}")
+        if key in document:
+            _require_non_negative_int(document[key], f"{field}.{key}")
 
     for key in ("annotation_completeness", "measurement_completeness"):
         _validate_completeness_status(document[key], f"{field}.{key}")
@@ -1259,15 +1276,43 @@ def _load_roomplan_capture_metadata(
             "raw_payload_path",
             "raw_sha256",
         },
+        # The captured-room-metadata payload is an external
+        # RoomPlan-lineage family: emitters append lineage fields
+        # (byte counts, serialization formats, runtime) that the
+        # receiver accepts but does not require.
         optional={
             "processed_payload_path",
             "processed_sha256",
+            "processed_byte_count",
+            "processed_serialization_format",
+            "raw_byte_count",
+            "raw_serialization_format",
+            "captured_room_version",
+            "runtime",
+            "summary",
             "surface_count",
             "object_count",
             "dimensions",
         },
         field=field,
     )
+    for key in ("raw_byte_count", "processed_byte_count"):
+        if key in document:
+            _require_non_negative_int(document[key], f"{field}.{key}")
+    for key in (
+        "raw_serialization_format",
+        "processed_serialization_format",
+    ):
+        if key in document and not isinstance(document[key], str):
+            raise CaptureIngestionContractError(
+                f"{field}.{key} must be a string"
+            )
+    if "runtime" in document and not isinstance(
+        document["runtime"], dict
+    ):
+        raise CaptureIngestionContractError(
+            f"{field}.runtime must be an object"
+        )
 
     validate_uuid4(
         document["capture_revision_id"], f"{field}.capture_revision_id"
@@ -1371,6 +1416,57 @@ def _load_roomplan_capture_metadata(
                 raise CaptureIngestionContractError(
                     f"{field}.dimensions[{name!r}] must be finite"
                 )
+
+    captured_room_version = document.get("captured_room_version")
+    if (
+        captured_room_version is not None
+        and not isinstance(captured_room_version, str)
+    ):
+        raise CaptureIngestionContractError(
+            f"{field}.captured_room_version must be a string"
+        )
+
+    summary = document.get("summary")
+    if summary is not None:
+        if not isinstance(summary, dict):
+            raise CaptureIngestionContractError(
+                f"{field}.summary must be an object"
+            )
+        _require_document_keys(
+            summary,
+            required=set(),
+            optional={"surface_count", "object_count", "dimensions_m"},
+            field=f"{field}.summary",
+        )
+        for key in ("surface_count", "object_count"):
+            value = summary.get(key)
+            if value is not None:
+                _require_non_negative_int(
+                    value, f"{field}.summary.{key}"
+                )
+        summary_dimensions = summary.get("dimensions_m")
+        if summary_dimensions is not None:
+            if not isinstance(summary_dimensions, dict):
+                raise CaptureIngestionContractError(
+                    f"{field}.summary.dimensions_m must be an object"
+                )
+            _require_document_keys(
+                summary_dimensions,
+                required={"x_m", "y_m", "z_m"},
+                optional=set(),
+                field=f"{field}.summary.dimensions_m",
+            )
+            for name, value in summary_dimensions.items():
+                if (
+                    not isinstance(value, (int, float))
+                    or isinstance(value, bool)
+                    or not math.isfinite(value)
+                    or value < 0
+                ):
+                    raise CaptureIngestionContractError(
+                        f"{field}.summary.dimensions_m[{name!r}] "
+                        "must be a non-negative finite number"
+                    )
 
     return document
 
@@ -1583,7 +1679,10 @@ class _EvidenceRefContext:
                 f"{field} uses unsupported reference grammar: {ref!r}"
             )
 
-        if prefix == "user":
+        if prefix in {"user", "instrument_reading"}:
+            # ``instrument_reading:<id>`` names an external instrument
+            # reading the adapter reported; like ``user:`` it is an
+            # authored token with no in-bundle target.
             return {"ref": ref, "kind": "annotation_authored", "target": None}
 
         if prefix == "path":

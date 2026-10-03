@@ -1,0 +1,1 @@
+{"measurements":[{"acquisition_method":"laser_distance_meter","endpoint_refs":[],"evidence_refs":[],"measurement_id":"eeb1c8d0-291d-4b5f-a9a0-5bb55d31761d","provenance_class":"user_attested_measurement","quantity_type":"room_width","unit":"m","user_attestation":"attested","value":4.2}],"schema":"htdt.capture.measurements","schema_version":"1.1.0"}

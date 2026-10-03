@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/as-built-plan-1.0.0.schema.json",
+  "title": "HTDT As-Built Plan v1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "plan_id",
+    "plan_version",
+    "project_ref",
+    "room_name",
+    "specs"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.as-built-plan"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "room_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tolerance_policy_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "issued_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "specs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "planned_entity_id",
+          "entity_type",
+          "position_scene"
+        ],
+        "properties": {
+          "planned_entity_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "entity_type": {
+            "enum": [
+              "speaker",
+              "subwoofer",
+              "display",
+              "projection_screen",
+              "projector",
+              "listening_position",
+              "seat",
+              "acoustic_treatment",
+              "equipment_rack",
+              "reference_point",
+              "measurement_point",
+              "custom"
+            ]
+          },
+          "channel_role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[A-Z0-9_]+$"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "position_scene": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "x",
+              "y",
+              "z"
+            ],
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "z": {
+                "type": "number"
+              }
+            }
+          },
+          "orientation_scene": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "front_axis_local",
+                  "up_axis_local"
+                ],
+                "properties": {
+                  "front_axis_local": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y",
+                      "z"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "up_axis_local": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y",
+                      "z"
+                    ],
+                    "properties": {
+                      "x": {
+                        "type": "number"
+                      },
+                      "y": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "tolerance_m": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}

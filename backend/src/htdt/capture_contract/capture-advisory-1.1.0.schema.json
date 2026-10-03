@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://htdt.example/schemas/capture-bundle-v1/capture-advisory.schema.json",
-  "title": "HTDT Capture Advisory Diagnostics v1",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/capture-advisory-1.1.0.schema.json",
+  "title": "HTDT Capture Advisory Diagnostics v1.1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
       "const": "htdt.capture.advisory"
     },
     "schema_version": {
-      "const": "1.0.0"
+      "const": "1.1.0"
     },
     "capture_session_id": {
       "type": "string",
@@ -269,7 +269,8 @@
             "observed",
             "weak_region_retries_exhausted",
             "attempt_budget_exhausted",
-            "movement_constrained"
+            "movement_constrained",
+            "operator_declared_unresolved"
           ]
         },
         "remote_weak_region_count": {

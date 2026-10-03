@@ -301,7 +301,10 @@ class MissionPackage(BaseModel):
         descriptor: dict[str, object] = {
             'package_id': self.package_id,
             'byte_size': self.byte_size,
-            'package_sha256': self.package_sha256,
+            # Wire grammar is ``sha256:<hex>`` — the pinned-digest
+            # form the app requires everywhere (pairing pins,
+            # manifest source_refs). Storage stays bare hex.
+            'package_sha256': f'sha256:{self.package_sha256}',
         }
         for key, value in (
             ('mission_id', self.mission_id),
@@ -1290,14 +1293,11 @@ class CaptureReceiverService:
             return 400, {'detail': 'receipt package mismatch'}
         if receipt.get('capture_instance_id') != capture_instance_id:
             return 400, {'detail': 'receipt device mismatch'}
-        # The receipt declares which pairing/instance it reports for; a
-        # present-but-wrong identity is a malformed claim and must not be
-        # recorded against this pairing's package.
-        if (
-            receipt.get('paired_destination_id') is not None
-            and receipt['paired_destination_id'] != pairing.pairing_id
-        ):
-            return 400, {'detail': 'receipt pairing mismatch'}
+        # ``paired_destination_id`` names the device-local destination
+        # the app bound at pairing time — a UUID minted on-device that
+        # this service never learns. The pairing token in the URL
+        # already authenticates which pairing the receipt reports for,
+        # so there is no server-side identity to compare it against.
         if (
             receipt.get('receiver_instance_id') is not None
             and receipt['receiver_instance_id'] != pairing.receiver_instance_id
@@ -1313,7 +1313,14 @@ class CaptureReceiverService:
             package = self._mission_from_row(row)
             if package.pairing_id and package.pairing_id != pairing.pairing_id:
                 return 404, {'detail': 'package not offered to this pairing'}
-            if receipt.get('package_sha256') != package.package_sha256:
+            # Receipts echo the descriptor's ``sha256:<hex>`` digest;
+            # the legacy bare-hex form is accepted for older emitters.
+            reported_digest = receipt.get('package_sha256')
+            if isinstance(reported_digest, str) and reported_digest.startswith(
+                'sha256:'
+            ):
+                reported_digest = reported_digest[len('sha256:'):]
+            if reported_digest != package.package_sha256:
                 return 400, {'detail': 'receipt digest mismatch'}
             result = receipt.get('validation_result')
             detail = receipt.get('detail')
