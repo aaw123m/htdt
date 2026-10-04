@@ -300,6 +300,95 @@ def test_malformed_transform_blocks(tmp_path: Path) -> None:
         )
 
 
+def test_projective_transform_rejected(tmp_path: Path) -> None:
+    # Row-major projective matrix: upper 3x3 identity, last row (0.1, 0, 0, 1).
+    # Column-major flat values as declared by matrix4f.
+    service, _scene, _ingestion, lineage = _services(
+        tmp_path,
+        entities_overrides={
+            'physical_envelope': {
+                'width_m': 0.3, 'height_m': 0.5, 'depth_m': 0.25,
+                'provenance': 'user_measured',
+                'source_evidence_refs': [],
+            },
+            'T_world_from_annotation': {
+                'representation': 'column_major_4x4_f32',
+                'values': [
+                    1.0, 0.0, 0.0, 0.1,
+                    0.0, 1.0, 0.0, 0.0,
+                    0.0, 0.0, 1.0, 0.0,
+                    1.0, 2.0, 3.0, 1.0,
+                ],
+            },
+        },
+    )
+    with pytest.raises(CaptureEntityPromotionError, match='not affine'):
+        service.promote_annotations(
+            ingestion_plan(lineage, tmp_path), DOCUMENT_ID
+        )
+
+
+def test_shear_transform_rejected(tmp_path: Path) -> None:
+    # Equal column norms and positive determinant but non-orthogonal columns:
+    # rows [1 s 0; s 1 0; 0 0 sqrt(1+s^2)] with s=0.1 (issue #545 example).
+    s = 0.1
+    z = (1.0 + s * s) ** 0.5
+    service, _scene, _ingestion, lineage = _services(
+        tmp_path,
+        entities_overrides={
+            'physical_envelope': {
+                'width_m': 0.3, 'height_m': 0.5, 'depth_m': 0.25,
+                'provenance': 'user_measured',
+                'source_evidence_refs': [],
+            },
+            'T_world_from_annotation': {
+                'representation': 'column_major_4x4_f32',
+                'values': [
+                    1.0, s, 0.0, 0.0,
+                    s, 1.0, 0.0, 0.0,
+                    0.0, 0.0, z, 0.0,
+                    0.0, 0.0, 0.0, 1.0,
+                ],
+            },
+        },
+    )
+    with pytest.raises(CaptureEntityPromotionError, match='rigid/similarity'):
+        service.promote_annotations(
+            ingestion_plan(lineage, tmp_path), DOCUMENT_ID
+        )
+
+
+def test_rotated_scaled_transform_promotes(tmp_path: Path) -> None:
+    # 90-degree rotation about z with uniform scale 2 and translation
+    # (1, 0, 2): orthogonal columns must not be rejected as shear.
+    service, scene, _ingestion, lineage = _services(
+        tmp_path,
+        entities_overrides={
+            'physical_envelope': {
+                'width_m': 0.3, 'height_m': 0.5, 'depth_m': 0.25,
+                'provenance': 'user_measured',
+                'source_evidence_refs': [],
+            },
+            'T_world_from_annotation': {
+                'representation': 'column_major_4x4_f32',
+                'values': [
+                    0.0, 2.0, 0.0, 0.0,
+                    -2.0, 0.0, 0.0, 0.0,
+                    0.0, 0.0, 2.0, 0.0,
+                    1.0, 0.0, 2.0, 1.0,
+                ],
+            },
+        },
+    )
+    outcome = service.promote_annotations(
+        ingestion_plan(lineage, tmp_path), DOCUMENT_ID
+    )
+    assert len(outcome.promoted_entity_ids) == 1
+    entity = scene.current_head(DOCUMENT_ID).document.entities[0]
+    assert entity.position.x_m == pytest.approx(1.0)
+    assert entity.position.z_m == pytest.approx(2.0)
+
+
 def test_inbox_promote_executes_annotations(tmp_path: Path) -> None:
     service, scene, ingestion, lineage = _services(
         tmp_path,

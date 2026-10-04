@@ -186,6 +186,23 @@ def _upper3(
     return tuple(tuple(matrix[r][c] for c in range(3)) for r in range(3))
 
 
+_AFFINE_LAST_ROW_EPS = 1e-6
+_ORTHOGONALITY_EPS = 1e-6
+
+
+def _is_affine4(
+    matrix: tuple[tuple[float, float, float, float], ...],
+) -> bool:
+    """Last row must be [0, 0, 0, 1] — projective matrices are unsupported."""
+
+    return (
+        abs(matrix[3][0]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][1]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][2]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][3] - 1.0) <= _AFFINE_LAST_ROW_EPS
+    )
+
+
 def _normalized_rotation3(
     matrix: tuple[tuple[float, float, float, float], ...],
 ) -> tuple[tuple[float, float, float], ...] | None:
@@ -197,10 +214,18 @@ def _normalized_rotation3(
     if any(n <= 1e-12 for n in norms):
         return None
     if max(norms) / min(norms) > 1.0 + 1e-6:
-        return None  # non-uniform scale / shear — not representable faithfully
+        return None  # non-uniform scale — not representable faithfully
     unit = tuple(
         tuple(columns[c][r] / norms[c] for c in range(3)) for r in range(3)
     )
+    unit_columns = [[unit[r][c] for r in range(3)] for c in range(3)]
+    for i in range(3):
+        for j in range(i + 1, 3):
+            dot = sum(
+                unit_columns[i][k] * unit_columns[j][k] for k in range(3)
+            )
+            if abs(dot) > _ORTHOGONALITY_EPS:
+                return None  # shear — not representable faithfully
     if _det3(unit) <= 0.0:
         return None  # reflection
     return unit
@@ -446,6 +471,10 @@ class CaptureEntityPromotionService:
         )
         if transform is None:
             return None, 'T_world_from_annotation missing or malformed'
+        if not _is_affine4(transform):
+            return None, 'entity transform is not affine'
+        if not _is_affine4(world_to_scene):
+            return None, 'world-to-scene authority transform is not affine'
         scene_transform = _matmul4(world_to_scene, transform)
         rotation = _normalized_rotation3(scene_transform)
         if rotation is None:
