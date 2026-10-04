@@ -946,6 +946,7 @@ class OptimizationWorkflowController(
         self.campaign_detail_label = QLabel("検証条件が未選択です")
         self.campaign_applicability_state: dict[str, QComboBox] = {}
         self.campaign_applicability_detail: dict[str, QLineEdit] = {}
+        self.campaign_applicability_attest: dict[str, QPushButton] = {}
         for code in ("geometry", "band", "routing"):
             state = QComboBox()
             state.addItem("未確認", "unverified")
@@ -955,6 +956,14 @@ class OptimizationWorkflowController(
             detail = QLineEdit()
             detail.setPlaceholderText("確認メモ / 証明 ID")
             self.campaign_applicability_detail[code] = detail
+            attest = QPushButton("証明…")
+            attest.setToolTip(
+                "手動証拠として使う適用条件証明を登録・選択します"
+            )
+            attest.clicked.connect(
+                lambda _checked=False, c=code: self.open_applicability_attestation(c)
+            )
+            self.campaign_applicability_attest[code] = attest
 
         self.validation_refresh_button = QPushButton("保存済み検証を更新")
         self.validation_refresh_button.clicked.connect(self.refresh_model_validations)

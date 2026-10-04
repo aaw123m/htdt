@@ -1572,8 +1572,12 @@ class OptimizationWorkflowWorkspace(QWidget):
         for code, label in (("geometry", "形状"), ("band", "帯域"), ("routing", "経路")):
             state: QComboBox = self.campaign_applicability_state[code]
             evidence = self.campaign_applicability_detail[code]
+            attest = self.campaign_applicability_attest[code]
             applicability.addRow(f"{label} 判定", state)
-            applicability.addRow(f"{label} 根拠", evidence)
+            evidence_row = QHBoxLayout()
+            evidence_row.addWidget(evidence, 1)
+            evidence_row.addWidget(attest)
+            applicability.addRow(f"{label} 根拠", evidence_row)
         campaign.addLayout(applicability)
         campaign.addWidget(
             _button(
