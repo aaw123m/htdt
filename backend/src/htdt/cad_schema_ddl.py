@@ -2091,6 +2091,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_ambient_reflectance_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_lf_control_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, representation TEXT NOT NULL, lifecycle TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(document_id, plan_id, plan_sha256) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_lf_control_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, from_plan_sha256 TEXT NOT NULL, to_plan_sha256 TEXT NOT NULL, from_lifecycle TEXT NOT NULL, to_lifecycle TEXT NOT NULL, event_kind TEXT NOT NULL, evidence_ref TEXT, actor TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2133,6 +2141,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_acoustic_treatment_placements',
     'cad_acoustic_wave_excitations',
     'cad_acquisition_contexts',
+    'cad_active_lf_control_events',
+    'cad_active_lf_control_plans',
     'cad_adaptive_extended_observations',
     'cad_adaptive_extended_plans',
     'cad_adaptive_plans',

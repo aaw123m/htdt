@@ -582,6 +582,37 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #533: every duplicated column of the active-LF control rows is a
+    # payload field duplicate — the repository stores the full sealed
+    # plan/event documents in ``payload_json``.
+    'cad_active_lf_control_plans': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('representation', 'representation'),
+            _b('lifecycle', 'lifecycle'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_active_lf_control_events': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('plan_id', 'plan_id'),
+            _b('from_plan_sha256', 'from_plan_sha256'),
+            _b('to_plan_sha256', 'to_plan_sha256'),
+            _b('from_lifecycle', 'from_lifecycle'),
+            _b('to_lifecycle', 'to_lifecycle'),
+            _b('event_kind', 'event_kind'),
+            _b('evidence_ref', 'evidence_ref', optional=True),
+            _b('actor', 'actor', optional=True),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
     'cad_video_presentation_profiles': (
         'payload_json',
         (

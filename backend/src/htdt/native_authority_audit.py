@@ -3244,6 +3244,14 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
+    'cad_active_lf_control_events': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_active_lf_control_plans': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
     'cad_bass_management_profiles': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
