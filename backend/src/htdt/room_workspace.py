@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QStackedWidget,
     QToolButton,
     QVBoxLayout,
@@ -4325,9 +4326,22 @@ class RoomWorkspace(QWidget):
         if proposed_signal is not None and hasattr(proposed_signal, "connect"):
             proposed_signal.connect(self._proposal_entity_selected)
         viewport_layout.addWidget(viewport_widget, 1)
-        content.addWidget(viewport_column, 1)
+
+        # The viewport and the right-hand panel stack share a splitter so the
+        # panel width is user-resizable instead of a fixed column.
+        self._content_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._content_splitter.setChildrenCollapsible(False)
+        self._content_splitter.addWidget(viewport_column)
+        self._right_panel_user_sized = False
+        self._content_splitter.splitterMoved.connect(
+            lambda *_args: setattr(self, '_right_panel_user_sized', True)
+        )
+        content.addWidget(self._content_splitter, 1)
 
         self.inspector = SelectionInspector()
+        # The right panel width is user-resizable via the content splitter;
+        # inner panels loosen their own caps so they follow the stack.
+        self.inspector.setMaximumWidth(560)
         self.inspector.editCommitted.connect(self._commit_inspector)
         self.inspector.aimTargetRequested.connect(self._aim_target_committed)
         self.inspector.aimClearRequested.connect(self._aim_clear_committed)
@@ -4335,7 +4349,7 @@ class RoomWorkspace(QWidget):
         self.inspector.meshImportRequested.connect(self._import_mesh_for_selected)
         self.right_stack = QStackedWidget()
         self.right_stack.setMinimumWidth(248)
-        self.right_stack.setMaximumWidth(320)
+        self.right_stack.setMaximumWidth(560)
 
         # Objects context (#480/#482/#491): object list + inspector + measure
         # tool live together so list, viewport and form stay in sync.
@@ -4436,7 +4450,9 @@ class RoomWorkspace(QWidget):
         self.right_stack.addWidget(self.history_page)
 
         self.right_stack.setCurrentWidget(self.objects_page)
-        content.addWidget(self.right_stack)
+        self._content_splitter.addWidget(self.right_stack)
+        self._content_splitter.setStretchFactor(0, 1)
+        self._content_splitter.setStretchFactor(1, 0)
         root.addLayout(content, 1)
 
         self._last_operation_error_detail: str | None = None
@@ -6816,7 +6832,10 @@ class RoomWorkspace(QWidget):
         if ultra_compact:
             self._palette_user_open = False
         right_width = 260 if ultra_compact else (280 if compact else 300)
-        self.right_stack.setFixedWidth(right_width)
+        if not self._right_panel_user_sized:
+            self._content_splitter.setSizes(
+                [max(1, width - right_width), right_width]
+            )
         self.overlay_controls.set_compact(compact)
         show_palette = (
             self.current_context in {"objects", "placement"}
