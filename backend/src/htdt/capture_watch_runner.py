@@ -16,6 +16,9 @@ contract is mirrored deliberately:
   which ingests the bundle and stages it into the Capture Inbox for
   review — exactly what document-open does — and stamps the honest
   ``watch_folder`` arrival source instead of ``document_open``.
+- Bounded retry: a failed route re-queues the drop (the scanner's seen
+  marker is removed) up to ``_ROUTE_MAX_ATTEMPTS`` times, then keeps the
+  marker so a wedged file stops cycling — a rewrite re-delivers it.
 
 The runner itself only surfaces outcomes; the inbox page refresh, the
 Activity Center entry and the statusbar line are the app's job.
@@ -47,6 +50,27 @@ _CAPTURE_SUFFIX = '.htdtcapture'
 #: Arrival source stamped on inbox items the watch folder staged — the
 #: same routing as document-open but an honest provenance label.
 WATCH_ARRIVAL_SOURCE = 'watch_folder'
+
+#: Routing attempts one dropped file gets before the lane gives up.
+#: ``scan_capture_watch_dir`` marks a file seen on delivery, so a failed
+#: route would otherwise be invisible to every later scan — one transient
+#: failure (a locked database while another writer commits, an ingest
+#: hiccup, a descriptor arriving a beat before its companion bundle) used
+#: to drop the bundle permanently, and even a restart could not recover
+#: it because the baseline pass marks every pre-existing file seen.
+#: Below the cap the seen marker is dropped — the scanner's documented
+#: requeue path — so the file re-settles and routes again on a following
+#: scan. At the cap the marker stays and the file stops cycling; a later
+#: rewrite still re-delivers it because the signature change reads as a
+#: new drop. Mirrors the REW lane's ``_REW_AUTO_MAX_ATTEMPTS``.
+_ROUTE_MAX_ATTEMPTS = 3
+
+#: Outcomes that prove the drop reached the inbox. Everything else —
+#: ``failed``, ``invalid_or_unsupported``, ``user_action_required`` or a
+#: routing exception — counts as one failed attempt under the cap.
+_STAGE_SUCCESS_OUTCOMES = frozenset(
+    {'staged_for_review', 'already_staged'}
+)
 
 
 def scan_capture_watch_dir(
@@ -151,6 +175,9 @@ class CaptureWatchRunner(QObject):
         self._timer.timeout.connect(self._tick)
         self._seen: dict[str, tuple[int, int]] = {}
         self._pending: dict[str, tuple[int, int]] = {}
+        # Per-path routing-attempt counts — mutated on the worker only,
+        # alongside ``_seen``/``_pending``, so no cross-thread access.
+        self._route_failures: dict[str, int] = {}
         self._in_flight = False
         self._closed = False
 
@@ -193,6 +220,7 @@ class CaptureWatchRunner(QObject):
             for path in delivered:
                 if cancel.is_set():
                     break
+                key = str(path)
                 try:
                     intent = build_launch_intent(path)
                     result = route_capture_intent(
@@ -200,12 +228,31 @@ class CaptureWatchRunner(QObject):
                         repository=self.repository,
                         arrival_source=WATCH_ARRIVAL_SOURCE,
                     )
-                    results.append((path, result, None))
                 except Exception as exc:  # never let one drop kill the lane
                     _LOGGER.exception(
                         'capture watch routing raised for %s', path
                     )
                     results.append((path, None, str(exc)))
+                    succeeded = False
+                else:
+                    succeeded = result.outcome in _STAGE_SUCCESS_OUTCOMES
+                    results.append((path, result, None))
+                if succeeded:
+                    self._route_failures.pop(key, None)
+                    continue
+                attempts = self._route_failures.get(key, 0) + 1
+                self._route_failures[key] = attempts
+                if attempts < _ROUTE_MAX_ATTEMPTS:
+                    # Re-queue: dropping the seen marker re-enters the file
+                    # as a candidate, so the next scans re-settle and
+                    # re-route it instead of leaving the drop silently lost.
+                    self._seen.pop(key, None)
+            # A failure count for a vanished file is dead weight — a
+            # re-drop lands under a fresh count either way.
+            for stale_key in [
+                k for k in self._route_failures if not Path(k).exists()
+            ]:
+                del self._route_failures[stale_key]
             return results
 
         try:

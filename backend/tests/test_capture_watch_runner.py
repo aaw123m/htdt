@@ -196,6 +196,138 @@ def test_runner_never_promotes_and_rejects_junk(tmp_path: Path) -> None:
     assert inbox.list_items() == ()
 
 
+def test_runner_retries_failed_route_and_stages_later(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REV43-SEAMS: a transient routing failure must not drop the bundle.
+
+    ``scan_capture_watch_dir`` marks a file seen on delivery, so a
+    raise/failed route without a requeue loses the drop forever — even
+    an app restart cannot recover it because the baseline pass marks
+    every pre-existing file seen.
+    """
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    import htdt.capture_watch_runner as watch_module
+    from htdt.launch_router import route_capture_intent as real_route
+
+    attempts = {'count': 0}
+
+    def flaky_route(intent, *, repository, arrival_source):
+        attempts['count'] += 1
+        if attempts['count'] < 3:
+            raise RuntimeError('simulated transient failure')
+        return real_route(
+            intent, repository=repository, arrival_source=arrival_source
+        )
+
+    monkeypatch.setattr(watch_module, 'route_capture_intent', flaky_route)
+    runner = CaptureWatchRunner(
+        repository, _Prefs(str(watch)), interval_ms=50
+    )
+    batches: list = []
+    runner.scan_completed.connect(batches.append)
+    runner.start()
+    assert _pump(app, lambda: bool(runner._seen))
+    _write_bundle_zip(watch, 'flaky')
+    assert _pump(app, lambda: attempts['count'] >= 3)
+    runner.shutdown()
+
+    # The two failures surfaced, then the retried route staged the bundle.
+    inbox = CaptureInboxRepository(
+        repository, CaptureIngestionRepository(repository)
+    )
+    items = inbox.list_items()
+    assert len(items) == 1
+    assert items[0].arrival_source == WATCH_ARRIVAL_SOURCE
+
+
+def test_runner_gives_up_after_retry_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REV43-SEAMS: a wedged drop stops cycling after the attempt cap."""
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    import htdt.capture_watch_runner as watch_module
+
+    attempts = {'count': 0}
+
+    def always_fail(intent, *, repository, arrival_source):
+        attempts['count'] += 1
+        raise RuntimeError('permanent failure')
+
+    monkeypatch.setattr(watch_module, 'route_capture_intent', always_fail)
+    runner = CaptureWatchRunner(
+        repository, _Prefs(str(watch)), interval_ms=40
+    )
+    batches: list = []
+    runner.scan_completed.connect(batches.append)
+    runner.start()
+    assert _pump(app, lambda: bool(runner._seen))
+    drop = watch / 'wedged.htdtcapture'
+    drop.write_bytes(b'junk that always fails')
+    assert _pump(
+        app,
+        lambda: attempts['count'] >= watch_module._ROUTE_MAX_ATTEMPTS,
+    )
+    # Past the cap the seen marker stays: no more routing attempts even
+    # after several more scans.
+    settled = time.monotonic() + 0.5
+    while time.monotonic() < settled:
+        app.processEvents()
+        time.sleep(0.01)
+    assert attempts['count'] == watch_module._ROUTE_MAX_ATTEMPTS
+    assert str(drop) in runner._seen
+    runner.shutdown()
+
+    inbox = CaptureInboxRepository(
+        repository, CaptureIngestionRepository(repository)
+    )
+    assert inbox.list_items() == ()
+
+
+def test_runner_rewrite_after_wedge_redelivers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REV43-SEAMS: a wedged file still re-routes once when rewritten."""
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    import htdt.capture_watch_runner as watch_module
+
+    attempts = {'count': 0}
+
+    def always_fail(intent, *, repository, arrival_source):
+        attempts['count'] += 1
+        raise RuntimeError('permanent failure')
+
+    monkeypatch.setattr(watch_module, 'route_capture_intent', always_fail)
+    runner = CaptureWatchRunner(
+        repository, _Prefs(str(watch)), interval_ms=40
+    )
+    runner.start()
+    assert _pump(app, lambda: bool(runner._seen))
+    drop = watch / 'rewritten.htdtcapture'
+    drop.write_bytes(b'version one')
+    cap = watch_module._ROUTE_MAX_ATTEMPTS
+    assert _pump(app, lambda: attempts['count'] >= cap)
+    # Rewriting changes the (mtime, size) signature → a fresh delivery;
+    # the new failure leaves it wedged again after one more attempt.
+    drop.write_bytes(b'version two, longer bytes')
+    assert _pump(app, lambda: attempts['count'] >= cap + 1)
+    settled = time.monotonic() + 0.5
+    while time.monotonic() < settled:
+        app.processEvents()
+        time.sleep(0.01)
+    assert attempts['count'] == cap + 1
+    runner.shutdown()
+
+
 def test_runner_disabled_watch_dir_stays_idle(tmp_path: Path) -> None:
     app = _app()
     watch = tmp_path / 'watch'
