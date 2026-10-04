@@ -1,0 +1,1 @@
+{"clock_domain":"arkit_arframe_timestamp_seconds","correlations":[{"method":"fixture","monotonic_s":1,"utc":"2026-10-01T01:00:00Z"},{"method":"fixture","monotonic_s":26,"utc":"2026-10-01T01:00:25Z"}],"schema":"htdt.capture.timing","schema_version":"1.0.0"}

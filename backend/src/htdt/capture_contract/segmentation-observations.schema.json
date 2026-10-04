@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/segmentation-observations.schema.json",
+  "title": "HTDT Capture Segmentation Observations v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "observations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "htdt.capture.segmentation-observations"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "capture_revision_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "capture_session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observation_id",
+          "capture_session_id",
+          "coordinate_space_id",
+          "source_frame_ref",
+          "source_frame_kind",
+          "session_timestamp_s",
+          "image_width",
+          "image_height",
+          "pixel_format_fourcc",
+          "view_rotation_or_display_transform_revision",
+          "seed_kind",
+          "seed_points",
+          "refinement_included_points",
+          "refinement_excluded_points",
+          "refinement_count",
+          "quality_level",
+          "mask_width",
+          "mask_height",
+          "mask_encoding",
+          "mask_payload_ref",
+          "mask_payload_base64",
+          "mask_accept_threshold",
+          "vision_request",
+          "os_version",
+          "os_build",
+          "app_version",
+          "app_build",
+          "downstream_3d_point_count"
+        ],
+        "properties": {
+          "observation_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "capture_session_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "coordinate_space_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "source_frame_ref": {
+            "type": "string",
+            "pattern": "^path:evidence/frames/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$"
+          },
+          "source_frame_kind": {
+            "enum": [
+              "streamed",
+              "high_quality_visual"
+            ]
+          },
+          "session_timestamp_s": {
+            "type": "number",
+            "minimum": 0
+          },
+          "image_width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "image_height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "pixel_format_fourcc": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "view_rotation_or_display_transform_revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seed_kind": {
+            "enum": [
+              "point",
+              "box",
+              "scribble"
+            ]
+          },
+          "seed_points": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/$defs/normalizedPoint"
+            }
+          },
+          "seed_box": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "properties": {
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "width": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "height": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          },
+          "refinement_included_points": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/$defs/normalizedPoint"
+            }
+          },
+          "refinement_excluded_points": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/$defs/normalizedPoint"
+            }
+          },
+          "refinement_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "quality_level": {
+            "enum": [
+              "accurate",
+              "balanced",
+              "fast"
+            ]
+          },
+          "mask_width": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mask_height": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mask_encoding": {
+            "const": "bitpack_msb_rows_base64"
+          },
+          "mask_payload_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mask_payload_base64": {
+            "type": "string"
+          },
+          "mask_accept_threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "vision_request": {
+            "type": "string",
+            "minLength": 1
+          },
+          "os_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "os_build": {
+            "type": "string",
+            "minLength": 1
+          },
+          "app_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "app_build": {
+            "type": "string",
+            "minLength": 1
+          },
+          "downstream_spatial_frame_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^path:evidence/frames/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.json$"
+          },
+          "downstream_depth_confidence_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "downstream_3d_point_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "normalizedPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ],
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    }
+  }
+}

@@ -41,6 +41,7 @@
               "frame_usability",
               "loop_closure_check",
               "target_scan_pass",
+              "segmentation_pass",
               "revisit_flag",
               "revisit_flag_resolution",
               "mission_bound",
@@ -48,7 +49,16 @@
               "privacy_flag",
               "privacy_flag_cleared",
               "roomplan_rescan",
-              "roomplan_session_ended"
+              "roomplan_session_ended",
+              "optional_work_admission",
+              "reference_object_selection",
+              "reference_object_configuration_outcome",
+              "reference_object_acceptance",
+              "source_quality_preflight",
+              "high_resolution_still",
+              "derived_candidate_accepted",
+              "derived_candidate_dismissed",
+              "derived_candidate_restored"
             ]
           },
           "session_timestamp_seconds": {
