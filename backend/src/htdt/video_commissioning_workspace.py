@@ -324,16 +324,12 @@ class VideoCommissioningWorkspace(QWidget):
             return None
         if session.target_sha256 is None:
             return None
-        target = self.colorimetry.get_target_profile_by_hash(
+        # Fail closed on the bound pin: a session records which target it
+        # is measured against — silently substituting the currently
+        # selected target would evaluate against an authority the session
+        # never bound.
+        return self.colorimetry.get_target_profile_by_hash(
             session.target_sha256
-        )
-        if target is not None:
-            return target
-        selection = self.colorimetry.current_selection(self.document_id)
-        if selection is None:
-            return None
-        return self.colorimetry.get_target_profile(
-            self.document_id, selection.target_id, selection.version
         )
 
     def _surface_entities(self) -> list[tuple[str, str]]:
@@ -492,16 +488,29 @@ class VideoCommissioningWorkspace(QWidget):
         self.pages.addWidget(scroll)
 
     def _refresh_session_page(self) -> None:
+        # Repopulation must not clobber a selection the user already made.
+        previous_surface = self.surface_combo.currentData()
+        previous_target = self.target_combo.currentData()
         self.surface_combo.blockSignals(True)
         self.surface_combo.clear()
         for entity_id, label in self._surface_entities():
             self.surface_combo.addItem(label, entity_id)
+        if previous_surface is not None:
+            index = self.surface_combo.findData(previous_surface)
+            if index >= 0:
+                self.surface_combo.setCurrentIndex(index)
         self.surface_combo.blockSignals(False)
+        self.target_combo.blockSignals(True)
         self.target_combo.clear()
         for target in self._targets():
             self.target_combo.addItem(
                 f'{target.target_id} v{target.version}', target.target_sha256
             )
+        if previous_target is not None:
+            index = self.target_combo.findData(previous_target)
+            if index >= 0:
+                self.target_combo.setCurrentIndex(index)
+        self.target_combo.blockSignals(False)
         session = self._current_session
         if session is None:
             self.readiness_state_label.setText('セッション未作成')
@@ -559,6 +568,14 @@ class VideoCommissioningWorkspace(QWidget):
         if target is None:
             self._notice('選択したターゲットが解決できません', error=True)
             return
+        bit_depth_value = self.bit_depth_spin.value()
+        if 0 < bit_depth_value < 8:
+            self._notice(
+                'ビット深度は 8 以上を指定してください（不明なら「不明」のままに）',
+                error=True,
+            )
+            return
+        bit_depth = bit_depth_value if bit_depth_value >= 8 else None
         try:
             session = build_guided_video_session(
                 document_id=self.document_id,
@@ -571,15 +588,18 @@ class VideoCommissioningWorkspace(QWidget):
                 meter=meter,
                 signal_range=self.signal_range_combo.currentData(),
                 encoding=self.encoding_combo.currentData(),
-                bit_depth=(
-                    self.bit_depth_spin.value()
-                    if self.bit_depth_spin.value() >= 8
-                    else None
-                ),
+                bit_depth=bit_depth,
                 picture_mode=self.picture_mode_edit.text().strip() or None,
                 created_at_utc=_utc_now(),
             )
-            if self._current_session is not None:
+            if (
+                self._current_session is not None
+                and self._current_session.surface_entity_id == surface_id
+            ):
+                # Rebinding records lineage — only meaningful against the
+                # same physical surface; a different surface starts a
+                # fresh session instead of inheriting another surface's
+                # history.
                 session = rebind_video_session(
                     self._current_session,
                     surface_entity_id=surface_id,
@@ -591,11 +611,7 @@ class VideoCommissioningWorkspace(QWidget):
                     meter=meter,
                     signal_range=self.signal_range_combo.currentData(),
                     encoding=self.encoding_combo.currentData(),
-                    bit_depth=(
-                        self.bit_depth_spin.value()
-                        if self.bit_depth_spin.value() >= 8
-                        else None
-                    ),
+                    bit_depth=bit_depth,
                     picture_mode=(
                         self.picture_mode_edit.text().strip() or None
                     ),
@@ -1134,10 +1150,20 @@ class VideoCommissioningWorkspace(QWidget):
         self.refresh()
 
     def _selected_action_kinds(self) -> tuple:
-        proposals = self._proposals()
-        if not proposals:
+        item = self.proposals_list.currentItem()
+        proposal = (
+            self.commissioning.get_proposal(
+                self.document_id, item.data(Qt.ItemDataRole.UserRole)
+            )
+            if item is not None
+            else None
+        )
+        if proposal is None:
+            proposals = self._proposals()
+            proposal = proposals[-1] if proposals else None
+        if proposal is None:
             return ()
-        return tuple(a.kind for a in proposals[-1].actions)
+        return tuple(a.kind for a in proposal.actions)
 
     # ------------------------------------------------------------------
     # Verify page — before/after

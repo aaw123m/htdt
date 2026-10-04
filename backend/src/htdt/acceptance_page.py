@@ -11,6 +11,8 @@ the run is replayable end to end.
 from __future__ import annotations
 
 import platform
+import shutil
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -105,6 +107,22 @@ def _environment_snapshot() -> dict[str, Any]:
             ]
     except Exception:
         pass
+    try:
+        # The code state under test — the run header renders this when
+        # present; packaged installs simply have nothing to record.
+        repo_root = Path(__file__).resolve().parents[3]
+        git = shutil.which('git')
+        if git is not None and (repo_root / '.git').exists():
+            proc = subprocess.run(
+                [git, '-C', str(repo_root), 'rev-parse', 'HEAD'],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if proc.returncode == 0:
+                snapshot['code_sha'] = proc.stdout.strip()
+    except Exception:
+        pass
     return snapshot
 
 
@@ -145,6 +163,8 @@ class AcceptancePage(QWidget):
         self._gate = None
         self._run: AcceptanceRun | None = None
         self._worker: _AutoCheckWorker | None = None
+        # Step id whose input/attestation text is currently in the editors.
+        self._detail_step_id: str | None = None
 
         layout = _page_layout(
             self,
@@ -473,6 +493,12 @@ class AcceptancePage(QWidget):
         if definition.input_label_ja:
             self.input_label.setText(definition.input_label_ja)
             self.input_edit.setAccessibleName(definition.input_label_ja)
+        # Per-step scratch text must not bleed into the next step —
+        # typed input/attestation belongs to exactly one step id.
+        if record.step_id != self._detail_step_id:
+            self.input_edit.clear()
+            self.attest_edit.clear()
+            self._detail_step_id = record.step_id
         self.input_edit.setVisible(
             bool(definition.input_label_ja) and editable
         )
@@ -538,8 +564,9 @@ class AcceptancePage(QWidget):
         worker = _AutoCheckWorker(record.auto_check, ctx, self)
         self._worker = worker
         worker.finished_result.connect(
-            lambda result, cid=record.step_id, capture=capture_only: (
-                self._on_check_result(cid, result, capture)
+            lambda result, cid=record.step_id, capture=capture_only,
+            rid=self._run.run_id: (
+                self._on_check_result(cid, result, capture, rid)
             )
         )
         # Clear the reference on finished BEFORE deleteLater drops the C++
@@ -555,15 +582,24 @@ class AcceptancePage(QWidget):
         if self._worker is worker:
             self._worker = None
 
-    def _on_check_result(self, step_id, result, capture_only) -> None:
+    def _on_check_result(self, step_id, result, capture_only, run_id) -> None:
         self.check_button.setEnabled(True)
         self.capture_button.setEnabled(True)
-        if self._run is None:
+        if self._run is None or self._run.run_id != run_id:
+            # The user switched or started another run while the worker
+            # was in flight — a result belongs to its own run only.
             return
-        steps = list(self._run.steps)
+        latest = self.repository.latest(run_id)
+        if latest is None:
+            return
+        steps = list(latest.steps)
         for index, record in enumerate(steps):
             if record.step_id != step_id:
                 continue
+            if record.status != 'pending':
+                # The step was decided while the check ran — a stale
+                # result must never overwrite a recorded verdict.
+                break
             now = utc_now_iso()
             detail = {
                 'verdict': result.verdict,
@@ -586,21 +622,16 @@ class AcceptancePage(QWidget):
                         'recorded_at_utc': now,
                     }
                 )
-            elif result.verdict == 'deferred':
+            elif result.verdict in ('deferred', 'unavailable'):
+                # Unavailable = the check could not run (REW down, missing
+                # dependency). That is not a verdict on the system under
+                # test — the step stays pending with the reason recorded,
+                # never bricked into 'blocked'.
                 steps[index] = record.model_copy(
                     update={
                         'status': 'pending',
                         'check_detail': detail,
                         'note': result.detail_ja,
-                    }
-                )
-            elif result.verdict == 'unavailable':
-                steps[index] = record.model_copy(
-                    update={
-                        'status': 'blocked',
-                        'verdict_source': 'auto_check',
-                        'check_detail': detail,
-                        'recorded_at_utc': now,
                     }
                 )
             else:
@@ -613,7 +644,7 @@ class AcceptancePage(QWidget):
                     }
                 )
             break
-        self._run = self.repository.commit(self._run, steps)
+        self._run = self.repository.commit(latest, steps)
         self._refresh_run_list()
         self._render_run()
         self._select_row(step_id)
@@ -764,6 +795,25 @@ class AcceptancePage(QWidget):
             self.step_result.setText(f'証拠バンドルを保存しました: {path}')
 
     # ------------------------------------------------------------------
+
+    def closeEvent(self, event) -> None:
+        # A still-running check worker must outlive this page — detach it
+        # from the result plumbing (a result emitted into a dead widget
+        # is a RuntimeError) and let it delete itself on finish.
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            self._worker = None
+            try:
+                worker.finished_result.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                worker.finished.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            worker.finished.connect(worker.deleteLater)
+            worker.setParent(None)
+        super().closeEvent(event)
 
     def refresh(self) -> None:
         """on_activate hook: refresh resumable runs."""

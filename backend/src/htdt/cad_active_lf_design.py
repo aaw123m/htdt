@@ -992,9 +992,23 @@ def evaluate_dsp_feasibility(
         values: list[float | None],
         minimum: float | None,
         maximum: float | None,
+        *,
+        demand_expected: bool = False,
     ) -> EligibilityCheck:
         concrete = [v for v in values if v is not None]
         if not concrete:
+            bounded = minimum is not None or maximum is not None
+            if bounded and demand_expected:
+                # The plan omits a value the envelope limits — silent
+                # PASS would certify a demand we never verified.
+                return EligibilityCheck(
+                    check=name,
+                    status='UNKNOWN',
+                    detail=(
+                        f'plan does not declare {name} — cannot verify '
+                        'against the envelope'
+                    ),
+                )
             return EligibilityCheck(
                 check=name, status='PASS', detail=f'plan declares no {name} demands'
             )
@@ -1042,6 +1056,7 @@ def evaluate_dsp_feasibility(
             [plan.total_latency_s],
             None,
             envelope.latency_budget_s,
+            demand_expected=True,
         )
     )
 
@@ -1214,9 +1229,17 @@ def lf_control_objectives(
         reference_band_hz=plan.control_band_hz,
     )
     ids = tuple(seat_entity_ids) if seat_entity_ids is not None else None
+    # Resolve the seat identities ONCE — the metric ids below fall back
+    # to seat-N, so the spec must pin the same identities or the
+    # persisted evaluation replays against an empty seat set.
+    resolved_seat_ids = list(
+        ids
+        if ids is not None
+        else [f'seat-{index}' for index in range(len(seat_responses))]
+    )
 
     binding_sha256 = _hash(
-        lf_control_evaluation_spec(plan, list(ids) if ids else [])
+        lf_control_evaluation_spec(plan, resolved_seat_ids)
     )
     vectors: list[ObjectiveVector] = []
 
@@ -1234,11 +1257,10 @@ def lf_control_objectives(
 
     if target_response is not None:
         per_seat: list[ObjectiveVector] = []
-        seat_ids = ids or tuple(
-            f'seat-{index}' for index in range(len(seat_responses))
-        )
         rms_values: list[float] = []
-        for seat_id, response in zip(seat_ids, seat_responses, strict=True):
+        for seat_id, response in zip(
+            resolved_seat_ids, seat_responses, strict=True
+        ):
             vector = target_response_objectives(
                 candidate_id,
                 response,

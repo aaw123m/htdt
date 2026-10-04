@@ -427,6 +427,17 @@ class OffscreenSceneRenderer:
 _DEFAULT_YAW_STEPS_DEG: tuple[int, ...] = (-60, -30, 30, 60)
 
 
+def derived_yaw_steps(step_deg: int, reach_deg: int = 120) -> tuple[int, ...]:
+    """Yaw offsets for a declared step size: every multiple of the step
+    inside ±``reach_deg``, 0 excluded (the pinned frame covers 0)."""
+    reach = (reach_deg // step_deg) * step_deg
+    return tuple(
+        offset
+        for magnitude in range(step_deg, reach + 1, step_deg)
+        for offset in (-magnitude, magnitude)
+    )
+
+
 def _write_file(
     output_dir: Path, relative: str, content: bytes
 ) -> tuple[PurePosixPath, str, int]:
@@ -639,7 +650,7 @@ def build_review_package(
     renderer: Any | None = None,
     generated_at_utc: str | None = None,
     include_drawings: bool = True,
-    yaw_steps_deg: tuple[int, ...] = _DEFAULT_YAW_STEPS_DEG,
+    yaw_steps_deg: tuple[int, ...] | None = None,
 ) -> ReviewPackageResult:
     """Build the offline review package into ``output_dir``.
 
@@ -647,6 +658,12 @@ def build_review_package(
     and fails honestly on capability (a render path that cannot produce
     a frame is declared ``unavailable`` in the manifest — never a stub
     image).
+
+    ``yaw_steps_deg`` is an explicit caller override: ``None`` derives the
+    offsets from ``session.render.yaw_step_deg`` (a ``None`` session step
+    renders pinned frames only), while an explicit tuple — including
+    ``()`` — always wins, so callers can enable yaw on sessions that did
+    not declare it or suppress yaw on sessions that did.
     """
 
     output_dir = Path(output_dir)
@@ -673,21 +690,13 @@ def build_review_package(
 
     frames: list[tuple[tuple[str, int], str]] = []
 
-    if session.render.yaw_step_deg is None:
+    if yaw_steps_deg is not None:
+        yaw_steps = tuple(yaw_steps_deg)
+    elif session.render.yaw_step_deg is None:
         # yaw_step_deg=None on the session means "pinned frames only".
         yaw_steps = ()
-    elif yaw_steps_deg != _DEFAULT_YAW_STEPS_DEG:
-        yaw_steps = yaw_steps_deg
     else:
-        # Derived from the session's declared step size: every multiple
-        # of the step inside ±120°, 0 excluded (the pinned frame).
-        step = session.render.yaw_step_deg
-        reach = (120 // step) * step
-        yaw_steps = tuple(
-            offset
-            for magnitude in range(step, reach + 1, step)
-            for offset in (-magnitude, magnitude)
-        )
+        yaw_steps = derived_yaw_steps(session.render.yaw_step_deg)
 
     if render_ok:
         capability_rows.append(

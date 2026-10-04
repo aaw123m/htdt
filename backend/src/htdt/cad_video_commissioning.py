@@ -1729,14 +1729,34 @@ def _group_status(
     return 'NOT_APPLICABLE'
 
 
+#: Groups whose luminance extrema name the display's white/black ramp —
+#: a primary colour at low level is a chroma measurement, never the
+#: "black floor", and a dim colour primary is never "peak white".
+_ACHROMATIC_GROUPS = frozenset({'white_point', 'grayscale'})
+
+
+def _achromatic_luminances(
+    samples: tuple[TristimulusSample, ...],
+) -> list[float]:
+    return [
+        s.y_luminance
+        for s in samples
+        if not s.at_meter_floor
+        and _sample_group(s.stimulus_id) in _ACHROMATIC_GROUPS
+    ]
+
+
 def _max_luminance(samples: tuple[TristimulusSample, ...]) -> float | None:
-    usable = [s.y_luminance for s in samples if not s.at_meter_floor]
+    usable = _achromatic_luminances(samples)
     return max(usable) if usable else None
 
 
 def _min_luminance(samples: tuple[TristimulusSample, ...]) -> float | None:
-    usable = [s.y_luminance for s in samples if not s.at_meter_floor]
+    usable = _achromatic_luminances(samples)
     return min(usable) if usable else None
+
+
+MetricPolarity = Literal['lower', 'higher', 'none']
 
 
 def _metric_row(
@@ -1744,14 +1764,27 @@ def _metric_row(
     label: str,
     before: float | None,
     after: float | None,
+    *,
+    better: MetricPolarity = 'lower',
 ) -> VideoMetricDelta:
     if before is None or after is None:
         direction: VideoDeltaDirection = 'unknown'
         delta = None
+    elif better == 'none':
+        # A measured change with no intrinsic better/worse direction
+        # (e.g. peak-white capability — its goodness is target-relative,
+        # which the deviation rows below already carry).
+        direction, delta = 'inconclusive', after - before
     elif after < before:
-        direction, delta = 'improved', after - before
+        direction, delta = (
+            ('improved' if better == 'lower' else 'regressed'),
+            after - before,
+        )
     elif after > before:
-        direction, delta = 'regressed', after - before
+        direction, delta = (
+            ('regressed' if better == 'lower' else 'improved'),
+            after - before,
+        )
     else:
         direction, delta = 'inconclusive', 0.0
     return VideoMetricDelta(
@@ -1790,6 +1823,14 @@ def _compatibility_reasons(
         reasons.append('信号符号化が異なります')
     if before.stimulus.bit_depth != after.stimulus.bit_depth:
         reasons.append('ビット深度が異なります')
+    if before.stimulus.patch_size_percent != after.stimulus.patch_size_percent:
+        reasons.append('パッチサイズが異なります')
+    if before.stimulus.apl_percent != after.stimulus.apl_percent:
+        reasons.append('APL（平均映像レベル）が異なります')
+    if before.stimulus.pattern_generator != after.stimulus.pattern_generator:
+        reasons.append('パターンジェネレータが異なります')
+    if before.stimulus.signal_path != after.stimulus.signal_path:
+        reasons.append('信号経路が異なります')
     before_ids = {s.stimulus_id for s in before.samples}
     after_ids = {s.stimulus_id for s in after.samples}
     if before_ids and after_ids and not (before_ids & after_ids):
@@ -1865,6 +1906,7 @@ def compare_video_measurements(
             'ピーク白輝度 (cd/m²)',
             _max_luminance(before_set.samples),
             _max_luminance(after_set.samples),
+            better='none',
         ),
         _metric_row(
             'black_floor_cd_m2',
