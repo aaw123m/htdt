@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 from pathlib import Path
 import tempfile
 import uuid
@@ -492,3 +493,111 @@ class TestScopeAndNotes:
         assert 'verify doorway alignment' in item.operator_notes
         scoped = inbox.list_items(scope='document-1')
         assert [i.lineage_digest for i in scoped] == [typed.lineage_digest]
+
+
+class TestRejectedEnvelopeStaging:
+    """Rejected bundles must be inspectable inbox rows, not log lines."""
+
+    def _stage_rejected(self, inbox, sha: str | None = None):
+        return inbox.stage_rejected(
+            envelope_sha256=sha or ('a' * 64),
+            validation_error='read: JSON payload owned by no published schema',
+            arrival_source='file_import',
+            source_detail='/captures/bad.htdtcapture',
+        )
+
+    def test_stage_rejected_creates_blocked_row(self, tmp_path):
+        _, inbox = _rig(tmp_path)
+        result = self._stage_rejected(inbox)
+        assert result.created and result.outcome == 'staged'
+        item = result.item
+        assert item.primary_classification == 'validation_rejected'
+        assert item.bundle_validation == 'rejected'
+        assert 'owned by no published schema' in item.validation_detail
+        assert item.disposition == 'pending'
+        assert item.capture_series_id == 'unknown'
+        assert inbox.inspect(item.lineage_digest).promotability == 'blocked'
+        with pytest.raises(CaptureInboxError, match='validation'):
+            inbox.promote(
+                item.lineage_digest,
+                ('raw_visual_evidence',),
+                reason='try',
+                created_authorities={'raw_visual_evidence': 'authority:x'},
+            )
+
+    def test_redelivery_is_idempotent(self, tmp_path):
+        _, inbox = _rig(tmp_path)
+        first = self._stage_rejected(inbox)
+        second = self._stage_rejected(inbox)
+        assert not second.created and second.outcome == 'already_staged'
+        assert second.item.arrival_count == 2
+        assert (
+            second.item.inbox_item_id == first.item.inbox_item_id
+        )
+        different = self._stage_rejected(inbox, sha='b' * 64)
+        assert different.created
+        assert (
+            different.item.inbox_item_id != first.item.inbox_item_id
+        )
+
+    def test_dispositions_still_drive_the_row(self, tmp_path):
+        _, inbox = _rig(tmp_path)
+        item = self._stage_rejected(inbox).item
+        item = inbox.defer(item.lineage_digest, 'waiting on rescan')
+        assert item.disposition == 'deferred'
+        item = inbox.resume(item.lineage_digest)
+        assert item.disposition == 'pending'
+        item = inbox.reject(item.lineage_digest, 'unrecoverable')
+        assert item.disposition == 'rejected'
+        item = inbox.assign_scope(item.lineage_digest, 'document-1')
+        assert item.scope == 'document-1'
+
+    def test_import_stages_rejected_artifact(self, tmp_path):
+        ingestion, inbox = _rig(tmp_path)
+        bad = tmp_path / 'bad.htdtcapture'
+        bad.write_bytes(b'not a zip and not a bundle')
+        from htdt.capture_import import (
+            CaptureImportError,
+            import_capture_artifact,
+        )
+
+        with pytest.raises(CaptureImportError):
+            import_capture_artifact(
+                bad, ingestion, inbox_repository=inbox,
+            )
+        rejected = [
+            i
+            for i in inbox.list_items()
+            if i.bundle_validation == 'rejected'
+        ]
+        assert len(rejected) == 1
+        assert rejected[0].arrival_source == 'cli_import'
+        assert rejected[0].bundle_digest == sha256(
+            b'not a zip and not a bundle'
+        ).hexdigest()
+        # identical re-import bumps the same row, no duplicate
+        with pytest.raises(CaptureImportError):
+            import_capture_artifact(
+                bad, ingestion, inbox_repository=inbox,
+            )
+        still = [
+            i
+            for i in inbox.list_items()
+            if i.bundle_validation == 'rejected'
+        ]
+        assert len(still) == 1 and still[0].arrival_count == 2
+
+    def test_stage_rejected_requires_reason_and_hex(self, tmp_path):
+        _, inbox = _rig(tmp_path)
+        with pytest.raises(CaptureInboxError):
+            inbox.stage_rejected(
+                envelope_sha256='a' * 64,
+                validation_error='',
+                arrival_source='file_import',
+            )
+        with pytest.raises(CaptureInboxError):
+            inbox.stage_rejected(
+                envelope_sha256='nothex',
+                validation_error='x',
+                arrival_source='file_import',
+            )

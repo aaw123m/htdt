@@ -1375,6 +1375,16 @@ def _validate_payload_documents(
             # carrying RoomPlan payloads at non-reserved paths stay
             # valid and are resolved by the ingestor's provenance
             # fallback.
+            #
+            # Deliberate asymmetry: an unrecognized JSON family kills
+            # the whole bundle while an unrecognized binary family is
+            # silently quarantined (``_binary_format_for`` returns
+            # None). JSON is where semantic handoffs live, so an
+            # unowned JSON payload is indistinguishable from a schema
+            # bypass and must fail closed; binary payloads carry no
+            # schema contract, so a newer format is safely preserved
+            # unread as opaque evidence. Revisit this only with an
+            # explicit staging-quarantine contract for unknown JSON.
             raise CaptureBundleError(
                 f"{path_text} is a JSON payload owned by no published "
                 "schema or external authority"
@@ -1410,31 +1420,38 @@ def _validate_payload_documents(
             "session/capture-session.json coordinate_space_id is not "
             "declared in manifest coordinate_space_ids"
         )
-    # RoomPlan lineage (#194): the processed inference payload may never
-    # be promoted without its raw authority. When the canonical processed
-    # path is declared, the canonical raw payload must be declared and
-    # bound by digest in the processed entry's source_refs. Legacy
-    # bundles carrying RoomPlan payloads at non-reserved paths are left
-    # to the ingestor's provenance-class handling.
+    # RoomPlan lineage (#194): when the raw payload is declared, the
+    # processed inference payload must bind to it by digest or path in
+    # source_refs. When Apple's raw serialization was unavailable there
+    # is no raw entry, and the explicit sentinel ref is required instead.
+    # Legacy bundles carrying RoomPlan payloads at non-reserved paths are
+    # left to the ingestor's provenance-class handling.
     if "roomplan/captured-room.json" in declared:
         raw_path = "roomplan/captured-room-data.json"
-        if raw_path not in declared:
-            raise CaptureBundleError(
-                "processed RoomPlan payload roomplan/captured-room.json "
-                "is missing its raw lineage payload "
-                "roomplan/captured-room-data.json"
-            )
-        raw_digest = declared_entries[raw_path]["sha256"]
-        processed_refs = declared_entries["roomplan/captured-room.json"][
+        processed_refs = declared_entries["roomplan/captured-room.json"].get(
             "source_refs"
-        ]
-        if (
-            f"sha256:{raw_digest}" not in processed_refs
-            and f"path:{raw_path}" not in processed_refs
+        ) or []
+        if raw_path in declared:
+            raw_digest = declared_entries[raw_path]["sha256"]
+            if (
+                f"sha256:{raw_digest}" not in processed_refs
+                and f"path:{raw_path}" not in processed_refs
+            ):
+                raise CaptureBundleError(
+                    "roomplan/captured-room.json does not reference its "
+                    "raw authority roomplan/captured-room-data.json"
+                )
+        elif (
+            "roomplan_raw_serialization:unavailable" not in processed_refs
         ):
+            # Apple's CapturedRoomData.encode(to:) can refuse a
+            # processable completion object; the processed payload is
+            # then the only RoomPlan artifact and the manifest records
+            # the explicit sentinel instead of a raw lineage entry.
             raise CaptureBundleError(
-                "roomplan/captured-room.json does not reference its raw "
-                "authority roomplan/captured-room-data.json"
+                "roomplan/captured-room.json has no raw lineage payload "
+                "and no roomplan_raw_serialization:unavailable "
+                "source_ref sentinel"
             )
 
     # Cross-document checks bind schema-owned indexes/descriptors to the

@@ -97,7 +97,19 @@ BUNDLE_SCHEMA_VERSION = '1.0.0'
 
 RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
 
-DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
+# Artifact kinds ``handle_delivery`` admits end-to-end. ``field_return``
+# staging exists (``field_return_ingestion.stage_field_return``) but has
+# no delivery lane wired yet — advertising it here would promise a lane
+# the receiver still answers 415.
+DELIVERABLE_KINDS = ('capture_bundle',)
+
+# Authority families an end-to-end promotion path can actually execute
+# today: ``annotations`` materialize into real SceneEntity objects through
+# CaptureEntityPromotionService (the Capture Inbox promote executor). The
+# remaining kinds stay staging-only until their production executors land.
+# ``PROMOTION_AUTHORITY_KINDS`` stays the staging-level inventory (what the
+# inbox classifies); this is the executable subset capabilities advertises.
+EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = ('annotations',)
 
 # How many bytes a single upload may declare/be — same ingest ceiling the
 # file-import path enforces, applied to the wire.
@@ -710,7 +722,10 @@ class CaptureReceiverService:
             'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
             'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
             'accepted_payload_schemas': accepted_payload_schemas,
-            'supported_authority_families': sorted(PROMOTION_AUTHORITY_KINDS),
+            'supported_authority_families': sorted(
+                EXECUTABLE_AUTHORITY_KINDS
+            ),
+            'staged_authority_families': sorted(PROMOTION_AUTHORITY_KINDS),
             'max_archive_bytes': self.max_archive_bytes,
             'mission_receipts_supported': True,
             'accepted_artifact_kinds': [
@@ -748,7 +763,28 @@ class CaptureReceiverService:
         declared_bytes = lowered.get('x-htdt-archive-bytes')
         delivery_id = lowered.get('x-htdt-delivery-id')
 
-        def reject(detail: str, status: int = 400) -> tuple[int, dict]:
+        def reject(
+            detail: str,
+            status: int = 400,
+            *,
+            stage_envelope: bool = False,
+        ) -> tuple[int, dict]:
+            if stage_envelope:
+                try:
+                    self.inbox_repository.stage_rejected(
+                        envelope_sha256=declared_sha or _sha256_text(body),
+                        validation_error=detail,
+                        arrival_source='paired_receiver',
+                        scope=pairing.project_ref
+                        or CAPTURE_INBOX_UNASSIGNED_SCOPE,
+                        source_detail=f'pairing {pairing.pairing_id}',
+                        capture_revision_id=capture_revision_id or 'unknown',
+                    )
+                except Exception:
+                    # Envelope staging is audit, never a reason to change
+                    # the wire outcome — the delivery-ledger row still
+                    # records the rejection below.
+                    pass
             try:
                 self._record_delivery(
                     pairing=pairing,
@@ -851,7 +887,10 @@ class CaptureReceiverService:
             if not isinstance(plan, CaptureIngestionPlan):
                 plan = CaptureIngestionPlan.model_validate(plan)
         except Exception as exc:
-            return reject(f'capture bundle could not be read: {exc}')
+            return reject(
+                f'capture bundle could not be read: {exc}',
+                stage_envelope=True,
+            )
 
         # the wire headers and the bundle identity must agree
         if capture_revision_id and (
@@ -872,7 +911,10 @@ class CaptureReceiverService:
                 plan, payloads, manifest=manifest
             )
         except Exception as exc:
-            return reject(f'capture bundle failed ingestion: {exc}')
+            return reject(
+                f'capture bundle failed ingestion: {exc}',
+                stage_envelope=True,
+            )
 
         scope = pairing.project_ref or CAPTURE_INBOX_UNASSIGNED_SCOPE
         try:

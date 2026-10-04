@@ -655,6 +655,7 @@ class CaptureResolvedReference(BaseModel):
         'source_evidence',
         'raw_visual_mesh_handoff',
         'authority_record',
+        'supplemental_document',
     ]
     ref: str = Field(min_length=1)
     target: str | None = None

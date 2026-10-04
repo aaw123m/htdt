@@ -1,0 +1,283 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/capture-bundle-v1/reference-object-observations.schema.json",
+  "title": "HTDT Capture Reference Object Observations v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "capture_revision_id",
+    "capture_session_id",
+    "coordinate_space_id",
+    "applied_before_coordinate_binding",
+    "selection",
+    "configured_assets",
+    "observations",
+    "truncated_observation_count"
+  ],
+  "properties": {
+    "schema": { "const": "htdt.capture.reference-object-observations" },
+    "schema_version": { "const": "1.0.0" },
+    "capture_revision_id": { "$ref": "#/$defs/uuid4" },
+    "capture_session_id": { "$ref": "#/$defs/uuid4" },
+    "coordinate_space_id": { "$ref": "#/$defs/uuid4" },
+    "applied_before_coordinate_binding": { "type": "boolean" },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "dropped", "cap"],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/selectionRequest" }
+        },
+        "dropped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["asset_id", "reason"],
+            "properties": {
+              "asset_id": { "$ref": "#/$defs/assetID" },
+              "reason": {
+                "enum": [
+                  "unknown_asset",
+                  "unsupported_role",
+                  "duplicate_asset",
+                  "cap_exceeded"
+                ]
+              }
+            }
+          }
+        },
+        "cap": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "configured_assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["asset", "role", "load_outcome"],
+        "properties": {
+          "asset": { "$ref": "#/$defs/asset" },
+          "role": { "enum": ["detection", "tracking"] },
+          "load_outcome": {
+            "enum": ["loaded", "unavailable", "rejected"]
+          },
+          "load_detail": { "type": ["string", "null"], "minLength": 1 }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/observation" }
+    },
+    "truncated_observation_count": { "type": "integer", "minimum": 0 }
+  },
+  "$defs": {
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "assetID": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "mat4": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["representation", "values"],
+      "properties": {
+        "representation": { "const": "column_major_4x4_f32" },
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": { "type": "number" }
+        }
+      }
+    },
+    "vec3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "selectionRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "role"],
+      "properties": {
+        "asset_id": { "$ref": "#/$defs/assetID" },
+        "role": { "enum": ["detection", "tracking"] }
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "revision",
+        "arkit_object_name",
+        "artifact_filename",
+        "artifact_sha256",
+        "source_usdz",
+        "physical_binding",
+        "measured_dimensions_m",
+        "scale_validation_method",
+        "training",
+        "supported_roles",
+        "license_provenance"
+      ],
+      "properties": {
+        "asset_id": { "$ref": "#/$defs/assetID" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "arkit_object_name": { "type": "string", "minLength": 1 },
+        "artifact_filename": { "type": "string", "minLength": 1 },
+        "artifact_sha256": { "$ref": "#/$defs/sha256" },
+        "source_usdz": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sha256"],
+          "properties": {
+            "uri": { "type": ["string", "null"], "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "revision": {
+              "type": ["string", "null"],
+              "minLength": 1
+            }
+          }
+        },
+        "physical_binding": { "type": "string", "minLength": 1 },
+        "measured_dimensions_m": { "$ref": "#/$defs/vec3" },
+        "scale_validation_method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "training": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "training_mode",
+            "viewing_angle_config",
+            "referenceobject_strip_usdz"
+          ],
+          "properties": {
+            "createml_version": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "xcode_version": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "training_mode": { "enum": ["standard", "extended"] },
+            "viewing_angle_config": {
+              "type": "string",
+              "minLength": 1
+            },
+            "negative_example_set": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "referenceobject_strip_usdz": { "type": "boolean" }
+          }
+        },
+        "supported_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["detection", "tracking"] }
+        },
+        "marker_to_equipment": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "transform_id",
+                "t_marker_from_equipment",
+                "calibration_source"
+              ],
+              "properties": {
+                "transform_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "t_marker_from_equipment": {
+                  "$ref": "#/$defs/mat4"
+                },
+                "calibration_source": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "license_provenance": { "type": "string", "minLength": 1 }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "capture_session_id",
+        "coordinate_space_id",
+        "session_timestamp_s",
+        "ar_anchor_id",
+        "reference_object_id",
+        "t_world_from_reference_object",
+        "observation_mode",
+        "lifecycle_event",
+        "is_currently_tracked"
+      ],
+      "properties": {
+        "observation_id": { "$ref": "#/$defs/uuid4" },
+        "capture_session_id": { "$ref": "#/$defs/uuid4" },
+        "coordinate_space_id": { "$ref": "#/$defs/uuid4" },
+        "session_timestamp_s": { "type": "number", "minimum": 0 },
+        "ar_anchor_id": { "$ref": "#/$defs/uuid4" },
+        "reference_object_id": { "type": "string", "minLength": 1 },
+        "reference_object_revision": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "reference_object_digest_sha256": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/sha256" }
+          ]
+        },
+        "t_world_from_reference_object": { "$ref": "#/$defs/mat4" },
+        "observation_mode": { "enum": ["detection", "tracking"] },
+        "lifecycle_event": {
+          "enum": [
+            "added",
+            "updated",
+            "tracking_lost",
+            "tracking_resumed",
+            "removed"
+          ]
+        },
+        "is_currently_tracked": { "type": ["boolean", "null"] },
+        "source_frame_ref": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "marker_to_equipment_transform_id": {
+          "type": ["string", "null"],
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -81,6 +81,11 @@ SUPPLEMENTAL_DOCUMENT_PATHS = {
     "as_built_verification": "verification/as-built.json",
 }
 
+DERIVED_CANDIDATES_PATH = SUPPLEMENTAL_DOCUMENT_PATHS[
+    "derived_geometry_candidates"
+]
+DERIVED_CANDIDATES_SCHEMA = "htdt.capture.derived-geometry-candidates"
+
 
 def _supplemental_handoff_id(
     bundle_digest: str,
@@ -134,91 +139,6 @@ def canonical_plan_bytes(value) -> bytes:
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")
-
-
-class FrozenBundle:
-    """Serves bundle payloads from bytes frozen at the validation boundary.
-
-    ``validate_bundle(path)`` proves the on-disk bundle matches its canonical
-    manifest and yields the authoritative ``bundle_digest``. The reader then
-    snapshots every bundle member once through the validator's own source
-    abstraction and re-verifies the snapshot against the validated manifest:
-    the frozen manifest must hash to ``bundle_digest``, the frozen file set
-    must equal the declared payload set, and every frozen payload must match
-    its manifest byte length and SHA-256. All ``read`` calls then serve only
-    these frozen, hash-verified bytes, so the bytes parsed by ingestion are
-    exactly the bytes hashed into ``bundle_digest`` even if the supplied path
-    mutates after validation. A mutable input therefore fails closed instead
-    of producing lineage bound to stale hashes.
-    """
-
-    def __init__(self, path: Path):
-        self.path = path
-        self.report = validate_bundle(path)
-        self._payloads = self._freeze_verified_payloads()
-
-    def _freeze_verified_payloads(self) -> dict[str, bytes]:
-        source: DirectorySource | ZipSource
-        archive: zipfile.ZipFile | None = None
-        if self.path.is_dir():
-            source = DirectorySource(self.path)
-        else:
-            source = ZipSource(self.path)
-            archive = source.zf
-        try:
-            payloads = {
-                name: source.read_bytes(name)
-                for name in source.list_files()
-            }
-        finally:
-            if archive is not None:
-                archive.close()
-
-        manifest_bytes = payloads.get("manifest.json")
-        if manifest_bytes is None:
-            raise CaptureIngestionContractError(
-                "manifest.json missing from bundle after validation"
-            )
-        digest = hashlib.sha256(manifest_bytes).hexdigest()
-        if digest != self.report["bundle_digest"]:
-            raise CaptureIngestionContractError(
-                "bundle manifest changed after validation: "
-                "refusing to ingest bytes outside the validated digest"
-            )
-
-        manifest = parse_json_bytes(manifest_bytes)
-        declared = {entry["path"]: entry for entry in manifest["files"]}
-        expected = set(declared) | {"manifest.json"}
-        if set(payloads) != expected:
-            raise CaptureIngestionContractError(
-                "bundle file set changed after validation: "
-                "refusing to ingest a mutated bundle"
-            )
-        for entry_path, entry in declared.items():
-            data = payloads[entry_path]
-            if (
-                len(data) != entry["bytes"]
-                or hashlib.sha256(data).hexdigest() != entry["sha256"]
-            ):
-                raise CaptureIngestionContractError(
-                    "bundle payload changed after validation: "
-                    f"{entry_path}"
-                )
-        return payloads
-
-    def close(self) -> None:
-        self._payloads = None
-
-    def read(self, logical_path: str) -> bytes:
-        logical_path = validate_relative_path(logical_path)
-        if self._payloads is None:
-            raise CaptureIngestionContractError("bundle reader is closed")
-        try:
-            return self._payloads[logical_path]
-        except KeyError as exc:
-            raise CaptureIngestionContractError(
-                f"validated bundle payload unexpectedly missing: {logical_path}"
-            ) from exc
 
 
 def _source_evidence_id(
@@ -1140,7 +1060,21 @@ def _build_source_registry(
                 for value in resolved_sha_refs
                 if value in raw_roomplan_hashes
             ]
-            if len(raw_refs) != 1:
+            if len(raw_refs) == 0:
+                # Apple's CapturedRoomData serialization can be
+                # unavailable while RoomBuilder still processed the room:
+                # no raw payload exists, and the manifest carries the
+                # explicit sentinel instead.
+                if (
+                    "roomplan_raw_serialization:unavailable"
+                    not in refs
+                ):
+                    raise CaptureIngestionContractError(
+                        "processed RoomPlan must reference exactly one "
+                        "raw RoomPlan payload SHA-256 or the "
+                        "roomplan_raw_serialization:unavailable sentinel"
+                    )
+            elif len(raw_refs) != 1:
                 raise CaptureIngestionContractError(
                     "processed RoomPlan must reference exactly one raw "
                     "RoomPlan payload SHA-256"
@@ -1312,14 +1246,16 @@ def _load_roomplan_capture_metadata(
             "capture_revision_id",
             "capture_session_id",
             "coordinate_space_id",
-            "raw_payload_path",
-            "raw_sha256",
         },
         # The captured-room-metadata payload is an external
         # RoomPlan-lineage family: emitters append lineage fields
         # (byte counts, serialization formats, runtime) that the
-        # receiver accepts but does not require.
+        # receiver accepts but does not require, and the raw lineage
+        # pair is itself optional when Apple's raw serialization was
+        # unavailable.
         optional={
+            "raw_payload_path",
+            "raw_sha256",
             "processed_payload_path",
             "processed_sha256",
             "processed_byte_count",
@@ -1389,20 +1325,49 @@ def _load_roomplan_capture_metadata(
         if record["kind"] == "postprocessed_inference"
     }
 
-    raw_payload_path = document["raw_payload_path"]
-    if not isinstance(raw_payload_path, str) or not raw_payload_path:
+    raw_payload_path = document.get("raw_payload_path")
+    raw_sha256 = document.get("raw_sha256")
+    if (raw_payload_path is None) != (raw_sha256 is None):
         raise CaptureIngestionContractError(
-            f"{field}.raw_payload_path must be a non-empty string"
+            f"{field} raw payload reference is incomplete"
         )
-    _require_sha256_text(document["raw_sha256"], f"{field}.raw_sha256")
-    if raw_payload_path not in raw_paths:
+    if raw_payload_path is not None:
+        if not isinstance(raw_payload_path, str) or not raw_payload_path:
+            raise CaptureIngestionContractError(
+                f"{field}.raw_payload_path must be a non-empty string"
+            )
+        _require_sha256_text(raw_sha256, f"{field}.raw_sha256")
+        if raw_payload_path not in raw_paths:
+            raise CaptureIngestionContractError(
+                f"{field}.raw_payload_path does not name the selected raw "
+                f"RoomPlan record: {raw_payload_path!r}"
+            )
+        if declared[raw_payload_path]["sha256"] != raw_sha256:
+            raise CaptureIngestionContractError(
+                f"{field}.raw_sha256 conflicts with the manifest"
+            )
+    elif raw_paths:
+        # The metadata document omits raw lineage only when Apple's raw
+        # serialization was unavailable; a declared raw payload must be
+        # named by the lineage document.
         raise CaptureIngestionContractError(
-            f"{field}.raw_payload_path does not name the selected raw "
-            f"RoomPlan record: {raw_payload_path!r}"
+            f"{field} omits raw payload lineage but the manifest "
+            "declares a raw RoomPlan record"
         )
-    if declared[raw_payload_path]["sha256"] != document["raw_sha256"]:
+    if (
+        document.get("raw_byte_count") is not None
+        and raw_payload_path is None
+    ):
         raise CaptureIngestionContractError(
-            f"{field}.raw_sha256 conflicts with the manifest"
+            f"{field}.raw_byte_count present without raw payload lineage"
+        )
+    if (
+        document.get("raw_serialization_format") is not None
+        and raw_payload_path is None
+    ):
+        raise CaptureIngestionContractError(
+            f"{field}.raw_serialization_format present without raw "
+            "payload lineage"
         )
 
     processed_payload_path = document.get("processed_payload_path")
@@ -1443,6 +1408,7 @@ def _load_roomplan_capture_metadata(
     raw_byte_count = document.get("raw_byte_count")
     if (
         raw_byte_count is not None
+        and raw_payload_path is not None
         and declared[raw_payload_path]["bytes"] != raw_byte_count
     ):
         raise CaptureIngestionContractError(
@@ -1719,6 +1685,10 @@ class _EvidenceRefContext:
         self.measurement_ids: set[str] = set()
         self.entity_source_sha256: str | None = None
         self.measurement_source_sha256: str | None = None
+        # candidate_id -> coordinate_space_id for records in
+        # derived/geometry-candidates.json, the only targets a
+        # ``derived_candidate:`` reference may bind to.
+        self.candidate_coordinate_by_id: dict[str, str | None] = {}
 
     def _authority_handoff(self, record_kind: str, record_id: str) -> str:
         source_sha256 = (
@@ -1734,9 +1704,10 @@ class _EvidenceRefContext:
         """Resolve one v1 evidence reference or fail closed.
 
         Grammar: ``path:<bundle-path>``, ``mesh_anchor:<uuid4>``,
-        ``frame:<uuid4>``, ``entity:<uuid4>``, ``measurement:<uuid4>`` and
-        the annotation-authored ``user:<token>`` marker. Any other form is
-        unsupported evidence grammar and rejects the record.
+        ``frame:<uuid4>``, ``entity:<uuid4>``, ``measurement:<uuid4>``,
+        ``derived_candidate:<uuid4>`` and the annotation-authored
+        ``user:<token>`` marker. Any other form is unsupported evidence
+        grammar and rejects the record.
         """
         if not isinstance(ref, str) or not ref:
             raise CaptureIngestionContractError(f"{field} must be a non-empty string")
@@ -1822,6 +1793,30 @@ class _EvidenceRefContext:
                 "ref": ref,
                 "kind": "authority_record",
                 "target": self._authority_handoff(record_kind, value),
+            }
+
+        if prefix == "derived_candidate":
+            validate_uuid4(value, field)
+            if value not in self.candidate_coordinate_by_id:
+                raise CaptureIngestionContractError(
+                    f"{field} references unknown derived candidate: {ref!r}"
+                )
+            self._require_coordinate_compatible(
+                self.candidate_coordinate_by_id[value],
+                coordinate_space_id,
+                field,
+                ref,
+            )
+            return {
+                "ref": ref,
+                "kind": "supplemental_document",
+                "target": _supplemental_handoff_id(
+                    self.bundle_digest,
+                    DERIVED_CANDIDATES_PATH,
+                    self.source_by_path[DERIVED_CANDIDATES_PATH][
+                        "payload_sha256"
+                    ],
+                ),
             }
 
         raise CaptureIngestionContractError(
@@ -2554,6 +2549,39 @@ def _build_authority_records(
                 "payload_sha256"
             ]
 
+    # Register derived-geometry candidate records so ``derived_candidate:``
+    # evidence refs bind to a real candidate identity, mirroring the
+    # entity:/measurement: cross-record registration above.
+    if DERIVED_CANDIDATES_PATH in source_by_path:
+        candidates_document = parse_json_bytes(
+            reader.read(DERIVED_CANDIDATES_PATH)
+        )
+        _require_schema(candidates_document, DERIVED_CANDIDATES_SCHEMA)
+        candidate_records = candidates_document.get("candidates")
+        if not isinstance(candidate_records, list):
+            raise CaptureIngestionContractError(
+                f"{DERIVED_CANDIDATES_PATH}:candidates must be an array"
+            )
+        for index, candidate in enumerate(candidate_records):
+            if not isinstance(candidate, dict):
+                raise CaptureIngestionContractError(
+                    f"{DERIVED_CANDIDATES_PATH}:candidates[{index}] "
+                    "must be an object"
+                )
+            candidate_id = candidate.get("candidate_id")
+            validate_uuid4(
+                candidate_id,
+                f"{DERIVED_CANDIDATES_PATH}:candidates[{index}].candidate_id",
+            )
+            if candidate_id in context.candidate_coordinate_by_id:
+                raise CaptureIngestionContractError(
+                    "duplicate derived candidate record ID: "
+                    f"{candidate_id}"
+                )
+            context.candidate_coordinate_by_id[candidate_id] = (
+                candidate.get("coordinate_space_id")
+            )
+
     for path, (array_key, id_key, record_kind, records) in parsed.items():
         source = source_by_path[path]
         for index, record in enumerate(records):
@@ -2820,7 +2848,7 @@ def _derive_sections(
     )
     metadata_paths = (
         {
-            roomplan_metadata["raw_payload_path"],
+            roomplan_metadata.get("raw_payload_path"),
             roomplan_metadata.get("processed_payload_path"),
         }
         if roomplan_metadata is not None

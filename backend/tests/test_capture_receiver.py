@@ -421,6 +421,59 @@ class TestDeliveries:
         )
         assert status in (400, 413)
 
+    def test_content_rejection_stages_rejected_envelope(self, tmp_path):
+        ingestion, inbox, reader, service, pairing = self._active(tmp_path)
+        archive = b'archive-that-wont-read'
+        # _Reader raises for unregistered bytes — a content-level rejection
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _delivery_headers(
+                archive,
+                revision_id='rev-1',
+                delivery_id='delivery-bad',
+            ),
+            archive,
+        )
+        assert status == 400
+        assert receipt['ingestion_outcome'] == 'rejected'
+        rejected = [
+            i
+            for i in inbox.list_items()
+            if i.bundle_validation == 'rejected'
+        ]
+        assert len(rejected) == 1
+        item = rejected[0]
+        assert item.primary_classification == 'validation_rejected'
+        assert item.arrival_source == 'paired_receiver'
+        assert item.scope == 'doc-1'
+        assert item.capture_revision_id == 'rev-1'
+        assert item.bundle_digest == sha256(archive).hexdigest()
+        assert 'unreadable archive' in item.validation_detail
+        # a retry of the same bytes bumps the same row, no duplicate
+        second = service.handle_delivery(
+            pairing.pairing_token,
+            _delivery_headers(archive, delivery_id='delivery-bad2'),
+            archive,
+        )
+        assert second[0] == 400
+        still = [
+            i
+            for i in inbox.list_items()
+            if i.bundle_validation == 'rejected'
+        ]
+        assert len(still) == 1 and still[0].arrival_count == 2
+        # transport-level rejections do not create inbox rows
+        service.handle_delivery(
+            pairing.pairing_token,
+            {'X-HTDT-Artifact-Kind': 'field_return'},
+            archive,
+        )
+        assert [
+            i
+            for i in inbox.list_items()
+            if i.bundle_validation == 'rejected'
+        ] == [still[0]]
+
 
 class TestMissionPull:
     def _active(self, tmp_path):

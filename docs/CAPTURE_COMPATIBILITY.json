@@ -2,8 +2,8 @@
   "schema": "htdt.capture.compatibility-registry",
   "schema_version": "1.0.0",
   "upstream": {
-    "repository": "bolph71656-ai/HTDT-Capture",
-    "pinned_commit": "daa00b122f399050c29ba3af988b1d6438686746",
+    "repository": "ka0923s-a11y/HTDT-Capture",
+    "pinned_commit": "22fd9f82e64eff02991b0c79cfbf17fb282ecf36",
     "bundle_schema": "htdt.capture.bundle",
     "bundle_schema_version": "1.0.0",
     "ingestor": {
@@ -18,7 +18,7 @@
     "bundle_digest": "e12b3e9c43fe8b26b151cde32acbbf19e56447750447955ead65e1477c9fcb8a",
     "capture_revision_id": "10000000-0000-4000-8000-000000000002",
     "capture_series_id": "10000000-0000-4000-8000-000000000001",
-    "note": "Fixture bytes were produced by HTDT-Capture's phase-6 integration generator at the pinned commit and vendored verbatim; production-Swift-authored bundles are preferred when available, but the producer toolchain is macOS/Windows-only so Linux CI pins this fixture set instead."
+    "note": "Fixture bytes were produced by HTDT-Capture's phase-6 integration generator at legacy upstream commit daa00b122f399050c29ba3af988b1d6438686746 and vendored verbatim; the contract layer under backend/src/htdt/capture_contract/ is synced from the pinned_commit above via scripts/sync_capture_contract.py. Production-Swift-authored bundles are preferred when available (the swift-maximal and swift-extended fixture gates cover the newer emitted families), but the producer toolchain is macOS/Windows-only so Linux CI pins this fixture set instead."
   },
   "expectations": {
     "ingestion_plan_canonical_sha256": "fa249e30136a5e553c6ed495d6b5c3ef122b359143e0dd2bde2523be61f79032",

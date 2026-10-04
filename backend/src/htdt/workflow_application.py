@@ -255,6 +255,18 @@ def _storage_bytes_label(value: int) -> str:
 _LAZY_IMPORTS = {
     'ActivityPage': ('.application_pages', 'ActivityPage'),
     'CaptureInboxPage': ('.application_pages', 'CaptureInboxPage'),
+    'capture_inbox_item_project_id': (
+        '.capture_inbox',
+        'capture_inbox_item_project_id',
+    ),
+    'CaptureEntityPromotionService': (
+        '.capture_entity_promotion',
+        'CaptureEntityPromotionService',
+    ),
+    'CaptureSemanticPromotionRepository': (
+        '.capture_semantic_promotion',
+        'CaptureSemanticPromotionRepository',
+    ),
     'ProjectLibraryPage': ('.application_pages', 'ProjectLibraryPage'),
     'ProjectLibraryService': ('.application_pages', 'ProjectLibraryService'),
     'ReferenceLibraryPage': ('.application_pages', 'ReferenceLibraryPage'),
@@ -2361,6 +2373,33 @@ class WorkflowApplicationComposition:
             repository.reconcile_orphaned_ingestions()
             return repository.list_items(**kwargs)
 
+        entity_promotion = _self.CaptureEntityPromotionService(
+            repository.ingestion_repository,
+            self.repository,
+            semantic_promotion_repository=_self.CaptureSemanticPromotionRepository(
+                self.repository,
+                repository.ingestion_repository,
+            ),
+        )
+
+        def promote_item(lineage_digest: str, reason: str):
+            item = repository.get(lineage_digest)
+            document_id = (
+                _self.capture_inbox_item_project_id(item)
+                if item is not None
+                else None
+            )
+            if document_id is None:
+                raise ValueError(
+                    'promotion requires a project scope; assign one first'
+                )
+            return repository.promote(
+                lineage_digest,
+                ('annotations',),
+                reason=reason,
+                executor=entity_promotion.promotion_executor(document_id),
+            )
+
         page = _self.CaptureInboxPage(
             list_items,
             on_navigate=self._navigate_target,
@@ -2368,6 +2407,7 @@ class WorkflowApplicationComposition:
             defer_item=repository.defer,
             reject_item=repository.reject,
             resume_item=repository.resume,
+            promote_item=promote_item,
             list_projects=self.project_library.list_projects,
             assign_scope=repository.assign_scope,
         )

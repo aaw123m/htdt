@@ -1,7 +1,7 @@
 {
   "schema": "htdt.capture.bundle-support-matrix",
   "matrix_version": "1.0.0",
-  "description": "#332 payload-version contract: maps each schema-owned payload family to its versions, the emitted version, and read support. Statuses: native (this build emits), supported_read_only (readable, not emitted). Unlisted versions are unsupported (newer or legacy by semver comparison). External families are validated by media type + lineage binding, not by a project-owned schema.",
+  "description": "legacy bolph71656-ai/HTDT-Capture#332 payload-version contract: maps each schema-owned payload family to its versions, the emitted version, and read support. Statuses: native (this build emits), supported_read_only (readable, not emitted). Unlisted versions are unsupported (newer or legacy by semver comparison). External families are validated by media type + lineage binding, not by a project-owned schema.",
   "families": {
     "manifest": {
       "schema_id": "htdt.capture.bundle",
@@ -279,6 +279,20 @@
         "1.0.0"
       ]
     },
+    "segmentation-observations": {
+      "schema_id": "htdt.capture.segmentation-observations",
+      "paths": [
+        "derived/segmentation-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "segmentation-observations"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ],
+      "description": "legacy bolph71656-ai/HTDT-Capture#269 operator-seeded Vision iterative-segmentation results persisted as derived image-processing evidence only."
+    },
     "equipment-identity": {
       "schema_id": "htdt.equipment-identity",
       "paths": [
@@ -299,6 +313,19 @@
       ],
       "documents": {
         "1.0.0": "reference-targets"
+      },
+      "emitted": "1.0.0",
+      "read": [
+        "1.0.0"
+      ]
+    },
+    "reference-object-observations": {
+      "schema_id": "htdt.capture.reference-object-observations",
+      "paths": [
+        "evidence/reference-object-observations.json"
+      ],
+      "documents": {
+        "1.0.0": "reference-object-observations"
       },
       "emitted": "1.0.0",
       "read": [
@@ -373,7 +400,7 @@
       "read": [
         "1.0.0"
       ],
-      "description": "Durable working-revision lifecycle marker carried into finalized bundles as provenance (issue #297)."
+      "description": "Durable working-revision lifecycle marker carried into finalized bundles as provenance (issue bolph71656-ai/HTDT-Capture#297)."
     },
     "capture-strategy": {
       "schema_id": "htdt.capture.strategy",
@@ -426,7 +453,7 @@
       "read": [
         "1.0.0"
       ],
-      "description": "#395 cross-revision spatial registration authority: explicit transform declarations between independent finalized capture coordinate spaces, carried as supplemental authority."
+      "description": "legacy bolph71656-ai/HTDT-Capture#395 cross-revision spatial registration authority: explicit transform declarations between independent finalized capture coordinate spaces, carried as supplemental authority."
     },
     "field-notes": {
       "schema_id": "htdt.capture.field_notes",
@@ -453,7 +480,7 @@
       "read": [
         "1.0.0"
       ],
-      "description": "#325 capture revisit flags: operator-pinned points Review must resurface, persisted as a declared canonical payload."
+      "description": "legacy bolph71656-ai/HTDT-Capture#325 capture revisit flags: operator-pinned points Review must resurface, persisted as a declared canonical payload."
     },
     "room-field-datum": {
       "schema_id": "htdt.capture.room-field-datum",

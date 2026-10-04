@@ -93,7 +93,11 @@ DisplayMountingKind = Literal[
 
 #: Deterministic Capture entity-type -> HTDT scene-kind promotion map
 #: (issue #637 §13). ``display`` maps to ``display``, never to ``screen``;
-#: ``projection_screen`` maps to the passive ``screen`` kind. Types absent
+#: ``projection_screen`` maps to the passive ``screen`` kind.
+#: ``listening_position`` is a seat location in scene terms; ``custom`` and
+#: ``acoustic_treatment`` are captured physical objects — ``furniture`` is
+#: the honest generic physical kind (never equipment). ``reference_point``
+#: is a non-physical anchor — the ``measurement_point`` kind. Types absent
 #: from this map have no HTDT scene kind and stay suggestion-only.
 CAPTURE_ENTITY_TYPE_TO_SCENE_KIND: dict[str, str] = {
     'speaker': 'speaker',
@@ -101,9 +105,13 @@ CAPTURE_ENTITY_TYPE_TO_SCENE_KIND: dict[str, str] = {
     'display': 'display',
     'projection_screen': 'screen',
     'projector': 'projector',
+    'listening_position': 'seat',
     'seat': 'seat',
-    'measurement_point': 'measurement_point',
+    'acoustic_treatment': 'furniture',
+    'custom': 'furniture',
     'equipment_rack': 'av_equipment',
+    'reference_point': 'measurement_point',
+    'measurement_point': 'measurement_point',
 }
 
 

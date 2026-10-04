@@ -2090,6 +2090,20 @@ class CaptureSemanticPromotionRepository:
             return None
         return self._promotion_from_row(row)
 
+    def promotion_request(
+        self, promotion_id: str
+    ) -> 'CaptureSemanticPromotionRequest | None':
+        """The persisted promotion request for one promotion id, if any."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT * FROM capture_semantic_promotions WHERE promotion_id=?',
+                (promotion_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        request, _legacy_scope = self._request_from_row(row)
+        return request
+
     def list_promotions(
         self,
         *,

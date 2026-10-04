@@ -93,7 +93,7 @@ def test_reference_plan_file_is_the_pinned_canonical_plan() -> None:
 def test_registry_declares_the_pinned_upstream_commit() -> None:
     registry = _registry()
     upstream = registry['upstream']
-    assert upstream['repository'] == 'bolph71656-ai/HTDT-Capture'
+    assert upstream['repository'] == 'ka0923s-a11y/HTDT-Capture'
     assert len(upstream['pinned_commit']) == 40
     int(upstream['pinned_commit'], 16)
     assert upstream['bundle_schema'] == 'htdt.capture.bundle'
