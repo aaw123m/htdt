@@ -42,6 +42,7 @@ from .prediction_matrix_service import (
     PredictionMatrixService,
 )
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import operation_error_message
 
 
 class PredictionMatrixDialog(QDialog):
@@ -180,7 +181,7 @@ class PredictionMatrixDialog(QDialog):
             )
         except ValueError as exc:
             self._entries = []
-            self.status.setText(f"ソルバー結果の読み込みに失敗しました: {exc}")
+            self.status.setText(f"ソルバー結果の読み込みに失敗しました: {operation_error_message(exc)}")
         for entry in self._entries:
             state = (
                 '登録済み'
@@ -213,7 +214,7 @@ class PredictionMatrixDialog(QDialog):
         except ValueError as exc:
             self._providers = []
             self.status.setText(
-                f"プロバイダーの読み込みに失敗しました: {exc}"
+                f"プロバイダーの読み込みに失敗しました: {operation_error_message(exc)}"
             )
         revision = self.controller.scene_repository.current_head(
             self.document_id
@@ -350,7 +351,7 @@ class PredictionMatrixDialog(QDialog):
         try:
             provider = self.lane.register_provider(result_id)
         except ValueError as exc:
-            self.status.setText(f"プロバイダー登録に失敗しました: {exc}")
+            self.status.setText(f"プロバイダー登録に失敗しました: {operation_error_message(exc)}")
             return
         self.status.setText(
             f"プロバイダーを登録しました: …{provider.provider_id[-12:]}"
@@ -372,7 +373,7 @@ class PredictionMatrixDialog(QDialog):
                 valid_frequency_domain=plan.valid_frequency_domain,
             )
         except ValueError as exc:
-            self.status.setText(f"行列の作成に失敗しました: {exc}")
+            self.status.setText(f"行列の作成に失敗しました: {operation_error_message(exc)}")
             return
         self.status.setText(f"行列を作成しました: {spec.spec_id[:24]}…")
         self._reload_matrix()
@@ -392,7 +393,7 @@ class PredictionMatrixDialog(QDialog):
         try:
             run = self.matrix_service.run_matrix(spec.spec_id, providers)
         except ValueError as exc:
-            self.status.setText(f"行列の実行に失敗しました: {exc}")
+            self.status.setText(f"行列の実行に失敗しました: {operation_error_message(exc)}")
             return
         self.status.setText(
             f"行列を実行しました: 実行 {run.attempt} "

@@ -394,18 +394,23 @@ def test_operation_error_topic_binds_error_codes() -> None:
     assert topic is not None
     assert PresentationLocale.JAPANESE in topic.content
     assert PresentationLocale.ENGLISH in topic.content
-    for code in (
-        'storage.locked',
-        'rew.unavailable',
-        'io.no_space',
-        'data.validation',
-        'operation.rejected',
-        'authority.conflict',
-    ):
+    # REV49: storage/IO, REW and authority codes resolve to family topics;
+    # the umbrella keeps the unclaimed remainder.
+    for code in ('data.validation', 'operation.rejected'):
         bound = registry.topic_for_reason(code)
         assert bound is not None and bound.topic_id == (
             'trouble.operation_error'
         ), code
+    for code, family in (
+        ('storage.locked', 'trouble.storage_errors'),
+        ('io.no_space', 'trouble.storage_errors'),
+        ('rew.unavailable', 'trouble.rew_errors'),
+        ('authority.conflict', 'trouble.authority_errors'),
+    ):
+        bound = registry.topic_for_reason(code)
+        assert bound is not None and bound.topic_id == family, code
+        assert PresentationLocale.JAPANESE in bound.content
+        assert PresentationLocale.ENGLISH in bound.content
 
 
 def test_help_registry_still_validates() -> None:

@@ -458,6 +458,7 @@ class DataManagementWidget(QWidget):
         migration_actions.setSpacing(10)
         self.migration_export_button = QPushButton("移行ファイルを作成", migration_card)
         self.migration_export_button.setObjectName("dataManagementMigrationExportButton")
+        self.migration_export_button.setToolTip('現在のデータを別PCへ移すための移行ファイルを作成します')
         set_control_size(self.migration_export_button, ControlSize.PROMINENT)
         set_primary_action(self.migration_export_button)
         self.migration_export_button.clicked.connect(self._choose_backup_destination)
@@ -468,6 +469,7 @@ class DataManagementWidget(QWidget):
             migration_card,
         )
         self.migration_import_button.setObjectName("dataManagementMigrationImportButton")
+        self.migration_import_button.setToolTip('旧PCで作成した移行ファイルを選んでこのPCへ復元します')
         set_control_size(self.migration_import_button, ControlSize.PROMINENT)
         self.migration_import_button.clicked.connect(self._choose_restore_file)
         migration_actions.addWidget(self.migration_import_button)
@@ -518,6 +520,7 @@ class DataManagementWidget(QWidget):
             "移動先フォルダーを選択", relocation_card
         )
         self.relocate_button.setObjectName("dataManagementRelocateButton")
+        self.relocate_button.setToolTip('データ保存先を別のフォルダーへ移動します')
         set_control_size(self.relocate_button, ControlSize.STANDARD)
         self.relocate_button.clicked.connect(self._choose_relocation_destination)
         relocation_layout.addWidget(self.relocate_button)
@@ -527,12 +530,14 @@ class DataManagementWidget(QWidget):
         actions.setSpacing(10)
         self.backup_button = QPushButton("バックアップを作成", operations_card)
         self.backup_button.setObjectName("dataManagementBackupButton")
+        self.backup_button.setToolTip('全データのバックアップファイルを作成します')
         set_control_size(self.backup_button, ControlSize.STANDARD)
         self.backup_button.clicked.connect(self._choose_backup_destination)
         actions.addWidget(self.backup_button)
 
         self.select_restore_button = QPushButton("復元ファイルを選択", operations_card)
         self.select_restore_button.setObjectName("dataManagementSelectRestoreButton")
+        self.select_restore_button.setToolTip('復元するバックアップファイルを選択します')
         set_control_size(self.select_restore_button, ControlSize.STANDARD)
         self.select_restore_button.clicked.connect(self._choose_restore_file)
         actions.addWidget(self.select_restore_button)
@@ -546,6 +551,7 @@ class DataManagementWidget(QWidget):
         self.revalidate_button.setObjectName(
             "dataManagementRevalidateButton"
         )
+        self.revalidate_button.setToolTip('アップデート後に取り残された記録を再導出・再検証します')
         set_control_size(self.revalidate_button, ControlSize.STANDARD)
         self.revalidate_button.clicked.connect(self._run_revalidation)
         actions.addWidget(self.revalidate_button)
@@ -587,6 +593,7 @@ class DataManagementWidget(QWidget):
         self.generation_restore_button.setObjectName(
             "dataManagementGenerationRestoreButton"
         )
+        self.generation_restore_button.setToolTip('選択した世代のバックアップを検証して復元します')
         set_control_size(
             self.generation_restore_button, ControlSize.STANDARD
         )
@@ -692,6 +699,7 @@ class DataManagementWidget(QWidget):
         self.backup_dir_button.setObjectName(
             "dataManagementBackupDirButton"
         )
+        self.backup_dir_button.setToolTip('自動バックアップの保存先フォルダーを変更します')
         set_control_size(self.backup_dir_button, ControlSize.STANDARD)
         self.backup_dir_button.clicked.connect(
             self._choose_backup_policy_dir
@@ -701,6 +709,7 @@ class DataManagementWidget(QWidget):
         self.backup_dir_reset_button.setObjectName(
             "dataManagementBackupDirResetButton"
         )
+        self.backup_dir_reset_button.setToolTip('自動バックアップの保存先を既定へ戻します')
         set_control_size(self.backup_dir_reset_button, ControlSize.STANDARD)
         self.backup_dir_reset_button.clicked.connect(
             self._reset_backup_policy_dir
@@ -737,6 +746,7 @@ class DataManagementWidget(QWidget):
             "ストレージを確認", storage_card
         )
         self.storage_button.setObjectName("dataManagementStorageButton")
+        self.storage_button.setToolTip('データ保存先の内容と容量を確認します')
         set_control_size(self.storage_button, ControlSize.STANDARD)
         self.storage_button.clicked.connect(self._show_storage_inventory)
         storage_actions.addWidget(self.storage_button)
@@ -758,6 +768,7 @@ class DataManagementWidget(QWidget):
 
         self.restore_button = QPushButton("このバックアップから復元", content)
         self.restore_button.setObjectName("dataManagementRestoreButton")
+        self.restore_button.setToolTip('選択したバックアップの内容で現在のデータを置き換えます')
         set_control_size(self.restore_button, ControlSize.PROMINENT)
         set_primary_action(self.restore_button)
         self.restore_button.clicked.connect(self._confirm_and_restore)
@@ -876,6 +887,7 @@ class DataManagementWidget(QWidget):
         progress_row.addWidget(progress, 1)
         cancel_button = QPushButton("中止", card)
         cancel_button.setObjectName("dataManagementCancelButton")
+        cancel_button.setToolTip('実行中の処理を中止します')
         cancel_button.clicked.connect(self._request_cancel)
         progress_row.addWidget(cancel_button)
         layout.addLayout(progress_row)

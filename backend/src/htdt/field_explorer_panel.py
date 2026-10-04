@@ -16,7 +16,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -26,6 +25,11 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_display_labels import mode_class_label
+from .cad_display_units import (
+    LengthDisplayPolicy,
+    display_length_policy,
+    format_length_m,
+)
 from .cad_field_explorer import (
     FieldExplorerSession,
     build_mode_field_explorer_session,
@@ -41,6 +45,7 @@ from .cad_prediction_repository import CadPredictionRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_spatial_field import FieldSliceView
+from .length_spinbox import MetricSpinBox
 from .user_facing_error import operation_error_message
 
 _ROLE = Qt.ItemDataRole.UserRole
@@ -156,6 +161,7 @@ class FieldExplorerPanel(QWidget):
         self.document_id = document_id
         self._session: FieldExplorerSession | None = None
         self._modes_result: CadPredictionResult | None = None
+        self._length_policy = display_length_policy('m')
         self._build_widgets()
         self.refresh_sessions()
 
@@ -203,14 +209,10 @@ class FieldExplorerPanel(QWidget):
         )
         form.addRow('モード', self.mode_combo)
 
-        self.stride_field = QDoubleSpinBox()
-        self.stride_field.setRange(0.02, 2.0)
-        self.stride_field.setSingleStep(0.05)
-        self.stride_field.setDecimals(3)
-        self.stride_field.setValue(0.1)
-        self.stride_field.setSuffix(' m')
+        self.stride_field = MetricSpinBox(minimum_m=0.02, maximum_m=2.0)
+        self.stride_field.set_value_m(0.1)
         self.stride_field.setToolTip(
-            '音場を計算する格子点の間隔です（m）。'
+            '音場を計算する格子点の間隔です。'
             '小さいほど細かく描けますが生成に時間がかかります。'
         )
         form.addRow('グリッド間隔', self.stride_field)
@@ -284,22 +286,19 @@ class FieldExplorerPanel(QWidget):
 
         probe_form = QFormLayout()
         probe_row = QHBoxLayout()
-        self.probe_x = QDoubleSpinBox()
-        self.probe_y = QDoubleSpinBox()
-        self.probe_z = QDoubleSpinBox()
+        self.probe_x = MetricSpinBox(minimum_m=-1000.0, maximum_m=1000.0)
+        self.probe_y = MetricSpinBox(minimum_m=-1000.0, maximum_m=1000.0)
+        self.probe_z = MetricSpinBox(minimum_m=-1000.0, maximum_m=1000.0)
         _axis_tips = (
-            'プローブ位置のX座標です（m、幅方向）。',
-            'プローブ位置のY座標です（m、奥行き方向）。',
-            'プローブ位置のZ座標です（m、高さ方向）。',
+            'プローブ位置のX座標です（幅方向）。',
+            'プローブ位置のY座標です（奥行き方向）。',
+            'プローブ位置のZ座標です（高さ方向）。',
         )
         self.probe_y.setAccessibleName('プローブ位置 Y座標')
         self.probe_z.setAccessibleName('プローブ位置 Z座標')
         for axis_spin, _tip in zip(
             (self.probe_x, self.probe_y, self.probe_z), _axis_tips
         ):
-            axis_spin.setRange(-1000.0, 1000.0)
-            axis_spin.setDecimals(3)
-            axis_spin.setSingleStep(0.05)
             axis_spin.setToolTip(_tip)
             probe_row.addWidget(axis_spin)
         probe_form.addRow('プローブ位置 (x,y,z)', probe_row)
@@ -428,7 +427,7 @@ class FieldExplorerPanel(QWidget):
                 revision=revision,
                 modes_result=self._modes_result,
                 mode_indices=tuple(mode),
-                stride_m=float(self.stride_field.value()),
+                stride_m=float(self.stride_field.value_m()),
             )
         except ValueError as exc:
             self.field_status_label.setText(f'音場を生成できません · {operation_error_message(exc)}')
@@ -440,6 +439,24 @@ class FieldExplorerPanel(QWidget):
         if index >= 0:
             self.session_combo.setCurrentIndex(index)
         self._load_session(session)
+
+    def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
+        """Apply the #496 display-unit policy to fields and labels.
+
+        SI metres stay authoritative — only display formatting changes.
+        Re-populating the coordinate combo re-renders its labels; the last
+        probe result re-renders on the next probe.
+        """
+
+        self._length_policy = policy
+        for field in (
+            self.stride_field,
+            self.probe_x,
+            self.probe_y,
+            self.probe_z,
+        ):
+            field.set_display_unit(policy.unit, decimals=policy.decimals)
+        self._refresh_coordinates()
 
     def _session_combo_changed(self) -> None:
         session_id = self.session_combo.currentData()
@@ -506,7 +523,9 @@ class FieldExplorerPanel(QWidget):
         self.coordinate_combo.blockSignals(True)
         self.coordinate_combo.clear()
         for coordinate in explorer_plane_coordinates(self._session, plane):
-            self.coordinate_combo.addItem(f'{coordinate:.3f} m', coordinate)
+            self.coordinate_combo.addItem(
+                format_length_m(coordinate, self._length_policy), coordinate
+            )
         self.coordinate_combo.blockSignals(False)
 
     def _refresh_view(self) -> None:
@@ -560,9 +579,9 @@ class FieldExplorerPanel(QWidget):
             self.probe_result_label.setText('表示量を選択してください')
             return
         position = Position3(
-            x_m=float(self.probe_x.value()),
-            y_m=float(self.probe_y.value()),
-            z_m=float(self.probe_z.value()),
+            x_m=float(self.probe_x.value_m()),
+            y_m=float(self.probe_y.value_m()),
+            z_m=float(self.probe_z.value_m()),
         )
         try:
             probed = explorer_probe(
@@ -584,7 +603,7 @@ class FieldExplorerPanel(QWidget):
                     f' · サンプリング位置 ({probed.sampled_position.x_m:.3f}, '
                     f'{probed.sampled_position.y_m:.3f}, '
                     f'{probed.sampled_position.z_m:.3f}) '
-                    f'Δ={probed.distance_m:.3f} m'
+                    f'Δ={format_length_m(probed.distance_m, self._length_policy)}'
                 )
             )
         )

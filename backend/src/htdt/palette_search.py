@@ -46,6 +46,8 @@ COMMAND_CONTEXT_LABELS: dict[CommandContext, str] = {
     CommandContext.ROOM: "部屋",
     CommandContext.MEASUREMENT: "測定",
     CommandContext.OPTIMIZATION: "最適化",
+    CommandContext.PRESENTATION: "プレゼン",
+    CommandContext.VIDEO: "映像調整",
 }
 
 
