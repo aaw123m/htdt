@@ -1,0 +1,468 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://htdt.example/schemas/htdt-ingestion-plan-v1.schema.json",
+  "title": "HTDT Capture Ingestion Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "ingestor",
+    "bundle",
+    "source_evidence",
+    "roomplan_records",
+    "roomplan_capture_metadata",
+    "raw_visual_mesh_handoffs",
+    "authority_records",
+    "lineage_digest"
+  ],
+  "properties": {
+    "schema": {"const": "htdt.capture.ingestion-plan"},
+    "schema_version": {"const": "1.0.0"},
+    "ingestor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "configuration_digest"],
+      "properties": {
+        "name": {"const": "htdt-capture-reference-ingestor"},
+        "version": {"const": "1.0.0"},
+        "configuration_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "bundle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundle_digest",
+        "capture_schema",
+        "capture_schema_version",
+        "capture_series_id",
+        "capture_revision_id",
+        "parent_revision_id",
+        "capture_session_ids",
+        "coordinate_space_ids"
+      ],
+      "properties": {
+        "bundle_digest": {"$ref": "#/$defs/sha256"},
+        "capture_schema": {"const": "htdt.capture.bundle"},
+        "capture_schema_version": {"const": "1.0.0"},
+        "capture_series_id": {"$ref": "#/$defs/uuid4"},
+        "capture_revision_id": {"$ref": "#/$defs/uuid4"},
+        "parent_revision_id": {"type": ["string", "null"], "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+        "capture_session_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/uuid4"}
+        },
+        "coordinate_space_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/uuid4"}
+        }
+      }
+    },
+    "source_evidence": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/sourceEvidence"}
+    },
+    "roomplan_records": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/roomplanRecord"}
+    },
+    "roomplan_capture_metadata": {
+      "type": ["object", "null"],
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/roomplanCaptureMetadata"}
+      ]
+    },
+    "raw_visual_mesh_handoffs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/rawVisualMeshHandoff"}
+    },
+    "authority_records": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/authorityRecord"}
+    },
+    "supplemental_documents": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/supplementalDocument"}
+    },
+    "lineage_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid4": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "bundlePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))[^\\u0000\\\\/]+(/[^\\u0000\\\\/]+)*$"
+    },
+    "sourceRef": {
+      "type": "string",
+      "pattern": "^(sha256:[0-9a-f]{64}|path:[^\\u0000\\\\]+|capture_session:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|roomplan_raw_serialization:unavailable)$"
+    },
+    "evidenceRef": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(path|mesh_anchor|frame|entity|measurement|user|instrument_reading|derived_candidate):.+$"
+    },
+    "sourceEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_evidence_id",
+        "bundle_digest",
+        "capture_revision_id",
+        "path",
+        "payload_sha256",
+        "bytes",
+        "media_type",
+        "producer",
+        "provenance_class",
+        "role",
+        "source_refs"
+      ],
+      "properties": {
+        "source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "bundle_digest": {"$ref": "#/$defs/sha256"},
+        "capture_revision_id": {"$ref": "#/$defs/uuid4"},
+        "path": {"$ref": "#/$defs/bundlePath"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 0},
+        "media_type": {"type": "string", "minLength": 1},
+        "producer": {"type": "string", "minLength": 1},
+        "provenance_class": {"$ref": "#/$defs/provenanceClass"},
+        "role": {"enum": ["canonical", "derived"]},
+        "source_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceRef"}
+        }
+      }
+    },
+    "provenanceClass": {
+      "enum": [
+        "arkit_frame_observation",
+        "arkit_scene_depth_observation",
+        "arkit_mesh_reconstruction",
+        "apple_roomplan_raw_scan",
+        "apple_roomplan_inference",
+        "user_attested_measurement",
+        "user_annotation",
+        "imported_reference",
+        "capture_app_derived",
+        "backend_derived"
+      ]
+    },
+    "roomplanRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "source_evidence_id",
+        "path",
+        "payload_sha256",
+        "provenance_class",
+        "source_refs",
+        "roomplan_capture_metadata"
+      ],
+      "properties": {
+        "kind": {"enum": ["raw_scan", "postprocessed_inference"]},
+        "source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "path": {"$ref": "#/$defs/bundlePath"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "provenance_class": {
+          "enum": ["apple_roomplan_raw_scan", "apple_roomplan_inference"]
+        },
+        "source_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sourceRef"}
+        },
+        "roomplan_capture_metadata": {
+          "type": ["object", "null"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "raw_scan"}}},
+          "then": {
+            "properties": {
+              "provenance_class": {"const": "apple_roomplan_raw_scan"}
+            }
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "postprocessed_inference"}}},
+          "then": {
+            "properties": {
+              "provenance_class": {"const": "apple_roomplan_inference"}
+            }
+          }
+        }
+      ]
+    },
+    "roomplanCaptureMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "schema_version",
+        "capture_revision_id",
+        "capture_session_id",
+        "coordinate_space_id",
+        "raw_payload_path",
+        "raw_sha256"
+      ],
+      "properties": {
+        "schema": {"const": "htdt.captured-room-metadata"},
+        "schema_version": {"const": "1.0.0"},
+        "capture_revision_id": {"$ref": "#/$defs/uuid4"},
+        "capture_session_id": {"$ref": "#/$defs/uuid4"},
+        "coordinate_space_id": {"$ref": "#/$defs/uuid4"},
+        "raw_payload_path": {"$ref": "#/$defs/bundlePath"},
+        "raw_sha256": {"$ref": "#/$defs/sha256"},
+        "processed_payload_path": {
+          "anyOf": [{"$ref": "#/$defs/bundlePath"}, {"type": "null"}]
+        },
+        "processed_sha256": {
+          "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        },
+        "raw_byte_count": {"type": "integer", "minimum": 0},
+        "processed_byte_count": {"type": "integer", "minimum": 0},
+        "raw_serialization_format": {"type": "string"},
+        "processed_serialization_format": {"type": "string"},
+        "captured_room_version": {"type": "string"},
+        "runtime": {"type": "object"},
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "surface_count": {"type": ["integer", "null"], "minimum": 0},
+            "object_count": {"type": ["integer", "null"], "minimum": 0},
+            "dimensions_m": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["x_m", "y_m", "z_m"],
+              "properties": {
+                "x_m": {"type": "number"},
+                "y_m": {"type": "number"},
+                "z_m": {"type": "number"}
+              }
+            }
+          }
+        },
+        "surface_count": {"type": ["integer", "null"], "minimum": 0},
+        "object_count": {"type": ["integer", "null"], "minimum": 0},
+        "dimensions": {
+          "type": ["object", "null"],
+          "additionalProperties": {"type": "number"}
+        }
+      },
+      "dependentRequired": {
+        "processed_payload_path": ["processed_sha256"],
+        "processed_sha256": ["processed_payload_path"]
+      }
+    },
+    "supplementalDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supplemental_document_handoff_id",
+        "document_kind",
+        "validation_state",
+        "schema",
+        "schema_version",
+        "path",
+        "source_evidence_id",
+        "source_payload_sha256",
+        "coordinate_space_ids",
+        "capture_session_ids"
+      ],
+      "properties": {
+        "supplemental_document_handoff_id": {"$ref": "#/$defs/sha256"},
+        "document_kind": {"type": "string", "minLength": 1},
+        "validation_state": {"enum": ["supported", "unsupported"]},
+        "schema": {"type": "string", "minLength": 1},
+        "schema_version": {"type": "string", "minLength": 1},
+        "path": {"$ref": "#/$defs/bundlePath"},
+        "source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "source_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "coordinate_space_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/uuid4"}
+        },
+        "capture_session_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/uuid4"}
+        },
+        "plan_payload_sha256": {
+          "anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+        }
+      }
+    },
+    "matrix4f": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["representation", "values"],
+      "properties": {
+        "representation": {"const": "column_major_4x4_f32"},
+        "values": {
+          "type": "array",
+          "minItems": 16,
+          "maxItems": 16,
+          "items": {"type": "number"}
+        }
+      }
+    },
+    "rawVisualMeshHandoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "raw_visual_mesh_handoff_id",
+        "bundle_digest",
+        "anchor_id",
+        "anchor_record_locator",
+        "anchor_index_source_evidence_id",
+        "geometry_source_evidence_id",
+        "geometry_path",
+        "geometry_sha256",
+        "capture_session_id",
+        "coordinate_space_id",
+        "T_world_from_mesh_anchor",
+        "session_timestamp_s",
+        "vertex_count",
+        "face_count"
+      ],
+      "properties": {
+        "raw_visual_mesh_handoff_id": {"$ref": "#/$defs/sha256"},
+        "bundle_digest": {"$ref": "#/$defs/sha256"},
+        "anchor_id": {"$ref": "#/$defs/uuid4"},
+        "anchor_record_locator": {
+          "type": "string",
+          "pattern": "^mesh/anchors\\.json#anchor:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "anchor_index_source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "geometry_source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "geometry_path": {"$ref": "#/$defs/bundlePath"},
+        "geometry_sha256": {"$ref": "#/$defs/sha256"},
+        "capture_session_id": {"$ref": "#/$defs/uuid4"},
+        "coordinate_space_id": {"$ref": "#/$defs/uuid4"},
+        "T_world_from_mesh_anchor": {"$ref": "#/$defs/matrix4f"},
+        "session_timestamp_s": {"type": ["number", "null"], "minimum": 0},
+        "vertex_count": {"type": "integer", "minimum": 0},
+        "face_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "resolvedReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "kind", "target"],
+      "properties": {
+        "ref": {"$ref": "#/$defs/evidenceRef"},
+        "kind": {
+          "enum": [
+            "source_evidence",
+            "raw_visual_mesh_handoff",
+            "authority_record",
+            "annotation_authored",
+            "supplemental_document"
+          ]
+        },
+        "target": {"type": ["string", "null"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "annotation_authored"}}},
+          "then": {"properties": {"target": {"type": "null"}}},
+          "else": {"properties": {"target": {"$ref": "#/$defs/sha256"}}}
+        }
+      ]
+    },
+    "authorityRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_record_handoff_id",
+        "record_kind",
+        "record_id",
+        "record_locator",
+        "provenance_class",
+        "coordinate_space_id",
+        "source_evidence_id",
+        "source_payload_sha256",
+        "evidence_refs",
+        "endpoint_refs",
+        "resolved_evidence",
+        "resolved_endpoints"
+      ],
+      "properties": {
+        "authority_record_handoff_id": {"$ref": "#/$defs/sha256"},
+        "record_kind": {"enum": ["annotation", "measurement"]},
+        "record_id": {"$ref": "#/$defs/uuid4"},
+        "record_locator": {
+          "type": "string",
+          "pattern": "^annotations/(entities|measurements)\\.json#(annotation|measurement):[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "provenance_class": {"$ref": "#/$defs/provenanceClass"},
+        "coordinate_space_id": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "source_evidence_id": {"$ref": "#/$defs/sha256"},
+        "source_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceRef"}
+        },
+        "endpoint_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/evidenceRef"}
+        },
+        "resolved_evidence": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/resolvedReference"}
+        },
+        "resolved_endpoints": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/resolvedReference"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"record_kind": {"const": "annotation"}}},
+          "then": {
+            "properties": {
+              "record_locator": {
+                "pattern": "^annotations/entities\\.json#annotation:"
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"record_kind": {"const": "measurement"}}},
+          "then": {
+            "properties": {
+              "record_locator": {
+                "pattern": "^annotations/measurements\\.json#measurement:"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

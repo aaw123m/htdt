@@ -97,7 +97,19 @@ BUNDLE_SCHEMA_VERSION = '1.0.0'
 
 RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
 
-DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
+# Artifact kinds ``handle_delivery`` admits end-to-end. ``field_return``
+# staging exists (``field_return_ingestion.stage_field_return``) but has
+# no delivery lane wired yet — advertising it here would promise a lane
+# the receiver still answers 415.
+DELIVERABLE_KINDS = ('capture_bundle',)
+
+# Authority families an end-to-end promotion path can actually execute
+# today: the inbox ``promote`` surface exists but no production executor
+# wires the semantic promotion services in, so nothing is promotable
+# yet. ``PROMOTION_AUTHORITY_KINDS`` stays the staging-level inventory
+# (what the inbox classifies); this is the honest "stages but cannot
+# promote" answer capabilities must give instead of green-lighting.
+EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = ()
 
 # How many bytes a single upload may declare/be — same ingest ceiling the
 # file-import path enforces, applied to the wire.
@@ -710,7 +722,10 @@ class CaptureReceiverService:
             'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
             'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
             'accepted_payload_schemas': accepted_payload_schemas,
-            'supported_authority_families': sorted(PROMOTION_AUTHORITY_KINDS),
+            'supported_authority_families': sorted(
+                EXECUTABLE_AUTHORITY_KINDS
+            ),
+            'staged_authority_families': sorted(PROMOTION_AUTHORITY_KINDS),
             'max_archive_bytes': self.max_archive_bytes,
             'mission_receipts_supported': True,
             'accepted_artifact_kinds': [

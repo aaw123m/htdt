@@ -19,7 +19,11 @@ contract bumps instead of discovering drift at import time.
 
 Only ``*.schema.json`` and ``support-matrix.json`` are vendored; the
 emitter's ``*-vectors.json`` conformance vectors and README are
-capture-side test fixtures, not contract.
+capture-side test fixtures, not contract. The published ingestion-plan
+schema (``schemas/htdt-ingestion-plan-v1.schema.json``, outside the
+bundle directory) is vendored too so the receiver-side plan gate in
+``htdt.capture_plan_schema`` checks produced plans against the exact
+emitted contract.
 """
 
 from __future__ import annotations
@@ -35,6 +39,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 VENDORED = REPO_ROOT / "backend" / "src" / "htdt" / "capture_contract"
 EMITTER_DIR = Path("schemas") / "capture-bundle-v1"
 
+# Published schemas that live outside the bundle-v1 directory but are
+# still contract the receiver must validate against verbatim.
+EXTRA_EMITTER_FILES = {
+    "htdt-ingestion-plan-v1.schema.json": (
+        Path("schemas") / "htdt-ingestion-plan-v1.schema.json"
+    ),
+}
+
 
 def _emitter_files(capture_repo: Path) -> dict[str, Path]:
     src = capture_repo / EMITTER_DIR
@@ -49,6 +61,11 @@ def _emitter_files(capture_repo: Path) -> dict[str, Path]:
     }
     if "support-matrix.json" not in files:
         raise SystemExit(f"no support-matrix.json under {src}")
+    for name, rel in EXTRA_EMITTER_FILES.items():
+        extra = capture_repo / rel
+        if not extra.is_file():
+            raise SystemExit(f"emitter contract file not found: {extra}")
+        files[name] = extra
     return files
 
 
@@ -93,7 +110,10 @@ def audit(capture_repo: Path) -> tuple[list[str], list[str]]:
     matrix = json.loads(
         (VENDORED / "support-matrix.json").read_text(encoding="utf-8")
     )
-    problems = _check_matrix(matrix, vendored_schemas - {"support-matrix.json"})
+    problems = _check_matrix(
+        matrix,
+        vendored_schemas - {"support-matrix.json"} - set(EXTRA_EMITTER_FILES),
+    )
     return drift, problems
 
 
