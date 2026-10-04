@@ -447,8 +447,13 @@ def test_full_capability_matrix_checks_and_retake_guidance_surface(tmp_path: Pat
     assert view.has_lineage is False
 
 
-def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
-    """Missing quality evidence stays UNKNOWN, never an implicit PASS."""
+def test_view_without_evidence_fails_closed_full_matrix(tmp_path: Path) -> None:
+    """Unprovable evidence stays UNKNOWN, never an implicit PASS.
+
+    Since the quality producer backfills a report on first quality read,
+    the honest outcome is a *current* report whose checks mark only what
+    the persisted evidence can prove — nothing else resolves to PASS.
+    """
     scene_repository, revision = _saved_f1(tmp_path)
     measurement_repository = CadMeasurementRepository(scene_repository)
     controller = MeasurementWorkflowController(
@@ -461,13 +466,33 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
 
     view = controller.measurement_views()[0]
 
-    assert view.quality_report_state == "missing"
-    assert view.quality_profile_version is None
-    assert view.quality_report_created_at is None
-    assert view.quality_checks == ()
-    assert view.retake_recommendation is None
-    assert view.retake_reasons == ()
-    assert view.retake_guidance is None
+    # The backfilled report binds the exact dataset and surfaces the real
+    # check states: imported grid bounds prove usable_frequency_band, and
+    # every other check is honestly unresolved.
+    assert view.quality_report_state == "current"
+    assert view.quality_profile_version is not None
+    assert view.quality_report_created_at is not None
+    checks = {item.check: item for item in view.quality_checks}
+    assert set(checks) == {
+        "clipping",
+        "noise_snr",
+        "usable_frequency_band",
+        "timing_reference",
+        "polarity",
+        "ir_window",
+        "calibration",
+        "repeatability",
+    }
+    assert checks["usable_frequency_band"].status == "PASS"
+    assert checks["clipping"].status == "UNKNOWN"
+    assert checks["noise_snr"].status == "UNKNOWN"
+    assert checks["timing_reference"].status == "UNKNOWN"
+    assert checks["polarity"].status == "UNKNOWN"
+    assert checks["ir_window"].status == "NOT_EVALUATED"
+    assert checks["calibration"].status == "UNKNOWN"
+    assert checks["repeatability"].status == "NOT_EVALUATED"
+    assert view.retake_recommendation == "UNKNOWN"
+    assert view.retake_guidance is not None
 
     decisions = {cap.claim: cap.decision for cap in view.capabilities}
     assert len(view.capabilities) == 11
@@ -475,14 +500,45 @@ def test_view_without_report_fails_closed_full_matrix(tmp_path: Path) -> None:
     assert decisions["magnitude_response"] == "ALLOWED"
     assert decisions["phase_response"] == "ALLOWED"
     assert decisions["common_timing"] == "UNKNOWN"
-    assert decisions["arrival_time"] == "UNKNOWN"
-    assert decisions["decay"] == "UNKNOWN"
+    assert decisions["arrival_time"] == "BLOCKED"
+    assert decisions["decay"] == "BLOCKED"
     assert decisions["calibrated_response"] == "UNKNOWN"
     assert decisions["frequency_response_corrected"] == "UNKNOWN"
     assert decisions["absolute_spl"] == "UNKNOWN"
     assert decisions["absolute_noise_level"] == "UNKNOWN"
     assert decisions["repeatability"] == "UNKNOWN"
     assert decisions["polarity"] == "UNKNOWN"
+
+
+def test_view_without_quality_repository_fails_closed(tmp_path: Path) -> None:
+    """A repository without report support still surfaces 'missing'."""
+
+    class _ReportlessSource:
+        def latest_report(self, measurement_id: str):
+            return None
+
+        def list_lineage(self, document_id: str):
+            return ()
+
+    scene_repository, revision = _saved_f1(tmp_path)
+    measurement_repository = CadMeasurementRepository(scene_repository)
+    controller = MeasurementWorkflowController(
+        scene_repository,
+        revision.document_id,
+        measurement_repository=measurement_repository,
+        quality_repository=_ReportlessSource(),
+    )
+    _save_phase_dataset(measurement_repository, revision, "no-report")
+
+    view = controller.measurement_views()[0]
+
+    assert view.quality_report_state == "missing"
+    assert view.quality_checks == ()
+    assert view.retake_recommendation is None
+    decisions = {cap.claim: cap.decision for cap in view.capabilities}
+    assert decisions["magnitude_response"] == "ALLOWED"
+    assert decisions["common_timing"] == "UNKNOWN"
+    assert decisions["arrival_time"] == "UNKNOWN"
 
 
 class _StaleReportSource:

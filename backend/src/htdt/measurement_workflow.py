@@ -87,6 +87,7 @@ from .cad_measurement_quality import (
     unestablished_common_timing_capability,
 )
 from .cad_measurement_authorities import routing_profile_binding
+from .cad_measurement_quality_producer import CadMeasurementQualityProducer
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurement_runner import (
@@ -596,6 +597,10 @@ class MeasurementWorkflowController:
             scene_repository,
             self.measurement_repository,
         )
+        # Lazily built: the producer derives quality reports from provable
+        # evidence at every commit/promote path (#REV42-QUALITYPROD).
+        self._producer: CadMeasurementQualityProducer | None = None
+        self._producer_resolved = False
         self._target_pattern_repository: CadTargetPatternRepository | None = None
         self._variant_campaign_repository: (
             CadSystemVariantMeasurementCampaignRepository | None
@@ -856,6 +861,7 @@ class MeasurementWorkflowController:
             raw_bytes=raw_bytes,
         )
         self._save_acquisition_context(assignment, record)
+        self._produce_quality_report(record.measurement_id)
         self._pending = None
         return record
 
@@ -997,11 +1003,15 @@ class MeasurementWorkflowController:
             ir_semantics=ir_semantics,
             calibration_state=calibration_state,
         )
-        return self.measurement_repository.save_ir_dataset(
+        saved = self.measurement_repository.save_ir_dataset(
             dataset,
             raw_filename=raw_filename,
             raw_bytes=raw_bytes,
         )
+        # IR evidence is a new report epoch: re-derive so
+        # has_impulse_response/ir_window claims bind the persisted IR.
+        self._produce_quality_report(measurement_id)
+        return saved
 
     def ir_datasets_for_measurement(
         self, measurement_id: str
@@ -1212,6 +1222,19 @@ class MeasurementWorkflowController:
                 measurements=measurements_by_id,
                 bound=dataset_by_measurement,
             )
+        # First-quality-read backfill (#REV42-QUALITYPROD): a committed
+        # measurement whose report epoch was never produced (pre-producer
+        # imports, interrupted commits) derives now from stored evidence —
+        # the report lands in the same ``reports`` overlay the cells and
+        # gated consumers below already read.
+        producer = self._quality_producer()
+        if producer is not None and reports is not None:
+            for record in records:
+                if record.measurement_id in reports:
+                    continue
+                produced = self._produce_quality_report(record.measurement_id)
+                if produced is not None:
+                    reports[record.measurement_id] = produced
         attachments_for_document = getattr(
             self.measurement_repository, 'attachments_for_document', None
         )
@@ -1500,6 +1523,62 @@ class MeasurementWorkflowController:
                 )
             )
         return tuple(rows)
+
+    def _quality_producer(self) -> CadMeasurementQualityProducer | None:
+        """Lazily build the report producer on the real quality authority.
+
+        Stand-in repositories (tests, minimal stores) may not implement the
+        observation/report writers — no producer then, and callers skip
+        derivation exactly like they skip the batched reads.
+        """
+        if self._producer_resolved:
+            return self._producer
+        self._producer_resolved = True
+        required = (
+            'save_observation',
+            'list_observations',
+            'save_report',
+            'latest_report',
+            'list_acquisition_contexts',
+            'get_dataset_level_reference',
+            'get_level_calibration',
+            'validate_calibration_file',
+        )
+        if all(hasattr(self.quality_repository, name) for name in required):
+            self._producer = CadMeasurementQualityProducer(
+                self.quality_repository
+            )
+        return self._producer
+
+    def _produce_quality_report(
+        self, measurement_id: str
+    ) -> CadMeasurementQualityReport | None:
+        """Best-effort derivation; never blocks a completed commit.
+
+        A derivation failure leaves the measurement honestly report-less
+        (quality_pending) and is retried by the next quality read — it must
+        not retroactively fail a measurement save that already succeeded.
+        """
+        producer = self._quality_producer()
+        if producer is None:
+            return None
+        try:
+            result = producer.produce_report(measurement_id)
+        except Exception:
+            _LOGGER.warning(
+                'quality report production failed for %s',
+                measurement_id,
+                exc_info=True,
+            )
+            return None
+        if result.status == 'unresolved':
+            _LOGGER.warning(
+                'quality report unresolved for %s: %s',
+                measurement_id,
+                result.detail,
+            )
+            return None
+        return result.report
 
     def _latest_report_for(
         self,
@@ -2132,6 +2211,8 @@ class MeasurementWorkflowController:
         dataset = self.measurement_repository.dataset_for_measurement(measurement_id)
         if dataset is None:
             raise MeasurementWorkflowError("測定に周波数応答データがありません")
+        # Quality read: derive the report now if no commit path produced it.
+        self._produce_quality_report(measurement_id)
         self.runner_repository.commit_cell(
             run_id,
             cell_index,
@@ -2829,6 +2910,7 @@ class MeasurementWorkflowController:
                 )
                 self._save_acquisition_context_for_commit(entry)
                 self._install_staged_attachments(entry)
+                self._produce_quality_report(record.measurement_id)
             except Exception as exc:
                 _LOGGER.warning('batch commit failed for staged item: %r', exc)
                 entry.error = operation_error_message(exc)

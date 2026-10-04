@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from threading import Event
 from typing import TYPE_CHECKING
@@ -35,6 +36,8 @@ from .cad_measurement_jobs import (
     MeasurementJobToken,
 )
 from .cad_measurement_models import CadMeasurementRecord
+from .cad_measurement_quality_producer import CadMeasurementQualityProducer
+from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurements import measurement_record_for_revision, normalize_rew_api_snapshot
 from .cad_model_validation_repository import CadModelValidationRepository
@@ -149,6 +152,7 @@ class OptimizationWorkflowController(
 
         self.search_repository = CadSearchRepository(repository)
         self.measurement_repository = CadMeasurementRepository(repository)
+        self._quality_producer: CadMeasurementQualityProducer | None = None
         self.roomsim_repository = CadRoomSimRepository(repository, self.search_repository)
         self.objective_repository = CadObjectiveRepository(
             repository,
@@ -707,12 +711,33 @@ class OptimizationWorkflowController(
                 raw_filename=filename,
                 raw_bytes=raw,
             )
+            self._produce_quality_report(record.measurement_id)
         except Exception as exc:
             self.statusChanged.emit(f"REW結果保存失敗 · {operation_error_message(exc)}")
             return
         self.refresh_measurement_plans()
         self.refresh_validation_campaigns()
         self.statusChanged.emit("REW測定を保存しました")
+
+    def _produce_quality_report(self, measurement_id: str) -> None:
+        """Derive the committed measurement's quality report (#REV42-QUALITYPROD).
+
+        Best-effort: a derivation failure leaves the measurement honestly
+        report-less (quality_pending) and the next quality read retries —
+        it must not fail a measurement save that already succeeded.
+        """
+        try:
+            if self._quality_producer is None:
+                self._quality_producer = CadMeasurementQualityProducer(
+                    CadMeasurementQualityRepository(self.measurement_repository)
+                )
+            self._quality_producer.produce_report(measurement_id)
+        except Exception:
+            logging.getLogger(__name__).warning(
+                'quality report production failed for %s',
+                measurement_id,
+                exc_info=True,
+            )
 
     def _constraint_workspace_hash(self) -> str:
         """Digest of the constraint workspace a delayed REW read is bound to."""
