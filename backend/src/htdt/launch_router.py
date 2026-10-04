@@ -244,7 +244,12 @@ def route_capture_intent(
     # false orphan
     inbox.reconcile_orphaned_ingestions()
     try:
-        import_capture_artifact(bundle_path, ingestion)
+        import_capture_artifact(
+            bundle_path,
+            ingestion,
+            inbox_repository=inbox,
+            arrival_source=CAPTURE_ARRIVAL_SOURCE,
+        )
     except CaptureImportError as exc:
         _LOGGER.info('capture import rejected for %s: %s', bundle_path, exc)
         return _result(

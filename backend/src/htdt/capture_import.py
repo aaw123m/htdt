@@ -77,20 +77,65 @@ class CaptureImportResult:
     app_build: str
 
 
+def _envelope_sha256(artifact: Path) -> str:
+    """Digest of the received envelope bytes.
+
+    For a ``.htdtcapture`` archive this is the file hash; for an extracted
+    bundle directory it is the manifest hash when readable (the strongest
+    bundle identity) and otherwise a hash over the sorted
+    ``relpath:sha256`` listing — deterministic either way so a re-delivered
+    byte-identical rejection resolves to the same inbox row.
+    """
+    if artifact.is_file():
+        return sha256(artifact.read_bytes()).hexdigest()
+    manifest = artifact / 'manifest.json'
+    if manifest.is_file():
+        return sha256(manifest.read_bytes()).hexdigest()
+    parts: list[str] = []
+    for child in sorted(artifact.rglob('*')):
+        if child.is_file():
+            parts.append(
+                f'{child.relative_to(artifact)}:{sha256(child.read_bytes()).hexdigest()}'
+            )
+    return sha256('\n'.join(parts).encode('utf-8')).hexdigest()
+
+
 def import_capture_artifact(
     path: Path | str,
     repository: CaptureIngestionRepository,
     *,
     budget=None,
+    inbox_repository=None,
+    arrival_source: str = 'cli_import',
 ) -> CaptureImportResult:
     """Import one ``.htdtcapture`` ZIP wrapper or bundle directory.
 
     ``path`` may name a ``.htdtcapture`` file or an extracted bundle
     directory. ``repository`` is the standard transaction facade —
     callers own its lifecycle (the SQLite database is opened under the
-    repository's SceneRepository and all rows commit atomically).
+    repository's SceneRepository and all rows commit atomically). When
+    ``inbox_repository`` is given, read/manifest/validate rejections are
+    staged as rejected-envelope inbox rows before the error is raised, so
+    failed deliveries stay operator-visible instead of vanishing into a
+    log line.
     """
     artifact = Path(path)
+
+    def _stage_rejected(reason: str) -> None:
+        if inbox_repository is None:
+            return
+        try:
+            inbox_repository.stage_rejected(
+                envelope_sha256=_envelope_sha256(artifact),
+                validation_error=reason,
+                arrival_source=arrival_source,
+                source_detail=str(artifact),
+            )
+        except Exception:
+            # Staging is audit, never the reason an import fails — the
+            # original rejection is still reported to the caller.
+            pass
+
     try:
         frozen = FrozenBundle(artifact)
     except (
@@ -99,11 +144,15 @@ def import_capture_artifact(
         FileNotFoundError,
         RecursionError,  # deep-but-parseable payloads can still escape the re-walk
     ) as exc:
+        _stage_rejected(f'read: {exc}')
         raise CaptureImportError('read', str(exc)) from exc
 
     report = frozen.report
     manifest_bytes = frozen.manifest_bytes
     if sha256(manifest_bytes).hexdigest() != report['bundle_digest']:
+        _stage_rejected(
+            'manifest: manifest SHA-256 does not equal the bundle digest'
+        )
         raise CaptureImportError(
             'manifest',
             'manifest SHA-256 does not equal the bundle digest',
@@ -112,11 +161,13 @@ def import_capture_artifact(
     try:
         manifest_document = json.loads(manifest_bytes)
     except ValueError as exc:
+        _stage_rejected(f'manifest: {exc}')
         raise CaptureImportError('manifest', str(exc)) from exc
 
     try:
         plan = build_ingestion_plan(frozen)
     except CaptureIngestionContractError as exc:
+        _stage_rejected(f'validate: {exc}')
         raise CaptureImportError('validate', str(exc)) from exc
 
     payloads = {
@@ -184,8 +235,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     repository = CaptureIngestionRepository(SceneRepository(Path(args.db)))
+    from htdt.capture_inbox import CaptureInboxRepository
+
+    inbox = CaptureInboxRepository(repository.scene_repository, repository)
     try:
-        result = import_capture_artifact(args.artifact, repository)
+        result = import_capture_artifact(
+            args.artifact, repository, inbox_repository=inbox
+        )
     except CaptureImportError as exc:
         print(
             json.dumps({'stage': exc.stage, 'error': exc.reason}),

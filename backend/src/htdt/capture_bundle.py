@@ -1375,6 +1375,16 @@ def _validate_payload_documents(
             # carrying RoomPlan payloads at non-reserved paths stay
             # valid and are resolved by the ingestor's provenance
             # fallback.
+            #
+            # Deliberate asymmetry: an unrecognized JSON family kills
+            # the whole bundle while an unrecognized binary family is
+            # silently quarantined (``_binary_format_for`` returns
+            # None). JSON is where semantic handoffs live, so an
+            # unowned JSON payload is indistinguishable from a schema
+            # bypass and must fail closed; binary payloads carry no
+            # schema contract, so a newer format is safely preserved
+            # unread as opaque evidence. Revisit this only with an
+            # explicit staging-quarantine contract for unknown JSON.
             raise CaptureBundleError(
                 f"{path_text} is a JSON payload owned by no published "
                 "schema or external authority"

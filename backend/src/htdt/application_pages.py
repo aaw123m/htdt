@@ -628,6 +628,7 @@ _INBOX_PROMOTABILITY_LABELS = {
     "complete": "昇格完了",
 }
 _INBOX_CLASSIFICATION_LABELS = {
+    "validation_rejected": "検証で却下",
     "exact_duplicate": "完全一致の重複",
     "identity_digest_conflict": "同一性ダイジェストの競合",
     "revision_variant": "リビジョンバリアント",

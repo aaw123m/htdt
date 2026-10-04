@@ -763,7 +763,28 @@ class CaptureReceiverService:
         declared_bytes = lowered.get('x-htdt-archive-bytes')
         delivery_id = lowered.get('x-htdt-delivery-id')
 
-        def reject(detail: str, status: int = 400) -> tuple[int, dict]:
+        def reject(
+            detail: str,
+            status: int = 400,
+            *,
+            stage_envelope: bool = False,
+        ) -> tuple[int, dict]:
+            if stage_envelope:
+                try:
+                    self.inbox_repository.stage_rejected(
+                        envelope_sha256=declared_sha or _sha256_text(body),
+                        validation_error=detail,
+                        arrival_source='paired_receiver',
+                        scope=pairing.project_ref
+                        or CAPTURE_INBOX_UNASSIGNED_SCOPE,
+                        source_detail=f'pairing {pairing.pairing_id}',
+                        capture_revision_id=capture_revision_id or 'unknown',
+                    )
+                except Exception:
+                    # Envelope staging is audit, never a reason to change
+                    # the wire outcome — the delivery-ledger row still
+                    # records the rejection below.
+                    pass
             try:
                 self._record_delivery(
                     pairing=pairing,
@@ -866,7 +887,10 @@ class CaptureReceiverService:
             if not isinstance(plan, CaptureIngestionPlan):
                 plan = CaptureIngestionPlan.model_validate(plan)
         except Exception as exc:
-            return reject(f'capture bundle could not be read: {exc}')
+            return reject(
+                f'capture bundle could not be read: {exc}',
+                stage_envelope=True,
+            )
 
         # the wire headers and the bundle identity must agree
         if capture_revision_id and (
@@ -887,7 +911,10 @@ class CaptureReceiverService:
                 plan, payloads, manifest=manifest
             )
         except Exception as exc:
-            return reject(f'capture bundle failed ingestion: {exc}')
+            return reject(
+                f'capture bundle failed ingestion: {exc}',
+                stage_envelope=True,
+            )
 
         scope = pairing.project_ref or CAPTURE_INBOX_UNASSIGNED_SCOPE
         try:

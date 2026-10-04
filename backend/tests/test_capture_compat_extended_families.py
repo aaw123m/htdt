@@ -97,7 +97,13 @@ def test_vendored_contract_is_internally_consistent() -> None:
         (CONTRACT_DIR / 'support-matrix.json').read_text(encoding='utf-8')
     )
     assert matrix['schema'] == 'htdt.capture.bundle-support-matrix'
-    schemas = {p.name for p in CONTRACT_DIR.glob('*.schema.json')}
+    # the vendored ingestion-plan schema is an extra emitter file (sync
+    # tool EXTRA_EMITTER_FILES), not a bundle-family schema — exclude it
+    schemas = {
+        p.name
+        for p in CONTRACT_DIR.glob('*.schema.json')
+        if p.name != 'htdt-ingestion-plan-v1.schema.json'
+    }
     referenced: set[str] = set()
     for name, contract in matrix['families'].items():
         if contract.get('external'):

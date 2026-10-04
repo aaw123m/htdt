@@ -45,6 +45,7 @@ from .clock import utc_now_iso as _utc_now
 
 
 INBOX_ITEM_DOMAIN = 'htdt.capture.inbox-item.v1'
+REJECTED_LINEAGE_DOMAIN = 'htdt.capture.rejected-envelope.v1'
 INBOX_PROMOTION_DOMAIN = 'htdt.capture.inbox-promotion.v1'
 INBOX_SUPERSESSION_DOMAIN = 'htdt.capture.inbox-supersession.v1'
 INBOX_REGISTRATION_DOMAIN = 'htdt.capture.cross-revision-registration.v1'
@@ -95,6 +96,7 @@ InboxDisposition = Literal[
 # primary classification is the highest-priority one and is what the
 # listing groups by.
 InboxClassification = Literal[
+    'validation_rejected',
     'exact_duplicate',
     'identity_digest_conflict',
     'revision_variant',
@@ -106,6 +108,7 @@ InboxClassification = Literal[
 ]
 
 _CLASSIFICATION_PRIORITY: tuple[InboxClassification, ...] = (
+    'validation_rejected',
     'identity_digest_conflict',
     'exact_duplicate',
     'revision_variant',
@@ -770,6 +773,152 @@ class CaptureInboxRepository:
                 connection.rollback()
                 raise
 
+    def stage_rejected(
+        self,
+        *,
+        envelope_sha256: str,
+        validation_error: str,
+        arrival_source: str,
+        scope: str = CAPTURE_INBOX_UNASSIGNED_SCOPE,
+        source_detail: str = '',
+        capture_series_id: str = 'unknown',
+        capture_revision_id: str = 'unknown',
+        arrived_at_utc: str | None = None,
+    ) -> CaptureInboxStageResult:
+        """Stage a bundle that never produced an ingestion plan.
+
+        ``stage()`` requires a persisted ingestion run, so a ``FrozenBundle``
+        or plan-validation failure used to leave only a delivery-ledger row
+        (LAN), a toast (launch intent), or CLI stderr — nothing the operator
+        could inspect or re-drive later. This records the rejected envelope
+        as a first-class inbox row: ``bundle_validation='rejected'``,
+        ``primary_classification='validation_rejected'``, promotability
+        blocked. The lineage digest derives from the envelope bytes, so a
+        re-delivery of the identical bytes reports ``already_staged`` and
+        bumps the arrival counter while a *different* rejection is its own
+        row.
+
+        ``envelope_sha256`` is the digest of the received bytes (file hash
+        for ``.htdtcapture`` archives, declared/manifest digest otherwise);
+        it doubles as the row's ``bundle_digest`` since it is the strongest
+        bundle identity a rejected envelope can carry. Series/revision ids
+        are whatever the caller could recover — ``'unknown'`` when even the
+        manifest was unreadable.
+        """
+        if not validation_error:
+            raise CaptureInboxError('rejected staging requires a reason')
+        if len(envelope_sha256) != 64 or any(
+            c not in '0123456789abcdef' for c in envelope_sha256
+        ):
+            raise CaptureInboxError(
+                'envelope digest must be a lowercase sha256 hex string'
+            )
+        lineage_digest = _inbox_hash(
+            REJECTED_LINEAGE_DOMAIN, {'envelope_sha256': envelope_sha256}
+        )
+        inbox_item_id = (
+            'capture-inbox-item:' + _inbox_hash(INBOX_ITEM_DOMAIN, lineage_digest)
+        )
+        arrived = arrived_at_utc or _utc_now()
+        with closing(self._connect()) as connection:
+            try:
+                connection.execute('BEGIN IMMEDIATE')
+                existing = self._row(connection, lineage_digest)
+                if existing is not None:
+                    connection.execute(
+                        'UPDATE capture_inbox_items SET arrival_count=? '
+                        'WHERE lineage_digest=?',
+                        (int(existing['arrival_count']) + 1, lineage_digest),
+                    )
+                    item = self._row(connection, lineage_digest)
+                    connection.commit()
+                    return CaptureInboxStageResult(
+                        item=self._item_from_row(item),
+                        created=False,
+                        outcome='already_staged',
+                    )
+                # the items table FKs every lineage onto the shared
+                # lineages table; ingest() mints it for validated runs,
+                # a rejected envelope mints its own here
+                connection.execute(
+                    'INSERT OR IGNORE INTO capture_ingestion_lineages('
+                    'lineage_digest) VALUES (?)',
+                    (lineage_digest,),
+                )
+                connection.execute(
+                    '''
+                    INSERT INTO capture_inbox_items(
+                        lineage_digest, inbox_item_id, scope,
+                        capture_series_id, capture_revision_id, bundle_digest,
+                        parent_revision_id, capture_session_ids_json,
+                        coordinate_space_ids_json, arrival_source,
+                        source_detail, first_arrived_at_utc, arrival_count,
+                        primary_classification, classification_flags_json,
+                        conflict_lineage_digest, bundle_validation,
+                        validation_detail, dependency_state, dependency_detail,
+                        alignment_state, alignment_detail,
+                        world_alignment_authority_id, evidence_conflict_state,
+                        evidence_conflict_detail, disposition,
+                        disposition_reason, disposition_at_utc,
+                        operator_notes, has_connected_space_document
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
+                    ''',
+                    (
+                        lineage_digest,
+                        inbox_item_id,
+                        scope,
+                        capture_series_id or 'unknown',
+                        capture_revision_id or 'unknown',
+                        envelope_sha256,
+                        None,
+                        '[]',
+                        '[]',
+                        arrival_source,
+                        source_detail,
+                        arrived,
+                        1,
+                        'validation_rejected',
+                        '[]',
+                        None,
+                        'rejected',
+                        validation_error,
+                        'not_evaluated',
+                        '',
+                        'not_required',
+                        '',
+                        None,
+                        'none',
+                        '',
+                        'pending',
+                        '',
+                        None,
+                        '',
+                        0,
+                    ),
+                )
+                record_disposition_transition(
+                    connection,
+                    lineage_digest,
+                    None,
+                    'pending',
+                    reason='rejected envelope staged for review',
+                    actor='stage_rejected',
+                    changed_at_utc=arrived,
+                )
+                row = self._row(connection, lineage_digest)
+                connection.commit()
+                return CaptureInboxStageResult(
+                    item=self._item_from_row(row),
+                    created=True,
+                    outcome='staged',
+                )
+            except Exception:
+                connection.rollback()
+                raise
+
     def reconcile_orphaned_ingestions(
         self, *, max_items: int = 50
     ) -> tuple[CaptureInboxItem, ...]:
@@ -1088,6 +1237,35 @@ class CaptureInboxRepository:
             item = self._item_from_row(row)
             plan = self.ingestion_repository.get_ingestion(lineage_digest)
             if plan is None:
+                if item.bundle_validation == 'rejected':
+                    # rejected envelopes carry no ingestion run by design;
+                    # inspection reports the row with empty plan-derived
+                    # facets and a blocked promotability
+                    return CaptureInboxInspection(
+                        item=item,
+                        promotability='blocked',
+                        promoted_authority_kinds=(),
+                        blocked_authority_kinds=(),
+                        available_authority_kinds=(),
+                        source_evidence_count=0,
+                        roomplan_record_count=0,
+                        raw_mesh_count=0,
+                        authority_record_count=0,
+                        promotions=(),
+                        supersessions_of_this=self._supersessions(
+                            connection,
+                            'superseded_lineage_digest',
+                            lineage_digest,
+                        ),
+                        supersessions_by_this=self._supersessions(
+                            connection,
+                            'superseding_lineage_digest',
+                            lineage_digest,
+                        ),
+                        registrations=self._registrations_for(
+                            connection, lineage_digest
+                        ),
+                    )
                 raise CaptureInboxError(
                     'inbox item survives without its ingestion run; '
                     'the store is inconsistent'
