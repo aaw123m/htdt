@@ -201,8 +201,14 @@ def route_capture_intent(
     intent: HTDTLaunchIntent,
     *,
     repository: SceneRepository,
+    arrival_source: str = CAPTURE_ARRIVAL_SOURCE,
 ) -> LaunchIntentResult:
-    """``.htdtcapture`` ingests + stages to the Capture Inbox (#736)."""
+    """``.htdtcapture`` ingests + stages to the Capture Inbox (#736).
+
+    ``arrival_source`` is stamped on the staged inbox item so a drop that
+    arrived through the opt-in watch folder (``watch_folder``) is not
+    mislabeled as a document-open delivery.
+    """
 
     path = Path(intent.path)
     if not path.exists():
@@ -287,7 +293,7 @@ def route_capture_intent(
     try:
         staged = inbox.stage(
             plan,
-            arrival_source=CAPTURE_ARRIVAL_SOURCE,
+            arrival_source=arrival_source,
             scope=CAPTURE_STAGE_SCOPE,
             source_detail=str(path),
         )

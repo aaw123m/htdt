@@ -102,6 +102,123 @@ def test_runner_surfaces_failure(tmp_path: Path, monkeypatch) -> None:
     runner.shutdown()
 
 
+class _CountingScheduler:
+    """Counts evaluations across every instance the runner builds."""
+
+    evaluate_calls = 0
+    run_calls = 0
+
+    def __init__(self, _data_dir: Path) -> None:
+        pass
+
+    def evaluate(self, _trigger):
+        type(self).evaluate_calls += 1
+        return False, 'within interval'
+
+    def run_due(self, _trigger, **_kwargs):
+        type(self).run_calls += 1
+        raise AssertionError('run_due must not run when not due')
+
+
+class _SlowDueScheduler:
+    """Due, but each evaluation sits on an event so overlap is observable."""
+
+    in_flight = 0
+    max_in_flight = 0
+    gate = None
+
+    def __init__(self, _data_dir: Path) -> None:
+        pass
+
+    def evaluate(self, _trigger):
+        cls = type(self)
+        cls.in_flight += 1
+        cls.max_in_flight = max(cls.max_in_flight, cls.in_flight)
+        try:
+            if cls.gate is not None:
+                cls.gate.wait(10)
+        finally:
+            cls.in_flight -= 1
+        return False, 'within interval'
+
+    def run_due(self, _trigger, **_kwargs):
+        raise AssertionError('run_due must not run when not due')
+
+
+def test_runner_re_drives_the_check_while_session_stays_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """REV42: a long-lived session must keep evaluating, not just once per launch."""
+    app = _app()
+    _CountingScheduler.evaluate_calls = 0
+    monkeypatch.setattr(
+        runner_module, 'AutomaticBackupScheduler', _CountingScheduler
+    )
+    runner = AutomaticBackupRunner(tmp_path, periodic_interval_ms=25)
+    runner.start()
+    done: list = []
+    import time
+
+    deadline = time.monotonic() + 30
+    while (
+        _CountingScheduler.evaluate_calls < 3 and time.monotonic() < deadline
+    ):
+        app.processEvents()
+        time.sleep(0.01)
+    runner.shutdown()
+    assert _CountingScheduler.evaluate_calls >= 3
+    assert _CountingScheduler.run_calls == 0
+
+
+def test_runner_never_overlaps_an_in_flight_check(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """REV42: a tick landing mid-job must be absorbed, not queued on top."""
+    import threading
+    import time
+
+    app = _app()
+    _SlowDueScheduler.in_flight = 0
+    _SlowDueScheduler.max_in_flight = 0
+    _SlowDueScheduler.gate = threading.Event()
+    monkeypatch.setattr(
+        runner_module, 'AutomaticBackupScheduler', _SlowDueScheduler
+    )
+    runner = AutomaticBackupRunner(tmp_path, periodic_interval_ms=20)
+    runner.start()
+    # Let several ticks fire against the blocked first evaluation.
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    _SlowDueScheduler.gate.set()
+    deadline = time.monotonic() + 30
+    while _SlowDueScheduler.in_flight and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    runner.shutdown()
+    assert _SlowDueScheduler.max_in_flight == 1
+
+
+def test_runner_stops_ticking_after_shutdown(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _app()
+    _CountingScheduler.evaluate_calls = 0
+    monkeypatch.setattr(
+        runner_module, 'AutomaticBackupScheduler', _CountingScheduler
+    )
+    runner = AutomaticBackupRunner(tmp_path, periodic_interval_ms=20)
+    runner.start()
+    runner.shutdown()
+    import time
+
+    app.processEvents()
+    time.sleep(0.2)
+    app.processEvents()
+    assert _CountingScheduler.evaluate_calls <= 1
+
+
 def test_runner_creates_a_real_generation_when_due(tmp_path: Path) -> None:
     """End-to-end: a real data dir with no backups must get one."""
     app = _app()

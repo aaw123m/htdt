@@ -46,6 +46,7 @@ _CATEGORY_LABELS: dict[PreferenceCategory, str] = {
     PreferenceCategory.COMPUTE: "計算",
     PreferenceCategory.FILES_EXPORT: "ファイルと出力",
     PreferenceCategory.DIAGNOSTICS: "診断",
+    PreferenceCategory.MAINTENANCE: "メンテナンス",
 }
 
 
@@ -71,6 +72,7 @@ _PREFERENCE_LABELS: dict[str, str] = {
     'integrations.rew_watch_dir': 'REWテキストの監視フォルダー',
     'integrations.rew_install_path': 'REWのインストール場所',
     'integrations.capture_receiver_enabled': 'キャプチャレシーバーを有効化',
+    'integrations.capture_watch_dir': 'キャプチャバンドルの監視フォルダー',
     'compute.preferred_backend': '実行バックエンドの優先順位',
     'compute.max_concurrency': '長時間ジョブの最大並行数',
     'compute.scratch_dir': '作業フォルダー',
@@ -78,6 +80,7 @@ _PREFERENCE_LABELS: dict[str, str] = {
     'files.export_dir': 'エクスポート先フォルダー',
     'files.portable_bundle_include_libraries': 'バンドルにライブラリ定義を含める',
     'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子を含める',
+    'maintenance.storage_watch_enabled': 'ストレージの定期スキャン',
 }
 
 
@@ -101,6 +104,7 @@ _PREFERENCE_DESCRIPTIONS: dict[str, str] = {
     'integrations.rew_watch_dir': 'このフォルダーに保存されたREWテキスト(.txt/.frd/.mdat)を読み込みキューへ自動追加します（空欄 = 監視しません）。',
     'integrations.rew_install_path': 'REW実行ファイルまたはアプリの場所です（空欄 = 標準のインストール場所を探します）。',
     'integrations.capture_receiver_enabled': 'ネイティブキャプチャレシーバーを有効にします。',
+    'integrations.capture_watch_dir': 'このフォルダーに新しく保存されたキャプチャバンドル(.htdtcapture)を受信ボックスへ自動ステージします（空欄 = 監視しません）。証拠には昇格しません。',
     'compute.preferred_backend': '検証済みの実行バックエンドの中から優先順位を選びます。',
     'compute.max_concurrency': '長時間ジョブのローカル並行数の上限です。',
     'compute.scratch_dir': '作業・キャッシュ領域のルートです（空欄 = データフォルダー既定値）。',
@@ -108,6 +112,7 @@ _PREFERENCE_DESCRIPTIONS: dict[str, str] = {
     'files.export_dir': 'エクスポート・レポートの既定フォルダーです（空欄 = システムのドキュメント）。',
     'files.portable_bundle_include_libraries': 'ポータブルバンドルに再利用可能なライブラリ定義を同梱します。',
     'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子・ハッシュを含めます。',
+    'maintenance.storage_watch_enabled': '起動中に定期的にデータフォルダーを読み取り専用でスキャンし、参照切れや回収可能な未参照ファイルを検出したときだけ通知します（削除はしません）。',
 }
 
 

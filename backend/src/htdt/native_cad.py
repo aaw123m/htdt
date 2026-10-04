@@ -1100,6 +1100,17 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 diagnostics.logger.exception(
                     'automatic backup tick failed to start'
                 )
+            # REV42: the other background lanes the shell drives for the
+            # session's lifetime — the read-only storage integrity scan and
+            # the opt-in .htdtcapture drop-folder watch. Both are quiet
+            # until they have something honest to report.
+            try:
+                application.start_storage_watch()
+                application.start_capture_watch()
+            except Exception:
+                diagnostics.logger.exception(
+                    'background watch lanes failed to start'
+                )
         if capture_receiver is not None:
             start_error = capture_receiver.start_if_requested()
             if start_error:

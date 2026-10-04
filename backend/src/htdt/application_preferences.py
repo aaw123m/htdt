@@ -47,6 +47,7 @@ class PreferenceCategory(StrEnum):
     COMPUTE = 'compute'
     FILES_EXPORT = 'files_export'
     DIAGNOSTICS = 'diagnostics'
+    MAINTENANCE = 'maintenance'
 
 
 class PreferenceValueType(StrEnum):
@@ -335,6 +336,17 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             default=False,
             description='Enable the native Capture receiver (#593).',
         ),
+        PreferenceDefinition(
+            key='integrations.capture_watch_dir',
+            category=PreferenceCategory.INTEGRATIONS,
+            value_type=PreferenceValueType.PATH,
+            default='',
+            description=(
+                'Folder watched for new .htdtcapture drops; empty disables '
+                'watching. Files present when watching starts are never '
+                'staged (REV42).'
+            ),
+        ),
         # Compute — user policy only; never overrides domain-required bindings
         PreferenceDefinition(
             key='compute.preferred_backend',
@@ -382,6 +394,19 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             value_type=PreferenceValueType.BOOLEAN,
             default=True,
             description='Embed reusable library definitions in portable bundles (#488).',
+        ),
+        # Maintenance — scheduled read-only checks; never destructive
+        PreferenceDefinition(
+            key='maintenance.storage_watch_enabled',
+            category=PreferenceCategory.MAINTENANCE,
+            value_type=PreferenceValueType.BOOLEAN,
+            default=True,
+            description=(
+                'Periodically re-scan the data directory for missing '
+                'referenced files and reclaimable orphans, surfacing only '
+                'reportable results. Read-only: it never deletes anything '
+                '(REV42).'
+            ),
         ),
         # Diagnostics (#604)
         PreferenceDefinition(
