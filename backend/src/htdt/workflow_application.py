@@ -296,6 +296,10 @@ _LAZY_IMPORTS = {
         'build_optimization_workspace_mount',
     ),
     'OverviewWorkspace': ('.overview_workspace', 'OverviewWorkspace'),
+    'PresentationWorkspace': (
+        '.presentation_workspace',
+        'PresentationWorkspace',
+    ),
     'RoomGeometryInputController': (
         '.room_geometry_input',
         'RoomGeometryInputController',
@@ -664,6 +668,7 @@ class WorkflowApplicationComposition:
                 WorkspaceId.ROOM: self._make_room,
                 WorkspaceId.MEASUREMENT: self._make_measurement,
                 WorkspaceId.OPTIMIZATION: self._make_optimization,
+                WorkspaceId.PRESENTATION: self._make_presentation,
             }
         ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
@@ -3038,6 +3043,24 @@ class WorkflowApplicationComposition:
             page.refresh()
 
         return WorkspaceMount.from_widget(page, on_activate=activate)
+
+    def _make_presentation(self) -> WorkspaceMount:
+        _self = sys.modules[__name__]
+        page = _self.PresentationWorkspace(
+            self.repository,
+            self.document_id,
+            navigate=self._navigate_target,
+        )
+
+        def activate() -> None:
+            self._unbind_workspace_commands()
+            page.refresh()
+
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=activate,
+            on_context_changed=page.set_context,
+        )
 
     def _make_room(self) -> WorkspaceMount:
         _self = sys.modules[__name__]

@@ -188,7 +188,7 @@ class WorkspaceRouter(QStackedWidget):
                 sorted(item.value for item in PROJECT_WORKSPACE_IDS - set(self._registrations))
             )
             raise ValueError(
-                f"workflow router requires the four canonical project workspaces; missing: {missing}"
+                f"workflow router requires the canonical project workspaces; missing: {missing}"
             )
         self._mounts: dict[DestinationId, WorkspaceMount] = {}
         self._current_workspace_id: DestinationId | None = None
@@ -793,7 +793,7 @@ class WorkflowShellWindow(QMainWindow):
                 sorted(item.value for item in PROJECT_WORKSPACE_IDS - set(self._registrations))
             )
             raise ValueError(
-                f"workflow shell requires the four canonical project workspaces; missing: {missing}"
+                f"workflow shell requires the canonical project workspaces; missing: {missing}"
             )
 
         self._navigation_history = NavigationHistory()

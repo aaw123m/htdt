@@ -74,7 +74,7 @@ def test_workflow_shell_routes_canonical_workspaces_lazily() -> None:
     window = WorkflowShellWindow(_registrations(factory))
     app.processEvents()
 
-    assert window.navigation_labels == ("概要", "部屋", "測定", "最適化")
+    assert window.navigation_labels == ("概要", "部屋", "測定", "最適化", "プレゼン")
     assert window.current_workspace_id is WorkspaceId.OVERVIEW
     assert created == [WorkspaceId.OVERVIEW]
 
@@ -320,7 +320,7 @@ def test_settings_utility_emits_without_becoming_a_workspace() -> None:
 
     assert events == ["settings"]
     assert window.current_workspace_id is WorkspaceId.OVERVIEW
-    assert window.navigation_labels == ("概要", "部屋", "測定", "最適化")
+    assert window.navigation_labels == ("概要", "部屋", "測定", "最適化", "プレゼン")
     window.close()
     window.deleteLater()
     app.processEvents()
