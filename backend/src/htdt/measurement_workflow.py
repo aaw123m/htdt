@@ -300,8 +300,9 @@ class MeasurementView:
     quality_checks: tuple[MeasurementCheckView, ...]
     # Report summary state: 'current' binds the exact dataset, 'stale' means a
     # report exists but is pinned to a different dataset, 'missing' means no
-    # report exists for this measurement.
-    quality_report_state: Literal['current', 'stale', 'missing']
+    # report exists for this measurement, 'error' means a report exists but
+    # its replay re-verification failed (detail in ``report_error``).
+    quality_report_state: Literal['current', 'stale', 'missing', 'error']
     quality_profile_version: str | None
     quality_report_created_at: str | None
     # Retake authority: recommendation/reasons plus structured guidance on
@@ -359,6 +360,10 @@ class MeasurementView:
     # measurement is visible and unusable rather than crashing the whole
     # listing; None means the bound dataset read cleanly or never existed.
     dataset_error: str | None = None
+    # Authoritative-read failure for the bound quality report — isolated
+    # per row like ``dataset_error`` so one corrupt report cannot take the
+    # listing down.
+    report_error: str | None = None
 
     @property
     def is_selected(self) -> bool:
@@ -1370,7 +1375,10 @@ class MeasurementWorkflowController:
             timing_capability: CadMeasurementCapability | None = None
             capabilities: tuple[CadMeasurementCapability, ...] = ()
             checks: tuple[MeasurementCheckView, ...] = ()
-            report_state: Literal['current', 'stale', 'missing'] = 'missing'
+            report_state: Literal[
+                'current', 'stale', 'missing', 'error'
+            ] = 'missing'
+            report_error: str | None = None
             profile_version: str | None = None
             report_created_at: str | None = None
             retake_recommendation: RetakeRecommendation | None = None
@@ -1387,9 +1395,21 @@ class MeasurementWorkflowController:
                 # alone authorize only phase-response inspection; they never
                 # imply a common timing reference, so without a report common
                 # timing fails closed at UNKNOWN.
-                report = self._latest_report_for(
-                    record.measurement_id, reports, report_errors
-                )
+                try:
+                    report = self._latest_report_for(
+                        record.measurement_id, reports, report_errors
+                    )
+                except Exception as exc:
+                    # A corrupt report must isolate like a corrupt dataset:
+                    # flag the row instead of crashing the whole listing.
+                    _LOGGER.warning(
+                        'quality report re-verification failed for %s: %r',
+                        record.measurement_id,
+                        exc,
+                    )
+                    report = None
+                    report_state = 'error'
+                    report_error = operation_error_message(exc)
                 if report is not None and report.dataset_id == dataset.dataset_id:
                     phase_capability = gate_measurement_claim(report, "phase_response")
                     timing_capability = gate_measurement_claim(report, "common_timing")
@@ -1426,14 +1446,23 @@ class MeasurementWorkflowController:
             elif dataset_error is not None:
                 # A persisted report cannot bind the dataset while the
                 # dataset itself fails verification — report it as stale
-                # rather than silently 'missing'.
-                if (
-                    self._latest_report_for(
+                # rather than silently 'missing'. A report that cannot be
+                # re-verified at all is 'error', likewise not 'missing'.
+                try:
+                    unverifiable_report = self._latest_report_for(
                         record.measurement_id, reports, report_errors
                     )
-                    is not None
-                ):
-                    report_state = 'stale'
+                except Exception as exc:
+                    _LOGGER.warning(
+                        'quality report re-verification failed for %s: %r',
+                        record.measurement_id,
+                        exc,
+                    )
+                    report_state = 'error'
+                    report_error = operation_error_message(exc)
+                else:
+                    if unverifiable_report is not None:
+                        report_state = 'stale'
 
             superseded_by = lineage_children.get(record.measurement_id)
             supersedes = lineage_parents.get(record.measurement_id)
@@ -1464,6 +1493,7 @@ class MeasurementWorkflowController:
                     capabilities=capabilities,
                     quality_checks=checks,
                     quality_report_state=report_state,
+                    report_error=report_error,
                     quality_profile_version=profile_version,
                     quality_report_created_at=report_created_at,
                     retake_recommendation=retake_recommendation,
