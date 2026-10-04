@@ -1852,9 +1852,20 @@ class MeasurementPageWorkspace(QWidget):
                 "REW監視フォルダーが見つかりません。設定の「REWテキストの監視フォルダー」を確認してください。",
             )
         else:
-            # Whatever transient condition produced an auto notice is gone
-            # — let it fire again the next time it appears.
-            self._rew_auto_notice_keys.clear()
+            # A resolved or merely quiet tick clears every key except
+            # 'needs_scene' while no scene exists: a re-queued watch file
+            # alternates delivery/non-delivery ticks, and clearing on the
+            # quiet tick re-shouts the warning every other poll (REV41
+            # e2e finding). Other keys re-arm the next time their
+            # condition actually appears.
+            try:
+                self.controller.latest_revision()
+            except Exception:
+                self._rew_auto_notice_keys.intersection_update(
+                    {'needs_scene'}
+                )
+            else:
+                self._rew_auto_notice_keys.clear()
 
     def _auto_notice_once(self, key: str, message: str) -> None:
         """Show a persistent auto-poll warning once per condition run.

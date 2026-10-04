@@ -359,6 +359,44 @@ def test_watch_dir_drop_before_scene_stages_after_save(tmp_path: Path) -> None:
         _close(app, workspace)
 
 
+def test_needs_scene_notice_dedupes_across_pending_ticks(
+    tmp_path: Path,
+) -> None:
+    """A re-queued watch file alternates pending/delivery ticks — the
+    no-scene warning must fire once, not every other tick (e2e finding:
+    the else-branch clear re-armed it on each quiet tick)."""
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    prefs = ApplicationPreferenceStore(tmp_path / 'prefs.json')
+    prefs.set('integrations.rew_watch_dir', str(watch))
+    client = _FakeRewClient(rows=[])
+    scene_repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    controller = MeasurementWorkflowController(scene_repository, 'doc-x')
+    workspace = MeasurementPageWorkspace(
+        controller, preferences=prefs
+    )
+    fires: list[str] = []
+    original_set_notice = workspace._set_notice
+
+    def spy(message, *args, **kwargs):
+        if '部屋がありません' in str(message):
+            fires.append(str(message))
+        return original_set_notice(message, *args, **kwargs)
+
+    workspace._set_notice = spy
+    try:
+        workspace.mount_activated()
+        _drain(app, workspace)
+        (watch / 'early.txt').write_text(
+            '* Exported with REW\n20 70\n40 71\n', encoding='utf-8'
+        )
+        _tick(app, workspace, 5)
+        assert len(fires) == 1
+    finally:
+        _close(app, workspace)
+
+
 def test_watch_dir_stage_failure_retries_drop(tmp_path: Path) -> None:
     """A stage failure drops the seen marker so the next scans re-queue
     the file instead of silently losing the drop."""

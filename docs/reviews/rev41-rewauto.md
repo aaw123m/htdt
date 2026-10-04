@@ -16,8 +16,11 @@ drop, drop during the no-scene window, stage-failure retry, `'seat1'`-vs-
 (3) scoped pytest of the REW automation + adjacent navigation/job-safety
 suites.
 
-All five probe scenarios confirmed real defects; nine defects total were
-fixed in this PR with regression coverage.
+All five probe scenarios confirmed real defects; ten defects total were
+fixed in this PR with regression coverage. A real-GUI e2e pass (fake REW
+loopback API + seeded workspaces) then caught one residual defect in the
+fix — the `needs_scene` dedupe re-firing on alternating ticks — which is
+also fixed and regression-pinned.
 
 ## Fixed defects (severity-ranked)
 
@@ -29,7 +32,7 @@ fixed in this PR with regression coverage.
 | 4 | **`'seat1'` bound inside `'seat10'`** — substring matching made a measurement titled `seat10` auto-assign to a target named `seat1` (or collapse ambiguity to the wrong survivor). A confident wrong-seat bind is worse than no bind. Probe-verified. | **Medium** | `_name_within_label` rejects matches where the name touches an ASCII letter/digit/underscore run-on (word-boundary semantics); punctuation and non-ASCII (JA compounds, `seat-a`) still match. |
 | 5 | **`auto_assign_batch_items` raise escaped to `sys.excepthook` every tick** — called unguarded inside the apply; a scene-read error aborted `_apply_rew_auto_result` mid-run (batch staged but no notice, watch path never reached) and surfaced only via the global excepthook. Probe-verified. | **Medium** | `_auto_assign_safely` wraps the call → JA error notice + rows reported as unresolved so the success detail still points at 「割り当て」. |
 | 6 | **Skipped watch files swallowed silently** — `watch_skipped` (oversized/unreadable drops) was collected by the worker and then ignored by the apply — invisible to the operator. | **Medium** | Deduped JA warning notice (`watch_skipped:` key) + skipped count appended to the success detail when a partial batch stages. |
-| 7 | **Persistent auto warnings re-shouted every 15 s tick** — `needs_scene`/`watch_dir_missing` rewrote the same warning every poll, clobbering whatever notice the operator was reading. | **Low** | `_auto_notice_once` keys each persistent condition; the key clears when the condition resolves so it can fire again. |
+| 7 | **Persistent auto warnings re-shouted every poll tick** — `needs_scene`/`watch_dir_missing` rewrote the same warning every ~15 s poll, clobbering whatever notice the operator was reading; and a first-pass keyed dedupe still re-fired `needs_scene` every *other* tick for watch-dir drops (the re-queued file alternates delivery/non-delivery ticks and the quiet tick cleared the key — caught by the e2e run, 20 re-fires logged). | **Low** | `_auto_notice_once` keys each persistent condition; keys clear on a resolved tick — except `needs_scene`, which stays armed while no scene exists so the alternating pending/delivery pattern cannot re-shout it. |
 | 8 | **`pool.start` raise leaked the job key → permanent navigation wedge** — the key was registered in `_rew_auto_job_keys` before `start()`; a raise (e.g. pool shut down) left a phantom auto job → `_user_busy_count` returned −1 (truthy) → navigation permanently blocked by "background processing". | **Low** | `start` is try-wrapped; on raise the key/handler/purpose/latest entries are removed before re-raising. |
 | 9 | **`_user_busy_count` could go transiently negative** — `active_count` drops when the worker thread finishes, before `_job_completed` discards the key on the event loop; a negative result is truthy → spurious navigation block in that window. | **Low** | Clamped `max(0, …)`. |
 | 10 | **Blank error prefix on auto jobs** — the job handler was registered with `''` as its error title, so a poll job failure completed with an untitled error notice. | **Low** | Real JA prefix `REW自動処理に失敗しました`. |
