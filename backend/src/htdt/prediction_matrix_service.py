@@ -62,6 +62,23 @@ class MatrixPresentation:
     reason: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class MatrixCreationPlan:
+    """``create_matrix`` inputs derived from a provider selection.
+
+    When ``problems`` is non-empty the selection cannot produce a spec —
+    the UI surfaces the reasons instead of disabling silently; when empty,
+    every derived input is exactly what the provider authorities pin.
+    """
+
+    source_entity_ids: tuple[str, ...] = ()
+    receiver_ids: tuple[str, ...] = ()
+    frequency_axis_hz: tuple[float, ...] = ()
+    solver_implementation_ref: ExactExternalAuthorityRef | None = None
+    valid_frequency_domain: FrequencyDomain | None = None
+    problems: tuple[str, ...] = ()
+
+
 class PredictionMatrixService:
     """Native product surface for the Prediction Matrix workflow (#986)."""
 
@@ -238,6 +255,130 @@ class PredictionMatrixService:
             ),
         )
         return self.repository.save_spec(spec)
+
+    def creation_plan(
+        self,
+        providers: Mapping[str, LowBandPredictionProvider],
+    ) -> MatrixCreationPlan:
+        """Derive the shared spec inputs a provider selection pins.
+
+        The plan mirrors the checks ``create_matrix`` itself enforces — one
+        shared snapshot/implementation/frequency contract across every
+        selected provider, bound entities present in the current head — so
+        a UI can show *why* a selection cannot produce a spec instead of
+        letting the save call fail opaque. Execution itself always re-runs
+        the authoritative checks inside ``create_matrix``.
+        """
+        revision = self.scene_repository.current_head(self.document_id)
+        problems: list[str] = []
+        if not providers:
+            problems.append('実行プロバイダーが選択されていません。')
+            return MatrixCreationPlan(problems=tuple(problems))
+        entity_ids = {
+            entity.entity_id
+            for entity in revision.document.entities
+        } if revision is not None else set()
+        snapshot_pair: tuple[str, str] | None = None
+        solver_implementation_ref: ExactExternalAuthorityRef | None = None
+        valid_frequency_domain: FrequencyDomain | None = None
+        frequency_axis_hz: tuple[float, ...] | None = None
+        source_entity_ids: list[str] = []
+        receiver_ids: list[str] = []
+        for entity_id, provider in providers.items():
+            bound_entity = (
+                provider.source_identity.source_binding.source_entity_id
+            )
+            if bound_entity != entity_id:
+                problems.append(
+                    f"プロバイダーのソースバインドは{bound_entity}を参照して"
+                    f"います（要求: {entity_id}）"
+                )
+            elif entity_id in source_entity_ids:
+                problems.append(
+                    f"同じソースに複数のプロバイダーが選択されています: "
+                    f"{entity_id}"
+                )
+            else:
+                source_entity_ids.append(entity_id)
+            if entity_id not in entity_ids:
+                problems.append(
+                    f"行列ソースエンティティがシーンに存在しません: "
+                    f"{entity_id}"
+                )
+            authority = provider.current_authority
+            if (
+                revision is not None
+                and authority.scene_content_hash != revision.content_hash
+            ):
+                problems.append(
+                    'プロバイダーのシーン権威が現在のシーンリビジョンと'
+                    '一致しません。再実行してください。'
+                )
+            pair = (
+                authority.acoustic_scene_snapshot_id,
+                authority.acoustic_scene_snapshot_sha256,
+            )
+            if snapshot_pair is None:
+                snapshot_pair = pair
+            elif snapshot_pair != pair:
+                problems.append(
+                    '行列プロバイダーは同一の音響シーンスナップショットを'
+                    '共有しなければなりません'
+                )
+            if solver_implementation_ref is None:
+                solver_implementation_ref = (
+                    authority.solver_implementation_ref
+                )
+            elif (
+                solver_implementation_ref
+                != authority.solver_implementation_ref
+            ):
+                problems.append(
+                    '行列プロバイダーは同一のソルバー実装権威を共有しなけれ'
+                    'ばなりません'
+                )
+            if valid_frequency_domain is None:
+                valid_frequency_domain = provider.valid_frequency_domain
+            elif (
+                valid_frequency_domain != provider.valid_frequency_domain
+            ):
+                problems.append(
+                    '行列プロバイダーは同一の有効周波数帯域を共有しなけれ'
+                    'ばなりません'
+                )
+            for response in provider.receiver_responses:
+                axis = tuple(float(v) for v in response.frequency_hz)
+                if frequency_axis_hz is None:
+                    frequency_axis_hz = axis
+                elif frequency_axis_hz != axis:
+                    problems.append(
+                        '行列プロバイダーは同一の周波数軸を共有しなければ'
+                        'なりません'
+                    )
+            for identity in provider.receiver_identities:
+                receiver_id = identity.receiver_binding.receiver_id
+                if receiver_id not in receiver_ids:
+                    receiver_ids.append(receiver_id)
+        if revision is None:
+            problems.append(
+                '行列を作成するシーンリビジョンがありません。'
+            )
+        if problems:
+            return MatrixCreationPlan(
+                source_entity_ids=tuple(dict.fromkeys(source_entity_ids)),
+                receiver_ids=tuple(receiver_ids),
+                frequency_axis_hz=frequency_axis_hz or (),
+                solver_implementation_ref=solver_implementation_ref,
+                valid_frequency_domain=valid_frequency_domain,
+                problems=tuple(dict.fromkeys(problems)),
+            )
+        return MatrixCreationPlan(
+            source_entity_ids=tuple(dict.fromkeys(source_entity_ids)),
+            receiver_ids=tuple(receiver_ids),
+            frequency_axis_hz=frequency_axis_hz or (),
+            solver_implementation_ref=solver_implementation_ref,
+            valid_frequency_domain=valid_frequency_domain,
+        )
 
     # ------------------------------------------------------------------
     # Execution

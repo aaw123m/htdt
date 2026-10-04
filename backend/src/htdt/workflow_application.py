@@ -290,6 +290,10 @@ _LAZY_IMPORTS = {
         'RoomPredictionController',
     ),
     'RoomPredictionPanel': ('.room_prediction', 'RoomPredictionPanel'),
+    'PredictionAuthorityLane': (
+        '.cad_prediction_registration',
+        'PredictionAuthorityLane',
+    ),
     'RoomAcousticsTabs': ('.room_acoustics_panel', 'RoomAcousticsTabs'),
     'RoomTreatmentPanel': ('.room_acoustics_panel', 'RoomTreatmentPanel'),
     'SurfaceMaterialPanel': ('.room_acoustics_panel', 'SurfaceMaterialPanel'),
@@ -2897,12 +2901,19 @@ class WorkflowApplicationComposition:
         workspace.optimizeRequested.connect(
             lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
         )
+        # REV44: the persisted solver-stack lane — provider reads and the
+        # management dialog both re-verify through it against the shared
+        # content-addressed authority store under the data dir.
+        prediction_lane = _self.PredictionAuthorityLane(self.repository)
         prediction = _self.RoomPredictionController(
             self.repository,
             workspace.controller,
             parent=workspace,
+            provider_repository=prediction_lane.provider_repository,
         )
-        prediction_panel = _self.RoomPredictionPanel(prediction)
+        prediction_panel = _self.RoomPredictionPanel(
+            prediction, prediction_lane=prediction_lane
+        )
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
         # #876/REV36: persisted R150 path artifacts replay into ranked
