@@ -4524,6 +4524,15 @@ class MeasurementPageWorkspace(QWidget):
         health_layout.addWidget(self.health_button)
         record_row.addWidget(health_card, 1)
 
+        preset_card, preset_layout = _card("運用プリセット", host)
+        self.preset_summary = QLabel("プリセットなし", preset_card)
+        self.preset_summary.setWordWrap(True)
+        preset_layout.addWidget(self.preset_summary)
+        self.preset_button = QPushButton("プリセットを記録…", preset_card)
+        self.preset_button.clicked.connect(self._open_preset_dialog)
+        preset_layout.addWidget(self.preset_button)
+        record_row.addWidget(preset_card, 1)
+
         layout.addLayout(record_row)
         layout.addStretch(1)
         self.pages.addWidget(page)
@@ -5201,9 +5210,23 @@ class MeasurementPageWorkspace(QWidget):
         dialog.exec()
         self._refresh_record_surfaces()
 
+    def _open_preset_dialog(self) -> None:
+        from .measurement_record_surfaces import OperatingPresetRecordDialog
+
+        dialog = OperatingPresetRecordDialog(
+            scene_repository=self.controller.scene_repository,
+            document_id=self.controller.document_id,
+            parent=self,
+        )
+        dialog.exec()
+        self._refresh_record_surfaces()
+
     def _refresh_record_surfaces(self) -> None:
-        """Summarize persisted AV-sync + health state on the quality cards."""
+        """Summarize persisted record-entry state on the quality cards."""
         from .cad_av_sync_repository import CadAVSyncRepository
+        from .cad_operating_preset_repository import (
+            CadOperatingPresetRepository,
+        )
         from .cad_system_health_repository import CadSystemHealthRepository
 
         try:
@@ -5244,6 +5267,24 @@ class MeasurementPageWorkspace(QWidget):
                 self.health_summary.setText("ベースラインなし")
         except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
             self.health_summary.setText("確認できません")
+        try:
+            presets = CadOperatingPresetRepository(
+                self.controller.scene_repository
+            )
+            preset_rows = presets.list_presets(self.controller.document_id)
+            applied = [
+                row
+                for preset in preset_rows
+                for row in presets.list_applied_states(preset.preset_id)
+            ]
+            if preset_rows:
+                self.preset_summary.setText(
+                    f"プリセット {len(preset_rows)}件 · 適用記録 {len(applied)}件"
+                )
+            else:
+                self.preset_summary.setText("プリセットなし")
+        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+            self.preset_summary.setText("確認できません")
 
     # ------------------------------------------------------------------
     # Comparison page

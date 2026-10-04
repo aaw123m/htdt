@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -65,6 +66,11 @@ from .cad_av_sync import (
 from .cad_av_sync_repository import CadAVSyncRepository
 from .cad_measurement_quality import measurement_sha256
 from .cad_measurement_repository import CadMeasurementRepository
+from .cad_operating_preset import (
+    PresetProvenanceItem,
+    build_operating_preset,
+    record_applied_preset_state,
+)
 from .cad_operating_preset_repository import CadOperatingPresetRepository
 from .cad_prediction_repository import CadPredictionRepository
 from .cad_repository import SceneRepository
@@ -1553,7 +1559,330 @@ class HealthCheckDialog(QDialog):
             self.run_results.addTopLevelItem(item)
 
 
+# ----------------------------------------------------------------------
+# REV44-STAGED: operating-preset record entry
+#
+# ``save_preset`` / ``save_applied_state`` had live readers (the health
+# dialog's preset picks, the ``operating_preset_created`` /
+# ``operating_preset_applied`` activity events, preset pins inside health
+# baselines) but no production writer — every list stayed empty. This
+# dialog records only operator-declared state: a preset is an exact named
+# configuration pinned to the current scene head, and an applied state is
+# the operator's confirmation that the real devices matched it at a time.
+
+_PRESET_CATEGORY_JA = {
+    'movie': '映画',
+    'music': '音楽',
+    'game': 'ゲーム',
+    'night': '夜間',
+    'custom': 'カスタム',
+}
+
+_DECLARED_INPUT_JA = {
+    'stereo_pcm': 'ステレオPCM',
+    'channel_5_1': '5.1ch',
+    'channel_7_1': '7.1ch',
+    'object_audio': 'オブジェクトオーディオ',
+    'game_low_latency': 'ゲーム低遅延',
+    'unknown': '不明',
+}
+
+
+class OperatingPresetRecordDialog(QDialog):
+    """Register ``TheaterOperatingPreset`` rows and record applied states."""
+
+    def __init__(
+        self,
+        *,
+        scene_repository: SceneRepository,
+        document_id: str,
+        preset_repository: CadOperatingPresetRepository | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.scene_repository = scene_repository
+        self.document_id = document_id
+        self.preset_repository = (
+            preset_repository or CadOperatingPresetRepository(scene_repository)
+        )
+        self._head = None
+
+        self.setWindowTitle('運用プリセットの記録')
+        self.setMinimumWidth(680)
+        layout = QVBoxLayout(self)
+
+        self.tabs = QTabWidget(self)
+        layout.addWidget(self.tabs)
+        self.tabs.addTab(self._build_register_tab(), 'プリセット登録')
+        self.tabs.addTab(self._build_apply_tab(), '適用の記録')
+
+        self.status_label = QLabel('')
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, self)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.reload()
+
+    # -- tab: register ------------------------------------------------------
+
+    def _build_register_tab(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+
+        layout.addWidget(_section_title('登録済みプリセット', page))
+        self.presets = QTreeWidget(page)
+        self.presets.setHeaderLabels(
+            ['名前', 'カテゴリ', '入力', '機器モード', '登録日時']
+        )
+        self.presets.setRootIsDecorated(False)
+        self.presets.setMinimumHeight(110)
+        layout.addWidget(self.presets)
+
+        layout.addWidget(_section_title('プリセットを登録', page))
+        pin_form = QFormLayout()
+        self.scene_pin_label = QLabel(pin_form.parentWidget())
+        self.scene_pin_label.setWordWrap(True)
+        pin_form.addRow('シーン', self.scene_pin_label)
+        layout.addLayout(pin_form)
+
+        form = QFormLayout()
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText('例: 映画（夜間）')
+        form.addRow('名前（必須）', self.name_edit)
+        self.category_combo = QComboBox()
+        for value, label in _PRESET_CATEGORY_JA.items():
+            self.category_combo.addItem(label, value)
+        form.addRow('カテゴリ', self.category_combo)
+        self.input_combo = QComboBox()
+        for value, label in _DECLARED_INPUT_JA.items():
+            self.input_combo.addItem(label, value)
+        self.input_combo.setCurrentIndex(len(_DECLARED_INPUT_JA) - 1)
+        form.addRow('再生入力', self.input_combo)
+        self.device_mode_edit = QLineEdit()
+        self.device_mode_edit.setPlaceholderText('例: Movie、Pure Direct')
+        form.addRow('機器モード', self.device_mode_edit)
+        level_row = QHBoxLayout()
+        self.level_enabled_check = QCheckBox('再生レベルを指定', page)
+        self.level_spin = QDoubleSpinBox()
+        self.level_spin.setRange(-80.0, 20.0)
+        self.level_spin.setDecimals(1)
+        self.level_spin.setValue(-20.0)
+        self.level_spin.setSuffix(' dB')
+        self.level_spin.setEnabled(False)
+        self.level_enabled_check.toggled.connect(self.level_spin.setEnabled)
+        level_row.addWidget(self.level_enabled_check)
+        level_row.addWidget(self.level_spin)
+        level_row.addStretch(1)
+        level_host = QWidget()
+        level_host.setLayout(level_row)
+        form.addRow('公称再生レベル', level_host)
+        self.purpose_edit = QLineEdit()
+        self.purpose_edit.setPlaceholderText('例: 深夜は低レベルで映画を観る')
+        form.addRow('用途メモ', self.purpose_edit)
+        layout.addLayout(form)
+
+        self.register_button = QPushButton('プリセットを登録', page)
+        self.register_button.clicked.connect(self._register_preset)
+        layout.addWidget(self.register_button)
+        layout.addStretch(1)
+        return page
+
+    # -- tab: applied state -------------------------------------------------
+
+    def _build_apply_tab(self) -> QWidget:
+        page = QWidget(self)
+        layout = QVBoxLayout(page)
+
+        layout.addWidget(_section_title('適用の記録済み一覧', page))
+        self.applied_states = QTreeWidget(page)
+        self.applied_states.setHeaderLabels(
+            ['プリセット', '確認日時', '機器状態', 'メモ']
+        )
+        self.applied_states.setRootIsDecorated(False)
+        self.applied_states.setMinimumHeight(110)
+        layout.addWidget(self.applied_states)
+
+        layout.addWidget(_section_title('適用を記録', page))
+        form = QFormLayout()
+        self.apply_preset_combo = QComboBox()
+        form.addRow('プリセット', self.apply_preset_combo)
+        self.device_context_edit = QLineEdit()
+        self.device_context_edit.setPlaceholderText(
+            '例: AVR=Movieモード、サブウーファーON'
+        )
+        form.addRow('確認時の機器状態', self.device_context_edit)
+        self.deviation_edit = QLineEdit()
+        self.deviation_edit.setPlaceholderText(
+            '例: センターレベルを+1dBに変更（任意）'
+        )
+        form.addRow('プリセットとの差異', self.deviation_edit)
+        self.note_edit = QLineEdit()
+        form.addRow('メモ', self.note_edit)
+        layout.addLayout(form)
+
+        self.apply_button = QPushButton('適用を記録', page)
+        self.apply_button.clicked.connect(self._record_applied_state)
+        layout.addWidget(self.apply_button)
+        layout.addStretch(1)
+        return page
+
+    # -- refresh -----------------------------------------------------------
+
+    def reload(self) -> None:
+        """Re-list persisted presets/applied states + refresh the scene pin."""
+        head = self.scene_repository.current_head(self.document_id)
+        self._head = head
+        if head is None:
+            self.scene_pin_label.setText('（保存済みの部屋がありません）')
+            self.register_button.setEnabled(False)
+        else:
+            self.scene_pin_label.setText(
+                f'{_short(head.revision_id)} · ハッシュ {_short(head.content_hash)}'
+            )
+            self.register_button.setEnabled(True)
+
+        self.presets.clear()
+        presets = self.preset_repository.list_presets(self.document_id)
+        for preset in presets:
+            item = QTreeWidgetItem(
+                [
+                    preset.name,
+                    _PRESET_CATEGORY_JA.get(preset.category, preset.category),
+                    _DECLARED_INPUT_JA.get(
+                        preset.declared_input, preset.declared_input
+                    ),
+                    preset.declared_device_mode or '—',
+                    preset.created_at_utc[:19],
+                ]
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, preset)
+            self.presets.addTopLevelItem(item)
+        if self.presets.topLevelItemCount() == 0:
+            empty = QTreeWidgetItem(['（登録なし）', '', '', '', ''])
+            empty.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.presets.addTopLevelItem(empty)
+
+        names = {preset.preset_id: preset.name for preset in presets}
+        self.applied_states.clear()
+        applied_rows = [
+            applied
+            for preset in presets
+            for applied in self.preset_repository.list_applied_states(
+                preset.preset_id
+            )
+        ]
+        for applied in applied_rows:
+            deviation = next(
+                (item.value for item in applied.deviations), ''
+            )
+            item = QTreeWidgetItem(
+                [
+                    names.get(applied.preset_id, _short(applied.preset_id)),
+                    applied.confirmed_at_utc[:19],
+                    applied.device_context or '—',
+                    deviation or applied.note or '—',
+                ]
+            )
+            self.applied_states.addTopLevelItem(item)
+        if self.applied_states.topLevelItemCount() == 0:
+            empty = QTreeWidgetItem(['（記録なし）', '', '', ''])
+            empty.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.applied_states.addTopLevelItem(empty)
+
+        self.apply_preset_combo.clear()
+        for preset in presets:
+            self.apply_preset_combo.addItem(preset.name, preset)
+        self.apply_button.setEnabled(bool(presets))
+        if not presets:
+            self.apply_preset_combo.addItem('（プリセット未登録）', None)
+
+    # -- writes -------------------------------------------------------------
+
+    def _register_preset(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            self.status_label.setText('プリセット名を入力してください。')
+            return
+        if self._head is None:
+            self.status_label.setText(
+                '保存済みの部屋がないため、プリセットを登録できません。'
+            )
+            return
+        device_mode = self.device_mode_edit.text().strip() or None
+        purpose = self.purpose_edit.text().strip() or None
+        level = (
+            self.level_spin.value() if self.level_enabled_check.isChecked()
+            else None
+        )
+        try:
+            preset = build_operating_preset(
+                document_id=self.document_id,
+                name=name,
+                scene_revision_id=self._head.revision_id,
+                scene_content_hash=self._head.content_hash,
+                category=self.category_combo.currentData(),
+                purpose_note=purpose,
+                declared_input=self.input_combo.currentData(),
+                declared_device_mode=device_mode,
+                nominal_playback_level_db=level,
+                provenance=(
+                    PresetProvenanceItem(
+                        key='recorded_via',
+                        value='運用プリセット記録ダイアログ',
+                    ),
+                ),
+                created_at_utc=_utc_now(),
+            )
+            self.preset_repository.save_preset(preset)
+        except Exception as exc:  # noqa: BLE001
+            self.status_label.setText(
+                f'プリセットを登録できませんでした: {exc}'
+            )
+            return
+        self.status_label.setText(f'プリセット「{name}」を登録しました。')
+        self.name_edit.clear()
+        self.reload()
+
+    def _record_applied_state(self) -> None:
+        preset = self.apply_preset_combo.currentData()
+        if preset is None:
+            self.status_label.setText(
+                '適用を記録するには、先にプリセットを登録してください。'
+            )
+            return
+        deviations = ()
+        deviation_text = self.deviation_edit.text().strip()
+        if deviation_text:
+            deviations = (
+                PresetProvenanceItem(
+                    key='operator_deviation', value=deviation_text
+                ),
+            )
+        try:
+            applied = record_applied_preset_state(
+                preset,
+                confirmed_at_utc=_utc_now(),
+                device_context=self.device_context_edit.text().strip() or None,
+                deviations=deviations,
+                note=self.note_edit.text().strip() or None,
+            )
+            self.preset_repository.save_applied_state(applied)
+        except Exception as exc:  # noqa: BLE001
+            self.status_label.setText(f'適用を記録できませんでした: {exc}')
+            return
+        self.status_label.setText(
+            f'「{preset.name}」の適用を記録しました。'
+        )
+        self.deviation_edit.clear()
+        self.note_edit.clear()
+        self.reload()
+
+
 __all__ = [
     'AVSyncRecordDialog',
     'HealthCheckDialog',
+    'OperatingPresetRecordDialog',
 ]

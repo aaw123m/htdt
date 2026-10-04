@@ -39,6 +39,11 @@ from PySide6.QtWidgets import (
 
 from .cad_acoustic_treatment_repository import CadAcousticTreatmentRepository
 from .cad_display_labels import measurement_claim_label
+from .cad_equipment_binding_repository import CadEquipmentBindingRepository
+from .cad_equipment_repository import CadEquipmentRepository
+from .cad_installation_context_repository import (
+    CadInstallationContextRepository,
+)
 from .cad_intervention_study import (
     InterventionAlternative,
     InterventionFamily,
@@ -133,6 +138,15 @@ class InterventionPlannerPanel(QFrame):
         self.service = service
         self.treatment_repository = CadAcousticTreatmentRepository(
             planner.scene_repository
+        )
+        self.equipment_repository = CadEquipmentRepository(
+            planner.scene_repository
+        )
+        self.binding_repository = CadEquipmentBindingRepository(
+            planner.scene_repository, self.equipment_repository
+        )
+        self.context_repository = CadInstallationContextRepository(
+            planner.scene_repository, self.equipment_repository
         )
         self._on_status = on_status or (lambda _text: None)
         self._on_navigate = on_navigate
@@ -238,6 +252,28 @@ class InterventionPlannerPanel(QFrame):
         self.create_button.clicked.connect(self._create_study)
         create_layout.addWidget(self.create_button)
         layout.addWidget(create)
+
+        # REV44-STAGED: the 概要 installation domain deep-links here — the
+        # record-entry surface for equipment bindings + installation
+        # contexts belongs on this page so the card becomes actionable.
+        install = QFrame()
+        set_surface_role(install, SurfaceRole.RAISED)
+        install_layout = QHBoxLayout(install)
+        install_layout.setContentsMargins(14, 10, 14, 10)
+        install_layout.setSpacing(10)
+        self.install_summary = _secondary("設置状況を読み込み中…")
+        install_layout.addWidget(self.install_summary, 1)
+        self.install_button = QPushButton("機材・設置を記録…")
+        set_control_size(self.install_button, ControlSize.STANDARD)
+        self.install_button.setToolTip(
+            "スピーカーの機材バインドと設置コンテキストを記録します。"
+            "記録済みの情報は概要カードと音源解決に反映されます。"
+        )
+        self.install_button.clicked.connect(
+            self._open_installation_dialog
+        )
+        install_layout.addWidget(self.install_button)
+        layout.addWidget(install)
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         study_frame = QFrame()
@@ -351,6 +387,54 @@ class InterventionPlannerPanel(QFrame):
         )
         self._refresh_family_gates(baseline)
         self._reload_studies()
+        self._refresh_install_summary(head)
+
+    def _refresh_install_summary(self, head) -> None:
+        """Summarize per-speaker binding/context records on the card."""
+        if head is None:
+            self.install_summary.setText(
+                "保存済みの部屋がありません。"
+            )
+            return
+        speakers = [
+            entity
+            for entity in head.document.entities
+            if entity.kind == 'speaker'
+        ]
+        bound = 0
+        installed = 0
+        for entity in speakers:
+            if self.binding_repository.get_binding_for_entity(
+                self.planner.document_id, entity.entity_id
+            ) is not None:
+                bound += 1
+            if self.context_repository.get_context_for_entity(
+                self.planner.document_id, entity.entity_id
+            ) is not None:
+                installed += 1
+        if not speakers:
+            self.install_summary.setText(
+                "スピーカーがありません — 部屋にスピーカーを配置してください。"
+            )
+        else:
+            self.install_summary.setText(
+                f"スピーカー {len(speakers)}台 · "
+                f"バインド {bound}件 · 設置 {installed}件"
+            )
+
+    def _open_installation_dialog(self) -> None:
+        from .installation_record_surfaces import InstallationRecordDialog
+
+        dialog = InstallationRecordDialog(
+            scene_repository=self.planner.scene_repository,
+            document_id=self.planner.document_id,
+            equipment_repository=self.equipment_repository,
+            binding_repository=self.binding_repository,
+            context_repository=self.context_repository,
+            parent=self,
+        )
+        dialog.exec()
+        self.refresh()
 
     def _refresh_family_gates(self, baseline) -> None:
         reasons: list[str] = []
