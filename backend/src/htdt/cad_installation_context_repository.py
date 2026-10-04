@@ -139,6 +139,33 @@ class CadInstallationContextRepository:
             )
         )
 
+    def list_contexts_for_entity(
+        self,
+        document_id: str,
+        entity_id: str,
+    ) -> tuple[SpeakerInstallationContext, ...]:
+        """Every persisted context for one entity, oldest first.
+
+        The registry is append-only: each save is a new authority record, so
+        the honest list shows the whole chain rather than collapsing to the
+        latest revision consumers resolve.
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT payload_json FROM cad_installation_contexts
+                WHERE document_id=? AND entity_id=?
+                ORDER BY seq ASC
+                """,
+                (document_id, entity_id),
+            ).fetchall()
+        return tuple(
+            SpeakerInstallationContext.model_validate_json(
+                row['payload_json']
+            )
+            for row in rows
+        )
+
     def evaluate_for_entity(
         self,
         document_id: str,
