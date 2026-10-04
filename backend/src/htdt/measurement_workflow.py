@@ -1610,6 +1610,18 @@ class MeasurementWorkflowController:
             return None
         return result.report
 
+    def reproduce_quality_report(
+        self, measurement_id: str
+    ) -> CadMeasurementQualityReport | None:
+        """Re-derive the quality report after an authority landed (REV44).
+
+        Pinning a dataset level reference (or any new authority the
+        producer resolves) changes the report epoch; callers use this
+        after persisting the authority so the produced report seals the
+        new pin instead of the previous epoch's unresolvable state.
+        """
+        return self._produce_quality_report(measurement_id)
+
     def _latest_report_for(
         self,
         measurement_id: str,
