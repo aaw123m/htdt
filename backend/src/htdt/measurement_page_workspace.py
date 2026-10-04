@@ -265,6 +265,7 @@ def _report_state_label(state: str) -> str:
         "current": "最新",
         "stale": "旧データセットのレポート（再評価が必要です）",
         "missing": "レポートなし",
+        "error": "検証エラー",
     }.get(state, state)
 
 
