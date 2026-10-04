@@ -1525,6 +1525,34 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_prediction_matrix_runs_spec ON cad_prediction_matrix_runs(spec_id, seq ASC)
     """
     ,
+    # Issue #534: local/offline presentation authority — immutable
+    # presentation sessions, client proposals and synchronized A/B
+    # bindings. All three are append-only manifests of references; the
+    # payload carries the full sealed authority.
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_sessions ( session_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, session_sha256 TEXT NOT NULL UNIQUE, status_label TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_sessions_document ON cad_presentation_sessions(document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_proposals ( proposal_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, document_id TEXT NOT NULL, kind TEXT NOT NULL, proposal_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_proposals_session ON cad_presentation_proposals(session_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_sync_bindings ( binding_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_sync_bindings_document ON cad_presentation_sync_bindings(document_id, created_at_utc)
+    """
+    ,
     """
     CREATE TABLE IF NOT EXISTS cad_intervention_study_specs ( spec_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, payload_json TEXT NOT NULL, spec_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL )
     """
@@ -2329,6 +2357,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_prediction_provider_objectives',
     'cad_prediction_providers',
     'cad_prediction_results',
+    'cad_presentation_proposals',
+    'cad_presentation_sessions',
+    'cad_presentation_sync_bindings',
     'cad_preset_measurement_bindings',
     'cad_project_boms',
     'cad_project_notes',

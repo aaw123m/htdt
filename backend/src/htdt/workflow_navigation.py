@@ -20,6 +20,9 @@ class WorkspaceId(StrEnum):
     ROOM = "room"
     MEASUREMENT = "measurement"
     OPTIMIZATION = "optimization"
+    # Issue #534: client presentation/review surface — read-only replay
+    # of exact scene authority; never an engineering edit surface.
+    PRESENTATION = "presentation"
 
 
 class ApplicationDestinationId(StrEnum):
@@ -34,9 +37,9 @@ class ApplicationDestinationId(StrEnum):
 
 DestinationId: TypeAlias = WorkspaceId | ApplicationDestinationId
 
-#: The four compact project workspaces that every composition must register.
+#: The compact project workspaces that every composition must register.
 #: Additional registered destinations are allowed — the shell no longer
-#: assumes every user-facing destination is one of exactly these four.
+#: assumes every user-facing destination is one of exactly these.
 PROJECT_WORKSPACE_IDS: frozenset[WorkspaceId] = frozenset(WorkspaceId)
 
 
@@ -162,6 +165,7 @@ CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
     WorkspaceId.ROOM: "部屋",
     WorkspaceId.MEASUREMENT: "測定",
     WorkspaceId.OPTIMIZATION: "最適化",
+    WorkspaceId.PRESENTATION: "プレゼン",
 }
 
 
@@ -172,6 +176,7 @@ CANONICAL_WORKSPACE_HINTS: dict[WorkspaceId, str] = {
     WorkspaceId.ROOM: "部屋の形状・配置・壁材を設定し、音響予測を行います",
     WorkspaceId.MEASUREMENT: "REW等の測定の計画・取り込み・品質確認を行います",
     WorkspaceId.OPTIMIZATION: "スピーカー配置や設定の探索候補を生成し、比較・検証します",
+    WorkspaceId.PRESENTATION: "クライアント向けのプレゼン・レビュー。確定した設計権威のビューポイント再生、A/B比較、オフライン共有パッケージを扱います",
 }
 
 
@@ -219,6 +224,12 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("interventions", "介入計画", "物理的な変更案（スピーカー移動・吸音材追加など）を計画します"),
         WorkspaceContext("robustness", "ばらつき耐性", "候補が実際のばらつき（測定誤差・個体差）に耐えるかを評価します"),
         WorkspaceContext("validation", "測定・検証", "選んだ候補を実測で検証する計画を立てます"),
+    ),
+    WorkspaceId.PRESENTATION: (
+        WorkspaceContext("session", "セッション", "プレゼンセッションとビューポイントを組み立て・再生します"),
+        WorkspaceContext("compare", "A/B比較", "2つの権威を同期カメラで並べてレビューします"),
+        WorkspaceContext("decisions", "決定・提案", "レビュー中の選択・提案・コメントを権威に紐付けて記録します"),
+        WorkspaceContext("export", "出力", "オフラインのレビュー／提案パッケージを生成します"),
     ),
 }
 
