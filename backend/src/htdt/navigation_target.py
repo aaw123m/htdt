@@ -195,8 +195,14 @@ TARGET_KIND_ROUTES: dict[
         (ApplicationDestinationId.SUPPORT, None),
     ),
     NavigationTargetKind.OPERATING_PRESET: (),
-    NavigationTargetKind.HEALTH_BASELINE: (),
-    NavigationTargetKind.HEALTH_CHECK_PLAN: (),
+    NavigationTargetKind.HEALTH_BASELINE: (
+        # Health records live on the measurement quality context
+        # (REV44-HEALTHSYNC) — same host as AV_SYNC_CONDITION below.
+        (WorkspaceId.MEASUREMENT, "quality"),
+    ),
+    NavigationTargetKind.HEALTH_CHECK_PLAN: (
+        (WorkspaceId.MEASUREMENT, "quality"),
+    ),
     NavigationTargetKind.PROJECT_NOTE: (),
     NavigationTargetKind.CALIBRATION_PLAN: (
         # No dedicated calibration surface yet: land on the Measurement

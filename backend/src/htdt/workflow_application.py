@@ -3567,13 +3567,57 @@ class WorkflowApplicationComposition:
                 and workspace.select_measurement_id(target.primary_id)
             ):
                 return TargetFocusResult(focused=True)
+            # REV44-HEALTHSYNC: the AV-sync + health record surfaces live on
+            # this workspace's quality context — verify the linked record
+            # still resolves, then land on the page that hosts it.
+            record_kinds = {
+                NavigationTargetKind.AV_SYNC_CONDITION: '対象のAV同期条件',
+                NavigationTargetKind.HEALTH_BASELINE: '対象のベースライン',
+                NavigationTargetKind.HEALTH_CHECK_PLAN: '対象のチェック計画',
+            }
+            if target.kind in record_kinds:
+                if target.kind is NavigationTargetKind.AV_SYNC_CONDITION:
+                    exists = (
+                        CadAVSyncRepository(self.repository).get_condition(
+                            target.primary_id
+                        )
+                        is not None
+                    )
+                elif target.kind is NavigationTargetKind.HEALTH_BASELINE:
+                    exists = (
+                        CadSystemHealthRepository(self.repository).get_baseline(
+                            target.primary_id
+                        )
+                        is not None
+                    )
+                else:
+                    exists = (
+                        CadSystemHealthRepository(self.repository).get_plan(
+                            target.primary_id
+                        )
+                        is not None
+                    )
+                if not exists:
+                    return TargetFocusResult(
+                        focused=False,
+                        message=f'{record_kinds[target.kind]}が記録にありません',
+                    )
+                workspace.set_context('quality')
+                return TargetFocusResult(focused=True)
             return TargetFocusResult(
                 focused=False,
                 message='対象の測定が品質一覧にありません',
             )
 
         mount.focus_target = focus_target
-        mount.focus_kinds = frozenset({NavigationTargetKind.MEASUREMENT})
+        mount.focus_kinds = frozenset(
+            {
+                NavigationTargetKind.MEASUREMENT,
+                NavigationTargetKind.AV_SYNC_CONDITION,
+                NavigationTargetKind.HEALTH_BASELINE,
+                NavigationTargetKind.HEALTH_CHECK_PLAN,
+            }
+        )
         mount.on_activate = activate
         mount.on_deactivate = deactivate
         return mount
