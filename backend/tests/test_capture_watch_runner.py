@@ -361,3 +361,97 @@ def test_runner_missing_dir_is_not_an_error(tmp_path: Path) -> None:
         time.sleep(0.01)
     runner.shutdown()
     assert batches == []
+
+
+def test_scanner_failed_listing_claims_no_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unreadable first listing must not claim the baseline — the next
+    successful scan still owes it."""
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    _write_bundle_zip(watch, 'old')
+    seen: dict = {}
+    pending: dict = {}
+    real_iterdir = Path.iterdir
+    calls = {'n': 0}
+
+    def flaky(self: Path):
+        if self == watch and calls['n'] == 0:
+            calls['n'] += 1
+            raise OSError('transient unreadable listing')
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, 'iterdir', flaky)
+    assert scan_capture_watch_dir(watch, seen, pending) == []
+    # An unreadable listing is no scan at all — no baseline is claimed.
+    assert seen == {}
+    monkeypatch.setattr(Path, 'iterdir', real_iterdir)
+    # The retry still owes a baseline: the pre-existing file is marked,
+    # never staged; only a real new drop is delivered.
+    assert scan_capture_watch_dir(watch, seen, pending) == []
+    drop = watch / 'new.htdtcapture'
+    drop.write_bytes(b'x')
+    assert scan_capture_watch_dir(watch, seen, pending) == []
+    assert scan_capture_watch_dir(watch, seen, pending) == [drop]
+
+
+def test_scanner_evicts_deleted_markers_and_redelivers_same_signature(
+    tmp_path: Path,
+) -> None:
+    """A deleted file's seen marker is evicted — the map stays bounded and
+    an identical-signature re-drop is delivered again (a copied export
+    preserves mtime+size)."""
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    seen: dict = {}
+    pending: dict = {}
+    scan_capture_watch_dir(watch, seen, pending)  # baseline
+    drop = watch / 'redo.htdtcapture'
+    drop.write_bytes(b'x')
+    assert scan_capture_watch_dir(watch, seen, pending) == []  # pending
+    assert scan_capture_watch_dir(watch, seen, pending) == [drop]
+    stat = drop.stat()
+    drop.unlink()
+    assert scan_capture_watch_dir(watch, seen, pending) == []
+    assert str(drop) not in seen
+    drop.write_bytes(b'x')
+    os.utime(drop, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert scan_capture_watch_dir(watch, seen, pending) == []  # pending
+    assert scan_capture_watch_dir(watch, seen, pending) == [drop]
+
+
+def test_runner_watch_path_change_rebaselines(tmp_path: Path) -> None:
+    """A changed watch path is a new watch epoch: a file dropped into A
+    while B was watched pre-dates A's next epoch and baselines rather
+    than staging."""
+    app = _app()
+    watch_a = tmp_path / 'a'
+    watch_a.mkdir()
+    watch_b = tmp_path / 'b'
+    watch_b.mkdir()
+    prefs = _Prefs(str(watch_a))
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    runner = CaptureWatchRunner(repository, prefs, interval_ms=50)
+    batches: list = []
+    runner.scan_completed.connect(batches.append)
+    runner.start()
+    assert _pump(app, lambda: bool(runner._seen))
+    # Switch to B — new epoch.
+    prefs.watch_dir = str(watch_b)
+    assert _pump(app, lambda: runner._watched_root == watch_b)
+    # While B is watched, drop a file into A — it pre-dates A's next epoch.
+    _write_bundle_zip(watch_a, 'gap')
+    # Switch back to A: cumulative markers would stage the gap file; the
+    # re-baselined epoch marks it instead.
+    prefs.watch_dir = str(watch_a)
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    runner.shutdown()
+    assert batches == []
+    inbox = CaptureInboxRepository(
+        repository, CaptureIngestionRepository(repository)
+    )
+    assert inbox.list_items() == ()

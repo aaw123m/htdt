@@ -6,12 +6,21 @@ file as a launch argument or the bundle is opened by hand. That is the
 same gap ``integrations.rew_watch_dir`` filled for REW text drops, so the
 contract is mirrored deliberately:
 
-- Opt-in: the preference path being empty disables everything.
+- Opt-in: the preference path being empty disables everything; editing it
+  re-baselines the new folder — a changed path starts a new watch epoch,
+  never a cumulative one.
 - Baseline: files that pre-date watching are marked seen, never staged —
   the folder is for *new drops*, not a bulk import of whatever was there.
+  A scan that cannot list the directory at all claims no baseline, so a
+  transient read failure can never convert pre-existing files into
+  "new drops" on the following poll.
 - Settle: a file is only routed once its ``(mtime_ns, size)`` signature
   survives two consecutive scans, so a mid-copy bundle is never read
   truncated.
+- Re-drop: ``seen`` markers for files no longer in the directory are
+  evicted — the map stays bounded by the watched file set, and a file
+  dropped again after deletion is delivered again instead of matching
+  its stale marker (the REW lane's contract, mirrored).
 - Stage, never promote: delivery goes through ``route_capture_intent``
   which ingests the bundle and stages it into the Capture Inbox for
   review — exactly what document-open does — and stamps the honest
@@ -91,19 +100,27 @@ def scan_capture_watch_dir(
     unchanged into the following scan: a file still being copied defers
     instead of routing a truncated bundle. A file delivered but whose
     routing failed can be re-queued by removing its ``seen`` marker.
-    Returns the settled paths ready for ``route_capture_intent``.
+    ``seen`` markers for files no longer in the directory are evicted:
+    the map stays bounded by the watched file set, and a file dropped
+    again after deletion is delivered again instead of matching its
+    stale marker. An unreadable listing is no scan at all — nothing is
+    claimed and the next call still owes a baseline. Returns the settled
+    paths ready for ``route_capture_intent``.
     """
 
     root = Path(directory)
     sentinel = f'\x00scanned:{root}'
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        # Nothing was listed, so nothing was scanned — claiming the
+        # baseline here would let a transient failure stage every
+        # pre-existing file as a "new drop" on the next poll.
+        return []
     first_scan = sentinel not in seen
     seen[sentinel] = (0, 0)
     files: list[Path] = []
     observed: set[str] = set()
-    try:
-        entries = sorted(root.iterdir())
-    except OSError:
-        entries = []
     for entry in entries:
         if (
             not entry.is_file()
@@ -137,6 +154,12 @@ def scan_capture_watch_dir(
         files.append(entry)
     for stale_key in [key for key in pending if key not in observed]:
         del pending[stale_key]
+    for stale_key in [
+        key
+        for key in seen
+        if not key.startswith('\x00scanned:') and key not in observed
+    ]:
+        del seen[stale_key]
     return files
 
 
@@ -178,6 +201,7 @@ class CaptureWatchRunner(QObject):
         # Per-path routing-attempt counts — mutated on the worker only,
         # alongside ``_seen``/``_pending``, so no cross-thread access.
         self._route_failures: dict[str, int] = {}
+        self._watched_root: Path | None = None
         self._in_flight = False
         self._closed = False
 
@@ -206,10 +230,25 @@ class CaptureWatchRunner(QObject):
             return
         watch_dir = self._watch_dir()
         if not watch_dir:
+            # Watching is off — the next non-empty path arms a new watch
+            # epoch, not a continuation of the last one.
+            self._watched_root = None
             return
         root = Path(watch_dir)
         if not root.is_dir():
+            # A configured-but-missing directory is a transient gap, not
+            # a re-arm: keep the epoch so drops made during the outage
+            # still read as new on recovery.
             return
+        if root != self._watched_root:
+            # A changed watch path starts a new watch epoch: everything
+            # in the directory pre-dates it, so re-baseline instead of
+            # letting markers from another directory stage or dedupe
+            # files (the opt-in contract applies to *this* watch).
+            self._seen.clear()
+            self._pending.clear()
+            self._route_failures.clear()
+            self._watched_root = root
         self._in_flight = True
 
         def job(cancel) -> object:
