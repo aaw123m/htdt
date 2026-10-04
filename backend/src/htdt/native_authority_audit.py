@@ -225,6 +225,10 @@ class _RepositoryChain:
 
             return SceneRepository(self.db_path)
         scene = self.repo('scene')
+        if name == 'acceptance':
+            from .cad_acceptance_repository import AcceptanceRunRepository
+
+            return AcceptanceRunRepository(self.db_path)
         if name == 'search':
             from .cad_search_repository import CadSearchRepository
 
@@ -1630,6 +1634,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('coverage', 'get_evaluation'),
     ),
     _ReplayProbe(
+        'acceptance_run',
+        'htdt_acceptance_runs',
+        ('run_id', 'revision'),
+        _get('acceptance', 'get_revision'),
+    ),
+    _ReplayProbe(
         'direct_level_scenario',
         'cad_direct_level_scenarios',
         ('scenario_id',),
@@ -2461,9 +2471,16 @@ _ASSET_TABLES: tuple[
         None,
         'source_sha256 IS NOT NULL',
     ),
+    # REV48: acceptance-evidence rows are digest-bound managed-asset
+    # manifests — each must resolve to its retained file.
+    ('htdt_acceptance_evidence', 'sha256', 'size_bytes', 'relative_path', None),
 )
 
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
+
+# REV48 guided acceptance: the audit replays each revision row through the
+# repository, which re-derives the chained run_sha256.
+
 
 #: Explicit coverage policy for every persistent table that carries no
 #: replay probe and no managed-bytes check — each entry is

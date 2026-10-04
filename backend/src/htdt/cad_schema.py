@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 17
+NATIVE_SCHEMA_VERSION = 18
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1209,6 +1209,13 @@ def _migrate_16_to_17(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_17_to_18(connection: sqlite3.Connection) -> None:
+    # Install the guided acceptance run tables (REV48): revisioned run
+    # records plus the evidence asset manifest — both plain baseline DDL.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1227,6 +1234,7 @@ _MIGRATIONS = {
     15: _migrate_14_to_15,
     16: _migrate_15_to_16,
     17: _migrate_16_to_17,
+    18: _migrate_17_to_18,
 }
 
 

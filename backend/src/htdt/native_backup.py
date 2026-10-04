@@ -328,6 +328,7 @@ def _assert_staged_database_openable(database_path: Path) -> None:
 _ASSET_MANIFEST_TABLES: tuple[tuple[str, str], ...] = (
     ('cad_measurement_assets', 'sha256'),
     ('cad_quality_calibration_files', 'sha256'),
+    ('htdt_acceptance_evidence', 'sha256'),
 )
 
 
