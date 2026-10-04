@@ -43,6 +43,7 @@ from .activity_center import (
     NavigationPolicy,
     OperationClass,
     OperationState,
+    OperationTransitionError,
 )
 from .capture_inbox import CaptureInboxRepository
 from .cad_av_sync_repository import CadAVSyncRepository
@@ -1008,13 +1009,17 @@ class WorkflowApplicationComposition:
         self, result: object, error: object
     ) -> None:
         operation_id = getattr(self, '_automatic_backup_operation_id', None)
+        # The op can already be terminal when this queued slot runs.
         if error is not None:
             _LOGGER.warning('automatic backup failed: %s', error)
             if operation_id is not None:
-                self.activity_center.fail(
-                    operation_id,
-                    error_summary=operation_error_message(error),
-                )
+                try:
+                    self.activity_center.fail(
+                        operation_id,
+                        error_summary=operation_error_message(error),
+                    )
+                except OperationTransitionError:
+                    pass
             self.shell.statusBar().showMessage(
                 '自動バックアップを作成できませんでした '
                 f'· {operation_error_message(error)}'
@@ -1025,18 +1030,24 @@ class WorkflowApplicationComposition:
             # a manual backup satisfied the interval) — the submitted op still
             # needs its terminal state or it stays RUNNING forever.
             if operation_id is not None:
-                self.activity_center.complete(
-                    operation_id,
-                    result_summary='バックアップは不要と再評価されました',
-                )
+                try:
+                    self.activity_center.complete(
+                        operation_id,
+                        result_summary='バックアップは不要と再評価されました',
+                    )
+                except OperationTransitionError:
+                    pass
             return
         if operation_id is None:
             return
         path = result[0]
-        self.activity_center.complete(
-            operation_id,
-            result_summary=f'自動バックアップを保存しました: {path}',
-        )
+        try:
+            self.activity_center.complete(
+                operation_id,
+                result_summary=f'自動バックアップを保存しました: {path}',
+            )
+        except OperationTransitionError:
+            pass
         self.shell.statusBar().showMessage(
             '自動バックアップを保存しました', 5000
         )

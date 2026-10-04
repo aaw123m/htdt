@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import time
+import htdt.capture_watch_runner as watch_module
 import zipfile
 
 import pytest
@@ -361,3 +362,40 @@ def test_runner_missing_dir_is_not_an_error(tmp_path: Path) -> None:
         time.sleep(0.01)
     runner.shutdown()
     assert batches == []
+
+
+def test_runner_recovers_when_scan_job_wedges(tmp_path: Path) -> None:
+    """A scan that outlives _STALL_BUDGET_S must not mute the lane forever.
+
+    ``_in_flight`` clears only via the worker's on_finished — a hung route
+    would otherwise absorb every later tick with zero diagnostics. The
+    stall guard cancels the job, bumps the generation (so the wedged
+    worker cannot write runner state) and releases the latch; the next
+    tick then routes fresh drops again.
+    """
+    app = _app()
+    watch = tmp_path / 'watch'
+    watch.mkdir()
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    runner = CaptureWatchRunner(
+        repository, _Prefs(str(watch)), interval_ms=30
+    )
+    batches: list = []
+    runner.scan_completed.connect(batches.append)
+    runner.start()
+    assert _pump(app, lambda: bool(runner._seen))
+
+    # Simulate a wedged in-flight job past the stall budget.
+    runner._in_flight = True
+    runner._in_flight_since = (
+        time.monotonic() - watch_module._STALL_BUDGET_S - 1.0
+    )
+    _write_bundle_zip(watch, 'drop-wedged')
+    # The wedged latch must release and a later tick must route the drop.
+    assert _pump(app, lambda: bool(batches), timeout=15.0)
+    runner.shutdown()
+    staged = [
+        p.name for batch in batches for p, r, _ in batch
+        if r is not None and r.outcome == 'staged_for_review'
+    ]
+    assert 'drop-wedged.htdtcapture' in staged

@@ -27,6 +27,7 @@ Activity Center entry and the statusbar line are the app's job.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import MutableMapping
 
@@ -71,6 +72,15 @@ _ROUTE_MAX_ATTEMPTS = 3
 _STAGE_SUCCESS_OUTCOMES = frozenset(
     {'staged_for_review', 'already_staged'}
 )
+
+#: One scan must never hold the lane longer than this. ``_in_flight`` is
+#: the only re-entry gate and clears via the worker's ``on_finished``, so
+#: a route call that blocks forever (e.g. a contended ``BEGIN IMMEDIATE``)
+#: would mute every later tick with zero diagnostics. Past the budget the
+#: runner cooperatively cancels the wedged job and releases the latch —
+#: the same-key ``pool.start`` then detaches the lingering thread under
+#: module ownership instead of blocking the GUI on a bounded stop.
+_STALL_BUDGET_S = 300.0
 
 
 def scan_capture_watch_dir(
@@ -179,6 +189,12 @@ class CaptureWatchRunner(QObject):
         # alongside ``_seen``/``_pending``, so no cross-thread access.
         self._route_failures: dict[str, int] = {}
         self._in_flight = False
+        self._in_flight_since: float | None = None
+        # Bumped when a wedged job is abandoned: the abandoned worker may
+        # still be mid-loop, and ``_seen``/``_route_failures`` are runner
+        # state shared with its replacement — a stale generation must not
+        # write to them.
+        self._job_generation = 0
         self._closed = False
 
     def start(self) -> bool:
@@ -202,8 +218,23 @@ class CaptureWatchRunner(QObject):
             return ''
 
     def _tick(self) -> None:
-        if self._in_flight or self._closed:
+        if self._closed:
             return
+        if self._in_flight:
+            if (
+                self._in_flight_since is not None
+                and time.monotonic() - self._in_flight_since > _STALL_BUDGET_S
+            ):
+                _LOGGER.critical(
+                    'capture watch scan wedged for %.0fs — abandoning job',
+                    time.monotonic() - self._in_flight_since,
+                )
+                self._pool.cancel(_TASK_KEY)
+                self._job_generation += 1
+                self._in_flight = False
+                self._in_flight_since = None
+            else:
+                return
         watch_dir = self._watch_dir()
         if not watch_dir:
             return
@@ -211,6 +242,8 @@ class CaptureWatchRunner(QObject):
         if not root.is_dir():
             return
         self._in_flight = True
+        self._in_flight_since = time.monotonic()
+        generation = self._job_generation
 
         def job(cancel) -> object:
             delivered = scan_capture_watch_dir(
@@ -218,7 +251,7 @@ class CaptureWatchRunner(QObject):
             )
             results = []
             for path in delivered:
-                if cancel.is_set():
+                if cancel.is_set() or self._job_generation != generation:
                     break
                 key = str(path)
                 try:
@@ -237,6 +270,8 @@ class CaptureWatchRunner(QObject):
                 else:
                     succeeded = result.outcome in _STAGE_SUCCESS_OUTCOMES
                     results.append((path, result, None))
+                if self._job_generation != generation:
+                    break
                 if succeeded:
                     self._route_failures.pop(key, None)
                     continue
@@ -249,10 +284,13 @@ class CaptureWatchRunner(QObject):
                     self._seen.pop(key, None)
             # A failure count for a vanished file is dead weight — a
             # re-drop lands under a fresh count either way.
-            for stale_key in [
-                k for k in self._route_failures if not Path(k).exists()
-            ]:
-                del self._route_failures[stale_key]
+            if self._job_generation == generation:
+                for stale_key in [
+                    k
+                    for k in self._route_failures
+                    if not Path(k).exists()
+                ]:
+                    del self._route_failures[stale_key]
             return results
 
         try:
@@ -264,6 +302,7 @@ class CaptureWatchRunner(QObject):
             )
         except Exception:
             self._in_flight = False
+            self._in_flight_since = None
             raise
 
     def _on_completed(self, _key: object, result: object, error: object) -> None:
@@ -279,6 +318,7 @@ class CaptureWatchRunner(QObject):
 
     def _job_finished(self, _key: object) -> None:
         self._in_flight = False
+        self._in_flight_since = None
 
     def shutdown(self) -> None:
         self._closed = True
