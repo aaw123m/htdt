@@ -901,9 +901,10 @@ class CaptureInboxPage(QWidget):
             f"状態: {_INBOX_DISPOSITION_LABELS.get(item.disposition, item.disposition)}"
             + (f" — {item.disposition_reason}" if item.disposition_reason else ""),
         ]
-        if inspection.promotions:
+        promotions = getattr(inspection, "promotions", ()) or ()
+        if promotions:
             latest = max(
-                inspection.promotions, key=lambda record: record.promoted_at_utc
+                promotions, key=lambda record: record.promoted_at_utc
             )
             lines.append(
                 "直近の昇格: "
