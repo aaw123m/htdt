@@ -1488,6 +1488,36 @@ class CadMeasurementQualityRepository:
             )
         return reference
 
+    def list_timing_references(
+        self,
+    ) -> tuple[CadMeasurementTimingReference, ...]:
+        """Every persisted timing reference, oldest first.
+
+        Timing references carry no document scope column — scope lives in
+        the sealed subject/session/signal-path identity — so the list
+        surfaces all of them and each row is re-verified like a
+        ``get_timing_reference`` read.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT timing_reference_sha256, payload_json '
+                'FROM cad_timing_references ORDER BY created_at_utc ASC, '
+                'timing_reference_id',
+            ).fetchall()
+        references: list[CadMeasurementTimingReference] = []
+        for row in rows:
+            reference = CadMeasurementTimingReference.model_validate_json(
+                row['payload_json']
+            )
+            if row['timing_reference_sha256'] != reference.timing_reference_sha256:
+                raise ValueError(
+                    'persisted timing reference row disagrees with its payload'
+                )
+            self._validate_timing_reference(reference)
+            references.append(reference)
+        return tuple(references)
+
     # ------------------------------------------------------------------
     # Measurement stimulus authorities (#874)
 
@@ -1606,6 +1636,42 @@ class CadMeasurementQualityRepository:
             required_root=self.assets_dir,
         )
         return asset
+
+    def list_excitation_assets(
+        self, document_id: str
+    ) -> tuple[CadMeasurementExcitationAsset, ...]:
+        """Every persisted excitation asset for the document, oldest first.
+
+        Each row re-verifies row-vs-payload identity and the managed bytes
+        exactly like ``get_excitation_asset`` — a listed asset is always a
+        resolvable authority, never a dangling registry row.
+        """
+        check_native_schema_compatibility(self.path)
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                'SELECT excitation_sha256, payload_json '
+                'FROM cad_excitation_assets WHERE document_id=? '
+                'ORDER BY created_at_utc ASC, excitation_asset_id',
+                (document_id,),
+            ).fetchall()
+        assets: list[CadMeasurementExcitationAsset] = []
+        for row in rows:
+            asset = CadMeasurementExcitationAsset.model_validate_json(
+                row['payload_json']
+            )
+            if row['excitation_sha256'] != asset.excitation_sha256:
+                raise ValueError(
+                    'persisted excitation asset row disagrees with its payload'
+                )
+            verify_managed_asset(
+                data_dir=self.path.parent,
+                digest=asset.sha256,
+                relative_path=asset.relative_path,
+                size_bytes=asset.byte_length,
+                required_root=self.assets_dir,
+            )
+            assets.append(asset)
+        return tuple(assets)
 
     def _validate_stimulus_profile(
         self, profile: CadMeasurementStimulusProfile
