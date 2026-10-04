@@ -33,6 +33,7 @@ class ApplicationDestinationId(StrEnum):
     ACTIVITY = "activity"
     LIBRARY = "library"
     SUPPORT = "support"
+    ACCEPTANCE = "acceptance"
 
 
 DestinationId: TypeAlias = WorkspaceId | ApplicationDestinationId
@@ -186,6 +187,7 @@ APPLICATION_DESTINATION_HINTS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.ACTIVITY: "アプリ内で行われた操作・処理の記録を確認します",
     ApplicationDestinationId.LIBRARY: "機材・素材などの参照データ（マスタ情報）を管理します",
     ApplicationDestinationId.SUPPORT: "診断情報の出力や、権威グラフなどの内部確認を行います",
+    ApplicationDestinationId.ACCEPTANCE: "実機での受入ゲートを手順どおりに実行し、証跡を記録します",
 }
 
 
@@ -195,6 +197,7 @@ APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.ACTIVITY: "アクティビティ",
     ApplicationDestinationId.LIBRARY: "ライブラリ",
     ApplicationDestinationId.SUPPORT: "サポート",
+    ApplicationDestinationId.ACCEPTANCE: "受入検証",
 }
 
 

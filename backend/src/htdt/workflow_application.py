@@ -267,6 +267,7 @@ _LAZY_IMPORTS = {
         '.capture_semantic_promotion',
         'CaptureSemanticPromotionRepository',
     ),
+    'AcceptancePage': ('.acceptance_page', 'AcceptancePage'),
     'ProjectLibraryPage': ('.application_pages', 'ProjectLibraryPage'),
     'ProjectLibraryService': ('.application_pages', 'ProjectLibraryService'),
     'ReferenceLibraryPage': ('.application_pages', 'ReferenceLibraryPage'),
@@ -1953,6 +1954,12 @@ class WorkflowApplicationComposition:
                 factory=self._make_support,
                 focus_kinds=frozenset({NavigationTargetKind.HELP_TOPIC}),
             ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.ACCEPTANCE,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.ACCEPTANCE],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.ACCEPTANCE],
+                factory=self._make_acceptance,
+            ),
         )
 
     def _build_palette_service(self) -> PaletteSearchService:
@@ -2567,6 +2574,14 @@ class WorkflowApplicationComposition:
             on_activate=page.refresh,
             focus_target=focus_target,
         )
+
+    def _make_acceptance(self) -> WorkspaceMount:
+        """REV48 guided acceptance wizard — physical gates as steps."""
+        page = sys.modules[__name__].AcceptancePage(
+            self.data_dir,
+            rew_base_url=self.preferences.rew_api_base_url,
+        )
+        return WorkspaceMount.from_widget(page, on_activate=page.refresh)
 
     def _open_authority_inspector(
         self,
