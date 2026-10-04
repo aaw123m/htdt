@@ -69,7 +69,9 @@ def test_watch_seen_map_stays_bounded_and_redelivers(tmp_path: Path) -> None:
         transient.unlink()
     target.unlink()
     scan_rew_watch_dir(watch, seen, pending)
-    assert set(seen) == {'\x00scanned'}, seen
+    # Only the per-directory baseline sentinel survives (REV43: sentinels
+    # are keyed by root so a path change owes its own baseline).
+    assert set(seen) == {f'\x00scanned:{watch}'}, seen
 
     # Re-drop with the identical signature — the stale marker must not
     # suppress re-delivery.
