@@ -62,6 +62,9 @@ from .cad_measurement_models import (
     MEASUREMENT_ATTACHMENT_KINDS,
     CadMeasurementComparison,
 )
+from .cad_measurement_authorities import (
+    timing_reference_supports_common_timing,
+)
 from .cad_measurement_quality import (
     CadMeasurementCapability,
     CadMicrophoneCapture,
@@ -78,6 +81,15 @@ from .measurement_analysis import (
     processing_summary,
     smoothed_level_trace,
     trace_label,
+)
+from .measurement_authority_dialogs import (
+    DatasetLevelReferenceDialog,
+    LevelCalibrationDialog,
+    RoutingProfileDialog,
+    StimulusProfileDialog,
+    TimingReferenceDialog,
+    level_reference_kind_label,
+    timing_method_label,
 )
 from .measurement_instrument_onboarding import (
     InstrumentStep,
@@ -952,6 +964,7 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_quality(views)
         self._refresh_comparison_choices(views)
         self._refresh_onboarding()
+        self._refresh_authority_inventory()
         self._refresh_journey(batch_items, views)
 
     def _refresh_journey(
@@ -2244,10 +2257,25 @@ class MeasurementPageWorkspace(QWidget):
 
         # #473: a persisted verified channel-map can be selected; its entry
         # for the channel role supplies the observed speakers when nothing
-        # is checked manually.
+        # is checked manually. REV44: the 登録 button is the production
+        # write path that puts rows into cad_routing_profiles at all.
+        routing_profile_row = QHBoxLayout()
+        routing_profile_row.setContentsMargins(0, 0, 0, 0)
         self.routing_profile_combo = QComboBox(assign_card)
         self.routing_profile_combo.setMinimumContentsLength(24)
-        form.addRow("ルーティングプロファイル", self.routing_profile_combo)
+        routing_profile_row.addWidget(self.routing_profile_combo, 1)
+        self.routing_profile_register_button = QPushButton("登録…", assign_card)
+        self.routing_profile_register_button.setToolTip(
+            "検証済みチャンネルマップを登録します。"
+        )
+        self.routing_profile_register_button.setWhatsThis(
+            "検証済みチャンネルマップを登録します。"
+        )
+        self.routing_profile_register_button.clicked.connect(
+            self._register_routing_profile
+        )
+        routing_profile_row.addWidget(self.routing_profile_register_button)
+        form.addRow("ルーティングプロファイル", routing_profile_row)
         assign_layout.addLayout(form)
 
         # #471: acquisition conditions — microphone identity/direction and
@@ -2299,6 +2327,52 @@ class MeasurementPageWorkspace(QWidget):
         self.mic_cal_sha_edit = QLineEdit(acquisition_card)
         self.mic_cal_sha_edit.setPlaceholderText("SHA-256（64桁16進数）")
         acquisition_form.addRow("校正ファイルSHA-256", self.mic_cal_sha_edit)
+
+        # REV44: a persisted timing-reference authority can be bound to this
+        # capture; the 登録 button is its production write path. Selecting a
+        # reference that can authorize common timing derives the flat context
+        # fields (clock identity, declared sample rate, typed delay sum) the
+        # repository enforces consistency against.
+        timing_reference_row = QHBoxLayout()
+        timing_reference_row.setContentsMargins(0, 0, 0, 0)
+        self.timing_reference_combo = QComboBox(acquisition_card)
+        self.timing_reference_combo.setMinimumContentsLength(24)
+        self.timing_reference_combo.setToolTip(
+            "共通タイミングの権威となるタイミング基準を選択します。"
+        )
+        self.timing_reference_combo.activated.connect(
+            self._timing_reference_changed
+        )
+        timing_reference_row.addWidget(self.timing_reference_combo, 1)
+        self.timing_reference_button = QPushButton("登録…", acquisition_card)
+        self.timing_reference_button.setToolTip(
+            "新しいタイミング基準を登録します。"
+        )
+        self.timing_reference_button.setWhatsThis(
+            "新しいタイミング基準を登録します。"
+        )
+        self.timing_reference_button.clicked.connect(
+            self._register_timing_reference
+        )
+        timing_reference_row.addWidget(self.timing_reference_button)
+        acquisition_form.addRow("タイミング基準", timing_reference_row)
+
+        # REV44: acquisition-scope identities. The session id groups captures
+        # of one sitting; the signal-path fingerprint is what a persistent
+        # timing reference scopes to; the input-path identity is what an
+        # instrument-scope level calibration scopes to. Leaving them empty is
+        # honest — the context then simply cannot match a scoped authority.
+        self.acquisition_session_edit = QLineEdit(acquisition_card)
+        self.acquisition_session_edit.setPlaceholderText("例: sess-2026-10-04")
+        acquisition_form.addRow("取得セッション識別子", self.acquisition_session_edit)
+        self.signal_path_edit = QLineEdit(acquisition_card)
+        self.signal_path_edit.setPlaceholderText(
+            "例: HDMI-AVR→UMIK-1/USB（デバイス・経路・クロック構成の指紋）"
+        )
+        acquisition_form.addRow("信号パス識別子", self.signal_path_edit)
+        self.input_path_edit = QLineEdit(acquisition_card)
+        self.input_path_edit.setPlaceholderText("例: UMIK-1/ch1")
+        acquisition_form.addRow("入力パス識別子", self.input_path_edit)
 
         self.output_device_edit = QLineEdit(acquisition_card)
         acquisition_form.addRow("出力デバイス", self.output_device_edit)
@@ -2525,6 +2599,33 @@ class MeasurementPageWorkspace(QWidget):
             if index >= 0:
                 self.routing_profile_combo.setCurrentIndex(index)
 
+        # REV44: persisted timing-reference authorities offered for binding.
+        previous_timing = self.timing_reference_combo.currentData()
+        self.timing_reference_combo.clear()
+        self.timing_reference_combo.addItem("（未選択）", None)
+        try:
+            timing_references = (
+                self.controller.quality_repository.list_timing_references()
+            )
+        except Exception as exc:
+            timing_references = ()
+            self._operation_error_notice(
+                "タイミング基準を読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
+        for reference in timing_references:
+            self.timing_reference_combo.addItem(
+                f"{timing_method_label(reference.method)} "
+                f"· {reference.created_at_utc}",
+                reference.timing_reference_id,
+            )
+        if previous_timing is not None:
+            index = self.timing_reference_combo.findData(previous_timing)
+            if index >= 0:
+                self.timing_reference_combo.setCurrentIndex(index)
+
         # #471 persisted contexts offered as reusable presets.
         self.acquisition_preset_combo.clear()
         self.acquisition_preset_combo.addItem("（プリセットなし）", None)
@@ -2686,6 +2787,215 @@ class MeasurementPageWorkspace(QWidget):
             )
             self.avr_processing_edit.setText(playback.avr_processing_mode or "")
             self.avr_peq_edit.setText(playback.avr_peq_mode or "")
+        # REV44: reuse the bound timing authority and the scope identities —
+        # a preset that silently dropped them would produce a weaker context.
+        if context.timing_reference_id:
+            index = self.timing_reference_combo.findData(
+                context.timing_reference_id
+            )
+            if index >= 0:
+                self.timing_reference_combo.setCurrentIndex(index)
+        self.acquisition_session_edit.setText(
+            context.acquisition_session_id or ""
+        )
+        self.signal_path_edit.setText(context.signal_path_identity or "")
+        self.input_path_edit.setText(context.input_path_identity or "")
+
+    def _timing_reference_changed(self) -> None:
+        """Auto-fill scope fields the selected reference declares (REV44).
+
+        A persistent reference's signal-path fingerprint and a declared
+        session/rate are copied into the form so the persisted context
+        actually matches the authority's scope; a field the user already
+        filled is never clobbered.
+        """
+        reference_id = self.timing_reference_combo.currentData()
+        if not isinstance(reference_id, str) or not reference_id:
+            return
+        try:
+            reference = self.controller.quality_repository.get_timing_reference(
+                reference_id
+            )
+        except Exception:
+            return
+        if reference is None:
+            return
+        if (
+            reference.signal_path_identity
+            and not self.signal_path_edit.text().strip()
+        ):
+            self.signal_path_edit.setText(reference.signal_path_identity)
+        if (
+            reference.acquisition_session_id
+            and not self.acquisition_session_edit.text().strip()
+        ):
+            self.acquisition_session_edit.setText(
+                reference.acquisition_session_id
+            )
+        if (
+            reference.sample_rate_hz is not None
+            and not self.mic_sample_rate_edit.text().strip()
+        ):
+            self.mic_sample_rate_edit.setText(
+                str(int(reference.sample_rate_hz))
+            )
+
+    def _register_timing_reference(self) -> None:
+        dialog = TimingReferenceDialog(self, default_signal_path=(
+            self.signal_path_edit.text().strip() or None
+        ))
+        if not dialog.exec():
+            return
+        record = dialog.record
+        assert record is not None
+        try:
+            self.controller.quality_repository.save_timing_reference(record)
+        except Exception as exc:
+            self._operation_error_notice(
+                "タイミング基準を登録できませんでした", exc
+            )
+            return
+        self._set_notice(
+            "タイミング基準を登録しました — 「取得条件」で選択できます",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _register_routing_profile(self) -> None:
+        dialog = RoutingProfileDialog(self.controller, self)
+        if not dialog.exec():
+            return
+        record = dialog.record
+        assert record is not None
+        try:
+            self.controller.quality_repository.save_routing_profile(record)
+        except Exception as exc:
+            self._operation_error_notice(
+                "ルーティングプロファイルを登録できませんでした", exc
+            )
+            return
+        self._set_notice(
+            "ルーティングプロファイルを登録しました — "
+            "「ルーティングプロファイル」から選択できます",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _register_level_calibration(self) -> None:
+        try:
+            contexts = (
+                self.controller.quality_repository.list_acquisition_contexts()
+            )
+        except Exception as exc:
+            contexts = ()
+            self._operation_error_notice(
+                "取得コンテキストを読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
+        dialog = LevelCalibrationDialog(
+            self._quality_views, contexts, self
+        )
+        if not dialog.exec():
+            return
+        record = dialog.record
+        assert record is not None
+        try:
+            self.controller.quality_repository.save_level_calibration(record)
+        except Exception as exc:
+            self._operation_error_notice(
+                "レベル校正を登録できませんでした", exc
+            )
+            return
+        self._set_notice(
+            "レベル校正を登録しました — 絶対SPLを根拠づける校正は機器の準備で"
+            "確認できます",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
+    def _register_stimulus_profile(self) -> None:
+        dialog = StimulusProfileDialog(
+            self.controller, self._quality_views, self
+        )
+        if not dialog.exec():
+            return
+        record = dialog.record
+        assert record is not None
+        try:
+            self.controller.quality_repository.save_stimulus_profile(record)
+        except Exception as exc:
+            self._operation_error_notice(
+                "刺激プロファイルを登録できませんでした", exc
+            )
+            return
+        self._set_notice(
+            "刺激プロファイルを登録しました", SemanticState.SUCCESS
+        )
+        self.refresh()
+
+    def _register_dataset_level_reference(self) -> None:
+        row = self._selected_quality_view()
+        if row is None or row.dataset_id is None:
+            self._set_notice(
+                "データセットのある測定を選んでください",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            dataset = (
+                self.controller.measurement_repository.dataset_for_measurement(
+                    row.measurement_id
+                )
+            )
+        except Exception as exc:
+            self._operation_error_notice(
+                "データセットを確認できませんでした", exc
+            )
+            return
+        if dataset is None:
+            self._set_notice(
+                "この測定のデータセットを確認できませんでした",
+                SemanticState.WARNING,
+            )
+            return
+        try:
+            calibrations = (
+                self.controller.quality_repository.list_level_calibrations()
+            )
+        except Exception as exc:
+            calibrations = ()
+            self._operation_error_notice(
+                "レベル校正を読み込めませんでした",
+                exc,
+                effect=None,
+                severity=SemanticState.WARNING,
+            )
+        dialog = DatasetLevelReferenceDialog(row, dataset, calibrations, self)
+        if not dialog.exec():
+            return
+        record = dialog.record
+        assert record is not None
+        try:
+            self.controller.quality_repository.save_dataset_level_reference(
+                record
+            )
+            # The pinned level authority changes the produced report's epoch:
+            # re-derive so the report seals the new reference and the
+            # absolute-SPL claim resolves against it.
+            self.controller.reproduce_quality_report(row.measurement_id)
+        except Exception as exc:
+            self._operation_error_notice(
+                "レベル基準を登録できませんでした", exc
+            )
+            return
+        self._set_notice(
+            f"レベル基準を登録しました（"
+            f"{level_reference_kind_label(record.level_reference_kind)}）",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
 
     def _retain_calibration_file_dialog(self) -> None:
         """Attach a mic calibration file's bytes and bind its content hash.
@@ -2811,14 +3121,92 @@ class MeasurementPageWorkspace(QWidget):
                 playback.avr_peq_mode,
             )
         )
-        if not has_mic and not has_playback:
+
+        # REV44: a bound timing-reference authority derives the flat context
+        # fields the repository then cross-checks — the context may only
+        # repeat what the sealed reference attests (declared clock identity,
+        # declared rate, typed delay sum). ``timing_reference_valid`` is True
+        # only when the bound method can support common timing at all; a
+        # manual/imported reference binds evidence without upgrading it.
+        timing_reference_id = self.timing_reference_combo.currentData()
+        timing_kwargs: dict = {}
+        timing_reference = None
+        if isinstance(timing_reference_id, str) and timing_reference_id:
+            try:
+                timing_reference = (
+                    self.controller.quality_repository.get_timing_reference(
+                        timing_reference_id
+                    )
+                )
+            except Exception:
+                return (
+                    None,
+                    None,
+                    "選択したタイミング基準を確認できませんでした — 保存されていません",
+                )
+            if timing_reference is None:
+                return (
+                    None,
+                    None,
+                    "選択したタイミング基準が見つかりません — "
+                    "保存されていません",
+                )
+            delay_total = (
+                sum(
+                    correction.value_s
+                    for correction in timing_reference.delay_corrections
+                )
+                if timing_reference.delay_corrections
+                else None
+            )
+            timing_kwargs = {
+                "timing_reference_valid": (
+                    True
+                    if timing_reference_supports_common_timing(timing_reference)
+                    else None
+                ),
+                "timing_reference_id": timing_reference.timing_reference_id,
+                "timing_reference_sha256": timing_reference.timing_reference_sha256,
+                "clock_source": (
+                    timing_reference.input_clock_identity
+                    or timing_reference.output_clock_identity
+                    or timing_reference.reference_channel
+                ),
+                "delay_correction_s": delay_total,
+            }
+        acquisition_session_id = self._text_or_none(self.acquisition_session_edit)
+        signal_path_identity = self._text_or_none(self.signal_path_edit)
+        input_path_identity = self._text_or_none(self.input_path_edit)
+        has_scope = any(
+            (
+                acquisition_session_id,
+                signal_path_identity,
+                input_path_identity,
+                timing_reference is not None,
+            )
+        )
+        if not has_mic and not has_playback and not has_scope:
             return None, direction, None
         return (
             AcquisitionCapture(
                 source_kind="manual",
                 microphone=microphone if has_mic else None,
                 playback=playback if has_playback else None,
-                sample_rate_hz=mic_rate,
+                # A bound authority dictates the context's declared rate —
+                # the repository consistency check only allows repeating
+                # what the sealed reference attests (#642).
+                sample_rate_hz=(
+                    int(timing_reference.sample_rate_hz)
+                    if (
+                        timing_reference is not None
+                        and timing_reference.sample_rate_hz is not None
+                    )
+                    else mic_rate
+                ),
+                acquisition_session_id=acquisition_session_id,
+                signal_path_identity=signal_path_identity,
+                input_path_identity=input_path_identity,
+                **timing_kwargs,
             ),
             direction,
             None,
@@ -4059,6 +4447,31 @@ class MeasurementPageWorkspace(QWidget):
         self.attachments_label.setWordWrap(True)
         set_typography_role(self.attachments_label, TypographyRole.SECONDARY)
         lifecycle_layout.addWidget(self.attachments_label)
+
+        # REV44: the dataset level-reference authority for the selected
+        # measurement — a derived binding the producer reads to decide what
+        # the persisted level_db values mean (absolute SPL vs uncalibrated).
+        level_ref_row = QHBoxLayout()
+        self.level_reference_label = QLabel("", lifecycle_card)
+        self.level_reference_label.setWordWrap(True)
+        set_typography_role(
+            self.level_reference_label, TypographyRole.SECONDARY
+        )
+        level_ref_row.addWidget(self.level_reference_label, 1)
+        self.level_reference_button = QPushButton(
+            "レベル基準を登録…", lifecycle_card
+        )
+        self.level_reference_button.setToolTip(
+            "この測定のデータセットにレベルの意味（絶対SPL 等）を記録します。"
+        )
+        self.level_reference_button.setWhatsThis(
+            "この測定のデータセットにレベルの意味（絶対SPL 等）を記録します。"
+        )
+        self.level_reference_button.clicked.connect(
+            self._register_dataset_level_reference
+        )
+        level_ref_row.addWidget(self.level_reference_button)
+        lifecycle_layout.addLayout(level_ref_row)
         layout.addWidget(lifecycle_card)
 
         report_card, report_layout = _card("品質レポート", host)
@@ -4360,10 +4773,49 @@ class MeasurementPageWorkspace(QWidget):
         self.disposition_apply_button.setEnabled(True)
         self.correct_button.setEnabled(True)
         self.attach_button.setEnabled(True)
+        self._update_level_reference_row(row)
 
         self._refresh_target_curve_choices()
         self._refresh_spatial(row)
         self._refresh_quality_plot()
+
+    def _update_level_reference_row(self, row: MeasurementView) -> None:
+        """Bound level-reference state + register affordance (REV44).
+
+        The button is only live when the selected measurement has a
+        verifiable dataset without a reference — one dataset can carry
+        exactly one pinned level reference, so a bound dataset disables it.
+        """
+        if row.dataset_id is None or row.dataset_error:
+            self.level_reference_label.setText(
+                "レベル基準: 検証可能なデータセットがありません"
+            )
+            self.level_reference_button.setEnabled(False)
+            return
+        try:
+            reference = (
+                self.controller.quality_repository.get_dataset_level_reference(
+                    row.dataset_id
+                )
+            )
+        except Exception:
+            self.level_reference_label.setText(
+                "レベル基準: 検証できませんでした（保存データを確認してください）"
+            )
+            self.level_reference_button.setEnabled(False)
+            return
+        if reference is None:
+            self.level_reference_label.setText(
+                "レベル基準: 未登録 — レベルの意味が未宣言のままです"
+            )
+            self.level_reference_button.setEnabled(True)
+            return
+        self.level_reference_label.setText(
+            f"レベル基準: "
+            f"{level_reference_kind_label(reference.level_reference_kind)} "
+            f"· 登録 {reference.created_at_utc}"
+        )
+        self.level_reference_button.setEnabled(False)
 
     def _selected_quality_view(self) -> MeasurementView | None:
         row_index = self.quality_table.currentRow()
@@ -5002,6 +5454,67 @@ class MeasurementPageWorkspace(QWidget):
         guide.addWidget(guide_text)
         layout.addWidget(guide_card)
 
+        # REV44: the production write path for the quality-authority
+        # families — each registered authority is then consumed by the
+        # onboarding checklist, the acquisition binding combos, the routing
+        # provenance and the produced quality reports.
+        authority_card, authority = _card("計測の権威データ", page)
+        authority_note = QLabel(
+            "測定の証拠となる権威レコードを登録します。登録済みの権威は取得条件・"
+            "品質レポート・準備チェックから参照されます。",
+            authority_card,
+        )
+        authority_note.setWordWrap(True)
+        set_typography_role(authority_note, TypographyRole.SECONDARY)
+        authority.addWidget(authority_note)
+
+        def _authority_row(
+            title: str,
+            button_text: str,
+            slot,
+            tooltip: str,
+        ) -> QLabel:
+            row = QHBoxLayout()
+            title_label = QLabel(title, authority_card)
+            row.addWidget(title_label)
+            count_label = QLabel("0 件", authority_card)
+            set_typography_role(count_label, TypographyRole.SECONDARY)
+            row.addStretch(1)
+            row.addWidget(count_label)
+            button = QPushButton(button_text, authority_card)
+            button.setToolTip(tooltip)
+            button.setWhatsThis(tooltip)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+            authority.addLayout(row)
+            return count_label
+
+        self.authority_level_calibration_count = _authority_row(
+            "レベル校正",
+            "登録…",
+            self._register_level_calibration,
+            "絶対SPLを根拠づけるレベル校正権威を登録します。",
+        )
+        self.authority_timing_reference_count = _authority_row(
+            "タイミング基準",
+            "登録…",
+            self._register_timing_reference,
+            "共通タイミングの権威となるタイミング基準を登録します。",
+        )
+        self.authority_stimulus_profile_count = _authority_row(
+            "刺激プロファイル",
+            "登録…",
+            self._register_stimulus_profile,
+            "再生した刺激信号の権威記録を登録します。",
+        )
+        self.authority_routing_profile_count = _authority_row(
+            "ルーティングプロファイル",
+            "登録…",
+            self._register_routing_profile,
+            "検証済みチャンネルマップの権威を登録します。",
+        )
+        layout.addWidget(authority_card)
+
         check_card, check = _card("準備チェック", page)
         self.onboarding_table = QTableWidget(0, 3, check_card)
         self.onboarding_table.setHorizontalHeaderLabels(
@@ -5094,6 +5607,57 @@ class MeasurementPageWorkspace(QWidget):
             self.onboarding_table.setItem(row, 2, detail_item)
         if self.current_context_id == "calibration":
             self._update_context_label()
+
+    def _refresh_authority_inventory(self) -> None:
+        """Persisted-authority counts on the calibration page (REV44).
+
+        A listing failure is shown as a load error count and one warning —
+        the registration buttons still run so the operator can fix the
+        store by registering valid records or reporting the corruption.
+        """
+        repository = self.controller.quality_repository
+        failures: list[str] = []
+
+        def _count(kind: str, probe) -> str:
+            try:
+                return f"{len(probe())} 件"
+            except Exception:
+                failures.append(kind)
+                return "読み込み失敗"
+
+        level_count = _count(
+            'レベル校正', lambda: repository.list_level_calibrations()
+        )
+        self.authority_level_calibration_count.setText(level_count)
+        timing_count = _count(
+            'タイミング基準', lambda: repository.list_timing_references()
+        )
+        self.authority_timing_reference_count.setText(timing_count)
+
+        def _stimulus_counts() -> str:
+            profiles = repository.list_stimulus_profiles(
+                self.controller.document_id
+            )
+            assets = repository.list_excitation_assets(
+                self.controller.document_id
+            )
+            return f"{len(profiles)} 件（励振 {len(assets)}）"
+
+        self.authority_stimulus_profile_count.setText(
+            _count('刺激プロファイル', _stimulus_counts)
+        )
+        routing_count = _count(
+            'ルーティングプロファイル',
+            lambda: repository.list_routing_profiles(
+                document_id=self.controller.document_id
+            ),
+        )
+        self.authority_routing_profile_count.setText(routing_count)
+        if failures:
+            self._set_notice(
+                f"権威データを読み込めません: {'、'.join(failures)}",
+                SemanticState.WARNING,
+            )
 
     def _exclusion_bands(self) -> tuple[tuple[float, float], ...]:
         bands: list[tuple[float, float]] = []
