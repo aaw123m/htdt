@@ -2143,6 +2143,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_active_lf_control_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, from_plan_sha256 TEXT NOT NULL, to_plan_sha256 TEXT NOT NULL, from_lifecycle TEXT NOT NULL, to_lifecycle TEXT NOT NULL, event_kind TEXT NOT NULL, evidence_ref TEXT, actor TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS htdt_acceptance_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, revision INTEGER NOT NULL, gate_id TEXT NOT NULL, status TEXT NOT NULL, run_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(run_id, revision) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS htdt_acceptance_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, run_id TEXT NOT NULL, step_id TEXT NOT NULL, kind TEXT NOT NULL, filename TEXT NOT NULL, sha256 TEXT NOT NULL, relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2493,6 +2501,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'editor_view_states',
     'field_return_contributions',
     'floor_plan_underlays',
+    'htdt_acceptance_evidence',
+    'htdt_acceptance_runs',
     'htdt_content_blobs',
     'htdt_legacy_imports',
     'htdt_project_documents',

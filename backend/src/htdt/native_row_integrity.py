@@ -923,6 +923,20 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV48 guided acceptance runs: index columns mirror the revision
+    # payload exactly — the bindings make a divergence itself drift.
+    'htdt_acceptance_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('revision', 'revision'),
+            _b('gate_id', 'gate_id'),
+            _b('status', 'status'),
+            _b('run_sha256', 'run_sha256'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
