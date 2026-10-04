@@ -41,8 +41,8 @@ Token lookup order: `GITHUB_TOKEN`, `GITHUB_KA0923S_PAT`, `GH_TOKEN`.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `--rerun-failed N` | `1` | Retries a `failed`/`error` check up to N extra times. All attempts land in the report with a `flaky` flag, so a fail→pass suite is *visible as flaky* rather than silently trusted. `timeout` is never retried — it already spent the full check budget. |
-| `--use-cache` | off | Skips re-running a check when `(check config, HEAD sha, python env)` already has a stored verdict in `--cache-file` (default `artifacts/issue-verification/cache.json`). Refuses a dirty worktree — local edits are not covered by the key — unless `--allow-dirty-cache` is given. Cached results are marked `"cached": true`. |
+| `--rerun-failed N` | `1` | Retries a `failed`/`error` check up to N extra times. All attempts land in the report with a `flaky` flag, so a fail→pass suite is *visible as flaky* rather than silently trusted. `timeout` is never retried — it already spent the full check budget. A short pause (2s) separates attempts so the killed attempt's file handles fully release. |
+| `--use-cache` | off | Skips re-running a check when `(check config, HEAD sha, python env, managed env vars)` already has a stored verdict in `--cache-file` (default `artifacts/issue-verification/cache.json`). Refuses a dirty worktree — local edits are not covered by the key — unless `--allow-dirty-cache` is given. Cached results are marked `"cached": true`. The key covers the runner-managed env (`QT_QPA_PLATFORM`, `PYTHONIOENCODING`) because those change verdicts; it intentionally does not try to fingerprint every ambient env var. |
 | `--fail-on-verdict` | none | Comma-separated verdicts (e.g. `failing,unmapped`) that flip the exit code to `3`. Default behavior is unchanged: verdicts are data, not a gate. |
 
 ## Reading the report
@@ -83,6 +83,12 @@ without digging through workflow artifacts, and watchers never see comment
 spam. `unmapped` and `not_open` issues are skipped; any failed write exits
 non-zero.
 
+A comment counts as "ours" only when it **starts with** the marker and
+carries the runner's 自動検証 signature — a human quoting the marker mid-body
+is never edited. If duplicates exist (two runners posted concurrently), the
+oldest is updated and the rest deleted best-effort; the run still posts
+the verdict to the surviving comment.
+
 `--post-summary-from <report.json>` posts from a saved report without
 re-running checks or touching the issues API read path — it is the fast retry
 path when a run succeeded but posting failed.
@@ -102,7 +108,11 @@ When a fix/feature lands and an issue gains (or loses) automated evidence:
      and `{report_dir}` are resolved by the runner. No shell is involved.
    - `kind: manual` — never executed; describe the exact physical/manual
      evidence required (JA for user-facing gates).
-   - `id` must match `[A-Za-z0-9._-]+` (it becomes a log filename).
+   - `id` must match `[A-Za-z0-9._-]+` (it becomes a log filename), must not
+     start with `.`, must not be a Windows device name (`con`, `aux`, `nul`,
+     `com1`-`com9`, `lpt1`-`lpt9` — `logs/<id>.log` cannot be created on
+     windows-latest), and must be unique across all issues (one shared logs
+     dir).
    - `timeout_seconds` (default 900, max 3600) and `pytest_workers`
      (default 4, `0` = `-n 0`) are tunable per check.
 2. When an issue becomes fully verifiable, **remove its `manual` entries** so
@@ -144,10 +154,28 @@ retried while `failed`/`error` ones are.
   xdist/Qt teardown flakes; a one-shot `failing` verdict would be trusted too
   much, and a hidden auto-retry would hide real flakes. Every attempt is
   recorded and a verdict-changing retry surfaces `flaky: true`.
-- **Process-tree kill on timeout**: `subprocess.run(timeout=)` kills only the
-  direct child — on Windows, xdist workers survive, hold basetemp handles and
-  keep burning CPU. Checks run via `Popen` and timeout goes through
-  `taskkill /T /F` (Windows) / process-group kill (POSIX).
+- **Process-group containment on Windows (Job Object), taskkill fallback**:
+  `subprocess.run(timeout=)` kills only the direct child — on Windows, xdist
+  workers survive, hold basetemp handles and keep burning CPU; REV45 timed
+  out through `taskkill /T /F`, but that still misses *detached*
+  grandchildren and reaps nothing when the runner itself dies mid-check.
+  Every check process is now placed in a kill-on-close Job Object
+  (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`): nested membership pulls
+  grandchildren in, the kernel kills all members when the last job handle
+  closes (runner crash included), and a sweep runs after *every* attempt —
+  timeout, pass, or fail — so even a passing check cannot leak a straggler.
+  If Job creation fails the runner falls back to `taskkill /T /F`; on POSIX
+  it uses `start_new_session` + `killpg`. `TerminateJobObject` is
+  asynchronous, so retries wait briefly for handles to release.
+- **`--use-cache` stays local-only** (not wired into the workflow): the
+  artifact upload is the audit trail and a dispatch is a request for fresh
+  truth — a re-run on the same sha would serve stale verdicts from a
+  cache that is exactly what the dispatch is meant to bypass. The cache
+  file lives under gitignored `artifacts/`; `actions/cache` can be added
+  later if re-dispatch latency actually becomes a problem.
+- **Write-ahead report**: the JSON report is written to a temp file and
+  `os.replace`d into place, so a reader mid-write (or a killed run) never
+  sees a torn file.
 - **Artifact reports, not committed `docs/reviews/` files**: per-run output is
   generated data; committing dated auto-reports would spam git history and
   dirty the working tree on every dispatch. Maintainers can still run with
