@@ -315,3 +315,26 @@ def test_scan_rew_watch_dir_oversized_marked_seen(tmp_path: Path, monkeypatch) -
     assert skipped == ['big.txt']
     files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
     assert skipped == []  # wedged file does not retry forever
+
+
+def test_scan_rew_watch_dir_new_directory_owes_own_baseline(tmp_path: Path) -> None:
+    """REV43: each watched root owes its own baseline — switching the
+    watch path must not convert the new folder's pre-existing files into
+    'new drops' (the old global sentinel did exactly that)."""
+    dir_a = tmp_path / 'a'
+    dir_b = tmp_path / 'b'
+    dir_a.mkdir()
+    dir_b.mkdir()
+    _write_rew_text(dir_b / 'old.txt', b'* rew\n20 80\n')
+    seen: dict[str, tuple[int, int]] = {}
+    pending: dict[str, tuple[int, int]] = {}
+    files, _ = scan_rew_watch_dir(dir_a, seen, pending)
+    assert files == []  # A baselines
+    files, _ = scan_rew_watch_dir(dir_b, seen, pending)
+    assert files == []  # B owes its own baseline — 'old.txt' is marked, not staged
+    # Only a real new drop in B is delivered.
+    _write_rew_text(dir_b / 'new.txt', b'* rew\n30 90\n')
+    files, _ = scan_rew_watch_dir(dir_b, seen, pending)
+    assert files == []
+    files, _ = scan_rew_watch_dir(dir_b, seen, pending)
+    assert [name for _raw, name in files] == ['new.txt']

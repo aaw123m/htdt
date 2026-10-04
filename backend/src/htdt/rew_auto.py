@@ -243,9 +243,12 @@ def propose_assignment_target(
     return None, survivors
 
 
-#: Sentinel marking that a baseline scan completed — kept inside ``seen``
-#: so an initially-empty directory still counts as 'watched before'.
-_SCANNED_SENTINEL = '\x00scanned'
+#: Sentinel prefix marking that a baseline scan completed for one root —
+#: kept inside ``seen`` per directory so an initially-empty directory
+#: still counts as 'watched before' and a different watch path always
+#: owes its own baseline (REV43: a single global sentinel let a path
+#: change stage every pre-existing file in the new folder).
+_SCANNED_SENTINEL_PREFIX = '\x00scanned:'
 
 
 def scan_rew_watch_dir(
@@ -258,9 +261,10 @@ def scan_rew_watch_dir(
     ``seen`` maps ``str(path) -> (mtime_ns, size)`` for baseline and
     already-delivered files; ``pending`` does the same for candidates
     sighted exactly once. Both persist across calls and are updated in
-    place. The first call establishes the baseline — files that pre-date
-    watching are marked seen but NOT staged (the opt-in contract is
-    *new drops*, not a bulk import of whatever was already there).
+    place. The first call *for a directory* establishes its baseline —
+    files that pre-date watching that directory are marked seen but NOT
+    staged (the opt-in contract is *new drops*, not a bulk import of
+    whatever was already there).
 
     A new or changed signature is only *delivered* once it survives
     unchanged into the following scan: a file still being copied defers
@@ -278,8 +282,9 @@ def scan_rew_watch_dir(
     """
     root = Path(directory)
     entries = sorted(root.iterdir())
-    first_scan = _SCANNED_SENTINEL not in seen
-    seen[_SCANNED_SENTINEL] = (0, 0)
+    sentinel = f'{_SCANNED_SENTINEL_PREFIX}{root}'
+    first_scan = sentinel not in seen
+    seen[sentinel] = (0, 0)
     files: list[tuple[bytes, str]] = []
     skipped: list[str] = []
     observed: set[str] = set()
@@ -325,7 +330,8 @@ def scan_rew_watch_dir(
     for stale_key in [
         key
         for key in seen
-        if key != _SCANNED_SENTINEL and key not in observed
+        if not key.startswith(_SCANNED_SENTINEL_PREFIX)
+        and key not in observed
     ]:
         del seen[stale_key]
     return files, skipped

@@ -517,6 +517,10 @@ class MeasurementPageWorkspace(QWidget):
         # ``_REW_AUTO_MAX_ATTEMPTS`` instead of re-running every poll tick.
         self._rew_fetch_failures: dict[str, int] = {}
         self._rew_watch_failures: dict[str, int] = {}
+        # The root the watch markers belong to — a preference change re-
+        # baselines instead of letting another directory's markers stage
+        # or dedupe files (REV43; mirrors CaptureWatchRunner's epoch rule).
+        self._rew_watch_root: Path | None = None
         # Uncommitted batch item ids the operator acknowledged via
         # keep_draft (REV42): released rows no longer block deactivation,
         # while a newly staged row re-arms the gate.
@@ -1701,6 +1705,20 @@ class MeasurementPageWorkspace(QWidget):
             self._set_rew_state('launchable')
         auto_ingest = bool(self._pref('integrations.rew_auto_ingest', True))
         watch_dir = str(self._pref('integrations.rew_watch_dir', '') or '').strip()
+        if watch_dir:
+            watch_root = Path(watch_dir)
+            if watch_root != self._rew_watch_root:
+                # A changed watch path is a new watch epoch: everything in
+                # the directory pre-dates it, so re-baseline instead of
+                # letting another directory's markers stage or dedupe
+                # files (opt-in contract — files present when watching
+                # starts are never staged).
+                self._rew_watch_seen.clear()
+                self._rew_watch_pending.clear()
+                self._rew_watch_failures.clear()
+                self._rew_watch_root = watch_root
+        else:
+            self._rew_watch_root = None
         seen_uuids = self._rew_seen_uuids
         uuids_known = self._rew_uuids_known
         watch_seen = self._rew_watch_seen
