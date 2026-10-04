@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
@@ -89,10 +90,27 @@ from .cad_system_health import (
 from .cad_system_health_repository import CadSystemHealthRepository
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import operation_error_message
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+
+def _scroll_wrap(page: QWidget) -> QScrollArea:
+    """Wrap a tab/dialog page so every control stays reachable.
+
+    A plain page sized beyond the display drops its lower controls off
+    screen with no scrollbar — measured 933px (HealthCheck) and 1150px
+    (AV sync) on a 768px-tall box. QScrollArea keeps the natural hint
+    small and scrolls instead.
+    """
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+    scroll.setWidget(page)
+    return scroll
 
 
 def _section_title(text: str, parent: QWidget) -> QLabel:
@@ -286,7 +304,14 @@ class AVSyncRecordDialog(QDialog):
 
         self.setWindowTitle('AV同期の記録')
         self.setMinimumWidth(640)
-        layout = QVBoxLayout(self)
+        content = QWidget(self)
+        layout = QVBoxLayout(content)
+        scroll = _scroll_wrap(content)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(scroll)
+        # Content is ~1150px tall — open bounded inside a 768px screen.
+        self.resize(720, 700)
 
         layout.addWidget(_section_title('登録済みのAV同期条件', self))
         self.conditions = QTreeWidget(self)
@@ -349,6 +374,7 @@ class AVSyncRecordDialog(QDialog):
         register_row = QHBoxLayout()
         register_row.addStretch(1)
         self.condition_button = QPushButton('条件を登録', self)
+        self.condition_button.setToolTip('測定時の条件（取得コンテキスト）を権威として登録します')
         self.condition_button.clicked.connect(self._register_condition)
         register_row.addWidget(self.condition_button)
         layout.addLayout(register_row)
@@ -404,6 +430,7 @@ class AVSyncRecordDialog(QDialog):
         record_row = QHBoxLayout()
         record_row.addStretch(1)
         self.measure_button = QPushButton('測定を記録', self)
+        self.measure_button.setToolTip('AV同期測定の値を権威として記録します')
         self.measure_button.clicked.connect(self._record_measurement)
         record_row.addWidget(self.measure_button)
         layout.addLayout(record_row)
@@ -622,7 +649,7 @@ class AVSyncRecordDialog(QDialog):
             )
             self.av_sync_repository.save_condition(condition)
         except Exception as exc:  # noqa: BLE001 — surface the typed error verbatim
-            self.status_label.setText(f'登録できませんでした: {exc}')
+            self.status_label.setText(f'登録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
             f'条件を登録しました（{display_device}）。'
@@ -681,7 +708,7 @@ class AVSyncRecordDialog(QDialog):
                 measurement = advance_av_latency_measurement(head, **kwargs)
             self.av_sync_repository.save_measurement(measurement)
         except Exception as exc:  # noqa: BLE001 — typed conflict/validation errors
-            self.status_label.setText(f'記録できませんでした: {exc}')
+            self.status_label.setText(f'記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
             f'{_AV_STAGE_JA.get(stage, stage)} を記録しました。'
@@ -823,9 +850,15 @@ class HealthCheckDialog(QDialog):
 
         self.tabs = QTabWidget(self)
         layout.addWidget(self.tabs)
-        self.tabs.addTab(self._build_baseline_tab(), 'ベースライン')
-        self.tabs.addTab(self._build_plan_tab(), 'チェック計画')
-        self.tabs.addTab(self._build_run_tab(), 'チェック実行')
+        self.tabs.addTab(
+            _scroll_wrap(self._build_baseline_tab()), 'ベースライン'
+        )
+        self.tabs.addTab(
+            _scroll_wrap(self._build_plan_tab()), 'チェック計画'
+        )
+        self.tabs.addTab(
+            _scroll_wrap(self._build_run_tab()), 'チェック実行'
+        )
 
         self.status_label = QLabel('')
         self.status_label.setWordWrap(True)
@@ -835,6 +868,8 @@ class HealthCheckDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+        # Tab content is ~930px tall — open bounded inside a 768px screen.
+        self.resize(760, 680)
         self.reload()
 
     # -- tab: baseline -------------------------------------------------------
@@ -890,9 +925,11 @@ class HealthCheckDialog(QDialog):
         pin_row = QHBoxLayout()
         pin_row.addStretch(1)
         self.pin_remove_button = QPushButton('ピンを削除', page)
+        self.pin_remove_button.setToolTip('選択したメトリクスピンをベースライン定義から外します')
         self.pin_remove_button.clicked.connect(self._remove_pin)
         pin_row.addWidget(self.pin_remove_button)
         self.pin_add_button = QPushButton('ピンを追加', page)
+        self.pin_add_button.setToolTip('ベースラインに検証対象のメトリクスピンを追加します')
         self.pin_add_button.clicked.connect(self._add_pin)
         pin_row.addWidget(self.pin_add_button)
         layout.addLayout(pin_row)
@@ -908,6 +945,7 @@ class HealthCheckDialog(QDialog):
         register_row = QHBoxLayout()
         register_row.addStretch(1)
         self.baseline_button = QPushButton('ベースラインを登録', page)
+        self.baseline_button.setToolTip('現在のピン定義をベースライン権威として保存します')
         self.baseline_button.clicked.connect(self._register_baseline)
         register_row.addWidget(self.baseline_button)
         layout.addLayout(register_row)
@@ -959,6 +997,7 @@ class HealthCheckDialog(QDialog):
         check_row = QHBoxLayout()
         check_row.addStretch(1)
         self.check_add_button = QPushButton('項目を追加', page)
+        self.check_add_button.setToolTip('チェック計画に検証項目を追加します')
         self.check_add_button.clicked.connect(self._add_check_item)
         check_row.addWidget(self.check_add_button)
         layout.addLayout(check_row)
@@ -974,10 +1013,12 @@ class HealthCheckDialog(QDialog):
 
         plan_row = QHBoxLayout()
         self.check_remove_button = QPushButton('項目を削除', page)
+        self.check_remove_button.setToolTip('選択した検証項目を計画から外します')
         self.check_remove_button.clicked.connect(self._remove_check_item)
         plan_row.addWidget(self.check_remove_button)
         plan_row.addStretch(1)
         self.plan_button = QPushButton('計画を保存', page)
+        self.plan_button.setToolTip('現在の検証項目をベースラインに紐付く計画として保存します')
         self.plan_button.clicked.connect(self._save_plan)
         plan_row.addWidget(self.plan_button)
         layout.addLayout(plan_row)
@@ -1012,6 +1053,7 @@ class HealthCheckDialog(QDialog):
         run_row = QHBoxLayout()
         run_row.addStretch(1)
         self.run_button = QPushButton('チェックを実行して記録', page)
+        self.run_button.setToolTip('選択した計画を実行し、結果を実行権威として記録します')
         self.run_button.clicked.connect(self._record_run)
         run_row.addWidget(self.run_button)
         layout.addLayout(run_row)
@@ -1036,21 +1078,58 @@ class HealthCheckDialog(QDialog):
             variant_repository=self.variant_repository,
         )
 
+    def _load_catalog(
+        self,
+    ) -> tuple[
+        tuple,
+        tuple,
+        dict[str, tuple],
+        tuple,
+    ]:
+        """One catalog snapshot — baselines, plans (document-wide), presets.
+
+        Refresh passes used to re-issue ``list_baselines`` four times and
+        ``list_plans``/``list_presets`` twice per pass (plus a per-plan
+        baseline re-verify inside the repository). The dialog needs one
+        consistent view, so every surface reuses this snapshot.
+        """
+
+        baselines = self.health_repository.list_baselines(self.document_id)
+        plans = self.health_repository.list_plans_for_document(
+            self.document_id
+        )
+        plans_by_baseline: dict[str, list] = {}
+        for plan in plans:
+            plans_by_baseline.setdefault(plan.baseline_id, []).append(plan)
+        presets = self.preset_repository.list_presets(self.document_id)
+        return baselines, plans, plans_by_baseline, presets
+
     def reload(self) -> None:
         """Re-list every persisted object the dialog surfaces."""
-        self._refresh_baselines()
-        self._refresh_plan_pick()
-        self._refresh_evidence_options()
+        catalog = self._load_catalog()
+        self._refresh_baselines(*catalog)
+        self._refresh_plan_pick(*catalog)
+        self._refresh_evidence_options(catalog[3])
 
-    def _refresh_baselines(self) -> None:
+    def _refresh_baselines(
+        self,
+        baselines: tuple | None = None,
+        _plans: tuple | None = None,
+        plans_by_baseline: dict | None = None,
+        presets: tuple | None = None,
+    ) -> None:
+        if baselines is None or plans_by_baseline is None or presets is None:
+            baselines, _plans, plans_by_baseline, presets = (
+                self._load_catalog()
+            )
+        preset_names = {preset.preset_id: preset.name for preset in presets}
         self.baselines.clear()
-        for baseline in self.health_repository.list_baselines(self.document_id):
+        for baseline in baselines:
             preset_name = ''
             if baseline.operating_preset_id is not None:
-                preset = self.preset_repository.get_preset(
-                    baseline.operating_preset_id
+                preset_name = preset_names.get(
+                    baseline.operating_preset_id, '解決不能'
                 )
-                preset_name = preset.name if preset is not None else '解決不能'
             item = QTreeWidgetItem(
                 [
                     baseline.name,
@@ -1065,25 +1144,37 @@ class HealthCheckDialog(QDialog):
             empty = QTreeWidgetItem(['（登録なし）', '', '', ''])
             empty.setFlags(Qt.ItemFlag.NoItemFlags)
             self.baselines.addTopLevelItem(empty)
-        self._refresh_plan_baseline_combo()
+        self._refresh_plan_baseline_combo(baselines, plans_by_baseline)
 
-    def _refresh_plan_baseline_combo(self) -> None:
+    def _refresh_plan_baseline_combo(
+        self,
+        baselines: tuple,
+        plans_by_baseline: dict,
+    ) -> None:
         current = self.plan_baseline_combo.currentData()
         self.plan_baseline_combo.blockSignals(True)
         self.plan_baseline_combo.clear()
-        for baseline in self.health_repository.list_baselines(self.document_id):
+        for baseline in baselines:
             self.plan_baseline_combo.addItem(baseline.name, baseline)
         index = self.plan_baseline_combo.findData(current)
         if index >= 0:
             self.plan_baseline_combo.setCurrentIndex(index)
         self.plan_baseline_combo.blockSignals(False)
         self._refresh_check_pin_options()
-        self._refresh_plans()
+        self._refresh_plans(baselines, plans_by_baseline)
 
-    def _refresh_plans(self) -> None:
+    def _refresh_plans(
+        self,
+        baselines: tuple | None = None,
+        plans_by_baseline: dict | None = None,
+    ) -> None:
+        if baselines is None or plans_by_baseline is None:
+            baselines, _plans, plans_by_baseline, _presets = (
+                self._load_catalog()
+            )
         self.plans.clear()
-        for baseline in self.health_repository.list_baselines(self.document_id):
-            for plan in self.health_repository.list_plans(baseline.baseline_id):
+        for baseline in baselines:
+            for plan in plans_by_baseline.get(baseline.baseline_id, ()):
                 item = QTreeWidgetItem(
                     [
                         _short(plan.plan_id),
@@ -1097,14 +1188,24 @@ class HealthCheckDialog(QDialog):
             empty = QTreeWidgetItem(['（登録なし）', '', ''])
             empty.setFlags(Qt.ItemFlag.NoItemFlags)
             self.plans.addTopLevelItem(empty)
-        self._refresh_plan_pick()
+        self._refresh_plan_pick(baselines, None, plans_by_baseline, None)
 
-    def _refresh_plan_pick(self) -> None:
+    def _refresh_plan_pick(
+        self,
+        baselines: tuple | None = None,
+        _plans: tuple | None = None,
+        plans_by_baseline: dict | None = None,
+        _presets: tuple | None = None,
+    ) -> None:
+        if baselines is None or plans_by_baseline is None:
+            baselines, _plans, plans_by_baseline, _presets = (
+                self._load_catalog()
+            )
         current = self.run_plan_combo.currentData()
         self.run_plan_combo.blockSignals(True)
         self.run_plan_combo.clear()
-        for baseline in self.health_repository.list_baselines(self.document_id):
-            for plan in self.health_repository.list_plans(baseline.baseline_id):
+        for baseline in baselines:
+            for plan in plans_by_baseline.get(baseline.baseline_id, ()):
                 self.run_plan_combo.addItem(
                     f'{baseline.name} · {_short(plan.plan_id)}', plan
                 )
@@ -1114,7 +1215,12 @@ class HealthCheckDialog(QDialog):
         self.run_plan_combo.blockSignals(False)
         self._build_run_rows()
 
-    def _refresh_evidence_options(self) -> None:
+    def _refresh_evidence_options(
+        self,
+        presets: tuple | None = None,
+    ) -> None:
+        if presets is None:
+            presets = self.preset_repository.list_presets(self.document_id)
         # Pin evidence allows the honest declared-provenance entry;
         # observation evidence is persisted-authority picks only.
         manual_current = self.pin_evidence_combo.currentData()
@@ -1129,7 +1235,7 @@ class HealthCheckDialog(QDialog):
         current_preset = self.run_context_combo.currentData()
         self.run_context_combo.clear()
         self.run_context_combo.addItem('（なし）', None)
-        for preset in self.preset_repository.list_presets(self.document_id):
+        for preset in presets:
             self.run_context_combo.addItem(
                 preset.name,
                 HealthAuthorityRef(
@@ -1146,7 +1252,7 @@ class HealthCheckDialog(QDialog):
         current_bp = self.baseline_preset_combo.currentData()
         self.baseline_preset_combo.clear()
         self.baseline_preset_combo.addItem('（なし）', None)
-        for preset in self.preset_repository.list_presets(self.document_id):
+        for preset in presets:
             self.baseline_preset_combo.addItem(preset.name, preset)
         index = self.baseline_preset_combo.findData(current_bp)
         if index >= 0:
@@ -1386,7 +1492,7 @@ class HealthCheckDialog(QDialog):
                 baseline.baseline_id
             )
         except Exception as exc:  # noqa: BLE001 — typed errors surface verbatim
-            self.status_label.setText(f'登録できませんでした: {exc}')
+            self.status_label.setText(f'登録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(f'ベースライン「{name}」を登録しました。')
         self._pins = []
@@ -1474,7 +1580,7 @@ class HealthCheckDialog(QDialog):
             self.health_repository.save_plan(plan)
             self.health_repository.verify_persisted_plan(plan.plan_id)
         except Exception as exc:  # noqa: BLE001
-            self.status_label.setText(f'計画を保存できませんでした: {exc}')
+            self.status_label.setText(f'計画を保存できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText('チェック計画を保存しました。')
         self._pending_checks = []
@@ -1541,7 +1647,7 @@ class HealthCheckDialog(QDialog):
             self.health_repository.save_run(run)
             self.health_repository.verify_persisted_run(run.run_id)
         except Exception as exc:  # noqa: BLE001
-            self.status_label.setText(f'チェックを記録できませんでした: {exc}')
+            self.status_label.setText(f'チェックを記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText('チェック結果を記録しました。')
         self.run_results.clear()
@@ -1613,8 +1719,12 @@ class OperatingPresetRecordDialog(QDialog):
 
         self.tabs = QTabWidget(self)
         layout.addWidget(self.tabs)
-        self.tabs.addTab(self._build_register_tab(), 'プリセット登録')
-        self.tabs.addTab(self._build_apply_tab(), '適用の記録')
+        self.tabs.addTab(
+            _scroll_wrap(self._build_register_tab()), 'プリセット登録'
+        )
+        self.tabs.addTab(
+            _scroll_wrap(self._build_apply_tab()), '適用の記録'
+        )
 
         self.status_label = QLabel('')
         self.status_label.setWordWrap(True)
@@ -1685,6 +1795,7 @@ class OperatingPresetRecordDialog(QDialog):
         layout.addLayout(form)
 
         self.register_button = QPushButton('プリセットを登録', page)
+        self.register_button.setToolTip('現在の偏差・条件を運用プリセットとして登録します')
         self.register_button.clicked.connect(self._register_preset)
         layout.addWidget(self.register_button)
         layout.addStretch(1)
@@ -1724,6 +1835,7 @@ class OperatingPresetRecordDialog(QDialog):
         layout.addLayout(form)
 
         self.apply_button = QPushButton('適用を記録', page)
+        self.apply_button.setToolTip('選択したプリセットの適用を権威として記録します')
         self.apply_button.clicked.connect(self._record_applied_state)
         layout.addWidget(self.apply_button)
         layout.addStretch(1)
@@ -1839,7 +1951,7 @@ class OperatingPresetRecordDialog(QDialog):
             self.preset_repository.save_preset(preset)
         except Exception as exc:  # noqa: BLE001
             self.status_label.setText(
-                f'プリセットを登録できませんでした: {exc}'
+                f'プリセットを登録できませんでした: {operation_error_message(exc)}'
             )
             return
         self.status_label.setText(f'プリセット「{name}」を登録しました。')
@@ -1871,7 +1983,7 @@ class OperatingPresetRecordDialog(QDialog):
             )
             self.preset_repository.save_applied_state(applied)
         except Exception as exc:  # noqa: BLE001
-            self.status_label.setText(f'適用を記録できませんでした: {exc}')
+            self.status_label.setText(f'適用を記録できませんでした: {operation_error_message(exc)}')
             return
         self.status_label.setText(
             f'「{preset.name}」の適用を記録しました。'

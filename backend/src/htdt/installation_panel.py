@@ -25,7 +25,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -40,6 +39,10 @@ from PySide6.QtWidgets import (
 )
 
 from .cad_display_labels import revision_display_label
+from .cad_display_units import (
+    LengthDisplayPolicy,
+    display_length_policy,
+)
 from .cad_equipment import EquipmentDataProvenance, EquipmentDefinition
 from .cad_equipment_repository import CadEquipmentRepository
 from .cad_installation_context import (
@@ -65,6 +68,8 @@ from .cad_installation_datum_repository import CadInstallationDatumRepository
 from .cad_repository import SceneRepository
 from .cad_scene import room_vertices
 from .clock import utc_now_iso
+from .length_spinbox import MetricSpinBox
+from .user_facing_error import operation_error_message
 from .ui_theme import (
     ControlSize,
     SemanticState,
@@ -188,11 +193,8 @@ class _OverrideRow(QWidget):
         self.axis_combo = _styled_combo()
         for axis, label in _AXIS_LABELS.items():
             self.axis_combo.addItem(label, axis)
-        self.required_spin = QDoubleSpinBox()
-        self.required_spin.setRange(0.0, 20.0)
-        self.required_spin.setSingleStep(0.05)
-        self.required_spin.setDecimals(2)
-        self.required_spin.setSuffix(' m')
+        self.required_spin = MetricSpinBox(minimum_m=0.0, maximum_m=20.0)
+        self.required_spin.setAccessibleName('必要クリアランス')
         self.rationale_edit = QLineEdit()
         self.rationale_edit.setPlaceholderText('上書きの根拠（必須）')
         layout.addWidget(self.axis_combo)
@@ -222,6 +224,7 @@ class InstallationPanel(QFrame):
         )
         self.datum_repository = CadInstallationDatumRepository(scene_repository)
         self._definitions: dict[str, EquipmentDefinition] = {}
+        self._length_policy = display_length_policy('m')
         self._syncing = False
         self._build_ui()
 
@@ -291,14 +294,11 @@ class InstallationPanel(QFrame):
         clearances_grid.setContentsMargins(0, 0, 0, 0)
         clearances_grid.setSpacing(4)
         self.clearance_checks: dict[str, QCheckBox] = {}
-        self.clearance_spins: dict[str, QDoubleSpinBox] = {}
+        self.clearance_spins: dict[str, MetricSpinBox] = {}
         for index, (field, axis) in enumerate(_MEASURED_FIELDS):
             check = QCheckBox(_AXIS_LABELS[axis])
-            spin = QDoubleSpinBox()
-            spin.setRange(0.0, 20.0)
-            spin.setSingleStep(0.05)
-            spin.setDecimals(2)
-            spin.setSuffix(' m')
+            spin = MetricSpinBox(minimum_m=0.0, maximum_m=20.0)
+            spin.setAccessibleName(f'実測クリアランス {_AXIS_LABELS[axis]}')
             spin.setEnabled(False)
             check.toggled.connect(spin.setEnabled)
             self.clearance_checks[field] = check
@@ -602,8 +602,29 @@ class InstallationPanel(QFrame):
                 )
         _fill_combo(self.host_combo, tuple(items))
 
+    def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
+        """Apply the #496 display-unit policy to the clearance fields.
+
+        SI metres stay authoritative — only suffix/decimals change. Rows
+        added later inherit the stored policy so they never re-open in
+        metres while the rest of the app shows another unit.
+        """
+
+        self._length_policy = policy
+        for spin in self.clearance_spins.values():
+            spin.set_display_unit(policy.unit, decimals=policy.decimals)
+        for index in range(self.override_rows.count()):
+            row = self.override_rows.itemAt(index).widget()
+            if isinstance(row, _OverrideRow):
+                row.required_spin.set_display_unit(
+                    policy.unit, decimals=policy.decimals
+                )
+
     def _add_override_row(self) -> None:
         row = _OverrideRow(self)
+        row.required_spin.set_display_unit(
+            self._length_policy.unit, decimals=self._length_policy.decimals
+        )
         remove = QPushButton('削除')
         set_control_size(remove, ControlSize.COMPACT)
         remove.clicked.connect(lambda: self._remove_override_row(row))
@@ -629,7 +650,7 @@ class InstallationPanel(QFrame):
             overrides.append(
                 ClearanceOverride(
                     axis=row.axis_combo.currentData(),
-                    required_m=float(row.required_spin.value()),
+                    required_m=float(row.required_spin.value_m()),
                     rationale=rationale,
                     provenance=self._operator_provenance(
                         actor=self.actor_edit.text().strip() or 'operator',
@@ -707,7 +728,7 @@ class InstallationPanel(QFrame):
         values: dict[str, float] = {}
         for field, _axis in _MEASURED_FIELDS:
             if self.clearance_checks[field].isChecked():
-                values[field] = float(self.clearance_spins[field].value())
+                values[field] = float(self.clearance_spins[field].value_m())
         if not values:
             return None
         return MeasuredClearances(**values)
@@ -761,7 +782,7 @@ class InstallationPanel(QFrame):
         try:
             evaluation = self._evaluate_context(context)
         except ValueError as exc:
-            self.evaluation_label.setText(f'評価できません: {exc}')
+            self.evaluation_label.setText(f'評価できません: {operation_error_message(exc)}')
             set_semantic_state(
                 self.evaluation_label, SemanticState.ERROR
             )

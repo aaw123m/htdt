@@ -915,6 +915,7 @@ class VideoCommissioningWorkspace(QWidget):
 
         self.proposals_list = QListWidget(page)
         self.proposals_list.setObjectName('videoProposalsList')
+        self.proposals_list.setAccessibleName('調整提案の一覧')
         self.proposals_list.currentRowChanged.connect(
             self._on_proposal_selected
         )
@@ -922,6 +923,7 @@ class VideoCommissioningWorkspace(QWidget):
 
         self.actions_table = QTableWidget(0, 4, page)
         self.actions_table.setObjectName('videoActionsTable')
+        self.actions_table.setAccessibleName('推奨される調整操作の一覧')
         self.actions_table.setHorizontalHeaderLabels(
             ('操作', '確度', '説明', '限界')
         )
@@ -1174,6 +1176,7 @@ class VideoCommissioningWorkspace(QWidget):
 
         self.deltas_table = QTableWidget(0, 5, page)
         self.deltas_table.setObjectName('videoDeltasTable')
+        self.deltas_table.setAccessibleName('調整前後の指標差分表')
         self.deltas_table.setHorizontalHeaderLabels(
             ('指標', '前', '後', '差分', '方向')
         )

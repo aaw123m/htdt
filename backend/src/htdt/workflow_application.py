@@ -353,36 +353,37 @@ def __dir__():
     return sorted([*globals(), *_LAZY_IMPORTS])
 
 
-def bind_inspector_display_length_policy(
-    inspector: SelectionInspector,
+def bind_display_length_policy(
+    widget,
     preferences: ApplicationPreferenceStore,
+    apply_policy,
 ) -> None:
-    """Apply the #496 length display policy to a room inspector, live.
+    """Subscribe a widget's length-policy setter to preference commits.
 
     ``display_input.length_unit`` / ``display_input.numeric_precision`` are
     user-local presentation state — canonical storage stays SI metres. The
     subscription re-applies on later commits; the weakref keeps a destroyed
-    inspector from breaking unrelated preference writes.
+    widget from breaking unrelated preference writes.
     """
 
-    inspector_ref = weakref.ref(inspector)
+    widget_ref = weakref.ref(widget)
 
     def apply() -> None:
-        target = inspector_ref()
+        target = widget_ref()
         if target is None:
             return
-        policy = length_display_policy_from_preferences(preferences)
         try:
-            target.set_display_units(
-                length_unit=policy.unit, precision=policy.decimals
+            apply_policy(
+                target,
+                length_display_policy_from_preferences(preferences),
             )
         except RuntimeError:
             # Qt object already destroyed.
             pass
 
     def on_change(change: PreferenceChange) -> None:
-        if inspector_ref() is None:
-            # The inspector is gone; prune instead of lingering on the
+        if widget_ref() is None:
+            # The widget is gone; prune instead of lingering on the
             # app-scoped store forever.
             preferences.unsubscribe(on_change)
             return
@@ -393,39 +394,39 @@ def bind_inspector_display_length_policy(
     preferences.subscribe(on_change)
 
 
+def bind_length_policy_widget(
+    widget,
+    preferences: ApplicationPreferenceStore,
+) -> None:
+    """Bind a ``set_length_policy`` widget — the common #496 shape."""
+
+    bind_display_length_policy(
+        widget, preferences, lambda target, policy: target.set_length_policy(policy)
+    )
+
+
+def bind_inspector_display_length_policy(
+    inspector: SelectionInspector,
+    preferences: ApplicationPreferenceStore,
+) -> None:
+    """Apply the #496 length display policy to a room inspector, live."""
+
+    bind_display_length_policy(
+        inspector,
+        preferences,
+        lambda target, policy: target.set_display_units(
+            length_unit=policy.unit, precision=policy.decimals
+        ),
+    )
+
+
 def bind_measure_display_length_policy(
     panel,
     preferences: ApplicationPreferenceStore,
 ) -> None:
-    """Apply the #496 length display policy to the room measure panel, live.
+    """Apply the #496 length display policy to the room measure panel, live."""
 
-    Same contract as :func:`bind_inspector_display_length_policy` — canonical
-    storage stays SI metres; the subscription re-formats the current result
-    when the user changes unit or precision.
-    """
-
-    panel_ref = weakref.ref(panel)
-
-    def apply() -> None:
-        target = panel_ref()
-        if target is None:
-            return
-        try:
-            target.set_length_policy(
-                length_display_policy_from_preferences(preferences)
-            )
-        except RuntimeError:
-            pass
-
-    def on_change(change: PreferenceChange) -> None:
-        if panel_ref() is None:
-            preferences.unsubscribe(on_change)
-            return
-        if change.key in _DISPLAY_LENGTH_PREFERENCE_KEYS:
-            apply()
-
-    apply()
-    preferences.subscribe(on_change)
+    bind_length_policy_widget(panel, preferences)
 
 
 _ROOM_TOOL_COMMAND_IDS = (
@@ -1799,7 +1800,9 @@ class WorkflowApplicationComposition:
                 template
             )
         except (ProjectTemplateConflictError, ValueError) as exc:
-            QMessageBox.warning(self.shell, title, str(exc))
+            QMessageBox.warning(
+                self.shell, title, operation_error_message(exc)
+            )
             return
         QMessageBox.information(
             self.shell,
@@ -3118,11 +3121,15 @@ class WorkflowApplicationComposition:
             self.preferences = preferences
         bind_inspector_display_length_policy(workspace.inspector, preferences)
         bind_measure_display_length_policy(workspace.measure_panel, preferences)
+        installation_panel = getattr(workspace, 'installation_panel', None)
+        if installation_panel is not None:
+            bind_length_policy_widget(installation_panel, preferences)
 
         geometry_input = _self.RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
         geometry_panel = _self.RoomGeometryPanel(geometry_input)
         workspace.attach_geometry_panel(geometry_panel)
+        bind_length_policy_widget(geometry_panel, preferences)
         transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)
         workspace.attach_transform_input(transform_input)
         # Hard placement constraints (#486): reject drag commits that would
@@ -3144,6 +3151,11 @@ class WorkflowApplicationComposition:
         prediction_panel = _self.RoomPredictionPanel(
             prediction, prediction_lane=prediction_lane
         )
+        field_explorer_panel = getattr(
+            prediction_panel, 'field_explorer_panel', None
+        )
+        if field_explorer_panel is not None:
+            bind_length_policy_widget(field_explorer_panel, preferences)
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
         # #876/REV36: persisted R150 path artifacts replay into ranked

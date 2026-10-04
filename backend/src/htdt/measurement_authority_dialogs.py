@@ -76,6 +76,7 @@ from .cad_measurement_stimulus import (
 from .ingress import read_file_bounded
 from .limits import MAX_ATTACHMENT_BYTES
 from .ui_theme import SemanticState, set_semantic_state
+from .user_facing_error import operation_error_message
 
 if TYPE_CHECKING:
     from .cad_measurement_models import CadFrequencyResponseDataset
@@ -348,7 +349,7 @@ class _RecordDialog(QDialog):
         try:
             self.record = self.build_record()
         except Exception as exc:
-            self.error_label.setText(f'登録内容を確定できません: {exc}')
+            self.error_label.setText(f'登録内容を確定できません: {operation_error_message(exc)}')
             return
         super().accept()
 
@@ -921,7 +922,7 @@ class StimulusProfileDialog(_RecordDialog):
                 asset, raw
             )
         except Exception as exc:
-            self.error_label.setText(f'励振ファイルを登録できません: {exc}')
+            self.error_label.setText(f'励振ファイルを登録できません: {operation_error_message(exc)}')
             return
         self.error_label.setText('')
         self._reload_assets()

@@ -8,7 +8,6 @@ from PySide6.QtCore import QSignalBlocker
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -18,6 +17,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .cad_display_units import (
+    LengthDisplayPolicy,
+    display_length_policy,
+    format_length_m,
+    si_to_display,
+)
 from .cad_document import EditStateError
 from .cad_scene import room_vertices
 from .cad_wall_models import WallConstraintBinding, WallOpening
@@ -32,6 +37,7 @@ from .cad_walls import (
     update_wall_thickness,
     wall_length,
 )
+from .length_spinbox import MetricSpinBox
 from .ui_theme import (
     SemanticState,
     SurfaceRole,
@@ -46,28 +52,18 @@ if TYPE_CHECKING:
     from .room_geometry_input import RoomGeometryInputController
 
 
-class _TooltipForwardingSpinBox(QDoubleSpinBox):
-    """Spin box whose tooltip also shows over the embedded line edit.
+def _spin_value_changed(field: MetricSpinBox, stored_m: float) -> bool:
+    """Whether the field holds a user-meaningful change from ``stored_m``.
 
-    Qt does not propagate a spin box's tooltip to its internal QLineEdit —
-    the cursor sits on the line edit, so the panel's tooltips would never
-    appear over the text area without this mirror.
+    The displayed value is quantized to the field's decimals in the current
+    display unit, so a stored SI value with finer precision (sketched
+    floats, imported documents) would otherwise commit display-rounding
+    noise as a silent edit on focus-out. The tolerance is half a display
+    quantum converted back into metres.
     """
-
-    def setToolTip(self, text: str) -> None:
-        super().setToolTip(text)
-        self.lineEdit().setToolTip(text)
-
-
-def _spin_value_changed(field: QDoubleSpinBox, stored: float) -> bool:
-    """Whether the field holds a user-meaningful change from ``stored``.
-
-    QDoubleSpinBox.value() is rounded to the field's decimals, so a stored
-    value with finer precision (sketched floats, imported documents) would
-    otherwise commit display-rounding noise as a silent edit on focus-out.
-    """
-    tolerance = 0.5 * 10 ** -field.decimals()
-    return abs(float(field.value()) - stored) > tolerance
+    scale = MetricSpinBox.UNIT_SCALES[field.display_unit()]
+    tolerance_m = (0.5 * 10 ** -field.decimals()) / scale
+    return abs(field.value_m() - stored_m) > tolerance_m
 
 
 class RoomGeometryPanel(QFrame):
@@ -81,6 +77,7 @@ class RoomGeometryPanel(QFrame):
         super().__init__(parent)
         self.geometry = geometry
         self.controller = geometry.workspace.controller
+        self._length_policy = display_length_policy('m')
         self.setObjectName("roomGeometryPanel")
         self.setMinimumWidth(248)
         self.setMaximumWidth(560)
@@ -113,8 +110,8 @@ class RoomGeometryPanel(QFrame):
         root.addLayout(mode_row)
 
         room_form = QFormLayout()
-        self.height = self._metric_field(0.1, 20.0, decimals=3, step=0.05)
-        self.height.setToolTip("床から天井までの高さ（m）· すべての壁に共通です")
+        self.height = self._metric_field(0.1, 20.0)
+        self.height.setToolTip("床から天井までの高さ · すべての壁に共通です")
         self.height.editingFinished.connect(self._height_edited)
         room_form.addRow("天井高", self.height)
         height_label = room_form.labelForField(self.height)
@@ -129,9 +126,9 @@ class RoomGeometryPanel(QFrame):
         self.vertex_host = QWidget()
         vertex_layout = QFormLayout(self.vertex_host)
         vertex_layout.setContentsMargins(0, 0, 0, 0)
-        self.vertex_x = self._metric_field(-1000.0, 1000.0, decimals=4)
-        self.vertex_y = self._metric_field(-1000.0, 1000.0, decimals=4)
-        vertex_hint = "選択中の頂点の部屋座標（m）· +X=部屋右、+Y=部屋奥"
+        self.vertex_x = self._metric_field(-1000.0, 1000.0)
+        self.vertex_y = self._metric_field(-1000.0, 1000.0)
+        vertex_hint = "選択中の頂点の部屋座標 · +X=部屋右、+Y=部屋奥"
         self.vertex_x.setToolTip(vertex_hint)
         self.vertex_y.setToolTip(vertex_hint)
         self.vertex_x.editingFinished.connect(self._vertex_edited)
@@ -153,16 +150,16 @@ class RoomGeometryPanel(QFrame):
         self.edge_host = QWidget()
         edge_layout = QFormLayout(self.edge_host)
         edge_layout.setContentsMargins(0, 0, 0, 0)
-        self.edge_length = self._metric_field(0.001, 1000.0, decimals=4)
-        edge_hint = "選択中の辺の長さ（m）· 変更すると終点側の頂点が移動します"
+        self.edge_length = self._metric_field(0.001, 1000.0)
+        edge_hint = "選択中の辺の長さ · 変更すると終点側の頂点が移動します"
         self.edge_length.setToolTip(edge_hint)
         self.edge_length.editingFinished.connect(self._edge_length_edited)
         edge_layout.addRow("辺の長さ", self.edge_length)
         edge_label = edge_layout.labelForField(self.edge_length)
         if edge_label is not None:
             edge_label.setToolTip(edge_hint)
-        self.split_offset = self._metric_field(0.001, 1000.0, decimals=3)
-        split_offset_hint = "辺の始点からの分割位置（m）· 中点以外に頂点を挿入したい場合に変更"
+        self.split_offset = self._metric_field(0.001, 1000.0)
+        split_offset_hint = "辺の始点からの分割位置 · 中点以外に頂点を挿入したい場合に変更"
         self.split_offset.setToolTip(split_offset_hint)
         edge_layout.addRow("分割位置", self.split_offset)
         split_offset_label = edge_layout.labelForField(self.split_offset)
@@ -210,9 +207,9 @@ class RoomGeometryPanel(QFrame):
         self.wall_id = QLabel("—")
         self.wall_id.setToolTip("選択中の壁の番号（部屋の外周を時計回りに採番）")
         self.wall_length = QLabel("—")
-        self.wall_length.setToolTip("選択中の壁の長さ（m）· 読み取り専用")
-        self.wall_thickness = self._metric_field(0.001, 5.0, decimals=3)
-        wall_thickness_hint = "壁の厚さ（m）· 遮音・構造の表現に使われます"
+        self.wall_length.setToolTip("選択中の壁の長さ · 読み取り専用")
+        self.wall_thickness = self._metric_field(0.001, 5.0)
+        wall_thickness_hint = "壁の厚さ · 遮音・構造の表現に使われます"
         self.wall_thickness.setToolTip(wall_thickness_hint)
         self.wall_thickness.editingFinished.connect(self._wall_thickness_edited)
         wall_form.addRow("壁", self.wall_id)
@@ -245,9 +242,9 @@ class RoomGeometryPanel(QFrame):
             "編集するクリアランス参照を選択 ·「新規 / 未選択」では追加モードになります"
         )
         self.binding_selector.currentIndexChanged.connect(self._binding_selected)
-        self.clearance_value = self._metric_field(0.0, 10.0, decimals=3, step=0.05)
-        self.clearance_value.setValue(0.30)
-        self.clearance_value.setToolTip("クリアランスの距離（m）")
+        self.clearance_value = self._metric_field(0.0, 10.0)
+        self.clearance_value.set_value_m(0.30)
+        self.clearance_value.setToolTip("クリアランスの距離")
         self.add_clearance_button = QPushButton("追加")
         self.add_clearance_button.setToolTip(
             "選択中の壁へクリアランス参照を追加します"
@@ -314,18 +311,18 @@ class RoomGeometryPanel(QFrame):
         self.opening_kind.setToolTip(
             "開口の種類 · 通路は常に開放扱い、ドア・窓は閉じた開口として音響計算されます"
         )
-        self.opening_offset = self._metric_field(0.0, 1000.0, decimals=3)
-        self.opening_width = self._metric_field(0.001, 1000.0, decimals=3)
-        self.opening_sill = self._metric_field(0.0, 20.0, decimals=3)
-        self.opening_height = self._metric_field(0.001, 20.0, decimals=3)
+        self.opening_offset = self._metric_field(0.0, 1000.0)
+        self.opening_width = self._metric_field(0.001, 1000.0)
+        self.opening_sill = self._metric_field(0.0, 20.0)
+        self.opening_height = self._metric_field(0.001, 20.0)
         self.opening_open = QCheckBox("開放として扱う")
         opening_hints = {
             "開口": "編集する開口を選択 ·「新規 / 未選択」では追加モードになります",
             "種類": self.opening_kind.toolTip(),
-            "開始位置": "壁の始点から開口の開始端までの距離（m）",
-            "幅": "開口の幅（m）",
-            "床から": "床から開口下端までの高さ（m）· 窓の場合は腰壁の高さ",
-            "高さ": "開口の高さ（m）",
+            "開始位置": "壁の始点から開口の開始端までの距離",
+            "幅": "開口の幅",
+            "床から": "床から開口下端までの高さ · 窓の場合は腰壁の高さ",
+            "高さ": "開口の高さ",
         }
         self.opening_offset.setToolTip(opening_hints["開始位置"])
         self.opening_width.setToolTip(opening_hints["幅"])
@@ -380,21 +377,54 @@ class RoomGeometryPanel(QFrame):
         geometry.selectionChanged.connect(self.refresh)
         self.refresh()
 
+    def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
+        """Apply the #496 display-unit policy to every length field/label.
+
+        SI metres stay authoritative — the policy only re-skins suffixes,
+        decimals and human-readable labels, matching the inspector and
+        measure panels (previously metre-only while the rest of the app
+        honored the preference).
+        """
+
+        self._length_policy = policy
+        for field in self._length_fields():
+            field.set_display_unit(policy.unit, decimals=policy.decimals)
+        self.refresh()
+
+    def _length_fields(self) -> tuple[MetricSpinBox, ...]:
+        return (
+            self.height,
+            self.vertex_x,
+            self.vertex_y,
+            self.edge_length,
+            self.split_offset,
+            self.wall_thickness,
+            self.clearance_value,
+            self.opening_offset,
+            self.opening_width,
+            self.opening_sill,
+            self.opening_height,
+        )
+
+    def _format_m(self, value_m: float) -> str:
+        return format_length_m(value_m, self._length_policy)
+
+    def _format_range_m(self, low_m: float, high_m: float) -> str:
+        """``low–high`` sharing one unit suffix — keeps range labels compact."""
+
+        policy = self._length_policy
+        suffix = format_length_m(0.0, policy).rsplit(' ', 1)[1]
+        return (
+            f'{si_to_display(low_m, policy.unit):.{policy.decimals}f}–'
+            f'{si_to_display(high_m, policy.unit):.{policy.decimals}f} {suffix}'
+        )
+
     @staticmethod
     def _metric_field(
-        minimum: float,
-        maximum: float,
-        *,
-        decimals: int,
-        step: float = 0.01,
-    ) -> QDoubleSpinBox:
-        field = _TooltipForwardingSpinBox()
-        field.setRange(minimum, maximum)
-        field.setDecimals(decimals)
-        field.setSingleStep(step)
-        field.setSuffix(" m")
-        field.setKeyboardTracking(False)
-        return field
+        minimum_m: float,
+        maximum_m: float,
+    ) -> MetricSpinBox:
+        return MetricSpinBox(minimum_m=minimum_m, maximum_m=maximum_m)
 
     def refresh(self) -> None:
         room = self.geometry.room
@@ -420,10 +450,11 @@ class RoomGeometryPanel(QFrame):
         min_x, min_y, max_x, max_y = room.bounds_m
         self.summary.setText(
             f"{len(room_vertices(room))}頂点 · "
-            f"X {min_x:.2f}–{max_x:.2f} m · Y {min_y:.2f}–{max_y:.2f} m"
+            f"X {self._format_range_m(min_x, max_x)} · "
+            f"Y {self._format_range_m(min_y, max_y)}"
         )
         with QSignalBlocker(self.height):
-            self.height.setValue(room.height_m)
+            self.height.set_value_m(room.height_m)
 
         vertex = self.geometry.selected_vertex
         edge_index = self.geometry.selected_edge_index
@@ -433,8 +464,8 @@ class RoomGeometryPanel(QFrame):
         if vertex is not None:
             self.selection_title.setText("選択: 頂点")
             with QSignalBlocker(self.vertex_x), QSignalBlocker(self.vertex_y):
-                self.vertex_x.setValue(vertex.x_m)
-                self.vertex_y.setValue(vertex.y_m)
+                self.vertex_x.set_value_m(vertex.x_m)
+                self.vertex_y.set_value_m(vertex.y_m)
             self.vertex_x.setEnabled(editable)
             self.vertex_y.setEnabled(editable)
             self.delete_vertex_button.setEnabled(editable)
@@ -444,13 +475,20 @@ class RoomGeometryPanel(QFrame):
             end = vertices[(edge_index + 1) % len(vertices)]
             self.selection_title.setText("選択: 辺 / 壁")
             with QSignalBlocker(self.edge_length):
-                self.edge_length.setValue(hypot(end.x_m - start.x_m, end.y_m - start.y_m))
+                self.edge_length.set_value_m(
+                    hypot(end.x_m - start.x_m, end.y_m - start.y_m)
+                )
             self.edge_length.setEnabled(editable)
             edge_length_value = hypot(end.x_m - start.x_m, end.y_m - start.y_m)
             with QSignalBlocker(self.split_offset):
-                self.split_offset.setMaximum(max(edge_length_value - 0.001, 0.001))
-                self.split_offset.setValue(
-                    min(edge_length_value * 0.5, self.split_offset.maximum())
+                self.split_offset.set_maximum_m(
+                    max(edge_length_value - 0.001, 0.001)
+                )
+                self.split_offset.set_value_m(
+                    min(
+                        edge_length_value * 0.5,
+                        max(edge_length_value - 0.001, 0.001),
+                    )
                 )
             self.split_offset.setEnabled(editable)
             self.insert_midpoint_button.setEnabled(editable)
@@ -474,9 +512,9 @@ class RoomGeometryPanel(QFrame):
 
         wall_index = topology.walls.index(wall)
         self.wall_id.setText(f"壁 {wall_index + 1}")
-        self.wall_length.setText(f"{wall_length(room, wall):.3f} m")
+        self.wall_length.setText(self._format_m(wall_length(room, wall)))
         with QSignalBlocker(self.wall_thickness):
-            self.wall_thickness.setValue(wall.thickness_m)
+            self.wall_thickness.set_value_m(wall.thickness_m)
         self.wall_thickness.setEnabled(wall_ready)
         is_last_wall = wall_index == len(topology.walls) - 1
         self.merge_wall_button.setText(
@@ -497,7 +535,9 @@ class RoomGeometryPanel(QFrame):
         self.wall_clearance_count.setToolTip(
             "この壁に紐づくクリアランス参照"
             + (
-                "（" + ", ".join(f"{item.clearance_m:.2f} m" for item in bindings) + "）"
+                "（"
+                + ", ".join(self._format_m(item.clearance_m) for item in bindings)
+                + "）"
                 if bindings
                 else "はありません"
             )
@@ -507,7 +547,7 @@ class RoomGeometryPanel(QFrame):
             self.binding_selector.clear()
             self.binding_selector.addItem("新規 / 未選択", None)
             for item in bindings:
-                label = f"{item.clearance_m:.2f} m"
+                label = self._format_m(item.clearance_m)
                 if len(item.wall_ids) > 1:
                     label += f"（{len(item.wall_ids)}壁）"
                 self.binding_selector.addItem(label, item.binding_id)
@@ -527,7 +567,7 @@ class RoomGeometryPanel(QFrame):
             self.opening_selector.addItem("新規 / 未選択", None)
             for item in openings:
                 self.opening_selector.addItem(
-                    f"{self._kind_label(item.kind)} · {item.offset_m:.2f} m",
+                    f"{self._kind_label(item.kind)} · {self._format_m(item.offset_m)}",
                     item.opening_id,
                 )
             if previous is not None:
@@ -584,10 +624,10 @@ class RoomGeometryPanel(QFrame):
             kind_index = self.opening_kind.findData(opening.kind)
             if kind_index >= 0:
                 self.opening_kind.setCurrentIndex(kind_index)
-            self.opening_offset.setValue(opening.offset_m)
-            self.opening_width.setValue(opening.width_m)
-            self.opening_sill.setValue(opening.sill_m)
-            self.opening_height.setValue(opening.height_m)
+            self.opening_offset.set_value_m(opening.offset_m)
+            self.opening_width.set_value_m(opening.width_m)
+            self.opening_sill.set_value_m(opening.sill_m)
+            self.opening_height.set_value_m(opening.height_m)
             self.opening_open.setChecked(opening.is_open)
         finally:
             del blockers
@@ -618,7 +658,7 @@ class RoomGeometryPanel(QFrame):
             self.refresh()
             return
         self._run(
-            lambda: self.geometry.set_room_height(self.height.value()),
+            lambda: self.geometry.set_room_height(self.height.value_m()),
             "天井高を更新しました",
         )
 
@@ -633,8 +673,8 @@ class RoomGeometryPanel(QFrame):
             return
         self._run(
             lambda: self.geometry.set_selected_vertex_coordinates(
-                x_m=self.vertex_x.value(),
-                y_m=self.vertex_y.value(),
+                x_m=self.vertex_x.value_m(),
+                y_m=self.vertex_y.value_m(),
             ),
             "頂点座標を更新しました",
         )
@@ -652,7 +692,9 @@ class RoomGeometryPanel(QFrame):
             self.refresh()
             return
         self._run(
-            lambda: self.geometry.set_selected_edge_length(self.edge_length.value()),
+            lambda: self.geometry.set_selected_edge_length(
+                self.edge_length.value_m()
+            ),
             "辺の長さを更新しました",
         )
 
@@ -662,7 +704,7 @@ class RoomGeometryPanel(QFrame):
     def _insert_at_offset(self) -> None:
         self._run(
             lambda: self.geometry.insert_selected_edge_vertex(
-                self.split_offset.value()
+                self.split_offset.value_m()
             ),
             "頂点を追加しました",
         )
@@ -701,7 +743,7 @@ class RoomGeometryPanel(QFrame):
         if binding is None:
             return
         with QSignalBlocker(self.clearance_value):
-            self.clearance_value.setValue(binding.clearance_m)
+            self.clearance_value.set_value_m(binding.clearance_m)
 
     def _apply_clearance_binding(self) -> None:
         room = self.geometry.room
@@ -712,7 +754,7 @@ class RoomGeometryPanel(QFrame):
         replacement = WallConstraintBinding(
             binding_id=current.binding_id,
             wall_ids=current.wall_ids,
-            clearance_m=float(self.clearance_value.value()),
+            clearance_m=float(self.clearance_value.value_m()),
         )
 
         def operation() -> bool:
@@ -743,7 +785,7 @@ class RoomGeometryPanel(QFrame):
         binding = WallConstraintBinding(
             binding_id=f"clearance-{uuid4().hex[:10]}",
             wall_ids=(wall.wall_id,),
-            clearance_m=float(self.clearance_value.value()),
+            clearance_m=float(self.clearance_value.value_m()),
         )
 
         def operation() -> bool:
@@ -767,7 +809,7 @@ class RoomGeometryPanel(QFrame):
                 room,
                 topology,
                 wall.wall_id,
-                thickness_m=self.wall_thickness.value(),
+                thickness_m=self.wall_thickness.value_m(),
             )
             return self.controller.replace_room_topology(room, changed)
 
@@ -822,10 +864,10 @@ class RoomGeometryPanel(QFrame):
         replacement = WallOpening(
             opening_id=current.opening_id,
             wall_id=wall.wall_id,
-            offset_m=self.opening_offset.value(),
-            width_m=self.opening_width.value(),
-            sill_m=self.opening_sill.value(),
-            height_m=self.opening_height.value(),
+            offset_m=self.opening_offset.value_m(),
+            width_m=self.opening_width.value_m(),
+            sill_m=self.opening_sill.value_m(),
+            height_m=self.opening_height.value_m(),
             kind=str(self.opening_kind.currentData() or current.kind),
             is_open=self.opening_open.isChecked(),
         )

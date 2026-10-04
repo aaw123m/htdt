@@ -293,6 +293,7 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
 from .installation_panel import InstallationPanel
+from .length_spinbox import MetricSpinBox, PendingTextSpinBox
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -2453,142 +2454,6 @@ class InspectorValidationError(ValueError):
         self.section = section
 
 
-class _PendingTextSpinBox(QDoubleSpinBox):
-    """SpinBox that keeps typed-but-uninterpreted text across hide/show.
-
-    ``QAbstractSpinBox`` re-syncs the line editor to the current value on
-    ``showEvent`` — any ancestor hide/show cycle silently drops in-flight
-    input (#583). A line that differs from the canonical display text is a
-    pending edit, so it is restored after the base re-sync runs.
-    """
-
-    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
-        editor = self.lineEdit()
-        pending = editor.text() if editor is not None else ""
-        # Canonical display text for the current (committed) value — a line
-        # that differs from it is an uncommitted edit worth preserving.
-        canonical = (
-            self.prefix() + self.textFromValue(self.value()) + self.suffix()
-        ).strip()
-        super().showEvent(event)
-        if editor is not None and pending and pending.strip() != canonical:
-            editor.setText(pending)
-
-
-class MetricSpinBox(_PendingTextSpinBox):
-    """Length field: SI metres stay authoritative; display unit is cosmetic.
-
-    Step size scales with keyboard modifiers — plain = fine, Shift = ×10,
-    Ctrl = ×0.1 — so arrow keys cover both rough and precise adjustment
-    (#583). Wheel input is ignored unless the field has focus, which keeps
-    page scrolling from silently editing values.
-    """
-
-    # Conversion semantics come from cad_display_units (#496) — this class
-    # adds only Qt cosmetics (suffix text, step sizes) on top of them.
-    UNIT_SCALES: dict[str, float] = {
-        unit: si_to_display(1.0, unit) for unit in DISPLAY_LENGTH_UNITS
-    }
-    UNIT_SUFFIXES: dict[str, str] = {
-        'm': ' m',
-        'cm': ' cm',
-        'mm': ' mm',
-        'inch': ' in',
-    }
-    # Sensible per-unit base steps (display units).
-    UNIT_STEPS: dict[str, float] = {
-        'm': 0.001,
-        'cm': 0.1,
-        'mm': 1.0,
-        'inch': 0.05,
-    }
-    UNIT_DECIMALS: dict[str, int] = dict(DEFAULT_DISPLAY_DECIMALS)
-
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        *,
-        minimum_m: float = -1000.0,
-        maximum_m: float = 1000.0,
-    ) -> None:
-        super().__init__(parent)
-        self._display_unit = 'm'
-        self._minimum_m = minimum_m
-        self._maximum_m = maximum_m
-        self._base_step = self.UNIT_STEPS['m']
-        # Exact SI authority for this field. The displayed value is quantized
-        # to ``decimals`` in the display unit, so deriving SI back from
-        # ``self.value()`` loses precision (1.5 m -> 59.06 in -> 1500.12 mm).
-        # User commits (valueChanged) refresh the cache; programmatic writes
-        # set it directly and suppress that sync.
-        self._exact_m = 0.0
-        self._exact_sync_blocked = False
-        self.setKeyboardTracking(False)
-        self.valueChanged.connect(self._sync_exact_from_display)
-        self._apply_unit()
-
-    def _sync_exact_from_display(self, display_value: float) -> None:
-        if self._exact_sync_blocked:
-            return
-        self._exact_m = display_to_si(display_value, self._display_unit)
-
-    def _apply_unit(self) -> None:
-        scale = self.UNIT_SCALES[self._display_unit]
-        self.setRange(self._minimum_m * scale, self._maximum_m * scale)
-        self._base_step = self.UNIT_STEPS[self._display_unit]
-        self.setSingleStep(self._base_step)
-        self.setDecimals(self.UNIT_DECIMALS[self._display_unit])
-        self.setSuffix(self.UNIT_SUFFIXES[self._display_unit])
-
-    def set_display_unit(self, unit: str, *, decimals: int | None = None) -> None:
-        if unit not in self.UNIT_SCALES:
-            return
-        if unit == self._display_unit and decimals is None:
-            return
-        value_m = self._exact_m
-        self._exact_sync_blocked = True
-        try:
-            self._display_unit = unit
-            self._apply_unit()
-            if decimals is not None:
-                self.setDecimals(decimals)
-            self.setValue(si_to_display(value_m, unit))
-        finally:
-            self._exact_sync_blocked = False
-
-    def value_m(self) -> float:
-        return self._exact_m
-
-    def set_value_m(self, value: float) -> None:
-        self._exact_sync_blocked = True
-        try:
-            self.setValue(si_to_display(value, self._display_unit))
-        finally:
-            self._exact_sync_blocked = False
-        self._exact_m = float(value)
-
-    def stepBy(self, steps: int) -> None:
-        modifiers = QGuiApplication.keyboardModifiers()
-        factor = 1.0
-        if modifiers & Qt.KeyboardModifier.ShiftModifier:
-            factor = 10.0
-        elif modifiers & Qt.KeyboardModifier.ControlModifier:
-            factor = 0.1
-        self.setSingleStep(self._base_step * factor)
-        try:
-            super().stepBy(steps)
-        finally:
-            self.setSingleStep(self._base_step)
-
-    def wheelEvent(self, event: object) -> None:  # noqa: N802 - Qt override
-        # Ignore wheel changes while unfocused so scrolling the inspector page
-        # never mutates a field the user happened to hover (#583 scroll-safety).
-        if self.hasFocus():
-            super().wheelEvent(event)  # type: ignore[arg-type]
-        else:
-            event.ignore()  # type: ignore[attr-defined]
-
-
 class Vector3Editor(QFrame):
     """Compact X/Y/Z editor triplet with per-axis mixed/dirty badges.
 
@@ -3243,7 +3108,7 @@ class SelectionInspector(QFrame):
         minimum: float = -180.0,
         maximum: float = 180.0,
     ) -> QDoubleSpinBox:
-        field = _PendingTextSpinBox()
+        field = PendingTextSpinBox()
         field.setRange(minimum, maximum)
         field.setDecimals(3)
         field.setSingleStep(1.0)

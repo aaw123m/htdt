@@ -37,17 +37,22 @@ Scene保存、Undo/Redo、測定、予測、Pareto計算などのdomain authorit
 
 ## 初期command
 
+正本は `default_command_definitions()`（現行78件）。下表は初回導入時の初期セットの例であり、網羅的ではない。全commandは palette (`Ctrl+K`) または registry で確認する。
+
 | command ID | 表示 | shortcut | context | deep-link |
 |---|---|---|---|---|
 | `navigation.overview` | 概要 | — | global / overview | `overview` |
 | `navigation.room` | 部屋 | — | global / room | `room` |
 | `navigation.measurements` | 測定 | — | global / measurement | `measurement` |
 | `navigation.optimization` | 最適化 | — | global / optimization | `optimization` |
+| `navigation.presentation` | プレゼン | — | global / presentation | `presentation` |
+| `navigation.video` | 映像調整 | — | global / video | `video` |
 | `navigation.projects` | プロジェクト | — | global | `app/projects` |
 | `navigation.inbox` | 取り込み | — | global | `app/inbox` |
 | `navigation.activity` | アクティビティ | — | global | `app/activity` |
 | `navigation.library` | ライブラリ | — | global | `app/library` |
 | `navigation.support` | サポート | — | global | `app/support` |
+| `navigation.acceptance` | 受入検証 | — | global | `app/acceptance` |
 | `project.save` | 保存 | Ctrl+S | global | — |
 | `edit.undo` | 元に戻す | Ctrl+Z | global / room | — |
 | `edit.redo` | やり直す | Ctrl+Y / Ctrl+Shift+Z | global / room | — |
@@ -61,7 +66,8 @@ Scene保存、Undo/Redo、測定、予測、Pareto計算などのdomain authorit
 
 canonical shell ID/contextは `workflow_navigation.py` を唯一の正本とする。
 
-- workspace: `overview / room / measurement / optimization`
+- workspace: `overview / room / measurement / optimization / presentation / video`
+- application destination: `projects / inbox / activity / library / support / acceptance`
 - Room context: `geometry / objects / placement / acoustics / history`
 - Measurement context: `import / assignment / campaign / quality / comparison / calibration`
 - Optimization context: `setup / candidates / comparison / interventions / robustness / validation`
@@ -81,6 +87,8 @@ controller = CommandPaletteController(
     context_provider=lambda: CommandContext(shell.current_workspace_id.value),
 )
 ~~~
+
+注意: `WorkspaceId` と `CommandContext` は同名のmemberを持つ必要がある。新workspaceを `WorkspaceId` にだけ追加すると `CommandContext(...)` の変換がValueErrorとなり、そのworkspace上でpaletteが開けなくなる（#534/#541で発生済）。追加時は必ず両方を更新する。
 
 `register_default_commands()` はexecutor未接続でも全metadataを先に登録できる。
 lazy workspaceがmountされた時点で、workspace側の既存authorityを `bind()` する。

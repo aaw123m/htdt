@@ -26,6 +26,11 @@ class CommandContext(StrEnum):
     ROOM = 'room'
     MEASUREMENT = 'measurement'
     OPTIMIZATION = 'optimization'
+    # Project workspaces added after the initial palette round (#534, #541) —
+    # without these members CommandContext(current_workspace.value) raised
+    # ValueError on those surfaces and Ctrl+K could not open.
+    PRESENTATION = 'presentation'
+    VIDEO = 'video'
 
 
 class ShortcutBehavior(StrEnum):
@@ -404,6 +409,24 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             shortcut_behavior=ShortcutBehavior.GLOBAL,
             mutates_managed_data=False,
         ),
+        CommandDefinition(
+            command_id='navigation.presentation',
+            display_name='プレゼン',
+            contexts=frozenset({CommandContext.GLOBAL, CommandContext.PRESENTATION}),
+            keywords=('presentation', 'プレゼン', 'レビュー', '共有'),
+            deep_link=WorkspaceDeepLink(WorkspaceId.PRESENTATION),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.video',
+            display_name='映像調整',
+            contexts=frozenset({CommandContext.GLOBAL, CommandContext.VIDEO}),
+            keywords=('video', '映像', 'キャリブレーション', 'display'),
+            deep_link=WorkspaceDeepLink(WorkspaceId.VIDEO),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
         # Application-scope destinations: the rail is the only other route to
         # these surfaces, so without palette entries they were unreachable by
         # keyboard or search (round-13).
@@ -459,6 +482,17 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             contexts=frozenset({CommandContext.GLOBAL}),
             keywords=('support', 'help', 'ヘルプ', '診断', 'diagnostics'),
             deep_link=WorkspaceDeepLink(ApplicationDestinationId.SUPPORT),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
+            command_id='navigation.acceptance',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.ACCEPTANCE
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=('acceptance', '受入', '検証', 'ゲート', 'gate'),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.ACCEPTANCE),
             shortcut_behavior=ShortcutBehavior.GLOBAL,
             mutates_managed_data=False,
         ),
