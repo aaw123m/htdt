@@ -72,9 +72,24 @@ TOKEN_ENV_VARS = ('GITHUB_TOKEN', 'GITHUB_KA0923S_PAT', 'GH_TOKEN')
 # Check ids land in filesystem paths (logs/<id>.log, iv-<id>-* work dirs), so
 # the manifest schema restricts them to a filename-safe charset.
 CHECK_ID_RE = re.compile(r'[A-Za-z0-9._-]+')
+# A charset-safe id can still be unusable as a filename on Windows: the DOS
+# device names are reserved in every directory, and names made of only dots
+# collapse to nothing. The CI lane runs windows-latest, so these are schema
+# errors, not portability warnings.
+_WINDOWS_RESERVED_STEMS = {
+    'con', 'prn', 'aux', 'nul',
+    *(f'com{i}' for i in range(1, 10)),
+    *(f'lpt{i}' for i in range(1, 10)),
+}
 # Hidden marker inside the single status comment the runner upserts on each
 # issue; keeps --post-summary from spamming a new comment per run.
 COMMENT_MARKER = '<!-- verify-open-issues -->'
+# The first content line of every upserted comment. The marker alone is not a
+# safe ownership check — a human could quote it — so an upserted comment must
+# start with the marker AND carry this signature line before the runner will
+# edit or delete it. (GET /user cannot identify a GITHUB_TOKEN actor, so the
+# body signature is the ownership proof available in both token worlds.)
+_COMMENT_SIGNATURE = '自動検証'
 CACHE_SCHEMA_VERSION = 1
 GITHUB_API_VERSION = '2022-11-28'
 
@@ -175,6 +190,9 @@ def load_manifest(path: Path) -> Manifest:
     raw_issues = raw.get('issues')
     _require(isinstance(raw_issues, list), 'manifest issues must be a list')
     issues: dict[int, IssueEntry] = {}
+    # Every check writes logs/<id>.log into the run's single log dir, so ids
+    # must be unique across the whole manifest, not just within an issue.
+    seen_check_ids: dict[str, int] = {}
     for idx, entry in enumerate(raw_issues):
         where = f'issues[{idx}]'
         _require(isinstance(entry, dict), f'{where} must be a mapping')
@@ -206,6 +224,23 @@ def load_manifest(path: Path) -> Manifest:
             )
             _require(cid not in seen_ids, f'{cwhere}: duplicate check id {cid!r}')
             seen_ids.add(cid)
+            other = seen_check_ids.get(cid)
+            _require(
+                other is None,
+                f'{cwhere}: check id {cid!r} is also used by issue #{other} '
+                '— ids name log files and must be unique manifest-wide',
+            )
+            seen_check_ids[cid] = number
+            _require(
+                not cid.startswith('.'),
+                f'{cwhere}.id must not start with a dot (hidden/unwritable '
+                'name on some filesystems)',
+            )
+            _require(
+                cid.split('.')[0].lower() not in _WINDOWS_RESERVED_STEMS,
+                f'{cwhere}.id {cid!r} is a reserved device name on Windows '
+                '(log paths like con.log/nul.log cannot be created)',
+            )
             kind = c.get('kind')
             _require(kind in CHECK_KINDS, f'{cwhere}.kind must be one of {CHECK_KINDS}')
             desc = c.get('description')
@@ -302,7 +337,10 @@ def _api_json(
         with urllib.request.urlopen(request, timeout=30) as response:
             raw = response.read()
             body = json.loads(raw.decode('utf-8')) if raw.strip() else None
-            return body, dict(response.headers)
+            # HTTP field names are case-insensitive; normalize so Link-header
+            # parsing survives either HTTP/1.1 ('Link') or HTTP/2 ('link').
+            headers = {k.lower(): v for k, v in response.headers.items()}
+            return body, headers
     except urllib.error.HTTPError as exc:
         raise RuntimeError(
             f'GitHub API {exc.code} for {url}: {exc.read()[:300]!r}'
@@ -312,7 +350,7 @@ def _api_json(
 
 
 def _next_link(headers: dict) -> str:
-    for part in headers.get('Link', '').split(','):
+    for part in headers.get('link', '').split(','):
         if 'rel="next"' in part:
             return part.split(';')[0].strip().strip('<>')
     return ''
@@ -327,6 +365,11 @@ def fetch_open_issues(repo: str, token: str | None) -> list[dict]:
     )
     while url:
         page, headers = _api_json('GET', url, token)
+        if not isinstance(page, list):
+            raise RuntimeError(
+                f'GitHub API returned a non-list issues page for {url}: '
+                f'{str(page)[:200]!r}'
+            )
         issues.extend(i for i in page if 'pull_request' not in i)
         url = _next_link(headers)
     return issues
@@ -341,35 +384,79 @@ def list_issue_comments(repo: str, issue: int, token: str) -> list[dict]:
     )
     while url:
         page, headers = _api_json('GET', url, token)
+        if not isinstance(page, list):
+            raise RuntimeError(
+                f'GitHub API returned a non-list comments page for {url}: '
+                f'{str(page)[:200]!r}'
+            )
         comments.extend(page)
         url = _next_link(headers)
     return comments
 
 
-def find_verification_comment_id(
+def _is_status_comment(body: str) -> bool:
+    """True when a comment is one of this runner's upserted status comments.
+
+    Two conditions, both required: the body *starts* with the marker (a human
+    quoting the marker mid-comment is not ours), and it contains the fixed
+    JA signature line every status comment carries. This is deliberately
+    stricter than a bare substring match — a PATCH over a human's comment
+    would destroy their text.
+    """
+    stripped = body.lstrip()
+    return (
+        stripped.startswith(COMMENT_MARKER)
+        and _COMMENT_SIGNATURE in stripped
+    )
+
+
+def find_status_comment_ids(
     repo: str, issue: int, token: str
-) -> int | None:
-    """The id of the runner's own status comment on the issue, if present."""
-    for comment in list_issue_comments(repo, issue, token):
-        if COMMENT_MARKER in (comment.get('body') or ''):
-            return comment['id']
-    return None
+) -> list[int]:
+    """Ids of the runner's own status comments on the issue (oldest first).
+
+    Normally zero or one; concurrent posting runs (two dispatches racing the
+    first POST) can leave duplicates — callers should keep the first and
+    delete the rest so the stale copy stops shadowing the live verdict.
+    """
+    return [
+        comment['id']
+        for comment in list_issue_comments(repo, issue, token)
+        if _is_status_comment(comment.get('body') or '')
+    ]
 
 
 def upsert_issue_comment(repo: str, issue: int, body: str, token: str) -> str:
     """Create the status comment or edit the existing one in place.
 
     Returns 'created' or 'updated'. Edit-in-place is deliberate: a fresh
-    comment per run would spam watchers of every mapped issue.
+    comment per run would spam watchers of every mapped issue. Duplicate
+    marked comments (a past posting race) are self-healed here: the oldest
+    is edited and the rest deleted, best-effort.
     """
-    existing_id = find_verification_comment_id(repo, issue, token)
-    if existing_id is not None:
+    existing_ids = find_status_comment_ids(repo, issue, token)
+    if existing_ids:
         _api_json(
             'PATCH',
-            f'https://api.github.com/repos/{repo}/issues/comments/{existing_id}',
+            'https://api.github.com/repos/'
+            f'{repo}/issues/comments/{existing_ids[0]}',
             token,
             {'body': body},
         )
+        for duplicate_id in existing_ids[1:]:
+            try:
+                _api_json(
+                    'DELETE',
+                    'https://api.github.com/repos/'
+                    f'{repo}/issues/comments/{duplicate_id}',
+                    token,
+                )
+            except RuntimeError as exc:
+                print(
+                    f'[verify] duplicate status comment {duplicate_id} on '
+                    f'#{issue} could not be deleted (ignored): {exc}',
+                    file=sys.stderr,
+                )
         return 'updated'
     _api_json(
         'POST',
@@ -397,28 +484,149 @@ def _resolve_argv(check: Check, python: str, work_dir: Path, report_dir: Path) -
     ]
 
 
-def _kill_process_tree(pid: int) -> None:
-    """Kill a check subprocess *and* its children.
+# ---------------------------------------------------------------------------
+# Process-tree management for check subprocesses.
+#
+# A check is not one process: pytest-xdist spawns workers, scripts spawn
+# helpers, and any of them may outlive the direct child — holding basetemp
+# handles on Windows, writing into the shared log, or burning CPU for the
+# rest of the job. ``subprocess.run(timeout=)`` kills only the direct child,
+# and ``taskkill /T`` has two further gaps REV45 left open: it cannot reach
+# children whose parent already exited (the sweep must run on the dead pid
+# and only finds them if the parent's exit hasn't re-parented them yet), and
+# nothing reaps the tree if the *runner itself* dies mid-check.
+#
+# The robust Windows primitive is a kill-on-close Job Object: nested-job
+# semantics put grandchildren (including most detached spawns) in the job,
+# TerminateJobObject kills the whole membership in one call, and the kernel
+# kills members when the last job handle closes — so a crashed or killed
+# runner cannot orphan a check. taskkill stays as the fallback when job
+# creation/assignment fails.
+#
+# Residual gap (documented, no stdlib fix): a child spawned with
+# CREATE_BREAKAWAY_FROM_JOB permission, or a POSIX grandchild that called
+# setsid, escapes containment by design; and a POSIX runner dying mid-check
+# leaves the group orphaned (no kill-on-close primitive exists there).
+# ---------------------------------------------------------------------------
 
-    ``subprocess.run(timeout=...)`` only kills the direct child; pytest-xdist
-    workers (and anything a script spawns) survive it, keep holding basetemp
-    files on Windows, and keep burning CPU. On Windows ``taskkill /T`` walks
-    the tree; on POSIX the check runs in its own session so a process-group
-    kill reaches grandchildren too.
+if os.name == 'nt':
+    import ctypes
+    from ctypes import wintypes
+
+    class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ('PerProcessUserTimeLimit', wintypes.LARGE_INTEGER),
+            ('PerJobUserTimeLimit', wintypes.LARGE_INTEGER),
+            ('LimitFlags', wintypes.DWORD),
+            ('MinimumWorkingSetSize', ctypes.c_size_t),
+            ('MaximumWorkingSetSize', ctypes.c_size_t),
+            ('ActiveProcessLimit', wintypes.DWORD),
+            ('Affinity', ctypes.c_size_t),
+            ('PriorityClass', wintypes.DWORD),
+            ('SchedulingClass', wintypes.DWORD),
+        ]
+
+    class _IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            (name, ctypes.c_ulonglong)
+            for name in (
+                'ReadOperationCount', 'WriteOperationCount',
+                'OtherOperationCount', 'ReadTransferCount',
+                'WriteTransferCount', 'OtherTransferCount',
+            )
+        ]
+
+    class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ('BasicLimitInformation', _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ('IoInfo', _IO_COUNTERS),
+            ('ProcessMemoryLimit', ctypes.c_size_t),
+            ('JobMemoryLimit', ctypes.c_size_t),
+            ('PeakProcessMemoryUsed', ctypes.c_size_t),
+            ('PeakJobMemoryUsed', ctypes.c_size_t),
+        ]
+
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    _JobObjectExtendedLimitInformation = 9
+    _kernel32 = ctypes.windll.kernel32
+    # Handle values are pointer-width; declare signatures or ctypes truncates
+    # them to C int and every call targets garbage.
+    _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    _kernel32.CreateJobObjectW.argtypes = [
+        wintypes.LPVOID, wintypes.LPCWSTR,
+    ]
+    _kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+    ]
+    _kernel32.AssignProcessToJobObject.argtypes = [
+        wintypes.HANDLE, wintypes.HANDLE,
+    ]
+    _kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    def _create_kill_job() -> wintypes.HANDLE | None:
+        """A job object that kills all member processes on last handle close.
+
+        Returns None when job creation or configuration fails — callers fall
+        back to taskkill rather than losing the run.
+        """
+        job = _kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+        info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+        info.BasicLimitInformation.LimitFlags = (
+            _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        )
+        if not _kernel32.SetInformationJobObject(
+            job, _JobObjectExtendedLimitInformation,
+            ctypes.byref(info), ctypes.sizeof(info),
+        ):
+            _kernel32.CloseHandle(job)
+            return None
+        return job
+
+    def _close_kill_job(job) -> None:
+        _kernel32.CloseHandle(job)
+
+
+def _sweep_process_tree(proc: subprocess.Popen, job) -> None:
+    """Kill the check's whole descendant set — the straggler sweep.
+
+    Safe and intentional after the direct child already exited: surviving
+    children keep running only because they outlived their parent, which is
+    exactly the leak this bounds. On Windows+job this is TerminateJobObject
+    (membership survives parent death — this is what taskkill /T cannot do);
+    the taskkill fallback still cleans up the common same-tree case. On
+    POSIX the check ran in its own session so the pgid IS the child's pid —
+    killpg(pid) reaches grandchildren even after the group leader exited
+    (os.getpgid on a dead pid raises instead, which is how the REV45 code
+    could leave the whole group behind on a post-exit sweep).
     """
     if os.name == 'nt':
-        subprocess.run(
-            ['taskkill', '/F', '/T', '/PID', str(pid)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=30, check=False,
-        )
-    else:  # POSIX: the child was spawned with start_new_session=True
+        if job is not None:
+            _kernel32.TerminateJobObject(job, 1)
+            return
+        try:
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(proc.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
         import signal
 
         try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
+            os.killpg(proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             pass
+
+
+# Brief pause between retry attempts: after a process kill, Windows releases
+# file handles asynchronously, so an instant rerun can still trip the
+# basetemp wipe on a handle the kernel has not finished releasing.
+_RETRY_DELAY_S = 2.0
 
 
 def _run_attempt(
@@ -445,26 +653,47 @@ def _run_attempt(
             'duration_s': round(time.monotonic() - started, 2),
             'detail': str(exc),
         }
+    job = None
+    if os.name == 'nt':
+        job = _create_kill_job()
+        if job is not None:
+            if not _kernel32.AssignProcessToJobObject(job, proc._handle):
+                _kernel32.CloseHandle(job)
+                job = None
+    timed_out = False
     try:
         rc = proc.wait(timeout=timeout)
-        return {
-            'status': 'passed' if rc == 0 else 'failed',
-            'exit_code': rc,
-            'duration_s': round(time.monotonic() - started, 2),
-            'detail': None,
-        }
     except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid)
+        timed_out = True
+        rc = None
+    # Sweep surviving descendants on EVERY exit path — a passed or failed
+    # check that spawned a lingering child leaks it into later checks
+    # (basetemp locks, shared log handle) just as surely as a timed-out one.
+    try:
+        _sweep_process_tree(proc, job)
+    except Exception:  # a failed sweep must not lose the attempt record
+        pass
+    if timed_out:
         try:
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:  # pragma: no cover - defensive
             proc.kill()
             proc.wait()
+        if job is not None:
+            _close_kill_job(job)
         return {
             'status': 'timeout', 'exit_code': None,
             'duration_s': round(time.monotonic() - started, 2),
             'detail': f'exceeded timeout_seconds={timeout}',
         }
+    if job is not None:
+        _close_kill_job(job)
+    return {
+        'status': 'passed' if rc == 0 else 'failed',
+        'exit_code': rc,
+        'duration_s': round(time.monotonic() - started, 2),
+        'detail': None,
+    }
 
 
 # Statuses worth a retry: a 'timeout' already consumed the full check budget,
@@ -480,11 +709,11 @@ def run_check(
     default_workers: int,
     log_dir: Path,
     rerun_failed: int = 0,
+    env: dict | None = None,
 ) -> CheckResult:
     if check.kind == 'manual':
         return CheckResult(check=check, status='manual')
 
-    work_dir = Path(tempfile.mkdtemp(prefix=f'iv-{check.id}-', dir=report_dir))
     if check.kind == 'pytest':
         workers = (
             check.pytest_workers
@@ -500,18 +729,23 @@ def run_check(
                 check=check, status='error',
                 detail=f'test paths not found: {missing}',
             )
-        argv = [
+        argv_tail = [
             python, '-m', 'pytest', *check.tests,
             '-q', '-p', 'no:warnings', '--tb=short',
             '-n', str(workers),
-            f'--basetemp={work_dir / "basetemp"}',
         ]
+    # The work dir is created only after cheap bail-outs so an 'error' result
+    # does not leave an empty iv-<id>-* dir behind.
+    work_dir = Path(tempfile.mkdtemp(prefix=f'iv-{check.id}-', dir=report_dir))
+    if check.kind == 'pytest':
+        argv = argv_tail + [f'--basetemp={work_dir / "basetemp"}']
     else:
         argv = _resolve_argv(check, python, work_dir, report_dir)
 
-    env = dict(os.environ)
-    env.setdefault('QT_QPA_PLATFORM', 'offscreen')
-    env.setdefault('PYTHONIOENCODING', 'utf-8')
+    if env is None:
+        env = dict(os.environ)
+        env.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        env.setdefault('PYTHONIOENCODING', 'utf-8')
 
     log_path = log_dir / f'{check.id}.log'
     started = time.monotonic()
@@ -525,6 +759,7 @@ def run_check(
                     f'\n===== attempt {attempt}/{max_attempts} =====\n\n'
                     .encode('utf-8')
                 )
+                time.sleep(_RETRY_DELAY_S)
             record = _run_attempt(argv, repo_root, env, check.timeout_seconds, log)
             attempts.append(record)
             if (
@@ -572,13 +807,29 @@ _FINGERPRINT_SNIPPET = (
     'dists=";".join(sorted(((d.metadata["Name"] or "").lower()'
     '+"=="+d.version) for d in importlib.metadata.distributions()));'
     'print(platform.python_version(), platform.system(),'
+    ' platform.machine(),'
     ' hashlib.sha1(dists.encode()).hexdigest())'
 )
 
+# Environment knobs the runner injects into every check subprocess (when not
+# already set). They can change a check's outcome — offscreen vs on-screen
+# Qt is a verdict-changing difference — so they belong to the cache key.
+_MANAGED_ENV_VARS = ('QT_QPA_PLATFORM', 'PYTHONIOENCODING')
+
+
+def _check_env() -> dict:
+    """The environment every check subprocess runs under (single source —
+    built once so the cache key sees exactly what the checks saw)."""
+    env = dict(os.environ)
+    for name in _MANAGED_ENV_VARS:
+        env.setdefault(name, 'offscreen' if name == 'QT_QPA_PLATFORM'
+                       else 'utf-8')
+    return env
+
 
 def _env_fingerprint(python: str) -> str:
-    """Fingerprint of the check interpreter: python version + platform +
-    installed distribution set. Deterministic (sha1, not hash())."""
+    """Fingerprint of the check interpreter: python version + OS + machine
+    arch + installed distribution set. Deterministic (sha1, not hash())."""
     try:
         proc = subprocess.run(
             [python, '-c', _FINGERPRINT_SNIPPET],
@@ -591,10 +842,11 @@ def _env_fingerprint(python: str) -> str:
     return 'unknown'
 
 
-def _cache_key(check: Check, head_sha: str, env_fp: str) -> str:
+def _cache_key(check: Check, head_sha: str, env_fp: str, env: dict) -> str:
     """Key covering everything that can change a check's outcome: the
     execution-relevant check fields (not cosmetic ones like description),
-    the exact commit, and the interpreter environment."""
+    the exact commit, the interpreter environment, and the env vars the
+    runner injects into every check subprocess."""
     material = json.dumps(
         {
             'id': check.id,
@@ -605,6 +857,7 @@ def _cache_key(check: Check, head_sha: str, env_fp: str) -> str:
             'pytest_workers': check.pytest_workers,
             'head': head_sha,
             'env': env_fp,
+            'managed_env': {k: env.get(k) for k in _MANAGED_ENV_VARS},
         },
         sort_keys=True,
     )
@@ -756,7 +1009,8 @@ def render_markdown(report: dict) -> str:
                 bits.append(f"log `{c['log_path']}`")
             lines.append(' '.join(bits))
             if c.get('detail'):
-                lines.append(f"  - detail: {c['detail']}")
+                detail = str(c['detail']).replace('\n', ' ').replace('\r', ' ')
+                lines.append(f'  - detail: {detail}')
         for m in item['manual_required']:
             lines.append(f"- manual `{m['id']}`: {m['description']}")
         lines.append('')
@@ -785,8 +1039,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         '--offline', action='store_true',
-        help='do not call the GitHub API; open issues come from --issues '
-             '(or every manifest entry when omitted)',
+        help='do not read from the GitHub API; open issues come from '
+             '--issues (or every manifest entry when omitted). '
+             '--post-summary still writes comments if given.',
     )
     parser.add_argument('--report-dir', type=Path, default=None)
     parser.add_argument('--python', default=sys.executable)
@@ -833,6 +1088,109 @@ def build_parser() -> argparse.ArgumentParser:
              'exit — reuses results instead of re-running checks',
     )
     return parser
+
+
+def _run_all_checks(
+    *,
+    args,
+    manifest: Manifest,
+    open_numbers: list[int],
+    live_issues: dict[int, dict],
+    report_dir: Path,
+    log_dir: Path,
+    cache_active: bool,
+    cache_entries: dict,
+    head_sha: str | None,
+    check_env: dict,
+    repo_root: Path,
+    issue_reports: list[dict],
+    unmapped: list[dict],
+) -> int:
+    """Run every mapped check over the open-issue set; returns cache hits.
+
+    Mutates issue_reports / unmapped / cache_entries. Extracted from main()
+    so an unexpected failure is catchable as a clean exit-2 tool failure.
+    """
+    env_fp: str | None = None
+    cache_hits = 0
+    for n in sorted(set(open_numbers)):
+        live = live_issues.get(n, {})
+        entry = manifest.issues.get(n)
+        if entry is None:
+            unmapped.append({'number': n, 'title': live.get('title', '')})
+            issue_reports.append({
+                'issue': n, 'title': live.get('title', ''),
+                'verdict': 'unmapped', 'checks': [], 'manual_required': [],
+            })
+            continue
+        results: list[CheckResult] = []
+        for c in entry.checks:
+            key = None
+            if cache_active and c.kind != 'manual':
+                if env_fp is None:
+                    env_fp = _env_fingerprint(args.python)
+                key = _cache_key(c, head_sha, env_fp, check_env)
+                hit = cache_entries.get(key)
+                if not (
+                    isinstance(hit, dict) and isinstance(hit.get('status'), str)
+                ):
+                    hit = None  # malformed entry — never trust it
+                if hit is not None:
+                    cache_hits += 1
+                    results.append(CheckResult(
+                        check=c,
+                        status=hit['status'],
+                        duration_s=float(hit.get('duration_s') or 0.0),
+                        exit_code=hit.get('exit_code'),
+                        detail=hit.get('detail'),
+                        attempts=list(hit.get('attempts') or []),
+                        flaky=bool(hit.get('flaky')),
+                        cached=True,
+                    ))
+                    continue
+            result = run_check(
+                c, repo_root, args.python, report_dir,
+                manifest.default_workers, log_dir,
+                rerun_failed=args.rerun_failed,
+                env=check_env,
+            )
+            results.append(result)
+            if cache_active and key is not None and result.status != 'manual':
+                cache_entries[key] = {
+                    'status': result.status,
+                    'exit_code': result.exit_code,
+                    'detail': result.detail,
+                    'duration_s': result.duration_s,
+                    'attempts': result.attempts,
+                    'flaky': result.flaky,
+                    'git_ref': head_sha,
+                    'recorded_at_utc': datetime.now(timezone.utc).strftime(
+                        '%Y-%m-%dT%H:%M:%SZ'
+                    ),
+                }
+        verdict = compute_verdict(entry, results)
+        issue_reports.append({
+            'issue': n,
+            'title': live.get('title') or entry.title or '',
+            'verdict': verdict,
+            'notes': entry.notes,
+            'checks': [
+                {
+                    'id': r.check.id, 'kind': r.check.kind, 'status': r.status,
+                    'duration_s': r.duration_s, 'exit_code': r.exit_code,
+                    'log_path': r.log_path, 'detail': r.detail,
+                    'description': r.check.description,
+                    'attempts': r.attempts, 'flaky': r.flaky,
+                    'cached': r.cached,
+                }
+                for r in results if r.check.kind != 'manual'
+            ],
+            'manual_required': [
+                {'id': r.check.id, 'description': r.check.description}
+                for r in results if r.check.kind == 'manual'
+            ],
+        })
+    return cache_hits
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -890,6 +1248,13 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError:
             print(
                 f'[verify] --issues must be comma-separated integers, '
+                f'got {args.issues!r}',
+                file=sys.stderr,
+            )
+            return 2
+        if any(n <= 0 for n in wanted):
+            print(
+                f'[verify] --issues must be positive issue numbers, '
                 f'got {args.issues!r}',
                 file=sys.stderr,
             )
@@ -979,85 +1344,23 @@ def main(argv: list[str] | None = None) -> int:
                 f'[verify] verdict cache: {cache_path} '
                 f'({len(cache_entries)} entries)'
             )
-    env_fp: str | None = None
+    check_env = _check_env()
 
     issue_reports: list[dict] = []
     unmapped: list[dict] = []
-    cache_hits = 0
-    for n in sorted(set(open_numbers)):
-        live = live_issues.get(n, {})
-        entry = manifest.issues.get(n)
-        if entry is None:
-            unmapped.append({'number': n, 'title': live.get('title', '')})
-            issue_reports.append({
-                'issue': n, 'title': live.get('title', ''),
-                'verdict': 'unmapped', 'checks': [], 'manual_required': [],
-            })
-            continue
-        results: list[CheckResult] = []
-        for c in entry.checks:
-            key = None
-            if cache_active and c.kind != 'manual':
-                if env_fp is None:
-                    env_fp = _env_fingerprint(args.python)
-                key = _cache_key(c, head_sha, env_fp)
-                hit = cache_entries.get(key)
-                if not (
-                    isinstance(hit, dict) and isinstance(hit.get('status'), str)
-                ):
-                    hit = None  # malformed entry — never trust it
-                if hit is not None:
-                    cache_hits += 1
-                    results.append(CheckResult(
-                        check=c,
-                        status=hit['status'],
-                        exit_code=hit.get('exit_code'),
-                        detail=hit.get('detail'),
-                        attempts=list(hit.get('attempts') or []),
-                        flaky=bool(hit.get('flaky')),
-                        cached=True,
-                    ))
-                    continue
-            result = run_check(
-                c, repo_root, args.python, report_dir,
-                manifest.default_workers, log_dir,
-                rerun_failed=args.rerun_failed,
-            )
-            results.append(result)
-            if cache_active and key is not None and result.status != 'manual':
-                cache_entries[key] = {
-                    'status': result.status,
-                    'exit_code': result.exit_code,
-                    'detail': result.detail,
-                    'attempts': result.attempts,
-                    'flaky': result.flaky,
-                    'git_ref': head_sha,
-                    'recorded_at_utc': datetime.now(timezone.utc).strftime(
-                        '%Y-%m-%dT%H:%M:%SZ'
-                    ),
-                }
-        verdict = compute_verdict(entry, results)
-        issue_reports.append({
-            'issue': n,
-            'title': live.get('title') or entry.title or '',
-            'verdict': verdict,
-            'notes': entry.notes,
-            'checks': [
-                {
-                    'id': r.check.id, 'kind': r.check.kind, 'status': r.status,
-                    'duration_s': r.duration_s, 'exit_code': r.exit_code,
-                    'log_path': r.log_path, 'detail': r.detail,
-                    'description': r.check.description,
-                    'attempts': r.attempts, 'flaky': r.flaky,
-                    'cached': r.cached,
-                }
-                for r in results if r.check.kind != 'manual'
-            ],
-            'manual_required': [
-                {'id': r.check.id, 'description': r.check.description}
-                for r in results if r.check.kind == 'manual'
-            ],
-        })
+    try:
+        cache_hits = _run_all_checks(
+            args=args, manifest=manifest, open_numbers=open_numbers,
+            live_issues=live_issues, report_dir=report_dir, log_dir=log_dir,
+            cache_active=cache_active, cache_entries=cache_entries,
+            head_sha=head_sha, check_env=check_env, repo_root=repo_root,
+            issue_reports=issue_reports, unmapped=unmapped,
+        )
+    except Exception as exc:  # unexpected tool failure: honor the exit-code
+        import traceback                      # contract ('2', not a bare
+        traceback.print_exc()                # traceback exit code)
+        print(f'[verify] internal error: {exc!r}', file=sys.stderr)
+        return 2
 
     for n in sorted(not_open_wanted):
         issue_reports.append({
@@ -1098,9 +1401,13 @@ def main(argv: list[str] | None = None) -> int:
         report['cache'] = str(cache_path) if cache_active else 'disabled'
         report['cache_hits'] = cache_hits
     json_path = report_dir / 'issue_verification_report.json'
-    json_path.write_text(
+    # Atomic-ish write: a runner killed mid-write must not leave a torn JSON
+    # that --post-summary-from would half-trust.
+    tmp_json = json_path.with_suffix('.json.tmp')
+    tmp_json.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8'
     )
+    os.replace(tmp_json, json_path)
     md_path = report_dir / f'issue-verification-{stamp:%Y-%m-%d}.md'
     md_path.write_text(render_markdown(report), encoding='utf-8')
 
