@@ -12,16 +12,19 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QEventLoop, Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMessageBox,
 )
 
 from htdt import dirty_state_dialog
+from htdt.cad_project_template_repository import CadProjectTemplateRepository
 from htdt.cad_repository import SceneRepository
-from htdt.cad_scene import make_empty_scene
+from htdt.cad_scene import make_empty_scene, make_f1_scene
 from htdt.command_palette import CommandPalette, CommandShortcutBinder
 from htdt.navigation_target import NavigationTarget, NavigationTargetKind
 from htdt.native_worker import WORKER_CANCELLED
@@ -353,6 +356,97 @@ def test_project_switch_rebinds_canonical_entry_and_title(tmp_path: Path) -> Non
     reopened = composition.project_library.get_by_document_id('document-2')
     assert reopened is not None
     assert reopened.last_opened_at_utc is not None
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_save_project_as_template_persists_user_template(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """REV44: the dead ``save_template`` writer gets a production path —
+    the project-menu action captures the persisted head's speaker layout
+    and the wizard template listing can then offer it."""
+    app = _app()
+    repository = SceneRepository(tmp_path / "data" / "cad-scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    composition = WorkflowApplicationComposition(repository, 'fixture-f1')
+
+    def _fill_and_accept(dialog: QDialog) -> QDialog.DialogCode:
+        for edit in dialog.findChildren(QLineEdit):
+            if edit.text() == '1':
+                continue  # version field keeps its default
+            edit.setText('シアター雛形')
+        combo = dialog.findChild(QComboBox)
+        if combo is not None and combo.count() > 1:
+            combo.setCurrentIndex(1)  # MLP as layout reference
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(QDialog, "exec", _fill_and_accept)
+    # The QMessageBox statics are native-level calls — patch them directly
+    # or the offscreen run blocks on a real modal.
+    monkeypatch.setattr(
+        QMessageBox,
+        'information',
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        'warning',
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+    composition._save_project_as_template()
+
+    templates = CadProjectTemplateRepository(repository).list_templates()
+    user_templates = [item for item in templates if item.kind == 'user']
+    assert len(user_templates) == 1
+    saved = user_templates[0]
+    assert saved.name == 'シアター雛形'
+    assert saved.version == '1'
+    assert {spec.speaker_role for spec in saved.speaker_specs} == {
+        'FL', 'C', 'FR'
+    }
+    assert saved.layout_reference is not None
+    assert saved.layout_reference.source_kind == 'measurement_point'
+    assert saved.layout_reference.source_entity_id == 'point-mlp'
+    # Geometry intent is normalized around the picked reference, not raw
+    # entity positions.
+    fl = next(
+        spec for spec in saved.speaker_specs if spec.speaker_role == 'FL'
+    )
+    assert fl.nominal_azimuth_deg is not None
+
+    composition.shell.close()
+    composition.shell.deleteLater()
+    app.processEvents()
+
+
+def test_save_project_as_template_cancel_persists_nothing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _app()
+    repository = SceneRepository(tmp_path / "data" / "cad-scenes.sqlite3")
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    composition = WorkflowApplicationComposition(repository, 'fixture-f1')
+    monkeypatch.setattr(
+        QDialog, "exec", lambda self: QDialog.DialogCode.Rejected
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        'information',
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        'warning',
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Ok),
+    )
+
+    composition._save_project_as_template()
+
+    templates = CadProjectTemplateRepository(repository).list_templates()
+    assert [item for item in templates if item.kind == 'user'] == []
 
     composition.shell.close()
     composition.shell.deleteLater()
