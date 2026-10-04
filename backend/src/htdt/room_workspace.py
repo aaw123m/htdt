@@ -292,6 +292,7 @@ from .workspace_dirty_state import DirtyResolutionAction, WorkspaceDirtyState
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
+from .installation_panel import InstallationPanel
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -4409,6 +4410,14 @@ class RoomWorkspace(QWidget):
         # same seats the placement context owns.
         self.seat_priority_panel = SeatPriorityPanel(repository, document_id)
         self.seat_priority_panel.refresh(self.controller.committed_document)
+        # REV44-INSTALL: per-speaker installation context + scene datum
+        # registration — equipment assignment already lives here, so the
+        # authority writers mount on the same placement page.
+        self.installation_panel = InstallationPanel(
+            repository,
+            self.system_expansion.equipment_repository,
+            document_id,
+        )
         placement_body = QWidget()
         placement_layout = QVBoxLayout(placement_body)
         placement_layout.setContentsMargins(0, 0, 0, 0)
@@ -4418,6 +4427,7 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.video_panel)
         placement_layout.addWidget(self.seat_priority_panel)
         placement_layout.addWidget(self.standards_panel)
+        placement_layout.addWidget(self.installation_panel)
         placement_layout.addStretch(1)
         self.placement_panel = QScrollArea()
         self.placement_panel.setWidgetResizable(True)
@@ -5678,6 +5688,7 @@ class RoomWorkspace(QWidget):
             self.system_expansion_panel.refresh()
             self.standards_panel.refresh_targets()
             self.standards_panel.refresh()
+            self.installation_panel.refresh()
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
@@ -5776,6 +5787,11 @@ class RoomWorkspace(QWidget):
     def _after_selection_changed(self) -> None:
         self._refresh_inspector()
         self._sync_objects_panel()
+        installation_panel = getattr(self, 'installation_panel', None)
+        if installation_panel is not None:
+            installation_panel.set_selected_entity(
+                self.controller.view_state.selected_id
+            )
         if self.acoustics_panel is not None and self.current_context == "acoustics":
             refresh = getattr(self.acoustics_panel, "refresh", None)
             if callable(refresh):
@@ -7243,6 +7259,9 @@ class RoomWorkspace(QWidget):
             self._sync_constraints_panel()
             self._sync_video_panel()
             self._sync_seat_priority_panel()
+            installation_panel = getattr(self, "installation_panel", None)
+            if installation_panel is not None:
+                installation_panel.refresh()
         if self.current_context == "history":
             self._sync_history_panel()
         if self.geometry_panel is not None:
