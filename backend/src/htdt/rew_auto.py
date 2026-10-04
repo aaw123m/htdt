@@ -267,11 +267,14 @@ def scan_rew_watch_dir(
     instead of staging a truncated read, and a file that keeps changing
     stays pending until it settles. A file delivered but whose staging
     failed can be re-queued by removing its ``seen`` marker — the next
-    scan re-enters it as a candidate. Returns ``(files, skipped_names)``:
-    files as ``(raw, filename)`` pairs ready for ``stage_rew_text_files``;
-    skipped names are delivered files that failed the bounded read
-    (oversized, unreadable) — they are marked seen so a wedged file does
-    not retry every tick.
+    scan re-enters it as a candidate. ``seen`` markers for files no
+    longer in the directory are evicted: the map stays bounded by the
+    watched file set, and a file dropped again after deletion is
+    delivered again instead of matching its stale marker. Returns
+    ``(files, skipped_names)``: files as ``(raw, filename)`` pairs ready
+    for ``stage_rew_text_files``; skipped names are delivered files that
+    failed the bounded read (oversized, unreadable) — they are marked
+    seen so a wedged file does not retry every tick.
     """
     root = Path(directory)
     entries = sorted(root.iterdir())
@@ -319,6 +322,12 @@ def scan_rew_watch_dir(
         files.append((raw, entry.name))
     for stale_key in [key for key in pending if key not in observed]:
         del pending[stale_key]
+    for stale_key in [
+        key
+        for key in seen
+        if key != _SCANNED_SENTINEL and key not in observed
+    ]:
+        del seen[stale_key]
     return files, skipped
 
 
