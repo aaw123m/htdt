@@ -23,6 +23,7 @@ from .cad_schema import (
     require_native_tables,
     connect_sqlite,
 )
+from .cad_solver_capability_manifest import SolverCapabilityManifest
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .clock import utc_now_iso as _utc_now
 
@@ -87,7 +88,7 @@ class CadAcousticSolverDispatchRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_acoustic_solver_adapters', 'cad_acoustic_solver_dispatch_bindings')
+            require_native_tables(connection, 'cad_acoustic_solver_adapters', 'cad_acoustic_solver_dispatch_bindings', 'cad_solver_capability_manifests')
 
     def _resolve_external_ref(
         self,
@@ -370,4 +371,141 @@ class CadAcousticSolverDispatchRepository:
             ),
             _validated_snapshot=_validated_snapshot,
             _validated_request=_validated_request,
+        )
+
+    def _validate_manifest(
+        self,
+        manifest: SolverCapabilityManifest,
+    ) -> SolverCapabilityManifest:
+        """Fail closed unless the manifest binds a persisted exact descriptor."""
+        manifest = SolverCapabilityManifest.model_validate(
+            manifest.model_dump(mode='python')
+        )
+        descriptor = self.get_descriptor(manifest.adapter_descriptor_id)
+        if descriptor is None:
+            raise ValueError(
+                'capability manifest references a solver adapter descriptor '
+                'that is not persisted'
+            )
+        checks = (
+            (
+                descriptor.semantic_sha256,
+                manifest.adapter_descriptor_semantic_sha256,
+                'descriptor semantic hash',
+            ),
+            (descriptor.adapter_id, manifest.adapter_id, 'adapter id'),
+            (
+                descriptor.adapter_version,
+                manifest.adapter_version,
+                'adapter version',
+            ),
+            (
+                descriptor.model_solver_role_id,
+                manifest.model_solver_role_id,
+                'model solver role id',
+            ),
+            (
+                descriptor.acoustic_domain,
+                manifest.acoustic_domain,
+                'acoustic domain',
+            ),
+            (
+                descriptor.valid_frequency_domain,
+                manifest.solver_valid_frequency_domain,
+                'solver valid frequency domain',
+            ),
+        )
+        for expected, actual, label in checks:
+            if expected != actual:
+                raise ValueError(f'capability manifest {label} mismatch')
+        return manifest
+
+    def save_capability_manifest(
+        self,
+        manifest: SolverCapabilityManifest,
+    ) -> SolverCapabilityManifest:
+        manifest = self._validate_manifest(manifest)
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_solver_capability_manifests
+                WHERE manifest_id=?
+                """,
+                (manifest.manifest_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = SolverCapabilityManifest.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != manifest:
+                    raise ValueError(
+                        'capability manifest id exists with different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_solver_capability_manifests(
+                    manifest_id,
+                    semantic_sha256,
+                    adapter_descriptor_id,
+                    adapter_id,
+                    acoustic_domain,
+                    payload_json,
+                    recorded_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    manifest.manifest_id,
+                    manifest.semantic_sha256,
+                    manifest.adapter_descriptor_id,
+                    manifest.adapter_id,
+                    manifest.acoustic_domain,
+                    manifest.model_dump_json(),
+                    _utc_now(),
+                ),
+            )
+        return manifest
+
+    def get_capability_manifest(
+        self,
+        manifest_id: str,
+    ) -> SolverCapabilityManifest | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_solver_capability_manifests
+                WHERE manifest_id=?
+                """,
+                (manifest_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validate_manifest(
+            SolverCapabilityManifest.model_validate_json(row['payload_json'])
+        )
+
+    def list_capability_manifests(
+        self,
+        *,
+        adapter_descriptor_id: str | None = None,
+    ) -> tuple[SolverCapabilityManifest, ...]:
+        query = (
+            'SELECT payload_json FROM cad_solver_capability_manifests'
+        )
+        params: tuple[str, ...] = ()
+        if adapter_descriptor_id is not None:
+            query += ' WHERE adapter_descriptor_id=?'
+            params = (adapter_descriptor_id,)
+        query += ' ORDER BY seq ASC'
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(query, params).fetchall()
+        return tuple(
+            self._validate_manifest(
+                SolverCapabilityManifest.model_validate_json(
+                    row['payload_json']
+                )
+            )
+            for row in rows
         )
