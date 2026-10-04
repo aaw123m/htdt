@@ -1294,9 +1294,14 @@ class RoomPredictionPanel(QWidget):
         self,
         controller: RoomPredictionController,
         parent: QWidget | None = None,
+        *,
+        prediction_lane=None,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
+        # REV44: the persisted solver-stack lane — when present, the
+        # dialog below registers providers and drives the matrix lifecycle.
+        self.prediction_lane = prediction_lane
         self._interpretation: PredictionInterpretation | None = None
         self._options: dict[str, RoomPredictionModelOption] = {}
         self.setMinimumWidth(300)
@@ -1511,6 +1516,16 @@ class RoomPredictionPanel(QWidget):
         )
         self.matrix_reload_button.clicked.connect(self.refresh_matrix)
         body_layout.addWidget(self.matrix_reload_button)
+
+        # REV44: register persisted solver results as providers, then
+        # create/run the persisted spec — the lifecycle the grid displays.
+        self.matrix_manage_button = QPushButton("行列・プロバイダー管理…")
+        self.matrix_manage_button.setToolTip(
+            "保存済みソルバー結果のプロバイダー登録と、伝達行列の作成・実行を行います"
+        )
+        self.matrix_manage_button.setEnabled(self.prediction_lane is not None)
+        self.matrix_manage_button.clicked.connect(self._manage_matrix)
+        body_layout.addWidget(self.matrix_manage_button)
         body_layout.addStretch(1)
 
         scroll.setWidget(body)
@@ -1870,6 +1885,21 @@ class RoomPredictionPanel(QWidget):
                 f"鮮度 {state_token_label(presentation.currency_state)}"
             )
         self.matrix_status_label.setText(" · ".join(parts))
+
+    def _manage_matrix(self) -> None:
+        if self.prediction_lane is None:
+            return
+        from .prediction_matrix_dialog import PredictionMatrixDialog
+
+        dialog = PredictionMatrixDialog(
+            controller=self.controller,
+            lane=self.prediction_lane,
+            parent=self,
+        )
+        dialog.exec()
+        # Registration changes the provider lane's model options too.
+        self.refresh()
+        self.refresh_matrix()
 
     def _finding_selected(self) -> None:
         interpretation = self._interpretation

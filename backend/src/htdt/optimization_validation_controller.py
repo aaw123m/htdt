@@ -10,7 +10,10 @@ import pyvista as pv
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
@@ -70,7 +73,10 @@ from .cad_validation_campaign import (
     CadValidationTargetResponse,
     build_validation_campaign,
 )
-from .cad_applicability import applicability_authority_summary
+from .cad_applicability import (
+    applicability_authority_summary,
+    build_applicability_attestation,
+)
 from .cad_validation_campaign_repository import CadValidationCampaignRepository
 from .cad_validation_campaign_service import CadValidationCampaignService
 from .tree_item_role import ROLE
@@ -504,6 +510,37 @@ class ValidationControllerMixin:
             f'検証結果を保存しました · 推奨可否 {_gate_label(record.recommendation_gate)}'
         )
 
+    def open_applicability_attestation(self, code: str) -> None:
+        """Register or pick the persisted attestation a manual mode needs.
+
+        The attestation anchors the *campaign's* pinned spec — the manual
+        evaluator re-checks document/spec/sha scope on every evaluation, so
+        an id minted for another spec can never satisfy this code.
+        """
+        campaign = self._selected_campaign()
+        if campaign is None:
+            self.statusBar().showMessage('検証条件を選択してください')
+            return
+        dialog = ApplicabilityAttestationDialog(
+            campaign=campaign,
+            code=code,
+            repository=self.validation_service.applicability_attestations,
+            parent=self.campaign_applicability_attest.get(code),
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        attestation_id = dialog.selected_attestation_id
+        if not attestation_id:
+            return
+        detail_widget = self.campaign_applicability_detail.get(code)
+        if detail_widget is not None:
+            detail_widget.setText(attestation_id)
+        state_widget = self.campaign_applicability_state.get(code)
+        if state_widget is not None:
+            index = state_widget.findData('manual')
+            if index >= 0:
+                state_widget.setCurrentIndex(index)
+
     def read_selected_rew_for_campaign_async(self) -> None:
         campaign = self._selected_campaign()
         plan = self._selected_measurement_plan()
@@ -668,3 +705,180 @@ class ValidationControllerMixin:
             return None
         return self.validation_repository.get(validation_id)
 
+
+
+class ApplicabilityAttestationDialog(QDialog):
+    """Register or reuse a persisted applicability attestation for one code.
+
+    The dialog is deliberately narrow: an attestation binds who attested
+    (証明者), the decision, and a required evidence reference + summary —
+    the model itself rejects empty fields, so an attestation without bound
+    evidence cannot be saved. Its subject is anchored to the campaign's
+    pinned SearchSpec, which is the exact scope the manual evaluator
+    re-checks at validation build time.
+    """
+
+    def __init__(
+        self,
+        *,
+        campaign,
+        code: str,
+        repository,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self.campaign = campaign
+        self.code = code
+        self.repository = repository
+        self.selected_attestation_id: str | None = None
+
+        label = _APPLICABILITY_LABELS.get(code, code)
+        self.setWindowTitle(f"{label} 証明の登録・選択")
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+
+        scope = QLabel(
+            f"対象: 探索仕様 …{campaign.search_spec_id[-12:]} "
+            f"(sha …{campaign.search_spec_sha256[-8:]}) · コード {label}"
+        )
+        scope.setWordWrap(True)
+        layout.addWidget(scope)
+
+        existing_title = QLabel("登録済み証明 (この探索仕様・このコード)")
+        layout.addWidget(existing_title)
+
+        self.existing = QTreeWidget()
+        self.existing.setHeaderLabels(["証明", "証明者", "判定", "日時"])
+        self.existing.setRootIsDecorated(False)
+        self.existing.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.existing.setMinimumHeight(110)
+        self.existing.itemSelectionChanged.connect(self._refresh_buttons)
+        layout.addWidget(self.existing)
+
+        self.use_button = QPushButton("選択した証明を使用")
+        self.use_button.clicked.connect(self._use_selected)
+        layout.addWidget(self.use_button)
+
+        register_title = QLabel("新規証明の登録")
+        layout.addWidget(register_title)
+
+        form = QFormLayout()
+        self.actor = QLineEdit()
+        self.actor.setPlaceholderText("証明を行う担当者")
+        form.addRow("証明者", self.actor)
+        self.decision = QComboBox()
+        self.decision.addItem("合格", "pass")
+        self.decision.addItem("不合格", "fail")
+        form.addRow("判定", self.decision)
+        self.reference = QLineEdit()
+        self.reference.setPlaceholderText("実測・設計資料などの根拠参照 (必須)")
+        form.addRow("証拠の参照", self.reference)
+        self.summary = QLineEdit()
+        self.summary.setPlaceholderText("根拠の内容 (必須)")
+        form.addRow("証拠の内容", self.summary)
+        self.note = QLineEdit()
+        self.note.setPlaceholderText("対象条件のメモ (任意)")
+        form.addRow("対象メモ", self.note)
+        layout.addLayout(form)
+
+        self.register_button = QPushButton("登録して使用")
+        self.register_button.clicked.connect(self._register)
+        layout.addWidget(self.register_button)
+
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Close
+        )
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._reload()
+        self._refresh_buttons()
+
+    def _reload(self) -> None:
+        self.existing.clear()
+        for attestation in self.repository.list_for_search_spec(
+            self.campaign.search_spec_id
+        ):
+            if attestation.code != self.code:
+                continue
+            if (
+                attestation.search_spec_sha256
+                != self.campaign.search_spec_sha256
+                or attestation.document_id != self.campaign.document_id
+            ):
+                continue
+            item = QTreeWidgetItem(
+                [
+                    f"…{attestation.attestation_id[-12:]}",
+                    attestation.actor,
+                    _gate_label(attestation.decision),
+                    attestation.attested_at_utc[:19],
+                ]
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, attestation.attestation_id)
+            self.existing.addTopLevelItem(item)
+        if self.existing.topLevelItemCount() == 0:
+            self.existing.addTopLevelItem(
+                QTreeWidgetItem(["登録済み証明がありません", "", "", ""])
+            )
+
+    def _refresh_buttons(self) -> None:
+        items = self.existing.selectedItems()
+        self.use_button.setEnabled(
+            bool(items) and items[0].data(0, Qt.ItemDataRole.UserRole) is not None
+        )
+
+    def _use_selected(self) -> None:
+        items = self.existing.selectedItems()
+        if not items:
+            return
+        attestation_id = items[0].data(0, Qt.ItemDataRole.UserRole)
+        if attestation_id is None:
+            return
+        self.selected_attestation_id = attestation_id
+        self.accept()
+
+    def _register(self) -> None:
+        actor = self.actor.text().strip()
+        reference = self.reference.text().strip()
+        summary = self.summary.text().strip()
+        if not actor:
+            self.status.setText("証明者を入力してください")
+            return
+        if not reference or not summary:
+            self.status.setText("証拠の参照と内容を入力してください")
+            return
+        subject_scope: dict[str, object] = {
+            'campaign_id': self.campaign.campaign_id,
+            'registered_via': 'optimization_workflow_workspace',
+        }
+        note = self.note.text().strip()
+        if note:
+            subject_scope['note'] = note
+        try:
+            attestation = build_applicability_attestation(
+                document_id=self.campaign.document_id,
+                search_spec_id=self.campaign.search_spec_id,
+                search_spec_sha256=self.campaign.search_spec_sha256,
+                code=self.code,
+                decision=str(self.decision.currentData()),
+                actor=actor,
+                evidence={'reference': reference, 'summary': summary},
+                subject_scope=subject_scope,
+                attested_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+            self.repository.save(attestation)
+        except (TypeError, ValueError) as exc:
+            self.status.setText(f"証明を登録できません: {exc}")
+            return
+        self.selected_attestation_id = attestation.attestation_id
+        self.accept()
+
+
+__all__ = ['ValidationControllerMixin', 'ApplicabilityAttestationDialog']

@@ -819,6 +819,10 @@ def _fixture(
         'impedance': 'r130b-candidate-impedance',
         'causal': 'r130c-candidate-causal-boundary',
     }[boundary_mode]
+    fidelity_domain = FrequencyDomain(
+        minimum_hz=min(band.minimum_hz, 40.0),
+        maximum_hz=max(band.maximum_hz, 100.0),
+    )
     fidelity_ref = store.put_json(
         {
             'rigid': 'r130a-candidate-fidelity-policy',
@@ -827,6 +831,23 @@ def _fixture(
         }[boundary_mode],
         '1',
         {
+            # REV44: the payload carries the policy's own content so
+            # authority lanes outside this process (e.g. the app's
+            # PredictionAuthorityLane) can re-derive the typed model from
+            # persisted bytes — claims-only payloads are unresolvable and
+            # fail closed there. ``authority_ref`` itself stays out of the
+            # payload: the content-addressed id already seals it.
+            'acoustic_domain': 'wave',
+            'model_solver_role_ids': [role_id],
+            'supported_observables': ['complex_pressure'],
+            'valid_frequency_domain': {
+                'minimum_hz': fidelity_domain.minimum_hz,
+                'maximum_hz': fidelity_domain.maximum_hz,
+            },
+            'parameter_bounds': {
+                'max_grid_cells': 200000.0,
+                'max_time_steps': 512.0,
+            },
             'fixture_id': fixture_id,
             'purpose': 'bounded candidate execution only',
             'numerical_acceptance_claim': False,
@@ -838,10 +859,7 @@ def _fixture(
         acoustic_domain='wave',
         model_solver_role_ids=(role_id,),
         supported_observables=('complex_pressure',),
-        valid_frequency_domain=FrequencyDomain(
-            minimum_hz=min(band.minimum_hz, 40.0),
-            maximum_hz=max(band.maximum_hz, 100.0),
-        ),
+        valid_frequency_domain=fidelity_domain,
         parameter_bounds={
             'max_grid_cells': 200000.0,
             'max_time_steps': 512.0,
