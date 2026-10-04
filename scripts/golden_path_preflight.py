@@ -692,14 +692,41 @@ def main(argv: list[str] | None = None) -> int:
     # never auto-deleted: deleting it on failure would discard the trace
     # (and audit artifacts) that exist precisely to debug that failure.
     if code == 0 and args.clean_work_dir_on_success:
-        for artifact in ('data-main', 'data-restored', 'preflight.htdt-backup'):
-            target = work_dir / artifact
-            if target.is_dir():
-                shutil.rmtree(target)
-            elif target.exists():
-                target.unlink()
-        print(f'[preflight] cleaned run artifacts in {work_dir}')
+        clean_work_dir_on_success(work_dir)
     return code
+
+
+def clean_work_dir_on_success(work_dir: Path) -> None:
+    """Best-effort scratch cleanup: never fails the run.
+
+    Windows refuses to delete files still held open (WinError 32); SQLite
+    handles owned by repositories can survive until GC reclaims them, so a
+    gc pass + one retry comes first, and a stubborn lock degrades to a
+    warning rather than a non-zero exit for an otherwise green run.
+    """
+    import gc
+    import time
+
+    artifacts = ('data-main', 'data-restored', 'preflight.htdt-backup')
+    for attempt in range(2):
+        gc.collect()
+        leftovers: list[tuple[Path, OSError]] = []
+        for artifact in artifacts:
+            target = work_dir / artifact
+            try:
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+            except OSError as error:
+                leftovers.append((target, error))
+        if not leftovers:
+            print(f'[preflight] cleaned run artifacts in {work_dir}')
+            return
+        if attempt == 0:
+            time.sleep(0.5)
+    for target, error in leftovers:
+        print(f'[preflight] cleanup skipped {target}: {error}')
 
 
 if __name__ == '__main__':
