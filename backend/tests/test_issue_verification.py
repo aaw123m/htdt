@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import time
 import urllib.error
@@ -420,6 +421,38 @@ class TestSchemaHardening:
         with pytest.raises(verify.ManifestError, match='filename-safe'):
             verify.load_manifest(path)
 
+    @pytest.mark.parametrize('cid', ['con', 'NUL', 'aux', 'com1', 'lpt9'])
+    def test_check_id_windows_reserved_name_fails(self, tmp_path, cid):
+        """logs/<id>.log cannot be created for DOS device names — the CI
+        lane runs windows-latest, so these ids are schema errors."""
+        text = _manifest_yaml(
+            f'      - id: {cid}\n        kind: manual\n        description: d'
+        )
+        path = _write_manifest(tmp_path, text)
+        with pytest.raises(verify.ManifestError, match='reserved'):
+            verify.load_manifest(path)
+
+    def test_check_id_leading_dot_fails(self, tmp_path):
+        text = _manifest_yaml(
+            '      - id: .hidden\n        kind: manual\n        description: d'
+        )
+        path = _write_manifest(tmp_path, text)
+        with pytest.raises(verify.ManifestError, match='dot'):
+            verify.load_manifest(path)
+
+    def test_check_id_must_be_unique_across_issues(self, tmp_path):
+        """ids name logs/<id>.log in one shared dir: a duplicate across
+        issues would silently overwrite the earlier check's log."""
+        block = _manual_check('dup')
+        text = (
+            'version: 1\nrepo: a/b\nissues:\n'
+            '  - issue: 10\n    checks:\n' + block + '\n'
+            '  - issue: 11\n    checks:\n' + block
+        )
+        path = _write_manifest(tmp_path, text)
+        with pytest.raises(verify.ManifestError, match='issue #10'):
+            verify.load_manifest(path)
+
     def test_title_must_be_a_string(self, tmp_path):
         text = _manifest_yaml(_manual_check()).replace(
             '    checks:\n', '    title: [not, a, string]\n    checks:\n'
@@ -463,6 +496,102 @@ class TestTimeoutTreeKill:
         first = heartbeat.read_text(encoding='utf-8')
         time.sleep(1.5)
         assert heartbeat.read_text(encoding='utf-8') == first
+
+
+class TestStragglerSweep:
+    """A check whose main process exits but leaves a child behind must have
+    that child reaped — surviving children hold basetemp handles, write into
+    the shared log, and burn CPU through the rest of the run."""
+
+    def test_passed_check_cannot_leave_a_child_running(self, tmp_path):
+        heartbeat = tmp_path / 'straggler-hb.txt'
+        child = tmp_path / 'child.py'
+        child.write_text(
+            'import time, pathlib\n'
+            f'p = pathlib.Path(r"{heartbeat.as_posix()}")\n'
+            'while True:\n'
+            '    p.write_text(str(time.time()))\n'
+            '    time.sleep(0.25)\n',
+            encoding='utf-8',
+        )
+        parent = tmp_path / 'parent.py'
+        # Spawns a heartbeat child, waits so it provably starts, then exits 0 —
+        # 'passed' on the surface, straggler underneath. The sweep must kill it.
+        parent.write_text(
+            'import subprocess, sys, time\n'
+            f'subprocess.Popen([sys.executable, r"{child.as_posix()}"])\n'
+            'time.sleep(1.5)\n',
+            encoding='utf-8',
+        )
+        checks = _script_argv_check('spawner', parent, timeout_seconds=30)
+        code, report, _ = _run_offline(tmp_path, _manifest_yaml(checks))
+        assert code == 0
+        assert report['issues'][0]['checks'][0]['status'] == 'passed'
+        assert heartbeat.exists(), 'straggler never started — test vacuous'
+        frozen = heartbeat.read_text(encoding='utf-8')
+        time.sleep(1.5)
+        assert heartbeat.read_text(encoding='utf-8') == frozen
+
+    @pytest.mark.skipif(
+        sys.platform != 'win32', reason='job-object kill-on-close is Windows'
+    )
+    def test_runner_death_reaps_the_check_tree(self, tmp_path):
+        """Kill-on-close job semantics: when the *runner* dies mid-check the
+        kernel kills every job member — no orphaned check processes."""
+        heartbeat = tmp_path / 'orphan-hb.txt'
+        child = tmp_path / 'orphan-child.py'
+        child.write_text(
+            'import time, pathlib\n'
+            f'p = pathlib.Path(r"{heartbeat.as_posix()}")\n'
+            'while True:\n'
+            '    p.write_text(str(time.time()))\n'
+            '    time.sleep(0.25)\n',
+            encoding='utf-8',
+        )
+        mini_runner = tmp_path / 'mini_runner.py'
+        mini_runner.write_text(
+            'import subprocess, sys, time\n'
+            f'sys.path.insert(0, r"{ROOT.as_posix()}/scripts")\n'
+            'import verify_open_issues as verify\n'
+            'job = verify._create_kill_job()\n'
+            'assert job is not None\n'
+            'proc = subprocess.Popen('
+            f'    [sys.executable, r"{child.as_posix()}"])\n'
+            'assert verify._kernel32.AssignProcessToJobObject('
+            '        job, proc._handle)\n'
+            'print(proc.pid, flush=True)\n'
+            'time.sleep(60)\n',
+            encoding='utf-8',
+        )
+        runner = subprocess.Popen(
+            [sys.executable, str(mini_runner)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        try:
+            child_pid = int(runner.stdout.readline().strip())
+            time.sleep(1.0)
+            assert heartbeat.exists(), 'child never started — test vacuous'
+            # Kill the "runner" itself; the job's kill-on-close must reap
+            # the check child with it.
+            subprocess.run(
+                ['taskkill', '/F', '/PID', str(runner.pid)],
+                capture_output=True, timeout=10,
+            )
+            runner.wait(timeout=10)
+            time.sleep(1.5)
+            frozen = heartbeat.read_text(encoding='utf-8')
+            time.sleep(1.5)
+            assert heartbeat.read_text(encoding='utf-8') == frozen, (
+                f'child pid {child_pid} survived runner death — '
+                'kill-on-close job did not reap it'
+            )
+        finally:
+            if runner.poll() is None:
+                runner.kill()
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(runner.pid)],
+                capture_output=True, timeout=10,
+            )
 
 
 class TestRerunFailed:
@@ -555,6 +684,20 @@ class TestVerdictCache:
         _run_offline(tmp_path, self._manifest(), *args)
         assert self._counter(report_dir) == 'xx'
 
+    def test_managed_env_change_invalidates(self, tmp_path, monkeypatch):
+        """Same sha + same interpreter fingerprint, but the env the runner
+        injects changed (QT_QPA_PLATFORM offscreen -> windows): the verdict
+        could differ, so the cache must not serve the old one."""
+        self._patch_clean_env(monkeypatch)
+        cache_file = tmp_path / 'cache.json'
+        args = ('--use-cache', '--cache-file', str(cache_file))
+        monkeypatch.delenv('QT_QPA_PLATFORM', raising=False)
+        _, _, report_dir = _run_offline(tmp_path, self._manifest(), *args)
+        assert self._counter(report_dir) == 'x'
+        monkeypatch.setenv('QT_QPA_PLATFORM', 'windows')
+        _, _, report_dir = _run_offline(tmp_path, self._manifest(), *args)
+        assert self._counter(report_dir) == 'xx'
+
     def test_dirty_worktree_disables_cache(self, tmp_path, monkeypatch):
         self._patch_clean_env(monkeypatch)
         monkeypatch.setattr(
@@ -625,6 +768,10 @@ class _FakeApi:
                 request.data.decode('utf-8')
             )['body']
             return _FakeResponse(self.comments[cid])
+        if method == 'DELETE':
+            cid = int(url.rstrip('/').split('/')[-1])
+            del self.comments[cid]
+            return _FakeResponse(None)
         raise AssertionError(f'unexpected request {method} {url}')
 
     def comment_count(self, issue: int) -> int:
@@ -693,6 +840,42 @@ class TestPostSummariesUpsert:
         assert verify._post_summaries('a/b', report) == 0
         assert api.calls == []
 
+    def test_duplicate_status_comments_are_deduped(self, monkeypatch):
+        """A past posting race (two runners both POSTed) leaves duplicate
+        marked comments; the next upsert edits the oldest and deletes the
+        rest so the stale copy stops shadowing the verdict."""
+        api = _fake_api(monkeypatch)
+        for cid in (1, 2):
+            api.comments[cid] = {
+                'id': cid, 'issue': 1,
+                'body': verify.COMMENT_MARKER
+                + '\n自動検証: **failing** (old run)',
+            }
+        api.next_id = 3
+        report = _verdict_report('verified')
+        assert verify._post_summaries('a/b', report) == 0
+        assert api.comment_count(1) == 1
+        remaining = next(iter(api.comments.values()))
+        assert remaining['id'] == 1  # oldest edited, duplicate deleted
+        assert 'verified' in remaining['body']
+        methods = [m for m, _ in api.calls]
+        assert 'PATCH' in methods and 'DELETE' in methods
+
+    def test_marker_quoted_by_a_human_is_not_clobbered(self, monkeypatch):
+        """A comment merely containing the marker (e.g. a human quoting it
+        mid-body) is not ours — PATCHing it would destroy their text."""
+        api = _fake_api(monkeypatch)
+        api.comments[1] = {
+            'id': 1, 'issue': 1,
+            'body': 'see the <!-- verify-open-issues --> comment above',
+        }
+        api.next_id = 2
+        report = _verdict_report('verified')
+        assert verify._post_summaries('a/b', report) == 0
+        assert api.comment_count(1) == 2  # human comment kept, ours added
+        assert api.comments[1]['body'].startswith('see the')
+        assert api.comments[2]['body'].startswith(verify.COMMENT_MARKER)
+
     def test_comment_failure_exits_nonzero(self, monkeypatch):
         api = _fake_api(monkeypatch)
         api.fail = True
@@ -737,6 +920,36 @@ class TestCliHardening:
         ])
         assert code == 2
         assert '--issues' in capsys.readouterr().err
+
+    def test_issues_rejects_non_positive(self, tmp_path, capsys):
+        code = verify.main([
+            '--manifest', str(REAL_MANIFEST),
+            '--offline', '--issues', '3,-1',
+        ])
+        assert code == 2
+        assert 'positive' in capsys.readouterr().err
+
+    def test_issues_fetch_non_list_page_fails(self, monkeypatch):
+        """A malformed API page must be a clean tool failure (exit 2 / a
+        RuntimeError surfaced), not a TypeError deep in the loop."""
+        class _Resp:
+            headers = {}
+
+            def read(self):
+                return b'{"message": "abuse detection"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        monkeypatch.setattr(
+            verify.urllib.request, 'urlopen', lambda req, timeout=0: _Resp()
+        )
+        monkeypatch.setenv('GITHUB_TOKEN', 't')
+        with pytest.raises(RuntimeError, match='non-list'):
+            verify.fetch_open_issues('a/b', 't')
 
     def test_fail_on_verdict_exits_3(self, tmp_path):
         checks = _script_check('bad', 'import sys; sys.exit(3)')
