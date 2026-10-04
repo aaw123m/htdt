@@ -3,11 +3,14 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 from hashlib import sha256
+import io
 import json
 from pathlib import Path
 import re
 import sqlite3
 from typing import Literal, Mapping, Sequence
+import zipfile
+import zlib
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -312,6 +315,213 @@ class StagedFieldReturn(BaseModel):
     detail: str | None = None
 
 
+# --- .htdtfieldreturn container wire form (capture-side issue #400) ------------
+#
+# The app ships a stored-entry classic ZIP: a `container-manifest.json`
+# integrity index, the `field-return.json` root document (`htdt.field_return`,
+# string schema_version ``1.0.0``/``2.0.0``), typed authority docs under
+# ``authority/*.json`` and payloads under ``evidence/**``. This is a different
+# wire family from the flat ``htdt.field-return`` manifest above — both stage
+# into ``field_return_contributions`` under the same duplicate semantics.
+
+FIELD_RETURN_CONTAINER_MANIFEST_PATH = 'container-manifest.json'
+FIELD_RETURN_CONTAINER_ROOT_PATH = 'field-return.json'
+SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS = ('1.0.0', '2.0.0')
+_STORED_ZIP_MAGIC = b'PK\x03\x04'
+
+
+class FieldReturnContainerDocRef(BaseModel):
+    """One declared document/asset ref on the container root document."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    path: str = Field(min_length=1)
+    schema: str = Field(min_length=1)
+    sha256: str = Field(pattern=HEX64)
+    bytes: int = Field(ge=0)
+
+
+class FieldReturnContainerDocument(BaseModel):
+    """Envelope validation for the container's ``field-return.json`` root.
+
+    Strict on the identity and reference fields the receiver stages on; the
+    nested ``contribution_ref``/``provenance``/ledger entry shapes stay
+    app-owned — fulfillment replay belongs to the contribution's consumer,
+    not the staging boundary.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema: Literal['htdt.field_return']
+    schema_version: str = Field(min_length=1)
+    authority_binding_scope: str = Field(min_length=1)
+    contribution_id: str = Field(pattern=UUID4_PATTERN)
+    contribution_ref: dict | None = None
+    supersedes_contribution_ref: dict | None = None
+    mission_id: str | None = None
+    plan_id: str | None = None
+    plan_version: str | None = None
+    plan_sha256: str | None = Field(default=None, pattern=HEX64)
+    created_at: str = Field(min_length=1)
+    finalized_at: str = Field(min_length=1)
+    provenance: dict
+    related_capture_revision_ids: list[str] = []
+    task_fulfillment_ledger: list[dict] = []
+    authority_documents: list[FieldReturnContainerDocRef] = []
+    evidence_assets: list[FieldReturnContainerDocRef] = []
+    content_digest: str = Field(pattern=HEX64)
+
+
+def read_field_return_container(
+    artifact: bytes,
+) -> tuple[dict[str, bytes], FieldReturnContainerDocument, dict]:
+    """Extract + integrity-verify a ``.htdtfieldreturn`` container.
+
+    Mirrors ``HTDTFieldReturnArchiveReader``: stored entries only, every
+    declared entry's crc32/sha256/bytes verified against
+    ``container-manifest.json``, the declared set must equal the entry set,
+    and every ``authority_documents``/``evidence_assets`` ref must resolve
+    to its declared bytes. Returns (payload entries minus the manifest,
+    parsed envelope, raw root document).
+    """
+
+    if not artifact[:4] == _STORED_ZIP_MAGIC:
+        raise FieldReturnError(
+            'field return artifact is not a stored-ZIP container'
+        )
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(artifact))
+    except zipfile.BadZipFile as exc:
+        raise FieldReturnError(f'invalid field-return container: {exc}')
+    entries: dict[str, bytes] = {}
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        if info.compress_type != zipfile.ZIP_STORED:
+            raise FieldReturnError(
+                'container entry is compressed; the wire family stores '
+                f'entries verbatim: {info.filename}'
+            )
+        if info.flag_bits & 0x01:
+            raise FieldReturnError(
+                f'container entry is encrypted: {info.filename}'
+            )
+        entries[info.filename] = archive.read(info)
+    manifest_data = entries.pop(FIELD_RETURN_CONTAINER_MANIFEST_PATH, None)
+    if manifest_data is None:
+        raise FieldReturnError('container-manifest.json is missing')
+    try:
+        manifest = json.loads(manifest_data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FieldReturnError(
+            f'container-manifest.json is not valid JSON: {exc}'
+        )
+    declared: set[str] = set()
+    for record in manifest.get('entries', ()):
+        path = record.get('path')
+        declared.add(path)
+        payload = entries.get(path)
+        if (
+            payload is None
+            or len(payload) != record.get('bytes')
+            or sha256(payload).hexdigest() != record.get('sha256')
+            or zlib.crc32(payload) & 0xFFFFFFFF != record.get('crc32')
+        ):
+            raise FieldReturnError(
+                f'container manifest mismatch: {path}'
+            )
+    if declared != set(entries):
+        raise FieldReturnError(
+            'container manifest does not cover the entry set'
+        )
+    root_data = entries.get(FIELD_RETURN_CONTAINER_ROOT_PATH)
+    if root_data is None:
+        raise FieldReturnError('field-return.json is missing')
+    try:
+        document = json.loads(root_data.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise FieldReturnError(
+            f'field-return.json is not valid JSON: {exc}'
+        )
+    try:
+        envelope = FieldReturnContainerDocument.model_validate(document)
+    except ValueError as exc:
+        raise FieldReturnError(
+            f'invalid field-return container document: {exc}'
+        ) from exc
+    for ref in (*envelope.authority_documents, *envelope.evidence_assets):
+        payload = entries.get(ref.path)
+        if (
+            payload is None
+            or len(payload) != ref.bytes
+            or sha256(payload).hexdigest() != ref.sha256
+        ):
+            raise FieldReturnError(
+                'declared document ref does not resolve to verified '
+                f'container bytes: {ref.path}'
+            )
+    return entries, envelope, document
+
+
+def _stage_field_return_container(artifact: bytes) -> StagedFieldReturn:
+    digest = sha256(artifact).hexdigest()
+    try:
+        _entries, envelope, document = read_field_return_container(artifact)
+    except (FieldReturnError, ValueError) as exc:
+        return StagedFieldReturn(
+            contribution_id=None,
+            artifact_sha256=digest,
+            validation_state='malformed',
+            routing='unrouted',
+            detail=str(exc),
+        )
+    manifest_json = _canonical_json(document)
+    if envelope.schema_version not in SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS:
+        return StagedFieldReturn(
+            contribution_id=envelope.contribution_id,
+            artifact_sha256=digest,
+            validation_state='unsupported',
+            routing='unrouted',
+            mission_id=envelope.mission_id,
+            plan_sha256=envelope.plan_sha256,
+            manifest_json=manifest_json,
+            detail=(
+                'unsupported htdt.field_return schema_version: '
+                f'{envelope.schema_version}; artifact preserved for a '
+                'compatible HTDT release'
+            ),
+        )
+    return StagedFieldReturn(
+        contribution_id=envelope.contribution_id,
+        artifact_sha256=digest,
+        validation_state='validated',
+        # Container root docs carry mission/plan identity but no project
+        # reference — routing classification stays honest 'unrouted'.
+        routing='unrouted',
+        mission_id=envelope.mission_id,
+        plan_sha256=envelope.plan_sha256,
+        manifest_json=manifest_json,
+        detail=(
+            f'container {envelope.schema_version}: '
+            f'{len(envelope.authority_documents)} authority documents, '
+            f'{len(envelope.evidence_assets)} evidence assets'
+        ),
+    )
+
+
+def stage_field_return_artifact(
+    artifact: bytes,
+    known_projects: Sequence[HTDTProjectReference] = (),
+) -> StagedFieldReturn:
+    """Stage whichever wire form was handed in: the emitted
+    ``.htdtfieldreturn`` container (stored ZIP), or a bare
+    ``htdt.field-return`` JSON manifest."""
+
+    if artifact[:4] == _STORED_ZIP_MAGIC:
+        return _stage_field_return_container(artifact)
+    return stage_field_return(artifact, known_projects)
+
+
 def stage_field_return(
     artifact: bytes,
     known_projects: Sequence[HTDTProjectReference] = (),
@@ -419,9 +629,30 @@ class FieldReturnRepository:
     ) -> StagedFieldReturn:
         """Persist staging state with deterministic duplicate semantics."""
 
-        staged = stage_field_return(artifact, known_projects)
+        staged, _created = self.stage_artifact(artifact, known_projects)
+        return staged
+
+    def stage_artifact(
+        self,
+        artifact: bytes,
+        known_projects: Sequence[HTDTProjectReference] = (),
+    ) -> tuple[StagedFieldReturn, bool]:
+        """Stage the emitted wire form and report whether a new row landed.
+
+        Returns ``(staged, created)`` — ``created`` is False for an exact
+        duplicate already on the ledger, for a contribution-less malformed
+        artifact, or for a staged-but-not-inserted diagnostic.
+        """
+
+        return self._stage_entry(
+            stage_field_return_artifact(artifact, known_projects)
+        )
+
+    def _stage_entry(
+        self, staged: StagedFieldReturn
+    ) -> tuple[StagedFieldReturn, bool]:
         if staged.contribution_id is None:
-            return staged
+            return staged, False
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 '''
@@ -439,7 +670,7 @@ class FieldReturnRepository:
                     incoming_artifact_sha256=staged.artifact_sha256,
                 )
                 if duplicate == 'exact_duplicate':
-                    return staged
+                    return staged, False
                 raise FieldReturnConflictError(
                     'field return contribution '
                     f'{staged.contribution_id} already exists with different '
@@ -466,7 +697,7 @@ class FieldReturnRepository:
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
-        return staged
+        return staged, True
 
     def get(self, contribution_id: str) -> StagedFieldReturn | None:
         with closing(self._connect()) as connection:

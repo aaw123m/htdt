@@ -64,6 +64,11 @@ from .capture_inbox import (
     PROMOTION_AUTHORITY_KINDS,
     CaptureInboxRepository,
 )
+from .field_return_ingestion import (
+    FieldReturnConflictError,
+    FieldReturnRepository,
+    SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS,
+)
 from .ingress import IngressTooLargeError, read_file_bounded
 from .export_io import write_bytes_atomic
 from .content_blobs import (
@@ -97,11 +102,10 @@ BUNDLE_SCHEMA_VERSION = '1.0.0'
 
 RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
 
-# Artifact kinds ``handle_delivery`` admits end-to-end. ``field_return``
-# staging exists (``field_return_ingestion.stage_field_return``) but has
-# no delivery lane wired yet — advertising it here would promise a lane
-# the receiver still answers 415.
-DELIVERABLE_KINDS = ('capture_bundle',)
+# Artifact kinds ``handle_delivery`` admits end-to-end: capture bundles
+# ingest through the plan pipeline into the Capture Inbox; field returns
+# stage into ``field_return_contributions`` via FieldReturnRepository.
+DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
 
 # Authority families an end-to-end promotion path can actually execute
 # today: ``annotations`` materialize into real SceneEntity objects through
@@ -379,6 +383,7 @@ class CaptureReceiverService:
         self._server: ThreadingHTTPServer | None = None
         self._server_thread: threading.Thread | None = None
         self._initialize()
+        self.field_return_repository = FieldReturnRepository(self.path)
 
     # -- persistence ----------------------------------------------------
 
@@ -733,7 +738,18 @@ class CaptureReceiverService:
                     'artifact_kind': 'capture_bundle',
                     'accepted_schema_versions': [BUNDLE_SCHEMA_VERSION],
                     'max_archive_bytes': self.max_archive_bytes,
-                }
+                },
+                {
+                    # The emitted .htdtfieldreturn container document
+                    # versions (htdt.field_return 1.0.0/2.0.0) — the flat
+                    # htdt.field-return manifest stays stageable too but is
+                    # a diagnostic form, not an advertised one.
+                    'artifact_kind': 'field_return',
+                    'accepted_schema_versions': list(
+                        SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS
+                    ),
+                    'max_archive_bytes': self.max_archive_bytes,
+                },
             ],
             'mission_packages_served': True,
             'equipment_catalogs_recognized': [],
@@ -746,7 +762,11 @@ class CaptureReceiverService:
     def handle_delivery(
         self, token: str, headers: Mapping[str, str], body: bytes
     ) -> tuple[int, dict]:
-        """POST endpoint: accept exact .htdtcapture bytes for inbox staging."""
+        """POST endpoint: accept declared artifact bytes for staging.
+
+        ``capture_bundle`` archives ingest into the Capture Inbox;
+        ``field_return`` containers stage as contributions. Both share the
+        same archive-identity, dedup, and receipt-echo contract."""
         try:
             pairing = self._require_active_pairing(token)
         except CaptureReceiverError:
@@ -820,7 +840,7 @@ class CaptureReceiverService:
                 'detail': detail,
             }
 
-        if artifact_kind != 'capture_bundle':
+        if artifact_kind not in DELIVERABLE_KINDS:
             return reject(
                 f'unsupported artifact kind {artifact_kind}', status=415
             )
@@ -863,6 +883,18 @@ class CaptureReceiverService:
                 return 200, self._receipt_for(prior)
             # A rejected delivery of the same bytes retries the pipeline:
             # a transient failure must not become a permanent dead letter.
+
+        if artifact_kind == 'field_return':
+            return self._handle_field_return_delivery(
+                pairing=pairing,
+                delivery_id=delivery_id,
+                artifact_id=artifact_id,
+                artifact_digest=artifact_digest,
+                declared_sha=declared_sha,
+                body=body,
+                delivery_key=delivery_key,
+                reject=reject,
+            )
 
         # hard fail-closed rule: same capture revision arriving under a
         # different bundle digest is a conflict, never a silent variant
@@ -959,6 +991,126 @@ class CaptureReceiverService:
             except Exception:
                 _LOGGER.exception('capture delivery listener failed')
         return 200, self._receipt_for(record)
+
+    def _handle_field_return_delivery(
+        self,
+        *,
+        pairing: ReceiverPairing,
+        delivery_id: str | None,
+        artifact_id: str | None,
+        artifact_digest: str | None,
+        declared_sha: str,
+        body: bytes,
+        delivery_key: str,
+        reject: Callable[..., tuple[int, dict]],
+    ) -> tuple[int, dict]:
+        """Stage a `.htdtfieldreturn` contribution through the delivery lane.
+
+        Staging is the durable verdict point: a well-formed contribution
+        lands in ``field_return_contributions``; unsupported or malformed
+        artifacts are rejected on the wire but still preserved as staging
+        diagnostics when a contribution id can be read. The declared
+        ``artifact_digest`` is the emitter's semantic digest — the receiver
+        stores and echoes it without recomputation (archive bytes are bound
+        by the verified SHA-256 header)."""
+
+        try:
+            staged, created = self.field_return_repository.stage_artifact(
+                body, self._known_project_references()
+            )
+        except FieldReturnConflictError as exc:
+            return reject(
+                f'field return contribution conflict: {exc}'
+            )
+        except Exception as exc:
+            _LOGGER.exception('field return staging failed')
+            return reject(f'field return could not be staged: {exc}')
+
+        if (
+            artifact_id
+            and staged.contribution_id
+            and artifact_id != staged.contribution_id
+        ):
+            return reject(
+                'artifact id header disagrees with the contribution '
+                'identity declared inside the artifact'
+            )
+        if staged.validation_state != 'validated':
+            return reject(
+                staged.detail
+                or 'field return artifact did not validate'
+            )
+
+        record = self._record_delivery(
+            pairing=pairing,
+            delivery_id=delivery_id,
+            artifact_kind='field_return',
+            artifact_id=staged.contribution_id,
+            artifact_digest=artifact_digest,
+            capture_revision_id=None,
+            bundle_digest=None,
+            archive_sha256=declared_sha,
+            archive_bytes=len(body),
+            outcome='accepted' if created else 'already_staged',
+            staging_ref=f'field-return:{staged.contribution_id}',
+            lineage_digest=None,
+            detail=staged.detail or '',
+            delivery_key=delivery_key,
+        )
+        # Same racer normalization as the bundle path: the delivery that
+        # lost the staging dedup reports 'already_staged'; only the stager
+        # announces 'accepted'.
+        if not created and record.outcome == 'accepted':
+            record = record.model_copy(update={'outcome': 'already_staged'})
+        if (
+            created
+            and record.outcome == 'accepted'
+            and self._delivery_listener is not None
+        ):
+            try:
+                self._delivery_listener(record)
+            except Exception:
+                _LOGGER.exception('field return delivery listener failed')
+        return 200, self._receipt_for(record)
+
+    def _known_project_references(self) -> tuple:
+        """Project identities the library knows, for field-return routing.
+
+        Read straight from ``htdt_project_documents`` — a delivery must
+        never trigger library migrations as a side effect. Container-form
+        field returns carry no project reference today, so this exists for
+        the flat manifest form and future container versions.
+        """
+
+        from .project_identity import HTDTProjectReference
+
+        try:
+            with closing(self._connect()) as connection:
+                rows = connection.execute(
+                    'SELECT project_id, document_id, display_name, '
+                    'cloned_from_project_id FROM htdt_project_documents '
+                    'WHERE archived=0'
+                ).fetchall()
+        except sqlite3.OperationalError:
+            return ()
+        references: list[HTDTProjectReference] = []
+        for row in rows:
+            try:
+                references.append(
+                    HTDTProjectReference(
+                        project_id=row['project_id'],
+                        document_id=row['document_id'],
+                        cloned_from_project_id=row['cloned_from_project_id'],
+                        project_name=row['display_name'],
+                    )
+                )
+            except ValueError:
+                _LOGGER.warning(
+                    'project row %s is not a uuid4 identity; skipped for '
+                    'field-return routing',
+                    row['project_id'],
+                )
+        return tuple(references)
 
     def _receipt_for(self, record: ReceiverDeliveryRecord) -> dict:
         return {
