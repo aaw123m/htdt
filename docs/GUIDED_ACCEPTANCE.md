@@ -85,8 +85,10 @@ with the manifest row in `htdt_acceptance_evidence`, which also joins
 `native_backup._ASSET_MANIFEST_TABLES` so backups carry and validate them.
 
 An in-progress run survives app restart — reopen **受入検証** and pick it
-under **実行中の受入**; the `persistence_probe` step's second phase then
-verifies across the restart.
+under **受入の実行**; the `persistence_probe` step's second phase then
+verifies across the restart. Finished runs stay listed there too (labeled
+with their verdict), so a verifier can reopen one and re-export its
+bundle.
 
 ## Output
 
