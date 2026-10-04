@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import secrets
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,10 @@ CheckVerdict = Literal['pass', 'fail', 'unavailable', 'deferred']
 # where scripts/ lives. In an installed (non-checkout) context the scripts
 # are absent and script checks report ``unavailable`` — fail-closed.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+#: Unique per process launch — two-phase checks bind recorded state to this
+#: boot so "after restart" claims cannot be satisfied inside the same run.
+_PROCESS_BOOT_ID = secrets.token_hex(8)
 
 
 @dataclass(frozen=True)
@@ -60,6 +65,9 @@ class CheckContext:
     prior_detail: dict[str, Any] | None = None
     #: Repository handle for run-internal queries (evidence, other runs).
     repository: Any = None
+    #: Boot identifier for restart probes — injected so tests can simulate
+    #: an app restart; ``None`` falls back to the process boot id.
+    boot_id: str | None = None
     #: Test seam: inject a fake RewApiClient.
     rew_client: Any = None
     #: Test seam: injected env snapshot / subprocess runner.
@@ -320,16 +328,43 @@ def check_persistence_probe(ctx: CheckContext, arg: str) -> AutoCheckResult:
         return AutoCheckResult(
             verdict='unavailable', detail_ja='リポジトリ参照がありません。'
         )
+    boot_id = ctx.boot_id or _PROCESS_BOOT_ID
     existing = [
         ref
         for ref in ctx.repository.evidence_for(ctx.run_id, ctx.step_id)
         if ref.kind == 'persistence_probe'
     ]
-    if not existing:
+    marker: dict[str, Any] | None = None
+    ref = None
+    if existing:
+        # Newest probe wins — a stale marker from an earlier attempt must
+        # not shadow a re-issued one.
+        ref = existing[-1]
+        content = ctx.repository.asset_store.read_verified(ref.sha256)
+        if content is None:
+            return AutoCheckResult(
+                verdict='fail',
+                detail_ja='再起動前に記録したプローブ証跡が見つかりません。',
+            )
+        try:
+            marker = json.loads(content.decode('utf-8'))
+        except (TypeError, ValueError):
+            marker = None
+        if marker is not None and marker.get('run_id') != ctx.run_id:
+            return AutoCheckResult(
+                verdict='fail',
+                detail_ja='プローブ証跡のrun_idが一致しません。',
+            )
+        if marker is not None and marker.get('boot_id') is None:
+            # Marker written before boot binding existed — it cannot prove
+            # a restart, so it is treated as absent and re-issued.
+            marker = None
+    if marker is None:
         token = canonical_json(
             {
                 'run_id': ctx.run_id,
                 'step_id': ctx.step_id,
+                'boot_id': boot_id,
                 'issued_at_utc': utc_now_iso(),
             }
         ).encode('utf-8')
@@ -348,18 +383,19 @@ def check_persistence_probe(ctx: CheckContext, arg: str) -> AutoCheckResult:
             ),
             evidence={'probe_recorded': True},
         )
-    ref = existing[0]
-    content = ctx.repository.asset_store.read_verified(ref.sha256)
-    if content is None:
+    if marker.get('boot_id') == boot_id:
+        # Same process boot — the restart never happened, so the probe
+        # stays deferred instead of claiming a restart it cannot prove.
         return AutoCheckResult(
-            verdict='fail',
-            detail_ja='再起動前に記録したプローブ証跡が見つかりません。',
-        )
-    marker = json.loads(content.decode('utf-8'))
-    if marker.get('run_id') != ctx.run_id:
-        return AutoCheckResult(
-            verdict='fail',
-            detail_ja='プローブ証跡のrun_idが一致しません。',
+            verdict='deferred',
+            detail_ja=(
+                'まだ再起動されていません。HTDTを再起動し、この実行を'
+                '再開してから再度「チェック実行」を押してください。'
+            ),
+            evidence={
+                'probe_sha256': ref.sha256,
+                'probe_issued_at_utc': marker.get('issued_at_utc'),
+            },
         )
     return AutoCheckResult(
         verdict='pass',

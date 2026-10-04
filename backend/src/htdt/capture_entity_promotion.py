@@ -308,7 +308,9 @@ class CaptureEntityPromotionService:
             raise CaptureEntityPromotionError(
                 'ingestion carries no annotation records'
             )
-        world_to_scene = self._world_to_scene(plan, document_id)
+        world_to_scene_by_space = self._world_to_scene_by_space(
+            plan, document_id
+        )
         candidates = self._derived_candidates(plan)
 
         created: list[SceneEntity] = []
@@ -327,7 +329,9 @@ class CaptureEntityPromotionService:
             entity, reason = self._materialize(
                 annotation,
                 entity_id=entity_id,
-                world_to_scene=world_to_scene,
+                world_to_scene=world_to_scene_by_space.get(
+                    annotation.coordinate_space_id, _identity4()
+                ),
                 candidates=candidates,
                 existing_entities=head.document.entities + tuple(created),
             )
@@ -382,22 +386,26 @@ class CaptureEntityPromotionService:
 
     # ---- internals ---------------------------------------------------------
 
-    def _world_to_scene(
+    def _world_to_scene_by_space(
         self,
         plan: CaptureIngestionPlan,
         document_id: str,
-    ) -> tuple[tuple[float, float, float, float], ...]:
-        """Promoted world→scene authority for this lineage, else identity.
+    ) -> dict[str, tuple[tuple[float, float, float, float], ...]]:
+        """Promoted world→scene authorities for this lineage, keyed by
+        coordinate space id.
 
         The authority is keyed by (target document, coordinate space): the
-        semantic promotion path stores one per ingestion run and this looks
-        up the newest one matching the plan's declared spaces.
+        semantic promotion path stores one per ingestion run and this
+        collects the newest one per space declared in the plan bundle.
+        An annotation promotes through ITS OWN space's authority — never
+        a sibling space's — and spaces without a recorded authority fall
+        back to identity.
         """
 
         if self.semantic_promotion_repository is None:
-            return _identity4()
+            return {}
         spaces = set(plan.bundle.coordinate_space_ids)
-        best: CaptureWorldToSceneAuthority | None = None
+        by_space: dict[str, CaptureWorldToSceneAuthority] = {}
         for record in self.semantic_promotion_repository.list_promotions():
             request = (
                 self.semantic_promotion_repository.promotion_request(
@@ -411,10 +419,11 @@ class CaptureEntityPromotionService:
             authority = request.world_to_scene_authority
             if authority.coordinate_space_id not in spaces:
                 continue
-            best = authority
-        if best is None:
-            return _identity4()
-        return best.transform.matrix_source_to_scene_m
+            by_space[authority.coordinate_space_id] = authority
+        return {
+            space_id: authority.transform.matrix_source_to_scene_m
+            for space_id, authority in by_space.items()
+        }
 
     def _derived_candidates(
         self, plan: CaptureIngestionPlan
@@ -479,7 +488,7 @@ class CaptureEntityPromotionService:
         rotation = _normalized_rotation3(scene_transform)
         if rotation is None:
             return None, 'entity transform is not rigid/similarity'
-        scale = _uniform_scale(world_to_scene)
+        scale = _uniform_scale(scene_transform)
         position = _transform_point4(scene_transform, (0.0, 0.0, 0.0))
         try:
             orientation = quaternion_from_matrix3(rotation)

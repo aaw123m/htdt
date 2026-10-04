@@ -44,7 +44,6 @@ from .cad_presentation_repository import (
     PresentationConflictError,
 )
 from .cad_presentation_session import (
-    PresentationRenderSettings,
     PresentationSection,
     PresentationSession,
     PresentationViewpoint,
@@ -60,6 +59,7 @@ from .cad_review_note import ReviewNoteRepository, add_review_note
 from .cad_review_package import (
     OffscreenSceneRenderer,
     build_review_package,
+    derived_yaw_steps,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
@@ -92,6 +92,10 @@ class PresentationWorkspace(QWidget):
         self.note_repository = ReviewNoteRepository(repository.path)
 
         self._session: PresentationSession | None = None
+        # The document the pinned session resolves to — replay applies
+        # per-viewpoint hidden/section/focus state against this, not the
+        # live head.
+        self._session_document = None
         self._pending_viewpoints: list[PresentationViewpoint] = []
         self._step_index = 0
 
@@ -332,6 +336,15 @@ class PresentationWorkspace(QWidget):
             return
         variant_pin = self.variant_combo.currentData()
         set_pin = self.set_combo.currentData()
+        status_label = self.status_combo.currentData()
+        if variant_pin is not None and status_label == 'as_built':
+            QMessageBox.warning(
+                self,
+                'プレゼン',
+                'バリアントにピン留めされたセッションは「竣工実績」に'
+                'できません — 提案として記録してください',
+            )
+            return
         session = build_presentation_session(
             document_id=self.document_id,
             label=label,
@@ -344,7 +357,7 @@ class PresentationWorkspace(QWidget):
             ),
             comparison_set_id=None if set_pin is None else set_pin[0],
             comparison_set_sha256=None if set_pin is None else set_pin[1],
-            status_label=self.status_combo.currentData(),
+            status_label=status_label,
             sections=tuple(
                 PresentationSection(
                     section_id=f'section-{i + 1}',
@@ -386,6 +399,7 @@ class PresentationWorkspace(QWidget):
         except ValueError as exc:
             QMessageBox.warning(self, 'プレゼン', f'再現に失敗: {exc}')
             return
+        self._session_document = document
         self._render_document_into(self.viewport, document)
         stale = self.presentation_repository.session_stale(session)
         self.stale_banner.setVisible(stale)
@@ -405,6 +419,20 @@ class PresentationWorkspace(QWidget):
         index = max(0, min(index, len(viewpoints) - 1))
         self._step_index = index
         viewpoint = viewpoints[index]
+        document = self._session_document
+        if document is not None:
+            # A viewpoint records the whole replay state — camera AND the
+            # visibility/section context it was captured against. Steps
+            # that only move the camera would silently lie about what was
+            # presented.
+            self.viewport.set_aux_render_state(section=viewpoint.section)
+            self._render_document_into(
+                self.viewport,
+                document,
+                hidden_ids=viewpoint.hidden_ids or (),
+            )
+            if viewpoint.focus_entity_id:
+                self.viewport.focus_entity(viewpoint.focus_entity_id)
         self.viewport.apply_camera_state(viewpoint.camera)
         self.step_label.setText(
             f'{index + 1} / {len(viewpoints)} — {viewpoint.name}'
@@ -827,16 +855,16 @@ class PresentationWorkspace(QWidget):
             if viewpoints
             else self._session.viewpoints[0]
         )
-        note = add_review_note(
-            document_id=self.document_id,
-            subject_kind='scene_revision',
-            subject_ref=self._session.scene_revision_id,
-            subject_sha256=self._session.scene_content_hash,
-            author_label=author,
-            body=f'[{anchor.name}] {body}',
-            created_at_utc=_utc_now(),
-        )
         try:
+            note = add_review_note(
+                document_id=self.document_id,
+                subject_kind='scene_revision',
+                subject_ref=self._session.scene_revision_id,
+                subject_sha256=self._session.scene_content_hash,
+                author_label=author,
+                body=f'[{anchor.name}] {body}',
+                created_at_utc=_utc_now(),
+            )
             self.note_repository.save_note(note)
             self.note_body_edit.clear()
             QMessageBox.information(
@@ -897,13 +925,10 @@ class PresentationWorkspace(QWidget):
             self.export_dir_label.setText(chosen)
 
     def _export_session(self) -> PresentationSession | None:
-        index = self.export_session_combo.currentIndex()
-        sessions = self.presentation_repository.list_sessions(
-            self.document_id
-        )
-        if index < 0 or index >= len(sessions):
+        session_id = self.export_session_combo.currentData()
+        if session_id is None:
             return None
-        return sessions[index]
+        return self.presentation_repository.get_session(session_id)
 
     def _refresh_export_sessions(self) -> None:
         self.export_session_combo.clear()
@@ -928,34 +953,15 @@ class PresentationWorkspace(QWidget):
                 self, '出力', '出力先を選択してください'
             )
             return
-        if self.yaw_check.isChecked() and session.render.yaw_step_deg is None:
-            # Export-only render intent — rebuild the session object so
-            # its hash honestly covers the render settings the package
-            # was generated with; nothing is persisted back.
-            session = build_presentation_session(
-                document_id=session.document_id,
-                label=session.label,
-                scene_revision_id=session.scene_revision_id,
-                scene_content_hash=session.scene_content_hash,
-                viewpoints=session.viewpoints,
-                system_variant_id=session.system_variant_id,
-                system_variant_sha256=session.system_variant_sha256,
-                comparison_set_id=session.comparison_set_id,
-                comparison_set_sha256=session.comparison_set_sha256,
-                status_label=session.status_label,
-                sections=session.sections,
-                annotations=session.annotations,
-                evidence_refs=session.evidence_refs,
-                render=PresentationRenderSettings(
-                    image_width_px=session.render.image_width_px,
-                    image_height_px=session.render.image_height_px,
-                    yaw_step_deg=30,
-                    image_format=session.render.image_format,
-                ),
-                author=session.author,
-                created_at_utc=session.created_at_utc,
-                session_id=session.session_id,
-            )
+        # Yaw intent is an explicit export-time override — never a
+        # rebuilt session object, whose hash would name a session that
+        # was never persisted.
+        if not self.yaw_check.isChecked():
+            yaw_steps: tuple[int, ...] | None = ()
+        elif session.render.yaw_step_deg is not None:
+            yaw_steps = None  # derive from the session's declared step
+        else:
+            yaw_steps = derived_yaw_steps(30)
         settings = session.render
         try:
             renderer = OffscreenSceneRenderer(
@@ -967,6 +973,7 @@ class PresentationWorkspace(QWidget):
                 self.repository,
                 presentation_repository=self.presentation_repository,
                 renderer=renderer,
+                yaw_steps_deg=yaw_steps,
             )
         except Exception as exc:
             QMessageBox.warning(self, '出力', f'生成に失敗: {exc}')

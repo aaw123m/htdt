@@ -334,10 +334,15 @@ def test_persistence_probe_two_phase(
     # Phase 1: records the marker, asks for a restart.
     result = check_persistence_probe(ctx, '')
     assert result.verdict == 'deferred'
-    # Phase 2 (post-restart, fresh repository view): marker verifies.
+    # Phase 2 (post-restart: fresh process boot id + fresh repository
+    # view): marker verifies.
     reopened = AcceptanceRunRepository(ctx.db_path)
     ctx2 = CheckContext(
-        **{**ctx.__dict__, 'repository': reopened}
+        **{
+            **ctx.__dict__,
+            'repository': reopened,
+            'boot_id': 'restarted-process',
+        }
     )
     result = check_persistence_probe(ctx2, '')
     assert result.verdict == 'pass'

@@ -299,8 +299,19 @@ def _parse_hcfr_grayscale(
         raise ValueError('X/Y/Z 行の列数がヘッダーと一致しません')
 
     raw_levels: list[float | None] = []
-    if level_row is not None and len(level_row) >= count + 1:
-        raw_levels = [_float_of(c) for c in level_row[1 : count + 1]]
+    if level_row is not None:
+        if len(level_row) < count + 1:
+            warnings.append(
+                'レベル行（IRE/パーセント）の列数が不足しています — '
+                '刺激レベルは順序から推定しました'
+            )
+        else:
+            raw_levels = [_float_of(c) for c in level_row[1 : count + 1]]
+            if any(v is None for v in raw_levels):
+                warnings.append(
+                    '一部のレベル値が読み取れません — '
+                    'その点の刺激レベルは順序から推定しました'
+                )
     # HCFR writes IRE (0–100) or a percent label (also 0–100); the canonical
     # stimulus_level is normalized 0–1.
     scale = 100.0
@@ -532,60 +543,80 @@ def import_video_measurements(
             ),
         )
 
-    if json_payload is not None:
-        # A re-imported interchange restores every original field — the
-        # batch record carries THIS import's provenance instead of
-        # rewriting the set's history.
-        measured_at_utc = measured_at_utc or json_payload.get(
-            'measured_at_utc'
-        )
-        if json_payload.get('meter_correction') is not None:
-            meter_correction = (
-                meter_correction
-                or ColorimeterCorrectionProfile.model_validate(
-                    json_payload['meter_correction']
-                )
+    try:
+        if json_payload is not None:
+            # A re-imported interchange restores every original field — the
+            # batch record carries THIS import's provenance instead of
+            # rewriting the set's history.
+            measured_at_utc = measured_at_utc or json_payload.get(
+                'measured_at_utc'
             )
-        provenance = tuple(
-            EquipmentDataProvenance.model_validate(p)
-            for p in json_payload.get('provenance', ())
+            if json_payload.get('meter_correction') is not None:
+                meter_correction = (
+                    meter_correction
+                    or ColorimeterCorrectionProfile.model_validate(
+                        json_payload['meter_correction']
+                    )
+                )
+            provenance = tuple(
+                EquipmentDataProvenance.model_validate(p)
+                for p in json_payload.get('provenance', ())
+            )
+            import_source = json_payload.get('import_source')
+            import_app_version = json_payload.get('import_app_version')
+            import_asset_sha256 = json_payload.get('import_asset_sha256')
+            import_parser_id = json_payload.get('import_parser_id')
+        else:
+            provenance = (
+                EquipmentDataProvenance(
+                    evidence_kind='measured',
+                    source_name=file_name,
+                    source_version=parser_id,
+                    source_reference=file_name,
+                    source_sha256=source_sha256,
+                ),
+            )
+            import_source = {
+                'hcfr_grayscale_csv': 'hcfr-grayscale-csv',
+                'hcfr_primaries_csv': 'hcfr-primaries-csv',
+            }[format_id]
+            import_app_version = 'htdt'
+            import_asset_sha256 = source_sha256
+            import_parser_id = parser_id
+
+        measurement_set = build_video_color_measurement_set(
+            measurement_set_id=set_id,
+            measured_at_utc=measured_at_utc or _utc_now(),
+            surface_entity_id=surface_entity_id,
+            meter=meter,
+            samples=samples,
+            stimulus=stimulus,
+            meter_correction=meter_correction,
+            import_source=import_source,
+            import_app_version=import_app_version,
+            import_asset_sha256=import_asset_sha256,
+            import_parser_id=import_parser_id,
+            provenance=provenance,
         )
-        import_source = json_payload.get('import_source')
-        import_app_version = json_payload.get('import_app_version')
-        import_asset_sha256 = json_payload.get('import_asset_sha256')
-        import_parser_id = json_payload.get('import_parser_id')
-    else:
-        provenance = (
-            EquipmentDataProvenance(
-                evidence_kind='measured',
-                source_name=file_name,
-                source_version=parser_id,
-                source_reference=file_name,
-                source_sha256=source_sha256,
+    except (ValueError, UnicodeDecodeError) as exc:
+        # A payload whose rows parse but cannot assemble a valid set
+        # (duplicate stimulus ids, partial provenance triple, ...) is a
+        # bad input too — report malformed, never raise.
+        return VideoImportResult(
+            status='malformed',
+            file_name=file_name,
+            format_id=format_id,
+            failure=VideoImportFailure(
+                format_id=format_id,
+                file_name=file_name,
+                reason=f'ファイルの解釈に失敗しました: {exc}',
+                interchange_hint=(
+                    _CHC_INTERCHANGE_HINT
+                    if format_id.startswith('hcfr_')
+                    else None
+                ),
             ),
         )
-        import_source = {
-            'hcfr_grayscale_csv': 'hcfr-grayscale-csv',
-            'hcfr_primaries_csv': 'hcfr-primaries-csv',
-        }[format_id]
-        import_app_version = 'htdt'
-        import_asset_sha256 = source_sha256
-        import_parser_id = parser_id
-
-    measurement_set = build_video_color_measurement_set(
-        measurement_set_id=set_id,
-        measured_at_utc=measured_at_utc or _utc_now(),
-        surface_entity_id=surface_entity_id,
-        meter=meter,
-        samples=samples,
-        stimulus=stimulus,
-        meter_correction=meter_correction,
-        import_source=import_source,
-        import_app_version=import_app_version,
-        import_asset_sha256=import_asset_sha256,
-        import_parser_id=import_parser_id,
-        provenance=provenance,
-    )
     batch = _build_import_batch(
         file_name=file_name,
         format_id=format_id,

@@ -1283,10 +1283,64 @@ def verify_review_package(data: bytes) -> AuralizationReviewPackage:
                     f'comparison member {entry.member_name} does not match '
                     'its sealed output digest'
                 )
-        for capability_payload in record.capability_payloads:
-            AuralizationCapability.model_validate(capability_payload)
-        for routing_payload in record.routing_payloads:
-            AuralizationRoutingDeclaration.model_validate(routing_payload)
+        capabilities = {
+            capability.capability_id: capability
+            for capability in (
+                AuralizationCapability.model_validate(capability_payload)
+                for capability_payload in record.capability_payloads
+            )
+        }
+        if len(capabilities) != len(record.capability_payloads):
+            raise ValueError('duplicate capability_id in manifest payloads')
+        routings = {
+            routing.routing_sha256: routing
+            for routing in (
+                AuralizationRoutingDeclaration.model_validate(routing_payload)
+                for routing_payload in record.routing_payloads
+            )
+        }
+        # Entry pins must resolve to the embedded payloads — a manifest
+        # that validates shape but links comparisons to capabilities/
+        # routings it does not carry is incoherent.
+        for entry in record.comparisons:
+            capability = capabilities.get(entry.capability_id)
+            if capability is None:
+                raise ValueError(
+                    f'comparison {entry.label!r} pins a capability that '
+                    'is not embedded in the package'
+                )
+            if (
+                capability.semantic_sha256
+                != entry.capability_semantic_sha256
+            ):
+                raise ValueError(
+                    f'comparison {entry.label!r} capability digest mismatch'
+                )
+            if (
+                capability.artifact_id != entry.artifact_id
+                or capability.artifact_semantic_sha256
+                != entry.artifact_semantic_sha256
+            ):
+                raise ValueError(
+                    f'comparison {entry.label!r} artifact pins mismatch'
+                )
+            if (
+                capability.spec_id != entry.spec_id
+                or capability.spec_semantic_sha256
+                != entry.spec_semantic_sha256
+            ):
+                raise ValueError(
+                    f'comparison {entry.label!r} spec pins mismatch'
+                )
+            if capability.routing_sha256 != entry.routing_sha256:
+                raise ValueError(
+                    f'comparison {entry.label!r} routing pin mismatch'
+                )
+            if entry.routing_sha256 not in routings:
+                raise ValueError(
+                    f'comparison {entry.label!r} pins a routing declaration '
+                    'that is not embedded in the package'
+                )
     return record
 
 

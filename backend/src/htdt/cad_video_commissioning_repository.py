@@ -377,7 +377,7 @@ class CadVideoCommissioningRepository:
                 """
                 SELECT * FROM cad_video_readiness_reports
                 WHERE document_id=? AND session_id=?
-                ORDER BY created_at_utc DESC, report_id DESC
+                ORDER BY rowid DESC
                 LIMIT 1
                 """,
                 (document_id, session_id),
@@ -483,6 +483,10 @@ class CadVideoCommissioningRepository:
         proposal: VideoCommissioningProposal,
         document_id: str,
     ) -> None:
+        if self.get_diagnosis(document_id, proposal.diagnosis_id) is None:
+            raise VideoCommissioningIntegrityError(
+                'proposal must reference a persisted diagnosis'
+            )
         existing = self.get_proposal(document_id, proposal.proposal_id)
         if existing is not None:
             if existing.proposal_sha256 == proposal.proposal_sha256:

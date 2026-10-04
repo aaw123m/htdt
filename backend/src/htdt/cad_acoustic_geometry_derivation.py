@@ -232,7 +232,13 @@ def build_acoustic_geometry_derivation(
     diagnostics = compiled_geometry.closed_shell_diagnostics
     declared_portal_ids: tuple[str, ...] = ()
     declared_termination_ids: tuple[str, ...] = ()
-    if portal_authority is not None:
+    if portal_authority is None:
+        if compiled_geometry.portal_authority_ref is not None:
+            raise ValueError(
+                'compiled geometry binds a portal authority — it must '
+                'be supplied, not omitted'
+            )
+    else:
         if compiled_geometry.portal_authority_ref is None:
             raise ValueError(
                 'portal authority supplied but compiled geometry declares none'
@@ -249,7 +255,13 @@ def build_acoustic_geometry_derivation(
         declared_portal_ids = tuple(
             item.portal_id for item in portal_authority.declarations
         )
-    if boundary_termination_authority is not None:
+    if boundary_termination_authority is None:
+        if compiled_geometry.boundary_termination_authority_ref is not None:
+            raise ValueError(
+                'compiled geometry binds a boundary termination '
+                'authority — it must be supplied, not omitted'
+            )
+    else:
         if compiled_geometry.boundary_termination_authority_ref is None:
             raise ValueError(
                 'boundary termination authority supplied but compiled '
