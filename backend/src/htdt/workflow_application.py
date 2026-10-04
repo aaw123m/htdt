@@ -116,6 +116,7 @@ from .capture_retention import CaptureRetentionService
 from .capture_retention_ui import RetentionPolicyWidget
 from .automatic_backup import managed_data_fingerprint
 from .automatic_backup_runner import AutomaticBackupRunner
+from .capture_watch_runner import CaptureWatchRunner
 from .storage_watch_runner import StorageWatchRunner
 from .data_management_ui import build_data_management_component
 from .reference_library_sources import build_reference_library_index
@@ -582,6 +583,7 @@ class WorkflowApplicationComposition:
         self.capture_receiver = capture_receiver
         self._automatic_backup_runner: AutomaticBackupRunner | None = None
         self._storage_watch_runner: StorageWatchRunner | None = None
+        self._capture_watch_runner: CaptureWatchRunner | None = None
         # ApplicationPreferences are app-local truth shared with every
         # integration that reads them — one store per data root (#740).
         self.preferences = preferences or ApplicationPreferenceStore.for_data_dir(
@@ -1104,9 +1106,95 @@ class WorkflowApplicationComposition:
             f'ストレージの定期スキャンに失敗しました · {message}', 8000
         )
 
+    # -- capture drop-folder watch (REV42) --------------------------------
+
+    def start_capture_watch(self) -> None:
+        """Start the opt-in ``.htdtcapture`` drop-folder watch; Safe Mode off.
+
+        The watch path lives in ``integrations.capture_watch_dir`` and is
+        re-read every tick — the runner costs nothing while it stays
+        empty, so it can start unconditionally.
+        """
+
+        if self.safe_mode:
+            return
+        if self._capture_watch_runner is None:
+            self._capture_watch_runner = CaptureWatchRunner(
+                self.repository, self.preferences, parent=self.shell
+            )
+            self._capture_watch_runner.scan_completed.connect(
+                self._on_capture_watch_completed
+            )
+        try:
+            self._capture_watch_runner.start()
+        except Exception:
+            _LOGGER.exception('capture watch folder could not start')
+
+    def _on_capture_watch_completed(self, results: object) -> None:
+        """One scan batch of routed drops — stage notice, never promotion."""
+
+        staged = [
+            (path, result)
+            for path, result, error in results
+            if result is not None
+            and getattr(result, 'outcome', None) == 'staged_for_review'
+        ]
+        failed = [
+            path
+            for path, result, error in results
+            if result is None
+            or getattr(result, 'outcome', None) == 'failed'
+        ]
+        if not staged and not failed:
+            # e.g. only already_staged duplicates — nothing to report.
+            return
+        lines = []
+        if staged:
+            lines.append(
+                f'{len(staged)} 件のキャプチャを受信ボックスへステージしました'
+            )
+        if failed:
+            names = '、'.join(Path(p).name for p in failed[:3])
+            lines.append(f'{len(failed)} 件は取り込めませんでした（{names}）')
+        summary = ' / '.join(lines)
+        operation_id = self.activity_center.submit(
+            operation_kind='capture_watch_stage',
+            operation_class=OperationClass.DATA_MANAGEMENT,
+            title='キャプチャ監視フォルダー',
+            input_authority_refs=(
+                f'managed-data:{managed_data_fingerprint(self.data_dir)}',
+            ),
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.INBOX),
+        )
+        self.activity_center.mark_running(operation_id)
+        self.activity_center.complete(
+            operation_id,
+            result_summary=f'{summary} — 証拠には昇格していません',
+        )
+        if staged:
+            self.shell.statusBar().showMessage(
+                f'{summary} — 受信ボックスで確認', 15000
+            )
+        else:
+            self.shell.statusBar().showMessage(
+                f'キャプチャ監視フォルダー: {summary}', 15000
+            )
+        # A mounted inbox page must show the new rows immediately — the
+        # same refresh its own on_activate performs.
+        mount = self.shell.router.mount(ApplicationDestinationId.INBOX)
+        page = getattr(mount, 'widget', None) if mount is not None else None
+        refresh = getattr(page, 'refresh', None)
+        if callable(refresh):
+            refresh()
+
     def _shutdown_background_runners(self) -> None:
-        if self._storage_watch_runner is not None:
-            self._storage_watch_runner.shutdown()
+        for runner in (
+            self._storage_watch_runner,
+            self._capture_watch_runner,
+        ):
+            if runner is not None:
+                runner.shutdown()
 
     def _account_for_exit_operations(self) -> None:
         """Record operations still active at close for next-launch recovery.
@@ -1343,11 +1431,13 @@ class WorkflowApplicationComposition:
         # backups silently stop for the rest of the process lifetime.
         if self._automatic_backup_runner is not None:
             composition.start_automatic_backup()
-        # Same respawn rule for the REV42 background lane — a project
-        # switch must not silently stop the storage integrity watch for
-        # the rest of the process lifetime.
+        # Same respawn rule for the REV42 background lanes — a project
+        # switch must not silently stop the storage watch or the opt-in
+        # capture drop folder for the rest of the process lifetime.
         if self._storage_watch_runner is not None:
             composition.start_storage_watch()
+        if self._capture_watch_runner is not None:
+            composition.start_capture_watch()
         composition.shell.show()
         composition.shell.raise_()
         composition.shell.activateWindow()

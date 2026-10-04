@@ -336,6 +336,17 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             default=False,
             description='Enable the native Capture receiver (#593).',
         ),
+        PreferenceDefinition(
+            key='integrations.capture_watch_dir',
+            category=PreferenceCategory.INTEGRATIONS,
+            value_type=PreferenceValueType.PATH,
+            default='',
+            description=(
+                'Folder watched for new .htdtcapture drops; empty disables '
+                'watching. Files present when watching starts are never '
+                'staged (REV42).'
+            ),
+        ),
         # Compute — user policy only; never overrides domain-required bindings
         PreferenceDefinition(
             key='compute.preferred_backend',
