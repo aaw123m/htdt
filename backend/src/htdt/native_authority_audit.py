@@ -550,6 +550,12 @@ class _RepositoryChain:
             )
 
             return CadDesignDecisionRepository(scene)
+        if name == 'presentation':
+            from .cad_presentation_repository import (
+                CadPresentationRepository,
+            )
+
+            return CadPresentationRepository(scene)
         if name == 'briefs':
             from .cad_design_brief_repository import (
                 CadDesignBriefRepository,
@@ -2242,6 +2248,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('decision_id', 'document_id'),
         _verify_design_decision,
     ),
+    # ---- #534 presentation authority -----------------------------------
+    _ReplayProbe(
+        'presentation_session',
+        'cad_presentation_sessions',
+        ('session_id',),
+        _get('presentation', 'verify_persisted_session'),
+    ),
+    _ReplayProbe(
+        'presentation_proposal',
+        'cad_presentation_proposals',
+        ('proposal_id',),
+        _get('presentation', 'verify_persisted_proposal'),
+    ),
+    _ReplayProbe(
+        'presentation_sync_binding',
+        'cad_presentation_sync_bindings',
+        ('binding_id',),
+        _get('presentation', 'verify_persisted_binding'),
+    ),
     _ReplayProbe(
         'design_brief',
         'cad_design_briefs',
@@ -2907,6 +2932,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'bounded late-energy decay artifact authority; canonical replay '
         'path pending — strongest verification is schema + payload parse',
     ),
+    'cad_acoustic_geometry_derivations': (
+        'STRUCTURAL_ONLY',
+        'acoustic geometry derivation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_acoustic_materials': (
         'STRUCTURAL_ONLY',
         'acoustic material authority; canonical replay path pending — '
@@ -3379,6 +3409,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'cad_site_spaces': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_solver_capability_manifests': (
+        'STRUCTURAL_ONLY',
+        'solver capability manifest authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
     ),
     'cad_source_review_decisions': (
         'STRUCTURAL_ONLY',
