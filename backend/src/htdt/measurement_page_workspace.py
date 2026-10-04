@@ -2284,7 +2284,17 @@ class MeasurementPageWorkspace(QWidget):
         self.mic_sample_rate_edit.setPlaceholderText("例: 48000")
         acquisition_form.addRow("マイクサンプルレート", self.mic_sample_rate_edit)
         self.mic_cal_file_edit = QLineEdit(acquisition_card)
-        acquisition_form.addRow("校正ファイル名", self.mic_cal_file_edit)
+        cal_file_row = QHBoxLayout()
+        cal_file_row.setContentsMargins(0, 0, 0, 0)
+        cal_file_row.addWidget(self.mic_cal_file_edit, 1)
+        self.cal_file_pick_button = QPushButton("ファイルを選択…", acquisition_card)
+        self.cal_file_pick_button.setToolTip("マイク校正ファイルを選び、バイト列を証拠として添付します。ファイル名とSHA-256が自動で入力されます。")
+        self.cal_file_pick_button.setWhatsThis("マイク校正ファイルを選び、バイト列を証拠として添付します。ファイル名とSHA-256が自動で入力されます。")
+        self.cal_file_pick_button.clicked.connect(
+            self._retain_calibration_file_dialog
+        )
+        cal_file_row.addWidget(self.cal_file_pick_button)
+        acquisition_form.addRow("校正ファイル名", cal_file_row)
         self.mic_cal_sha_edit = QLineEdit(acquisition_card)
         self.mic_cal_sha_edit.setPlaceholderText("SHA-256（64桁16進数）")
         acquisition_form.addRow("校正ファイルSHA-256", self.mic_cal_sha_edit)
@@ -2675,6 +2685,48 @@ class MeasurementPageWorkspace(QWidget):
             )
             self.avr_processing_edit.setText(playback.avr_processing_mode or "")
             self.avr_peq_edit.setText(playback.avr_peq_mode or "")
+
+    def _retain_calibration_file_dialog(self) -> None:
+        """Attach a mic calibration file's bytes and bind its content hash.
+
+        The onboarding checklist tells the user to record the filename
+        *and attach the bytes*; this button is the attach affordance. The
+        bytes land in the content-addressed managed-asset store through
+        ``save_calibration_file`` and the returned SHA-256 fills the hash
+        field, so the declared digest can actually resolve through
+        ``validate_calibration_file`` (and therefore the quality
+        producer's calibration claim) instead of pointing at nothing.
+        """
+        path, _ = file_dialog_memory.get_open_file_name(
+            self,
+            "マイク校正ファイルを選択",
+            'measurement.calibration_file',
+            "校正ファイル (*.txt *.csv *.frd *.cal);;すべてのファイル (*)",
+        )
+        if not path:
+            return
+        try:
+            file_path = Path(path)
+            raw = read_file_bounded(
+                file_path,
+                MAX_ATTACHMENT_BYTES,
+                label="校正ファイル",
+            )
+            digest = self.controller.quality_repository.save_calibration_file(
+                filename=file_path.name,
+                raw_bytes=raw,
+            )
+        except Exception as exc:
+            self._operation_error_notice(
+                "校正ファイルの保存に失敗しました", exc
+            )
+            return
+        self.mic_cal_file_edit.setText(file_path.name)
+        self.mic_cal_sha_edit.setText(digest)
+        self._set_notice(
+            f"校正ファイルを添付しました · {file_path.name} — 「測定を保存」で取得条件に含めてください",
+            SemanticState.SUCCESS,
+        )
 
     @staticmethod
     def _text_or_none(edit: QLineEdit) -> str | None:

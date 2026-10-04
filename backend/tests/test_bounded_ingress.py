@@ -414,3 +414,78 @@ def test_measurement_page_dialog_uses_shared_bounded_read(tmp_path: Path, monkey
     # The dialog surfaces the mapped operator message (R6: no raw exc text);
     # IngressTooLargeError maps to the size-specific JP message.
     assert errors and '大きすぎ' in errors[0]
+
+
+def test_calibration_pick_retains_bytes_and_binds_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """REV43: the onboarding checklist tells the user to attach the
+    calibration file's bytes — the pick button is that affordance: the
+    file lands in the managed-asset store and the returned SHA-256 fills
+    the field so the declared digest can resolve via
+    ``validate_calibration_file`` (and therefore the quality producer's
+    calibration claim) instead of pointing at nothing."""
+    from hashlib import sha256
+
+    from PySide6.QtWidgets import QApplication
+
+    from htdt import file_dialog_memory
+    from htdt.measurement_page_workspace import MeasurementPageWorkspace
+    from htdt.measurement_workflow import MeasurementWorkflowController
+
+    app = QApplication.instance() or QApplication([])
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller = MeasurementWorkflowController(
+        scene_repository, revision.document_id
+    )
+    workspace = MeasurementPageWorkspace(controller)
+
+    payload = b'UMIK-1 calibration data\n'
+    cal = tmp_path / 'umik-1_90deg.txt'
+    cal.write_bytes(payload)
+    monkeypatch.setattr(
+        file_dialog_memory.QFileDialog,
+        'getOpenFileName',
+        staticmethod(lambda *args, **kwargs: (str(cal), '')),
+    )
+
+    workspace._retain_calibration_file_dialog()
+
+    digest = sha256(payload).hexdigest()
+    assert workspace.mic_cal_file_edit.text() == 'umik-1_90deg.txt'
+    assert workspace.mic_cal_sha_edit.text() == digest
+    # The retained asset proves the declared hash — before this affordance
+    # nothing in production could ever call save_calibration_file.
+    asset = controller.quality_repository.validate_calibration_file(digest)
+    assert asset.filename == 'umik-1_90deg.txt'
+    assert asset.size_bytes == len(payload)
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
+
+
+def test_calibration_pick_cancel_leaves_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PySide6.QtWidgets import QApplication
+
+    from htdt import file_dialog_memory
+    from htdt.measurement_page_workspace import MeasurementPageWorkspace
+    from htdt.measurement_workflow import MeasurementWorkflowController
+
+    app = QApplication.instance() or QApplication([])
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller = MeasurementWorkflowController(
+        scene_repository, revision.document_id
+    )
+    workspace = MeasurementPageWorkspace(controller)
+
+    monkeypatch.setattr(
+        file_dialog_memory.QFileDialog,
+        'getOpenFileName',
+        staticmethod(lambda *args, **kwargs: ('', '')),
+    )
+    workspace._retain_calibration_file_dialog()
+    assert workspace.mic_cal_file_edit.text() == ''
+    assert workspace.mic_cal_sha_edit.text() == ''
+
+    workspace.close()
+    workspace.deleteLater()
+    app.processEvents()
