@@ -32,7 +32,10 @@ from .clock import utc_now_iso
 
 CheckVerdict = Literal['pass', 'fail', 'unavailable', 'deferred']
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# backend/src/htdt/acceptance_checks.py -> parents[3] is the repository root,
+# where scripts/ lives. In an installed (non-checkout) context the scripts
+# are absent and script checks report ``unavailable`` — fail-closed.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @dataclass(frozen=True)
