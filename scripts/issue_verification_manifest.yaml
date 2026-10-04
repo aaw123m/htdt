@@ -1,0 +1,290 @@
+# Issue verification manifest — ka0923s-a11y/HTDT
+#
+# Maps each tracked open GitHub issue to the automated checks that honestly
+# evidence progress on it, plus the manual/physical evidence automation can
+# never produce. Consumed by scripts/verify_open_issues.py.
+#
+# Check kinds:
+#   pytest  - repo-relative test paths / node ids run via `python -m pytest`
+#   script  - a repo-relative argv list; {python}, {work_dir}, {report_dir}
+#             placeholders are resolved by the runner
+#   manual  - never executed; records the physical/manual evidence required
+#
+# Verdict rule (per issue, `auto_and_manual`):
+#   failing            - any automated check fails, errors, or times out
+#   manual_required    - no automated checks are declared
+#   verified           - every automated check passed AND no manual entry remains
+#   partially_verified - every automated check passed AND manual entries remain
+#
+# Rules for editing: never add a check that does not exist and run today;
+# never weaken a failing check to make a verdict green; when code lands that
+# makes an issue fully verifiable, remove its manual entries so it can reach
+# `verified`.
+
+version: 1
+repo: ka0923s-a11y/HTDT
+defaults:
+  timeout_seconds: 900
+  pytest_workers: 4
+
+issues:
+  - issue: 1
+    title: "O60R: owned-room campaign execution / hardware evidence gate"
+    notes: >
+      O60 software authority and the read-only audit gate are merged; what
+      remains is the physical owned-room measurement campaign.
+    checks:
+      - id: o60r-audit-and-campaign-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_o60r_audit.py
+          - backend/tests/test_cad_validation_campaign.py
+        description: >
+          O60R read-only audit gate (scripts/audit_o60_owned_room.py) and the
+          validation-campaign authority the campaign must pass through.
+      - id: o60r-owned-room-campaign
+        kind: manual
+        description: >
+          実室 owned-room campaign（calibration / holdout / repeatability /
+          separation）を人手で実施し、REW API campaign import evidence を取得する。
+          scripts/run-o60-owned-room-gate.ps1 が物理ゲートハーネス。
+          synthetic fixture や一般 N60 測定ではゲートを開けない。
+  - issue: 2
+    title: "Arbitrary-room acoustics: hybrid wave + geometric solver"
+    notes: >
+      Geometric-acoustics adapter, wave-execution authority, and the hybrid
+      composition layer each have dedicated regression suites; what remains
+      is physical validation against REW measurements on real rooms.
+    checks:
+      - id: solver-geometric-acoustics
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_geometric_acoustics_adapter.py
+        description: >
+          Geometric-acoustics adapter over arbitrary scene geometry
+          (ray/image-source lane).
+      - id: solver-hybrid-composition
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_hybrid_acoustic_result.py
+          - backend/tests/test_cad_hybrid_numerical_composition.py
+          - backend/tests/test_cad_hybrid_prediction_provider.py
+          - backend/tests/test_cad_hybrid_stitching_late_energy.py
+        description: >
+          Hybrid wave+geometric result composition, numerical stitching and
+          the prediction-provider seam.
+      - id: solver-wave-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_candidate_wave_execution.py
+          - backend/tests/test_cad_wave_excitation.py
+        description: >
+          Candidate wave-execution and excitation authority (FDTD/FEM lane
+          plumbing, deterministic execution records).
+      - id: solver-physical-validation
+        kind: manual
+        description: >
+          REW 実測による model validation / residual calibration を実室で実施する。
+          材料・境界条件・directivity・測定校正を authority に明示する要件の実機確認。
+  - issue: 3
+    title: "Native UI/UX overhaul: workflow-first navigation"
+    notes: >
+      UX140/UX150 software overhaul is merged; the remaining gate is UX160
+      owned-Windows visual/first-use acceptance.
+    checks:
+      - id: ux-surfaces-and-flow
+        kind: pytest
+        tests:
+          - backend/tests/test_rev24_ux_surfaces.py
+          - backend/tests/test_rev35_ux140.py
+          - backend/tests/test_dialog_ux.py
+        description: >
+          Workflow-shell UX surfaces, UX140 legacy-port mounts and dialog UX
+          regression coverage.
+      - id: ux160-owned-windows-acceptance
+        kind: manual
+        description: >
+          UX160 owned-Windows 実機受入: DPI 挙動・フォント描画・マウス操作・
+          3D 可読性・クリッピング・レイアウト安定性・初回使用時の発見性を
+          実機 Windows で確認する（RDC 最小化原則）。
+  - issue: 4
+    title: "O90 — Robust / tolerance-aware optimization"
+    notes: >
+      O90A–O90D merged; O90E owned-room robust validation remains.
+    checks:
+      - id: o90-robustness-suites
+        kind: pytest
+        tests:
+          - backend/tests/test_optimization_robustness.py
+          - backend/tests/test_optimization_robustness_validation.py
+          - backend/tests/test_cad_proposal_robustness.py
+          - backend/tests/test_cad_robust_pareto.py
+        description: >
+          RobustnessSpec / UncertaintyAxis / PerturbationSample authority,
+          sampled-worst semantics and robust Pareto comparison.
+      - id: o90e-owned-room-robust-validation
+        kind: manual
+        description: >
+          O90E owned-room robust validation: exact model/observable/
+          perturbation domain に対する eligible O60/R180 evidence が必要。
+          実室での摂動検証は自動化不可。
+  - issue: 5
+    title: "O100 — System expansion / virtual channel topology optimization"
+    notes: >
+      O100A–O100G merged; remaining gates are physical/evidence gates shared
+      with #1/#4 plus UX160.
+    checks:
+      - id: o100-variant-and-topology
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_system_variant.py
+          - backend/tests/test_cad_system_variant_measurement_campaign.py
+          - backend/tests/test_cad_authority_expansion.py
+          - backend/tests/test_cad_topology_search.py
+        description: >
+          SystemVariant authority, proposed-entity expansion, variant-scoped
+          measurement campaigns and topology search.
+      - id: o100-physical-gates
+        kind: manual
+        description: >
+          物理/証跡ゲート: UX160 実機受入 + O90E/O60/R180 の実室証跡 +
+          production recommendation の evidence eligibility。
+  - issue: 8
+    title: "End-to-End Golden Path Acceptance"
+    checks:
+      - id: golden-path-preflight
+        kind: script
+        command:
+          - "{python}"
+          - scripts/golden_path_preflight.py
+          - "--work-dir"
+          - "{work_dir}"
+          - "--trace"
+          - "{report_dir}/golden-path-trace.json"
+          - "--clean-work-dir-on-success"
+        timeout_seconds: 1200
+        description: >
+          scripts/golden_path_preflight.py — bounded software-only golden
+          path: project create → scene → equipment → search → development
+          RoomSim prediction → proposal → verification plan → synthetic
+          fixture measurement → authority audit → backup/restore lineage.
+      - id: golden-path-physical-acceptance
+        kind: manual
+        description: >
+          実機 Windows での CLI なし golden path 受入（#723 の物理ゲート）。
+          preflight は synthetic_fixture 証跡のみを主張する。
+  - issue: 34
+    title: "Critical competitive product gaps (epic)"
+    notes: >
+      Meta-epic whose line items are tracked through their own issues
+      (#533/#534 were spun out of the 2026-10-04 competitive review). No
+      single automated check can evidence the epic itself.
+    checks:
+      - id: competitive-gaps-triage
+        kind: manual
+        description: >
+          行項目ごとのクローズ判定は spawned issue 側の検証に帰属する。
+          本 epic の残項目は docs/COMPETITIVE_PRODUCT_RESEARCH_*.md と
+          各 spawned issue の verdict で棚卸しする。
+  - issue: 131
+    title: "AI-Agent Execution Backlog"
+    notes: Backlog-management matrix; entries are verified via their own work items.
+    checks:
+      - id: backlog-matrix-triage
+        kind: manual
+        description: >
+          実行バックログ行列の棚卸し: 各行の完了判定は対応する PR / issue の
+          検証結果に従う。自動チェック対象は存在しない。
+  - issue: 132
+    title: "Owned-Windows Native Acceptance Matrix"
+    notes: >
+      Most matrix rows (DPI, graphics, recovery, offline, routing,
+      installed-product) are owned-machine acceptance items; the dependency
+      lock row is automatable.
+    checks:
+      - id: matrix-dependency-lock
+        kind: pytest
+        tests:
+          - backend/tests/test_dependency_lock.py
+        description: >
+          Shipped dependency-lock integrity and packaging-surface parity —
+          the automatable slice of the installed-product matrix rows.
+      - id: matrix-physical-rows
+        kind: manual
+        description: >
+          DPI / graphics / recovery / offline / routing / installed-product
+          の各行は owned-Windows 実機での受入が必要（scripts/run-nXX-*-gate.ps1
+          系ハーネスは物理証跡用で CI 実行不可）。
+  - issue: 471
+    title: "TLS credential bounds before SSL parsing"
+    notes: Fix landed; bounded read now precedes load_cert_chain.
+    checks:
+      - id: tls-bounded-read
+        kind: pytest
+        tests:
+          - "backend/tests/test_round5_mopup.py::TestReceiverTlsBoundedRead"
+        description: >
+          TestReceiverTlsBoundedRead — oversized credential rejected before
+          SSL parsing while torn-pair regeneration stays intact.
+  - issue: 472
+    title: "Runtime-instance subprocess lock test in Windows venv"
+    checks:
+      - id: runtime-instance-lock
+        kind: pytest
+        tests:
+          - backend/tests/test_runtime_instance.py
+        description: >
+          Cross-process lock exclusion + release-after-exit; verifies the
+          child resolves declared-venv dependencies, not the global
+          interpreter's.
+  - issue: 475
+    title: "RoomPlan lineage byte counts vs manifest payloads"
+    notes: Consistency validation merged; regression tests tagged #475/#476.
+    checks:
+      - id: roomplan-lineage-byte-counts
+        kind: pytest
+        tests:
+          - backend/tests/test_capture_compat_swift_authored.py
+        description: >
+          Swift-authored fixture: supplied raw/processed byte counts must
+          match the selected manifest payload; absent counts stay valid.
+  - issue: 533
+    title: "Active low-frequency control planning (MIMO / wavefront)"
+    notes: >
+      ActiveLowFrequencyControlPlan authority (transfer-matrix plans,
+      support guardrails, vendor-opaque bindings) is implemented; full
+      wavefront-control design space per the issue scope remains open.
+    checks:
+      - id: active-lf-control-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_973_active_lf_control.py
+        description: >
+          MIMO control-plan authority: matrix entries, vendor bindings,
+          support/localization/latency guardrails.
+      - id: wavefront-design-remainder
+        kind: manual
+        description: >
+          Issue スコープの残件: WaveForming 相当の wavefront-control 設計面
+          （配列レイアウト計算・座席間予測・機器 DSP 容量の統合）と
+          ユーザー確認が必要。
+  - issue: 534
+    title: "Client presentation mode"
+    notes: >
+      Dedicated client-presentation surface is not implemented; the
+      deliverables catalog / export authorities it would build on are green.
+    checks:
+      - id: presentation-foundations
+        kind: pytest
+        tests:
+          - backend/tests/test_deliverables_catalog.py
+        description: >
+          Foundation authority the feature builds on: project deliverables
+          catalog routing to existing export/report generators. The client
+          walkthrough / shareable-360 / proposal-ready surface itself is not
+          yet implemented.
+      - id: client-presentation-surface
+        kind: manual
+        description: >
+          専用 Presentation/Review 面の実装 + 実機確認（live walkthrough /
+          shareable 360 / proposal-ready design deliverable）。
