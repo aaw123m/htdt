@@ -142,6 +142,48 @@ def test_propose_assignment_target_no_match_and_short_names() -> None:
     assert candidates == ()
 
 
+def test_propose_assignment_target_never_binds_inside_run_on() -> None:
+    """'seat1' inside 'seat10' must not auto-assign — that is a different
+    seat, and a wrong confident bind is worse than no bind."""
+    targets = (
+        _Target('e1', 'seat1'),
+        _Target('e10', 'seat10'),
+    )
+    chosen, _ = propose_assignment_target('REW seat10 sweep', targets)
+    assert chosen is targets[1]
+
+    chosen, candidates = propose_assignment_target(
+        'seat10 measurement', (_Target('e1', 'seat1'),)
+    )
+    assert chosen is None
+    assert candidates == ()
+
+    # Punctuation-adjacent hits still count as whole tokens.
+    chosen, _ = propose_assignment_target(
+        'pos seat-a', (_Target('ea', 'seat'),)
+    )
+    assert chosen is not None and chosen.entity_id == 'ea'
+
+
+def test_propose_assignment_target_unhashable_targets() -> None:
+    """Targets are matched by identity, not hashing — a slotted/unhashable
+    target object must never break auto-assign."""
+
+    class _UnhashableTarget:
+        __hash__ = None
+
+        def __init__(self, entity_id: str, name: str) -> None:
+            self.entity_id = entity_id
+            self.name = name
+
+    targets = (
+        _UnhashableTarget('e1', 'seat'),
+        _UnhashableTarget('e2', 'seat 1'),
+    )
+    chosen, _ = propose_assignment_target('REW seat 1 pos', targets)
+    assert chosen is targets[1]
+
+
 def _write_rew_text(path: Path, body: bytes) -> None:
     path.write_bytes(body)
 
@@ -150,18 +192,23 @@ def test_scan_rew_watch_dir_baseline_then_new_drop(tmp_path: Path) -> None:
     first = tmp_path / 'first.txt'
     _write_rew_text(first, b'* rew\n20 80\n')
     seen: dict[str, tuple[int, int]] = {}
-    files, skipped = scan_rew_watch_dir(tmp_path, seen)
+    pending: dict[str, tuple[int, int]] = {}
+    files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
     assert files == []  # baseline pass stages nothing
     assert skipped == []
 
     second = tmp_path / 'second.frd'
     _write_rew_text(second, b'* rew\n30 90\n')
-    files, skipped = scan_rew_watch_dir(tmp_path, seen)
+    # First sighting only registers the candidate — a file that is still
+    # being copied must never be read mid-write.
+    files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []
+    files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
     assert [name for _raw, name in files] == ['second.frd']
     assert skipped == []
 
     # Unchanged files are not re-staged.
-    files, _ = scan_rew_watch_dir(tmp_path, seen)
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
     assert files == []
 
 
@@ -169,19 +216,86 @@ def test_scan_rew_watch_dir_changed_file_re_staged(tmp_path: Path) -> None:
     f = tmp_path / 'm.txt'
     _write_rew_text(f, b'* v1\n')
     seen: dict[str, tuple[int, int]] = {}
-    scan_rew_watch_dir(tmp_path, seen)
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)
     _write_rew_text(f, b'* v2 changed\n')
-    files, _ = scan_rew_watch_dir(tmp_path, seen)
+    scan_rew_watch_dir(tmp_path, seen, pending)  # sighting — defers
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
     assert [name for _raw, name in files] == ['m.txt']
+
+
+def test_scan_rew_watch_dir_mid_write_never_staged(tmp_path: Path) -> None:
+    """A file whose signature keeps changing stays pending; it is read
+    exactly once, after it settles — never truncated mid-copy."""
+    f = tmp_path / 'copying.frd'
+    seen: dict[str, tuple[int, int]] = {}
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)  # baseline
+
+    _write_rew_text(f, b'* part1\n')
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []
+    _write_rew_text(f, b'* part1\n20 70\n')  # still growing
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []  # signature changed — deferred again
+
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert [name for _raw, name in files] == ['copying.frd']
+    # Delivered once; never re-staged while unchanged.
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []
+
+
+def test_scan_rew_watch_dir_pending_pruned_on_delete(tmp_path: Path) -> None:
+    """A candidate deleted between scans must not linger in pending — a
+    same-named later drop would otherwise inherit the stale signature."""
+    f = tmp_path / 'gone.txt'
+    seen: dict[str, tuple[int, int]] = {}
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)
+    _write_rew_text(f, b'* v1\n')
+    scan_rew_watch_dir(tmp_path, seen, pending)
+    assert str(f) in pending
+
+    f.unlink()
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []
+    assert pending == {}
+
+
+def test_scan_rew_watch_dir_unmarked_file_retries(tmp_path: Path) -> None:
+    """Dropping a file's ``seen`` marker re-queues it — how the workspace
+    retries a drop whose staging failed."""
+    f = tmp_path / 'retry.txt'
+    seen: dict[str, tuple[int, int]] = {}
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)  # baseline
+    _write_rew_text(f, b'* v1\n')
+    scan_rew_watch_dir(tmp_path, seen, pending)  # sighting
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert [name for _raw, name in files] == ['retry.txt']
+    key = str(f)
+    assert key in seen
+
+    # Stage failure → caller drops the marker → the file re-pends and is
+    # delivered again instead of being silently lost.
+    del seen[key]
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert files == []
+    assert key in pending
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
+    assert [name for _raw, name in files] == ['retry.txt']
 
 
 def test_scan_rew_watch_dir_ignores_other_suffixes(tmp_path: Path) -> None:
     (tmp_path / 'note.md').write_text('not rew', encoding='utf-8')
     (tmp_path / 'data.mdat').write_bytes(b'* binary-ish\n')
     seen: dict[str, tuple[int, int]] = {}
-    scan_rew_watch_dir(tmp_path, seen)  # baseline
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)  # baseline
     (tmp_path / 'note2.md').write_text('x', encoding='utf-8')
-    files, _ = scan_rew_watch_dir(tmp_path, seen)
+    scan_rew_watch_dir(tmp_path, seen, pending)
+    files, _ = scan_rew_watch_dir(tmp_path, seen, pending)
     assert files == []
 
 
@@ -192,10 +306,12 @@ def test_scan_rew_watch_dir_oversized_marked_seen(tmp_path: Path, monkeypatch) -
     f = tmp_path / 'big.txt'
     _write_rew_text(f, b'0123456789abcdef')
     seen: dict[str, tuple[int, int]] = {}
-    scan_rew_watch_dir(tmp_path, seen)  # baseline
+    pending: dict[str, tuple[int, int]] = {}
+    scan_rew_watch_dir(tmp_path, seen, pending)  # baseline
     _write_rew_text(f, b'0123456789abcdef2')
-    files, skipped = scan_rew_watch_dir(tmp_path, seen)
+    scan_rew_watch_dir(tmp_path, seen, pending)  # sighting — defers
+    files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
     assert files == []
     assert skipped == ['big.txt']
-    files, skipped = scan_rew_watch_dir(tmp_path, seen)
+    files, skipped = scan_rew_watch_dir(tmp_path, seen, pending)
     assert skipped == []  # wedged file does not retry forever

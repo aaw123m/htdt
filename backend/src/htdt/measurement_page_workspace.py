@@ -503,6 +503,13 @@ class MeasurementPageWorkspace(QWidget):
         self._rew_seen_uuids: set[str] = set()
         self._rew_uuids_known = False
         self._rew_watch_seen: MutableMapping[str, tuple[int, int]] = {}
+        # One-scan-old watch candidates: a dropped file is staged only once
+        # its signature survives a second scan (never mid-write).
+        self._rew_watch_pending: MutableMapping[str, tuple[int, int]] = {}
+        # Auto notices that already fired — a persistent condition (missing
+        # watch dir, no saved scene) must not re-shout over user notices
+        # every poll tick; cleared when the condition resolves.
+        self._rew_auto_notice_keys: set[str] = set()
         self._rew_install: 'RewInstall | None' = None
         self._rew_launch_deadline: float | None = None
         self._rew_auto_job_keys: set[str] = set()
@@ -1609,14 +1616,28 @@ class MeasurementPageWorkspace(QWidget):
             return
         key = uuid4().hex
         self._rew_auto_job_keys.add(key)
-        self._job_handlers[key] = (self._apply_rew_auto_result, '', None)
+        self._job_handlers[key] = (
+            self._apply_rew_auto_result, 'REW自動処理に失敗しました', None
+        )
         self._job_purpose[key] = 'rew_auto'
         self._latest_job_key['rew_auto'] = key
-        self._job_pool.start(
-            key,
-            lambda cancel_event: call(cancel_event),
-            self._job_completed,
-        )
+        try:
+            self._job_pool.start(
+                key,
+                lambda cancel_event: call(cancel_event),
+                self._job_completed,
+            )
+        except Exception:
+            # A failed start must not leak the key — a phantom auto job
+            # would undercount _user_busy_count forever and wedge
+            # navigation with a "background processing" gate that never
+            # clears.
+            self._rew_auto_job_keys.discard(key)
+            self._job_handlers.pop(key, None)
+            self._job_purpose.pop(key, None)
+            if self._latest_job_key.get('rew_auto') == key:
+                self._latest_job_key.pop('rew_auto', None)
+            raise
 
     def _rew_auto_tick(self) -> None:
         if self._disposed or getattr(self.controller, 'rew_client', None) is None:
@@ -1637,6 +1658,7 @@ class MeasurementPageWorkspace(QWidget):
         seen_uuids = self._rew_seen_uuids
         uuids_known = self._rew_uuids_known
         watch_seen = self._rew_watch_seen
+        watch_pending = self._rew_watch_pending
         controller = self.controller
 
         def work(cancel_event: Event) -> dict[str, Any]:
@@ -1652,7 +1674,9 @@ class MeasurementPageWorkspace(QWidget):
             }
             if watch_dir:
                 try:
-                    files, skipped = scan_rew_watch_dir(watch_dir, watch_seen)
+                    files, skipped = scan_rew_watch_dir(
+                        watch_dir, watch_seen, watch_pending
+                    )
                 except OSError:
                     result['watch_dir_missing'] = True
                 else:
@@ -1724,7 +1748,6 @@ class MeasurementPageWorkspace(QWidget):
                 # started are 'new' — the existing REW library must never
                 # silently flood the queue.
                 self._rew_seen_uuids.update(listed)
-            self._rew_seen_uuids.update(result.get('fetched_uuids') or ())
             self._apply_rew_list(rows, announce=False)
             self._set_rew_state('connected')
             self._rew_timer.setInterval(self._rew_auto_interval_ms)
@@ -1743,18 +1766,23 @@ class MeasurementPageWorkspace(QWidget):
         staged_labels: list[str] = []
         applied_count = 0
         unresolved_count = 0
+        needs_scene = bool(result.get('needs_scene'))
         snapshots = result.get('snapshots') or ()
         if snapshots:
             try:
                 items = self.controller.stage_rew_snapshots(snapshots)
             except Exception as exc:
+                # Fetched uuids stay unseen so the next poll retries —
+                # marking them seen here would silently drop the
+                # measurements the user was told would auto-load.
                 self._operation_error_notice(
                     "REW測定の自動読み込みに失敗しました", exc
                 )
             else:
-                applied, unresolved = self.controller.auto_assign_batch_items(
-                    item_ids=[item.item_id for item in items]
+                self._rew_seen_uuids.update(
+                    result.get('fetched_uuids') or ()
                 )
+                applied, unresolved = self._auto_assign_safely(items)
                 applied_count += applied
                 unresolved_count += unresolved
                 staged_labels.extend(
@@ -1762,43 +1790,126 @@ class MeasurementPageWorkspace(QWidget):
                 )
         watch_files = result.get('watch_files') or ()
         if watch_files:
+            watch_dir = str(
+                self._pref('integrations.rew_watch_dir', '') or ''
+            ).strip()
             try:
-                items = self.controller.stage_rew_text_files(watch_files)
-            except Exception as exc:
-                self._operation_error_notice(
-                    "監視フォルダーのREWテキスト読み込みに失敗しました", exc
-                )
+                self.controller.latest_revision()
+            except Exception:
+                # No saved scene yet — the snapshot path already reports
+                # this via needs_scene; watch files re-queue and stage
+                # once a scene exists instead of dropping silently.
+                needs_scene = True
+                self._unmark_watch_files(watch_dir, watch_files)
             else:
-                applied, unresolved = self.controller.auto_assign_batch_items(
-                    item_ids=[item.item_id for item in items]
-                )
-                applied_count += applied
-                unresolved_count += unresolved
-                staged_labels.extend(item.filename for item in items)
+                try:
+                    items = self.controller.stage_rew_text_files(watch_files)
+                except Exception as exc:
+                    self._unmark_watch_files(watch_dir, watch_files)
+                    self._operation_error_notice(
+                        "監視フォルダーのREWテキスト読み込みに失敗しました", exc
+                    )
+                else:
+                    applied, unresolved = self._auto_assign_safely(items)
+                    applied_count += applied
+                    unresolved_count += unresolved
+                    staged_labels.extend(item.filename for item in items)
+
+        watch_skipped = [
+            str(name) for name in (result.get('watch_skipped') or ())
+        ]
 
         if staged_labels:
+            self._rew_auto_notice_keys.clear()
             detail = f"新しい測定 {len(staged_labels)} 件を読み込みキューへ追加しました"
             if applied_count:
                 detail += f"（{applied_count} 件は測定点を自動割り当て）"
             if unresolved_count:
                 detail += f"・{unresolved_count} 件は「割り当て」で測定点を確認してください"
+            if watch_skipped:
+                detail += f"・{len(watch_skipped)} 件は読み込めませんでした"
             self._set_notice(detail + "。", SemanticState.SUCCESS)
             self._report_auto_ingest(
                 f"REW自動取り込み: {len(staged_labels)} 件",
                 detail,
             )
             self.refresh()
-        elif result.get('needs_scene'):
-            self._set_notice(
+        elif needs_scene:
+            self._auto_notice_once(
+                'needs_scene',
                 "新しいREW測定を検出しましたが、保存済みの部屋がありません。"
                 "部屋を保存すると次回の確認で自動で読み込みます。",
-                SemanticState.WARNING,
+            )
+        elif watch_skipped:
+            self._auto_notice_once(
+                'watch_skipped:' + ','.join(sorted(watch_skipped)),
+                f"監視フォルダーのREWテキスト {len(watch_skipped)} 件を読み込めませんでした"
+                f"（{watch_skipped[0]} など）。サイズ上限または読み取りエラーを確認してください。",
             )
         elif result.get('watch_dir_missing'):
-            self._set_notice(
+            self._auto_notice_once(
+                'watch_dir_missing',
                 "REW監視フォルダーが見つかりません。設定の「REWテキストの監視フォルダー」を確認してください。",
-                SemanticState.WARNING,
             )
+        else:
+            # A resolved or merely quiet tick clears every key except
+            # 'needs_scene' while no scene exists: a re-queued watch file
+            # alternates delivery/non-delivery ticks, and clearing on the
+            # quiet tick re-shouts the warning every other poll (REV41
+            # e2e finding). Other keys re-arm the next time their
+            # condition actually appears.
+            try:
+                self.controller.latest_revision()
+            except Exception:
+                self._rew_auto_notice_keys.intersection_update(
+                    {'needs_scene'}
+                )
+            else:
+                self._rew_auto_notice_keys.clear()
+
+    def _auto_notice_once(self, key: str, message: str) -> None:
+        """Show a persistent auto-poll warning once per condition run.
+
+        Without the key guard a missing watch dir re-writes the same
+        warning every poll tick, clobbering whatever notice the operator
+        was reading. The key clears when the condition resolves.
+        """
+        if key in self._rew_auto_notice_keys:
+            return
+        self._rew_auto_notice_keys.add(key)
+        self._set_notice(message, SemanticState.WARNING)
+
+    def _auto_assign_safely(
+        self, items: tuple
+    ) -> tuple[int, int]:
+        """Run name-match auto-assign without letting its failure abort
+        the apply — targets derive from the scene revision, so a scene
+        read error would otherwise escape to ``sys.excepthook`` every
+        poll tick while the staged rows sat unnoticed."""
+        try:
+            return self.controller.auto_assign_batch_items(
+                item_ids=[item.item_id for item in items]
+            )
+        except Exception as exc:
+            self._operation_error_notice(
+                "REW測定点の自動割り当てに失敗しました", exc
+            )
+            # Untried rows need a manual assignment check — report them as
+            # unresolved so the success detail still points at 「割り当て」.
+            return 0, len(items)
+
+    def _unmark_watch_files(
+        self, watch_dir: str, watch_files: tuple
+    ) -> None:
+        """Re-queue delivered watch files whose staging failed.
+
+        ``scan_rew_watch_dir`` marks a file seen on delivery; dropping the
+        marker re-enters it as a candidate so the next scans retry instead
+        of silently losing the drop.
+        """
+        root = Path(watch_dir)
+        for _raw, filename in watch_files:
+            self._rew_watch_seen.pop(str(root / filename), None)
 
     def _report_auto_ingest(self, title: str, summary: str) -> None:
         """Surface the automated staging in the activity center (#activity).
@@ -5593,8 +5704,14 @@ class MeasurementPageWorkspace(QWidget):
         """In-flight jobs excluding REW automation polls (REV40-REWAUTO).
 
         A background poll must never hold the operator on this page — only
-        user-initiated work gates navigation."""
-        return self._job_pool.active_count - len(self._rew_auto_job_keys)
+        user-initiated work gates navigation. Clamped at zero: a finished
+        auto job drops ``active_count`` before its key is discarded on the
+        next event pass, and a negative count would still read as 'busy'.
+        """
+        return max(
+            0,
+            self._job_pool.active_count - len(self._rew_auto_job_keys),
+        )
 
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self._user_busy_count():
