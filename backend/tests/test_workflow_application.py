@@ -782,3 +782,71 @@ def test_restore_rebind_note_shows_display_name(tmp_path: Path) -> None:
         composition.shell.close()
         composition.shell.deleteLater()
         app.processEvents()
+
+
+def test_capture_watch_completion_reports_rejected_outcomes(
+    tmp_path: Path,
+) -> None:
+    """REV43-SEAMS: every non-success outcome must surface — a rejected or
+    operator-action-needed drop used to fall through both the ``staged``
+    and the ``failed`` filters and vanished with zero user signal."""
+    app = _app()
+    composition = _composition(tmp_path)
+    results = [
+        (
+            Path('/watch/desc.htdtcapture'),
+            SimpleNamespace(outcome='invalid_or_unsupported'),
+            None,
+        ),
+        (
+            Path('/watch/needs.htdtcapture'),
+            SimpleNamespace(outcome='user_action_required'),
+            None,
+        ),
+        (
+            Path('/watch/dup.htdtcapture'),
+            SimpleNamespace(outcome='already_staged'),
+            None,
+        ),
+    ]
+    try:
+        composition._on_capture_watch_completed(results)
+        ops = [
+            op
+            for op in composition.activity_center.recent(limit=20)
+            if op.operation_kind == 'capture_watch_stage'
+        ]
+        assert len(ops) == 1
+        assert '2 件は取り込めませんでした' in (ops[0].result_summary or '')
+        # already_staged stays quiet — only genuine non-success is counted.
+        assert '3 件' not in (ops[0].result_summary or '')
+    finally:
+        composition.shell.close()
+        composition.shell.deleteLater()
+        app.processEvents()
+
+
+def test_capture_watch_completion_quiet_on_duplicates_only(
+    tmp_path: Path,
+) -> None:
+    """REV43-SEAMS: a batch of pure re-arrivals emits no activity entry."""
+    app = _app()
+    composition = _composition(tmp_path)
+    results = [
+        (
+            Path('/watch/dup.htdtcapture'),
+            SimpleNamespace(outcome='already_staged'),
+            None,
+        ),
+    ]
+    try:
+        composition._on_capture_watch_completed(results)
+        assert [
+            op
+            for op in composition.activity_center.recent(limit=20)
+            if op.operation_kind == 'capture_watch_stage'
+        ] == []
+    finally:
+        composition.shell.close()
+        composition.shell.deleteLater()
+        app.processEvents()

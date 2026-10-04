@@ -1139,11 +1139,19 @@ class WorkflowApplicationComposition:
             if result is not None
             and getattr(result, 'outcome', None) == 'staged_for_review'
         ]
+        # Every non-success outcome is a reportable failure — a routing
+        # raise (result is None), a rejected bundle ('failed',
+        # 'invalid_or_unsupported') or one needing operator help
+        # ('user_action_required'). Only 'already_staged' re-arrivals stay
+        # quiet: the drop reached the inbox earlier and only bumps its
+        # arrival counter. Anything else falling through silently would
+        # lose the drop with zero user signal (REV43-SEAMS).
         failed = [
             path
             for path, result, error in results
             if result is None
-            or getattr(result, 'outcome', None) == 'failed'
+            or getattr(result, 'outcome', None)
+            not in ('staged_for_review', 'already_staged')
         ]
         if not staged and not failed:
             # e.g. only already_staged duplicates — nothing to report.
