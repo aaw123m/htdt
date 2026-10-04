@@ -23,6 +23,9 @@ class WorkspaceId(StrEnum):
     # Issue #534: client presentation/review surface — read-only replay
     # of exact scene authority; never an engineering edit surface.
     PRESENTATION = "presentation"
+    # Issue #541: guided video commissioning journey — import → diagnose →
+    # act → verify for a display the user is calibrating.
+    VIDEO = "video"
 
 
 class ApplicationDestinationId(StrEnum):
@@ -167,6 +170,7 @@ CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
     WorkspaceId.MEASUREMENT: "測定",
     WorkspaceId.OPTIMIZATION: "最適化",
     WorkspaceId.PRESENTATION: "プレゼン",
+    WorkspaceId.VIDEO: "映像調整",
 }
 
 
@@ -178,6 +182,7 @@ CANONICAL_WORKSPACE_HINTS: dict[WorkspaceId, str] = {
     WorkspaceId.MEASUREMENT: "REW等の測定の計画・取り込み・品質確認を行います",
     WorkspaceId.OPTIMIZATION: "スピーカー配置や設定の探索候補を生成し、比較・検証します",
     WorkspaceId.PRESENTATION: "クライアント向けのプレゼン・レビュー。確定した設計権威のビューポイント再生、A/B比較、オフライン共有パッケージを扱います",
+    WorkspaceId.VIDEO: "TV/プロジェクターの色調整 — 測定の取り込み・診断・対策・再測定を手順どおりに進めます",
 }
 
 
@@ -233,6 +238,14 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("compare", "A/B比較", "2つの権威を同期カメラで並べてレビューします"),
         WorkspaceContext("decisions", "決定・提案", "レビュー中の選択・提案・コメントを権威に紐付けて記録します"),
         WorkspaceContext("export", "出力", "オフラインのレビュー／提案パッケージを生成します"),
+    ),
+    WorkspaceId.VIDEO: (
+        WorkspaceContext("session", "セッション", "対象の画面・測定条件・ターゲットを束縛し、準備状況を評価します"),
+        WorkspaceContext("import", "読み込み", "測定ファイル（HTDT JSON / HCFR CSV）を証拠セットとして取り込みます"),
+        WorkspaceContext("diagnose", "診断", "測定セットをターゲットと照合し、項目ごとの判定と説明を確認します"),
+        WorkspaceContext("actions", "対策", "診断から導かれる調整案を確認し、実施した調整を記録します"),
+        WorkspaceContext("verify", "再測定・比較", "調整前後の測定を比較し、改善・悪化を確認します"),
+        WorkspaceContext("report", "結果", "セッションの証拠チェーンと状態を確認・完了します"),
     ),
 }
 

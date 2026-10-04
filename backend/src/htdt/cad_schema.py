@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 18
+NATIVE_SCHEMA_VERSION = 19
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1216,6 +1216,15 @@ def _migrate_17_to_18(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_18_to_19(connection: sqlite3.Connection) -> None:
+    # Install the #541 guided video commissioning tables (sessions, status
+    # events, readiness reports, diagnoses, action proposals, operator
+    # adjustments, before/after comparisons, import batches): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1235,6 +1244,7 @@ _MIGRATIONS = {
     16: _migrate_15_to_16,
     17: _migrate_16_to_17,
     18: _migrate_17_to_18,
+    19: _migrate_18_to_19,
 }
 
 

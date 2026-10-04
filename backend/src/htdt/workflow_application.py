@@ -301,6 +301,10 @@ _LAZY_IMPORTS = {
         '.presentation_workspace',
         'PresentationWorkspace',
     ),
+    'VideoCommissioningWorkspace': (
+        '.video_commissioning_workspace',
+        'VideoCommissioningWorkspace',
+    ),
     'RoomGeometryInputController': (
         '.room_geometry_input',
         'RoomGeometryInputController',
@@ -670,6 +674,7 @@ class WorkflowApplicationComposition:
                 WorkspaceId.MEASUREMENT: self._make_measurement,
                 WorkspaceId.OPTIMIZATION: self._make_optimization,
                 WorkspaceId.PRESENTATION: self._make_presentation,
+                WorkspaceId.VIDEO: self._make_video,
             }
         ) + self._application_registrations()
         self.shell = WorkflowShellWindow(registrations)
@@ -3062,6 +3067,24 @@ class WorkflowApplicationComposition:
     def _make_presentation(self) -> WorkspaceMount:
         _self = sys.modules[__name__]
         page = _self.PresentationWorkspace(
+            self.repository,
+            self.document_id,
+            navigate=self._navigate_target,
+        )
+
+        def activate() -> None:
+            self._unbind_workspace_commands()
+            page.refresh()
+
+        return WorkspaceMount.from_widget(
+            page,
+            on_activate=activate,
+            on_context_changed=page.set_context,
+        )
+
+    def _make_video(self) -> WorkspaceMount:
+        _self = sys.modules[__name__]
+        page = _self.VideoCommissioningWorkspace(
             self.repository,
             self.document_id,
             navigate=self._navigate_target,

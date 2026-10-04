@@ -2151,6 +2151,38 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS htdt_acceptance_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, run_id TEXT NOT NULL, step_id TEXT NOT NULL, kind TEXT NOT NULL, filename TEXT NOT NULL, sha256 TEXT NOT NULL, relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL, recorded_at_utc TEXT NOT NULL )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_commissioning_sessions ( document_id TEXT NOT NULL, session_id TEXT NOT NULL, surface_entity_id TEXT NOT NULL, mode TEXT NOT NULL, session_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, session_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_commissioning_status_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, session_id TEXT NOT NULL, from_status TEXT NOT NULL, to_status TEXT NOT NULL, event_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_readiness_reports ( document_id TEXT NOT NULL, report_id TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL, report_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, report_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_diagnoses ( document_id TEXT NOT NULL, diagnosis_id TEXT NOT NULL, session_id TEXT NOT NULL, measurement_set_id TEXT NOT NULL, overall_status TEXT NOT NULL, diagnosis_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, diagnosis_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_action_proposals ( document_id TEXT NOT NULL, proposal_id TEXT NOT NULL, diagnosis_id TEXT NOT NULL, proposal_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, proposal_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_operator_adjustments ( document_id TEXT NOT NULL, adjustment_id TEXT NOT NULL, session_id TEXT NOT NULL, iteration_index INTEGER NOT NULL, adjustment_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, adjustment_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_before_after_comparisons ( document_id TEXT NOT NULL, comparison_id TEXT NOT NULL, session_id TEXT NOT NULL, iteration_index INTEGER NOT NULL, comparison_status TEXT NOT NULL, overall_direction TEXT NOT NULL, comparison_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, comparison_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_import_batches ( document_id TEXT NOT NULL, batch_id TEXT NOT NULL, session_id TEXT, measurement_set_id TEXT NOT NULL, format_id TEXT NOT NULL, batch_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, batch_id) )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2461,10 +2493,18 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_validation_campaigns',
     'cad_validation_cases',
     'cad_validation_corpus_entries',
+    'cad_video_action_proposals',
+    'cad_video_before_after_comparisons',
+    'cad_video_commissioning_sessions',
+    'cad_video_commissioning_status_events',
+    'cad_video_diagnoses',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
+    'cad_video_import_batches',
+    'cad_video_operator_adjustments',
     'cad_video_presentation_profiles',
     'cad_video_presentation_selections',
+    'cad_video_readiness_reports',
     'cad_visual_qa_verdicts',
     'cad_wave_excitation_evidence_authorities',
     'cad_wave_excitation_source_assets',
