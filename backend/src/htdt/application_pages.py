@@ -628,6 +628,10 @@ _INBOX_PROMOTABILITY_LABELS = {
     "blocked": "昇格不可",
     "complete": "昇格完了",
 }
+_INBOX_OUTCOME_LABELS = {
+    "promoted": "昇格成功",
+    "blocked": "ブロック",
+}
 _INBOX_CLASSIFICATION_LABELS = {
     "validation_rejected": "検証で却下",
     "exact_duplicate": "完全一致の重複",
@@ -897,6 +901,16 @@ class CaptureInboxPage(QWidget):
             f"状態: {_INBOX_DISPOSITION_LABELS.get(item.disposition, item.disposition)}"
             + (f" — {item.disposition_reason}" if item.disposition_reason else ""),
         ]
+        if inspection.promotions:
+            latest = max(
+                inspection.promotions, key=lambda record: record.promoted_at_utc
+            )
+            lines.append(
+                "直近の昇格: "
+                f"{_INBOX_AUTHORITY_KIND_LABELS.get(latest.authority_kind, latest.authority_kind)} — "
+                f"{_INBOX_OUTCOME_LABELS.get(latest.outcome, latest.outcome)}"
+                + (f"（{latest.detail}）" if latest.detail else "")
+            )
         if item.operator_notes:
             lines.append(f"メモ: {item.operator_notes}")
         self.detail.setText("\n".join(lines))
