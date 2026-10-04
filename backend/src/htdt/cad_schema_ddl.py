@@ -107,6 +107,22 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_auralization_capabilities ( capability_id TEXT PRIMARY KEY, capability_semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_listening_validations ( validation_id TEXT PRIMARY KEY, validation_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_review_packages ( package_id TEXT PRIMARY KEY, package_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, package_asset_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_routing_declarations ( routing_id TEXT PRIMARY KEY, routing_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_av_latency_measurements ( measurement_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, condition_id TEXT NOT NULL, status TEXT NOT NULL, measurement_sha256 TEXT NOT NULL, captured_at_utc TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -2158,7 +2174,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_applied_preset_states',
     'cad_applied_settings',
     'cad_auralization_artifacts',
+    'cad_auralization_capabilities',
+    'cad_auralization_listening_validations',
     'cad_auralization_render_specs',
+    'cad_auralization_review_packages',
+    'cad_auralization_routing_declarations',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_bass_management_profiles',

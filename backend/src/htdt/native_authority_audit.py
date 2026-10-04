@@ -2657,6 +2657,27 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'auralization render spec authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'cad_auralization_capabilities': (
+        'STRUCTURAL_ONLY',
+        'auralization capability authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_listening_validations': (
+        'STRUCTURAL_ONLY',
+        'measured-vs-predicted listening validation authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_auralization_review_packages': (
+        'STRUCTURAL_ONLY',
+        'auralization review package manifest authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_routing_declarations': (
+        'STRUCTURAL_ONLY',
+        'auralization routing declaration authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
     'cad_av_latency_measurements': (
         'STRUCTURAL_ONLY',
         'AV latency measurement authority; canonical replay path '
@@ -2907,6 +2928,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'bounded late-energy decay artifact authority; canonical replay '
         'path pending — strongest verification is schema + payload parse',
     ),
+    'cad_acoustic_geometry_derivations': (
+        'STRUCTURAL_ONLY',
+        'acoustic geometry derivation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_acoustic_materials': (
         'STRUCTURAL_ONLY',
         'acoustic material authority; canonical replay path pending — '
@@ -2926,6 +2952,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'cad_acoustic_solver_results': (
         'STRUCTURAL_ONLY',
         'acoustic solver result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_solver_capability_manifests': (
+        'STRUCTURAL_ONLY',
+        'solver capability manifest authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
     'cad_current_topologies': (

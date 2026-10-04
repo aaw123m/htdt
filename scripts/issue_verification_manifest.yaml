@@ -321,9 +321,10 @@ issues:
   - issue: 538
     title: "Auralization evidence & shareability: capability-bound multi-source review packages"
     notes: >
-      Auralization legs/player and blinded listening-session authority exist;
-      the capability-bound multi-source review package and measured-vs-
-      predicted listening validation remain open.
+      Capability-bound review packages, multi-source routing declarations,
+      and the measured-vs-predicted listening validation record are
+      implemented; deeper spatial/HRTF processing and physical listening
+      validation remain open.
     checks:
       - id: auralization-foundation-authority
         kind: pytest
@@ -335,11 +336,20 @@ issues:
         description: >
           Foundation authority the feature builds on: auralization render
           legs, the player surface, and blinded (ABX-style) listening-session
-          records. The capability-bound multi-source review package itself
-          is not implemented.
+          records.
+      - id: auralization-review-package-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_auralization_review.py
+        description: >
+          Capability-bound multi-source review packages (deterministic,
+          fail-closed, provenance+security manifest), typed routing
+          declarations with no silent defaults, capability records with
+          evidence-bounded confidence states, and measured-vs-predicted
+          per-band listening validation records.
       - id: capability-package-and-listening-remainder
         kind: manual
         description: >
-          Issue スコープの残件: capability-bound 複数ソース review package
-          （権限付き共有・バージョン化）の実装と、measured-vs-predicted
-          listening validation を実機試聴で実施する。
+          Issue スコープの残件: 現在の資産を超える空間/HRTF 処理の深化
+          （個別化 HRTF・ヘッドホン補正チェーン）と、実機試聴による物理的
+          listening validation。

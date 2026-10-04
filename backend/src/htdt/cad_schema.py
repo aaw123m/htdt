@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 16
+NATIVE_SCHEMA_VERSION = 17
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1201,6 +1201,14 @@ def _migrate_15_to_16(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_16_to_17(connection: sqlite3.Connection) -> None:
+    # Install the #538 auralization evidence tables (capability records,
+    # routing declarations, review packages, listening validations): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1218,6 +1226,7 @@ _MIGRATIONS = {
     14: _migrate_13_to_14,
     15: _migrate_14_to_15,
     16: _migrate_15_to_16,
+    17: _migrate_16_to_17,
 }
 
 
