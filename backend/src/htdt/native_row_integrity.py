@@ -1219,7 +1219,6 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_site_relationships',
     'cad_site_spaces',
     'cad_signal_path_selections',
-    'cad_solver_capability_manifests',
     'cad_signal_paths',
     'cad_solver_capability_manifests',
     'cad_source_responses',

@@ -3436,11 +3436,6 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
-    'cad_solver_capability_manifests': (
-        'STRUCTURAL_ONLY',
-        'solver capability manifest authority; canonical replay path '
-        'pending — strongest verification is schema + payload parse',
-    ),
     'cad_source_review_decisions': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
