@@ -955,6 +955,10 @@ class OverviewReadinessService:
     def _health_domain(self, document_id: str) -> OverviewSecondaryDomain | None:
         if self._health_source is None:
             return None
+        # The record-entry surface lives on the measurement quality
+        # context (REV44-HEALTHSYNC); the domain always offers the deeplink
+        # so an unchecked project can reach the writer directly.
+        action = _action('health.open', 'チェックを記録', MEASUREMENT_QUALITY)
         runs = tuple(self._health_source.list_document_runs(document_id))
         if not runs:
             return OverviewSecondaryDomain(
@@ -962,6 +966,7 @@ class OverviewReadinessService:
                 title='稼働状況',
                 state_label='未チェック',
                 detail='稼働状況チェックはまだ実行されていません。',
+                action=action,
             )
         latest = runs[-1]
         assessments = tuple(getattr(latest, 'assessments', ()))
@@ -980,6 +985,7 @@ class OverviewReadinessService:
                 f'最新チェック {len(assessments)}項目: 変化 {changed}件 · '
                 f'判定不能 {uncertain}件'
             ),
+            action=action,
         )
 
     def _equipment_notices(
