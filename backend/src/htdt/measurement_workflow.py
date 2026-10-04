@@ -2373,63 +2373,70 @@ class MeasurementWorkflowController:
         # as 'new' and register two byte-identical measurements.
         staged_sha, _staged_ext = self._staged_duplicate_sources()
         staged_entries: list[_BatchEntry] = []
-        for raw, filename in files:
-            pending: PendingMeasurementImport | None = None
-            error: str | None = None
-            try:
-                parsed = parse_rew_frequency_response(raw)
-            except Exception as exc:
-                error = operation_error_message(exc)
-            else:
-                pending = PendingMeasurementImport(
+        try:
+            for raw, filename in files:
+                pending: PendingMeasurementImport | None = None
+                error: str | None = None
+                try:
+                    parsed = parse_rew_frequency_response(raw)
+                except Exception as exc:
+                    error = operation_error_message(exc)
+                else:
+                    pending = PendingMeasurementImport(
+                        source_kind='rew_text',
+                        source_label=filename,
+                        scene_revision_id=revision.revision_id,
+                        scene_content_hash=revision.content_hash,
+                        frequency_hz=parsed.frequency_hz,
+                        level_db=parsed.level_db,
+                        has_phase_samples=parsed.phase_deg is not None,
+                        raw_text=raw,
+                        raw_filename=filename,
+                    )
+                kind, duplicate_of = self._classify_duplicate(
+                    pending, raw, source_maps
+                )
+                duplicate_of_item_id: str | None = None
+                if kind == 'new' and pending is not None:
+                    sibling = staged_sha.get(sha256(raw).hexdigest())
+                    if sibling is not None:
+                        kind = 'exact_duplicate'
+                        duplicate_of_item_id = sibling.item_id
+                entry = _BatchEntry(
+                    item_id=uuid4().hex,
                     source_kind='rew_text',
                     source_label=filename,
-                    scene_revision_id=revision.revision_id,
-                    scene_content_hash=revision.content_hash,
-                    frequency_hz=parsed.frequency_hz,
-                    level_db=parsed.level_db,
-                    has_phase_samples=parsed.phase_deg is not None,
-                    raw_text=raw,
-                    raw_filename=filename,
+                    raw_bytes=raw,
+                    rew_snapshot=None,
+                    pending=pending,
+                    error=error,
+                    assignment=None,
+                    duplicate_kind='new' if pending is None else kind,
+                    duplicate_of_measurement_id=duplicate_of,
+                    resolution=(
+                        'reuse_existing' if kind == 'exact_duplicate' else 'import_as_new'
+                    ),
+                    committed_measurement_id=None,
+                    committed=False,
+                    attachments=[],
+                    duplicate_of_item_id=duplicate_of_item_id,
                 )
-            kind, duplicate_of = self._classify_duplicate(
-                pending, raw, source_maps
+                self._batch[entry.item_id] = entry
+                staged_entries.append(entry)
+                if pending is not None:
+                    staged_sha.setdefault(sha256(raw).hexdigest(), entry)
+            # The duplicate-name label map is built once for all staged
+            # items — never inside the per-item view path.
+            names = self._duplicate_names_for(staged_entries)
+            return tuple(
+                self._batch_item_view(entry, names) for entry in staged_entries
             )
-            duplicate_of_item_id: str | None = None
-            if kind == 'new' and pending is not None:
-                sibling = staged_sha.get(sha256(raw).hexdigest())
-                if sibling is not None:
-                    kind = 'exact_duplicate'
-                    duplicate_of_item_id = sibling.item_id
-            entry = _BatchEntry(
-                item_id=uuid4().hex,
-                source_kind='rew_text',
-                source_label=filename,
-                raw_bytes=raw,
-                rew_snapshot=None,
-                pending=pending,
-                error=error,
-                assignment=None,
-                duplicate_kind='new' if pending is None else kind,
-                duplicate_of_measurement_id=duplicate_of,
-                resolution=(
-                    'reuse_existing' if kind == 'exact_duplicate' else 'import_as_new'
-                ),
-                committed_measurement_id=None,
-                committed=False,
-                attachments=[],
-                duplicate_of_item_id=duplicate_of_item_id,
-            )
-            self._batch[entry.item_id] = entry
-            staged_entries.append(entry)
-            if pending is not None:
-                staged_sha.setdefault(sha256(raw).hexdigest(), entry)
-        # The duplicate-name label map is built once for all staged items —
-        # never inside the per-item view path.
-        names = self._duplicate_names_for(staged_entries)
-        return tuple(
-            self._batch_item_view(entry, names) for entry in staged_entries
-        )
+        except Exception:
+            # A mid-stage failure (e.g. the duplicate-name repository read)
+            # must not leak the entries appended so far — a retry would
+            # stage the same files again and double the queue rows.
+            self._unstage_batch_entries(staged_entries)
+            raise
 
     def stage_rew_snapshots(
         self,
@@ -2440,69 +2447,76 @@ class MeasurementWorkflowController:
         source_maps = self._duplicate_source_maps()
         _staged_sha, staged_ext = self._staged_duplicate_sources()
         staged_entries: list[_BatchEntry] = []
-        for snapshot in snapshots:
-            pending: PendingMeasurementImport | None = None
-            error: str | None = None
-            try:
-                decoded = snapshot.decoded
-                title = snapshot.measurement_summary.get('title')
-                source_label = (
-                    str(title).strip()
-                    if isinstance(title, str) and title.strip()
-                    else f"REW {decoded.measurement_id}"
+        try:
+            for snapshot in snapshots:
+                pending: PendingMeasurementImport | None = None
+                error: str | None = None
+                try:
+                    decoded = snapshot.decoded
+                    title = snapshot.measurement_summary.get('title')
+                    source_label = (
+                        str(title).strip()
+                        if isinstance(title, str) and title.strip()
+                        else f"REW {decoded.measurement_id}"
+                    )
+                    pending = PendingMeasurementImport(
+                        source_kind='rew_api',
+                        source_label=source_label,
+                        scene_revision_id=revision.revision_id,
+                        scene_content_hash=revision.content_hash,
+                        frequency_hz=decoded.frequency_hz,
+                        level_db=decoded.magnitude,
+                        has_phase_samples=decoded.phase_deg is not None,
+                        rew_snapshot=snapshot,
+                    )
+                except Exception as exc:
+                    error = operation_error_message(exc)
+                kind, duplicate_of = self._classify_duplicate(
+                    pending, None, source_maps
                 )
-                pending = PendingMeasurementImport(
+                duplicate_of_item_id = None
+                if kind == 'new' and pending is not None:
+                    sibling = staged_ext.get(pending.rew_snapshot.decoded.measurement_id)
+                    if sibling is not None:
+                        kind = 'same_acquisition'
+                        duplicate_of_item_id = sibling.item_id
+                entry = _BatchEntry(
+                    item_id=uuid4().hex,
                     source_kind='rew_api',
-                    source_label=source_label,
-                    scene_revision_id=revision.revision_id,
-                    scene_content_hash=revision.content_hash,
-                    frequency_hz=decoded.frequency_hz,
-                    level_db=decoded.magnitude,
-                    has_phase_samples=decoded.phase_deg is not None,
+                    source_label=(
+                        pending.source_label if pending is not None else 'REW API'
+                    ),
+                    raw_bytes=None,
                     rew_snapshot=snapshot,
+                    pending=pending,
+                    error=error,
+                    assignment=None,
+                    duplicate_kind='new' if pending is None else kind,
+                    duplicate_of_measurement_id=duplicate_of,
+                    resolution=(
+                        'reuse_existing' if kind == 'exact_duplicate' else 'import_as_new'
+                    ),
+                    committed_measurement_id=None,
+                    committed=False,
+                    attachments=[],
+                    duplicate_of_item_id=duplicate_of_item_id,
                 )
-            except Exception as exc:
-                error = operation_error_message(exc)
-            kind, duplicate_of = self._classify_duplicate(
-                pending, None, source_maps
+                self._batch[entry.item_id] = entry
+                staged_entries.append(entry)
+                if pending is not None:
+                    staged_ext.setdefault(
+                        pending.rew_snapshot.decoded.measurement_id, entry
+                    )
+            names = self._duplicate_names_for(staged_entries)
+            return tuple(
+                self._batch_item_view(entry, names) for entry in staged_entries
             )
-            duplicate_of_item_id = None
-            if kind == 'new' and pending is not None:
-                sibling = staged_ext.get(pending.rew_snapshot.decoded.measurement_id)
-                if sibling is not None:
-                    kind = 'same_acquisition'
-                    duplicate_of_item_id = sibling.item_id
-            entry = _BatchEntry(
-                item_id=uuid4().hex,
-                source_kind='rew_api',
-                source_label=(
-                    pending.source_label if pending is not None else 'REW API'
-                ),
-                raw_bytes=None,
-                rew_snapshot=snapshot,
-                pending=pending,
-                error=error,
-                assignment=None,
-                duplicate_kind='new' if pending is None else kind,
-                duplicate_of_measurement_id=duplicate_of,
-                resolution=(
-                    'reuse_existing' if kind == 'exact_duplicate' else 'import_as_new'
-                ),
-                committed_measurement_id=None,
-                committed=False,
-                attachments=[],
-                duplicate_of_item_id=duplicate_of_item_id,
-            )
-            self._batch[entry.item_id] = entry
-            staged_entries.append(entry)
-            if pending is not None:
-                staged_ext.setdefault(
-                    pending.rew_snapshot.decoded.measurement_id, entry
-                )
-        names = self._duplicate_names_for(staged_entries)
-        return tuple(
-            self._batch_item_view(entry, names) for entry in staged_entries
-        )
+        except Exception:
+            # Same atomicity rule as stage_rew_text_files: a mid-stage
+            # failure must not leak appended entries for a retry to
+            # duplicate.
+            self._unstage_batch_entries(staged_entries)
+            raise
 
     def set_batch_resolution(self, item_id: str, resolution: BatchResolution) -> None:
         entry = self._batch.get(item_id)
@@ -3023,6 +3037,45 @@ class MeasurementWorkflowController:
             if entry.committed
         ]:
             del self._batch[item_id]
+
+    def _unstage_batch_entries(self, entries: Iterable[_BatchEntry]) -> None:
+        """Roll back entries a failed stage call already appended.
+
+        Only the entries still owned by this queue are removed — the
+        identity check never lets a rollback touch a replaced entry, and
+        a committed entry is kept since it now names persisted evidence.
+        """
+        for entry in entries:
+            if not entry.committed and self._batch.get(entry.item_id) is entry:
+                del self._batch[entry.item_id]
+
+    def uncommitted_batch_item_ids(self) -> frozenset[str]:
+        """Item ids of staged entries that have not persisted anything.
+
+        The batch queue is in-memory: an uncommitted row is unsaved work
+        the same way ``pending_import`` is, so the workspace's dirty-state
+        contract tracks them for deactivation/discard decisions.
+        """
+        return frozenset(
+            item_id
+            for item_id, entry in self._batch.items()
+            if not entry.committed
+        )
+
+    def discard_batch_items(self, item_ids: Iterable[str]) -> int:
+        """Drop uncommitted batch entries the operator chose to discard.
+
+        Committed entries are never touched — they name persisted
+        evidence and leave via ``discard_batch_committed`` only.
+        Returns the number of entries removed.
+        """
+        removed = 0
+        for item_id in tuple(item_ids):
+            entry = self._batch.get(item_id)
+            if entry is not None and not entry.committed:
+                del self._batch[item_id]
+                removed += 1
+        return removed
 
     # ------------------------------------------------------------------
     # Source attachments (#446)
