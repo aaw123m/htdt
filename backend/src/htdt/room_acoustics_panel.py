@@ -16,6 +16,7 @@ direct database edits are needed to reach the states they display.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .acoustic_benchmark import GeometricAcousticBand, SpecificImpedancePoint
 from .cad_acoustic_material import (
     GEOMETRIC_MODEL_LABELS,
@@ -50,6 +52,7 @@ from .cad_acoustic_material import (
     material_capability_label,
 )
 from .cad_acoustic_treatment import (
+    EXTERNAL_TREATMENT_SOURCE_KINDS,
     TreatmentCoverage,
     TreatmentDimensions,
     TreatmentEvidenceSubject,
@@ -81,6 +84,13 @@ _TREATMENT_TYPE_LABELS: dict[str, str] = {
     'bass_trap': 'バストラップ',
     'diffuser_scattering_element': '拡散要素',
     'hybrid': 'ハイブリッド',
+}
+
+_SOURCE_KIND_LABELS: dict[str, str] = {
+    'user_defined': 'ユーザー定義（画面入力）',
+    'manufacturer': 'メーカー資料',
+    'measurement': '測定データ',
+    'literature': '文献',
 }
 
 _BINDING_STATE_LABELS: dict[str, str] = {
@@ -322,6 +332,48 @@ class TreatmentDefinitionDialog(QDialog):
             '第1層材質の密度（kg/m³）· 0または「不明」のままなら不明として記録されます'
         )
         form.addRow('層1 密度 kg/m³', self.layer_density)
+        # REV44-STAGED: external-source declarations retain the picked source
+        # file as a managed content-addressed asset (cad_measurement_assets)
+        # so the evidence's source_sha256 resolves to real retained bytes.
+        self.source_kind = QComboBox()
+        for value, label in _SOURCE_KIND_LABELS.items():
+            self.source_kind.addItem(label, value)
+        self.source_kind.setToolTip(
+            '定義の出典 — 画面入力ならユーザー定義、メーカー資料・測定・文献'
+            'なら出典ファイルを添付してください'
+        )
+        form.addRow('出典種別', self.source_kind)
+        self.source_name = QLineEdit()
+        self.source_name.setPlaceholderText('例: メーカー資料 XYZ-50')
+        self.source_name.setToolTip('出典を識別する名前（資料名・測定名など）')
+        form.addRow('出典名', self.source_name)
+        self.source_version_edit = QLineEdit('1')
+        self.source_version_edit.setToolTip('出典資料の版番号')
+        form.addRow('出典版', self.source_version_edit)
+        self.source_reference = QLineEdit()
+        self.source_reference.setPlaceholderText('例: p.12、URL、測定メモ')
+        self.source_reference.setToolTip('出典内の参照箇所（任意）')
+        form.addRow('出典参照', self.source_reference)
+        file_row = QHBoxLayout()
+        self.source_file_button = QPushButton('出典ファイルを選択…')
+        self.source_file_button.setToolTip(
+            '出典ファイルを選ぶと、内容のハッシュでプロジェクト内に保管され、'
+            'バックアップ対象になります'
+        )
+        self.source_file_button.clicked.connect(self._pick_source_file)
+        file_row.addWidget(self.source_file_button)
+        self.source_file_label = QLabel('（未選択）')
+        self.source_file_label.setWordWrap(True)
+        file_row.addWidget(self.source_file_label, 1)
+        file_host = QWidget()
+        file_host.setLayout(file_row)
+        form.addRow('出典ファイル', file_host)
+        self._source_bytes: bytes | None = None
+        self._source_file_name: str | None = None
+        self.source_kind.currentIndexChanged.connect(
+            self._refresh_source_fields
+        )
+        self._refresh_source_fields()
         for field in (
             self.name, self.version, self.treatment_type,
             self.width_m, self.height_m, self.thickness, self.air_gap,
@@ -339,6 +391,41 @@ class TreatmentDefinitionDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _refresh_source_fields(self) -> None:
+        external = self.source_kind.currentData() in (
+            EXTERNAL_TREATMENT_SOURCE_KINDS
+        )
+        for field in (
+            self.source_name, self.source_version_edit,
+            self.source_reference, self.source_file_button,
+        ):
+            field.setEnabled(external)
+        if not external:
+            self._source_bytes = None
+            self._source_file_name = None
+            self.source_file_label.setText('（未選択）')
+
+    def _pick_source_file(self) -> None:
+        selected, _filter = file_dialog_memory.get_open_file_name(
+            self, '出典ファイルを選択', 'treatment-source'
+        )
+        if not selected:
+            return
+        path = Path(selected)
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            QMessageBox.warning(
+                self, '音響処理の定義',
+                f'出典ファイルを読み込めませんでした: {exc}',
+            )
+            return
+        self._source_bytes = data
+        self._source_file_name = path.name
+        self.source_file_label.setText(
+            f'{path.name}（{len(data)} bytes）'
+        )
+
     def accept(self) -> None:
         if not self.name.text().strip():
             QMessageBox.warning(
@@ -352,6 +439,19 @@ class TreatmentDefinitionDialog(QDialog):
             )
             self.layer_material.setFocus()
             return
+        if self.source_kind.currentData() in EXTERNAL_TREATMENT_SOURCE_KINDS:
+            if not self.source_name.text().strip():
+                QMessageBox.warning(
+                    self, '音響処理の定義', '出典名を入力してください'
+                )
+                self.source_name.setFocus()
+                return
+            if self._source_bytes is None:
+                QMessageBox.warning(
+                    self, '音響処理の定義',
+                    '外部出典の定義には出典ファイルの添付が必要です。',
+                )
+                return
         super().accept()
 
     def values(self) -> dict[str, Any]:
@@ -369,6 +469,14 @@ class TreatmentDefinitionDialog(QDialog):
                 if self.layer_density.value() <= 0.0
                 else float(self.layer_density.value())
             ),
+            'source_kind': self.source_kind.currentData(),
+            'source_name': self.source_name.text().strip(),
+            'source_version': (
+                self.source_version_edit.text().strip() or '1'
+            ),
+            'source_reference': self.source_reference.text().strip(),
+            'source_bytes': self._source_bytes,
+            'source_file_name': self._source_file_name,
         }
 
 
@@ -856,11 +964,31 @@ class RoomTreatmentPanel(QWidget):
                 bulk_density_kg_m3=values['layer_density'],
             )
             definition_id = f'treatment-{uuid4().hex[:12]}'
+            source_kind = values['source_kind']
+            if source_kind == 'user_defined':
+                source_sha256 = None
+                source_id = f'{definition_id}@ux'
+                source_version = str(values['version'])
+                reference = 'Room UX からユーザー入力'
+            else:
+                # Retain the picked source bytes as a managed asset first;
+                # the evidence then claims the exact content hash.
+                source_sha256 = repository.save_source_asset(
+                    filename=values['source_file_name'],
+                    data=values['source_bytes'],
+                )
+                source_id = values['source_name']
+                source_version = str(values['source_version'])
+                reference = (
+                    values['source_reference']
+                    or values['source_file_name']
+                )
             evidence = build_treatment_evidence_authority(
-                source_kind='user_defined',
-                source_id=f'{definition_id}@ux',
-                source_version=str(values['version']),
-                reference='Room UX からユーザー入力',
+                source_kind=source_kind,
+                source_id=source_id,
+                source_version=source_version,
+                source_sha256=source_sha256,
+                reference=reference,
                 extraction_id='room-ux-declaration',
                 extraction_version='1',
                 subject=TreatmentEvidenceSubject(
