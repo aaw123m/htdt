@@ -178,11 +178,11 @@ class AcceptancePage(QWidget):
         self.start_button.clicked.connect(self._start_run)
         picker_layout.addWidget(self.start_button)
 
-        resume_caption = QLabel('実行中の受入', picker)
+        resume_caption = QLabel('受入の実行', picker)
         set_typography_role(resume_caption, TypographyRole.SECTION_TITLE)
         picker_layout.addWidget(resume_caption)
         self.run_list = QListWidget(picker)
-        self.run_list.setAccessibleName('実行中の受入一覧')
+        self.run_list.setAccessibleName('受入実行一覧')
         self.run_list.itemSelectionChanged.connect(self._resume_selected)
         picker_layout.addWidget(self.run_list, 1)
         splitter.addWidget(picker)
@@ -305,14 +305,32 @@ class AcceptancePage(QWidget):
     # run lifecycle
 
     def _refresh_run_list(self) -> None:
-        self.run_list.clear()
-        for run in self.repository.in_progress_runs():
-            gate = get_gate(run.gate_id)
-            item = QListWidgetItem(
-                f'{gate.title_ja} — {run.started_at_utc[:10]}'
-            )
-            item.setData(Qt.ItemDataRole.UserRole, run.run_id)
-            self.run_list.addItem(item)
+        # Repopulating fires itemSelectionChanged; block it so a commit can
+        # never swap the displayed run out from under the user, and restore
+        # the current run's row afterwards. Finished runs stay listed —
+        # labeled with their status — so a verifier can reopen and
+        # re-export them (replayability).
+        current_id = self._run.run_id if self._run is not None else None
+        self.run_list.blockSignals(True)
+        try:
+            self.run_list.clear()
+            selected_row = -1
+            for row, run in enumerate(self.repository.list_runs()):
+                gate = get_gate(run.gate_id)
+                label = f'{gate.title_ja} — {run.started_at_utc[:10]}'
+                if run.status != 'in_progress':
+                    label += (
+                        f'（{_RUN_STATUS_LABELS[run.status]}）'
+                    )
+                item = QListWidgetItem(label)
+                item.setData(Qt.ItemDataRole.UserRole, run.run_id)
+                self.run_list.addItem(item)
+                if run.run_id == current_id:
+                    selected_row = row
+            if selected_row >= 0:
+                self.run_list.setCurrentRow(selected_row)
+        finally:
+            self.run_list.blockSignals(False)
 
     def _start_run(self) -> None:
         row = self.gate_list.currentRow()
@@ -517,14 +535,25 @@ class AcceptancePage(QWidget):
         self.capture_button.setEnabled(False)
         self.step_result.setText('チェック実行中…')
         ctx = self._ctx(record)
-        self._worker = _AutoCheckWorker(record.auto_check, ctx, self)
-        self._worker.finished_result.connect(
+        worker = _AutoCheckWorker(record.auto_check, ctx, self)
+        self._worker = worker
+        worker.finished_result.connect(
             lambda result, cid=record.step_id, capture=capture_only: (
                 self._on_check_result(cid, result, capture)
             )
         )
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._worker.start()
+        # Clear the reference on finished BEFORE deleteLater drops the C++
+        # object — otherwise the next launch reads isRunning() on a dead
+        # pointer (RuntimeError) and only one check works per session.
+        # Guard by identity so a relaunched worker is never cleared by a
+        # stale finished signal.
+        worker.finished.connect(lambda w=worker: self._clear_worker(w))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _clear_worker(self, worker) -> None:
+        if self._worker is worker:
+            self._worker = None
 
     def _on_check_result(self, step_id, result, capture_only) -> None:
         self.check_button.setEnabled(True)

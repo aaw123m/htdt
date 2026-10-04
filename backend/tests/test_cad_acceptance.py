@@ -388,3 +388,38 @@ def test_check_exception_fails_closed(ctx: CheckContext, monkeypatch):
     result = run_auto_check('env_snapshot', ctx)
     assert result.verdict == 'unavailable'
     assert 'kaboom' in result.detail_ja
+
+
+def test_repo_scripts_resolve_from_repo_root():
+    """Regression: _REPO_ROOT must point at the repository root so the
+    gate-manifest script checks can find their scripts — parents[2]
+    resolves to backend/ and every subprocess check was 'unavailable'."""
+    from htdt.acceptance_checks import _REPO_ROOT
+
+    for script in (
+        'golden_path_preflight.py',
+        'check_dependency_lock.py',
+        'audit_o60_owned_room.py',
+    ):
+        assert (_REPO_ROOT / 'scripts' / script).is_file(), script
+
+
+def test_finished_runs_stay_listed(repo: AcceptanceRunRepository, ctx: CheckContext):
+    """A finished run must remain listed (replayable + re-exportable);
+    in_progress_runs() still filters to resumable runs only."""
+    gate = get_gate('golden-path')
+    run = build_acceptance_run(gate, run_id='ac-finished', environment={})
+    run = repo.save(run)
+    repo.commit(
+        run,
+        [
+            s.model_copy(
+                update={'status': 'passed', 'verdict_source': 'attestation'}
+            )
+            for s in run.steps
+        ],
+    )
+    assert repo.list_runs()[0].status == 'passed'
+    assert repo.in_progress_runs() == []
+    # The run list the page shows uses list_runs() — finished runs included.
+    assert [r.run_id for r in repo.list_runs()] == ['ac-finished']
