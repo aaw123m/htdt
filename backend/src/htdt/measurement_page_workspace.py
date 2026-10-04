@@ -953,6 +953,7 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_comparison_choices(views)
         self._refresh_onboarding()
         self._refresh_journey(batch_items, views)
+        self._refresh_record_surfaces()
 
     def _refresh_journey(
         self,
@@ -4085,6 +4086,32 @@ class MeasurementPageWorkspace(QWidget):
         retake_row.addWidget(self.retake_button)
         retake_layout.addLayout(retake_row)
         layout.addWidget(retake_card)
+
+        # REV44-HEALTHSYNC: the record-entry surfaces for the two previously
+        # write-only authorities — AV-sync conditions (this context is where
+        # AV_SYNC_CONDITION deep links already route) and health baselines /
+        # check plans / runs (the 概要 稼働状況 domain deeplinks here).
+        record_row = QHBoxLayout()
+
+        av_sync_card, av_sync_layout = _card("AV同期", host)
+        self.av_sync_summary = QLabel("条件なし", av_sync_card)
+        self.av_sync_summary.setWordWrap(True)
+        av_sync_layout.addWidget(self.av_sync_summary)
+        self.av_sync_button = QPushButton("AV同期を記録…", av_sync_card)
+        self.av_sync_button.clicked.connect(self._open_av_sync_dialog)
+        av_sync_layout.addWidget(self.av_sync_button)
+        record_row.addWidget(av_sync_card, 1)
+
+        health_card, health_layout = _card("健全性チェック", host)
+        self.health_summary = QLabel("ベースラインなし", health_card)
+        self.health_summary.setWordWrap(True)
+        health_layout.addWidget(self.health_summary)
+        self.health_button = QPushButton("健全性チェックを記録…", health_card)
+        self.health_button.clicked.connect(self._open_health_dialog)
+        health_layout.addWidget(self.health_button)
+        record_row.addWidget(health_card, 1)
+
+        layout.addLayout(record_row)
         layout.addStretch(1)
         self.pages.addWidget(page)
 
@@ -4693,6 +4720,78 @@ class MeasurementPageWorkspace(QWidget):
             None,
         )
         self.set_context("import")
+
+    # ------------------------------------------------------------------
+    # REV44-HEALTHSYNC: AV-sync + system-health record entry
+    #
+    # Both authority families persist through their own repositories; the
+    # dialogs own the writes and this page only reflects persisted counts.
+
+    def _open_av_sync_dialog(self) -> None:
+        from .measurement_record_surfaces import AVSyncRecordDialog
+
+        dialog = AVSyncRecordDialog(
+            scene_repository=self.controller.scene_repository,
+            document_id=self.controller.document_id,
+            parent=self,
+        )
+        dialog.exec()
+        self._refresh_record_surfaces()
+
+    def _open_health_dialog(self) -> None:
+        from .measurement_record_surfaces import HealthCheckDialog
+
+        dialog = HealthCheckDialog(
+            scene_repository=self.controller.scene_repository,
+            document_id=self.controller.document_id,
+            parent=self,
+        )
+        dialog.exec()
+        self._refresh_record_surfaces()
+
+    def _refresh_record_surfaces(self) -> None:
+        """Summarize persisted AV-sync + health state on the quality cards."""
+        from .cad_av_sync_repository import CadAVSyncRepository
+        from .cad_system_health_repository import CadSystemHealthRepository
+
+        try:
+            av_sync = CadAVSyncRepository(self.controller.scene_repository)
+            conditions = av_sync.list_conditions(self.controller.document_id)
+            stages = sum(
+                len(av_sync.list_measurements(condition.condition_id))
+                for condition in conditions
+            )
+            if conditions:
+                self.av_sync_summary.setText(
+                    f"条件 {len(conditions)}件 · 測定 {stages}件"
+                )
+            else:
+                self.av_sync_summary.setText("条件なし")
+        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+            self.av_sync_summary.setText("確認できません")
+        try:
+            health = CadSystemHealthRepository(self.controller.scene_repository)
+            baselines = health.list_baselines(self.controller.document_id)
+            runs = health.list_document_runs(self.controller.document_id)
+            if runs:
+                latest = runs[-1]
+                changed = sum(
+                    1
+                    for item in latest.assessments
+                    if item.state == 'changed'
+                )
+                state = "変化あり" if changed else "ベースライン内"
+                self.health_summary.setText(
+                    f"ベースライン {len(baselines)}件 · 最新: {state}"
+                )
+            elif baselines:
+                self.health_summary.setText(
+                    f"ベースライン {len(baselines)}件 · チェック未実行"
+                )
+            else:
+                self.health_summary.setText("ベースラインなし")
+        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+            self.health_summary.setText("確認できません")
 
     # ------------------------------------------------------------------
     # Comparison page
