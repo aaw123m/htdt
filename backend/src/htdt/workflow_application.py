@@ -8,16 +8,20 @@ from pathlib import Path
 import sys
 from threading import Event
 from typing import Literal
+from uuid import uuid4
 import weakref
 
 from PySide6.QtCore import QByteArray, QObject, QPointF, Qt, QTimer, Slot
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMenu,
@@ -1256,6 +1260,10 @@ class WorkflowApplicationComposition:
         menu.addAction(
             "プロジェクトを複製…(&D)", self._duplicate_project
         )
+        menu.addAction(
+            "現在のプロジェクトをテンプレートとして保存…(&T)",
+            self._save_project_as_template,
+        )
         menu.addSeparator()
         menu.addAction(
             "プロジェクトをエクスポート…(&E)", self._export_project_bundle
@@ -1651,6 +1659,127 @@ class WorkflowApplicationComposition:
             )
             return
         self._switch_to_project(entry)
+
+    def _save_project_as_template(self) -> None:
+        """Persist the current project's speaker layout as a user template.
+
+        The persisted head revision is the authority — unsaved edits go
+        through the same snapshot decision as duplicate/export, then the
+        template pins that exact revision's content hash so a saved
+        template can never silently mix generations.
+        """
+        if not self._require_bound_project():
+            return
+        decision = self._project_snapshot_decision('テンプレート保存')
+        if decision is None:
+            return
+        revision = self.repository.latest(self.document_id)
+        if revision is None:
+            QMessageBox.warning(
+                self.shell,
+                "テンプレートを保存できません",
+                "保存済みの部屋データがありません。先に部屋を保存してください。",
+            )
+            return
+        document = revision.document
+        if not any(entity.kind == 'speaker' for entity in document.entities):
+            QMessageBox.warning(
+                self.shell,
+                "テンプレートを保存できません",
+                "テンプレートに含められるスピーカーがありません。",
+            )
+            return
+
+        dialog = QDialog(self.shell)
+        dialog.setWindowTitle("テンプレートとして保存")
+        layout = QVBoxLayout(dialog)
+        form = QFormLayout()
+        name_edit = QLineEdit(dialog)
+        version_edit = QLineEdit('1', dialog)
+        reference_combo = QComboBox(dialog)
+        reference_combo.addItem(
+            "（基準点なし — 役割と名前のみ保存）", None
+        )
+        for entity in document.entities:
+            if entity.kind == 'seat':
+                reference_combo.addItem(
+                    f"座席を基準: {entity.name or entity.entity_id}",
+                    ('seat_listener', entity.entity_id),
+                )
+            elif entity.kind == 'measurement_point':
+                reference_combo.addItem(
+                    f"計測点を基準: {entity.name or entity.entity_id}",
+                    ('measurement_point', entity.entity_id),
+                )
+        form.addRow("テンプレート名:", name_edit)
+        form.addRow("バージョン:", version_edit)
+        form.addRow("レイアウト基準点:", reference_combo)
+        layout.addLayout(form)
+        hint = QLabel(
+            "スピーカーの役割・名前・相対位置だけが保存されます。"
+            "測定結果・機器割当・校正データはテンプレートに含まれません。"
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        title = "テンプレートを保存できません"
+        while True:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+            name = name_edit.text().strip()
+            version = version_edit.text().strip() or '1'
+            if name:
+                break
+            QMessageBox.warning(
+                self.shell, title, "テンプレート名を入力してください"
+            )
+
+        reference_choice = reference_combo.currentData()
+        try:
+            from .cad_project_template import (
+                build_template_layout_reference,
+                save_document_as_template,
+            )
+            from .cad_project_template_repository import (
+                CadProjectTemplateRepository,
+                ProjectTemplateConflictError,
+            )
+
+            layout_reference = None
+            if reference_choice is not None:
+                layout_reference = build_template_layout_reference(
+                    document,
+                    scene_revision_id=revision.revision_id,
+                    source_kind=reference_choice[0],
+                    source_entity_id=reference_choice[1],
+                )
+            template = save_document_as_template(
+                document,
+                template_id=f'user-{uuid4().hex[:12]}',
+                version=version,
+                name=name,
+                layout_reference=layout_reference,
+            )
+            CadProjectTemplateRepository(self.repository).save_template(
+                template
+            )
+        except (ProjectTemplateConflictError, ValueError) as exc:
+            QMessageBox.warning(self.shell, title, str(exc))
+            return
+        QMessageBox.information(
+            self.shell,
+            "テンプレートを保存しました",
+            f"テンプレート「{name}」を保存しました。\n"
+            "新規プロジェクトウィザードの開始方法から利用できます。",
+        )
 
     def _export_project_bundle(self) -> None:
         """#488: export the open project as a .htdtproject bundle.
