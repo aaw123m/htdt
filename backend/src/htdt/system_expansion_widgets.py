@@ -527,7 +527,7 @@ class SystemExpansionRoomPanel(QFrame):
         author = QFrame()
         set_surface_role(author, SurfaceRole.BASE)
         author_layout = QVBoxLayout(author)
-        author_layout.setContentsMargins(0, 6, 0, 8)
+        author_layout.setContentsMargins(12, 6, 12, 8)
         author_layout.setSpacing(8)
         author_title = QLabel("トポロジー提案ビルダー")
         set_typography_role(author_title, TypographyRole.SECTION_TITLE)

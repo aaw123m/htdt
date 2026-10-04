@@ -1300,7 +1300,7 @@ class RoomPredictionPanel(QWidget):
         self._interpretation: PredictionInterpretation | None = None
         self._options: dict[str, RoomPredictionModelOption] = {}
         self.setMinimumWidth(300)
-        self.setMaximumWidth(390)
+        self.setMaximumWidth(560)
         set_surface_role(self, SurfaceRole.RAISED)
 
         layout = QVBoxLayout(self)

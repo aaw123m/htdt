@@ -1018,3 +1018,33 @@ def test_room_workspace_save_reports_conflict_instead_of_raising(tmp_path) -> No
     # The unsaved edit is still there — a failed save must not drop it.
     assert controller.is_dirty
     workspace.deleteLater()
+
+
+def test_right_panel_is_user_resizable_via_splitter(tmp_path) -> None:
+    _app()
+    repository = _f1_repository(tmp_path)
+    workspace = RoomWorkspace(
+        repository,
+        F1_DOCUMENT_ID,
+        viewport_factory=lambda parent: FakeRoomViewport(parent),
+    )
+    workspace.resize(1600, 900)
+    workspace.show()
+
+    splitter = workspace._content_splitter
+    sizes = splitter.sizes()
+    assert len(sizes) == 2 and sizes[0] > 0 and sizes[1] > 0
+    assert sizes[1] == 300
+
+    # User drags the splitter wider: the flag latches and the width follows.
+    splitter.moveSplitter(sum(sizes) - 450, 1)
+    QApplication.instance().processEvents()
+    assert workspace._right_panel_user_sized
+    assert splitter.sizes()[1] == 450
+
+    # A later window resize keeps the user's width instead of re-applying
+    # the responsive default.
+    workspace.resize(1200, 700)
+    QApplication.instance().processEvents()
+    assert splitter.sizes()[1] == 450
+    workspace.deleteLater()

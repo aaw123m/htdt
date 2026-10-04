@@ -1237,7 +1237,7 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         side_scroll = _scroll_page(side_body)
         side_scroll.setMinimumWidth(300)
-        side_scroll.setMaximumWidth(460)
+        side_scroll.setMaximumWidth(640)
         side_scroll.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         splitter.addWidget(side_scroll)
         splitter.setStretchFactor(0, 5)
