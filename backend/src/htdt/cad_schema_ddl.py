@@ -23,6 +23,26 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_geometry_derivations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, derivation_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, scene_revision_id TEXT NOT NULL, semantic_geometry_id TEXT NOT NULL, r120_compiled_geometry_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id), FOREIGN KEY(r120_compiled_geometry_id) REFERENCES cad_r120_compiled_geometry(compiled_geometry_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_solver_capability_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, adapter_descriptor_id TEXT NOT NULL, adapter_id TEXT NOT NULL, acoustic_domain TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(adapter_descriptor_id) REFERENCES cad_acoustic_solver_adapters(descriptor_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geometry_derivation_compiled ON cad_acoustic_geometry_derivations( r120_compiled_geometry_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geometry_derivation_scene ON cad_acoustic_geometry_derivations( scene_revision_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_solver_capability_manifest_descriptor ON cad_solver_capability_manifests( adapter_descriptor_id, seq ASC )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations ( calibration_id TEXT PRIMARY KEY, calibration_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
     """
     ,
@@ -2098,6 +2118,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'assumption_decisions',
     'authoring_constraint_revisions',
     'authoring_constraint_sets',
+    'cad_acoustic_geometry_derivations',
     'cad_acoustic_level_calibrations',
     'cad_acoustic_materials',
     'cad_acoustic_prediction_requests',
@@ -2324,6 +2345,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_seat_priority_profiles',
     'cad_site_relationships',
     'cad_site_spaces',
+    'cad_solver_capability_manifests',
     'cad_source_response_selections',
     'cad_source_responses',
     'cad_source_review_decisions',
