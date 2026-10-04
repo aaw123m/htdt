@@ -16,6 +16,10 @@ dist-native/
 dist-installer/
 .tmp/
 
+# Issue verification reports (scripts/verify_open_issues.py default report dir)
+artifacts/
+out/
+
 # Editors / OS
 .vscode/
 .idea/
