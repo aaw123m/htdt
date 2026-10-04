@@ -9,9 +9,11 @@
   #define SourceDir "..\\dist-native\\HTDT"
 #endif
 
+#define AppName "Home Theater Digital Twin"
+
 [Setup]
 AppId={{8EA4B43A-7CD0-4F1F-83D8-38B37035E7D2}
-AppName=Home Theater Digital Twin
+AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=HTDT
 DefaultDirName={localappdata}\\Programs\\Home Theater Digital Twin
