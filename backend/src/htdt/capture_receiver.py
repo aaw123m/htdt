@@ -104,12 +104,12 @@ RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
 DELIVERABLE_KINDS = ('capture_bundle',)
 
 # Authority families an end-to-end promotion path can actually execute
-# today: the inbox ``promote`` surface exists but no production executor
-# wires the semantic promotion services in, so nothing is promotable
-# yet. ``PROMOTION_AUTHORITY_KINDS`` stays the staging-level inventory
-# (what the inbox classifies); this is the honest "stages but cannot
-# promote" answer capabilities must give instead of green-lighting.
-EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = ()
+# today: ``annotations`` materialize into real SceneEntity objects through
+# CaptureEntityPromotionService (the Capture Inbox promote executor). The
+# remaining kinds stay staging-only until their production executors land.
+# ``PROMOTION_AUTHORITY_KINDS`` stays the staging-level inventory (what the
+# inbox classifies); this is the executable subset capabilities advertises.
+EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = ('annotations',)
 
 # How many bytes a single upload may declare/be — same ingest ceiling the
 # file-import path enforces, applied to the wire.

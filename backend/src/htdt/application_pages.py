@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from .build_info import version_string
 from .cad_repository import SceneRepository
+from .capture_inbox import capture_inbox_item_project_id
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -690,6 +691,7 @@ class CaptureInboxPage(QWidget):
         defer_item: Callable[[str, str], object] | None = None,
         reject_item: Callable[[str, str], object] | None = None,
         resume_item: Callable[[str], object] | None = None,
+        promote_item: Callable[[str, str], object] | None = None,
         list_projects: Callable[[], tuple] | None = None,
         assign_scope: Callable[[str, str], object] | None = None,
         parent: QWidget | None = None,
@@ -701,8 +703,10 @@ class CaptureInboxPage(QWidget):
         self._defer_item = defer_item
         self._reject_item = reject_item
         self._resume_item = resume_item
+        self._promote_item = promote_item
         self._list_projects = list_projects
         self._assign_scope = assign_scope
+        self._last_inspection = None
         layout = _page_layout(
             self,
             "取り込み",
@@ -761,6 +765,11 @@ class CaptureInboxPage(QWidget):
         self.resume_button.setWhatsThis("延期・却下した項目を再度「保留」に戻して検討対象にします")
         self.resume_button.clicked.connect(lambda: self._dispose("resume"))
         actions.addWidget(self.resume_button)
+        self.promote_button = QPushButton("昇格…")
+        self.promote_button.setToolTip("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
+        self.promote_button.setWhatsThis("取り込み可能な権威レコード（注釈エンティティ）をプロジェクトのシーンに反映します")
+        self.promote_button.clicked.connect(self._promote)
+        actions.addWidget(self.promote_button)
         self.scope_combo = QComboBox()
         self.scope_combo.setToolTip("選択項目を取り込む先のプロジェクトを選びます")
         self.scope_combo.setWhatsThis("選択項目を取り込む先のプロジェクトを選びます")
@@ -821,7 +830,7 @@ class CaptureInboxPage(QWidget):
             self._sync_actions(None)
             return
         self._populate_detail(inspection)
-        self._sync_actions(inspection.item.disposition)
+        self._sync_actions(inspection)
 
     def _populate_detail(self, inspection) -> None:
         item = inspection.item
@@ -911,7 +920,13 @@ class CaptureInboxPage(QWidget):
                 current_index = self.scope_combo.count() - 1
         self.scope_combo.setCurrentIndex(current_index)
 
-    def _sync_actions(self, disposition: str | None) -> None:
+    def _sync_actions(self, inspection) -> None:
+        disposition = (
+            getattr(inspection.item, "disposition", None)
+            if inspection is not None
+            else None
+        )
+        self._last_inspection = inspection
         self.defer_button.setEnabled(
             self._defer_item is not None and disposition == "pending"
         )
@@ -923,10 +938,43 @@ class CaptureInboxPage(QWidget):
             self._resume_item is not None
             and disposition in ("deferred", "rejected")
         )
+        self.promote_button.setEnabled(
+            self._promote_item is not None
+            and self._promotable(inspection)
+        )
         self.scope_button.setEnabled(
             self._assign_scope is not None
             and disposition in ("pending", "deferred")
         )
+
+    @staticmethod
+    def _promotable(inspection) -> bool:
+        """True when the item can execute a promotion right now."""
+
+        if inspection is None:
+            return False
+        item = inspection.item
+        if item.disposition not in ("pending", "partially_promoted"):
+            return False
+        if not capture_inbox_item_project_id(item):
+            return False
+        return "annotations" in inspection.available_authority_kinds
+
+    def _promote(self) -> None:
+        digest = self._selected_digest()
+        if digest is None or self._promote_item is None:
+            return
+        reason, ok = QInputDialog.getText(
+            self, "昇格", "昇格の理由を入力してください。"
+        )
+        if not ok or not reason.strip():
+            return
+        try:
+            self._promote_item(digest, reason.strip())
+        except Exception as exc:
+            warn_user(self, "昇格できませんでした", exc)
+            return
+        self._refresh_keep_selection()
 
     def _dispose(self, action: str) -> None:
         digest = self._selected_digest()
