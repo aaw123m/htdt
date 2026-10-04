@@ -288,3 +288,28 @@ issues:
         description: >
           専用 Presentation/Review 面の実装 + 実機確認（live walkthrough /
           shareable 360 / proposal-ready design deliverable）。
+  - issue: 538
+    title: "Auralization evidence & shareability: capability-bound multi-source review packages"
+    notes: >
+      Auralization legs/player and blinded listening-session authority exist;
+      the capability-bound multi-source review package and measured-vs-
+      predicted listening validation remain open.
+    checks:
+      - id: auralization-foundation-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_auralization.py
+          - backend/tests/test_cad_auralization_leg.py
+          - backend/tests/test_cad_auralization_player.py
+          - backend/tests/test_cad_listening_session.py
+        description: >
+          Foundation authority the feature builds on: auralization render
+          legs, the player surface, and blinded (ABX-style) listening-session
+          records. The capability-bound multi-source review package itself
+          is not implemented.
+      - id: capability-package-and-listening-remainder
+        kind: manual
+        description: >
+          Issue スコープの残件: capability-bound 複数ソース review package
+          （権限付き共有・バージョン化）の実装と、measured-vs-predicted
+          listening validation を実機試聴で実施する。
