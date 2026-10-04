@@ -171,6 +171,12 @@ _VARIANT_PURPOSE_LABELS = {
 }
 _USER_ROLE = int(Qt.ItemDataRole.UserRole)
 
+# Background automation retries are transient-failure paths, not permanent
+# ones: a REW fetch or watch-file stage that fails this many times in a row
+# is treated as wedged — skipped with one report instead of re-running on
+# every poll tick.
+_REW_AUTO_MAX_ATTEMPTS = 3
+
 
 def _evidence_label(value: str) -> str:
     return {
@@ -506,6 +512,15 @@ class MeasurementPageWorkspace(QWidget):
         # One-scan-old watch candidates: a dropped file is staged only once
         # its signature survives a second scan (never mid-write).
         self._rew_watch_pending: MutableMapping[str, tuple[int, int]] = {}
+        # Per-measurement fetch / per-file stage failure counts — a
+        # deterministically failing fetch or file stops retrying after
+        # ``_REW_AUTO_MAX_ATTEMPTS`` instead of re-running every poll tick.
+        self._rew_fetch_failures: dict[str, int] = {}
+        self._rew_watch_failures: dict[str, int] = {}
+        # Uncommitted batch item ids the operator acknowledged via
+        # keep_draft (REV42): released rows no longer block deactivation,
+        # while a newly staged row re-arms the gate.
+        self._batch_released_ids: set[str] = set()
         # Auto notices that already fired — a persistent condition (missing
         # watch dir, no saved scene) must not re-shout over user notices
         # every poll tick; cleared when the condition resolves.
@@ -1172,6 +1187,32 @@ class MeasurementPageWorkspace(QWidget):
         self.controller.discard_batch_committed()
         self.refresh()
 
+    def _discard_selected_batch_items(self) -> None:
+        """Drop the selected uncommitted queue rows (REV42).
+
+        The queue is also fed by the REW automation — a parse-failed or
+        unwanted row could previously never be removed (it fails commit
+        forever and only ``discard_batch_committed`` existed). Every
+        cell carries the row's item id in ``UserRole``.
+        """
+        item_ids = {
+            item.data(Qt.ItemDataRole.UserRole)
+            for item in self.batch_table.selectedItems()
+            if item.data(Qt.ItemDataRole.UserRole)
+        }
+        if not item_ids:
+            self._set_notice(
+                "削除する行を一覧で選択してください。",
+                SemanticState.WARNING,
+            )
+            return
+        removed = self.controller.discard_batch_items(item_ids)
+        self._set_notice(
+            f"読み込みキューの項目を {removed} 件取り除きました。",
+            SemanticState.SUCCESS,
+        )
+        self.refresh()
+
     def _batch_resolution_changed(self, item_id: str, value: int) -> None:
         combo = self.batch_table.cellWidget(
             self._batch_table_row(item_id), 5
@@ -1382,6 +1423,11 @@ class MeasurementPageWorkspace(QWidget):
         self.batch_attach_button.setWhatsThis("一覧で選択中の行に、左の種別の添付ファイル（写真・メモなど）を追加します。")
         self.batch_attach_button.clicked.connect(self._attach_to_selected_batch_item)
         batch_buttons.addWidget(self.batch_attach_button)
+        self.batch_discard_button = QPushButton("選択項目を削除", batch_card)
+        self.batch_discard_button.setToolTip("一覧で選択中の未保存の行を読み込みキューから取り除きます（保存済みの行は取り除けません）。")
+        self.batch_discard_button.setWhatsThis("一覧で選択中の未保存の行を読み込みキューから取り除きます（保存済みの行は取り除けません）。")
+        self.batch_discard_button.clicked.connect(self._discard_selected_batch_items)
+        batch_buttons.addWidget(self.batch_discard_button)
         self.batch_clear_button = QPushButton("保存済みをクリア", batch_card)
         self.batch_clear_button.setToolTip("すでに保存済みとして確定した行を一覧から取り除きます（保存したデータ自体は削除されません）。")
         self.batch_clear_button.setWhatsThis("すでに保存済みとして確定した行を一覧から取り除きます（保存したデータ自体は削除されません）。")
@@ -1659,6 +1705,7 @@ class MeasurementPageWorkspace(QWidget):
         uuids_known = self._rew_uuids_known
         watch_seen = self._rew_watch_seen
         watch_pending = self._rew_watch_pending
+        fetch_failures = self._rew_fetch_failures
         controller = self.controller
 
         def work(cancel_event: Event) -> dict[str, Any]:
@@ -1709,6 +1756,7 @@ class MeasurementPageWorkspace(QWidget):
                     else:
                         snapshots = []
                         fetched: list[str] = []
+                        fetch_failed: list[str] = []
                         for measurement_uuid in new_uuids:
                             if cancel_event.is_set():
                                 break
@@ -1720,11 +1768,24 @@ class MeasurementPageWorkspace(QWidget):
                                     )
                                 )
                                 fetched.append(measurement_uuid)
+                                fetch_failures.pop(measurement_uuid, None)
                             except Exception:
-                                # Leave unseen so the next tick retries.
+                                # Transient failures retry next tick, but a
+                                # fetch that keeps failing (undecodable or
+                                # removed mid-poll) must not re-request every
+                                # tick forever — mark it seen like a wedged
+                                # watch file and report it once.
+                                attempts = (
+                                    fetch_failures.get(measurement_uuid, 0) + 1
+                                )
+                                fetch_failures[measurement_uuid] = attempts
+                                if attempts >= _REW_AUTO_MAX_ATTEMPTS:
+                                    seen_uuids.add(measurement_uuid)
+                                    fetch_failed.append(measurement_uuid)
                                 continue
                         result['snapshots'] = tuple(snapshots)
                         result['fetched_uuids'] = tuple(fetched)
+                        result['fetch_failed_uuids'] = tuple(fetch_failed)
             return result
 
         self._start_rew_auto_job(work)
@@ -1748,6 +1809,14 @@ class MeasurementPageWorkspace(QWidget):
                 # started are 'new' — the existing REW library must never
                 # silently flood the queue.
                 self._rew_seen_uuids.update(listed)
+            # Failure counts for uuids no longer listed are dead weight —
+            # the map stays bounded by the current library.
+            for stale_uuid in [
+                uuid
+                for uuid in self._rew_fetch_failures
+                if uuid not in listed
+            ]:
+                del self._rew_fetch_failures[stale_uuid]
             self._apply_rew_list(rows, announce=False)
             self._set_rew_state('connected')
             self._rew_timer.setInterval(self._rew_auto_interval_ms)
@@ -1768,16 +1837,29 @@ class MeasurementPageWorkspace(QWidget):
         unresolved_count = 0
         needs_scene = bool(result.get('needs_scene'))
         snapshots = result.get('snapshots') or ()
+        fetch_failed = [
+            str(measurement_uuid)
+            for measurement_uuid in (result.get('fetch_failed_uuids') or ())
+        ]
+        # A stage failure this tick is not a 'quiet' tick: its dedupe key
+        # must survive past the notice branches below or the next failing
+        # tick would re-shout the same warning.
+        stage_failed_this_tick = False
         if snapshots:
             try:
                 items = self.controller.stage_rew_snapshots(snapshots)
             except Exception as exc:
                 # Fetched uuids stay unseen so the next poll retries —
                 # marking them seen here would silently drop the
-                # measurements the user was told would auto-load.
-                self._operation_error_notice(
-                    "REW測定の自動読み込みに失敗しました", exc
-                )
+                # measurements the user was told would auto-load. The
+                # notice dedupes: a persistent failure must not clobber
+                # the operator's notice area every poll tick.
+                stage_failed_this_tick = True
+                if 'stage_failed' not in self._rew_auto_notice_keys:
+                    self._rew_auto_notice_keys.add('stage_failed')
+                    self._operation_error_notice(
+                        "REW測定の自動読み込みに失敗しました", exc
+                    )
             else:
                 self._rew_seen_uuids.update(
                     result.get('fetched_uuids') or ()
@@ -1805,11 +1887,27 @@ class MeasurementPageWorkspace(QWidget):
                 try:
                     items = self.controller.stage_rew_text_files(watch_files)
                 except Exception as exc:
-                    self._unmark_watch_files(watch_dir, watch_files)
-                    self._operation_error_notice(
-                        "監視フォルダーのREWテキスト読み込みに失敗しました", exc
-                    )
+                    stage_failed_this_tick = True
+                    wedged = self._fail_watch_files(watch_dir, watch_files)
+                    if wedged:
+                        self._auto_notice_once(
+                            'watch_wedged:' + ','.join(sorted(wedged)),
+                            f"監視フォルダーのREWテキスト {len(wedged)} 件は"
+                            f"繰り返し読み込みに失敗したためスキップします"
+                            f"（{wedged[0]} など）。ファイルを修正すると"
+                            "再度読み込みます。",
+                        )
+                    elif 'watch_stage_failed' not in self._rew_auto_notice_keys:
+                        self._rew_auto_notice_keys.add('watch_stage_failed')
+                        self._operation_error_notice(
+                            "監視フォルダーのREWテキスト読み込みに失敗しました",
+                            exc,
+                        )
                 else:
+                    for _raw, filename in watch_files:
+                        self._rew_watch_failures.pop(
+                            str(Path(watch_dir) / filename), None
+                        )
                     applied, unresolved = self._auto_assign_safely(items)
                     applied_count += applied
                     unresolved_count += unresolved
@@ -1828,12 +1926,25 @@ class MeasurementPageWorkspace(QWidget):
                 detail += f"・{unresolved_count} 件は「割り当て」で測定点を確認してください"
             if watch_skipped:
                 detail += f"・{len(watch_skipped)} 件は読み込めませんでした"
+            if fetch_failed:
+                detail += (
+                    f"・{len(fetch_failed)} 件は繰り返し取得に失敗したため"
+                    "スキップしました"
+                )
             self._set_notice(detail + "。", SemanticState.SUCCESS)
             self._report_auto_ingest(
                 f"REW自動取り込み: {len(staged_labels)} 件",
                 detail,
             )
             self.refresh()
+        elif fetch_failed:
+            labels = self._rew_row_labels(rows, fetch_failed)
+            self._auto_notice_once(
+                'fetch_failed:' + ','.join(sorted(fetch_failed)),
+                f"REW測定 {len(fetch_failed)} 件を繰り返し取得できませんでした"
+                f"（{labels[0]} など）ためスキップします。REW側の測定データを"
+                "確認してください。",
+            )
         elif needs_scene:
             self._auto_notice_once(
                 'needs_scene',
@@ -1851,6 +1962,10 @@ class MeasurementPageWorkspace(QWidget):
                 'watch_dir_missing',
                 "REW監視フォルダーが見つかりません。設定の「REWテキストの監視フォルダー」を確認してください。",
             )
+        elif stage_failed_this_tick:
+            # A failure notice already fired (or deduped) this tick — its
+            # key must survive so the next failing tick stays deduped.
+            pass
         else:
             # A resolved or merely quiet tick clears every key except
             # 'needs_scene' while no scene exists: a re-queued watch file
@@ -1901,15 +2016,60 @@ class MeasurementPageWorkspace(QWidget):
     def _unmark_watch_files(
         self, watch_dir: str, watch_files: tuple
     ) -> None:
-        """Re-queue delivered watch files whose staging failed.
+        """Re-queue delivered watch files whose staging had to wait.
 
         ``scan_rew_watch_dir`` marks a file seen on delivery; dropping the
         marker re-enters it as a candidate so the next scans retry instead
-        of silently losing the drop.
+        of silently losing the drop. Used when staging is temporarily
+        impossible (no saved scene yet) — a stage *failure* goes through
+        ``_fail_watch_files`` so a deterministically bad file stops
+        retrying after ``_REW_AUTO_MAX_ATTEMPTS``.
         """
         root = Path(watch_dir)
         for _raw, filename in watch_files:
             self._rew_watch_seen.pop(str(root / filename), None)
+
+    def _fail_watch_files(
+        self, watch_dir: str, watch_files: tuple
+    ) -> list[str]:
+        """Re-queue watch files whose staging failed, with a retry cap.
+
+        Each failed stage re-enters the file unless it has already failed
+        ``_REW_AUTO_MAX_ATTEMPTS`` times; a wedged file keeps its seen
+        marker so it stops cycling through scan→stage→fail every other
+        poll, and a later rewrite still re-delivers it (the signature
+        change reads as new). Returns the names that hit the cap.
+        """
+        root = Path(watch_dir)
+        wedged: list[str] = []
+        for _raw, filename in watch_files:
+            key = str(root / filename)
+            attempts = self._rew_watch_failures.get(key, 0) + 1
+            self._rew_watch_failures[key] = attempts
+            if attempts >= _REW_AUTO_MAX_ATTEMPTS:
+                wedged.append(filename)
+            else:
+                self._rew_watch_seen.pop(key, None)
+        return wedged
+
+    def _rew_row_labels(
+        self, rows: object, uuids: list[str]
+    ) -> list[str]:
+        """Display names for measurement uuids from the last listed rows."""
+        titles: dict[str, str] = {}
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                uuid = row.get('uuid')
+                title = row.get('title')
+                if isinstance(uuid, str) and uuid:
+                    titles[uuid] = (
+                        str(title).strip()
+                        if isinstance(title, str) and title.strip()
+                        else uuid
+                    )
+        return [titles.get(uuid, uuid) for uuid in uuids]
 
     def _report_auto_ingest(self, title: str, summary: str) -> None:
         """Surface the automated staging in the activity center (#activity).
@@ -5713,12 +5873,27 @@ class MeasurementPageWorkspace(QWidget):
             self._job_pool.active_count - len(self._rew_auto_job_keys),
         )
 
+    def _pending_batch_ids(self) -> set[str]:
+        """Uncommitted batch rows the operator has not acknowledged.
+
+        The batch queue is in-memory and (REV40+) also fed by the REW
+        automation, so uncommitted rows are unsaved work exactly like a
+        staged pending import — deactivation must not silently drop them.
+        keep_draft releases the ids current at acknowledgement; a newly
+        staged row re-arms the gate.
+        """
+        return set(
+            self.controller.uncommitted_batch_item_ids()
+        ) - self._batch_released_ids
+
     def before_deactivate(self) -> tuple[bool, str | None]:
         if self._user_busy_count():
             return False, "バックグラウンド処理が完了してから画面を切り替えてください"
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
             return False, "取り込み途中の測定データを確定または破棄してから画面を切り替えてください"
+        if self._pending_batch_ids():
+            return False, "読み込みキューの項目を保存または破棄してから画面を切り替えてください"
         return True, None
 
     def dirty_state(self) -> WorkspaceDirtyState:
@@ -5728,21 +5903,29 @@ class MeasurementPageWorkspace(QWidget):
         pending = self.controller.pending_import
         if pending is not None and self._pending_token(pending) != self._pending_release:
             return 'pending_import'
+        if self._pending_batch_ids():
+            return 'pending_import'
         return 'clean'
 
     def resolve_dirty_state(
         self, action: DirtyResolutionAction
     ) -> tuple[bool, str | None]:
         pending = self.controller.pending_import
+        batch_ids = set(self.controller.uncommitted_batch_item_ids())
         if action == 'keep_draft':
-            if pending is None:
+            if pending is None and not batch_ids:
                 return False, '取り込み途中のデータがありません'
-            # Acknowledge this exact staged import; a new stage re-blocks.
-            self._pending_release = self._pending_token(pending)
+            # Acknowledge the exact staged import and every current queue
+            # row; a re-staged import or a newly staged row re-blocks.
+            if pending is not None:
+                self._pending_release = self._pending_token(pending)
+            self._batch_released_ids |= batch_ids
             return True, '取り込み途中のデータを残しました'
         if action == 'discard_pending':
             self.controller.clear_pending()
             self._pending_release = None
+            self.controller.discard_batch_items(batch_ids)
+            self._batch_released_ids -= batch_ids
             self.refresh()
             return True, '取り込み途中のデータを破棄しました'
         if action == 'stop_busy':
