@@ -1456,3 +1456,144 @@ def test_r130_candidate_rejects_air_state_from_unrelated_authority(
             dispatch_binding_id=dispatch.binding_id,
             configuration=configuration,
         )
+
+
+def test_transition_edges_hand_off_pure_contributors_and_mid_blends() -> None:
+    """REV47-ISS2: dedicated wave<->geometric continuity test.
+
+    Wave and GA carry *different* complex signals so the crossover is
+    observable end-to-end: at the band edges the output must equal each
+    pure contributor, and inside the band it must equal the declared
+    weighted sum — continuity by construction, not by signal identity."""
+    wave = (1.0 + 1.0j, 2.0 - 0.5j, 3.0 + 0.25j)
+    ga = (-4.0 + 0.5j, 8.0 + 1.0j, -2.0 - 3.0j)
+    frequencies = (40.0, 60.0, 80.0)
+    bundle = _bundle(
+        physical_transfer_plus=wave,
+        responses=(
+            _r150_response(frequencies=frequencies, values=ga),
+        ),
+    )
+    output = _compose(bundle)
+
+    assert output.capability_state == 'COMPLEX_SUPPORTED'
+    by_frequency = {
+        sample.frequency_hz: sample for sample in output.samples
+    }
+    for frequency, w, g in zip(frequencies, wave, ga):
+        sample = by_frequency[frequency]
+        hybrid = complex(
+            sample.complex_real_pa_per_m3_s,
+            sample.complex_imag_pa_per_m3_s,
+        )
+        assert sample.low_weight + sample.high_weight == pytest.approx(1.0)
+        assert hybrid == pytest.approx(
+            sample.low_weight * w + sample.high_weight * g
+        )
+        assert complex(
+            sample.wave_complex_real_pa_per_m3_s,
+            sample.wave_complex_imag_pa_per_m3_s,
+        ) == pytest.approx(w)
+        assert complex(
+            sample.ga_complex_real_pa_per_m3_s,
+            sample.ga_complex_imag_pa_per_m3_s,
+        ) == pytest.approx(g)
+
+    # Band edges are pure contributors — zero residual of the wrong domain.
+    lower = by_frequency[40.0]
+    upper = by_frequency[80.0]
+    assert lower.low_weight == 1.0
+    assert lower.high_weight == 0.0
+    assert upper.low_weight == 0.0
+    assert upper.high_weight == 1.0
+    assert complex(
+        lower.complex_real_pa_per_m3_s,
+        lower.complex_imag_pa_per_m3_s,
+    ) == pytest.approx(wave[0])
+    assert complex(
+        upper.complex_real_pa_per_m3_s,
+        upper.complex_imag_pa_per_m3_s,
+    ) == pytest.approx(ga[2])
+
+
+def test_transition_energy_is_bounded_by_contributors() -> None:
+    """REV47-ISS2: dedicated energy-accounting test.
+
+    Inside the crossover the hybrid magnitude is a convex blend:
+    |low*W + high*G| <= low*|W| + high*|G| <= max(|W|,|G|). No energy
+    can be fabricated or double-counted by the transition itself."""
+    wave = (4.0 + 0.0j, 0.0 + 6.0j, 2.0 - 1.0j)
+    ga = (1.0 + 0.0j, 0.0 - 2.0j, 9.0 + 0.5j)
+    frequencies = (40.0, 60.0, 80.0)
+    bundle = _bundle(
+        physical_transfer_plus=wave,
+        responses=(
+            _r150_response(frequencies=frequencies, values=ga),
+        ),
+    )
+    output = _compose(bundle)
+
+    midpoint_energy_ceiling = 0.0
+    for sample, w, g in zip(output.samples, wave, ga):
+        hybrid = complex(
+            sample.complex_real_pa_per_m3_s,
+            sample.complex_imag_pa_per_m3_s,
+        )
+        blend_bound = sample.low_weight * abs(w) + sample.high_weight * abs(g)
+        assert abs(hybrid) <= blend_bound + 1.0e-9
+        assert abs(hybrid) <= max(abs(w), abs(g)) + 1.0e-9
+        midpoint_energy_ceiling = max(midpoint_energy_ceiling, blend_bound)
+
+    # The interior sample's energy ceiling is strictly below the sum of
+    # raw contributors — the transition cannot double-count.
+    mid = output.samples[1]
+    mid_bound = mid.low_weight * abs(wave[1]) + mid.high_weight * abs(ga[1])
+    assert mid_bound < abs(wave[1]) + abs(ga[1])
+
+
+def test_transition_authority_is_stored_with_algorithm_and_band() -> None:
+    """REV47-ISS2: the artifact carries the exact transition algorithm,
+    band and spec identity — an auditable record, not a convention."""
+    bundle = _bundle(
+        physical_transfer_plus=(1.0 + 0.0j, 2.0 + 0.0j, 3.0 + 0.0j),
+    )
+    output = _compose(bundle)
+
+    assert output.transition_start_hz == 40.0
+    assert output.transition_end_hz == 80.0
+    assert output.weight_law == 'linear_frequency_complementary_v1'
+    crossover = output.crossover_configuration
+    assert crossover.overlap_lower_hz == 40.0
+    assert crossover.overlap_upper_hz == 80.0
+    assert crossover.blend_law == 'linear_frequency_complementary_v1'
+    # Per-sample weight attribution is inspectable, not implied.
+    weights = [
+        (sample.low_weight, sample.high_weight)
+        for sample in output.samples
+    ]
+    assert weights == [(1.0, 0.0), (0.5, 0.5), (0.0, 1.0)]
+
+
+def test_transition_does_not_double_count_differing_signal() -> None:
+    """REV47-ISS2: at the blend midpoint the output must be the weighted
+    mean of the two domains — never the unweighted sum that would
+    double-count energy."""
+    wave = (0.0 + 2.0j,) * 3
+    ga = (0.0 + 6.0j,) * 3
+    bundle = _bundle(
+        physical_transfer_plus=wave,
+        responses=(
+            _r150_response(frequencies=(40.0, 60.0, 80.0), values=ga),
+        ),
+    )
+    output = _compose(bundle)
+
+    midpoint = output.samples[1]
+    hybrid = complex(
+        midpoint.complex_real_pa_per_m3_s,
+        midpoint.complex_imag_pa_per_m3_s,
+    )
+    assert hybrid == pytest.approx(
+        midpoint.low_weight * wave[1] + midpoint.high_weight * ga[1]
+    )
+    assert abs(hybrid) < abs(wave[1] + ga[1])

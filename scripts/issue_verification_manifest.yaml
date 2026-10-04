@@ -81,6 +81,30 @@ issues:
         description: >
           Candidate wave-execution and excitation authority (FDTD/FEM lane
           plumbing, deterministic execution records).
+      - id: solver-geometry-derivation-provenance
+        kind: pytest
+        tests:
+          - backend/tests/test_acoustic_geometry_derivation.py
+        description: >
+          Persisted ArchitecturalGeometry -> AcousticGeometryDerivation ->
+          SolverGeometry chain record with fail-closed derivation category
+          declarations (REV47-ISS2).
+      - id: solver-capability-manifest
+        kind: pytest
+        tests:
+          - backend/tests/test_solver_capability_manifest.py
+        description: >
+          Declared per-solver-path phenomenon capability manifest with valid
+          frequency bands and typed UNSUPPORTED states (REV47-ISS2).
+      - id: solver-acceptance-fixture-contracts
+        kind: pytest
+        tests:
+          - backend/tests/test_rev47_iss2_acceptance.py
+          - backend/tests/test_acoustic_benchmark.py
+        description: >
+          r100a-5 occlusion/edge and scattering-redistribution fixture
+          contracts plus dedicated wave<->geometric transition
+          continuity/energy assertions (REV47-ISS2).
       - id: solver-physical-validation
         kind: manual
         description: >
