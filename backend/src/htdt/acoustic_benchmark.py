@@ -691,7 +691,7 @@ class AcousticBenchmarkManifest(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    schema_version: Literal['r100a-2', 'r100a-3', 'r100a-4'] = 'r100a-4'
+    schema_version: Literal['r100a-2', 'r100a-3', 'r100a-4', 'r100a-5'] = 'r100a-5'
     manifest_id: str = Field(min_length=1)
     revision: int = Field(ge=1)
     purpose: str = Field(min_length=1)
@@ -700,7 +700,9 @@ class AcousticBenchmarkManifest(BaseModel):
 
     @model_validator(mode='after')
     def unique_fixture_and_gate_ids(self) -> 'AcousticBenchmarkManifest':
-        expected_revision = {'r100a-2': 2, 'r100a-3': 3, 'r100a-4': 4}[self.schema_version]
+        expected_revision = {'r100a-2': 2, 'r100a-3': 3, 'r100a-4': 4, 'r100a-5': 5}[
+            self.schema_version
+        ]
         if self.revision != expected_revision:
             raise ValueError(
                 f'{self.schema_version} requires revision {expected_revision}, got {self.revision}'
@@ -777,7 +779,7 @@ class AcousticBenchmarkManifest(BaseModel):
                         'R100A-4 complex pressure-transfer observable semantics'
                     )
 
-        if self.schema_version in {'r100a-3', 'r100a-4'}:
+        if self.schema_version in {'r100a-3', 'r100a-4', 'r100a-5'}:
             for fixture in self.fixtures:
                 radiation_terminations = [
                     item for item in fixture.terminations if item.kind == 'radiation'
@@ -808,7 +810,7 @@ class AcousticBenchmarkManifest(BaseModel):
                             'boundary/model/sign/normal authority'
                         )
 
-        if self.schema_version == 'r100a-4':
+        if self.schema_version in {'r100a-4', 'r100a-5'}:
             finite_record_fixture_ids = {
                 fixture.fixture_id
                 for fixture in self.fixtures

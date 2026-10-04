@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 15
+NATIVE_SCHEMA_VERSION = 16
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1193,6 +1193,14 @@ def _migrate_14_to_15(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_15_to_16(connection: sqlite3.Connection) -> None:
+    # Install the acoustic geometry-derivation provenance record and the
+    # per-solver-path capability manifest tables: new append-only authorities
+    # the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1209,6 +1217,7 @@ _MIGRATIONS = {
     13: _migrate_12_to_13,
     14: _migrate_13_to_14,
     15: _migrate_14_to_15,
+    16: _migrate_15_to_16,
 }
 
 
