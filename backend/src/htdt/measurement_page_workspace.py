@@ -5620,7 +5620,10 @@ class MeasurementPageWorkspace(QWidget):
 
         def _count(kind: str, probe) -> str:
             try:
-                return f"{len(probe())} 件"
+                value = probe()
+                # probes may return a formatted composite label
+                # (e.g. profiles + assets) or a plain collection
+                return value if isinstance(value, str) else f"{len(value)} 件"
             except Exception:
                 failures.append(kind)
                 return "読み込み失敗"

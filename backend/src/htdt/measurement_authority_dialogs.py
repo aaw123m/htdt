@@ -1102,6 +1102,11 @@ class RoutingProfileDialog(_RecordDialog):
         verification_combo = _combo_with(
             _ROUTING_VERIFICATION_LABELS, self.entries_table
         )
+        # Asserting verified wiring is an explicit operator decision —
+        # new rows always start unverified, never pre-claimed.
+        verification_combo.setCurrentIndex(
+            verification_combo.findData('unverified')
+        )
         self.entries_table.setCellWidget(
             row, self._COL_VERIFICATION, verification_combo
         )

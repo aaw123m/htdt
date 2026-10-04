@@ -712,6 +712,64 @@ def test_registration_cancel_persists_nothing(
         _close(workspace)
 
 
+def test_authority_inventory_labels_render_counts(
+    qapp, tmp_path: Path
+) -> None:
+    """The 計測の権威データ card shows real counts — including the
+    composite stimulus label (profiles + excitation assets) — not the
+    character length of a formatted string."""
+    from htdt.measurement_authority_dialogs import StimulusProfileDialog
+
+    scene_repository, revision = _saved_f1(tmp_path)
+    controller, _measurement_repository, quality_repository = _controller(
+        scene_repository, revision.document_id
+    )
+    workspace = _workspace(controller)
+    try:
+        assert workspace.authority_level_calibration_count.text() == "0 件"
+        assert workspace.authority_timing_reference_count.text() == "0 件"
+        assert workspace.authority_routing_profile_count.text() == "0 件"
+        assert (
+            workspace.authority_stimulus_profile_count.text()
+            == "0 件（励振 0）"
+        )
+
+        stim = tmp_path / 'sweep.wav'
+        _write_wav(stim)
+        payload = stim.read_bytes()
+        from htdt.cad_measurement_stimulus import (
+            build_excitation_asset,
+            build_stimulus_profile,
+        )
+
+        asset = build_excitation_asset(
+            document_id=controller.document_id,
+            filename='sweep.wav',
+            sha256=sha256(payload).hexdigest(),
+            byte_length=len(payload),
+            format='wav',
+            duration_s=0.00016666666666666666,
+            sample_rate_hz=48000.0,
+            channel_count=1,
+        )
+        quality_repository.save_excitation_asset(asset, payload)
+        profile = build_stimulus_profile(
+            stimulus_kind='log_sweep',
+            intent='measurement',
+            document_id=controller.document_id,
+            excitation_asset=asset,
+        )
+        quality_repository.save_stimulus_profile(profile)
+
+        workspace._refresh_authority_inventory()
+        assert (
+            workspace.authority_stimulus_profile_count.text()
+            == "1 件（励振 1）"
+        )
+    finally:
+        _close(workspace)
+
+
 def test_workspace_level_reference_row_states(
     qapp, tmp_path: Path
 ) -> None:
