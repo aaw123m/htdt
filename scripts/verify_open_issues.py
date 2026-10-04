@@ -7,8 +7,10 @@ mapped automated check in a bounded subprocess, and writes a machine-readable
 ``issue_verification_report.json`` plus a Markdown report into ``--report-dir``.
 
 The tool is deliberately read-only against GitHub unless ``--post-summary``
-is passed: it never edits issues, and the optional per-issue comment posts a
-single status line only.
+is passed: it never edits issues. The optional per-issue status comment is
+*upserted* — one marked comment per issue, edited in place each run, so the
+latest verdict is always visible without digging through artifacts and
+watchers are never spammed.
 
 Verdicts (per issue):
   verified            - all automated checks passed and no manual evidence remains
@@ -16,19 +18,31 @@ Verdicts (per issue):
   manual_required     - no automated checks are declared for the issue
   failing             - at least one automated check failed / errored / timed out
   unmapped            - issue is open but absent from the manifest
-  not_open            - manifest entry refers to an issue that is not open
+  not_open            - manifest entry refers to an issue that is not open,
+                        or --issues asked for an issue that is not open
+
+Flakiness is surfaced, not hidden: ``--rerun-failed`` retries failed/errored
+checks and the report records every attempt plus a ``flaky`` flag, so a
+fail-then-pass suite is visible as flaky instead of silently trusted.
+
+``--use-cache`` optionally reuses verdicts keyed by (check config, HEAD sha,
+python environment); it is off by default and refuses a dirty worktree —
+a cache that lies is worse than no cache.
 
 Exit status: 0 on a successful run (verdicts may still include failures —
-they are data, not runner errors); non-zero only when the tool itself cannot
-complete (malformed manifest, API failure without --offline, bad arguments).
+they are data, not runner errors); 2 when the tool itself cannot complete
+(malformed manifest, API failure without --offline, bad arguments, failed
+comment posts); 3 when --fail-on-verdict matches a produced verdict.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
+import re
 import subprocess
 import sys
 import tempfile
@@ -53,7 +67,16 @@ VERDICTS = (
 MAX_TIMEOUT_SECONDS = 3600
 DEFAULT_REPO = 'ka0923s-a11y/HTDT'
 DEFAULT_MANIFEST = Path('scripts') / 'issue_verification_manifest.yaml'
+DEFAULT_CACHE_PATH = Path('artifacts') / 'issue-verification' / 'cache.json'
 TOKEN_ENV_VARS = ('GITHUB_TOKEN', 'GITHUB_KA0923S_PAT', 'GH_TOKEN')
+# Check ids land in filesystem paths (logs/<id>.log, iv-<id>-* work dirs), so
+# the manifest schema restricts them to a filename-safe charset.
+CHECK_ID_RE = re.compile(r'[A-Za-z0-9._-]+')
+# Hidden marker inside the single status comment the runner upserts on each
+# issue; keeps --post-summary from spamming a new comment per run.
+COMMENT_MARKER = '<!-- verify-open-issues -->'
+CACHE_SCHEMA_VERSION = 1
+GITHUB_API_VERSION = '2022-11-28'
 
 
 class ManifestError(ValueError):
@@ -90,11 +113,16 @@ class Manifest:
 @dataclass
 class CheckResult:
     check: Check
-    status: str  # passed | failed | timeout | error | manual
+    status: str  # passed | failed | timeout | error | manual | cached status of the final attempt
     duration_s: float = 0.0
     exit_code: int | None = None
     log_path: str | None = None
     detail: str | None = None
+    # Every attempt's outcome, oldest first — a check that failed then passed
+    # keeps the full trail so a flaky suite is visible, not silently trusted.
+    attempts: list[dict] = field(default_factory=list)
+    flaky: bool = False
+    cached: bool = False
 
 
 def _fail(message: str) -> NoReturn:
@@ -172,8 +200,9 @@ def load_manifest(path: Path) -> Manifest:
             _require(isinstance(c, dict), f'{cwhere} must be a mapping')
             cid = c.get('id')
             _require(
-                isinstance(cid, str) and cid and ' ' not in cid,
-                f'{cwhere}.id must be a non-empty string without spaces',
+                isinstance(cid, str) and CHECK_ID_RE.fullmatch(cid) is not None,
+                f'{cwhere}.id must match {CHECK_ID_RE.pattern!r} '
+                '(filename-safe: used for log paths)',
             )
             _require(cid not in seen_ids, f'{cwhere}: duplicate check id {cid!r}')
             seen_ids.add(cid)
@@ -223,6 +252,12 @@ def load_manifest(path: Path) -> Manifest:
                 )
             )
         _require(checks, f'{where}.checks must not be empty (add a manual check)')
+        for field_name in ('title', 'notes'):
+            value = entry.get(field_name)
+            _require(
+                value is None or isinstance(value, str),
+                f'{where}.{field_name} must be a string',
+            )
         issues[number] = IssueEntry(
             issue=number,
             title=entry.get('title'),
@@ -237,6 +272,52 @@ def load_manifest(path: Path) -> Manifest:
     )
 
 
+def _api_json(
+    method: str,
+    url: str,
+    token: str | None,
+    payload: dict | None = None,
+) -> tuple[Any, dict]:
+    """One GitHub REST call. Returns (parsed body or None, response headers).
+
+    Raises RuntimeError with the status/body on HTTP errors so callers can
+    surface API failures verbatim instead of a bare urllib traceback.
+    """
+    data = (
+        json.dumps(payload).encode('utf-8') if payload is not None else None
+    )
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            'Accept': 'application/vnd.github+json',
+            'Content-Type': 'application/json',
+            'X-GitHub-Api-Version': GITHUB_API_VERSION,
+        },
+        method=method,
+    )
+    if token:
+        request.add_header('Authorization', f'Bearer {token}')
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+            body = json.loads(raw.decode('utf-8')) if raw.strip() else None
+            return body, dict(response.headers)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(
+            f'GitHub API {exc.code} for {url}: {exc.read()[:300]!r}'
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f'GitHub API unreachable: {exc}') from exc
+
+
+def _next_link(headers: dict) -> str:
+    for part in headers.get('Link', '').split(','):
+        if 'rel="next"' in part:
+            return part.split(';')[0].strip().strip('<>')
+    return ''
+
+
 def fetch_open_issues(repo: str, token: str | None) -> list[dict]:
     """Fetch open issues (not PRs) via the GitHub REST API. Read-only."""
     issues: list[dict] = []
@@ -245,27 +326,58 @@ def fetch_open_issues(repo: str, token: str | None) -> list[dict]:
         '?state=open&per_page=100'
     )
     while url:
-        request = urllib.request.Request(
-            url, headers={'Accept': 'application/vnd.github+json'}
-        )
-        if token:
-            request.add_header('Authorization', f'Bearer {token}')
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                page = json.loads(response.read().decode('utf-8'))
-                link = response.headers.get('Link', '')
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(
-                f'GitHub API {exc.code} for {url}: {exc.read()[:300]!r}'
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f'GitHub API unreachable: {exc}') from exc
+        page, headers = _api_json('GET', url, token)
         issues.extend(i for i in page if 'pull_request' not in i)
-        url = ''
-        for part in link.split(','):
-            if 'rel="next"' in part:
-                url = part.split(';')[0].strip().strip('<>')
+        url = _next_link(headers)
     return issues
+
+
+def list_issue_comments(repo: str, issue: int, token: str) -> list[dict]:
+    """All comments on one issue (paginated). Read-only."""
+    comments: list[dict] = []
+    url = (
+        f'https://api.github.com/repos/{repo}/issues/{issue}/comments'
+        '?per_page=100'
+    )
+    while url:
+        page, headers = _api_json('GET', url, token)
+        comments.extend(page)
+        url = _next_link(headers)
+    return comments
+
+
+def find_verification_comment_id(
+    repo: str, issue: int, token: str
+) -> int | None:
+    """The id of the runner's own status comment on the issue, if present."""
+    for comment in list_issue_comments(repo, issue, token):
+        if COMMENT_MARKER in (comment.get('body') or ''):
+            return comment['id']
+    return None
+
+
+def upsert_issue_comment(repo: str, issue: int, body: str, token: str) -> str:
+    """Create the status comment or edit the existing one in place.
+
+    Returns 'created' or 'updated'. Edit-in-place is deliberate: a fresh
+    comment per run would spam watchers of every mapped issue.
+    """
+    existing_id = find_verification_comment_id(repo, issue, token)
+    if existing_id is not None:
+        _api_json(
+            'PATCH',
+            f'https://api.github.com/repos/{repo}/issues/comments/{existing_id}',
+            token,
+            {'body': body},
+        )
+        return 'updated'
+    _api_json(
+        'POST',
+        f'https://api.github.com/repos/{repo}/issues/{issue}/comments',
+        token,
+        {'body': body},
+    )
+    return 'created'
 
 
 def find_token() -> str | None:
@@ -274,21 +386,6 @@ def find_token() -> str | None:
         if value:
             return value
     return None
-
-
-def post_issue_comment(repo: str, issue: int, body: str, token: str) -> None:
-    request = urllib.request.Request(
-        f'https://api.github.com/repos/{repo}/issues/{issue}/comments',
-        data=json.dumps({'body': body}).encode('utf-8'),
-        headers={
-            'Accept': 'application/vnd.github+json',
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json',
-        },
-        method='POST',
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        response.read()
 
 
 def _resolve_argv(check: Check, python: str, work_dir: Path, report_dir: Path) -> list[str]:
@@ -300,6 +397,81 @@ def _resolve_argv(check: Check, python: str, work_dir: Path, report_dir: Path) -
     ]
 
 
+def _kill_process_tree(pid: int) -> None:
+    """Kill a check subprocess *and* its children.
+
+    ``subprocess.run(timeout=...)`` only kills the direct child; pytest-xdist
+    workers (and anything a script spawns) survive it, keep holding basetemp
+    files on Windows, and keep burning CPU. On Windows ``taskkill /T`` walks
+    the tree; on POSIX the check runs in its own session so a process-group
+    kill reaches grandchildren too.
+    """
+    if os.name == 'nt':
+        subprocess.run(
+            ['taskkill', '/F', '/T', '/PID', str(pid)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=30, check=False,
+        )
+    else:  # POSIX: the child was spawned with start_new_session=True
+        import signal
+
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+
+
+def _run_attempt(
+    argv: list[str],
+    repo_root: Path,
+    env: dict,
+    timeout: int,
+    log,
+) -> dict:
+    """Run one check attempt; always returns an attempt record, never raises."""
+    started = time.monotonic()
+    try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=repo_root,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=(os.name != 'nt'),
+        )
+    except OSError as exc:
+        return {
+            'status': 'error', 'exit_code': None,
+            'duration_s': round(time.monotonic() - started, 2),
+            'detail': str(exc),
+        }
+    try:
+        rc = proc.wait(timeout=timeout)
+        return {
+            'status': 'passed' if rc == 0 else 'failed',
+            'exit_code': rc,
+            'duration_s': round(time.monotonic() - started, 2),
+            'detail': None,
+        }
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid)
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+            proc.kill()
+            proc.wait()
+        return {
+            'status': 'timeout', 'exit_code': None,
+            'duration_s': round(time.monotonic() - started, 2),
+            'detail': f'exceeded timeout_seconds={timeout}',
+        }
+
+
+# Statuses worth a retry: a 'timeout' already consumed the full check budget,
+# so rerunning it would double the worst case — it is not retried.
+RETRIABLE_STATUSES = ('failed', 'error')
+
+
 def run_check(
     check: Check,
     repo_root: Path,
@@ -307,6 +479,7 @@ def run_check(
     report_dir: Path,
     default_workers: int,
     log_dir: Path,
+    rerun_failed: int = 0,
 ) -> CheckResult:
     if check.kind == 'manual':
         return CheckResult(check=check, status='manual')
@@ -342,41 +515,133 @@ def run_check(
 
     log_path = log_dir / f'{check.id}.log'
     started = time.monotonic()
+    attempts: list[dict] = []
+    with log_path.open('wb') as log:
+        log.write(('argv: ' + ' '.join(argv) + '\n\n').encode('utf-8'))
+        max_attempts = 1 + max(0, rerun_failed)
+        for attempt in range(1, max_attempts + 1):
+            if attempt > 1:
+                log.write(
+                    f'\n===== attempt {attempt}/{max_attempts} =====\n\n'
+                    .encode('utf-8')
+                )
+            record = _run_attempt(argv, repo_root, env, check.timeout_seconds, log)
+            attempts.append(record)
+            if (
+                attempt >= max_attempts
+                or record['status'] not in RETRIABLE_STATUSES
+            ):
+                break
+    final = attempts[-1]
+    return CheckResult(
+        check=check,
+        status=final['status'],
+        duration_s=round(time.monotonic() - started, 2),
+        exit_code=final['exit_code'],
+        log_path=f'logs/{log_path.name}',
+        detail=final['detail'],
+        attempts=attempts,
+        flaky=len({a['status'] for a in attempts}) > 1,
+    )
+
+
+def _git_head(repo_root: Path) -> tuple[str | None, bool]:
+    """Return (full HEAD sha, worktree_dirty).
+
+    (None, True) when git fails — biased toward 'no cache' because a keyless
+    or lying cache is worse than re-running a check.
+    """
     try:
-        with log_path.open('wb') as log:
-            log.write(('argv: ' + ' '.join(argv) + '\n\n').encode('utf-8'))
-            proc = subprocess.run(
-                argv,
-                cwd=repo_root,
-                env=env,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                timeout=check.timeout_seconds,
-            )
-        duration = time.monotonic() - started
-        status = 'passed' if proc.returncode == 0 else 'failed'
-        return CheckResult(
-            check=check,
-            status=status,
-            duration_s=round(duration, 2),
-            exit_code=proc.returncode,
-            log_path=log_path.name,
+        sha = subprocess.run(
+            ['git', 'rev-parse', 'HEAD'],
+            cwd=repo_root, capture_output=True, text=True, timeout=15,
         )
-    except subprocess.TimeoutExpired:
-        return CheckResult(
-            check=check,
-            status='timeout',
-            duration_s=round(time.monotonic() - started, 2),
-            log_path=log_path.name,
-            detail=f'exceeded timeout_seconds={check.timeout_seconds}',
+        status = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            cwd=repo_root, capture_output=True, text=True, timeout=30,
         )
+        head = sha.stdout.strip() if sha.returncode == 0 else None
+        dirty = status.returncode != 0 or bool(status.stdout.strip())
+        return head or None, dirty
+    except (OSError, subprocess.TimeoutExpired):
+        return None, True
+
+
+_FINGERPRINT_SNIPPET = (
+    'import importlib.metadata, platform, hashlib;'
+    'dists=";".join(sorted(((d.metadata["Name"] or "").lower()'
+    '+"=="+d.version) for d in importlib.metadata.distributions()));'
+    'print(platform.python_version(), platform.system(),'
+    ' hashlib.sha1(dists.encode()).hexdigest())'
+)
+
+
+def _env_fingerprint(python: str) -> str:
+    """Fingerprint of the check interpreter: python version + platform +
+    installed distribution set. Deterministic (sha1, not hash())."""
+    try:
+        proc = subprocess.run(
+            [python, '-c', _FINGERPRINT_SNIPPET],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return 'unknown'
+
+
+def _cache_key(check: Check, head_sha: str, env_fp: str) -> str:
+    """Key covering everything that can change a check's outcome: the
+    execution-relevant check fields (not cosmetic ones like description),
+    the exact commit, and the interpreter environment."""
+    material = json.dumps(
+        {
+            'id': check.id,
+            'kind': check.kind,
+            'tests': check.tests,
+            'command': check.command,
+            'timeout_seconds': check.timeout_seconds,
+            'pytest_workers': check.pytest_workers,
+            'head': head_sha,
+            'env': env_fp,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha1(material.encode('utf-8')).hexdigest()
+
+
+def _load_cache(path: Path) -> dict:
+    """Read the verdict cache; any corruption degrades to an empty cache
+    (a cache that lies is worse than no cache)."""
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+        if (
+            isinstance(raw, dict)
+            and raw.get('version') == CACHE_SCHEMA_VERSION
+            and isinstance(raw.get('entries'), dict)
+        ):
+            return raw['entries']
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_cache(path: Path, entries: dict) -> None:
+    """Atomic-ish write (tmp + replace); failure never breaks the run."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(
+            json.dumps(
+                {'version': CACHE_SCHEMA_VERSION, 'entries': entries},
+                ensure_ascii=False, indent=2,
+            ),
+            encoding='utf-8',
+        )
+        os.replace(tmp, path)
     except OSError as exc:
-        return CheckResult(
-            check=check,
-            status='error',
-            duration_s=round(time.monotonic() - started, 2),
-            detail=str(exc),
-        )
+        print(f'[verify] cache write failed (ignored): {exc}', file=sys.stderr)
 
 
 def compute_verdict(entry: IssueEntry, results: list[CheckResult]) -> str:
@@ -391,6 +656,34 @@ def compute_verdict(entry: IssueEntry, results: list[CheckResult]) -> str:
     return 'verified'
 
 
+def _md_cell(text: str) -> str:
+    """Escape a value for a Markdown table cell (pipes, newlines)."""
+    return text.replace('|', '\\|').replace('\n', ' ')
+
+
+def _check_status_label(check: dict) -> str:
+    """`failed→passed` when a retry changed the outcome, else the status."""
+    attempts = [a['status'] for a in check.get('attempts') or []]
+    label = '→'.join(attempts) if len(attempts) > 1 else check['status']
+    if check.get('cached'):
+        label += ' (cached)'
+    return label
+
+
+_VERDICT_ORDER = (
+    'verified', 'failing', 'partially_verified', 'manual_required',
+    'unmapped', 'not_open',
+)
+_VERDICT_HEADLINES = {
+    'verified': 'Close candidates (all green, no manual gates)',
+    'failing': 'Needs attention — an automated check is red',
+    'partially_verified': 'Software green; manual/physical evidence remains',
+    'manual_required': 'Manual triage only — no automated checks',
+    'unmapped': 'Open but not in the manifest — add an entry',
+    'not_open': 'Stale manifest entries — issue is closed, remove entry',
+}
+
+
 def render_markdown(report: dict) -> str:
     lines: list[str] = []
     lines.append('# Issue verification report')
@@ -400,6 +693,8 @@ def render_markdown(report: dict) -> str:
     lines.append(f"- mode: `{report['mode']}`")
     lines.append(f"- git_ref: `{report['git_ref']}`")
     lines.append(f"- python: `{report['python']}`")
+    if report.get('cache'):
+        lines.append(f"- cache: `{report['cache']}`")
     lines.append('')
     summary = report['summary']
     lines.append(
@@ -407,18 +702,41 @@ def render_markdown(report: dict) -> str:
         + ' / '.join(f'{k}={v}' for k, v in summary.items() if v)
     )
     lines.append('')
+    # Triage-first view: the question a maintainer asks is "what can I close
+    # now / what is red / what is stale", so issues are grouped by verdict
+    # before the per-issue table.
+    lines.append('## At a glance')
+    by_verdict: dict[str, list[dict]] = {}
+    for item in report['issues']:
+        by_verdict.setdefault(item['verdict'], []).append(item)
+    for verdict in _VERDICT_ORDER:
+        items = by_verdict.get(verdict)
+        if not items:
+            continue
+        refs = ', '.join(f"#{i['issue']}" for i in items)
+        lines.append(f"- **{_VERDICT_HEADLINES[verdict]}**: {refs}")
+    extra_not_open = [
+        n for n in report['not_open_issues']
+        if n not in {i['issue'] for i in by_verdict.get('not_open', [])}
+    ]
+    if extra_not_open:
+        refs = ', '.join(f'#{n}' for n in extra_not_open)
+        lines.append(f'- **{_VERDICT_HEADLINES["not_open"]}**: {refs}')
+    lines.append('')
     lines.append('| Issue | Verdict | Checks | Manual evidence required |')
     lines.append('|---|---|---|---|')
     for item in report['issues']:
         checks = ', '.join(
-            f"{c['id']}:{c['status']}" for c in item['checks']
+            f"{c['id']}:{_check_status_label(c)}" for c in item['checks']
             if c['kind'] != 'manual'
         ) or '—'
         manual = '<br>'.join(
-            m['description'].split('\n')[0] for m in item['manual_required']
+            _md_cell(m['description'].split('\n')[0])
+            for m in item['manual_required']
         ) or '—'
+        title = _md_cell(item.get('title') or '')
         lines.append(
-            f"| #{item['issue']} {item.get('title') or ''} "
+            f"| #{item['issue']} {title} "
             f"| **{item['verdict']}** | {checks} | {manual} |"
         )
     lines.append('')
@@ -427,7 +745,9 @@ def render_markdown(report: dict) -> str:
         if item.get('notes'):
             lines.append(f"> {item['notes']}")
         for c in item['checks']:
-            bits = [f"- `{c['id']}` ({c['kind']}): **{c['status']}**"]
+            bits = [
+                f"- `{c['id']}` ({c['kind']}): **{_check_status_label(c)}**"
+            ]
             if c.get('duration_s') is not None and c['kind'] != 'manual':
                 bits.append(f"{c['duration_s']}s")
             if c.get('exit_code') is not None:
@@ -472,13 +792,44 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--python', default=sys.executable)
     parser.add_argument('--dry-run', action='store_true', help='print the plan and exit')
     parser.add_argument(
+        '--rerun-failed', type=int, default=1, metavar='N',
+        help='retry a failed/errored check up to N more times before '
+             'reporting it (default: 1 — this suite has known xdist/Qt '
+             'teardown flakes; attempts are recorded in the report so a '
+             'flaky pass stays visible). Timeouts are never retried: they '
+             'already consumed the full check budget. 0 = single attempt.',
+    )
+    parser.add_argument(
+        '--use-cache', action='store_true',
+        help='reuse the verdict of a check whose (check config, HEAD sha, '
+             'python environment) key already has a stored result — skips '
+             're-verifying code that did not change. Disabled on a dirty '
+             'worktree unless --allow-dirty-cache is also given.',
+    )
+    parser.add_argument(
+        '--cache-file', type=Path, default=None,
+        help=f'verdict cache path (default: {DEFAULT_CACHE_PATH})',
+    )
+    parser.add_argument(
+        '--allow-dirty-cache', action='store_true',
+        help='use/write the verdict cache even with a dirty worktree '
+             '(unsafe: local edits are not captured by the cache key)',
+    )
+    parser.add_argument(
+        '--fail-on-verdict', default=None, metavar='VERDICTS',
+        help='comma-separated verdicts that flip the exit code to 3 '
+             '(e.g. "failing,unmapped"); default: verdicts never change '
+             'the exit status — they are data, not a gate',
+    )
+    parser.add_argument(
         '--post-summary', action='store_true',
-        help='post a one-line verdict comment on each mapped issue after '
-             'the run (requires issues:write token; off by default)',
+        help='upsert the marked status comment on each mapped issue after '
+             'the run — one comment per issue, edited in place, no spam '
+             '(requires issues:write token; off by default)',
     )
     parser.add_argument(
         '--post-summary-from', type=Path, default=None, metavar='REPORT_JSON',
-        help='post verdict comments from a previously written report and '
+        help='upsert verdict comments from a previously written report and '
              'exit — reuses results instead of re-running checks',
     )
     return parser
@@ -502,11 +853,51 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     repo = args.repo or manifest.repo
 
-    wanted = (
-        {int(p) for p in args.issues.split(',') if p.strip()}
-        if args.issues else None
-    )
+    if args.fail_on_verdict:
+        bad = [
+            v for v in (s.strip() for s in args.fail_on_verdict.split(','))
+            if v and v not in VERDICTS
+        ]
+        if bad:
+            print(
+                f'[verify] --fail-on-verdict got unknown verdicts {bad} '
+                f'(valid: {", ".join(VERDICTS)})',
+                file=sys.stderr,
+            )
+            return 2
+        fail_on = {v.strip() for v in args.fail_on_verdict.split(',') if v.strip()}
+    else:
+        fail_on = set()
 
+    # --post-summary-from only needs the manifest (for the repo) and the
+    # saved report: it must NOT fetch live issues first — a network hiccup
+    # would otherwise abort a purely-local replay.
+    if args.post_summary_from:
+        report_path = args.post_summary_from
+        try:
+            saved = json.loads(report_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f'[verify] cannot read report {report_path}: {exc}',
+                  file=sys.stderr)
+            return 2
+        return _post_summaries(repo, saved)
+
+    if args.issues:
+        try:
+            wanted = {
+                int(p) for p in args.issues.split(',') if p.strip()
+            }
+        except ValueError:
+            print(
+                f'[verify] --issues must be comma-separated integers, '
+                f'got {args.issues!r}',
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        wanted = None
+
+    not_open_wanted: set[int] = set()
     if args.offline:
         if wanted:
             open_numbers = sorted(wanted)
@@ -529,25 +920,15 @@ def main(argv: list[str] | None = None) -> int:
         open_numbers = sorted(live_issues)
         if wanted:
             open_numbers = [n for n in open_numbers if n in wanted]
-            for n in sorted(wanted - set(open_numbers)):
-                live_issues[n] = {'number': n, 'title': '(not open)'}
-                open_numbers.append(n)
+            # Explicitly requested but not open: report the truth instead
+            # of running checks on a closed issue and calling it verified.
+            not_open_wanted = set(wanted) - set(open_numbers)
 
     stamp = datetime.now(timezone.utc)
     report_dir = (
         args.report_dir
         or repo_root / 'artifacts' / f'issue-verification-{stamp:%Y%m%dT%H%M%SZ}'
     ).resolve()
-
-    if args.post_summary_from:
-        report_path = args.post_summary_from
-        try:
-            saved = json.loads(report_path.read_text(encoding='utf-8'))
-        except (OSError, json.JSONDecodeError) as exc:
-            print(f'[verify] cannot read report {report_path}: {exc}',
-                  file=sys.stderr)
-            return 2
-        return _post_summaries(repo, saved)
 
     log_dir = report_dir / 'logs'
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -569,10 +950,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f'  #{n} {state} — {title}')
             for c in checks:
                 print(f'    - [{c.kind}] {c.id}: {c.description.splitlines()[0][:80]}')
+        for n in sorted(not_open_wanted):
+            print(f'  #{n} not_open — (requested but not open)')
         return 0
+
+    head_sha, worktree_dirty = _git_head(repo_root)
+    git_ref = head_sha[:8] if head_sha else 'unknown'
+
+    cache_path = (
+        args.cache_file or repo_root / DEFAULT_CACHE_PATH
+    ).resolve()
+    cache_entries: dict = {}
+    cache_active = False
+    if args.use_cache:
+        if not head_sha:
+            print('[verify] --use-cache ignored: HEAD sha unavailable',
+                  file=sys.stderr)
+        elif worktree_dirty and not args.allow_dirty_cache:
+            print(
+                '[verify] worktree is dirty — cache disabled '
+                '(use --allow-dirty-cache to override)',
+                file=sys.stderr,
+            )
+        else:
+            cache_entries = _load_cache(cache_path)
+            cache_active = True
+            print(
+                f'[verify] verdict cache: {cache_path} '
+                f'({len(cache_entries)} entries)'
+            )
+    env_fp: str | None = None
 
     issue_reports: list[dict] = []
     unmapped: list[dict] = []
+    cache_hits = 0
     for n in sorted(set(open_numbers)):
         live = live_issues.get(n, {})
         entry = manifest.issues.get(n)
@@ -583,13 +994,48 @@ def main(argv: list[str] | None = None) -> int:
                 'verdict': 'unmapped', 'checks': [], 'manual_required': [],
             })
             continue
-        results = [
-            run_check(
+        results: list[CheckResult] = []
+        for c in entry.checks:
+            key = None
+            if cache_active and c.kind != 'manual':
+                if env_fp is None:
+                    env_fp = _env_fingerprint(args.python)
+                key = _cache_key(c, head_sha, env_fp)
+                hit = cache_entries.get(key)
+                if not (
+                    isinstance(hit, dict) and isinstance(hit.get('status'), str)
+                ):
+                    hit = None  # malformed entry — never trust it
+                if hit is not None:
+                    cache_hits += 1
+                    results.append(CheckResult(
+                        check=c,
+                        status=hit['status'],
+                        exit_code=hit.get('exit_code'),
+                        detail=hit.get('detail'),
+                        attempts=list(hit.get('attempts') or []),
+                        flaky=bool(hit.get('flaky')),
+                        cached=True,
+                    ))
+                    continue
+            result = run_check(
                 c, repo_root, args.python, report_dir,
                 manifest.default_workers, log_dir,
+                rerun_failed=args.rerun_failed,
             )
-            for c in entry.checks
-        ]
+            results.append(result)
+            if cache_active and key is not None and result.status != 'manual':
+                cache_entries[key] = {
+                    'status': result.status,
+                    'exit_code': result.exit_code,
+                    'detail': result.detail,
+                    'attempts': result.attempts,
+                    'flaky': result.flaky,
+                    'git_ref': head_sha,
+                    'recorded_at_utc': datetime.now(timezone.utc).strftime(
+                        '%Y-%m-%dT%H:%M:%SZ'
+                    ),
+                }
         verdict = compute_verdict(entry, results)
         issue_reports.append({
             'issue': n,
@@ -602,6 +1048,8 @@ def main(argv: list[str] | None = None) -> int:
                     'duration_s': r.duration_s, 'exit_code': r.exit_code,
                     'log_path': r.log_path, 'detail': r.detail,
                     'description': r.check.description,
+                    'attempts': r.attempts, 'flaky': r.flaky,
+                    'cached': r.cached,
                 }
                 for r in results if r.check.kind != 'manual'
             ],
@@ -611,30 +1059,34 @@ def main(argv: list[str] | None = None) -> int:
             ],
         })
 
-    not_open = [
-        n for n in manifest.issues
-        if n not in set(open_numbers) and not args.offline
+    for n in sorted(not_open_wanted):
+        issue_reports.append({
+            'issue': n,
+            'title': manifest.issues[n].title or ''
+            if n in manifest.issues else '',
+            'verdict': 'not_open', 'checks': [], 'manual_required': [],
+        })
+
+    if cache_active:
+        _save_cache(cache_path, cache_entries)
+
+    # Stale = manifest entry whose issue is genuinely not open. Compare with
+    # the live open set, NOT open_numbers — entries merely excluded by an
+    # --issues filter are open but unrequested, not stale. Offline runs
+    # cannot know open state, so they skip this surface entirely.
+    not_open = [] if args.offline else [
+        n for n in manifest.issues if n not in live_issues
     ]
     summary = {v: 0 for v in VERDICTS}
     for item in issue_reports:
         summary[item['verdict']] = summary.get(item['verdict'], 0) + 1
-
-    git_ref = 'unknown'
-    try:
-        proc = subprocess.run(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            cwd=repo_root, capture_output=True, text=True, timeout=15,
-        )
-        if proc.returncode == 0:
-            git_ref = proc.stdout.strip()
-    except OSError:
-        pass
 
     report = {
         'generated_at_utc': stamp.strftime('%Y-%m-%dT%H:%M:%SZ'),
         'repo': repo,
         'mode': 'offline' if args.offline else 'live',
         'git_ref': git_ref,
+        'worktree_dirty': worktree_dirty,
         'python': f'{platform.python_version()} ({platform.system()})',
         'manifest': str(manifest_path),
         'summary': summary,
@@ -642,6 +1094,9 @@ def main(argv: list[str] | None = None) -> int:
         'unmapped_issues': unmapped,
         'not_open_issues': not_open,
     }
+    if args.use_cache:
+        report['cache'] = str(cache_path) if cache_active else 'disabled'
+        report['cache_hits'] = cache_hits
     json_path = report_dir / 'issue_verification_report.json'
     json_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8'
@@ -656,32 +1111,84 @@ def main(argv: list[str] | None = None) -> int:
     ))
 
     if args.post_summary:
-        return _post_summaries(repo, report)
+        code = _post_summaries(repo, report)
+        if code != 0:
+            return code
+    if fail_on and any(
+        item['verdict'] in fail_on for item in issue_reports
+    ):
+        present = sorted(
+            {item['verdict'] for item in issue_reports} & fail_on
+        )
+        print(
+            f'[verify] --fail-on-verdict hit: {present}',
+            file=sys.stderr,
+        )
+        return 3
     return 0
 
 
+def _comment_body(repo: str, item: dict, stamp: str, git_ref: str) -> str:
+    """The upserted per-issue status comment (JA — user-facing surface)."""
+    lines = [
+        COMMENT_MARKER,
+        f"自動検証: **{item['verdict']}** ({stamp} UTC, ref `{git_ref}`)",
+    ]
+    failing = [
+        c['id'] for c in item.get('checks', [])
+        if c.get('status') in ('failed', 'timeout', 'error')
+    ]
+    flaky = [
+        c['id'] for c in item.get('checks', []) if c.get('flaky')
+    ]
+    if failing:
+        lines.append(
+            '失敗チェック: ' + ', '.join(f'`{c}`' for c in failing)
+        )
+    if flaky:
+        lines.append(
+            'flaky 検出（最初の実行と結果が不一致）: '
+            + ', '.join(f'`{c}`' for c in flaky)
+        )
+    manual = item.get('manual_required') or []
+    if manual:
+        lines.append(f'手動エビデンス残り: {len(manual)} 件')
+    lines.append(
+        '詳細: `verify-open-issues` workflow のレポート成果物を参照 '
+        f'(https://github.com/{repo}/actions/workflows/verify-open-issues.yml)'
+    )
+    return '\n'.join(lines)
+
+
 def _post_summaries(repo: str, report: dict) -> int:
+    """Upsert one marked status comment per mapped issue.
+
+    Skips unmapped / not_open items (commenting on a closed issue or one
+    with no manifest entry is spam). Any post failure exits non-zero — a
+    write that silently half-fails would mislead.
+    """
     token = find_token()
     if not token:
         print('[verify] --post-summary needs a token in env', file=sys.stderr)
         return 2
     stamp = report.get('generated_at_utc', '')
     git_ref = report.get('git_ref', '')
+    failures = 0
     for item in report.get('issues', []):
-        if item.get('verdict') == 'unmapped':
+        if item.get('verdict') in ('unmapped', 'not_open'):
             continue
-        body = (
-            f"自動検証レポート: **{item['verdict']}** "
-            f"({stamp}, ref `{git_ref}`) — "
-            '詳細は Actions アーティファクトの '
-            'issue_verification_report.json を参照。'
-        )
+        body = _comment_body(repo, item, stamp, git_ref)
         try:
-            post_issue_comment(repo, item['issue'], body, token)
-            print(f"[verify] posted summary on #{item['issue']}")
-        except (urllib.error.URLError, urllib.error.HTTPError) as exc:
+            action = upsert_issue_comment(repo, item['issue'], body, token)
+            print(f"[verify] {action} status comment on #{item['issue']}")
+        except RuntimeError as exc:
+            failures += 1
             print(f"[verify] comment failed on #{item['issue']}: {exc}",
                   file=sys.stderr)
+    if failures:
+        print(f'[verify] {failures} status comment(s) failed',
+              file=sys.stderr)
+        return 2
     return 0
 
 
