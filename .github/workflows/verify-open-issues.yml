@@ -61,11 +61,12 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      # Optional: post a one-line verdict comment onto each mapped issue.
-      # Real user-visible value for triage, but spammy when someone is
-      # iterating on the checks — enable deliberately: uncomment this step,
-      # change `issues: read` to `issues: write` above, and re-run.
-      # - name: Post per-issue verdict comments
+      # Optional: upsert a status comment on each mapped issue — one marked
+      # comment per issue, edited in place on every run (no comment spam;
+      # watchers get a single always-current verdict line). Enable
+      # deliberately: uncomment this step, change `issues: read` to
+      # `issues: write` above, and re-run.
+      # - name: Upsert per-issue verdict comments
       #   env:
       #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       #   shell: pwsh

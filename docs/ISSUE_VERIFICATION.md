@@ -29,17 +29,33 @@ python scripts/verify_open_issues.py --issues 8,471,472,475
 
 # Print the plan without running anything:
 python scripts/verify_open_issues.py --dry-run
+
+# Reuse cached verdicts for checks whose inputs did not change:
+python scripts/verify_open_issues.py --offline --use-cache
+
+# Make a verdict set fatal to the exit code (opt-in gating):
+python scripts/verify_open_issues.py --fail-on-verdict failing
 ```
 
 Token lookup order: `GITHUB_TOKEN`, `GITHUB_KA0923S_PAT`, `GH_TOKEN`.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--rerun-failed N` | `1` | Retries a `failed`/`error` check up to N extra times. All attempts land in the report with a `flaky` flag, so a fail→pass suite is *visible as flaky* rather than silently trusted. `timeout` is never retried — it already spent the full check budget. |
+| `--use-cache` | off | Skips re-running a check when `(check config, HEAD sha, python env)` already has a stored verdict in `--cache-file` (default `artifacts/issue-verification/cache.json`). Refuses a dirty worktree — local edits are not covered by the key — unless `--allow-dirty-cache` is given. Cached results are marked `"cached": true`. |
+| `--fail-on-verdict` | none | Comma-separated verdicts (e.g. `failing,unmapped`) that flip the exit code to `3`. Default behavior is unchanged: verdicts are data, not a gate. |
 
 ## Reading the report
 
 `--report-dir` receives:
 
-- `issue_verification_report.json` — machine-readable verdicts
-- `issue-verification-<date>.md` — the same table for humans
-- `logs/<check-id>.log` — stdout/stderr of every executed check
+- `issue_verification_report.json` — machine-readable verdicts (per check:
+  `status`, `attempts`, `flaky`, `cached`, `log_path`, `detail`)
+- `issue-verification-<date>.md` — the same table for humans, opened by an
+  **At a glance** section that groups issues by verdict (close candidates /
+  red checks / manual-only / stale manifest entries)
+- `logs/<check-id>.log` — stdout/stderr of every executed check attempt
+  (retry attempts are separated by `===== attempt N/N =====` markers)
 - `iv-<check-id>-*/` — per-check work dirs (pytest `--basetemp`, script
   scratch space) kept for post-mortem on failures
 
@@ -50,13 +66,29 @@ Per-issue verdict:
 | `verified` | Every automated check passed **and** the manifest declares no remaining manual evidence. The issue is a close candidate. |
 | `partially_verified` | All automated checks passed but manual/physical evidence entries remain (e.g. owned-room campaigns, UX160). Software side is green; the issue stays open by design. |
 | `manual_required` | No automated checks exist for the issue — triage/scheduling decision needed. |
-| `failing` | At least one automated check failed, errored, or hit its timeout. Read `logs/<check-id>.log`. |
+| `failing` | At least one automated check failed, errored, or hit its timeout (after retries). Read `logs/<check-id>.log`. |
 | `unmapped` | The issue is open but has no manifest entry — add one. |
-| `not_open` | Manifest entry references an issue that is closed — remove the entry to keep the manifest honest. |
+| `not_open` | The manifest entry references a closed issue, or `--issues` named an issue that is not open — checks are not run; remove the stale entry to keep the manifest honest. |
 
 The report deliberately **cannot** mark an issue with a `manual` entry as
 `verified`; an issue only reaches `verified` when every check is automated and
 green.
+
+## Posting verdicts to GitHub (opt-in)
+
+`--post-summary` **upserts** one marked comment per mapped issue
+(`<!-- verify-open-issues -->`): the first run creates it, later runs edit it
+in place. The latest verdict is therefore always visible on the issue itself
+without digging through workflow artifacts, and watchers never see comment
+spam. `unmapped` and `not_open` issues are skipped; any failed write exits
+non-zero.
+
+`--post-summary-from <report.json>` posts from a saved report without
+re-running checks or touching the issues API read path — it is the fast retry
+path when a run succeeded but posting failed.
+
+Enabling it in the workflow requires uncommenting the post step and changing
+`permissions.issues` to `write`.
 
 ## Adding or updating checks
 
@@ -70,6 +102,7 @@ When a fix/feature lands and an issue gains (or loses) automated evidence:
      and `{report_dir}` are resolved by the runner. No shell is involved.
    - `kind: manual` — never executed; describe the exact physical/manual
      evidence required (JA for user-facing gates).
+   - `id` must match `[A-Za-z0-9._-]+` (it becomes a log filename).
    - `timeout_seconds` (default 900, max 3600) and `pytest_workers`
      (default 4, `0` = `-n 0`) are tunable per check.
 2. When an issue becomes fully verifiable, **remove its `manual` entries** so
@@ -82,14 +115,39 @@ When a fix/feature lands and an issue gains (or loses) automated evidence:
 Actions tab → `verify-open-issues` → Run workflow. The report uploads as the
 `issue-verification-<run>` artifact.
 
-An optional `--post-summary` step exists (commented out in the workflow):
-it posts a one-line verdict comment onto each mapped issue. It is real triage
-signal but noisy while iterating; enabling it requires uncommenting the step
-and upgrading `permissions.issues` to `write`. Re-commenting without
-re-running uses `--post-summary-from <report.json>`.
+Checks run sequentially inside the 60-minute job: per-check `timeout_seconds`
+(≤3600) is the only bound, so keep manifest timeouts honest — the golden-path
+check alone budgets 20 minutes. This is also why `timeout` results are not
+retried while `failed`/`error` ones are.
 
-## Design decisions
+## Design decisions — and the rejected alternatives
 
+- **Upserted per-issue comment over new-comment-per-run**: the REV44
+  `--post-summary` posted a fresh comment per issue per run — N runs × M
+  issues of notification spam, which is why it was left off by default.
+  Edit-in-place gives the same always-current status with exactly one comment
+  per issue, total.
+- **Per-issue comments over a single tracking-issue digest**: a digest issue
+  keeps verdicts away from the issue a maintainer is actually triaging. The
+  Markdown report's *At a glance* section covers the overview need. A digest
+  issue remains an option if per-issue comments ever become unwelcome.
+- **Comments over GitHub labels**: a `verified`/`failing` label would conflate
+  a computed verdict with the issue's human taxonomy, needs the same write
+  permission, and has no visible history. Comments carry the evidence pointer
+  (run, ref, failing check ids) and are self-describing.
+- **Opt-in SHA+env-keyed cache over unconditional caching**: a cache that lies
+  is worse than no cache. Keys cover the check's execution-relevant fields,
+  the exact HEAD sha, and the interpreter's installed-distribution
+  fingerprint; dirty worktrees opt out entirely. It exists for local iteration
+  and re-dispatched runs on the same commit — not as a time-budget mechanism.
+- **Retry with visible attempts over single-shot**: the suite has known
+  xdist/Qt teardown flakes; a one-shot `failing` verdict would be trusted too
+  much, and a hidden auto-retry would hide real flakes. Every attempt is
+  recorded and a verdict-changing retry surfaces `flaky: true`.
+- **Process-tree kill on timeout**: `subprocess.run(timeout=)` kills only the
+  direct child — on Windows, xdist workers survive, hold basetemp handles and
+  keep burning CPU. Checks run via `Popen` and timeout goes through
+  `taskkill /T /F` (Windows) / process-group kill (POSIX).
 - **Artifact reports, not committed `docs/reviews/` files**: per-run output is
   generated data; committing dated auto-reports would spam git history and
   dirty the working tree on every dispatch. Maintainers can still run with
@@ -98,6 +156,11 @@ re-running uses `--post-summary-from <report.json>`.
   import), so the manifest gets comments and readability for free. The runner
   also accepts a `.json` manifest for environments without PyYAML.
 - **Stdlib-only runner** (plus PyYAML for YAML manifests): no `requests`
-  dependency; the only network call is the read-only issues list.
+  dependency; the only network call is the read-only issues list (plus the
+  opt-in comment list/upsert).
 - **Read-only by default**: issues are never modified; `--post-summary` /
   `--post-summary-from` are the only write paths and are opt-in.
+- **Exit status**: `0` on a completed run (verdicts are data), `2` when the
+  tool itself cannot finish (bad manifest, API failure, bad arguments, failed
+  comment posts), `3` when `--fail-on-verdict` matches — opt-in gating for
+  anyone who later wants this as a check gate.
