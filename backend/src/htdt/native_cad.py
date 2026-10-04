@@ -1100,6 +1100,15 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
                 diagnostics.logger.exception(
                     'automatic backup tick failed to start'
                 )
+            # REV42: the read-only storage integrity scan the shell drives
+            # for the session's lifetime — quiet until it has something
+            # honest to report.
+            try:
+                application.start_storage_watch()
+            except Exception:
+                diagnostics.logger.exception(
+                    'storage watch lane failed to start'
+                )
         if capture_receiver is not None:
             start_error = capture_receiver.start_if_requested()
             if start_error:

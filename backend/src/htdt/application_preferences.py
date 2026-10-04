@@ -47,6 +47,7 @@ class PreferenceCategory(StrEnum):
     COMPUTE = 'compute'
     FILES_EXPORT = 'files_export'
     DIAGNOSTICS = 'diagnostics'
+    MAINTENANCE = 'maintenance'
 
 
 class PreferenceValueType(StrEnum):
@@ -382,6 +383,19 @@ PREFERENCE_DEFINITIONS: dict[str, PreferenceDefinition] = {
             value_type=PreferenceValueType.BOOLEAN,
             default=True,
             description='Embed reusable library definitions in portable bundles (#488).',
+        ),
+        # Maintenance — scheduled read-only checks; never destructive
+        PreferenceDefinition(
+            key='maintenance.storage_watch_enabled',
+            category=PreferenceCategory.MAINTENANCE,
+            value_type=PreferenceValueType.BOOLEAN,
+            default=True,
+            description=(
+                'Periodically re-scan the data directory for missing '
+                'referenced files and reclaimable orphans, surfacing only '
+                'reportable results. Read-only: it never deletes anything '
+                '(REV42).'
+            ),
         ),
         # Diagnostics (#604)
         PreferenceDefinition(

@@ -46,6 +46,7 @@ _CATEGORY_LABELS: dict[PreferenceCategory, str] = {
     PreferenceCategory.COMPUTE: "計算",
     PreferenceCategory.FILES_EXPORT: "ファイルと出力",
     PreferenceCategory.DIAGNOSTICS: "診断",
+    PreferenceCategory.MAINTENANCE: "メンテナンス",
 }
 
 
@@ -78,6 +79,7 @@ _PREFERENCE_LABELS: dict[str, str] = {
     'files.export_dir': 'エクスポート先フォルダー',
     'files.portable_bundle_include_libraries': 'バンドルにライブラリ定義を含める',
     'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子を含める',
+    'maintenance.storage_watch_enabled': 'ストレージの定期スキャン',
 }
 
 
@@ -108,6 +110,7 @@ _PREFERENCE_DESCRIPTIONS: dict[str, str] = {
     'files.export_dir': 'エクスポート・レポートの既定フォルダーです（空欄 = システムのドキュメント）。',
     'files.portable_bundle_include_libraries': 'ポータブルバンドルに再利用可能なライブラリ定義を同梱します。',
     'diagnostics.include_project_ids': '診断パッケージにプロジェクト識別子・ハッシュを含めます。',
+    'maintenance.storage_watch_enabled': '起動中に定期的にデータフォルダーを読み取り専用でスキャンし、参照切れや回収可能な未参照ファイルを検出したときだけ通知します（削除はしません）。',
 }
 
 
