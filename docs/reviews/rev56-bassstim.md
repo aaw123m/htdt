@@ -1,9 +1,10 @@
 # REV56-BASSSTIM — バス管理/クロスオーバー適格性 + 刺激/校正アセット登録簿
 
 スコープ: issues #574 (P0), #608 (P0)
-ブランチ: `devin/<ts>-rev56-bassstim`
+ブランチ: `devin/1791202586-rev56-bassstim`（PR #630）
 スキーマ: native schema v23 → v24（5 テーブル追加）
-マージ: merge-test 経由で main へセルフマージ（実施後にコミット ID を記入）
+マージ: merge commits `e1ea64f7`（実装）+ `a12604dc`（本書）
+（merge-test 経由で main へセルフマージ済み）
 
 ## 実装範囲
 
