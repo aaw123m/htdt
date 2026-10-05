@@ -1,13 +1,15 @@
-"""Quality-page display helpers for REV56-MEASEV evidence (#572/#573).
+"""Quality-page display helpers for REV56 measurement evidence.
 
-Pure functions — no Qt — so the uncertainty / stability summary lines
-shown on the quality page stay testable without a widget.
+Pure functions — no Qt — so the uncertainty / stability / stimulus-pin
+summary lines shown on the quality page stay testable without a widget.
 """
 
 from __future__ import annotations
 
+from .cad_bass_management_qualification import BassManagementQualification
 from .cad_measurement_state import StateComparabilityVerdict
 from .cad_measurement_uncertainty import MeasurementUncertaintyBudget
+from .cad_stimulus_registry import StimulusMeasurementPin
 
 
 _TRACEABILITY_LABELS = {
@@ -57,6 +59,83 @@ def state_verdict_label(state: str) -> str:
 
 def state_reason_label(code: str) -> str:
     return _STATE_REASON_LABELS.get(code, code)
+
+
+_STIMULUS_VERDICT_LABELS = {
+    'ELIGIBLE': '適格',
+    'ELIGIBLE_WITH_LIMITATIONS': '制限付き適格',
+    'WRONG_REVISION': '版違い',
+    'WRONG_SAMPLE_RATE': 'サンプルレート違い',
+    'WRONG_LEVEL_OR_CREST_FACTOR': 'レベル/クレスト因子違い',
+    'TRANSFORMED_NOT_BIT_EXACT': '再生経路でビット一致しない',
+    'INCOMPATIBLE': '手順と不適合',
+    'INSUFFICIENT_EVIDENCE': '証拠不足（適格性を判断できません）',
+}
+
+_BASS_STATUS_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '制限付き適格',
+    'not_qualified': '不適格',
+    'insufficient_evidence': '証拠不足',
+}
+
+_BASS_SCOPE_LABELS = {
+    'unqualified': '未修飾',
+    'candidate': '候補',
+    'qualified_point': '一点適格',
+    'qualified_region': '領域適格',
+}
+
+_BASS_FAILURE_LABELS = {
+    'main_too_weak_below_crossover': 'クロスオーバー以下でメインが不足',
+    'sub_too_weak_above_crossover': 'クロスオーバー以上でサブが不足',
+    'phase_cancellation_at_splice': 'スプライス帯域で相殺',
+    'polarity_mismatch': '極性不一致',
+    'delay_mismatch': '遅延不一致',
+    'lfe_routing_error': 'LFEルーティング不整合',
+    'redirected_bass_routing_error': '転送バスのルーティング不整合',
+    'double_bass': 'バスの二重経路',
+    'insufficient_sub_headroom': 'サブのヘッドルーム不足',
+    'unknown_device_filter_topology': '機器のフィルタトポロジー不明',
+    'device_state_mismatch': '測定時と機器状態が不一致',
+    'multi_seat_instability': '座席間で合成が不安定',
+}
+
+
+def stimulus_verdict_label(verdict: str) -> str:
+    return _STIMULUS_VERDICT_LABELS.get(verdict, verdict)
+
+
+def bass_status_label(status: str) -> str:
+    return _BASS_STATUS_LABELS.get(status, status)
+
+
+def bass_scope_label(scope: str) -> str:
+    return _BASS_SCOPE_LABELS.get(scope, scope)
+
+
+def bass_failure_label(reason: str) -> str:
+    return _BASS_FAILURE_LABELS.get(reason, reason)
+
+
+def stimulus_pin_line(pin: StimulusMeasurementPin) -> str:
+    """One JA line for a stimulus pin bound to the measurement (#608)."""
+    return f'刺激ピン: {pin.stimulus_id}（{pin.stimulus_sha256[:12]}…）'
+
+
+def bass_qualification_line(
+    qualification: BassManagementQualification,
+) -> str:
+    """One JA line for a bass-management qualification verdict (#574)."""
+    status = bass_status_label(qualification.status)
+    scope = bass_scope_label(qualification.scope)
+    if qualification.failure_reasons:
+        reasons = '、'.join(
+            bass_failure_label(reason)
+            for reason in qualification.failure_reasons
+        )
+        return f'バス管理: {status}（{scope}）— {reasons}'
+    return f'バス管理: {status}（{scope}）'
 
 
 def uncertainty_summary_line(

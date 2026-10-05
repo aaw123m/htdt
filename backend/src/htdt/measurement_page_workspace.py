@@ -562,6 +562,7 @@ class MeasurementPageWorkspace(QWidget):
         # REV56-MEASEV: lazily opened measurement-evidence repository for
         # the quality-detail panel (#572/#573).
         self._measurement_evidence_repository = None
+        self._stimulus_registry_repository = None
         # REV40-REWAUTO: REW automation state. Auto jobs share the worker
         # pool but are excluded from the deactivation/dirty busy gate via
         # ``_rew_auto_job_keys`` — a background poll must never trap the
@@ -4754,12 +4755,46 @@ class MeasurementPageWorkspace(QWidget):
                 quality_evidence_detail_lines,
             )
 
-            return quality_evidence_detail_lines(
+            lines = quality_evidence_detail_lines(
                 measurement_id,
                 repository=self._measurement_evidence_repository,
             )
+            lines.extend(
+                self._stimulus_pin_lines(measurement_id)
+            )
+            return lines
         except Exception:
             return ["不確かさ/状態安定性: 証拠レコードを読み込めませんでした"]
+
+    def _stimulus_pin_lines(self, measurement_id: str) -> list[str]:
+        """REV56-BASSSTIM (#608): stimulus pins bound to the selected
+        measurement. An unpinned measurement is honest — pinned is shown
+        with the registry identity it resolves to; a lookup failure
+        degrades to an unavailable line, never a silent claim."""
+        try:
+            if self._stimulus_registry_repository is None:
+                from .cad_stimulus_registry_repository import (
+                    CadStimulusRegistryRepository,
+                )
+
+                self._stimulus_registry_repository = (
+                    CadStimulusRegistryRepository(
+                        self.controller.scene_repository
+                    )
+                )
+            pins = self._stimulus_registry_repository.pins_for_measurement(
+                measurement_id
+            )
+            if not pins:
+                return [
+                    '刺激ピン: 未登録'
+                    '（この測定に使った刺激は登録簿に結ばれていません）'
+                ]
+            from .measurement_evidence_display import stimulus_pin_line
+
+            return [stimulus_pin_line(pin) for pin in pins]
+        except Exception:
+            return ['刺激ピン: 登録簿を読み込めませんでした']
 
     def _show_quality_row(self, row_index: int) -> None:
         if not (0 <= row_index < len(self._quality_views)):

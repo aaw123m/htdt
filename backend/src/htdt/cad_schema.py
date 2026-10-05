@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 23
+NATIVE_SCHEMA_VERSION = 24
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1262,6 +1262,16 @@ def _migrate_22_to_23(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_23_to_24(connection: sqlite3.Connection) -> None:
+    # Install the REV56-BASSSTIM authorities (#574 bass-management
+    # qualification: splice evidence + qualification verdicts; #608
+    # stimulus registry: assets + measurement pins + eligibility
+    # verdicts): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1286,6 +1296,7 @@ _MIGRATIONS = {
     21: _migrate_20_to_21,
     22: _migrate_21_to_22,
     23: _migrate_22_to_23,
+    24: _migrate_23_to_24,
 }
 
 

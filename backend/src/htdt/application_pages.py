@@ -205,6 +205,11 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_decision_verdicts": "証拠判定レコード",
     "cad_uncertain_input_sets": "不確かさ入力セット",
     "cad_robust_design_assessments": "堅牢設計評価",
+    "cad_stimulus_assets": "刺激アセット登録",
+    "cad_stimulus_pins": "測定刺激ピン",
+    "cad_stimulus_eligibility": "刺激適格性判定",
+    "cad_bass_splice_evidence": "バス合成証拠",
+    "cad_bass_qualifications": "バス管理適格性",
 }
 
 

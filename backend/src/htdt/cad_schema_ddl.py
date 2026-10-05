@@ -363,6 +363,26 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_stimulus_assets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stimulus_id TEXT NOT NULL UNIQUE, stimulus_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, origin_class TEXT NOT NULL, subtype TEXT NOT NULL, content_sha256 TEXT, registered_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_stimulus_pins ( seq INTEGER PRIMARY KEY AUTOINCREMENT, pin_id TEXT NOT NULL UNIQUE, pin_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurement_ref TEXT NOT NULL, stimulus_id TEXT NOT NULL, stimulus_sha256 TEXT NOT NULL, pinned_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_stimulus_eligibility ( seq INTEGER PRIMARY KEY AUTOINCREMENT, eligibility_id TEXT NOT NULL UNIQUE, eligibility_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, procedure_id TEXT NOT NULL, stimulus_id TEXT NOT NULL, stimulus_sha256 TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_bass_splice_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, role_id TEXT NOT NULL, sub_group_id TEXT NOT NULL, seat_id TEXT NOT NULL, seat_role TEXT NOT NULL, path TEXT NOT NULL, observed_state TEXT NOT NULL, stimulus_pin_id TEXT, measurement_dataset_sha256 TEXT, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_bass_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, lifecycle_at_evaluation TEXT NOT NULL, status TEXT NOT NULL, scope TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_prediction_provider_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL, consumer_kind TEXT NOT NULL, consumer_id TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -1295,6 +1315,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_robust_design_document ON cad_robust_design_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_assets_document ON cad_stimulus_assets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_assets_content ON cad_stimulus_assets(content_sha256, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_pins_measurement ON cad_stimulus_pins(measurement_ref, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_pins_document ON cad_stimulus_pins(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimulus_eligibility_document ON cad_stimulus_eligibility(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bass_splice_evidence_group ON cad_bass_splice_evidence(document_id, role_id, sub_group_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bass_splice_evidence_document ON cad_bass_splice_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bass_qualifications_profile ON cad_bass_qualifications(profile_sha256, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bass_qualifications_document ON cad_bass_qualifications(document_id, seq ASC)
     """
     ,
     """
@@ -2415,6 +2471,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_av_sync_conditions',
     'cad_bass_management_profiles',
     'cad_bass_management_selections',
+    'cad_bass_qualifications',
+    'cad_bass_splice_evidence',
     'cad_cable_runs',
     'cad_calibration_evidence_events',
     'cad_calibration_exports',
@@ -2639,6 +2697,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',
+    'cad_stimulus_assets',
+    'cad_stimulus_eligibility',
+    'cad_stimulus_pins',
     'cad_stimulus_profiles',
     'cad_stochastic_receiver_estimate_artifacts',
     'cad_surface_material_assignments',

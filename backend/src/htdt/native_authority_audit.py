@@ -426,6 +426,18 @@ class _RepositoryChain:
             )
 
             return CadRobustDesignRepository(scene)
+        if name == 'stimulus_registry':
+            from .cad_stimulus_registry_repository import (
+                CadStimulusRegistryRepository,
+            )
+
+            return CadStimulusRegistryRepository(scene)
+        if name == 'bass_qualification':
+            from .cad_bass_qualification_repository import (
+                CadBassQualificationRepository,
+            )
+
+            return CadBassQualificationRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2142,6 +2154,36 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_robust_design_assessments',
         ('assessment_id',),
         _get('robust_design', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'stimulus_asset',
+        'cad_stimulus_assets',
+        ('stimulus_id',),
+        _get('stimulus_registry', 'get_asset'),
+    ),
+    _ReplayProbe(
+        'stimulus_pin',
+        'cad_stimulus_pins',
+        ('pin_id',),
+        _get('stimulus_registry', 'get_pin'),
+    ),
+    _ReplayProbe(
+        'stimulus_eligibility',
+        'cad_stimulus_eligibility',
+        ('eligibility_id',),
+        _get('stimulus_registry', 'get_eligibility'),
+    ),
+    _ReplayProbe(
+        'bass_splice_evidence',
+        'cad_bass_splice_evidence',
+        ('evidence_id',),
+        _get('bass_qualification', 'get_evidence'),
+    ),
+    _ReplayProbe(
+        'bass_qualification',
+        'cad_bass_qualifications',
+        ('qualification_id',),
+        _get('bass_qualification', 'get_qualification'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',
