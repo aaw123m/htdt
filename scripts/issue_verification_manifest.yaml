@@ -353,3 +353,74 @@ issues:
           Issue スコープの残件: 現在の資産を超える空間/HRTF 処理の深化
           （個別化 HRTF・ヘッドホン補正チェーン）と、実機試聴による物理的
           listening validation。
+  - issue: 572
+    title: "REV56-MEASEV: measurement uncertainty budget & metrological traceability"
+    notes: >
+      Uncertainty-budget authority (contributor provenance classes, GUM Type
+      A/B, scalar/spectral combination, declared correlation groups, GUM-S1
+      Monte-Carlo), traceability chains with explicit break marking,
+      calibrator pre/post drift checks, and residual/delta significance
+      verdicts are implemented; physical calibration evidence remains manual.
+    checks:
+      - id: measev-uncertainty-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_measev.py
+        description: >
+          Sealed MeasurementUncertaintyBudget records, fail-closed
+          provenance/traceability validators, numeric combination checks
+          (RSS, declared correlation, bounded worst-case, seeded
+          Monte-Carlo), spectral-grid rules, calibrator drift, and the
+          residual/delta significance classification against #564 reports.
+      - id: measev-physical-calibration-evidence
+        kind: manual
+        description: >
+          実機校正証明書 / SPL キャリブレータ pre/post 測定の物理取得と、
+          実測定へ不確かさ予算を付与する運用（インポータ連携は残件）。
+  - issue: 573
+    title: "REV56-MEASEV: measurement-state stability gate"
+    notes: >
+      State snapshots, versioned control policies, comparability verdicts
+      (env→phase/time-first, dynamic DSP/limiter contamination, occupancy,
+      openings, noise regime, elapsed time) and bounded repeat-sequence
+      stationarity are implemented; sensor workflows remain manual.
+    checks:
+      - id: measev-state-gate
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_measev.py
+        description: >
+          Sealed MeasurementStateSnapshot/StateControlPolicy/
+          StateComparabilityVerdict records, fail-closed comparability
+          precedence (state_changed > insufficient > declared drift >
+          stable), per-domain comparability flags, and bounded
+          repeat-sequence stationarity.
+      - id: measev-physical-state-evidence
+        kind: manual
+        description: >
+          実測定現場での状態スナップショット採取（環境計測・占有確認・
+          DSP 状態確認）と policy 運用の物理検証。
+  - issue: 575
+    title: "REV56-MEASEV: measurement transformation authority"
+    notes: >
+      The sealed MeasurementTransform DAG (21 kinds, declared capability
+      downgrades, distinct averaging classes, alignment/clock authority,
+      domain-validated arithmetic) and the FR-domain executor are
+      implemented; time-domain execution remains declarative.
+    checks:
+      - id: measev-transform-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_measev.py
+        description: >
+          Sealed transform records and DAG inputs, capability-flag
+          downgrade rules, alignment-method authority (estimated never
+          becomes absolute), clock-correction raw-source preservation,
+          arithmetic domain validation, and executor numerics for
+          averages/alignment/arithmetic/normalize/resample/merge.
+      - id: measev-timedomain-executor-remainder
+        kind: manual
+        description: >
+          時間領域変換（window/gate/time_shift/clock_rate_correction）の
+          IR 実行系は未実装（権威として記録のみ）。REW 派生ワークフロー
+          への組み込み配線も残件。

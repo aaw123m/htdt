@@ -559,6 +559,9 @@ class MeasurementPageWorkspace(QWidget):
         self._job_purpose: dict[str, str] = {}
         self._latest_job_key: dict[str, str] = {}
         self._disposed = False
+        # REV56-MEASEV: lazily opened measurement-evidence repository for
+        # the quality-detail panel (#572/#573).
+        self._measurement_evidence_repository = None
         # REV40-REWAUTO: REW automation state. Auto jobs share the worker
         # pool but are excluded from the deactivation/dirty busy gate via
         # ``_rew_auto_job_keys`` — a background poll must never trap the
@@ -4731,6 +4734,33 @@ class MeasurementPageWorkspace(QWidget):
         if row_index >= 0:
             self._show_quality_row(row_index)
 
+    def _measurement_evidence_lines(self, measurement_id: str) -> list[str]:
+        """REV56-MEASEV (#572/#573): uncertainty-budget and state-stability
+        evidence bound to the selected measurement. The repository is
+        opened lazily and failures degrade to an honest unavailable line
+        rather than breaking the quality detail panel."""
+        try:
+            if self._measurement_evidence_repository is None:
+                from .cad_measurement_evidence_repository import (
+                    CadMeasurementEvidenceRepository,
+                )
+
+                self._measurement_evidence_repository = (
+                    CadMeasurementEvidenceRepository(
+                        self.controller.scene_repository
+                    )
+                )
+            from .measurement_evidence_display import (
+                quality_evidence_detail_lines,
+            )
+
+            return quality_evidence_detail_lines(
+                measurement_id,
+                repository=self._measurement_evidence_repository,
+            )
+        except Exception:
+            return ["不確かさ/状態安定性: 証拠レコードを読み込めませんでした"]
+
     def _show_quality_row(self, row_index: int) -> None:
         if not (0 <= row_index < len(self._quality_views)):
             return
@@ -4758,6 +4788,9 @@ class MeasurementPageWorkspace(QWidget):
             f"共通タイミング: {_capability_decision_label(row.common_timing_capability)} · "
             f"{scene}\n"
             f"音源: {source_speakers} · {captured}"
+        )
+        detail_lines.extend(
+            self._measurement_evidence_lines(row.measurement_id)
         )
         self.quality_detail.setText("\n".join(detail_lines))
         set_semantic_state(

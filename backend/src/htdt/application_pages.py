@@ -195,6 +195,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_calibration_plans": "校正プラン",
     "cad_correction_qualifications": "補正修飾レコード",
     "cad_comparison_records": "比較履歴",
+    "cad_measurement_uncertainty_budgets": "測定不確かさ予算",
+    "cad_measurement_significance_assessments": "残差有意性評価",
+    "cad_measurement_state_policies": "測定状態ポリシー",
+    "cad_measurement_state_snapshots": "測定状態スナップショット",
+    "cad_measurement_state_verdicts": "測定状態判定",
+    "cad_measurement_transforms": "測定変換レコード",
 }
 
 
