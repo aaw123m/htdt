@@ -65,3 +65,25 @@ document スコープ、disabled border、video panel ポリシー伝播
   呼出し側の意味論は不変。
 - `count_*` メソッドは全て `count_candidates` 由来の「Metadata only —
   表示カウンタ専用、payload の主張には使わない」契約を docstring に明記。
+
+## 追補 — 配置右パネル横オーバーフロー (GUI 検証で発覚 → 同スイープ内で修正)
+
+実 GUI 検証 (1024×768) で、配置コンテキスト右パネルが横スクロールを強制し、
+座席行のスピンと「登録…」ボタンが右端切れになっていたことを発見。
+`RoomVideoPanel` のコンテント最小幅が 358px で右スタック最小の 248px を超過
+(mm 表示で悪化の可能性あり)。
+
+対応 (PR #555 マージ後のフォローアップ):
+
+| # | 修正 | 効果 |
+| --- | --- | --- |
+| F1 | `RoomWorkspace` で配置列配下の全 `QComboBox` に `minimumContentsLength(6)` + `AdjustToMinimumContentsLengthWithIcon`、全 `QFormLayout` に `WrapLongRows` | 長い spec/バリアント名で行が膨らまない。ランタイム生成分 (座席カードのライザー/ポーズ、`SeatPriorityPanel.role_combo`、`SystemExpansion` の機器コンボ) は生成箇所で同ポリシー |
+| F2 | `RoomVideoPanel` の `screen_form`/`display_form`/`policy_form`/座席カードフォームに `WrapLongRows`、`_SpinRow` ラベル `setWordWrap(True)` | 狭幅時にラベルがフィールド上段へ折返し |
+| F3 | `seat_view_row` を 2 行化 (コンボ行 + ボタン行) | 「座席視点:」ラベル + コンボ + ボタン×2 で ~340px だった最大行を解消 |
+| F4 | `system_expansion` 既存スピーカー行の `name` ラベル `setWordWrap(True)` | 長い実体名で行が膨らまない |
+
+計測: `RoomVideoPanel.minimumSizeHint().width()` 358 → 238px、座席カード 220px
+(mm ポリシーでも同値)。右スタック最小 248px 未満になり横スクロール解消。
+回帰テスト: `test_rev50_perfux.py` に `test_placement_column_content_stays_inside_right_stack`
+(パネル/座席カードの最小幅 ≤248px、座席カードコンボの縮退ポリシー、`_SpinRow` ラベル
+wordWrap、カードフォーム `WrapLongRows`、座席視点ボタン行分離) を追加。

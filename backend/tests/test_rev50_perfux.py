@@ -390,3 +390,94 @@ def test_tall_dialogs_scroll_instead_of_overflowing() -> None:
     assert dialog.findChild(QScrollArea) is not None
     # 738px of form content must fit a 768px screen including window chrome.
     assert dialog.sizeHint().height() < 700
+
+
+# -- placement column narrow-width safety --------------------------------------
+
+
+def test_placement_column_content_stays_inside_right_stack(tmp_path: Path) -> None:
+    """Placement right-panel content must not force a horizontal scrollbar.
+
+    The right stack's minimum width is 248px; before this fix the video
+    panel's content minimum was ~358px (seat spins + 登録… buttons ended up
+    off-screen behind a horizontal scrollbar).  Forms now wrap long labels
+    above their fields and combos shrink to a short minimum.
+    """
+
+    _app()
+    from PySide6.QtWidgets import QComboBox, QFormLayout, QLabel
+    from htdt.cad_repository import SceneRepository
+    from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
+    from htdt.cad_video_workspace import VideoGeometryWorkspace
+    from htdt.room_video_panel import RoomVideoPanel
+    from htdt.room_workspace import RoomWorkspaceController
+
+    repository = SceneRepository(tmp_path / 'scenes.sqlite3')
+    repository.save(make_f1_scene(), parent_revision_id=None)
+    controller = RoomWorkspaceController(repository, F1_DOCUMENT_ID)
+    seat = controller.add_object('seat')
+    controller.add_object('riser')
+    assert controller.save() is True
+
+    panel = RoomVideoPanel()
+    panel.sync_document(
+        controller.committed_document,
+        VideoGeometryWorkspace(document_id=F1_DOCUMENT_ID),
+        (),
+        (),
+        {seat.entity_id: seat.name},
+        {},
+        None,
+        (),
+    )
+    # Replicates RoomWorkspace's placement-column policy applied in its ctor.
+    for combo in panel.findChildren(QComboBox):
+        if combo.sizeAdjustPolicy() == QComboBox.SizeAdjustPolicy.AdjustToContents:
+            continue
+        combo.setMinimumContentsLength(6)
+        combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+    panel.show()
+
+    # Whole panel + seat card stay inside the 248px stack minimum.
+    assert panel.minimumSizeHint().width() <= 248
+    card = panel.seats_box.itemAt(0).widget()
+    assert card is not None
+    assert card.minimumSizeHint().width() <= 248
+
+    # Seat-card combos created at refresh time shrink like ctor-time combos.
+    seat_widgets = panel._seat_widgets[seat.entity_id]
+    for combo in (seat_widgets['riser'], seat_widgets['pose']):
+        assert (
+            combo.sizeAdjustPolicy()
+            == QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+    # _SpinRow labels wrap so the spin itself stays on-screen.
+    for key in ('eye_z', 'head_z', 'head_r'):
+        label = seat_widgets[key].findChild(QLabel)
+        assert label is not None and label.wordWrap()
+    # The seat card's form also wraps labels above fields when narrow.
+    assert (
+        card.layout().rowWrapPolicy()
+        == QFormLayout.RowWrapPolicy.WrapLongRows
+    )
+    # Seat-view buttons moved off the combo row — the row stays narrow.
+    def _layout_holding(layout, widget):
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item.widget() is widget:
+                return layout
+            if item.layout() is not None:
+                found = _layout_holding(item.layout(), widget)
+                if found is not None:
+                    return found
+        return None
+
+    combo_row = _layout_holding(panel.layout(), panel.seat_view_combo)
+    assert combo_row is not None
+    assert all(
+        combo_row.itemAt(i).widget() not in
+        (panel.view_seat_button, panel.restore_camera_button)
+        for i in range(combo_row.count())
+    )

@@ -4294,6 +4294,19 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addStretch(1)
+        # Narrow-column safety: let every combo in this column shrink to a
+        # short minimum and every form wrap its label above the field
+        # instead of forcing the scroll area's horizontal scrollbar (long
+        # spec/variant labels otherwise push rows off-screen). Combos and
+        # forms built later at refresh time repeat the same treatment at
+        # their creation sites.
+        for _combo in placement_body.findChildren(QComboBox):
+            _combo.setMinimumContentsLength(6)
+            _combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+        for _form in placement_body.findChildren(QFormLayout):
+            _form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.placement_panel = QScrollArea()
         self.placement_panel.setWidgetResizable(True)
         self.placement_panel.setHorizontalScrollBarPolicy(

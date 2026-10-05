@@ -129,6 +129,10 @@ class SeatPriorityPanel(QWidget):
             self.member_tree.addTopLevelItem(item)
 
             role_combo = QComboBox()
+            role_combo.setMinimumContentsLength(8)
+            role_combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
             for role, label in _ROLE_LABELS:
                 role_combo.addItem(label, role)
             role_combo.setToolTip(

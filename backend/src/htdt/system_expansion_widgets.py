@@ -882,9 +882,14 @@ class SystemExpansionRoomPanel(QFrame):
             line.setContentsMargins(0, 0, 0, 0)
             line.setSpacing(4)
             name = QLabel(f"{entity.name} / {label_role}")
+            name.setWordWrap(True)
             name.setToolTip(entity.entity_id)
             remove_check = QCheckBox("削除")
             equipment = QComboBox()
+            equipment.setMinimumContentsLength(8)
+            equipment.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
             equipment.addItem("機器変更なし", None)
             for semantic_sha256, label in choices:
                 equipment.addItem(label, semantic_sha256)

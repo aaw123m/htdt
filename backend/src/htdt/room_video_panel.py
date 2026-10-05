@@ -522,6 +522,10 @@ class _SpinRow(QWidget):
         row.setSpacing(4)
         text = QLabel(label)
         set_typography_role(text, TypographyRole.SECONDARY)
+        # Wrap long JA labels so the row's minimum width stays near the
+        # spin's width — otherwise a narrow right panel pushes the spin
+        # off-screen behind a horizontal scrollbar.
+        text.setWordWrap(True)
         self.spin = MetricSpinBox(
             self, minimum_m=minimum, maximum_m=maximum
         )
@@ -607,6 +611,9 @@ class RoomVideoPanel(QWidget):
         projection_layout.addWidget(self.screen_heading)
         screen_form = QFormLayout()
         screen_form.setContentsMargins(0, 0, 0, 0)
+        # Narrow right panel: wrap the row label above its field instead of
+        # overflowing sideways.
+        screen_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.screen_width = MetricSpinBox(
             self, minimum_m=0.5, maximum_m=20.0
         )
@@ -695,6 +702,7 @@ class RoomVideoPanel(QWidget):
         display_layout.addWidget(self.display_heading)
         display_form = QFormLayout()
         display_form.setContentsMargins(0, 0, 0, 0)
+        display_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.display_width = MetricSpinBox(
             self, minimum_m=0.1, maximum_m=10.0
         )
@@ -758,6 +766,7 @@ class RoomVideoPanel(QWidget):
         # --- policy ------------------------------------------------------------
         policy_form = QFormLayout()
         policy_form.setContentsMargins(0, 0, 0, 0)
+        policy_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.sightline_clearance = MetricSpinBox(
             self, minimum_m=0.0, maximum_m=1.0
         )
@@ -823,9 +832,16 @@ class RoomVideoPanel(QWidget):
         self.restore_camera_button = QPushButton("カメラを戻す")
         self.restore_camera_button.setToolTip('座席視点を解除して通常のカメラに戻します')
         seat_view_row.addWidget(self.seat_view_combo, stretch=1)
-        seat_view_row.addWidget(self.view_seat_button)
-        seat_view_row.addWidget(self.restore_camera_button)
         layout.addLayout(seat_view_row)
+        # Buttons live on their own row: label + combo + two buttons exceeds
+        # the placement column's narrow width and forced a horizontal
+        # scrollbar on the whole panel.
+        seat_view_buttons = QHBoxLayout()
+        seat_view_buttons.setSpacing(4)
+        seat_view_buttons.addWidget(self.view_seat_button)
+        seat_view_buttons.addWidget(self.restore_camera_button)
+        seat_view_buttons.addStretch(1)
+        layout.addLayout(seat_view_buttons)
 
         self.new_spec_button.clicked.connect(self.createSpecRequested)
         self.new_display_spec_button.clicked.connect(self.createDisplaySpecRequested)
@@ -1091,6 +1107,9 @@ class RoomVideoPanel(QWidget):
                     card = QWidget()
                     form = QFormLayout(card)
                     form.setContentsMargins(0, 0, 0, 0)
+                    form.setRowWrapPolicy(
+                        QFormLayout.RowWrapPolicy.WrapLongRows
+                    )
                     eye_z = _SpinRow("眼高さオフセット Z", minimum=0.0, maximum=3.0, step=0.05, value=1.10)
                     head_z = _SpinRow("頭部オフセット Z", minimum=0.0, maximum=3.0, step=0.05, value=1.15)
                     head_r = _SpinRow("頭半径", minimum=0.02, maximum=0.5, step=0.01, value=0.10)
@@ -1101,6 +1120,12 @@ class RoomVideoPanel(QWidget):
                         )
                     row_id = QLineEdit('row-1')
                     riser_combo = QComboBox()
+                    # Created per seat card at refresh time — keep it
+                    # shrinkable like the ctor-time combos in this column.
+                    riser_combo.setMinimumContentsLength(6)
+                    riser_combo.setSizeAdjustPolicy(
+                        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
                     riser_combo.addItem("（ライザーなし）", None)
                     for riser in risers:
                         riser_combo.addItem(riser.name, riser.entity_id)
@@ -1111,6 +1136,10 @@ class RoomVideoPanel(QWidget):
                     form.addRow(head_r)
                     form.addRow("ライザー", riser_combo)
                     pose_combo = QComboBox()
+                    pose_combo.setMinimumContentsLength(6)
+                    pose_combo.setSizeAdjustPolicy(
+                        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
                     pose_combo.addItem("カスタム（手動値）", None)
                     pose_combo.setToolTip(
                         "座席のリスナーポーズ権威 (#632) — 選択時は眼/頭オフセットがポーズから導出されます"
