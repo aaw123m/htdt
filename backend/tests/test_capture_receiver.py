@@ -402,7 +402,7 @@ class TestDeliveries:
         _i, _b, _r, service, pairing = self._active(tmp_path)
         archive = b'x'
         headers = _delivery_headers(archive)
-        headers['X-HTDT-Artifact-Kind'] = 'field_return'
+        headers['X-HTDT-Artifact-Kind'] = 'equipment_catalog_snapshot'
         status, receipt = service.handle_delivery(
             pairing.pairing_token, headers, archive
         )

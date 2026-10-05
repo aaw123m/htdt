@@ -2556,6 +2556,12 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'capture authority linkage claims; canonical replay path pending '
         '— strongest verification is schema + payload parse',
     ),
+    'capture_authoring_provenances': (
+        'STRUCTURAL_ONLY',
+        'capture measurement-promotion provenance bindings; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
     'capture_ingestion_authority_links': (
         'STRUCTURAL_ONLY',
         'ingestion authority-link claims; canonical replay path pending '

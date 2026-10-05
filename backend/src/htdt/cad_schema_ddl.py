@@ -510,6 +510,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS capture_authoring_provenances ( provenance_id TEXT PRIMARY KEY, capture_lineage_digest TEXT NOT NULL, bundle_digest TEXT NOT NULL, capture_revision_id TEXT NOT NULL, record_kind TEXT NOT NULL, record_id TEXT NOT NULL, authority_record_handoff_id TEXT NOT NULL, source_payload_sha256 TEXT NOT NULL, coordinate_space_id TEXT, applied_to_document_id TEXT NOT NULL, applied_to_scene_revision_id TEXT NOT NULL, operator_action TEXT NOT NULL, resolved_refs_json TEXT, quantity_type TEXT, quantity_value REAL, quantity_unit TEXT, created_at_utc TEXT NOT NULL, UNIQUE(capture_lineage_digest, record_kind, record_id, applied_to_document_id) )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS floor_plan_underlays ( document_id TEXT NOT NULL, underlay_id TEXT NOT NULL, payload_json TEXT NOT NULL, updated_at_utc TEXT NOT NULL, PRIMARY KEY (document_id, underlay_id) )
     """
     ,
