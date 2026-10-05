@@ -16,11 +16,21 @@ per adapter descriptor, with one row per phenomenon. Fail-closed rules:
 * BOUNDED rows must carry a bound description;
 * UNSUPPORTED rows carry at least one reason and no valid band — the honest
   limit is recorded instead of silence.
+
+Runtime emit points (the manifest is no longer test-only):
+
+* ``scripts/run_r130a_candidate_wave_execution.py`` declares the manifest for
+  the PFFDTD candidate descriptor when the descriptor itself is persisted —
+  every r130x lane shares that fixture;
+* ``PffdtdCandidateWaveExecutor.execute`` re-derives and persists the
+  manifest at result-commit with the envelope's produced observables —
+  a descriptor/result divergence fails closed instead of recording an
+  overclaim. The polyhedral executor routes through the same helper.
 """
 
 from __future__ import annotations
 
-from typing import Literal, Sequence
+from typing import Iterable, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -213,4 +223,225 @@ def build_solver_capability_manifest(
         acoustic_domain=descriptor.acoustic_domain,
         solver_valid_frequency_domain=descriptor.valid_frequency_domain,
         rows=normalized,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Honest row derivation from a persisted adapter descriptor
+# ---------------------------------------------------------------------------
+
+#: What one declared observable directly evidences, per acoustic domain:
+#: ``{domain: {observable: {phenomenon: (state, bound_description|None)}}}``.
+#: An observable only ever evidences phenomena the artifact it names is a
+#: direct measurement/synthesis of — anything not listed here must not be
+#: upgraded from UNSUPPORTED by declaration alone.
+_OBSERVABLE_EVIDENCE: dict[str, dict[str, dict[str, tuple[str, str | None]]]] = {
+    'wave': {
+        # A complex-pressure solve carries the full coherent wave field at
+        # the receivers: direct propagation, wall reflections, modal buildup
+        # and phase — all inside the declared band. Diffraction and
+        # scattering exist in the solution but their fidelity is bounded by
+        # what the grid/compiled boundary can represent, so they record
+        # BOUNDED rather than SUPPORTED.
+        'complex_pressure': {
+            'direct_sound': ('SUPPORTED', None),
+            'specular_reflection': ('SUPPORTED', None),
+            'edge_diffraction': (
+                'BOUNDED',
+                'resolved by the wave grid only down to its spatial '
+                'discretization',
+            ),
+            'scattering': (
+                'BOUNDED',
+                'carried only by boundary/material heterogeneity present '
+                'in the compiled geometry',
+            ),
+            'low_frequency_modal_response': ('SUPPORTED', None),
+            'coherent_phase': ('SUPPORTED', None),
+        },
+        'impulse_response': {
+            'direct_sound': ('SUPPORTED', None),
+            'specular_reflection': ('SUPPORTED', None),
+            'late_energy_decay': (
+                'BOUNDED',
+                'bounded by the finite simulated duration of the impulse '
+                'response',
+            ),
+            'low_frequency_modal_response': ('SUPPORTED', None),
+            'coherent_phase': ('SUPPORTED', None),
+        },
+        'phase_response': {
+            'coherent_phase': ('SUPPORTED', None),
+        },
+        'magnitude_response': {
+            'direct_sound': ('SUPPORTED', None),
+        },
+        'spatial_pressure_field': {
+            'spatial_pressure_field': ('SUPPORTED', None),
+            'direct_sound': ('SUPPORTED', None),
+        },
+    },
+    'geometric': {
+        # Deterministic path artifacts are energy/time path ensembles over
+        # the compiled region/portal graph — no coherent phase, no modal
+        # resolution, no diffraction synthesis on this domain.
+        'deterministic_paths': {
+            'direct_sound': ('SUPPORTED', None),
+            'specular_reflection': (
+                'BOUNDED',
+                'bounded by the maximum traced interaction order',
+            ),
+            'portal_region_coupling': (
+                'BOUNDED',
+                'coupled only through the declared region/portal '
+                'traversal paths',
+            ),
+        },
+        'late_decay_estimate': {
+            'late_energy_decay': (
+                'BOUNDED',
+                'bounded stochastic estimate over the traced path '
+                'ensemble',
+            ),
+        },
+        'late_energy_decay': {
+            'late_energy_decay': (
+                'BOUNDED',
+                'bounded stochastic estimate over the traced path '
+                'ensemble',
+            ),
+        },
+        'impulse_response': {
+            'direct_sound': ('SUPPORTED', None),
+            'late_energy_decay': (
+                'BOUNDED',
+                'bounded by the finite synthesized impulse response '
+                'duration',
+            ),
+        },
+        'magnitude_response': {
+            'direct_sound': ('SUPPORTED', None),
+        },
+        'spatial_pressure_field': {
+            'spatial_pressure_field': ('SUPPORTED', None),
+        },
+    },
+}
+
+#: Phenomena a domain cannot evidence at all — recorded UNSUPPORTED with an
+#: explicit domain reason instead of the generic "no evidence" one.
+_DOMAIN_UNSUPPORTED_REASONS: dict[str, dict[str, str]] = {
+    'geometric': {
+        'coherent_phase': (
+            'geometric path ensembles carry energy/time only — no coherent '
+            'phase synthesis'
+        ),
+        'low_frequency_modal_response': (
+            'geometric approximation does not resolve modal response'
+        ),
+        'edge_diffraction': (
+            'deterministic path model does not synthesize edge diffraction'
+        ),
+        'scattering': (
+            'no stochastic/scattering observable is declared on this path'
+        ),
+    },
+    'wave': {
+        'portal_region_coupling': (
+            'this solver path does not bind region/portal coupling '
+            'authorities'
+        ),
+    },
+}
+
+
+def derive_solver_capability_rows(
+    descriptor: AcousticSolverAdapterDescriptor,
+    *,
+    produced_observables: Iterable[str] | None = None,
+) -> tuple[SolverCapabilityRow, ...]:
+    """Derive honest capability rows from a persisted adapter descriptor.
+
+    SUPPORTED/BOUNDED is recorded only where the descriptor's own declared
+    ``supported_observables`` provide direct artifact evidence for the
+    phenomenon; every other phenomenon records UNSUPPORTED with its reason —
+    never silence and never an overclaim.
+
+    ``produced_observables`` is supplied at result-commit emit points and
+    narrows the evidence basis to what the execution actually produced:
+    phenomena whose only evidence is a declared-but-unproduced observable
+    degrade to UNSUPPORTED with an explicit reason, and any produced
+    observable the descriptor never declared is a descriptor/result
+    divergence that fails closed instead of being recorded.
+    """
+    descriptor = AcousticSolverAdapterDescriptor.model_validate(
+        descriptor.model_dump(mode='python')
+    )
+    if produced_observables is None:
+        observables = descriptor.supported_observables
+        unevidenced_reason = (
+            'no declared observable on this solver path evidences '
+        )
+    else:
+        undeclared = sorted(
+            set(produced_observables) - set(descriptor.supported_observables)
+        )
+        if undeclared:
+            raise ValueError(
+                'solver result produced observables the adapter descriptor '
+                f'does not declare: {undeclared}'
+            )
+        observables = tuple(
+            observable
+            for observable in descriptor.supported_observables
+            if observable in set(produced_observables)
+        )
+        unevidenced_reason = (
+            'no produced observable on this execution evidences '
+        )
+    domain_evidence = _OBSERVABLE_EVIDENCE.get(descriptor.acoustic_domain, {})
+    domain_reasons = _DOMAIN_UNSUPPORTED_REASONS.get(
+        descriptor.acoustic_domain, {}
+    )
+    # Strongest claim wins; a SUPPORTED evidence overrules a BOUNDED one.
+    claims: dict[str, tuple[str, str | None]] = {}
+    for observable in observables:
+        for phenomenon, claim in domain_evidence.get(observable, {}).items():
+            state, bound = claim
+            existing = claims.get(phenomenon)
+            if existing is None or existing[0] == 'BOUNDED':
+                if state == 'SUPPORTED' or existing is None:
+                    claims[phenomenon] = claim
+                elif existing[0] == 'BOUNDED' and bound is not None:
+                    claims[phenomenon] = (
+                        'BOUNDED',
+                        f'{existing[1]}; {bound}',
+                    )
+    rows: list[SolverCapabilityRow] = []
+    for phenomenon in SOLVER_PATH_PHENOMENA:
+        claim = claims.get(phenomenon)
+        if claim is not None:
+            state, bound = claim
+            rows.append(
+                SolverCapabilityRow(
+                    phenomenon=phenomenon,
+                    state=state,  # type: ignore[arg-type]
+                    valid_frequency_domain=descriptor.valid_frequency_domain,
+                    bound_description=bound,
+                )
+            )
+            continue
+        reason = domain_reasons.get(
+            phenomenon,
+            f'{unevidenced_reason}{phenomenon}',
+        )
+        rows.append(
+            SolverCapabilityRow(
+                phenomenon=phenomenon,  # type: ignore[arg-type]
+                state='UNSUPPORTED',
+                reasons=(reason,),
+            )
+        )
+    return tuple(
+        sorted(rows, key=lambda row: str(row.phenomenon))
     )

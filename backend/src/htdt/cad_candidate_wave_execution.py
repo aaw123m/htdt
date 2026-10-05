@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from hashlib import sha256
 import importlib.metadata
 import json
@@ -53,6 +53,7 @@ from .treatment_boundary_overlay import (
     TreatmentBoundaryOverlay,
 )
 from .cad_acoustic_snapshot_repository import CadAcousticSnapshotRepository
+from .cad_acoustic_solver_adapter import AcousticSolverDispatchBinding
 from .cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
@@ -63,6 +64,10 @@ from .cad_acoustic_solver_result import (
     AcousticSolverResultEnvelope,
     CadAcousticSolverResultRepository,
     build_acoustic_solver_result_envelope,
+)
+from .cad_solver_capability_manifest import (
+    build_solver_capability_manifest,
+    derive_solver_capability_rows,
 )
 from .cad_equipment import FrequencyDomain
 from .export_io import write_text_atomic
@@ -1080,6 +1085,41 @@ class PffdtdCandidateWaveExecutor:
             return fetch(*args)
         except ValueError as exc:
             raise CandidateWaveExecutionError(str(exc)) from exc
+
+    def _persist_capability_manifest(
+        self,
+        dispatch: AcousticSolverDispatchBinding,
+        produced_observables: Iterable[str],
+    ) -> None:
+        """Emit the solver-path capability manifest at result-commit.
+
+        Re-derives the manifest for the dispatch's persisted descriptor with
+        the envelope's produced observables; a descriptor/result divergence
+        fails closed rather than recording an overclaim. Persisting the same
+        derived manifest again is idempotent.
+        """
+
+        descriptor = self._require_resolved(
+            self.dispatch_repository.get_descriptor,
+            dispatch.adapter_descriptor_id,
+        )
+        if (
+            descriptor is None
+            or descriptor.semantic_sha256
+            != dispatch.adapter_descriptor_semantic_sha256
+        ):
+            raise CandidateWaveExecutionError(
+                'solver capability manifest references a missing or stale '
+                'adapter descriptor'
+            )
+        manifest = build_solver_capability_manifest(
+            descriptor=descriptor,
+            rows=derive_solver_capability_rows(
+                descriptor,
+                produced_observables=produced_observables,
+            ),
+        )
+        self.dispatch_repository.save_capability_manifest(manifest)
 
     def _compose_treatment_boundary(
         self,
@@ -3045,7 +3085,14 @@ class PffdtdCandidateWaveExecutor:
                 )
             ),
         )
-        return self.result_repository.save(envelope)
+        saved = self.result_repository.save(envelope)
+        self._persist_capability_manifest(
+            dispatch,
+            produced_observables=(
+                item.observable for item in saved.artifacts
+            ),
+        )
+        return saved
 
 
 def register_authority_model(

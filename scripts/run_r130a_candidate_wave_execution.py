@@ -41,6 +41,10 @@ from htdt.cad_acoustic_solver_dispatch_repository import (
     CadAcousticSolverDispatchRepository,
 )
 from htdt.cad_acoustic_solver_result import CadAcousticSolverResultRepository
+from htdt.cad_solver_capability_manifest import (
+    build_solver_capability_manifest,
+    derive_solver_capability_rows,
+)
 from htdt.cad_candidate_wave_execution import (
     COMPLEX_PRESSURE_ARTIFACT_SCHEMA_VERSION,
     PFFDTD_CANDIDATE_ADAPTER_ID,
@@ -1041,6 +1045,14 @@ def _fixture(
         fidelity_policy_resolver=fidelity_policy_resolver,
     )
     dispatch_repository.save_descriptor(descriptor)
+    # Runtime emit point (REV51): the descriptor's declared phenomenon
+    # manifest is persisted alongside the descriptor authority itself.
+    dispatch_repository.save_capability_manifest(
+        build_solver_capability_manifest(
+            descriptor=descriptor,
+            rows=derive_solver_capability_rows(descriptor),
+        )
+    )
     dispatch = bind_prediction_request_to_solver_adapter(
         snapshot=snapshot,
         request=request,

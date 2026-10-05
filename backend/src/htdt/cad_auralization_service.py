@@ -48,6 +48,15 @@ from .cad_auralization import (
     render_auralization,
 )
 from .cad_auralization_repository import CadAuralizationRepository
+from .cad_auralization_review import (
+    AuralizationCapability,
+    AuralizationReviewPackage,
+    AuralizationRoutingDeclaration,
+    AuralizationStemRoute,
+    build_auralization_capability,
+    build_auralization_routing,
+    build_review_package,
+)
 from .cad_measurement_ir import CadImpulseResponseDataset
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurement_quality import measurement_sha256
@@ -276,10 +285,165 @@ def materialize_measured_auralization(
     return artifact, wav
 
 
+MEASURED_IR_PRODUCER_ID = 'htdt.rew_ir_import'
+"""Producer chain identity for measured IR datasets.
+
+Measured impulse responses only enter the repository through the REW IR
+importer, so the producer id is a fixed declaration here; the exact
+importer authority version travels on the dataset's ``importer_version``
+field and is pinned verbatim onto the capability record.
+"""
+
+
+def build_measured_stem_routing(
+    spec: AuralizationRenderSpec,
+    artifact: AuralizationArtifact,
+) -> AuralizationRoutingDeclaration:
+    """Declare the routing a measured-leg render actually performed.
+
+    The measured leg is a single stem onto a single output channel: the
+    measurement's source scenario is the source, the render's exact dry
+    program and impulse authority travel unchanged, and the gain the
+    renderer actually applied is declared verbatim (``delay_ms`` and
+    ``filter_identity`` are honest zeros — the convolution path applies
+    neither). Anything the mix does not contain is simply absent from
+    ``stems``.
+    """
+
+    if artifact.spec_id != spec.spec_id or (
+        artifact.spec_semantic_sha256 != spec.semantic_sha256
+    ):
+        raise ValueError('routing artifact does not belong to the spec')
+    return build_auralization_routing(
+        document_id=spec.document_id,
+        output_sample_rate_hz=artifact.sample_rate_hz,
+        output_layout='mono_mix',
+        stems=(
+            AuralizationStemRoute(
+                stem_id=f'{spec.source_scenario_id}:stem-0',
+                source_id=spec.source_scenario_id,
+                dry_source=spec.dry_source,
+                impulse_authority=spec.impulse_authority,
+                output_channel=0,
+                gain_db=artifact.applied_gain_db,
+                delay_ms=0.0,
+                filter_identity='none',
+            ),
+        ),
+    )
+
+
+def build_measured_capability(
+    spec: AuralizationRenderSpec,
+    artifact: AuralizationArtifact,
+    routing: AuralizationRoutingDeclaration,
+    ir_dataset: CadImpulseResponseDataset,
+) -> AuralizationCapability:
+    """Seal the capability record for a measured-leg render.
+
+    The whole chain is measured — measured IR dataset, measured receiver,
+    measured scene revision — so ``ir_origin``/``confidence_state`` are
+    'measured'/'measured_reference'. Solver-side authority is declared
+    honestly absent: every acoustic authority state stays 'unknown',
+    validated bands, phenomenon capabilities and limitations are empty,
+    and the HRTF path is 'none' because measured mono IRs carry none.
+    ``prediction_measurement_identity`` is the exact measurement id that
+    produced the dataset, and the producer pair is the REW IR importer
+    (``MEASURED_IR_PRODUCER_ID`` + the dataset's own importer version).
+    """
+
+    if ir_dataset.dataset_id != spec.impulse_authority.artifact_id:
+        raise ValueError(
+            'capability IR dataset is not the spec impulse authority'
+        )
+    return build_auralization_capability(
+        spec=spec,
+        artifact=artifact,
+        routing=routing,
+        ir_origin='measured',
+        prediction_measurement_identity=ir_dataset.measurement_id,
+        ir_producer_id=MEASURED_IR_PRODUCER_ID,
+        ir_producer_version=ir_dataset.importer_version,
+        hrtf_processing='none',
+        confidence_state='measured_reference',
+    )
+
+
+def materialize_measured_review_package(
+    auralization_repository: CadAuralizationRepository,
+    *,
+    artifact: AuralizationArtifact,
+    ir_dataset: CadImpulseResponseDataset,
+    label: str,
+    created_at_utc: str,
+) -> tuple[AuralizationReviewPackage, bytes]:
+    """Emit routing + capability + review package for a persisted render.
+
+    This is the runtime emit point REV50-SECOND found missing: it derives
+    the routing declaration and capability record from the persisted
+    artifact/spec (the artifact must already be saved by
+    :func:`materialize_measured_auralization`), then builds and persists
+    the deterministic review package whose manifest pins both.
+
+    ``created_at_utc`` is an explicit caller-pinned timestamp — it is part
+    of the package semantic payload, so callers that need idempotent
+    re-emission must pass the same value; a fresh value intentionally
+    produces a new package record. Every persist step is idempotent:
+    already-recorded routing/capability/package rows are recognised by
+    their semantic digests rather than re-inserted.
+    """
+
+    spec = auralization_repository.get_render_spec(artifact.spec_id)
+    if spec is None or spec.semantic_sha256 != artifact.spec_semantic_sha256:
+        raise ValueError(
+            'review package requires the exact persisted render spec'
+        )
+    wav_bytes = auralization_repository.read_artifact_wav(artifact)
+    routing = build_measured_stem_routing(spec, artifact)
+    if auralization_repository.find_routing_by_sha(
+        routing.routing_sha256
+    ) is None:
+        auralization_repository.save_routing(routing)
+    capability = build_measured_capability(
+        spec, artifact, routing, ir_dataset
+    )
+    if auralization_repository.find_capability_by_sha(
+        capability.semantic_sha256
+    ) is None:
+        auralization_repository.save_capability(capability)
+    package, package_bytes = build_review_package(
+        document_id=spec.document_id,
+        scene_revision_id=spec.scene_revision_id,
+        scene_content_hash=spec.scene_content_hash,
+        system_variant_id=spec.system_variant_id,
+        system_variant_sha256=spec.system_variant_sha256,
+        comparisons=(
+            {
+                'label': label,
+                'artifact': artifact,
+                'spec': spec,
+                'wav_bytes': wav_bytes,
+                'capability': capability,
+                'routing': routing,
+            },
+        ),
+        created_at_utc=created_at_utc,
+    )
+    if auralization_repository.get_review_package(
+        package.package_id
+    ) is None:
+        auralization_repository.save_review_package(package, package_bytes)
+    return package, package_bytes
+
+
 __all__ = [
     'resolve_impulse_authority',
     'decode_dry_program_wav',
     'register_dry_program_asset',
     'build_measured_render_spec',
     'materialize_measured_auralization',
+    'MEASURED_IR_PRODUCER_ID',
+    'build_measured_stem_routing',
+    'build_measured_capability',
+    'materialize_measured_review_package',
 ]

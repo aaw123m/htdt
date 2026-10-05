@@ -90,7 +90,7 @@ HTDTのuser-facing navigationはdomain/service境界ではなくtaskで構成す
 └─ 取り込み / アクティビティ / ライブラリ / サポート / 設定
 ~~~
 
-ヘルプはrailの常設destinationではなく、`Ctrl+K` のcommand paletteから `help` で検索して開く（ショートカット一覧・用語・workflow説明・障害対応の19 topic）。
+ヘルプはrailの常設destinationではなく、`Ctrl+K` のcommand paletteから `help` で検索して開く（ショートカット一覧・用語・workflow説明・障害対応のtopic群）。
 
 Predictionを単独global destinationとして固定しない。
 
@@ -117,7 +117,7 @@ Predictionを単独global destinationとして固定しない。
 - workspace以外のapplication destination: プロジェクト / 取り込み / アクティビティ / ライブラリ / サポート / 受入検証
 - 下端に 設定（ヘルプは常設buttonではなく `Ctrl+K` palette経由）
 
-global destinationは原則4〜5個以内。icon-onlyを既定にせず、short labelを併記する。必要ならrail自体をcollapseできる。
+global destinationは少数に限定する（現行構成は workspace 6 + application destination 6）。icon-onlyを既定にせず、short labelを併記する。必要ならrail自体をcollapseできる。
 
 ### Top context bar
 

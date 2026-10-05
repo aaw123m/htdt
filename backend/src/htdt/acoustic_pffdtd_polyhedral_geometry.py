@@ -1340,4 +1340,11 @@ class PffdtdPolyhedralCandidateWaveExecutor:
                 )
             ),
         )
-        return self.base_executor.result_repository.save(result)
+        saved = self.base_executor.result_repository.save(result)
+        self.base_executor._persist_capability_manifest(
+            dispatch,
+            produced_observables=(
+                item.observable for item in saved.artifacts
+            ),
+        )
+        return saved

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from htdt.cad_acoustic_solver_adapter import (
+    AcousticSolverDispatchBinding,
     build_acoustic_solver_adapter_descriptor,
 )
 from htdt.cad_acoustic_solver_dispatch_repository import (
@@ -20,11 +21,16 @@ from htdt.cad_acoustic_solver_dispatch_repository import (
 )
 from htdt.cad_equipment import FrequencyDomain
 from htdt.cad_repository import SceneRepository
+from htdt.cad_candidate_wave_execution import (
+    CandidateWaveExecutionError,
+    PffdtdCandidateWaveExecutor,
+)
 from htdt.cad_solver_capability_manifest import (
     SOLVER_PATH_PHENOMENA,
     SolverCapabilityManifest,
     SolverCapabilityRow,
     build_solver_capability_manifest,
+    derive_solver_capability_rows,
 )
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 
@@ -236,3 +242,132 @@ def test_manifest_id_is_content_bound() -> None:
     payload['adapter_version'] = '9'
     with pytest.raises(ValueError, match='hash mismatch'):
         SolverCapabilityManifest.model_validate(payload)
+
+
+# ---------------------------------------------------------------------------
+# REV51: derived capability rows + runtime emit wiring
+# ---------------------------------------------------------------------------
+
+
+def test_derived_rows_track_geometric_observables() -> None:
+    rows = derive_solver_capability_rows(_descriptor())
+    states = {row.phenomenon: row.state for row in rows}
+    assert set(states) == set(SOLVER_PATH_PHENOMENA)
+    assert states['direct_sound'] == 'SUPPORTED'
+    assert states['specular_reflection'] == 'BOUNDED'
+    assert states['portal_region_coupling'] == 'BOUNDED'
+    assert states['coherent_phase'] == 'UNSUPPORTED'
+    assert states['edge_diffraction'] == 'UNSUPPORTED'
+    assert states['late_energy_decay'] == 'UNSUPPORTED'
+    for row in rows:
+        if row.state == 'UNSUPPORTED':
+            assert row.reasons, row.phenomenon
+        if row.state == 'BOUNDED':
+            assert row.bound_description, row.phenomenon
+
+
+def test_derived_rows_track_wave_observables() -> None:
+    descriptor = _descriptor(
+        acoustic_domain='wave',
+        supported_observables=('complex_pressure', 'impulse_response'),
+    )
+    rows = derive_solver_capability_rows(descriptor)
+    states = {row.phenomenon: row.state for row in rows}
+    assert states['direct_sound'] == 'SUPPORTED'
+    assert states['specular_reflection'] == 'SUPPORTED'
+    assert states['edge_diffraction'] == 'BOUNDED'
+    assert states['scattering'] == 'BOUNDED'
+    assert states['late_energy_decay'] == 'BOUNDED'
+    assert states['coherent_phase'] == 'SUPPORTED'
+    assert states['low_frequency_modal_response'] == 'SUPPORTED'
+    # A wave solver carries no portal traversal — the claim stays closed.
+    assert states['portal_region_coupling'] == 'UNSUPPORTED'
+
+
+def test_derived_rows_narrow_to_produced_observables() -> None:
+    descriptor = _descriptor(
+        acoustic_domain='wave',
+        supported_observables=('complex_pressure', 'impulse_response'),
+    )
+    rows = derive_solver_capability_rows(
+        descriptor, produced_observables=('impulse_response',)
+    )
+    states = {row.phenomenon: row.state for row in rows}
+    assert states['late_energy_decay'] == 'BOUNDED'
+    # complex_pressure was declared but not produced — no evidence survives.
+    assert states['edge_diffraction'] == 'UNSUPPORTED'
+    assert states['scattering'] == 'UNSUPPORTED'
+    # Producing an observable the descriptor never declared fails closed.
+    with pytest.raises(ValueError, match='does not declare'):
+        derive_solver_capability_rows(
+            descriptor, produced_observables=('phase_response',)
+        )
+
+
+def _stub_dispatch(descriptor) -> AcousticSolverDispatchBinding:
+    """The emit path reads only the descriptor identity off a dispatch."""
+    return AcousticSolverDispatchBinding.model_construct(
+        adapter_descriptor_id=descriptor.descriptor_id,
+        adapter_descriptor_semantic_sha256=descriptor.semantic_sha256,
+    )
+
+
+def _manifest_emitter(repository) -> PffdtdCandidateWaveExecutor:
+    """The runtime emit point: executor result-commit persists the manifest.
+
+    ``_persist_capability_manifest`` only touches ``dispatch_repository``,
+    so a bare instance carries the wiring under test without standing up
+    the full solver stack.
+    """
+    executor = PffdtdCandidateWaveExecutor.__new__(
+        PffdtdCandidateWaveExecutor
+    )
+    executor.dispatch_repository = repository
+    return executor
+
+
+def test_result_commit_emits_manifest_idempotently(tmp_path: Path) -> None:
+    repository = _dispatch_repository(tmp_path)
+    descriptor = repository.save_descriptor(_descriptor())
+    executor = _manifest_emitter(repository)
+    dispatch = _stub_dispatch(descriptor)
+
+    executor._persist_capability_manifest(
+        dispatch, produced_observables=('deterministic_paths',)
+    )
+    manifests = repository.list_capability_manifests(
+        adapter_descriptor_id=descriptor.descriptor_id
+    )
+    assert len(manifests) == 1
+    states = {row.phenomenon: row.state for row in manifests[0].rows}
+    assert states['direct_sound'] == 'SUPPORTED'
+    assert states['coherent_phase'] == 'UNSUPPORTED'
+    # Re-emitting the identical derivation is a no-op, not a conflict.
+    executor._persist_capability_manifest(
+        dispatch, produced_observables=('deterministic_paths',)
+    )
+    assert (
+        repository.list_capability_manifests(
+            adapter_descriptor_id=descriptor.descriptor_id
+        )
+        == manifests
+    )
+
+
+def test_result_commit_emit_fails_closed_on_stale_descriptor(
+    tmp_path: Path,
+) -> None:
+    repository = _dispatch_repository(tmp_path)
+    descriptor = repository.save_descriptor(_descriptor())
+    executor = _manifest_emitter(repository)
+    stale = AcousticSolverDispatchBinding.model_construct(
+        adapter_descriptor_id=descriptor.descriptor_id,
+        adapter_descriptor_semantic_sha256='0' * 64,
+    )
+    with pytest.raises(CandidateWaveExecutionError, match='missing or stale'):
+        executor._persist_capability_manifest(
+            stale, produced_observables=('deterministic_paths',)
+        )
+    assert repository.list_capability_manifests(
+        adapter_descriptor_id=descriptor.descriptor_id
+    ) == ()

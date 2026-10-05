@@ -19,10 +19,14 @@ import pytest
 
 from htdt.cad_auralization import encode_wav_pcm_s16le
 from htdt.cad_auralization_repository import CadAuralizationRepository
+from htdt.cad_auralization_review import verify_review_package
 from htdt.cad_auralization_service import (
+    build_measured_capability,
     build_measured_render_spec,
+    build_measured_stem_routing,
     decode_dry_program_wav,
     materialize_measured_auralization,
+    materialize_measured_review_package,
     register_dry_program_asset,
     resolve_impulse_authority,
 )
@@ -319,3 +323,154 @@ def test_artifact_save_requires_spec_and_exact_bytes(tmp_path: Path) -> None:
             ),
             wav,
         )
+
+
+# ----------------------------------------------------------------------
+# REV51: runtime emit — routing + capability + review package
+# ----------------------------------------------------------------------
+
+
+def _materialized_measured_leg(tmp_path: Path):
+    """Persist one measured render end to end; return every authority."""
+    (
+        _scene_repository,
+        revision,
+        measurement_repository,
+        auralization_repository,
+    ) = _repositories(tmp_path)
+    record = _save_measurement(measurement_repository, revision, 'm-1')
+    ir_dataset = _save_ir_dataset(
+        measurement_repository, record.measurement_id
+    )
+    assets = ManagedAssetStore(tmp_path / 'dry-assets')
+    dry_ref, dry_samples, _ = register_dry_program_asset(assets, _dry_wav())
+    spec, measurement, _ = build_measured_render_spec(
+        measurement_repository,
+        ir_dataset=ir_dataset,
+        dry_ref=dry_ref,
+        output_sample_rate_hz=48000,
+        gain_policy='unity',
+    )
+    artifact, wav = materialize_measured_auralization(
+        auralization_repository,
+        spec,
+        dry_samples=dry_samples,
+        ir_dataset=ir_dataset,
+    )
+    return (
+        auralization_repository,
+        measurement_repository,
+        revision,
+        spec,
+        measurement,
+        ir_dataset,
+        artifact,
+        wav,
+    )
+
+
+def test_measured_review_package_emits_all_authorities(tmp_path: Path) -> None:
+    (
+        auralization_repository,
+        _measurement_repository,
+        _revision,
+        spec,
+        measurement,
+        ir_dataset,
+        artifact,
+        wav,
+    ) = _materialized_measured_leg(tmp_path)
+
+    package, package_bytes = materialize_measured_review_package(
+        auralization_repository,
+        artifact=artifact,
+        ir_dataset=ir_dataset,
+        label='実測',
+        created_at_utc='2026-10-05T00:00:00+00:00',
+    )
+
+    capabilities = auralization_repository.capabilities_for_spec(spec.spec_id)
+    assert len(capabilities) == 1
+    capability = capabilities[0]
+    assert capability.ir_origin == 'measured'
+    assert capability.confidence_state == 'measured_reference'
+    assert capability.prediction_measurement_identity == (
+        ir_dataset.measurement_id
+    )
+    assert capability.ir_producer_id == 'htdt.rew_ir_import'
+    assert capability.ir_producer_version == ir_dataset.importer_version
+    assert capability.hrtf_processing == 'none'
+    assert capability.artifact_id == artifact.artifact_id
+
+    routing = auralization_repository.find_routing_by_sha(
+        capability.routing_sha256
+    )
+    assert routing is not None
+    assert routing.output_layout == 'mono_mix'
+    assert len(routing.stems) == 1
+    stem = routing.stems[0]
+    assert stem.source_id == measurement.measurement_id
+    assert stem.dry_source == spec.dry_source
+    assert stem.impulse_authority == spec.impulse_authority
+    assert stem.output_channel == 0
+    assert stem.gain_db == artifact.applied_gain_db
+    assert stem.delay_ms == 0.0
+    assert stem.filter_identity == 'none'
+
+    persisted = auralization_repository.get_review_package(package.package_id)
+    assert persisted == package
+    assert sha256(package_bytes).hexdigest() == package.package_asset_sha256
+    assert (
+        verify_review_package(
+            auralization_repository.read_review_package_bytes(package)
+        ).package_id
+        == package.package_id
+    )
+
+    # Re-emitting with the same pinned timestamp is an idempotent no-op.
+    again, _ = materialize_measured_review_package(
+        auralization_repository,
+        artifact=artifact,
+        ir_dataset=ir_dataset,
+        label='実測',
+        created_at_utc='2026-10-05T00:00:00+00:00',
+    )
+    assert again == package
+    assert auralization_repository.capabilities_for_spec(spec.spec_id) == (
+        capability,
+    )
+
+
+def test_measured_review_package_rejects_foreign_ir_dataset(
+    tmp_path: Path,
+) -> None:
+    (
+        auralization_repository,
+        measurement_repository,
+        revision,
+        _spec,
+        _measurement,
+        ir_dataset,
+        artifact,
+        _wav,
+    ) = _materialized_measured_leg(tmp_path)
+
+    # A dataset imported under a different measurement is not the render's
+    # impulse authority — the capability builder must fail closed.
+    other = _save_measurement(measurement_repository, revision, 'm-2')
+    other_dataset = _save_ir_dataset(
+        measurement_repository, other.measurement_id
+    )
+    with pytest.raises(ValueError, match='impulse authority'):
+        build_measured_capability(
+            auralization_repository.get_render_spec(artifact.spec_id),
+            artifact,
+            build_measured_stem_routing(
+                auralization_repository.get_render_spec(artifact.spec_id),
+                artifact,
+            ),
+            other_dataset,
+        )
+    assert auralization_repository.capabilities_for_spec(
+        artifact.spec_id
+    ) == ()

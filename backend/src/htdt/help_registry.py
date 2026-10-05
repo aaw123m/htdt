@@ -647,6 +647,58 @@ def build_help_registry() -> HelpRegistry:
             ),
         ),
         _topic(
+            'workflow.presentation',
+            'プレゼン',
+            'Presentation',
+            '保存済みシーンから組み立てたセッションの再生・A/B比較・決定記録・オフライン出力。',
+            'Replaying assembled sessions, A/B compare, recording decisions and exporting offline packages.',
+            keywords=('presentation', 'プレゼン', 'レビュー', '共有', 'A/B', '提案', '決定', 'export'),
+            deep_links=(WorkspaceDeepLink(WorkspaceId.PRESENTATION),),
+            related_commands=('navigation.presentation',),
+            related_topics=('concept.scene_vs_revision', 'concept.evidence_vs_assumption'),
+            ja_sections=(
+                ('流れ', 'セッションでシーン（またはピン留めしたバリアント）とキャプチャ済み視点を組み立てて再生し、A/B比較で2つの権威を同期カメラで並べて見比べ、決定・提案で選択や提案やコメントを権威に紐付けて記録し、出力でオフラインのレビュー／提案パッケージを生成します。読み取り専用の面であり、設計権威は変更しません。'),
+            ),
+            en_sections=(
+                ('Flow', 'Session assembles the scene (or a pinned variant) with captured viewpoints and replays them; A/B compare views two authorities under synchronized cameras; Decisions records selections, proposals and comments bound to authority; Export produces an offline review/proposal package. The surface is read-only — it never mutates engineering state.'),
+            ),
+        ),
+        _topic(
+            'workflow.video',
+            '映像調整',
+            'Video commissioning',
+            '対象と条件の束縛から測定取り込み・診断・対策・再測定比較・結果までの7ステップ。',
+            'The 7-step journey from binding the target and conditions through measurement import, diagnosis, adjustment, re-measurement and the final report.',
+            keywords=('video', '映像', 'キャリブレーション', 'HCFR', '調整', '診断', '測定セット', 'display'),
+            deep_links=(WorkspaceDeepLink(WorkspaceId.VIDEO),),
+            related_commands=('navigation.video',),
+            related_topics=('workflow.measurements', 'concept.evidence_vs_assumption'),
+            ja_sections=(
+                ('手順', '対象と条件を決め、条件を確認し、測定（HTDT JSON / HCFR CSV）を取り込み、診断して、対策を実行し、再測定して比較し、結果をまとめる順で進めます。ステップは推奨順であり、ウィザードで作ったセッションがなくても取り込み済みの測定セットは有効です。'),
+            ),
+            en_sections=(
+                ('Steps', 'Decide the target and conditions, check readiness, import measurements (HTDT JSON / HCFR CSV), diagnose against the target, record adjustments, re-measure and compare, then close out the result. Steps are a recommended order, not hard gates — imported measurement sets are legitimate without a wizard-created session.'),
+            ),
+        ),
+        _topic(
+            'workflow.acceptance',
+            '受入検証',
+            'Acceptance',
+            '物理的な受入ゲートを選び、自動・手順・証明ステップを追記専用の実行記録として進める。',
+            'Pick a physical acceptance gate and work through auto, guided-manual and attest steps as an append-only run record.',
+            keywords=('acceptance', '受入', '検証', 'ゲート', 'gate', '証明', 'attest', 'チェック'),
+            # Acceptance is an application-scope destination, not a
+            # workspace — no WorkspaceId deep link exists for it.
+            related_commands=('navigation.acceptance',),
+            related_topics=('concept.evidence_vs_assumption', 'concept.project_identity'),
+            ja_sections=(
+                ('実行', '自動ステップはこのマシンで実際のチェックを実行し、手順ステップは確認可能な部分を自動取得した上で人の確認を記録し、証明ステップは記名の証明と任意の証拠を記録します。全ての遷移は追記専用の実行リビジョンとして保存され、最初から再生できます。'),
+            ),
+            en_sections=(
+                ('Run', 'Auto steps run real checks on this machine; guided-manual steps auto-capture whatever is checkable and record a human confirmation; attest steps record a typed attestation plus optional evidence. Every transition lands as an append-only run revision — the run is replayable end to end.'),
+            ),
+        ),
+        _topic(
             'workflow.data_recovery',
             '保存・復元・バックアップ',
             'Save, recovery and backup',
