@@ -714,8 +714,8 @@ class OptimizationWorkflowController(
         sources: list[UncertaintySourceRef] = []
         if evidence_a is not None and evidence_a.sampled_envelope is not None:
             half_width = (
-                evidence_a.sampled_envelope.sampled_max
-                - evidence_a.sampled_envelope.sampled_min
+                evidence_a.sampled_envelope.sampled_max_value
+                - evidence_a.sampled_envelope.sampled_min_value
             ) / 2.0
             sources.append(
                 UncertaintySourceRef(
@@ -730,8 +730,8 @@ class OptimizationWorkflowController(
             )
         if evidence_b is not None and evidence_b.sampled_envelope is not None:
             half_width = (
-                evidence_b.sampled_envelope.sampled_max
-                - evidence_b.sampled_envelope.sampled_min
+                evidence_b.sampled_envelope.sampled_max_value
+                - evidence_b.sampled_envelope.sampled_min_value
             ) / 2.0
             sources.append(
                 UncertaintySourceRef(
