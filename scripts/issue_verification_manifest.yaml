@@ -424,3 +424,84 @@ issues:
           時間領域変換（window/gate/time_shift/clock_rate_correction）の
           IR 実行系は未実装（権威として記録のみ）。REW 派生ワークフロー
           への組み込み配線も残件。
+
+  - issue: 580
+    title: "REV56-METRICS: background-noise metric authority"
+    notes: >
+      Sealed RoomNoiseMetricProfile/BackgroundNoiseMeasurement/
+      NoiseCriterionEvaluation with NC (S12.2-2026 SIL+tangency two-step),
+      NCB (Beranek 1989 curves + rumble/hiss/vibration qualifiers),
+      RC Mark II (closed-form MF-band arithmetic + N/Q/R region
+      diagnostics), A-weighted level and fail-closed RNC placeholders.
+      Profiles are distinct authorities — scalar substitution is a hard
+      error; operating state and temporal class gate applicability;
+      worst-position aggregation preserves per-position spectra.
+    checks:
+      - id: metrics-noise-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_room_noise_metrics.py
+        description: >
+          NC/NCB/RC-II rating math against verified curve tables,
+          tangency naming the governing band, qualifier surfacing,
+          out-of-scope gating for LF-fluctuating evidence, commit-order
+          and forged-seal rejection in the append-only repository.
+      - id: metrics-rnc-curves-remainder
+        kind: manual
+        description: >
+          RNC 曲線表（Blazier）は未登録 — 評価は rnc_curve_table_not_
+          registered 制限付きで fail-closed。低域 100ms 時系列補正
+          (lf_time_domain_correction_db) の計測導線も残件。
+  - issue: 605
+    title: "REV56-METRICS: speech-intelligibility (STI) authority"
+    notes: >
+      Sealed SpeechIntelligibilityProfile (IEC 60268-16:2020+COR1:2025
+      and legacy 2011 editions, male/female-legacy weightings),
+      STIMeasurement (requires the #580 noise binding), STIPrediction
+      (requires the #566 validation pin), and
+      DialogueIntelligibilityAssessment (per-seat distribution +
+      worst/percentile). MTF path: octave-band MTR -> SNR clip [-15,+15]
+      -> TI -> alpha-weighted minus adjacent-band redundancy; IR-derived
+      MTR via the energy time function. Before/after comparison is
+      INCOMPARABLE on any path/method/profile/noise mismatch.
+    checks:
+      - id: metrics-sti-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_sti_authority.py
+        description: >
+          Perfect-transmission STI=1.0 against the published weighting
+          tables, sinusoidal and exponential-decay MTR closed forms,
+          noise/codec limitation surfacing, simulated-vs-measured
+          separation, comparability strictness.
+      - id: metrics-sti-ir-integration-remainder
+        kind: manual
+        description: >
+          実測 IR パイプラインからの band-limited ETF 抽出・聴覚マスキング
+          項（absolute reception threshold）の完全実装、RA-STI 縮退版は
+          残件。閾値の断定は target_class 宣言に限定。
+  - issue: 607
+    title: "REV56-METRICS: content loudness / normalization authority"
+    notes: >
+      Sealed ContentLoudnessProfile (BS.1770-5 production /
+      BS.1770-2026-draft research-only / AES77-2023 / EBU R128 v5.0),
+      ProgrammeLoudnessMeasurement (K-weighting + dual gating,
+      LUFS/LRA/true-peak), NormalizationObservation (off-mode cannot
+      carry applied gain), PlaybackGainState and LoudnessMatchingRecord.
+      The 13-quantity taxonomy is closed; LUFS->SPL claims require a
+      calibrated chain reference and never imply capability.
+    checks:
+      - id: metrics-loudness-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_loudness_authority.py
+        description: >
+          BS.1770 dual-gating numerics, channel weights (LFE excluded),
+          profile eligibility gating (draft research-only, immersive
+          requires extended/object), normalization audit delta honesty,
+          gain-state/observation commit order.
+      - id: metrics-loudness-calibration-remainder
+        kind: manual
+        description: >
+          85 dBC リファレンス等の再生系較正チェーン（calibrated_chain_ref
+          の実計測供給）とストリーミング実測の自動 ingest 配線は残件。
