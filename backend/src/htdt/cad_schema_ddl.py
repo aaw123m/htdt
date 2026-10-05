@@ -2537,6 +2537,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_wave_excitation_source_assets',
     'cad_wave_source_excitation_bindings',
     'cad_wiring_checks',
+    'capture_authoring_provenances',
     'capture_authority_records',
     'capture_bundles',
     'capture_connected_space_documents',
