@@ -151,6 +151,14 @@ def test_comparison_preview_saved_distinction_and_metrics(tmp_path: Path) -> Non
         workspace.refresh()
         workspace.set_context("comparison")
         assert "プレビュー" in workspace.comparison_state_label.text()
+        # #564: measured-vs-predicted comparison is gated on a persisted
+        # registration record — saving without it must be refused, then
+        # succeed once the pair is registered.
+        workspace.compare_button.click()
+        assert "プレビュー" in workspace.comparison_state_label.text()
+        assert "登録" in workspace.registration_state_label.text()
+        workspace.register_pair_button.click()
+        assert "登録済み" in workspace.registration_state_label.text()
         workspace.compare_button.click()
         assert "保存済み" in workspace.comparison_state_label.text()
         metrics = {

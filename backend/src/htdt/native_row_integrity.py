@@ -1187,6 +1187,8 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_playback_level_conditions',
     'cad_prediction_matrix_result_sets',
     'cad_prediction_matrix_runs',
+    'cad_prediction_measurement_registrations',
+    'cad_prediction_measurement_residual_reports',
     'cad_prediction_matrix_specs',
     'cad_prediction_provider_bindings',
     'cad_prediction_provider_objectives',
