@@ -210,6 +210,17 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_stimulus_eligibility": "刺激適格性判定",
     "cad_bass_splice_evidence": "バス合成証拠",
     "cad_bass_qualifications": "バス管理適格性",
+    "cad_device_backup_artifacts": "デバイスバックアップアーティファクト",
+    "cad_device_config_snapshots": "デバイス設定スナップショット",
+    "cad_device_firmware_transitions": "ファームウェア更新記録",
+    "cad_device_known_good_baselines": "既知良好ベースライン",
+    "cad_device_replacement_assessments": "代替機器ポータビリティ評価",
+    "cad_device_restore_records": "デバイス設定復元記録",
+    "cad_external_standard_documents": "外部規格登録ドキュメント",
+    "cad_standard_evaluation_pins": "規格評価ピン",
+    "cad_standard_lifecycle_observations": "規格ライフサイクル観測",
+    "cad_standard_profile_mappings": "規格プロファイルマッピング",
+    "cad_standard_revision_diffs": "規格改版差分",
 }
 
 

@@ -438,6 +438,18 @@ class _RepositoryChain:
             )
 
             return CadBassQualificationRepository(scene)
+        if name == 'external_standards':
+            from .cad_external_standards_repository import (
+                CadExternalStandardsRepository,
+            )
+
+            return CadExternalStandardsRepository(scene)
+        if name == 'device_snapshot':
+            from .cad_device_snapshot_repository import (
+                CadDeviceSnapshotRepository,
+            )
+
+            return CadDeviceSnapshotRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2184,6 +2196,72 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_bass_qualifications',
         ('qualification_id',),
         _get('bass_qualification', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'external_standard_document',
+        'cad_external_standard_documents',
+        ('registry_key',),
+        _get('external_standards', 'get_document_by_key'),
+    ),
+    _ReplayProbe(
+        'standard_lifecycle_observation',
+        'cad_standard_lifecycle_observations',
+        ('observation_id',),
+        _get('external_standards', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'standard_profile_mapping',
+        'cad_standard_profile_mappings',
+        ('mapping_id',),
+        _get('external_standards', 'get_mapping'),
+    ),
+    _ReplayProbe(
+        'standard_evaluation_pin',
+        'cad_standard_evaluation_pins',
+        ('pin_id',),
+        _get('external_standards', 'get_pin'),
+    ),
+    _ReplayProbe(
+        'standard_revision_diff',
+        'cad_standard_revision_diffs',
+        ('diff_id',),
+        _get('external_standards', 'get_revision_diff'),
+    ),
+    _ReplayProbe(
+        'device_config_snapshot',
+        'cad_device_config_snapshots',
+        ('snapshot_id',),
+        _get('device_snapshot', 'get_snapshot'),
+    ),
+    _ReplayProbe(
+        'device_known_good_baseline',
+        'cad_device_known_good_baselines',
+        ('baseline_id',),
+        _get('device_snapshot', 'get_baseline'),
+    ),
+    _ReplayProbe(
+        'device_firmware_transition',
+        'cad_device_firmware_transitions',
+        ('transition_id',),
+        _get('device_snapshot', 'get_firmware_transition'),
+    ),
+    _ReplayProbe(
+        'device_restore_record',
+        'cad_device_restore_records',
+        ('restore_id',),
+        _get('device_snapshot', 'get_restore_record'),
+    ),
+    _ReplayProbe(
+        'device_backup_artifact',
+        'cad_device_backup_artifacts',
+        ('artifact_id',),
+        _get('device_snapshot', 'get_backup_artifact_by_id'),
+    ),
+    _ReplayProbe(
+        'device_replacement_assessment',
+        'cad_device_replacement_assessments',
+        ('assessment_id',),
+        _get('device_snapshot', 'get_replacement_assessment'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',
