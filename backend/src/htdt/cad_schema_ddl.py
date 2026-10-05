@@ -2958,6 +2958,77 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_netqual_path ON cad_network_av_qualifications(path_id, path_version, seq ASC)
     """
     ,
+    # REV56-BUILDING: #576 inter-room sound-isolation qualification
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_elements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, element_id TEXT NOT NULL UNIQUE, element_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, construction_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interroom_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, source_region_id TEXT NOT NULL, receiving_region_id TEXT NOT NULL, construction_state TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interroom_field_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_id TEXT NOT NULL, scenario_sha256 TEXT NOT NULL, method_profile TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_irm_scenario ON cad_interroom_field_measurements(scenario_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_calibrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, calibration_id TEXT NOT NULL UNIQUE, calibration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_id TEXT NOT NULL, model_ref TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_isolation_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_id TEXT NOT NULL, scenario_sha256 TEXT NOT NULL, lifecycle_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_isoqual_scenario ON cad_isolation_qualifications(scenario_id, seq ASC)
+    """
+    ,
+    # REV56-BUILDING: #589 mechanical rattle / structure-borne noise
+    """
+    CREATE TABLE IF NOT EXISTS cad_mechanical_noise_tests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, test_id TEXT NOT NULL UNIQUE, test_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, signal_type TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rattle_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, test_id TEXT NOT NULL, test_sha256 TEXT NOT NULL, kind TEXT NOT NULL, localization_state TEXT NOT NULL, detected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rte_test ON cad_rattle_events(test_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_remediation_actions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, action_id TEXT NOT NULL UNIQUE, action_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, action_kind TEXT NOT NULL, performed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mechanical_noise_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, overall_verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    # REV56-BUILDING: #590 seating / occupancy acoustic authority
+    """
+    CREATE TABLE IF NOT EXISTS cad_seat_acoustic_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, seat_model_id TEXT NOT NULL UNIQUE, seat_model_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, seat_entity_id TEXT NOT NULL, geometry_source TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sam_entity ON cad_seat_acoustic_models(seat_entity_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_occupancy_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, occupancy_scenario_id TEXT NOT NULL UNIQUE, occupancy_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL, comparability_key TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_clearance_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, occupancy_scenario_id TEXT NOT NULL, occupancy_scenario_sha256 TEXT NOT NULL, listener_ref TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_seating_commissioning_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, result_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verdict TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -3449,4 +3520,17 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_network_transport_observations',
     'cad_network_timing_observations',
     'cad_network_av_qualifications',
+    'cad_isolation_elements',
+    'cad_interroom_scenarios',
+    'cad_interroom_field_measurements',
+    'cad_isolation_calibrations',
+    'cad_isolation_qualifications',
+    'cad_mechanical_noise_tests',
+    'cad_rattle_events',
+    'cad_remediation_actions',
+    'cad_mechanical_noise_qualifications',
+    'cad_seat_acoustic_models',
+    'cad_occupancy_scenarios',
+    'cad_clearance_evaluations',
+    'cad_seating_commissioning_results',
 )

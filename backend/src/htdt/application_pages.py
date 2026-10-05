@@ -279,6 +279,19 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_substitution_decisions": "代替承認判定",
     "cad_asbuilt_reconciliations": "竣工機器照合",
     "cad_equipment_schedule_records": "機器スケジュール履歴",
+    "cad_isolation_elements": "遮音構成要素",
+    "cad_interroom_scenarios": "室間遮音シナリオ",
+    "cad_interroom_field_measurements": "室間遮音実測",
+    "cad_isolation_calibrations": "遮音校正レコード",
+    "cad_isolation_qualifications": "遮音適合評価",
+    "cad_mechanical_noise_tests": "機械ノイズ試験",
+    "cad_rattle_events": "ラトルイベント",
+    "cad_remediation_actions": "ラトル是正処置",
+    "cad_mechanical_noise_qualifications": "機械ノイズ適合評価",
+    "cad_seat_acoustic_models": "座席音響モデル",
+    "cad_occupancy_scenarios": "占有シナリオ",
+    "cad_clearance_evaluations": "直達音クリアランス評価",
+    "cad_seating_commissioning_results": "座席コミッショニング結果",
 }
 
 

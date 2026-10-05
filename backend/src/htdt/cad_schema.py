@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 31
+NATIVE_SCHEMA_VERSION = 32
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1348,6 +1348,20 @@ def _migrate_30_to_31(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_31_to_32(connection: sqlite3.Connection) -> None:
+    # Install the REV56-BUILDING authorities (#576 inter-room
+    # sound-isolation qualification: construction elements, ordered
+    # source->receiving scenarios, banded field measurements,
+    # predict<->measure calibrations, qualifications; #589 mechanical
+    # rattle: noise stress tests, rattle events, remediation actions,
+    # qualifications; #590 seating/occupancy: seat acoustic models,
+    # occupancy scenarios, direct-sound clearance evaluations, seating
+    # commissioning results): new append-only authorities the idempotent
+    # baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1380,6 +1394,7 @@ _MIGRATIONS = {
     29: _migrate_28_to_29,
     30: _migrate_29_to_30,
     31: _migrate_30_to_31,
+    32: _migrate_31_to_32,
 }
 
 
