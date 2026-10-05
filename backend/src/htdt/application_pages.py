@@ -242,6 +242,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_normalization_observations": "正規化観測",
     "cad_playback_gain_states": "再生ゲイン状態",
     "cad_loudness_matching_records": "ラウドネス整合レコード",
+    "cad_rp22_profiles": "RP22標準プロファイル",
+    "cad_rp22_evaluations": "RP22適合性評価",
+    "cad_response_targets": "応答目標プロファイル",
+    "cad_spectral_balance_evaluations": "スペクトルバランス評価",
 }
 
 

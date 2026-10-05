@@ -1092,4 +1092,4 @@ def test_std61_migration_from_v24_creates_tables(tmp_path):
     repository.save_snapshot(snapshot)
     assert repository.get_snapshot(snapshot.snapshot_id) == snapshot
     from htdt.cad_schema import NATIVE_SCHEMA_VERSION
-    assert NATIVE_SCHEMA_VERSION == 25
+    assert NATIVE_SCHEMA_VERSION == 27
