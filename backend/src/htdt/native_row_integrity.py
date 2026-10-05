@@ -582,6 +582,37 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #533: every duplicated column of the active-LF control rows is a
+    # payload field duplicate — the repository stores the full sealed
+    # plan/event documents in ``payload_json``.
+    'cad_active_lf_control_plans': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('representation', 'representation'),
+            _b('lifecycle', 'lifecycle'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_active_lf_control_events': (
+        'payload_json',
+        (
+            _b('document_id', 'document_id'),
+            _b('plan_id', 'plan_id'),
+            _b('from_plan_sha256', 'from_plan_sha256'),
+            _b('to_plan_sha256', 'to_plan_sha256'),
+            _b('from_lifecycle', 'from_lifecycle'),
+            _b('to_lifecycle', 'to_lifecycle'),
+            _b('event_kind', 'event_kind'),
+            _b('evidence_ref', 'evidence_ref', optional=True),
+            _b('actor', 'actor', optional=True),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
     'cad_video_presentation_profiles': (
         'payload_json',
         (
@@ -892,6 +923,20 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV48 guided acceptance runs: index columns mirror the revision
+    # payload exactly — the bindings make a divergence itself drift.
+    'htdt_acceptance_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('revision', 'revision'),
+            _b('gate_id', 'gate_id'),
+            _b('status', 'status'),
+            _b('run_sha256', 'run_sha256'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
@@ -1001,6 +1046,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'assumption_decisions',
     'authoring_constraint_revisions',
     'authoring_constraint_sets',
+    'cad_acoustic_geometry_derivations',
     'cad_acoustic_materials',
     'cad_acoustic_prediction_requests',
     'cad_acoustic_scene_snapshots',
@@ -1026,7 +1072,11 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_analysis_studies',
     'cad_applicability_attestations',
     'cad_auralization_artifacts',
+    'cad_auralization_capabilities',
+    'cad_auralization_listening_validations',
     'cad_auralization_render_specs',
+    'cad_auralization_review_packages',
+    'cad_auralization_routing_declarations',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_cable_runs',
@@ -1141,6 +1191,9 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_prediction_provider_bindings',
     'cad_prediction_provider_objectives',
     'cad_prediction_providers',
+    'cad_presentation_proposals',
+    'cad_presentation_sessions',
+    'cad_presentation_sync_bindings',
     'cad_project_boms',
     'cad_projector_spec_evidence',
     'cad_projector_specifications',
@@ -1181,6 +1234,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_site_spaces',
     'cad_signal_path_selections',
     'cad_signal_paths',
+    'cad_solver_capability_manifests',
     'cad_source_responses',
     'cad_source_review_decisions',
     'cad_speaker_datasets',
@@ -1226,8 +1280,16 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_validation_campaigns',
     'cad_validation_cases',
     'cad_validation_corpus_entries',
+    'cad_video_action_proposals',
+    'cad_video_before_after_comparisons',
+    'cad_video_commissioning_sessions',
+    'cad_video_commissioning_status_events',
+    'cad_video_diagnoses',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
+    'cad_video_import_batches',
+    'cad_video_operator_adjustments',
+    'cad_video_readiness_reports',
     'cad_visual_qa_verdicts',
     'cad_wave_excitation_evidence_authorities',
     'cad_wave_source_excitation_bindings',

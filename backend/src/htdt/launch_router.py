@@ -254,7 +254,7 @@ def route_capture_intent(
             bundle_path,
             ingestion,
             inbox_repository=inbox,
-            arrival_source=CAPTURE_ARRIVAL_SOURCE,
+            arrival_source=arrival_source,
         )
     except CaptureImportError as exc:
         _LOGGER.info('capture import rejected for %s: %s', bundle_path, exc)

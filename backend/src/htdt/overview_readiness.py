@@ -153,7 +153,7 @@ class OverviewSecondaryDomain:
 
     One card per non-primary domain authority (decisions, installation,
     commissioning, operating health). Overview renders them under a
-    dedicated secondary section so the four primary workspaces stay
+    dedicated secondary section so the primary workspaces stay
     compact (#649 tier C) while the domains stay discoverable.
     """
 

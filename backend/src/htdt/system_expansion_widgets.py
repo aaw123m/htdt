@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -112,11 +112,13 @@ def _degree_field(minimum: float = -180.0, maximum: float = 180.0) -> QDoubleSpi
 
 def _field_pair(first: QWidget, second: QWidget) -> QWidget:
     host = QWidget()
-    row = QHBoxLayout(host)
-    row.setContentsMargins(0, 0, 0, 0)
-    row.setSpacing(4)
-    row.addWidget(first, 1)
-    row.addWidget(second, 1)
+    # Stack min/max vertically: two side-by-side metric fields need ~340px,
+    # which overflows the narrow placement column.
+    col = QVBoxLayout(host)
+    col.setContentsMargins(0, 0, 0, 0)
+    col.setSpacing(2)
+    col.addWidget(first)
+    col.addWidget(second)
     return host
 
 
@@ -130,7 +132,7 @@ class _ProposalSpeakerRow(QFrame):
         super().__init__(parent)
         set_surface_role(self, SurfaceRole.BASE)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
         header = QHBoxLayout()
@@ -143,6 +145,17 @@ class _ProposalSpeakerRow(QFrame):
         )
         self.role_combo.setEditable(True)
         self.role_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        # Runtime-built row — keep it shrinkable like the ctor-time column
+        # combos (narrow placement panel).
+        self.role_combo.setMinimumContentsLength(6)
+        self.role_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.role_combo.setMinimumWidth(64)
+        self.role_combo.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.role_combo.sizePolicy().verticalPolicy(),
+        )
         self.role_combo.addItems(PROPOSED_ROLE_SUGGESTIONS)
         self.role_combo.setCurrentIndex(-1)
         role_edit = self.role_combo.lineEdit()
@@ -156,6 +169,15 @@ class _ProposalSpeakerRow(QFrame):
         self.equipment_combo.setToolTip(
             'この役割に使う機器モデル（機器・音源ライブラリの定義から選択）'
         )
+        self.equipment_combo.setMinimumContentsLength(6)
+        self.equipment_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.equipment_combo.setMinimumWidth(64)
+        self.equipment_combo.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.equipment_combo.sizePolicy().verticalPolicy(),
+        )
         self.remove_button = QPushButton("削除")
         set_control_size(self.remove_button, ControlSize.COMPACT)
         self.remove_button.setToolTip("この追加スピーカー行を提案から外す")
@@ -164,7 +186,6 @@ class _ProposalSpeakerRow(QFrame):
         )
         header.addWidget(self.role_combo, 1)
         header.addWidget(self.equipment_combo, 1)
-        header.addWidget(self.remove_button)
         layout.addLayout(header)
 
         form = QFormLayout()
@@ -173,6 +194,11 @@ class _ProposalSpeakerRow(QFrame):
         self.zone_name = QLineEdit("設置エリア")
         self.zone_name.setToolTip(
             'このスピーカーを置いてよい範囲の名前（表示用のラベル）'
+        )
+        self.zone_name.setMinimumWidth(72)
+        self.zone_name.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.zone_name.sizePolicy().verticalPolicy(),
         )
         self.min_x = _metric_field()
         self.min_x.setAccessibleName('X 最小値 m')
@@ -209,12 +235,21 @@ class _ProposalSpeakerRow(QFrame):
                 label.setToolTip(zone_hint)
         layout.addLayout(form)
 
+        # 削除 sits beside 詳細 on a controls row — three widgets in the
+        # header (2 combos + button) overflowed the narrow column.
+        controls_row = QHBoxLayout()
+        controls_row.setContentsMargins(0, 0, 0, 0)
+        controls_row.setSpacing(4)
         self.advanced_button = QPushButton("詳細")
         self.advanced_button.setCheckable(True)
         self.advanced_button.setToolTip(
             'オプション扱い・照準角の探索範囲などの詳細設定を開きます'
         )
         set_control_size(self.advanced_button, ControlSize.COMPACT)
+        controls_row.addWidget(self.advanced_button)
+        controls_row.addStretch(1)
+        controls_row.addWidget(self.remove_button)
+        layout.addLayout(controls_row)
         self.advanced_area = QWidget()
         advanced = QFormLayout(self.advanced_area)
         advanced.setContentsMargins(0, 0, 0, 0)
@@ -251,7 +286,6 @@ class _ProposalSpeakerRow(QFrame):
             aim_step_label.setToolTip(self.aim_step.toolTip())
         self.advanced_area.hide()
         self.advanced_button.toggled.connect(self.advanced_area.setVisible)
-        layout.addWidget(self.advanced_button)
         layout.addWidget(self.advanced_area)
 
     def role_text(self) -> str:
@@ -581,9 +615,16 @@ class SystemExpansionRoomPanel(QFrame):
             "SL/SRの2行と左右ミラー連動をまとめて追加"
         )
         self.add_pair_button.clicked.connect(self._add_surround_pair)
-        speaker_header.addWidget(self.add_speaker_button)
-        speaker_header.addWidget(self.add_pair_button)
         author_layout.addLayout(speaker_header)
+        # The two add buttons take their own row — title + 2 buttons (~400px)
+        # overflows the narrow placement column.
+        speaker_buttons = QHBoxLayout()
+        speaker_buttons.setContentsMargins(0, 0, 0, 0)
+        speaker_buttons.setSpacing(4)
+        speaker_buttons.addWidget(self.add_speaker_button)
+        speaker_buttons.addWidget(self.add_pair_button)
+        speaker_buttons.addStretch(1)
+        author_layout.addLayout(speaker_buttons)
 
         self.speaker_rows_host = QWidget()
         self.speaker_rows_layout = QVBoxLayout(self.speaker_rows_host)
@@ -640,23 +681,23 @@ class SystemExpansionRoomPanel(QFrame):
         create_row.addWidget(self.cancel_proposal_button)
         create_row.addStretch(1)
         author_layout.addLayout(create_row)
-        library_row = QHBoxLayout()
-        library_row.setContentsMargins(0, 0, 0, 0)
-        library_row.setSpacing(6)
+        library_col = QVBoxLayout()
+        library_col.setContentsMargins(0, 0, 0, 0)
+        library_col.setSpacing(6)
         self.library_button = QPushButton("機器・音源ライブラリ…")
         self.library_button.setToolTip(
             "機器定義の作成・新バージョン発行・指向性インポート"
         )
         self.library_button.clicked.connect(self._open_equipment_library)
-        library_row.addWidget(self.library_button)
+        library_col.addWidget(self.library_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.playback_button = QPushButton("再生チェーン / ヘッドルーム…")
         self.playback_button.setToolTip(
             "アンプ出力能力・スピーカー負荷・ルーティングの作成と評価"
         )
         self.playback_button.clicked.connect(self._open_playback_chain)
-        library_row.addWidget(self.playback_button)
-        library_row.addStretch(1)
-        author_layout.addLayout(library_row)
+        # Both titles are long — side-by-side they needed ~360px; stack them.
+        library_col.addWidget(self.playback_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        author_layout.addLayout(library_col)
         self.authoring_status = QLabel()
         self.authoring_status.setWordWrap(True)
         author_layout.addWidget(self.authoring_status)
@@ -882,9 +923,19 @@ class SystemExpansionRoomPanel(QFrame):
             line.setContentsMargins(0, 0, 0, 0)
             line.setSpacing(4)
             name = QLabel(f"{entity.name} / {label_role}")
+            name.setWordWrap(True)
             name.setToolTip(entity.entity_id)
             remove_check = QCheckBox("削除")
             equipment = QComboBox()
+            equipment.setMinimumContentsLength(6)
+            equipment.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            equipment.setMinimumWidth(72)
+            equipment.setSizePolicy(
+                QSizePolicy.Policy.Ignored,
+                equipment.sizePolicy().verticalPolicy(),
+            )
             equipment.addItem("機器変更なし", None)
             for semantic_sha256, label in choices:
                 equipment.addItem(label, semantic_sha256)

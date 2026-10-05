@@ -20,6 +20,12 @@ class WorkspaceId(StrEnum):
     ROOM = "room"
     MEASUREMENT = "measurement"
     OPTIMIZATION = "optimization"
+    # Issue #534: client presentation/review surface — read-only replay
+    # of exact scene authority; never an engineering edit surface.
+    PRESENTATION = "presentation"
+    # Issue #541: guided video commissioning journey — import → diagnose →
+    # act → verify for a display the user is calibrating.
+    VIDEO = "video"
 
 
 class ApplicationDestinationId(StrEnum):
@@ -30,13 +36,14 @@ class ApplicationDestinationId(StrEnum):
     ACTIVITY = "activity"
     LIBRARY = "library"
     SUPPORT = "support"
+    ACCEPTANCE = "acceptance"
 
 
 DestinationId: TypeAlias = WorkspaceId | ApplicationDestinationId
 
-#: The four compact project workspaces that every composition must register.
+#: The compact project workspaces that every composition must register.
 #: Additional registered destinations are allowed — the shell no longer
-#: assumes every user-facing destination is one of exactly these four.
+#: assumes every user-facing destination is one of exactly these.
 PROJECT_WORKSPACE_IDS: frozenset[WorkspaceId] = frozenset(WorkspaceId)
 
 
@@ -162,6 +169,8 @@ CANONICAL_WORKSPACE_LABELS: dict[WorkspaceId, str] = {
     WorkspaceId.ROOM: "部屋",
     WorkspaceId.MEASUREMENT: "測定",
     WorkspaceId.OPTIMIZATION: "最適化",
+    WorkspaceId.PRESENTATION: "プレゼン",
+    WorkspaceId.VIDEO: "映像調整",
 }
 
 
@@ -172,6 +181,8 @@ CANONICAL_WORKSPACE_HINTS: dict[WorkspaceId, str] = {
     WorkspaceId.ROOM: "部屋の形状・配置・壁材を設定し、音響予測を行います",
     WorkspaceId.MEASUREMENT: "REW等の測定の計画・取り込み・品質確認を行います",
     WorkspaceId.OPTIMIZATION: "スピーカー配置や設定の探索候補を生成し、比較・検証します",
+    WorkspaceId.PRESENTATION: "クライアント向けのプレゼン・レビュー。確定した設計権威のビューポイント再生、A/B比較、オフライン共有パッケージを扱います",
+    WorkspaceId.VIDEO: "TV/プロジェクターの色調整 — 測定の取り込み・診断・対策・再測定を手順どおりに進めます",
 }
 
 
@@ -181,6 +192,7 @@ APPLICATION_DESTINATION_HINTS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.ACTIVITY: "アプリ内で行われた操作・処理の記録を確認します",
     ApplicationDestinationId.LIBRARY: "機材・素材などの参照データ（マスタ情報）を管理します",
     ApplicationDestinationId.SUPPORT: "診断情報の出力や、権威グラフなどの内部確認を行います",
+    ApplicationDestinationId.ACCEPTANCE: "実機での受入ゲートを手順どおりに実行し、証跡を記録します",
 }
 
 
@@ -190,6 +202,7 @@ APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.ACTIVITY: "アクティビティ",
     ApplicationDestinationId.LIBRARY: "ライブラリ",
     ApplicationDestinationId.SUPPORT: "サポート",
+    ApplicationDestinationId.ACCEPTANCE: "受入検証",
 }
 
 
@@ -219,6 +232,20 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         WorkspaceContext("interventions", "介入計画", "物理的な変更案（スピーカー移動・吸音材追加など）を計画します"),
         WorkspaceContext("robustness", "ばらつき耐性", "候補が実際のばらつき（測定誤差・個体差）に耐えるかを評価します"),
         WorkspaceContext("validation", "測定・検証", "選んだ候補を実測で検証する計画を立てます"),
+    ),
+    WorkspaceId.PRESENTATION: (
+        WorkspaceContext("session", "セッション", "プレゼンセッションとビューポイントを組み立て・再生します"),
+        WorkspaceContext("compare", "A/B比較", "2つの権威を同期カメラで並べてレビューします"),
+        WorkspaceContext("decisions", "決定・提案", "レビュー中の選択・提案・コメントを権威に紐付けて記録します"),
+        WorkspaceContext("export", "出力", "オフラインのレビュー／提案パッケージを生成します"),
+    ),
+    WorkspaceId.VIDEO: (
+        WorkspaceContext("session", "セッション", "対象の画面・測定条件・ターゲットを束縛し、準備状況を評価します"),
+        WorkspaceContext("import", "読み込み", "測定ファイル（HTDT JSON / HCFR CSV）を証拠セットとして取り込みます"),
+        WorkspaceContext("diagnose", "診断", "測定セットをターゲットと照合し、項目ごとの判定と説明を確認します"),
+        WorkspaceContext("actions", "対策", "診断から導かれる調整案を確認し、実施した調整を記録します"),
+        WorkspaceContext("verify", "再測定・比較", "調整前後の測定を比較し、改善・悪化を確認します"),
+        WorkspaceContext("report", "結果", "セッションの証拠チェーンと状態を確認・完了します"),
     ),
 }
 

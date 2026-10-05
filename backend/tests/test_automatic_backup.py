@@ -275,3 +275,23 @@ def test_list_restorable_backups_merges_generations_and_upgrade_snapshots(
         empty_dir = tmp_path / other
         empty_dir.mkdir()
         assert list_restorable_backups(empty_dir) == ()
+
+
+def test_fingerprint_changes_when_auxiliary_component_changes(
+    tmp_path: Path,
+) -> None:
+    """Auxiliary authority files (e.g. commissioning-plans.json) ride
+    inside every backup archive — an aux-only edit is real managed state
+    and must invalidate the fingerprint on its own, otherwise periodic
+    evaluation never fires on aux-only changes (REV52)."""
+    data_dir = tmp_path / 'data'
+    _seed_data(tmp_path)
+    before = managed_data_fingerprint(data_dir)
+
+    aux = data_dir / 'commissioning-plans.json'
+    aux.write_text('{"plans": [{"id": "p-1"}]}', encoding='utf-8')
+    assert managed_data_fingerprint(data_dir) != before
+
+    after = managed_data_fingerprint(data_dir)
+    aux.write_text('{"plans": [{"id": "p-2"}, {"id": "p-3"}]}', encoding='utf-8')
+    assert managed_data_fingerprint(data_dir) != after

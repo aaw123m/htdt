@@ -23,6 +23,26 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_geometry_derivations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, derivation_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, scene_revision_id TEXT NOT NULL, semantic_geometry_id TEXT NOT NULL, r120_compiled_geometry_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(scene_revision_id) REFERENCES scene_revisions(revision_id), FOREIGN KEY(r120_compiled_geometry_id) REFERENCES cad_r120_compiled_geometry(compiled_geometry_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_solver_capability_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, adapter_descriptor_id TEXT NOT NULL, adapter_id TEXT NOT NULL, acoustic_domain TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(adapter_descriptor_id) REFERENCES cad_acoustic_solver_adapters(descriptor_id) )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geometry_derivation_compiled ON cad_acoustic_geometry_derivations( r120_compiled_geometry_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geometry_derivation_scene ON cad_acoustic_geometry_derivations( scene_revision_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_solver_capability_manifest_descriptor ON cad_solver_capability_manifests( adapter_descriptor_id, seq ASC )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_acoustic_level_calibrations ( calibration_id TEXT PRIMARY KEY, calibration_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL )
     """
     ,
@@ -84,6 +104,22 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE TABLE IF NOT EXISTS cad_auralization_render_specs ( spec_id TEXT PRIMARY KEY, spec_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_capabilities ( capability_id TEXT PRIMARY KEY, capability_semantic_sha256 TEXT NOT NULL UNIQUE, spec_id TEXT NOT NULL, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_listening_validations ( validation_id TEXT PRIMARY KEY, validation_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_review_packages ( package_id TEXT PRIMARY KEY, package_semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, package_asset_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_auralization_routing_declarations ( routing_id TEXT PRIMARY KEY, routing_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
     """
@@ -1493,6 +1529,34 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_prediction_matrix_runs_spec ON cad_prediction_matrix_runs(spec_id, seq ASC)
     """
     ,
+    # Issue #534: local/offline presentation authority — immutable
+    # presentation sessions, client proposals and synchronized A/B
+    # bindings. All three are append-only manifests of references; the
+    # payload carries the full sealed authority.
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_sessions ( session_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, session_sha256 TEXT NOT NULL UNIQUE, status_label TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_sessions_document ON cad_presentation_sessions(document_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_proposals ( proposal_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, document_id TEXT NOT NULL, kind TEXT NOT NULL, proposal_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_proposals_session ON cad_presentation_proposals(session_id, created_at_utc)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_sync_bindings ( binding_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_presentation_sync_bindings_document ON cad_presentation_sync_bindings(document_id, created_at_utc)
+    """
+    ,
     """
     CREATE TABLE IF NOT EXISTS cad_intervention_study_specs ( spec_id TEXT PRIMARY KEY, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, payload_json TEXT NOT NULL, spec_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL )
     """
@@ -2075,6 +2139,54 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_ambient_reflectance_profiles ( document_id TEXT NOT NULL, profile_id TEXT NOT NULL, version TEXT NOT NULL, profile_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, profile_id, version) )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_lf_control_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, representation TEXT NOT NULL, lifecycle TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(document_id, plan_id, plan_sha256) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_lf_control_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, from_plan_sha256 TEXT NOT NULL, to_plan_sha256 TEXT NOT NULL, from_lifecycle TEXT NOT NULL, to_lifecycle TEXT NOT NULL, event_kind TEXT NOT NULL, evidence_ref TEXT, actor TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS htdt_acceptance_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, revision INTEGER NOT NULL, gate_id TEXT NOT NULL, status TEXT NOT NULL, run_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(run_id, revision) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS htdt_acceptance_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, run_id TEXT NOT NULL, step_id TEXT NOT NULL, kind TEXT NOT NULL, filename TEXT NOT NULL, sha256 TEXT NOT NULL, relative_path TEXT NOT NULL, size_bytes INTEGER NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_commissioning_sessions ( document_id TEXT NOT NULL, session_id TEXT NOT NULL, surface_entity_id TEXT NOT NULL, mode TEXT NOT NULL, session_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, session_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_commissioning_status_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, document_id TEXT NOT NULL, session_id TEXT NOT NULL, from_status TEXT NOT NULL, to_status TEXT NOT NULL, event_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_readiness_reports ( document_id TEXT NOT NULL, report_id TEXT NOT NULL, session_id TEXT NOT NULL, state TEXT NOT NULL, report_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, report_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_diagnoses ( document_id TEXT NOT NULL, diagnosis_id TEXT NOT NULL, session_id TEXT NOT NULL, measurement_set_id TEXT NOT NULL, overall_status TEXT NOT NULL, diagnosis_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, diagnosis_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_action_proposals ( document_id TEXT NOT NULL, proposal_id TEXT NOT NULL, diagnosis_id TEXT NOT NULL, proposal_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, proposal_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_operator_adjustments ( document_id TEXT NOT NULL, adjustment_id TEXT NOT NULL, session_id TEXT NOT NULL, iteration_index INTEGER NOT NULL, adjustment_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, adjustment_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_before_after_comparisons ( document_id TEXT NOT NULL, comparison_id TEXT NOT NULL, session_id TEXT NOT NULL, iteration_index INTEGER NOT NULL, comparison_status TEXT NOT NULL, overall_direction TEXT NOT NULL, comparison_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, comparison_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_video_import_batches ( document_id TEXT NOT NULL, batch_id TEXT NOT NULL, session_id TEXT, measurement_set_id TEXT NOT NULL, format_id TEXT NOT NULL, batch_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, batch_id) )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2102,6 +2214,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'assumption_decisions',
     'authoring_constraint_revisions',
     'authoring_constraint_sets',
+    'cad_acoustic_geometry_derivations',
     'cad_acoustic_level_calibrations',
     'cad_acoustic_materials',
     'cad_acoustic_prediction_requests',
@@ -2116,6 +2229,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_acoustic_treatment_placements',
     'cad_acoustic_wave_excitations',
     'cad_acquisition_contexts',
+    'cad_active_lf_control_events',
+    'cad_active_lf_control_plans',
     'cad_adaptive_extended_observations',
     'cad_adaptive_extended_plans',
     'cad_adaptive_plans',
@@ -2131,7 +2246,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_applied_preset_states',
     'cad_applied_settings',
     'cad_auralization_artifacts',
+    'cad_auralization_capabilities',
+    'cad_auralization_listening_validations',
     'cad_auralization_render_specs',
+    'cad_auralization_review_packages',
+    'cad_auralization_routing_declarations',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
     'cad_bass_management_profiles',
@@ -2282,6 +2401,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_prediction_provider_objectives',
     'cad_prediction_providers',
     'cad_prediction_results',
+    'cad_presentation_proposals',
+    'cad_presentation_sessions',
+    'cad_presentation_sync_bindings',
     'cad_preset_measurement_bindings',
     'cad_project_boms',
     'cad_project_notes',
@@ -2328,6 +2450,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_seat_priority_profiles',
     'cad_site_relationships',
     'cad_site_spaces',
+    'cad_solver_capability_manifests',
     'cad_source_response_selections',
     'cad_source_responses',
     'cad_source_review_decisions',
@@ -2374,10 +2497,18 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_validation_campaigns',
     'cad_validation_cases',
     'cad_validation_corpus_entries',
+    'cad_video_action_proposals',
+    'cad_video_before_after_comparisons',
+    'cad_video_commissioning_sessions',
+    'cad_video_commissioning_status_events',
+    'cad_video_diagnoses',
     'cad_video_geometry_evaluations',
     'cad_video_geometry_workspaces',
+    'cad_video_import_batches',
+    'cad_video_operator_adjustments',
     'cad_video_presentation_profiles',
     'cad_video_presentation_selections',
+    'cad_video_readiness_reports',
     'cad_visual_qa_verdicts',
     'cad_wave_excitation_evidence_authorities',
     'cad_wave_excitation_source_assets',
@@ -2414,6 +2545,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'editor_view_states',
     'field_return_contributions',
     'floor_plan_underlays',
+    'htdt_acceptance_evidence',
+    'htdt_acceptance_runs',
     'htdt_content_blobs',
     'htdt_legacy_imports',
     'htdt_project_documents',

@@ -66,6 +66,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import room_vertices
 from .cad_walls import make_wall_topology
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import operation_error_message
 
 
 def _utc_now() -> str:
@@ -523,7 +524,7 @@ class InstallationRecordDialog(QDialog):
             self.datum_repository.save_datum(datum)
         except Exception as exc:  # noqa: BLE001
             self.status_label.setText(
-                f'設置基準を記録できませんでした: {exc}'
+                f'設置基準を記録できませんでした: {operation_error_message(exc)}'
             )
             return
         self.status_label.setText('設置基準を記録しました。')
@@ -547,14 +548,16 @@ class InstallationRecordDialog(QDialog):
         except Exception:  # noqa: BLE001 — unreadable store fails closed below
             self._definitions = []
 
+        bindings = self.binding_repository.latest_bindings_for_document(
+            self.document_id
+        )
+        contexts = self.context_repository.latest_contexts_for_document(
+            self.document_id
+        )
         self.entity_status.clear()
         for entity in self._speakers:
-            binding = self.binding_repository.get_binding_for_entity(
-                self.document_id, entity.entity_id
-            )
-            context = self.context_repository.get_context_for_entity(
-                self.document_id, entity.entity_id
-            )
+            binding = bindings.get(entity.entity_id)
+            context = contexts.get(entity.entity_id)
             self.entity_status.addTopLevelItem(
                 QTreeWidgetItem(
                     [
@@ -655,7 +658,7 @@ class InstallationRecordDialog(QDialog):
             self.binding_repository.save_binding(binding)
         except Exception as exc:  # noqa: BLE001
             self.status_label.setText(
-                f'バインドを記録できませんでした: {exc}'
+                f'バインドを記録できませんでした: {operation_error_message(exc)}'
             )
             return
         self.status_label.setText('機材バインドを記録しました。')
@@ -706,7 +709,7 @@ class InstallationRecordDialog(QDialog):
             self.context_repository.save_context(context)
         except Exception as exc:  # noqa: BLE001
             self.status_label.setText(
-                f'設置コンテキストを記録できませんでした: {exc}'
+                f'設置コンテキストを記録できませんでした: {operation_error_message(exc)}'
             )
             return
         self.status_label.setText('設置コンテキストを記録しました。')

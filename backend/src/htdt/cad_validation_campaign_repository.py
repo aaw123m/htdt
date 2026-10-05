@@ -346,3 +346,17 @@ class CadValidationCampaignRepository:
             CadValidationCampaign.model_validate_json(row['payload_json'])
             for row in rows
         )
+
+    def count_for_search_spec(self, search_spec_id: str) -> int:
+        """Persisted campaign count for one search spec.
+
+        Metadata only — unlike ``list_for_search_spec`` this does not
+        deserialize each campaign payload; use it for display counters only.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT COUNT(*) AS campaign_count '
+                'FROM cad_validation_campaigns WHERE search_spec_id=?',
+                (search_spec_id,),
+            ).fetchone()
+        return int(row['campaign_count'])

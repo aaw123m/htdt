@@ -220,6 +220,10 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'navigation.activity',
         'navigation.library',
         'navigation.support',
+        # Newer workspaces + application destinations (REV49).
+        'navigation.presentation',
+        'navigation.video',
+        'navigation.acceptance',
         'room.view.fit_selection',
         'room.view.fit_all',
         'room.select.all',

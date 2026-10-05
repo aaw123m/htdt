@@ -161,7 +161,10 @@ class CadMeasurementRunnerRepository:
         """Plans of one project only — never a global list (#853)."""
         with self._connect() as connection:
             rows = connection.execute(
-                'SELECT payload_json FROM cad_measurement_runner_plans ORDER BY created_at_utc, plan_id'
+                "SELECT payload_json FROM cad_measurement_runner_plans "
+                "WHERE json_extract(payload_json, '$.document_id')=? "
+                "ORDER BY created_at_utc, plan_id",
+                (document_id,),
             ).fetchall()
         plans = tuple(
             MeasurementRunnerPlan.model_validate_json(r['payload_json'])
@@ -178,16 +181,15 @@ class CadMeasurementRunnerRepository:
         """
         with self._connect() as connection:
             rows = connection.execute(
-                'SELECT plan_id, created_at_utc, payload_json '
-                'FROM cad_measurement_runner_plans ORDER BY created_at_utc, plan_id'
+                "SELECT plan_id, created_at_utc "
+                "FROM cad_measurement_runner_plans "
+                "WHERE json_extract(payload_json, '$.document_id')=? "
+                "ORDER BY created_at_utc, plan_id",
+                (document_id,),
             ).fetchall()
         return {
             str(row['plan_id']): str(row['created_at_utc'])
             for row in rows
-            if MeasurementRunnerPlan.model_validate_json(
-                row['payload_json']
-            ).document_id
-            == document_id
         }
 
     def list_runs(self, plan_id: str) -> tuple[MeasurementRunnerRun, ...]:
@@ -235,6 +237,29 @@ class CadMeasurementRunnerRepository:
             if event.cell_index >= len(plan.cells):
                 raise RunnerError('runner event binds an unplanned cell')
         return resolve_cell_states(plan, events)
+
+    def progress_for_run(
+        self, run_id: str
+    ) -> tuple[MeasurementRunnerPlan, dict[int, RunnerCellState]]:
+        """One progress read: run, bound plan, and resolved cell states.
+
+        ``get_run`` + ``get_plan`` + ``cell_states`` walks the run→plan
+        indirection twice and re-validates the plan's scene binding on each
+        ``get_plan`` call; this path reads each authority once while keeping
+        the same fail-closed checks (run persisted, plan bound, events
+        planned).
+        """
+        run = self.get_run(run_id)
+        if run is None:
+            raise RunnerError('runner run is not persisted')
+        plan = self.get_plan(run.plan_id)
+        if plan is None or plan.plan_sha256 != run.plan_sha256:
+            raise RunnerError('runner run is bound to a different plan revision')
+        events = self.list_events(run_id)
+        for event in events:
+            if event.cell_index >= len(plan.cells):
+                raise RunnerError('runner event binds an unplanned cell')
+        return plan, resolve_cell_states(plan, events)
 
     def _plan_for_run(self, run_id: str) -> MeasurementRunnerPlan:
         run = self.get_run(run_id)

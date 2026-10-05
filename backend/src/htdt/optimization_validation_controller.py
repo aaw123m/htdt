@@ -758,6 +758,7 @@ class ApplicabilityAttestationDialog(QDialog):
         layout.addWidget(self.existing)
 
         self.use_button = QPushButton("選択した証明を使用")
+        self.use_button.setToolTip("一覧で選択した証明をこの検証に適用します")
         self.use_button.clicked.connect(self._use_selected)
         layout.addWidget(self.use_button)
 
@@ -784,6 +785,7 @@ class ApplicabilityAttestationDialog(QDialog):
         layout.addLayout(form)
 
         self.register_button = QPushButton("登録して使用")
+        self.register_button.setToolTip("入力内容を証明として登録し、この検証に適用します")
         self.register_button.clicked.connect(self._register)
         layout.addWidget(self.register_button)
 
@@ -875,7 +877,9 @@ class ApplicabilityAttestationDialog(QDialog):
             )
             self.repository.save(attestation)
         except (TypeError, ValueError) as exc:
-            self.status.setText(f"証明を登録できません: {exc}")
+            self.status.setText(
+                f"証明を登録できません: {operation_error_message(exc)}"
+            )
             return
         self.selected_attestation_id = attestation.attestation_id
         self.accept()

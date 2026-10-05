@@ -26,10 +26,10 @@ def _fixture(manifest: AcousticBenchmarkManifest, fixture_id: str) -> AcousticBe
 def test_r100a_manifest_loads_as_immutable_canonical_authority() -> None:
     manifest = _manifest()
 
-    assert manifest.schema_version == 'r100a-4'
+    assert manifest.schema_version == 'r100a-5'
     assert manifest.manifest_id == 'htdt-issue-101-r100a-benchmark-authority'
-    assert manifest.revision == 4
-    assert len(manifest.fixtures) == 10
+    assert manifest.revision == 5
+    assert len(manifest.fixtures) == 12
     assert len(manifest.hard_gates) == 6
     assert all(item.environment.density_kg_m3 == pytest.approx(1.2) for item in manifest.fixtures)
     assert len(manifest.semantic_hash()) == 64
@@ -46,9 +46,24 @@ def test_r100a_schema_version_and_revision_are_bound() -> None:
     manifest = _manifest()
     payload = manifest.model_dump(mode='python')
 
-    payload['revision'] = 3
-    with pytest.raises(ValueError, match='r100a-4 requires revision 4'):
+    payload['revision'] = 4
+    with pytest.raises(ValueError, match='r100a-5 requires revision 5'):
         AcousticBenchmarkManifest.model_validate(payload)
+
+    payload = manifest.model_dump(mode='python')
+    payload['schema_version'] = 'r100a-4'
+    payload['revision'] = 4
+    payload['fixtures'] = [
+        item
+        for item in payload['fixtures']
+        if item['fixture_id']
+        not in {
+            'geometric-occlusion-edge-v1',
+            'geometric-scattering-redistribution-v1',
+        }
+    ]
+    legacy = AcousticBenchmarkManifest.model_validate(payload)
+    assert legacy.schema_version == 'r100a-4'
 
     payload = manifest.model_dump(mode='python')
     payload['schema_version'] = 'r100a-3'
@@ -226,6 +241,8 @@ def test_r100a_required_fixture_roles_are_present() -> None:
         'geometric-direct-first-reflection-v1',
         'geometric-reflecting-counter-v1',
         'geometric-seed-repeatability-v1',
+        'geometric-occlusion-edge-v1',
+        'geometric-scattering-redistribution-v1',
         'hybrid-overlap-continuity-v1',
     } == fixture_ids
 

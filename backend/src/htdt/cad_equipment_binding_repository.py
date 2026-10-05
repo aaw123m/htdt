@@ -12,6 +12,11 @@ from .cad_repository import SceneRepository
 from .cad_schema import require_native_tables, connect_sqlite
 
 
+#: ``_decode_binding_row(head=...)`` sentinel distinguishing "fetch the
+#: document head now" from a caller-supplied head (which may be None).
+_HEAD_UNSET = object()
+
+
 class CadEquipmentBindingRepository:
     """Append-only binding-semantics records, one authority per entity binding.
 
@@ -42,12 +47,18 @@ class CadEquipmentBindingRepository:
             require_native_tables(connection, 'cad_equipment_binding_semantics')
 
     def _resolve_bound_definition(
-        self, binding: EquipmentBindingSemantics
+        self,
+        binding: EquipmentBindingSemantics,
+        _cache: dict | None = None,
     ):
         """Exact authority ref: hash resolves AND id/version match (#841)."""
-        definition = self.equipment_repository.get_definition_by_hash(
-            binding.equipment.semantic_sha256
-        )
+        key = binding.equipment.semantic_sha256
+        if _cache is not None and key in _cache:
+            definition = _cache[key]
+        else:
+            definition = self.equipment_repository.get_definition_by_hash(key)
+            if _cache is not None:
+                _cache[key] = definition
         if definition is None:
             raise ValueError(
                 'binding semantics references an unpersisted EquipmentDefinition'
@@ -127,7 +138,11 @@ class CadEquipmentBindingRepository:
         return binding
 
     def _decode_binding_row(
-        self, row: sqlite3.Row
+        self,
+        row: sqlite3.Row,
+        *,
+        head=_HEAD_UNSET,
+        _definition_cache: dict | None = None,
     ) -> EquipmentBindingSemantics:
         """Fail-closed read: row columns and exact refs re-validate (#841)."""
         binding = EquipmentBindingSemantics.model_validate_json(
@@ -147,12 +162,13 @@ class CadEquipmentBindingRepository:
         # The exact definition pin must still resolve verbatim; a missing
         # definition means the stored authority is corrupt, never a
         # softer binding.
-        self._resolve_bound_definition(binding)
+        self._resolve_bound_definition(binding, _definition_cache)
         # When the entity still exists in the document's head it must
         # remain a speaker; an entity removed from the scene is history,
         # but one retyped to a non-speaker can never re-resolve as a
         # speaker-equipment binding.
-        head = self.scene_repository.current_head(binding.document_id)
+        if head is _HEAD_UNSET:
+            head = self.scene_repository.current_head(binding.document_id)
         if head is not None:
             entity = next(
                 (
@@ -200,6 +216,41 @@ class CadEquipmentBindingRepository:
                 (document_id, entity_id),
             ).fetchone()
         return None if row is None else self._decode_binding_row(row)
+
+    def latest_bindings_for_document(
+        self,
+        document_id: str,
+    ) -> dict[str, EquipmentBindingSemantics]:
+        """Current-editing view for the whole document: newest binding
+        semantics per entity id, resolved in one listing.
+
+        Surfaces iterating every speaker (install summary, record lists)
+        read each entity separately — each row then re-fetched the
+        document head and re-resolved its EquipmentDefinition. This path
+        shares one head and one definition cache across the batch; the
+        fail-closed row checks are unchanged.
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT binding_id, semantic_sha256, document_id, entity_id,
+                    equipment_definition_sha256, payload_json
+                FROM cad_equipment_binding_semantics
+                WHERE document_id=?
+                ORDER BY seq DESC
+                """,
+                (document_id,),
+            ).fetchall()
+        head = self.scene_repository.current_head(document_id)
+        definitions: dict = {}
+        latest: dict[str, EquipmentBindingSemantics] = {}
+        for row in rows:
+            if row['entity_id'] in latest:
+                continue
+            latest[row['entity_id']] = self._decode_binding_row(
+                row, head=head, _definition_cache=definitions
+            )
+        return latest
 
     def latest_binding_for_entity_as_of(
         self,

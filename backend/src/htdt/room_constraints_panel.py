@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -55,8 +56,8 @@ class RoomConstraintsPanel(QWidget):
         set_typography_role(self.summary_label, TypographyRole.SECONDARY)
         layout.addWidget(self.summary_label)
 
-        add_row = QHBoxLayout()
-        add_row.setSpacing(4)
+        add_grid = QGridLayout()
+        add_grid.setSpacing(4)
         self.add_walkway_button = QPushButton("通路")
         self.add_walkway_button.setToolTip(
             '選択物体を中心に人が通る余地（除外領域）を追加します'
@@ -73,14 +74,19 @@ class RoomConstraintsPanel(QWidget):
         self.add_pair_button.setToolTip(
             '選択した2物体の間に最低限の水平離隔を設けます（先に2つを選択）'
         )
-        for button in (
-            self.add_walkway_button,
-            self.add_allowed_button,
-            self.add_wall_button,
-            self.add_pair_button,
+        for index, button in enumerate(
+            (
+                self.add_walkway_button,
+                self.add_allowed_button,
+                self.add_wall_button,
+                self.add_pair_button,
+            )
         ):
-            add_row.addWidget(button)
-        layout.addLayout(add_row)
+            # 2×2 grid: a single row of four buttons (~330px) overflows the
+            # narrow placement column.
+            row, column = divmod(index, 2)
+            add_grid.addWidget(button, row, column)
+        layout.addLayout(add_grid)
 
         form = QFormLayout()
         form.setContentsMargins(0, 0, 0, 0)

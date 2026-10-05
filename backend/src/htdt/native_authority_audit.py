@@ -225,6 +225,10 @@ class _RepositoryChain:
 
             return SceneRepository(self.db_path)
         scene = self.repo('scene')
+        if name == 'acceptance':
+            from .cad_acceptance_repository import AcceptanceRunRepository
+
+            return AcceptanceRunRepository(self.db_path)
         if name == 'search':
             from .cad_search_repository import CadSearchRepository
 
@@ -550,6 +554,12 @@ class _RepositoryChain:
             )
 
             return CadDesignDecisionRepository(scene)
+        if name == 'presentation':
+            from .cad_presentation_repository import (
+                CadPresentationRepository,
+            )
+
+            return CadPresentationRepository(scene)
         if name == 'briefs':
             from .cad_design_brief_repository import (
                 CadDesignBriefRepository,
@@ -1624,6 +1634,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('coverage', 'get_evaluation'),
     ),
     _ReplayProbe(
+        'acceptance_run',
+        'htdt_acceptance_runs',
+        ('run_id', 'revision'),
+        _get('acceptance', 'get_revision'),
+    ),
+    _ReplayProbe(
         'direct_level_scenario',
         'cad_direct_level_scenarios',
         ('scenario_id',),
@@ -2242,6 +2258,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('decision_id', 'document_id'),
         _verify_design_decision,
     ),
+    # ---- #534 presentation authority -----------------------------------
+    _ReplayProbe(
+        'presentation_session',
+        'cad_presentation_sessions',
+        ('session_id',),
+        _get('presentation', 'verify_persisted_session'),
+    ),
+    _ReplayProbe(
+        'presentation_proposal',
+        'cad_presentation_proposals',
+        ('proposal_id',),
+        _get('presentation', 'verify_persisted_proposal'),
+    ),
+    _ReplayProbe(
+        'presentation_sync_binding',
+        'cad_presentation_sync_bindings',
+        ('binding_id',),
+        _get('presentation', 'verify_persisted_binding'),
+    ),
     _ReplayProbe(
         'design_brief',
         'cad_design_briefs',
@@ -2436,9 +2471,16 @@ _ASSET_TABLES: tuple[
         None,
         'source_sha256 IS NOT NULL',
     ),
+    # REV48: acceptance-evidence rows are digest-bound managed-asset
+    # manifests — each must resolve to its retained file.
+    ('htdt_acceptance_evidence', 'sha256', 'size_bytes', 'relative_path', None),
 )
 
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
+
+# REV48 guided acceptance: the audit replays each revision row through the
+# repository, which re-derives the chained run_sha256.
+
 
 #: Explicit coverage policy for every persistent table that carries no
 #: replay probe and no managed-bytes check — each entry is
@@ -2662,6 +2704,27 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'auralization render spec authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_capabilities': (
+        'STRUCTURAL_ONLY',
+        'auralization capability authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_listening_validations': (
+        'STRUCTURAL_ONLY',
+        'measured-vs-predicted listening validation authority; canonical '
+        'replay path pending — strongest verification is schema + '
+        'payload parse',
+    ),
+    'cad_auralization_review_packages': (
+        'STRUCTURAL_ONLY',
+        'auralization review package manifest authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
+    'cad_auralization_routing_declarations': (
+        'STRUCTURAL_ONLY',
+        'auralization routing declaration authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
     ),
     'cad_av_latency_measurements': (
         'STRUCTURAL_ONLY',
@@ -2913,6 +2976,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'bounded late-energy decay artifact authority; canonical replay '
         'path pending — strongest verification is schema + payload parse',
     ),
+    'cad_acoustic_geometry_derivations': (
+        'STRUCTURAL_ONLY',
+        'acoustic geometry derivation authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
     'cad_acoustic_materials': (
         'STRUCTURAL_ONLY',
         'acoustic material authority; canonical replay path pending — '
@@ -2932,6 +3000,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
     'cad_acoustic_solver_results': (
         'STRUCTURAL_ONLY',
         'acoustic solver result authority; canonical replay path '
+        'pending — strongest verification is schema + payload parse',
+    ),
+    'cad_solver_capability_manifests': (
+        'STRUCTURAL_ONLY',
+        'solver capability manifest authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
     'cad_current_topologies': (
@@ -3250,6 +3323,14 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
+    'cad_active_lf_control_events': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_active_lf_control_plans': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
     'cad_bass_management_profiles': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
@@ -3403,6 +3484,38 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),
     'cad_validation_corpus_entries': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_commissioning_sessions': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_commissioning_status_events': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_readiness_reports': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_diagnoses': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_action_proposals': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_operator_adjustments': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_before_after_comparisons': (
+        'STRUCTURAL_ONLY',
+        'structural payload integrity — no dedicated canonical replay adapter registered for this family',
+    ),
+    'cad_video_import_batches': (
         'STRUCTURAL_ONLY',
         'structural payload integrity — no dedicated canonical replay adapter registered for this family',
     ),

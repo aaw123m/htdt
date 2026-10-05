@@ -120,8 +120,19 @@ def test_import_cli_roundtrip(tmp_path: Path) -> None:
     assert main([str(bundle_dir), '--db', str(db)]) == 0
     repository = _repository(tmp_path)
     assert repository.source_evidence_count() == 10
+    # REV53: a committed CLI import must reach the Inbox with this lane's
+    # provenance — it must not sit invisible until a reconcile pass.
+    from htdt.capture_inbox import CaptureInboxRepository
+
+    inbox = CaptureInboxRepository(repository.scene_repository, repository)
+    items = inbox.list_items()
+    assert len(items) == 1
+    assert items[0].arrival_source == 'cli_import'
+    assert items[0].bundle_validation == 'validated'
     # second CLI import is a no-op verified path
     assert main([str(bundle_dir), '--db', str(db)]) == 0
+    items = inbox.list_items()
+    assert len(items) == 1
 
 
 def test_import_deeply_nested_manifest_reports_stage(tmp_path: Path) -> None:

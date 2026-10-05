@@ -51,6 +51,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from .managed_assets import MANAGED_ASSETS_DIRNAME
+from .persisted_data import backup_included_components
 from .native_backup import DATABASE_NAME, BackupManifest, create_backup
 from .clock import utc_now_iso as _utc_now
 
@@ -216,6 +217,18 @@ def managed_data_fingerprint(data_dir: Path) -> str:
         except OSError:
             pass
     parts.append(f'assets:{count}:{total}:{newest}')
+    # Auxiliary authority files ride inside every backup archive alongside
+    # the database — an aux-only edit (e.g. commissioning plans) is real
+    # managed state and must invalidate the fingerprint on its own.
+    for component in backup_included_components():
+        candidate = data_dir / component.path
+        try:
+            stat = candidate.stat()
+            parts.append(
+                f'aux:{component.path}:{stat.st_size}:{stat.st_mtime_ns}'
+            )
+        except OSError:
+            parts.append(f'aux:{component.path}:absent')
     return '|'.join(parts)
 
 

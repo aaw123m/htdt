@@ -225,6 +225,23 @@ def _upper3(
     return tuple(tuple(matrix[r][c] for c in range(3)) for r in range(3))
 
 
+_AFFINE_LAST_ROW_EPS = 1e-6
+_ORTHOGONALITY_EPS = 1e-6
+
+
+def _is_affine4(
+    matrix: tuple[tuple[float, float, float, float], ...],
+) -> bool:
+    """Last row must be [0, 0, 0, 1] — projective matrices are unsupported."""
+
+    return (
+        abs(matrix[3][0]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][1]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][2]) <= _AFFINE_LAST_ROW_EPS
+        and abs(matrix[3][3] - 1.0) <= _AFFINE_LAST_ROW_EPS
+    )
+
+
 def _normalized_rotation3(
     matrix: tuple[tuple[float, float, float, float], ...],
 ) -> tuple[tuple[float, float, float], ...] | None:
@@ -236,10 +253,18 @@ def _normalized_rotation3(
     if any(n <= 1e-12 for n in norms):
         return None
     if max(norms) / min(norms) > 1.0 + 1e-6:
-        return None  # non-uniform scale / shear — not representable faithfully
+        return None  # non-uniform scale — not representable faithfully
     unit = tuple(
         tuple(columns[c][r] / norms[c] for c in range(3)) for r in range(3)
     )
+    unit_columns = [[unit[r][c] for r in range(3)] for c in range(3)]
+    for i in range(3):
+        for j in range(i + 1, 3):
+            dot = sum(
+                unit_columns[i][k] * unit_columns[j][k] for k in range(3)
+            )
+            if abs(dot) > _ORTHOGONALITY_EPS:
+                return None  # shear — not representable faithfully
     if _det3(unit) <= 0.0:
         return None  # reflection
     return unit
@@ -328,7 +353,9 @@ class CaptureEntityPromotionService:
             raise CaptureEntityPromotionError(
                 'ingestion carries no annotation records'
             )
-        world_to_scene = self._world_to_scene(plan, document_id)
+        world_to_scene_by_space = self._world_to_scene_by_space(
+            plan, document_id
+        )
         candidates = self._derived_candidates(plan)
 
         created: list[SceneEntity] = []
@@ -347,7 +374,9 @@ class CaptureEntityPromotionService:
             entity, reason = self._materialize(
                 annotation,
                 entity_id=entity_id,
-                world_to_scene=world_to_scene,
+                world_to_scene=world_to_scene_by_space.get(
+                    annotation.coordinate_space_id, _identity4()
+                ),
                 candidates=candidates,
                 existing_entities=head.document.entities + tuple(created),
             )
@@ -488,23 +517,36 @@ class CaptureEntityPromotionService:
 
     # ---- internals ---------------------------------------------------------
 
-    def _world_to_scene(
+    def _world_to_scene_by_space(
         self,
         plan: CaptureIngestionPlan,
         document_id: str,
-    ) -> tuple[tuple[float, float, float, float], ...]:
-        """Promoted world→scene authority for this lineage, else identity.
+    ) -> dict[str, tuple[tuple[float, float, float, float], ...]]:
+        """Promoted world→scene authorities for this lineage, keyed by
+        coordinate space id.
 
         The authority is keyed by (target document, coordinate space): the
-        semantic promotion path stores one per ingestion run and this looks
-        up the newest one matching the plan's declared spaces.
+        semantic promotion path stores one per ingestion run and this
+        collects the newest one per space declared in the plan bundle.
+        An annotation promotes through ITS OWN space's authority — never
+        a sibling space's — and spaces without a recorded authority fall
+        back to identity.
         """
 
         if self.semantic_promotion_repository is None:
-            return _identity4()
+            return {}
         spaces = set(plan.bundle.coordinate_space_ids)
-        best: CaptureWorldToSceneAuthority | None = None
-        for record in self.semantic_promotion_repository.list_promotions():
+        by_space: dict[str, CaptureWorldToSceneAuthority] = {}
+        # ``list_promotions`` orders by promotion_id — a content hash —
+        # so iteration order says nothing about which promotion is the
+        # newest. Order by created_at_utc explicitly (promotion_id is the
+        # deterministic tiebreak) so the LAST write per space is the
+        # newest one.
+        records = sorted(
+            self.semantic_promotion_repository.list_promotions(),
+            key=lambda record: (record.created_at_utc, record.promotion_id),
+        )
+        for record in records:
             request = (
                 self.semantic_promotion_repository.promotion_request(
                     record.promotion_id
@@ -517,10 +559,11 @@ class CaptureEntityPromotionService:
             authority = request.world_to_scene_authority
             if authority.coordinate_space_id not in spaces:
                 continue
-            best = authority
-        if best is None:
-            return _identity4()
-        return best.transform.matrix_source_to_scene_m
+            by_space[authority.coordinate_space_id] = authority
+        return {
+            space_id: authority.transform.matrix_source_to_scene_m
+            for space_id, authority in by_space.items()
+        }
 
     def _derived_candidates(
         self, plan: CaptureIngestionPlan
@@ -577,11 +620,15 @@ class CaptureEntityPromotionService:
         )
         if transform is None:
             return None, 'T_world_from_annotation missing or malformed'
+        if not _is_affine4(transform):
+            return None, 'entity transform is not affine'
+        if not _is_affine4(world_to_scene):
+            return None, 'world-to-scene authority transform is not affine'
         scene_transform = _matmul4(world_to_scene, transform)
         rotation = _normalized_rotation3(scene_transform)
         if rotation is None:
             return None, 'entity transform is not rigid/similarity'
-        scale = _uniform_scale(world_to_scene)
+        scale = _uniform_scale(scene_transform)
         position = _transform_point4(scene_transform, (0.0, 0.0, 0.0))
         try:
             orientation = quaternion_from_matrix3(rotation)

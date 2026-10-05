@@ -12,6 +12,7 @@ from uuid import uuid4
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -293,6 +294,7 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 from .system_expansion_widgets import SystemExpansionRoomPanel
 from .standards_workspace import StandardsCriterionPanel
 from .installation_panel import InstallationPanel
+from .length_spinbox import MetricSpinBox, PendingTextSpinBox
 from .room_objects_panel import RoomObjectsPanel
 from .room_constraints_panel import RoomConstraintsPanel
 from .room_measure_input import RoomMeasureController, RoomMeasurePanel
@@ -2453,142 +2455,6 @@ class InspectorValidationError(ValueError):
         self.section = section
 
 
-class _PendingTextSpinBox(QDoubleSpinBox):
-    """SpinBox that keeps typed-but-uninterpreted text across hide/show.
-
-    ``QAbstractSpinBox`` re-syncs the line editor to the current value on
-    ``showEvent`` — any ancestor hide/show cycle silently drops in-flight
-    input (#583). A line that differs from the canonical display text is a
-    pending edit, so it is restored after the base re-sync runs.
-    """
-
-    def showEvent(self, event) -> None:  # noqa: N802 - Qt override
-        editor = self.lineEdit()
-        pending = editor.text() if editor is not None else ""
-        # Canonical display text for the current (committed) value — a line
-        # that differs from it is an uncommitted edit worth preserving.
-        canonical = (
-            self.prefix() + self.textFromValue(self.value()) + self.suffix()
-        ).strip()
-        super().showEvent(event)
-        if editor is not None and pending and pending.strip() != canonical:
-            editor.setText(pending)
-
-
-class MetricSpinBox(_PendingTextSpinBox):
-    """Length field: SI metres stay authoritative; display unit is cosmetic.
-
-    Step size scales with keyboard modifiers — plain = fine, Shift = ×10,
-    Ctrl = ×0.1 — so arrow keys cover both rough and precise adjustment
-    (#583). Wheel input is ignored unless the field has focus, which keeps
-    page scrolling from silently editing values.
-    """
-
-    # Conversion semantics come from cad_display_units (#496) — this class
-    # adds only Qt cosmetics (suffix text, step sizes) on top of them.
-    UNIT_SCALES: dict[str, float] = {
-        unit: si_to_display(1.0, unit) for unit in DISPLAY_LENGTH_UNITS
-    }
-    UNIT_SUFFIXES: dict[str, str] = {
-        'm': ' m',
-        'cm': ' cm',
-        'mm': ' mm',
-        'inch': ' in',
-    }
-    # Sensible per-unit base steps (display units).
-    UNIT_STEPS: dict[str, float] = {
-        'm': 0.001,
-        'cm': 0.1,
-        'mm': 1.0,
-        'inch': 0.05,
-    }
-    UNIT_DECIMALS: dict[str, int] = dict(DEFAULT_DISPLAY_DECIMALS)
-
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        *,
-        minimum_m: float = -1000.0,
-        maximum_m: float = 1000.0,
-    ) -> None:
-        super().__init__(parent)
-        self._display_unit = 'm'
-        self._minimum_m = minimum_m
-        self._maximum_m = maximum_m
-        self._base_step = self.UNIT_STEPS['m']
-        # Exact SI authority for this field. The displayed value is quantized
-        # to ``decimals`` in the display unit, so deriving SI back from
-        # ``self.value()`` loses precision (1.5 m -> 59.06 in -> 1500.12 mm).
-        # User commits (valueChanged) refresh the cache; programmatic writes
-        # set it directly and suppress that sync.
-        self._exact_m = 0.0
-        self._exact_sync_blocked = False
-        self.setKeyboardTracking(False)
-        self.valueChanged.connect(self._sync_exact_from_display)
-        self._apply_unit()
-
-    def _sync_exact_from_display(self, display_value: float) -> None:
-        if self._exact_sync_blocked:
-            return
-        self._exact_m = display_to_si(display_value, self._display_unit)
-
-    def _apply_unit(self) -> None:
-        scale = self.UNIT_SCALES[self._display_unit]
-        self.setRange(self._minimum_m * scale, self._maximum_m * scale)
-        self._base_step = self.UNIT_STEPS[self._display_unit]
-        self.setSingleStep(self._base_step)
-        self.setDecimals(self.UNIT_DECIMALS[self._display_unit])
-        self.setSuffix(self.UNIT_SUFFIXES[self._display_unit])
-
-    def set_display_unit(self, unit: str, *, decimals: int | None = None) -> None:
-        if unit not in self.UNIT_SCALES:
-            return
-        if unit == self._display_unit and decimals is None:
-            return
-        value_m = self._exact_m
-        self._exact_sync_blocked = True
-        try:
-            self._display_unit = unit
-            self._apply_unit()
-            if decimals is not None:
-                self.setDecimals(decimals)
-            self.setValue(si_to_display(value_m, unit))
-        finally:
-            self._exact_sync_blocked = False
-
-    def value_m(self) -> float:
-        return self._exact_m
-
-    def set_value_m(self, value: float) -> None:
-        self._exact_sync_blocked = True
-        try:
-            self.setValue(si_to_display(value, self._display_unit))
-        finally:
-            self._exact_sync_blocked = False
-        self._exact_m = float(value)
-
-    def stepBy(self, steps: int) -> None:
-        modifiers = QGuiApplication.keyboardModifiers()
-        factor = 1.0
-        if modifiers & Qt.KeyboardModifier.ShiftModifier:
-            factor = 10.0
-        elif modifiers & Qt.KeyboardModifier.ControlModifier:
-            factor = 0.1
-        self.setSingleStep(self._base_step * factor)
-        try:
-            super().stepBy(steps)
-        finally:
-            self.setSingleStep(self._base_step)
-
-    def wheelEvent(self, event: object) -> None:  # noqa: N802 - Qt override
-        # Ignore wheel changes while unfocused so scrolling the inspector page
-        # never mutates a field the user happened to hover (#583 scroll-safety).
-        if self.hasFocus():
-            super().wheelEvent(event)  # type: ignore[arg-type]
-        else:
-            event.ignore()  # type: ignore[attr-defined]
-
-
 class Vector3Editor(QFrame):
     """Compact X/Y/Z editor triplet with per-axis mixed/dirty badges.
 
@@ -3243,7 +3109,7 @@ class SelectionInspector(QFrame):
         minimum: float = -180.0,
         maximum: float = 180.0,
     ) -> QDoubleSpinBox:
-        field = _PendingTextSpinBox()
+        field = PendingTextSpinBox()
         field.setRange(minimum, maximum)
         field.setDecimals(3)
         field.setSingleStep(1.0)
@@ -3500,7 +3366,7 @@ class SelectionInspector(QFrame):
                     "name": entity.name,
                     "role": self.role_field.currentText(),
                     "shape": body_kind,
-                    "radius": self.radius_field.value(),
+                    "radius": self.radius_field.value_m(),
                     "footprint": self.footprint_field.text(),
                 }
             )
@@ -3542,7 +3408,7 @@ class SelectionInspector(QFrame):
             )
         if widget is self.radius_field:
             return abs(
-                self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+                self.radius_field.value_m() - float(self._baseline.get("radius", 0.0))
             ) <= 1e-9
         for editor, key in (
             (self.position_editor, "position"),
@@ -3808,7 +3674,7 @@ class SelectionInspector(QFrame):
         if shape != self._baseline.get("shape"):
             return True
         if shape == "cylinder" and abs(
-            self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+            self.radius_field.value_m() - float(self._baseline.get("radius", 0.0))
         ) > 1e-9:
             return True
         if shape == "extruded_polygon" and self.footprint_field.text() != self._baseline.get(
@@ -4429,6 +4295,31 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addStretch(1)
+        # Narrow-column safety: every combo in this column shrinks to a short
+        # minimum, every line edit and spin box may squeeze below its size
+        # hint (a hard floor keeps it usable), and every form wraps its label
+        # above the field — otherwise long spec names and mm-unit values
+        # force the scroll area's horizontal scrollbar. Widgets built later
+        # at refresh time repeat the same treatment at their creation sites.
+        for _combo in placement_body.findChildren(QComboBox):
+            _combo.setMinimumContentsLength(6)
+            _combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            _combo.setMinimumWidth(72)
+            _combo.setSizePolicy(
+                QSizePolicy.Policy.Ignored, _combo.sizePolicy().verticalPolicy()
+            )
+        for _field in (
+            *placement_body.findChildren(QAbstractSpinBox),
+            *placement_body.findChildren(QLineEdit),
+        ):
+            _field.setMinimumWidth(72)
+            _field.setSizePolicy(
+                QSizePolicy.Policy.Ignored, _field.sizePolicy().verticalPolicy()
+            )
+        for _form in placement_body.findChildren(QFormLayout):
+            _form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.placement_panel = QScrollArea()
         self.placement_panel.setWidgetResizable(True)
         self.placement_panel.setHorizontalScrollBarPolicy(
@@ -6162,13 +6053,13 @@ class RoomWorkspace(QWidget):
                 # that would clear the pose selection just stored.
                 self.video_panel._syncing = True
                 try:
-                    widgets['eye_z'].spin.setValue(
+                    widgets['eye_z'].spin.set_value_m(
                         pose.eye_reference_offset_local_m.z_m
                     )
-                    widgets['head_z'].spin.setValue(
+                    widgets['head_z'].spin.set_value_m(
                         pose.head_center_offset_local_m.z_m
                     )
-                    widgets['head_r'].spin.setValue(pose.head_radius_m)
+                    widgets['head_r'].spin.set_value_m(pose.head_radius_m)
                 finally:
                     self.video_panel._syncing = False
         self._video_bindings_changed()
@@ -6323,12 +6214,12 @@ class RoomWorkspace(QWidget):
             document_id=self.controller.document_id,
             label=label.strip(),
             eye_reference_offset_local_m=Offset3(
-                x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())
+                x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value_m())
             ),
             head_center_offset_local_m=Offset3(
-                x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value())
+                x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value_m())
             ),
-            head_radius_m=float(widgets['head_r'].spin.value()),
+            head_radius_m=float(widgets['head_r'].spin.value_m()),
             provenance='部屋映像パネルで作成 (UX120)',
         )
         self.listener_pose_repository.save_pose(pose)
@@ -6535,7 +6426,9 @@ class RoomWorkspace(QWidget):
 
     def _video_create_display_spec(self) -> None:
         """Register a user-defined direct-view display specification (#1054)."""
-        dialog = DisplaySpecDialog(self)
+        dialog = DisplaySpecDialog(
+            self, length_policy=self.video_panel.length_policy()
+        )
         if dialog.exec() != DisplaySpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()

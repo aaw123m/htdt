@@ -139,6 +139,36 @@ class CadInstallationContextRepository:
             )
         )
 
+    def latest_contexts_for_document(
+        self,
+        document_id: str,
+    ) -> dict[str, SpeakerInstallationContext]:
+        """Newest context per entity id for the whole document, one listing.
+
+        Surfaces iterating every speaker called ``get_context_for_entity``
+        once per entity; this batch read keeps the same per-entity
+        newest-wins semantics with a single query.
+        """
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT entity_id, payload_json FROM cad_installation_contexts
+                WHERE document_id=?
+                ORDER BY seq DESC
+                """,
+                (document_id,),
+            ).fetchall()
+        latest: dict[str, SpeakerInstallationContext] = {}
+        for row in rows:
+            if row['entity_id'] in latest:
+                continue
+            latest[row['entity_id']] = (
+                SpeakerInstallationContext.model_validate_json(
+                    row['payload_json']
+                )
+            )
+        return latest
+
     def list_contexts_for_entity(
         self,
         document_id: str,

@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 from typing import NamedTuple
 
+from .cad_acoustic_geometry_derivation import AcousticGeometryDerivation
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_schema import (
     ensure_native_schema,
@@ -161,7 +162,7 @@ class R120GeometryCompilerRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_r120_compiled_geometry', 'cad_r120_compile_inputs', 'cad_r120_leak_portal_diagnostics', 'cad_r120_leak_diagnostic_inputs')
+            require_native_tables(connection, 'cad_r120_compiled_geometry', 'cad_r120_compile_inputs', 'cad_r120_leak_portal_diagnostics', 'cad_r120_leak_diagnostic_inputs', 'cad_acoustic_geometry_derivations')
 
     def save_compiled_geometry(
         self,
@@ -764,4 +765,182 @@ class R120GeometryCompilerRepository:
                 _diagnostic_inputs_to_json(portal_authority),
                 _utc_now(),
             ),
+        )
+
+    def _validated_derivation(
+        self,
+        derivation: AcousticGeometryDerivation,
+    ) -> AcousticGeometryDerivation:
+        derivation = AcousticGeometryDerivation.model_validate(
+            derivation.model_dump(mode='python')
+        )
+        compiled = self.get_compiled_geometry(
+            derivation.r120_compiled_geometry_id
+        )
+        if compiled is None:
+            raise ValueError(
+                'geometry derivation references a compiled geometry that is '
+                'not persisted'
+            )
+        checks = (
+            (
+                compiled.compiled_hash_sha256,
+                derivation.r120_compiled_geometry_hash_sha256,
+                'compiled geometry hash',
+            ),
+            (
+                compiled.exact_semantic_geometry_id,
+                derivation.semantic_geometry_id,
+                'semantic geometry id',
+            ),
+            (
+                compiled.exact_semantic_geometry_hash_sha256,
+                derivation.semantic_geometry_hash_sha256,
+                'semantic geometry hash',
+            ),
+            (
+                compiled.exact_scene_revision_id,
+                derivation.scene_revision_id,
+                'scene revision id',
+            ),
+            (
+                compiled.exact_scene_revision_content_hash,
+                derivation.scene_revision_content_hash,
+                'scene revision content hash',
+            ),
+            (
+                compiled.request.request_id,
+                derivation.r120_compile_request_id,
+                'compile request id',
+            ),
+            (
+                compiled.topology_identity_sha256,
+                derivation.topology_identity_sha256,
+                'topology identity hash',
+            ),
+        )
+        for expected, actual, label in checks:
+            if expected != actual:
+                raise ValueError(f'geometry derivation {label} mismatch')
+        if (
+            tuple(compiled.approximation_operations)
+            != tuple(derivation.approximation_operations)
+            or tuple(compiled.dropped_features)
+            != tuple(derivation.dropped_features)
+            or tuple(compiled.compiler_warnings)
+            != tuple(derivation.compiler_warnings)
+            or tuple(compiled.unresolved_conditions)
+            != tuple(derivation.solver_unresolved_conditions)
+        ):
+            raise ValueError(
+                'geometry derivation category payloads do not match the '
+                'verified compiled geometry'
+            )
+        diagnostics = compiled.closed_shell_diagnostics
+        if (
+            derivation.closed_shell != diagnostics.closed_shell
+            or derivation.boundary_edge_count != diagnostics.boundary_edge_count
+            or derivation.non_manifold_edge_count
+            != diagnostics.non_manifold_edge_count
+        ):
+            raise ValueError(
+                'geometry derivation closed-shell diagnostics mismatch'
+            )
+        if derivation.portal_authority_ref != compiled.portal_authority_ref:
+            raise ValueError('geometry derivation portal authority ref mismatch')
+        if (
+            derivation.boundary_termination_authority_ref
+            != compiled.boundary_termination_authority_ref
+        ):
+            raise ValueError(
+                'geometry derivation boundary termination authority ref '
+                'mismatch'
+            )
+        return derivation
+
+    def save_derivation(
+        self,
+        derivation: AcousticGeometryDerivation,
+    ) -> AcousticGeometryDerivation:
+        derivation = self._validated_derivation(derivation)
+        with closing(self._connect()) as connection, connection:
+            existing = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_acoustic_geometry_derivations
+                WHERE derivation_id=?
+                """,
+                (derivation.derivation_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = AcousticGeometryDerivation.model_validate_json(
+                    existing['payload_json']
+                )
+                if persisted != derivation:
+                    raise ValueError(
+                        'geometry derivation id exists with different semantics'
+                    )
+                return persisted
+            connection.execute(
+                """
+                INSERT INTO cad_acoustic_geometry_derivations(
+                    derivation_id,
+                    semantic_sha256,
+                    scene_revision_id,
+                    semantic_geometry_id,
+                    r120_compiled_geometry_id,
+                    payload_json,
+                    recorded_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    derivation.derivation_id,
+                    derivation.semantic_sha256,
+                    derivation.scene_revision_id,
+                    derivation.semantic_geometry_id,
+                    derivation.r120_compiled_geometry_id,
+                    derivation.model_dump_json(),
+                    _utc_now(),
+                ),
+            )
+        return derivation
+
+    def get_derivation(
+        self,
+        derivation_id: str,
+    ) -> AcousticGeometryDerivation | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_acoustic_geometry_derivations
+                WHERE derivation_id=?
+                """,
+                (derivation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validated_derivation(
+            AcousticGeometryDerivation.model_validate_json(row['payload_json'])
+        )
+
+    def get_derivation_for_compiled(
+        self,
+        compiled_geometry_id: str,
+    ) -> AcousticGeometryDerivation | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                """
+                SELECT payload_json
+                FROM cad_acoustic_geometry_derivations
+                WHERE r120_compiled_geometry_id=?
+                ORDER BY seq DESC
+                LIMIT 1
+                """,
+                (compiled_geometry_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._validated_derivation(
+            AcousticGeometryDerivation.model_validate_json(row['payload_json'])
         )

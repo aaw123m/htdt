@@ -102,7 +102,10 @@ from .cad_measurement_runner import (
     guided_step,
     runner_progress,
 )
-from .cad_measurement_runner_repository import CadMeasurementRunnerRepository
+from .cad_measurement_runner_repository import (
+    CadMeasurementRunnerRepository,
+    RunnerError,
+)
 from .cad_measurements import normalize_rew_api_snapshot, normalize_rew_text
 from .cad_repository import SceneRepository, SceneRevision
 from .cad_scene import (
@@ -2224,8 +2227,11 @@ class MeasurementWorkflowController:
         run = self.runner_repository.get_run(run_id)
         if run is None:
             raise MeasurementWorkflowError("キャンペーンの実行が見つかりません")
-        plan = self.runner_repository.get_plan(run.plan_id)
-        return runner_progress(plan, self.runner_repository.cell_states(run_id))
+        try:
+            plan, states = self.runner_repository.progress_for_run(run_id)
+        except RunnerError as exc:
+            raise MeasurementWorkflowError(str(exc)) from exc
+        return runner_progress(plan, states)
 
     def runner_plan_for_run(self, run_id: str) -> MeasurementRunnerPlan:
         run = self.runner_repository.get_run(run_id)

@@ -23,15 +23,19 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from .cad_display_units import LengthDisplayPolicy, display_length_policy
 from .cad_screen_transfer import TIER_LABELS
 from .cad_video_workspace import VideoGeometryWorkspace
 from .field_tooltips import apply_field_tooltip
+from .length_spinbox import MetricSpinBox
 from .ui_theme import TypographyRole, set_typography_role
 
 _DISPLAY_CLASS_ITEMS: tuple[tuple[str, str], ...] = (
@@ -175,7 +179,19 @@ class ProjectorSpecDialog(QDialog):
             label = form.labelForField(field)
             if label is not None:
                 label.setToolTip(field.toolTip())
-        layout.addLayout(form)
+        # 16 form rows measure ~738px — past a 768px screen the Ok/Cancel
+        # row drops off-screen. Keep the buttons pinned and scroll the
+        # form instead (same pattern as _scroll_wrap in
+        # measurement_record_surfaces).
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addLayout(form)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, stretch=1)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -371,7 +387,12 @@ class DisplaySpecDialog(QDialog):
     defaults so spec-conformance never invents luminance/refresh claims.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        length_policy: LengthDisplayPolicy | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("ディスプレイ仕様を登録（ユーザー定義）")
         layout = QVBoxLayout(self)
@@ -384,27 +405,33 @@ class DisplaySpecDialog(QDialog):
         self.display_class = QComboBox()
         for value, label in _DISPLAY_CLASS_ITEMS:
             self.display_class.addItem(label, value)
-        self.chassis_width = QDoubleSpinBox()
-        self.chassis_width.setRange(0.1, 10.0)
-        self.chassis_width.setDecimals(3)
-        self.chassis_width.setSuffix(' m')
-        self.chassis_depth = QDoubleSpinBox()
-        self.chassis_depth.setRange(0.005, 2.0)
-        self.chassis_depth.setDecimals(3)
-        self.chassis_depth.setValue(0.06)
-        self.chassis_depth.setSuffix(' m')
-        self.chassis_height = QDoubleSpinBox()
-        self.chassis_height.setRange(0.05, 5.0)
-        self.chassis_height.setDecimals(3)
-        self.chassis_height.setSuffix(' m')
-        self.active_width = QDoubleSpinBox()
-        self.active_width.setRange(0.1, 10.0)
-        self.active_width.setDecimals(3)
-        self.active_width.setSuffix(' m')
-        self.active_height = QDoubleSpinBox()
-        self.active_height.setRange(0.05, 5.0)
-        self.active_height.setDecimals(3)
-        self.active_height.setSuffix(' m')
+        self.chassis_width = MetricSpinBox(
+            self, minimum_m=0.1, maximum_m=10.0
+        )
+        self.chassis_depth = MetricSpinBox(
+            self, minimum_m=0.005, maximum_m=2.0
+        )
+        self.chassis_depth.set_value_m(0.06)
+        self.chassis_height = MetricSpinBox(
+            self, minimum_m=0.05, maximum_m=5.0
+        )
+        self.active_width = MetricSpinBox(
+            self, minimum_m=0.1, maximum_m=10.0
+        )
+        self.active_height = MetricSpinBox(
+            self, minimum_m=0.05, maximum_m=5.0
+        )
+        if length_policy is not None:
+            for _spin in (
+                self.chassis_width,
+                self.chassis_depth,
+                self.chassis_height,
+                self.active_width,
+                self.active_height,
+            ):
+                _spin.set_display_unit(
+                    length_policy.unit, decimals=length_policy.decimals
+                )
         self.source_name = QLineEdit()
         self.source_name.setPlaceholderText("測定者/出典")
         self.source_reference = QLineEdit()
@@ -472,33 +499,40 @@ class DisplaySpecDialog(QDialog):
             'version': self.version.text().strip() or '1',
             'user_label': self.user_label.text().strip(),
             'display_class': self.display_class.currentData(),
-            'chassis_width_m': float(self.chassis_width.value()),
-            'chassis_depth_m': float(self.chassis_depth.value()),
-            'chassis_height_m': float(self.chassis_height.value()),
-            'active_image_width_m': float(self.active_width.value()),
-            'active_image_height_m': float(self.active_height.value()),
+            'chassis_width_m': float(self.chassis_width.value_m()),
+            'chassis_depth_m': float(self.chassis_depth.value_m()),
+            'chassis_height_m': float(self.chassis_height.value_m()),
+            'active_image_width_m': float(self.active_width.value_m()),
+            'active_image_height_m': float(self.active_height.value_m()),
             'source_name': self.source_name.text().strip() or '手動入力',
             'source_reference': self.source_reference.text().strip() or 'ユーザー入力',
         }
 
 
 class _SpinRow(QWidget):
-    """Tiny (label, spinbox) row used per numeric binding field."""
+    """Tiny (label, spinbox) row used per numeric binding field.
+
+    Length rows are ``MetricSpinBox`` fields — bounds and the initial
+    value arrive in SI metres; the display unit follows the #496 policy.
+    """
 
     def __init__(self, label: str, *, minimum: float, maximum: float, step: float, value: float, parent=None) -> None:
         super().__init__(parent)
-        row = QHBoxLayout(self)
+        row = QVBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        row.setSpacing(2)
         text = QLabel(label)
         set_typography_role(text, TypographyRole.SECONDARY)
-        self.spin = QDoubleSpinBox()
-        self.spin.setRange(minimum, maximum)
+        # Label sits above the spin (like a wrapped form row): a side-by-side
+        # label+spin needs ~300px at mm widths, pushing the spin off-screen
+        # in the narrow placement column.
+        text.setWordWrap(True)
+        self.spin = MetricSpinBox(
+            self, minimum_m=minimum, maximum_m=maximum
+        )
         self.spin.setSingleStep(step)
-        self.spin.setDecimals(3)
-        self.spin.setSuffix(' m')
-        self.spin.setValue(value)
-        row.addWidget(text, stretch=1)
+        self.spin.set_value_m(value)
+        row.addWidget(text)
         row.addWidget(self.spin)
 
 
@@ -578,36 +612,39 @@ class RoomVideoPanel(QWidget):
         projection_layout.addWidget(self.screen_heading)
         screen_form = QFormLayout()
         screen_form.setContentsMargins(0, 0, 0, 0)
-        self.screen_width = QDoubleSpinBox()
-        self.screen_width.setRange(0.5, 20.0)
+        # Narrow right panel: wrap the row label above its field instead of
+        # overflowing sideways.
+        screen_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.screen_width = MetricSpinBox(
+            self, minimum_m=0.5, maximum_m=20.0
+        )
         self.screen_width.setSingleStep(0.05)
-        self.screen_width.setSuffix(' m')
-        self.screen_width.setToolTip('スクリーン有効画域の幅（m）')
-        self.screen_height = QDoubleSpinBox()
-        self.screen_height.setRange(0.3, 10.0)
+        self.screen_width.setToolTip('スクリーン有効画域の幅')
+        self.screen_height = MetricSpinBox(
+            self, minimum_m=0.3, maximum_m=10.0
+        )
         self.screen_height.setSingleStep(0.05)
-        self.screen_height.setSuffix(' m')
-        self.screen_height.setToolTip('スクリーン有効画域の高さ（m）')
-        self.screen_offset_x = QDoubleSpinBox()
-        self.screen_offset_x.setRange(-5.0, 5.0)
+        self.screen_height.setToolTip('スクリーン有効画域の高さ')
+        self.screen_offset_x = MetricSpinBox(
+            self, minimum_m=-5.0, maximum_m=5.0
+        )
         self.screen_offset_x.setSingleStep(0.05)
-        self.screen_offset_x.setSuffix(' m')
         self.screen_offset_x.setToolTip(
-            '画域中心の左右オフセット（m）· スクリーン物体の中心基準'
+            '画域中心の左右オフセット · スクリーン物体の中心基準'
         )
-        self.screen_offset_z = QDoubleSpinBox()
-        self.screen_offset_z.setRange(-5.0, 5.0)
+        self.screen_offset_z = MetricSpinBox(
+            self, minimum_m=-5.0, maximum_m=5.0
+        )
         self.screen_offset_z.setSingleStep(0.05)
-        self.screen_offset_z.setSuffix(' m')
         self.screen_offset_z.setToolTip(
-            '画域中心の上下オフセット（m）· スクリーン物体の中心基準'
+            '画域中心の上下オフセット · スクリーン物体の中心基準'
         )
-        self.frame_clearance = QDoubleSpinBox()
-        self.frame_clearance.setRange(0.0, 2.0)
+        self.frame_clearance = MetricSpinBox(
+            self, minimum_m=0.0, maximum_m=2.0
+        )
         self.frame_clearance.setSingleStep(0.01)
-        self.frame_clearance.setSuffix(' m')
         self.frame_clearance.setToolTip(
-            '画域の周囲に必要なフレームの余白（m）'
+            '画域の周囲に必要なフレームの余白'
         )
         self.transfer_combo = QComboBox()
         self.transfer_combo.addItem("不明（伝達権威なし）", None)
@@ -662,44 +699,42 @@ class RoomVideoPanel(QWidget):
         display_layout.addLayout(display_spec_row)
 
         self.display_heading = QLabel("ディスプレイ有効画域（バインド未設定）")
+        self.display_heading.setWordWrap(True)
         set_typography_role(self.display_heading, TypographyRole.SECONDARY)
         display_layout.addWidget(self.display_heading)
         display_form = QFormLayout()
         display_form.setContentsMargins(0, 0, 0, 0)
-        self.display_width = QDoubleSpinBox()
-        self.display_width.setRange(0.1, 10.0)
+        display_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.display_width = MetricSpinBox(
+            self, minimum_m=0.1, maximum_m=10.0
+        )
         self.display_width.setSingleStep(0.01)
-        self.display_width.setDecimals(3)
-        self.display_width.setSuffix(' m')
-        self.display_width.setToolTip('ディスプレイ有効画域の幅（m）')
-        self.display_height = QDoubleSpinBox()
-        self.display_height.setRange(0.05, 5.0)
+        self.display_width.setToolTip('ディスプレイ有効画域の幅')
+        self.display_height = MetricSpinBox(
+            self, minimum_m=0.05, maximum_m=5.0
+        )
         self.display_height.setSingleStep(0.01)
-        self.display_height.setDecimals(3)
-        self.display_height.setSuffix(' m')
-        self.display_height.setToolTip('ディスプレイ有効画域の高さ（m）')
-        self.display_offset_x = QDoubleSpinBox()
-        self.display_offset_x.setRange(-5.0, 5.0)
+        self.display_height.setToolTip('ディスプレイ有効画域の高さ')
+        self.display_offset_x = MetricSpinBox(
+            self, minimum_m=-5.0, maximum_m=5.0
+        )
         self.display_offset_x.setSingleStep(0.01)
-        self.display_offset_x.setDecimals(3)
-        self.display_offset_x.setSuffix(' m')
         self.display_offset_x.setToolTip(
-            '画域中心の左右オフセット（m）· ディスプレイ物体の中心基準'
+            '画域中心の左右オフセット · ディスプレイ物体の中心基準'
         )
-        self.display_offset_z = QDoubleSpinBox()
-        self.display_offset_z.setRange(-5.0, 5.0)
+        self.display_offset_z = MetricSpinBox(
+            self, minimum_m=-5.0, maximum_m=5.0
+        )
         self.display_offset_z.setSingleStep(0.01)
-        self.display_offset_z.setDecimals(3)
-        self.display_offset_z.setSuffix(' m')
         self.display_offset_z.setToolTip(
-            '画域中心の上下オフセット（m）· ディスプレイ物体の中心基準'
+            '画域中心の上下オフセット · ディスプレイ物体の中心基準'
         )
-        self.display_frame_clearance = QDoubleSpinBox()
-        self.display_frame_clearance.setRange(0.0, 2.0)
+        self.display_frame_clearance = MetricSpinBox(
+            self, minimum_m=0.0, maximum_m=2.0
+        )
         self.display_frame_clearance.setSingleStep(0.01)
-        self.display_frame_clearance.setSuffix(' m')
         self.display_frame_clearance.setToolTip(
-            '画域の周囲に必要なフレームの余白（m）'
+            '画域の周囲に必要なフレームの余白'
         )
         self.display_mounting = QComboBox()
         self.display_mounting.setToolTip('ディスプレイの設置方式（壁掛け・スタンドなど）')
@@ -733,12 +768,13 @@ class RoomVideoPanel(QWidget):
         # --- policy ------------------------------------------------------------
         policy_form = QFormLayout()
         policy_form.setContentsMargins(0, 0, 0, 0)
-        self.sightline_clearance = QDoubleSpinBox()
-        self.sightline_clearance.setRange(0.0, 1.0)
+        policy_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.sightline_clearance = MetricSpinBox(
+            self, minimum_m=0.0, maximum_m=1.0
+        )
         self.sightline_clearance.setSingleStep(0.01)
-        self.sightline_clearance.setSuffix(' m')
         self.sightline_clearance.setToolTip(
-            '視線（目から画域への線）が障害物と保つべき余裕（m）'
+            '視線（目から画域への線）が障害物と保つべき余裕'
         )
         self.max_axis_deviation = QDoubleSpinBox()
         self.max_axis_deviation.setRange(0.0, 90.0)
@@ -798,9 +834,16 @@ class RoomVideoPanel(QWidget):
         self.restore_camera_button = QPushButton("カメラを戻す")
         self.restore_camera_button.setToolTip('座席視点を解除して通常のカメラに戻します')
         seat_view_row.addWidget(self.seat_view_combo, stretch=1)
-        seat_view_row.addWidget(self.view_seat_button)
-        seat_view_row.addWidget(self.restore_camera_button)
         layout.addLayout(seat_view_row)
+        # Buttons live on their own row: label + combo + two buttons exceeds
+        # the placement column's narrow width and forced a horizontal
+        # scrollbar on the whole panel.
+        seat_view_buttons = QHBoxLayout()
+        seat_view_buttons.setSpacing(4)
+        seat_view_buttons.addWidget(self.view_seat_button)
+        seat_view_buttons.addWidget(self.restore_camera_button)
+        seat_view_buttons.addStretch(1)
+        layout.addLayout(seat_view_buttons)
 
         self.new_spec_button.clicked.connect(self.createSpecRequested)
         self.new_display_spec_button.clicked.connect(self.createDisplaySpecRequested)
@@ -843,7 +886,47 @@ class RoomVideoPanel(QWidget):
 
         self._syncing = False
         self._screen_entity_id: str | None = None
+        self._length_policy = display_length_policy('m')
         self._apply_target_visibility()
+
+    # -- #496 length display policy --------------------------------------------
+
+    def length_policy(self) -> LengthDisplayPolicy:
+        return self._length_policy
+
+    def set_length_policy(self, policy: LengthDisplayPolicy) -> None:
+        """Apply the #496 display-unit policy to every metre field.
+
+        SI metres stay authoritative — only suffix/decimals change. Seat
+        rows built later (seat signature rebuild) inherit the stored
+        policy so they never re-open in metres while the rest of the app
+        shows another unit.
+        """
+
+        self._length_policy = policy
+        for spin in self._length_spins():
+            spin.set_display_unit(policy.unit, decimals=policy.decimals)
+
+    def _length_spins(self) -> tuple[MetricSpinBox, ...]:
+        spins: list[MetricSpinBox] = [
+            self.screen_width,
+            self.screen_height,
+            self.screen_offset_x,
+            self.screen_offset_z,
+            self.frame_clearance,
+            self.display_width,
+            self.display_height,
+            self.display_offset_x,
+            self.display_offset_z,
+            self.display_frame_clearance,
+            self.sightline_clearance,
+        ]
+        for widgets in self._seat_widgets.values():
+            for key in ('eye_z', 'head_z', 'head_r'):
+                spin = widgets.get(key)
+                if isinstance(spin, _SpinRow):
+                    spins.append(spin.spin)
+        return tuple(spins)
 
     def _target_changed(self, _index: int) -> None:
         self._apply_target_visibility()
@@ -955,11 +1038,11 @@ class RoomVideoPanel(QWidget):
                 binding = workspace.screen_bindings.get(screen.entity_id)
                 self.screen_heading.setText(f"スクリーン画素 — {screen.name}")
                 if binding is not None:
-                    self.screen_width.setValue(binding.visible_width_m)
-                    self.screen_height.setValue(binding.visible_height_m)
-                    self.screen_offset_x.setValue(binding.image_center_offset_local_m.x_m)
-                    self.screen_offset_z.setValue(binding.image_center_offset_local_m.z_m)
-                    self.frame_clearance.setValue(binding.frame_clearance_m)
+                    self.screen_width.set_value_m(binding.visible_width_m)
+                    self.screen_height.set_value_m(binding.visible_height_m)
+                    self.screen_offset_x.set_value_m(binding.image_center_offset_local_m.x_m)
+                    self.screen_offset_z.set_value_m(binding.image_center_offset_local_m.z_m)
+                    self.frame_clearance.set_value_m(binding.frame_clearance_m)
                 self._screen_entity_id = screen.entity_id
             else:
                 # No screen entity in the document — the transfer combo and
@@ -978,26 +1061,26 @@ class RoomVideoPanel(QWidget):
                 )
                 binding = workspace.display_binding
                 if binding is not None and binding.entity_id == display.entity_id:
-                    self.display_width.setValue(binding.visible_width_m)
-                    self.display_height.setValue(binding.visible_height_m)
-                    self.display_offset_x.setValue(
+                    self.display_width.set_value_m(binding.visible_width_m)
+                    self.display_height.set_value_m(binding.visible_height_m)
+                    self.display_offset_x.set_value_m(
                         binding.image_center_offset_local_m.x_m
                     )
-                    self.display_offset_z.setValue(
+                    self.display_offset_z.set_value_m(
                         binding.image_center_offset_local_m.z_m
                     )
-                    self.display_frame_clearance.setValue(binding.frame_clearance_m)
+                    self.display_frame_clearance.set_value_m(binding.frame_clearance_m)
                     index = self.display_mounting.findData(binding.mounting)
                     self.display_mounting.setCurrentIndex(index if index >= 0 else 0)
                 else:
                     # Default the aperture to the chassis front face — the user
                     # edits it down to the real active area; never silently
                     # bound to a different display's leftover values.
-                    self.display_width.setValue(display.size_m.x_m)
-                    self.display_height.setValue(display.size_m.z_m)
-                    self.display_offset_x.setValue(0.0)
-                    self.display_offset_z.setValue(0.0)
-                    self.display_frame_clearance.setValue(0.0)
+                    self.display_width.set_value_m(display.size_m.x_m)
+                    self.display_height.set_value_m(display.size_m.z_m)
+                    self.display_offset_x.set_value_m(0.0)
+                    self.display_offset_z.set_value_m(0.0)
+                    self.display_frame_clearance.set_value_m(0.0)
                     self.display_mounting.setCurrentIndex(0)
                 self.display_heading.setText(
                     f"ディスプレイ有効画域 — {display.name}"
@@ -1026,11 +1109,35 @@ class RoomVideoPanel(QWidget):
                     card = QWidget()
                     form = QFormLayout(card)
                     form.setContentsMargins(0, 0, 0, 0)
+                    form.setRowWrapPolicy(
+                        QFormLayout.RowWrapPolicy.WrapLongRows
+                    )
                     eye_z = _SpinRow("眼高さオフセット Z", minimum=0.0, maximum=3.0, step=0.05, value=1.10)
                     head_z = _SpinRow("頭部オフセット Z", minimum=0.0, maximum=3.0, step=0.05, value=1.15)
                     head_r = _SpinRow("頭半径", minimum=0.02, maximum=0.5, step=0.01, value=0.10)
+                    for _row in (eye_z, head_z, head_r):
+                        _row.spin.set_display_unit(
+                            self._length_policy.unit,
+                            decimals=self._length_policy.decimals,
+                        )
                     row_id = QLineEdit('row-1')
+                    row_id.setMinimumWidth(72)
+                    row_id.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        row_id.sizePolicy().verticalPolicy(),
+                    )
                     riser_combo = QComboBox()
+                    # Created per seat card at refresh time — keep it
+                    # shrinkable like the ctor-time combos in this column.
+                    riser_combo.setMinimumContentsLength(6)
+                    riser_combo.setSizeAdjustPolicy(
+                        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
+                    riser_combo.setMinimumWidth(72)
+                    riser_combo.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        riser_combo.sizePolicy().verticalPolicy(),
+                    )
                     riser_combo.addItem("（ライザーなし）", None)
                     for riser in risers:
                         riser_combo.addItem(riser.name, riser.entity_id)
@@ -1041,6 +1148,15 @@ class RoomVideoPanel(QWidget):
                     form.addRow(head_r)
                     form.addRow("ライザー", riser_combo)
                     pose_combo = QComboBox()
+                    pose_combo.setMinimumContentsLength(6)
+                    pose_combo.setSizeAdjustPolicy(
+                        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
+                    pose_combo.setMinimumWidth(72)
+                    pose_combo.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        pose_combo.sizePolicy().verticalPolicy(),
+                    )
                     pose_combo.addItem("カスタム（手動値）", None)
                     pose_combo.setToolTip(
                         "座席のリスナーポーズ権威 (#632) — 選択時は眼/頭オフセットがポーズから導出されます"
@@ -1085,9 +1201,9 @@ class RoomVideoPanel(QWidget):
                 if binding is not None:
                     widgets = self._seat_widgets[seat.entity_id]
                     widgets['row_id'].setText(binding.row_id)
-                    widgets['eye_z'].spin.setValue(binding.eye_reference_offset_local_m.z_m)
-                    widgets['head_z'].spin.setValue(binding.head_center_offset_local_m.z_m)
-                    widgets['head_r'].spin.setValue(binding.head_radius_m)
+                    widgets['eye_z'].spin.set_value_m(binding.eye_reference_offset_local_m.z_m)
+                    widgets['head_z'].spin.set_value_m(binding.head_center_offset_local_m.z_m)
+                    widgets['head_r'].spin.set_value_m(binding.head_radius_m)
                     index = widgets['riser'].findData(binding.riser_entity_id)
                     widgets['riser'].setCurrentIndex(index if index >= 0 else 0)
                 pose_info = (seat_poses or {}).get(seat.entity_id)
@@ -1185,11 +1301,11 @@ class RoomVideoPanel(QWidget):
 
     def current_display_values(self) -> dict[str, object]:
         return {
-            'visible_width_m': float(self.display_width.value()),
-            'visible_height_m': float(self.display_height.value()),
-            'image_center_offset_x_m': float(self.display_offset_x.value()),
-            'image_center_offset_z_m': float(self.display_offset_z.value()),
-            'frame_clearance_m': float(self.display_frame_clearance.value()),
+            'visible_width_m': float(self.display_width.value_m()),
+            'visible_height_m': float(self.display_height.value_m()),
+            'image_center_offset_x_m': float(self.display_offset_x.value_m()),
+            'image_center_offset_z_m': float(self.display_offset_z.value_m()),
+            'frame_clearance_m': float(self.display_frame_clearance.value_m()),
             'mounting': self.display_mounting.currentData(),
         }
 
@@ -1198,11 +1314,11 @@ class RoomVideoPanel(QWidget):
 
     def current_screen_values(self) -> dict[str, object]:
         return {
-            'visible_width_m': float(self.screen_width.value()),
-            'visible_height_m': float(self.screen_height.value()),
-            'image_center_offset_x_m': float(self.screen_offset_x.value()),
-            'image_center_offset_z_m': float(self.screen_offset_z.value()),
-            'frame_clearance_m': float(self.frame_clearance.value()),
+            'visible_width_m': float(self.screen_width.value_m()),
+            'visible_height_m': float(self.screen_height.value_m()),
+            'image_center_offset_x_m': float(self.screen_offset_x.value_m()),
+            'image_center_offset_z_m': float(self.screen_offset_z.value_m()),
+            'frame_clearance_m': float(self.frame_clearance.value_m()),
         }
 
     def current_seat_bindings(self) -> dict[str, dict[str, object]]:
@@ -1214,16 +1330,16 @@ class RoomVideoPanel(QWidget):
                 continue
             result[entity_id] = {
                 'row_id': widgets['row_id'].text().strip() or 'row-1',
-                'eye_z_m': float(widgets['eye_z'].spin.value()),
-                'head_z_m': float(widgets['head_z'].spin.value()),
-                'head_radius_m': float(widgets['head_r'].spin.value()),
+                'eye_z_m': float(widgets['eye_z'].spin.value_m()),
+                'head_z_m': float(widgets['head_z'].spin.value_m()),
+                'head_radius_m': float(widgets['head_r'].spin.value_m()),
                 'riser_entity_id': widgets['riser'].currentData(),
             }
         return result
 
     def current_policy_values(self) -> dict[str, float]:
         return {
-            'sightline_clearance_m': float(self.sightline_clearance.value()),
+            'sightline_clearance_m': float(self.sightline_clearance.value_m()),
             'max_optical_axis_deviation_deg': float(self.max_axis_deviation.value()),
         }
 

@@ -312,6 +312,48 @@ class CadSystemHealthRepository:
                 if plan is not None
             )
 
+    def list_plans_for_document(
+        self,
+        document_id: str,
+    ) -> tuple[HealthCheckPlan, ...]:
+        """All plans of one document in a single query.
+
+        The JOIN enforces the same baseline agreement ``_plan_from_row``
+        re-verifies per row — payload parse + identity check still applies —
+        without paying one round trip per plan (and one per baseline when a
+        surface lists every document's plans at once).
+        """
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT p.document_id, p.baseline_id, p.baseline_sha256,
+                       p.payload_json
+                FROM cad_health_check_plans p
+                JOIN cad_health_baselines b
+                  ON b.baseline_id = p.baseline_id
+                 AND b.document_id = p.document_id
+                 AND b.baseline_sha256 = p.baseline_sha256
+                WHERE p.document_id=?
+                ORDER BY p.created_at_utc, p.plan_id
+                """,
+                (document_id,),
+            ).fetchall()
+        plans: list[HealthCheckPlan] = []
+        for row in rows:
+            try:
+                plan = HealthCheckPlan.model_validate_json(row['payload_json'])
+            except ValueError:
+                continue
+            if (
+                plan.document_id != row['document_id']
+                or plan.baseline_id != row['baseline_id']
+                or plan.baseline_sha256 != row['baseline_sha256']
+            ):
+                continue
+            plans.append(plan)
+        return tuple(plans)
+
     # ------------------------------------------------------------------
     # Runs
 

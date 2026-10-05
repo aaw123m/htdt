@@ -9,6 +9,7 @@ enforces the collision contract (identical -> reuse, same-id-diff-content
 
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import sqlite3
 from hashlib import sha256
@@ -480,4 +481,129 @@ def test_import_rejects_bundle_column_unknown_to_this_schema(tmp_path):
         BundleManifestInvalidError,
         match='scene_revisions.future_lineage_sha256',
     ):
+        import_project_bundle(target, archive)
+
+
+def _plant_acceptance_evidence(repository: SceneRepository, raw: bytes) -> str:
+    """Anchor an ``htdt_acceptance_evidence`` row into doc-a's closure.
+
+    A document-scoped ``cad_field_evidence`` row draws the file digest
+    into the walk; the acceptance-evidence row then joins through its own
+    sha256 identity — the same shape production evidence takes when a run
+    attachment is referenced by document authority.
+    """
+
+    digest = sha256(raw).hexdigest()
+    data_dir = Path(repository.path).parent
+    assets = data_dir / 'measurement-assets'
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / digest).write_bytes(raw)
+    with closing(sqlite3.connect(repository.path)) as connection, connection:
+        connection.execute(
+            'INSERT INTO cad_field_evidence('
+            'evidence_id, document_id, kind, asset_sha256,'
+            ' evidence_sha256, created_at_utc, payload_json'
+            ') VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (
+                'ev-0123456789abcdef',
+                'doc-a',
+                'acceptance',
+                None,
+                digest,
+                '2026-10-01T00:00:00Z',
+                '{}',
+            ),
+        )
+        connection.execute(
+            'INSERT INTO htdt_acceptance_evidence('
+            'evidence_id, run_id, step_id, kind, filename, sha256,'
+            ' relative_path, size_bytes, recorded_at_utc'
+            ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (
+                'ev-0123456789abcde0',
+                'ac-0123456789ab',
+                'step-1',
+                'verification',
+                'acceptance.bin',
+                digest,
+                f'measurement-assets/{digest}',
+                len(raw),
+                '2026-10-01T00:00:00Z',
+            ),
+        )
+    return digest
+
+
+def test_exported_acceptance_evidence_row_carries_its_bytes(tmp_path):
+    """Every pulled byte-evidence row ships its managed file.
+
+    ``htdt_acceptance_evidence`` is byte-evidence under the authority
+    audit's ``_ASSET_TABLES`` — the registry the bundle closure must
+    mirror — yet the export previously covered only the two registry
+    tables, exporting the row without its bytes and leaving it dangling
+    on a foreign environment (REV52).
+    """
+
+    repository, _head, _record, _dataset = _seed_project(tmp_path)
+    raw = b'acceptance-evidence-payload'
+    digest = _plant_acceptance_evidence(repository, raw)
+
+    archive = tmp_path / 'out' / 'doc-a.htdtproject'
+    export_project_bundle(repository, 'doc-a', archive)
+
+    with ZipFile(archive) as bundle:
+        names = bundle.namelist()
+        assert f'assets/{digest}' in names
+        payloads = [
+            bundle.read(name) for name in names if name.startswith('db/')
+        ]
+    # The evidence row was pulled into the export…
+    assert any(b'ev-0123456789abcde0' in payload for payload in payloads)
+
+    # …and the bundle round-trips into a fresh environment.
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+    imported = import_project_bundle(target, archive)
+    assert imported.document_id == 'doc-a'
+    landed = tmp_path / 'target' / 'measurement-assets' / digest
+    assert landed.is_file()
+    assert landed.read_bytes() == raw
+
+
+def test_import_rejects_manifest_missing_evidence_bytes(tmp_path):
+    """A hand-trimmed bundle whose evidence row has no bytes is refused."""
+
+    repository, _head, _record, _dataset = _seed_project(tmp_path)
+    raw = b'acceptance-evidence-payload-2'
+    digest = _plant_acceptance_evidence(repository, raw)
+
+    archive = tmp_path / 'out' / 'doc-a.htdtproject'
+    export_project_bundle(repository, 'doc-a', archive)
+
+    # Trim the asset member + manifest entry out of the bundle — the
+    # manifest hash is recomputed so the refusal must come from the
+    # asset-row coverage check, never a tamper detector.
+    def _drop_asset(manifest: dict) -> None:
+        manifest['assets'] = [
+            entry
+            for entry in manifest['assets']
+            if entry['sha256'] != digest
+        ]
+
+    _rewrite_bundle_member(
+        archive, {f'assets/{digest}': b''}, manifest_patch=_drop_asset
+    )
+    # Drop the empty member body entirely the way a hand-trimmed bundle
+    # would look: rewrite once more without it.
+    with ZipFile(archive) as source:
+        members = {
+            info.filename: source.read(info.filename)
+            for info in source.infolist()
+        }
+    members.pop(f'assets/{digest}')
+    with ZipFile(archive, 'w') as target:
+        for name, body in members.items():
+            target.writestr(name, body)
+
+    target = SceneRepository(tmp_path / 'target' / 'cad-scenes.sqlite3')
+    with pytest.raises(BundleManifestInvalidError):
         import_project_bundle(target, archive)

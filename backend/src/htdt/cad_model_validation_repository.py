@@ -981,6 +981,21 @@ class CadModelValidationRepository:
             ).fetchall()
         return tuple(self._persisted_record(row) for row in rows)
 
+    def count_for_search_spec(self, search_spec_id: str) -> int:
+        """Persisted validation-record count for one search spec.
+
+        Metadata only — like ``inspect_for_search_spec`` this browses history
+        without evidence re-attestation, and skips even payload decoding;
+        use it for display counters only.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT COUNT(*) AS record_count '
+                'FROM cad_model_validations WHERE search_spec_id=?',
+                (search_spec_id,),
+            ).fetchone()
+        return int(row['record_count'])
+
     def integrity_problems(self, search_spec_id: str | None = None) -> list[str]:
         """Scan persisted O60 records and report evidence-integrity problems.
 
