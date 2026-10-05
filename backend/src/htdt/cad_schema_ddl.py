@@ -2759,6 +2759,94 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_wirebind_logical ON cad_logical_physical_bindings(logical_ref_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_monitoring_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, declaration_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, capability_repr TEXT NOT NULL, remote_allowed INTEGER NOT NULL, declaration_sha256 TEXT NOT NULL UNIQUE, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lifecycle_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, domain TEXT NOT NULL, kind TEXT NOT NULL, collection_mode TEXT NOT NULL, observation_sha256 TEXT NOT NULL UNIQUE, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_change_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, event_sha256 TEXT NOT NULL UNIQUE, occurred_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_trend_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, metric_key TEXT NOT NULL, state TEXT NOT NULL, assessment_sha256 TEXT NOT NULL UNIQUE, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_symptom_episodes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, episode_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, reason_state TEXT NOT NULL, resolved INTEGER NOT NULL, episode_sha256 TEXT NOT NULL UNIQUE, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drift_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, dependency_status TEXT NOT NULL, operational_severity TEXT NOT NULL, evidence_certainty TEXT NOT NULL, assessment_sha256 TEXT NOT NULL UNIQUE, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reverification_triggers ( seq INTEGER PRIMARY KEY AUTOINCREMENT, trigger_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assessment_id TEXT NOT NULL, action TEXT NOT NULL, trigger_sha256 TEXT NOT NULL UNIQUE, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_restore_confirmations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, confirmation_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, restore_ref_kind TEXT NOT NULL, restore_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, confirmation_sha256 TEXT NOT NULL UNIQUE, confirmed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hlobs_subject ON cad_lifecycle_observations(document_id, subject_kind, subject_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hlobs_domain ON cad_lifecycle_observations(document_id, domain, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hldrf_subject ON cad_drift_assessments(document_id, subject_kind, subject_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hlrev_assessment ON cad_reverification_triggers(assessment_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_substitution_proposals ( seq INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, original_definition_id TEXT NOT NULL, proposed_definition_id TEXT NOT NULL, reason_kind TEXT NOT NULL, evidence_class TEXT NOT NULL, proposal_sha256 TEXT NOT NULL UNIQUE, requested_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_change_impact_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_id TEXT NOT NULL, proposal_sha256 TEXT NOT NULL, technical_verdict TEXT NOT NULL, assessment_sha256 TEXT NOT NULL UNIQUE, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_substitution_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_id TEXT NOT NULL, state TEXT NOT NULL, commercial_state TEXT NOT NULL, decision_sha256 TEXT NOT NULL UNIQUE, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_asbuilt_reconciliations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reconciliation_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_id TEXT NOT NULL, verdict TEXT NOT NULL, reconciliation_sha256 TEXT NOT NULL UNIQUE, reconciled_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_equipment_schedule_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, schedule_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, phase TEXT NOT NULL, supersedes_schedule_id TEXT, schedule_sha256 TEXT NOT NULL UNIQUE, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_subprop_document ON cad_substitution_proposals(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_subimp_proposal ON cad_change_impact_assessments(proposal_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_subapr_proposal ON cad_substitution_decisions(proposal_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_subab_proposal ON cad_asbuilt_reconciliations(proposal_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_subsch_document ON cad_equipment_schedule_records(document_id, phase, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2817,6 +2905,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_applicability_attestations',
     'cad_applied_preset_states',
     'cad_applied_settings',
+    'cad_asbuilt_reconciliations',
     'cad_auralization_artifacts',
     'cad_auralization_capabilities',
     'cad_auralization_listening_validations',
@@ -2844,6 +2933,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_calibration_verification_plans',
     'cad_calibration_verification_registrations',
     'cad_checkpoint_restores',
+    'cad_change_events',
+    'cad_change_impact_assessments',
     'cad_commissioning_plans',
     'cad_commissioning_runs',
     'cad_compute_benchmarks',
@@ -2884,12 +2975,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_directivity_datasets',
     'cad_directivity_source_assets',
     'cad_drawing_set_specs',
+    'cad_drift_assessments',
     'cad_environment_profiles',
     'cad_environment_selections',
     'cad_equipment_binding_semantics',
     'cad_electrical_qualifications',
     'cad_equipment_definitions',
     'cad_equipment_evidence_authorities',
+    'cad_equipment_schedule_records',
     'cad_equipment_upgrades',
     'cad_evidence_observations',
     'cad_evidence_subjects',
@@ -2942,6 +3035,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_late_decay_estimate_artifacts',
     'cad_late_field_artifacts',
     'cad_layout_profiles',
+    'cad_lifecycle_observations',
     'cad_line_level_stages',
     'cad_listener_pose_selections',
     'cad_listener_poses',
@@ -2973,6 +3067,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_measurement_uncertainty_budgets',
     'cad_measurements',
     'cad_model_validations',
+    'cad_monitoring_declarations',
     'cad_multi_seat_results',
     'cad_multi_seat_sets',
     'cad_multi_sub_candidates',
@@ -3044,6 +3139,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_reconciliation_decisions',
     'cad_reference_playback_profiles',
     'cad_response_targets',
+    'cad_restore_confirmations',
+    'cad_reverification_triggers',
     'cad_review_notes',
     'cad_robust_design_assessments',
     'cad_robustness_evaluations',
@@ -3097,7 +3194,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_stimulus_pins',
     'cad_stimulus_profiles',
     'cad_stochastic_receiver_estimate_artifacts',
+    'cad_substitution_decisions',
+    'cad_substitution_proposals',
     'cad_surface_material_assignments',
+    'cad_symptom_episodes',
     'cad_system_variant_applications',
     'cad_system_variant_as_built',
     'cad_system_variant_measured',
@@ -3123,6 +3223,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_treatment_boundary_overlays',
     'cad_treatment_comparison_outcomes',
     'cad_treatment_evidence_authorities',
+    'cad_trend_assessments',
     'cad_uncertain_input_sets',
     'cad_upgrade_adoptions',
     'cad_upstream_version_candidates',

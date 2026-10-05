@@ -25,6 +25,8 @@ from .cad_response_target import (
 )
 from .cad_rp22_profile import RP22Evaluation
 from .cad_stimulus_registry import StimulusMeasurementPin
+from .cad_health_drift import DriftAssessment
+from .cad_substitution_impact import ChangeImpactAssessment
 
 
 _TRACEABILITY_LABELS = {
@@ -881,3 +883,265 @@ def wiring_test_line(result: WiringTestResult) -> str:
             f'実測 {result.measured_value} {result.measured_unit}'
         )
     return '検証: ' + ' — '.join(parts)
+
+# ---------------------------------------------------------------------------
+# REV56-LIFECYCLE (#595 health/drift monitoring, #596 substitution impact)
+# ---------------------------------------------------------------------------
+
+_OBSERVATION_KIND_LABELS = {
+    'config_hash': '構成ハッシュ',
+    'device_online_state': '機器オンライン状態',
+    'device_error_warning': '機器エラー/警告',
+    'dsp_config_hash': 'DSP構成ハッシュ',
+    'firmware_version_observed': 'ファームウェアバージョン',
+    'license_expiry': 'ライセンス期限',
+    'clock_sync': '時刻同期',
+    'environment_temperature': '環境温度',
+    'environment_humidity': '環境湿度',
+    'network_state': 'ネットワーク状態',
+    'av_transport_state': 'AV伝送状態',
+    'reference_sweep_result': 'リファレンススイープ結果',
+    'service_observation': 'サービス観察',
+    'manual_inspection': '目視点検',
+    'storage_health': 'ストレージ健全性',
+    'room_as_built_change': '竣工状態変化',
+}
+
+_MONITORING_CAPABILITY_LABELS = {
+    'telemetry_auto': '自動テレメトリ',
+    'telemetry_api': 'APIテレメトリ',
+    'manual_observation': '手動観察',
+    'measurement_capable': '測定可能',
+    'event_source': 'イベントソースあり',
+    'unobservable': '監視不能',
+}
+
+_COLLECTION_MODE_LABELS = {
+    'live_telemetry': 'ライブテレメトリ',
+    'manual_entry': '手動入力',
+    'reference_measurement': 'リファレンス測定',
+    'log_import': 'ログ取込',
+    'declared_change': '宣言変更',
+    'unavailable': '取得不能',
+}
+
+_DRIFT_CLASSIFICATION_LABELS = {
+    'no_material_change': '実質的変化なし',
+    'expected_change': '想定内の変化',
+    'configuration_drift': '構成ドリフト',
+    'performance_drift': '性能ドリフト',
+    'intermittent_fault': '間欠故障',
+    'hard_failure': 'ハード故障',
+    'evidence_stale': '証拠の陳腐化',
+    'insufficient_observability': '観測性不足',
+    'not_comparable': '比較不能',
+}
+
+_IMPACT_DISPOSITION_LABELS = {
+    'stale': '陳腐化',
+    'recompute': '再計算',
+    'remeasure': '再測定',
+    'review_required': 'レビュー要',
+    'unaffected': '影響なし',
+}
+
+_REVERIFICATION_ACTION_LABELS = {
+    'no_action': '対応不要',
+    'observe': '観察継続',
+    'service_review': 'サービスレビュー',
+    'restore_known_good_config': '既知良好構成への復元',
+    'run_reference_check': 'リファレンスチェック実行',
+    'reverify_domain': 'ドメイン再検証',
+    'full_recommission_required': '全面再コミッショニング要',
+}
+
+_OPERATIONAL_SEVERITY_LABELS = {
+    'none': 'なし',
+    'cosmetic': '軽微',
+    'functional': '機能影響',
+    'safety_critical': '重大',
+}
+
+_EVIDENCE_CERTAINTY_LABELS = {
+    'confirmed': '確認済み',
+    'suspected': '疑いあり',
+    'insufficient_evidence': '証拠不足',
+}
+
+_TREND_STATE_LABELS = {
+    'within_band': '帯域内',
+    'drift_detected': 'ドリフト検出',
+    'step_detected': 'ステップ変化検出',
+    'insufficient_samples': 'サンプル不足',
+    'no_threshold': '閾値未設定',
+}
+
+_RESTORE_CONFIRMATION_LABELS = {
+    'restored_confirmed': '復元を確認',
+    'restored_partial': '復元は部分的',
+    'not_restored': '復元されていません',
+    'insufficient_checks': '確認チェック不足',
+}
+
+_DIMENSION_LABELS = {
+    'physical_installation': '物理設置',
+    'electroacoustic': '電気音響',
+    'signal_dsp': '信号/DSP',
+    'video_projection': '映像/プロジェクション',
+    'interoperability': '相互運用性',
+    'infrastructure': 'インフラ',
+    'lifecycle_support': 'ライフサイクル/保守',
+}
+
+_DIMENSION_VERDICT_LABELS = {
+    'equivalent_by_same_exact_evidence': '同一証拠により同等',
+    'meets_or_exceeds_requirement': '要件を満たす/上回る',
+    'different_but_acceptable': '差異あり・許容',
+    'inferior': '低下',
+    'incompatible': '不適合',
+    'insufficient_evidence': '証拠不足',
+    'not_applicable': '該当なし',
+}
+
+_TECHNICAL_VERDICT_LABELS = {
+    'technically_acceptable': '技術的に許容',
+    'technically_limited': '条件付きで技術的に許容',
+    'technically_incompatible': '技術的に不適合',
+    'indeterminate': '判定不能',
+}
+
+_APPROVAL_STATE_LABELS = {
+    'proposed': '提案済み',
+    'evidence_review': '証拠レビュー中',
+    'engineering_approved': '技術承認済み',
+    'engineering_approved_with_limitations': '制限付き技術承認',
+    'rejected': '却下',
+    'commercial_override_accepted': '商業オーバーライド受理',
+    'installed_unverified': '設置済み・未検証',
+    'as_built_verified': '竣工照合済み',
+}
+
+_ASBUILT_VERDICT_LABELS = {
+    'matches_approved': '承認品と一致',
+    'differs_from_approved': '承認品と不一致',
+    'identity_unverified': '識別未検証',
+    'no_approved_baseline': '承認ベースラインなし',
+}
+
+_EQUIVALENCE_CLASS_LABELS = {
+    'same_exact_evidence': '同一型番・同一証拠',
+    'verified_equivalent': '検証済み同等',
+    'declared_equivalent': 'スペック同等宣言',
+    'insufficient': '証拠不足',
+}
+
+_SCHEDULE_PHASE_LABELS = {
+    'design': '設計',
+    'approved_substitution': '承認済み代替',
+    'procured': '調達済み',
+    'installed_as_built': '設置済み（竣工）',
+    'service_replacement': 'サービス交換',
+}
+
+
+def observation_kind_label(kind: str) -> str:
+    return _OBSERVATION_KIND_LABELS.get(kind, kind)
+
+
+def monitoring_capability_label(capability: str) -> str:
+    return _MONITORING_CAPABILITY_LABELS.get(capability, capability)
+
+
+def collection_mode_label(mode: str) -> str:
+    return _COLLECTION_MODE_LABELS.get(mode, mode)
+
+
+def drift_classification_label(classification: str) -> str:
+    return _DRIFT_CLASSIFICATION_LABELS.get(classification, classification)
+
+
+def impact_disposition_label(disposition: str) -> str:
+    return _IMPACT_DISPOSITION_LABELS.get(disposition, disposition)
+
+
+def reverification_action_label(action: str) -> str:
+    return _REVERIFICATION_ACTION_LABELS.get(action, action)
+
+
+def operational_severity_label(severity: str) -> str:
+    return _OPERATIONAL_SEVERITY_LABELS.get(severity, severity)
+
+
+def evidence_certainty_label(certainty: str) -> str:
+    return _EVIDENCE_CERTAINTY_LABELS.get(certainty, certainty)
+
+
+def trend_state_label(state: str) -> str:
+    return _TREND_STATE_LABELS.get(state, state)
+
+
+def restore_confirmation_label(verdict: str) -> str:
+    return _RESTORE_CONFIRMATION_LABELS.get(verdict, verdict)
+
+
+def substitution_dimension_label(dimension: str) -> str:
+    return _DIMENSION_LABELS.get(dimension, dimension)
+
+
+def dimension_verdict_label(verdict: str) -> str:
+    return _DIMENSION_VERDICT_LABELS.get(verdict, verdict)
+
+
+def technical_verdict_label(verdict: str) -> str:
+    return _TECHNICAL_VERDICT_LABELS.get(verdict, verdict)
+
+
+def approval_state_label(state: str) -> str:
+    return _APPROVAL_STATE_LABELS.get(state, state)
+
+
+def asbuilt_verdict_label(verdict: str) -> str:
+    return _ASBUILT_VERDICT_LABELS.get(verdict, verdict)
+
+
+def equivalence_class_label(evidence_class: str) -> str:
+    return _EQUIVALENCE_CLASS_LABELS.get(evidence_class, evidence_class)
+
+
+def schedule_phase_label(phase: str) -> str:
+    return _SCHEDULE_PHASE_LABELS.get(phase, phase)
+
+
+def drift_assessment_line(assessment: DriftAssessment) -> str:
+    """One JA line for a drift assessment (#595): severity and certainty
+    stay separate — no opaque health score."""
+    parts = [
+        operational_severity_label(assessment.operational_severity),
+        evidence_certainty_label(assessment.evidence_certainty),
+    ]
+    worst = [
+        drift_classification_label(c.classification)
+        for c in assessment.components
+        if c.classification
+        not in {'no_material_change', 'expected_change'}
+    ]
+    if worst:
+        parts.append(' / '.join(dict.fromkeys(worst)))
+    else:
+        parts.append('各ドメインで実質的変化なし')
+    return 'ドリフト評価: ' + ' — '.join(parts)
+
+
+def change_impact_line(assessment: ChangeImpactAssessment) -> str:
+    """One JA line for a substitution impact assessment (#596): the
+    derived technical verdict plus the count of re-verification targets."""
+    parts = [technical_verdict_label(assessment.technical_verdict)]
+    active = [
+        e for e in assessment.affected_entries
+        if e.disposition != 'unaffected'
+    ]
+    if active:
+        parts.append(f'影響権威 {len(active)} 件')
+    else:
+        parts.append('影響権威なし')
+    return '変更影響: ' + ' — '.join(parts)
