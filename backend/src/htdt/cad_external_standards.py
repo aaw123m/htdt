@@ -1438,6 +1438,160 @@ def seed_standard_documents(
             notes='Separate normalization/distribution profile — never '
                   'merged with programme measurement or room level.',
         ),
+        # REV56-OPS additions: the networked-AV security, control-system
+        # verification and safe-listening references the OPS
+        # authorities cite.
+        dict(
+            standard_id='avixa-rp-c303-01',
+            edition='2018',
+            document_number='AVIXA RP-C303.01:2018',
+            publisher='AVIXA',
+            title='Recommended Practices for Security in Networked '
+                  'Audiovisual Systems',
+            lifecycle='under_revision',
+            rights='public_metadata_only',
+            admission='primary_source_confirmed',
+            publication_date='2018-06',
+            primary_source_url='https://store.avixa.org/CPBase__item?'
+                               'id=a13f200000C2iRoAAJ',
+            primary_source_tier='official_standards_store',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='Published June 2018 (the German edition lists June '
+                  '2016 for the underlying text). Covers risk '
+                  'identification/assessment, mitigation planning, '
+                  'responsibility assignment across AV staff, '
+                  'integrators, consultants and manufacturers, and '
+                  'ongoing controls. A revision task group was '
+                  'announced 2025-09 — the 2018 edition remains the '
+                  'current published basis.',
+        ),
+        dict(
+            standard_id='ansi-avixa-d402-02',
+            edition='2013-r2024',
+            document_number='ANSI/AVIXA D402.02:2013 (R2024)',
+            publisher='AVIXA',
+            title='Audiovisual Systems Performance Verification '
+                  '(formerly ANSI/INFOCOMM 10:2013)',
+            lifecycle='reaffirmed',
+            rights='public_metadata_only',
+            admission='primary_source_confirmed',
+            publication_date='2013-12',
+            primary_source_url='https://store.avixa.org/CPBase__item?'
+                               'id=a13f200000C2iQZAAZ',
+            primary_source_tier='official_standards_store',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='Reaffirmed 2024. Framework for determining which '
+                  'system elements need verification, verification '
+                  'timing within the project delivery cycle, '
+                  'verification criteria/metrics and reporting '
+                  'procedures — 160 reference verification items '
+                  'including control-system verification. The basis '
+                  'for the control-scenario qualification checks.',
+        ),
+        dict(
+            standard_id='avixa-tr-111',
+            edition='2019',
+            document_number='AVIXA TR-111:2019',
+            publisher='AVIXA',
+            title='Unified Automation for Buildings — overview of the '
+                  'building automation environment and unified '
+                  'standards integrating building systems including '
+                  'professional AV',
+            lifecycle='under_revision',
+            rights='public_metadata_only',
+            admission='primary_source_confirmed',
+            publication_date='2019',
+            primary_source_url='https://store.avixa.org/CPBase__item?'
+                               'id=a13f200000C355SAAR',
+            primary_source_tier='official_standards_store',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='A revision task group was announced 2025-08 — the '
+                  '2019 report remains the current published basis. '
+                  'Used as control/automation domain context, not a '
+                  'conformance citation.',
+        ),
+        dict(
+            standard_id='avixa-ux-701-01',
+            edition='in-development',
+            document_number='AVIXA UX 701.01 (in development)',
+            publisher='AVIXA',
+            title='User Experience Design for AV Systems (working '
+                  'title — currently in development, no published '
+                  'edition)',
+            lifecycle='draft',
+            rights='public_metadata_only',
+            admission='discovered',
+            notes='AVIXA lists UX 701.01 as in development with no '
+                  'published text — research-only registration, never '
+                  'a conformance citation. Supersedes nothing.',
+        ),
+        dict(
+            standard_id='who-safe-listening-venues',
+            edition='2022',
+            document_number='WHO Global standard for safe listening '
+                            'venues and events (ISBN 978-92-4-004311-4)',
+            publisher='WHO',
+            title='WHO global standard for safe listening venues and '
+                  'events',
+            lifecycle='published_current',
+            rights='public_open_standard',
+            admission='primary_source_confirmed',
+            publication_date='2022-03-02',
+            primary_source_url='https://www.who.int/publications/i/'
+                               'item/9789240043114',
+            primary_source_tier='official_publisher_announcement',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='Six features: max 100 dB LAeq,15min average sound '
+                  'level, live monitoring with calibrated equipment, '
+                  'venue acoustics/sound-system optimization, personal '
+                  'hearing protection availability, quiet zones, and '
+                  'staff training/information. Licence CC BY-NC-SA 3.0 '
+                  'IGO. Basis for the venue/audience exposure profile.',
+        ),
+        dict(
+            standard_id='niosh-noise-rel',
+            edition='98-126',
+            document_number='DHHS (NIOSH) Publication No. 98-126',
+            publisher='NIOSH',
+            title='Criteria for a Recommended Standard: Occupational '
+                  'Noise Exposure — Revised Criteria 1998',
+            lifecycle='published_current',
+            rights='public_open_standard',
+            admission='primary_source_confirmed',
+            publication_date='1998-06',
+            primary_source_url='https://www.cdc.gov/niosh/docs/98-126/',
+            primary_source_tier='official_publisher_announcement',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='REL 85 dBA 8-hour TWA, 3 dB exchange rate, 80 dBA '
+                  'threshold. An OCCUPATIONAL criterion — the exposure '
+                  'authority records this basis explicitly and never '
+                  'silently generalizes it onto guests, children or '
+                  'recreational listening.',
+        ),
+        dict(
+            standard_id='cedia-spl-capability-wp',
+            edition='2025',
+            document_number='CEDIA White Paper — Reference Audio Level '
+                            'and SPL Capabilities',
+            publisher='CEDIA',
+            title='Reference Audio Level and SPL Capabilities — '
+                  'clarifies RP22 SPL capability vs listening level',
+            lifecycle='published_current',
+            rights='reference_only',
+            admission='primary_source_confirmed',
+            publication_date='2025-10-08',
+            primary_source_url='https://cedia.org/en-us/'
+                               'smart-home-professionals/education/'
+                               'white-papers/',
+            primary_source_tier='official_publisher_announcement',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='States explicitly that RP22 SPL capability '
+                  '(~105 dB, the 85 dB reference + 20 dB headroom '
+                  'lineage) defines capability/headroom — never a '
+                  'mandatory or recommended listening level. The '
+                  'capability-vs-exposure separation the #602 '
+                  'authority encodes.',
+        ),
     )
     return tuple(
         build_standard_document(

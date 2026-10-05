@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 33
+NATIVE_SCHEMA_VERSION = 34
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1363,6 +1363,20 @@ def _migrate_31_to_32(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_32_to_33(connection: sqlite3.Connection) -> None:
+    # Install the REV56-OPS authorities (#598 networked AV security:
+    # asset overlays, credentials, management surfaces, observations,
+    # risks, remote-service authorizations, security test evidence,
+    # access reviews, review verdicts; #601 control/automation scenario
+    # qualification: surfaces, scenario declarations, execution runs,
+    # qualification verdicts; #602 safe-listening/test-exposure:
+    # exposure limits, SPL capabilities, test plans, gate decisions,
+    # assessments): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_33_to_34(connection: sqlite3.Connection) -> None:
     # Install the REV56-INTEROP authorities (#578 openBIM IFC 4.3
     # interoperability: import artifacts, entity mappings, revision
     # deltas, intake profiles/evaluations, export packages; #586 CEDIA
@@ -1407,6 +1421,7 @@ _MIGRATIONS = {
     31: _migrate_30_to_31,
     32: _migrate_31_to_32,
     33: _migrate_32_to_33,
+    34: _migrate_33_to_34,
 }
 
 

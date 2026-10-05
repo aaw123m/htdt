@@ -27,6 +27,9 @@ from .cad_rp22_profile import RP22Evaluation
 from .cad_stimulus_registry import StimulusMeasurementPin
 from .cad_health_drift import DriftAssessment
 from .cad_substitution_impact import ChangeImpactAssessment
+from .cad_security_authority import SecurityReview
+from .cad_control_scenario import ControlScenarioQualification
+from .cad_safe_listening import ExposureAssessment
 
 
 _TRACEABILITY_LABELS = {
@@ -1145,3 +1148,146 @@ def change_impact_line(assessment: ChangeImpactAssessment) -> str:
     else:
         parts.append('影響権威なし')
     return '変更影響: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV56-OPS: #598 security, #601 control qualification, #602 exposure
+# ---------------------------------------------------------------------------
+
+_SECURITY_STATE_LABELS = {
+    'not_applicable': '対象外',
+    'unknown': '未評価',
+    'reviewed': 'レビュー済み',
+    'reviewed_with_limitations': 'レビュー済み(限定あり)',
+    'risk_accepted': 'リスク受容済み',
+    'mitigation_required': '緩和対応が必要',
+    'high_risk_exposure': '高リスク曝露',
+}
+
+_SECURITY_CHECK_LABELS = {
+    'inventory': '資産棚卸し',
+    'credentials': '資格情報',
+    'surfaces': '管理サーフェス',
+    'firmware': 'ファームウェア/パッチ',
+    'remote_access': 'リモートアクセス',
+    'backup_sensitivity': 'バックアップ機微性',
+    'access_review': 'アクセスレビュー',
+    'decommission': '廃止手続き',
+}
+
+_SCENARIO_STATE_LABELS = {
+    'draft': '宣言のみ(未評価)',
+    'not_executed': '未実行 — 動作保証なし',
+    'stale': '旧リビジョンの証拠のみ',
+    'unverified': '検証不足',
+    'qualified': '修飾済み',
+    'qualified_with_deviations': '修飾済み(偏差あり)',
+    'failed': '不合格',
+}
+
+_SCENARIO_CHECK_LABELS = {
+    'declaration': 'シナリオ宣言',
+    'feedback_expectation': 'フィードバック期待値',
+    'timeouts': 'タイムアウト',
+    'execution_coverage': '実行カバレッジ',
+    'failure_notification': '失敗時通知',
+    'revision_freshness': 'リビジョン新規性',
+}
+
+_EXPOSURE_STATE_LABELS = {
+    'not_applicable': '対象外',
+    'unknown': '不明(限界未宣言)',
+    'within_limit': '限界内',
+    'gate_required': 'ゲート判定が必要',
+    'approved': 'ゲート承認済み',
+    'approved_with_controls': '条件付きゲート承認',
+    'blocked': 'ゲートにより阻止',
+}
+
+_CHECK_RESULT_LABELS = {
+    'verified': '検証済み',
+    'limited': '限定あり',
+    'failed': '不合格',
+    'not_applicable': '対象外',
+}
+
+
+def security_state_label(state: str) -> str:
+    return _SECURITY_STATE_LABELS.get(state, state)
+
+
+def security_check_label(check: str) -> str:
+    return _SECURITY_CHECK_LABELS.get(check, check)
+
+
+def scenario_state_label(state: str) -> str:
+    return _SCENARIO_STATE_LABELS.get(state, state)
+
+
+def scenario_check_label(check: str) -> str:
+    return _SCENARIO_CHECK_LABELS.get(check, check)
+
+
+def exposure_state_label(state: str) -> str:
+    return _EXPOSURE_STATE_LABELS.get(state, state)
+
+
+def check_result_label(result: str) -> str:
+    return _CHECK_RESULT_LABELS.get(result, result)
+
+
+def security_review_line(review: SecurityReview) -> str:
+    """One JA line for a security review verdict (#598): state plus the
+    failed/limited dimensions — never an opaque "secure" claim."""
+    parts = [security_state_label(review.state)]
+    failed = [
+        security_check_label(c) for c, r in review.checks
+        if r == 'failed'
+    ]
+    limited = [
+        security_check_label(c) for c, r in review.checks
+        if r == 'limited'
+    ]
+    if failed:
+        parts.append('不合格: ' + ' / '.join(failed))
+    if limited:
+        parts.append('限定: ' + ' / '.join(limited))
+    if not failed and not limited and review.state in (
+        'reviewed', 'risk_accepted',
+    ):
+        parts.append('全次元検証済み')
+    return 'セキュリティレビュー: ' + ' — '.join(parts)
+
+
+def scenario_qualification_line(
+    qualification: ControlScenarioQualification,
+) -> str:
+    """One JA line for a control-scenario qualification (#601): the
+    fail-closed state — an unexecuted scenario reads 未実行, never
+    動作保証."""
+    parts = [scenario_state_label(qualification.state)]
+    failed = [
+        scenario_check_label(c) for c, r in qualification.checks
+        if r == 'failed'
+    ]
+    if failed:
+        parts.append('不合格: ' + ' / '.join(failed))
+    if qualification.deviations:
+        parts.append(f'偏差 {len(qualification.deviations)} 件')
+    return '制御シナリオ修飾: ' + ' — '.join(parts)
+
+
+def exposure_assessment_line(assessment: ExposureAssessment) -> str:
+    """One JA line for an exposure assessment (#602): the verdict and
+    the projected dose — '鳴らせる' と '聴いてよい' の分離を保つ。"""
+    parts = [exposure_state_label(assessment.state)]
+    if assessment.projected_dose_pct is not None:
+        parts.append(f'予測線量 {assessment.projected_dose_pct:.0f}%')
+    if assessment.allowable_duration_s is not None:
+        parts.append(f'許容時間 {assessment.allowable_duration_s:.0f} 秒')
+    failed = [
+        c for c, r in assessment.checks if r == 'failed'
+    ]
+    if failed:
+        parts.append('不合格: ' + ' / '.join(failed))
+    return '曝露評価: ' + ' — '.join(parts)

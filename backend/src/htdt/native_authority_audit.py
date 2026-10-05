@@ -3230,6 +3230,117 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('result_id',),
         _get('seating_acoustics', 'get_commissioning_result'),
     ),
+    # REV56-OPS: #598 security authority
+    _ReplayProbe(
+        'security_asset',
+        'cad_security_assets',
+        ('asset_id',),
+        _get('security_authority', 'get_asset'),
+    ),
+    _ReplayProbe(
+        'security_credential',
+        'cad_security_credentials',
+        ('credential_id',),
+        _get('security_authority', 'get_credential'),
+    ),
+    _ReplayProbe(
+        'security_surface',
+        'cad_security_surfaces',
+        ('surface_id',),
+        _get('security_authority', 'get_surface'),
+    ),
+    _ReplayProbe(
+        'security_observation',
+        'cad_security_observations',
+        ('observation_id',),
+        _get('security_authority', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'security_risk',
+        'cad_security_risks',
+        ('risk_id',),
+        _get('security_authority', 'get_risk'),
+    ),
+    _ReplayProbe(
+        'remote_service_authorization',
+        'cad_remote_service_authorizations',
+        ('authorization_id',),
+        _get('security_authority', 'get_remote_authorization'),
+    ),
+    _ReplayProbe(
+        'security_test_evidence',
+        'cad_security_test_evidence',
+        ('evidence_id',),
+        _get('security_authority', 'get_test_evidence'),
+    ),
+    _ReplayProbe(
+        'access_review',
+        'cad_access_reviews',
+        ('review_id',),
+        _get('security_authority', 'get_access_review'),
+    ),
+    _ReplayProbe(
+        'security_review',
+        'cad_security_reviews',
+        ('review_id',),
+        _get('security_authority', 'get_review'),
+    ),
+    # REV56-OPS: #601 control-scenario qualification
+    _ReplayProbe(
+        'control_surface',
+        'cad_control_surfaces',
+        ('surface_id',),
+        _get('control_scenario', 'get_surface'),
+    ),
+    _ReplayProbe(
+        'control_scenario',
+        'cad_control_scenarios',
+        ('scenario_id',),
+        _get('control_scenario', 'get_scenario'),
+    ),
+    _ReplayProbe(
+        'control_scenario_run',
+        'cad_control_scenario_runs',
+        ('run_id',),
+        _get('control_scenario', 'get_run'),
+    ),
+    _ReplayProbe(
+        'control_scenario_qualification',
+        'cad_control_qualifications',
+        ('qualification_id',),
+        _get('control_scenario', 'get_qualification'),
+    ),
+    # REV56-OPS: #602 safe-listening / test-exposure
+    _ReplayProbe(
+        'exposure_limit',
+        'cad_exposure_limits',
+        ('limit_id',),
+        _get('safe_listening', 'get_limit'),
+    ),
+    _ReplayProbe(
+        'spl_capability',
+        'cad_spl_capabilities',
+        ('capability_id',),
+        _get('safe_listening', 'get_capability'),
+    ),
+    _ReplayProbe(
+        'test_exposure_plan',
+        'cad_test_exposure_plans',
+        ('plan_id',),
+        _get('safe_listening', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'exposure_gate',
+        'cad_exposure_gates',
+        ('gate_id',),
+        _get('safe_listening', 'get_gate'),
+    ),
+    _ReplayProbe(
+        'exposure_assessment',
+        'cad_exposure_assessments',
+        ('assessment_id',),
+        _get('safe_listening', 'get_assessment'),
+    ),
     _ReplayProbe(
         'ifc_import_artifact',
         'cad_ifc_import_artifacts',

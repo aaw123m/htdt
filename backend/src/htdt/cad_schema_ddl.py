@@ -3029,6 +3029,154 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_seating_commissioning_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, result_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verdict TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+    # REV56-OPS: networked AV security authority (#598)
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_assets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL UNIQUE, asset_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, management_reachability TEXT NOT NULL, vendor_support_status TEXT NOT NULL, lifecycle_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secasset_doc ON cad_security_assets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_credentials ( seq INTEGER PRIMARY KEY AUTOINCREMENT, credential_id TEXT NOT NULL UNIQUE, credential_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, account_ref TEXT NOT NULL, kind TEXT NOT NULL, scope TEXT NOT NULL, default_credential_state TEXT NOT NULL, state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_seccred_doc ON cad_security_credentials(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_surfaces ( seq INTEGER PRIMARY KEY AUTOINCREMENT, surface_id TEXT NOT NULL UNIQUE, surface_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, kind TEXT NOT NULL, state TEXT NOT NULL, exposure_scope TEXT NOT NULL, authentication_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secsurf_doc ON cad_security_surfaces(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, evidence_class TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secobs_doc ON cad_security_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_risks ( seq INTEGER PRIMARY KEY AUTOINCREMENT, risk_id TEXT NOT NULL UNIQUE, risk_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT, subject_ref_id TEXT, title TEXT NOT NULL, likelihood_class TEXT NOT NULL, status TEXT NOT NULL, review_at_utc TEXT, raised_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secrisk_doc ON cad_security_risks(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_remote_service_authorizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, authorization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, method TEXT NOT NULL, state TEXT NOT NULL, valid_until_utc TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secrem_doc ON cad_remote_service_authorizations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_test_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, tool_provider TEXT NOT NULL, performed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sectest_doc ON cad_security_test_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_access_reviews ( seq INTEGER PRIMARY KEY AUTOINCREMENT, review_id TEXT NOT NULL UNIQUE, review_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, trigger TEXT NOT NULL, reviewer TEXT NOT NULL, performed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secacc_doc ON cad_access_reviews(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_security_reviews ( seq INTEGER PRIMARY KEY AUTOINCREMENT, review_id TEXT NOT NULL UNIQUE, review_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_secrev_doc ON cad_security_reviews(document_id, seq ASC)
+    """
+    ,
+    # REV56-OPS: control/automation scenario qualification (#601)
+    """
+    CREATE TABLE IF NOT EXISTS cad_control_surfaces ( seq INTEGER PRIMARY KEY AUTOINCREMENT, surface_id TEXT NOT NULL UNIQUE, surface_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, controller_ref_kind TEXT, controller_ref_id TEXT, controller_family TEXT NOT NULL, program_identity TEXT, program_version TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ctrlsurf_doc ON cad_control_surfaces(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_control_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, surface_ref_id TEXT, kind TEXT NOT NULL, name TEXT NOT NULL, step_count INTEGER NOT NULL, failure_notification_required INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ctrlscn_doc ON cad_control_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_control_scenario_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT NOT NULL, scenario_sha256 TEXT NOT NULL, outcome TEXT NOT NULL, failure_notification_outcome TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ctrlrun_scn ON cad_control_scenario_runs(scenario_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_control_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ctrlqual_doc ON cad_control_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV56-OPS: safe-listening / test-exposure authority (#602)
+    """
+    CREATE TABLE IF NOT EXISTS cad_exposure_limits ( seq INTEGER PRIMARY KEY AUTOINCREMENT, limit_id TEXT NOT NULL UNIQUE, limit_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, basis TEXT NOT NULL, criterion TEXT NOT NULL, limit_level_db REAL NOT NULL, reference_window_s INTEGER, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_explim_doc ON cad_exposure_limits(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spl_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scope TEXT NOT NULL, capability_source TEXT NOT NULL, source_ref_id TEXT, max_continuous_db_spl REAL, max_peak_db_spl REAL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_splcap_doc ON cad_spl_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_test_exposure_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, planned_level_db_spl REAL, planned_duration_s INTEGER, occupancy TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_explan_doc ON cad_test_exposure_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_exposure_gates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, gate_id TEXT NOT NULL UNIQUE, gate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assessment_ref_id TEXT NOT NULL, decision TEXT NOT NULL, decided_by TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_expgate_doc ON cad_exposure_gates(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_exposure_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, limit_ref_id TEXT, state TEXT NOT NULL, projected_dose_pct REAL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_expassess_doc ON cad_exposure_assessments(document_id, seq ASC)
+    """
+    ,
+    # REV56-INTEROP: openBIM IFC 4.3 interoperability (#578)
     """
     CREATE TABLE IF NOT EXISTS cad_ifc_import_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, file_name TEXT NOT NULL, schema_identifier TEXT NOT NULL, imported_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
@@ -3589,6 +3737,24 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_occupancy_scenarios',
     'cad_clearance_evaluations',
     'cad_seating_commissioning_results',
+    'cad_security_assets',
+    'cad_security_credentials',
+    'cad_security_surfaces',
+    'cad_security_observations',
+    'cad_security_risks',
+    'cad_remote_service_authorizations',
+    'cad_security_test_evidence',
+    'cad_access_reviews',
+    'cad_security_reviews',
+    'cad_control_surfaces',
+    'cad_control_scenarios',
+    'cad_control_scenario_runs',
+    'cad_control_qualifications',
+    'cad_exposure_limits',
+    'cad_spl_capabilities',
+    'cad_test_exposure_plans',
+    'cad_exposure_gates',
+    'cad_exposure_assessments',
     'cad_ifc_import_artifacts',
     'cad_ifc_entity_mappings',
     'cad_ifc_revision_deltas',
