@@ -266,6 +266,19 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_network_transport_observations": "ネットワーク伝送観測",
     "cad_network_timing_observations": "ネットワークタイミング観測",
     "cad_network_av_qualifications": "ネットワークAV適合評価",
+    "cad_monitoring_declarations": "監視能力・収集許可宣言",
+    "cad_lifecycle_observations": "ライフサイクル観測記録",
+    "cad_change_events": "システム変更イベント",
+    "cad_trend_assessments": "傾向評価",
+    "cad_symptom_episodes": "症状エピソード",
+    "cad_drift_assessments": "ドリフト評価",
+    "cad_reverification_triggers": "再検証トリガー",
+    "cad_restore_confirmations": "復元確認レコード",
+    "cad_substitution_proposals": "機器代替提案",
+    "cad_change_impact_assessments": "変更影響評価",
+    "cad_substitution_decisions": "代替承認判定",
+    "cad_asbuilt_reconciliations": "竣工機器照合",
+    "cad_equipment_schedule_records": "機器スケジュール履歴",
 }
 
 

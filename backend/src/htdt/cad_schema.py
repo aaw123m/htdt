@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 30
+NATIVE_SCHEMA_VERSION = 31
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1336,6 +1336,18 @@ def _migrate_29_to_30(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_30_to_31(connection: sqlite3.Connection) -> None:
+    # Install the REV56-LIFECYCLE authorities (#595 post-commissioning
+    # health/drift monitoring: monitoring declarations, lifecycle
+    # observations, change events, trend/symptom/drift assessments,
+    # reverification triggers, restore confirmations; #596 substitution
+    # impact: proposals, change-impact assessments, decisions, as-built
+    # reconciliations, equipment schedule records): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1367,6 +1379,7 @@ _MIGRATIONS = {
     28: _migrate_27_to_28,
     29: _migrate_28_to_29,
     30: _migrate_29_to_30,
+    31: _migrate_30_to_31,
 }
 
 
