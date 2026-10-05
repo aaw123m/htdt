@@ -588,3 +588,78 @@ issues:
           実座席の占有/非占有吸収係数の実測供給、複数列ソルバー
           (#101/#102) への遮蔽ゲート伝搬配線、耳位置の計測ワーク
           フロー統合は残件。
+
+  - issue: 578
+    title: "REV56-INTEROP: openBIM IFC 4.3 import/export interoperability"
+    notes: >
+      Bounded STEP P21 parser (ifc_step.py; size/entity/depth limits, no
+      partial parse). IFCImportAuthority pins length unit, axis
+      convention, true north and georeference as declared coordinates —
+      undeclared length unit withholds metre transforms rather than
+      guessing. Semantic role map (IfcSpace->room_candidate, wall/slab/
+      roof->boundary, door/window->opening, covering->finish_hint,
+      furnishing->obstacle, proxy->generic_unknown); material layer
+      sets extracted as construction hints only, never acoustic presets;
+      property single-values via RelDefinesByProperties; openings via
+      RelVoidsElement/RelFillsElement. Honest IfcImportCoverage (unhandled
+      entity types, unresolved representation items, dropped properties,
+      withheld placements). Stable-GlobalId revision delta with
+      geometry/semantics/coordinate classification and ambiguous-rebind
+      review requirement; IDS-style intake profile evaluation returning
+      actionable missing-data diagnostics; declaration-symmetric export
+      packages (reference/update-proposal/as-built, STEP text + sha256)
+      listing every unexported item with its reason.
+    checks:
+      - id: interop-ifc-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_interop.py
+        description: >
+          BIM10-80 fixtures: mm->m scale pin, undeclared-unit transform
+          withholding, placement-chain composition incl. storey
+          elevation, arbitrary-profile space extrusion, door filling via
+          voids/fills, material-layer hint honesty, coverage counters,
+          delta classification + coordinate-change demotion, intake
+          satisfied_with_gaps diagnostics, export round-trip through own
+          parser + unexported reason list, repository seal/forge
+          rejection.
+      - id: interop-ifc-remainder
+        kind: manual
+        description: >
+          実 BIM オーサリングツール (Revit/ArchiCAD 等) からの実 IFC
+          ファイルとの往復検証、BREP 完全トポロジ評価 (FacetedBrep は
+          面リストまで)、UPDATE_PROPOSAL の上流 BIM への差分適用、
+          カーテンウォール/複合ジオメトリ、IFC 以外の BIM 形式
+          (gbXML 等) は残件。
+  - issue: 586
+    title: "REV56-INTEROP: CEDIA RP1 Performance Facts ingestion profile"
+    notes: >
+      PerformanceFactsProfile pins publisher/family/document revision/
+      maturity state/field-mapping version/content hash (industry-review
+      drafts never masquerade as final). ManufacturerProductIdentity
+      keeps product variants distinct. PerformanceFact records values as
+      the declared evidence class (manufacturer stays manufacturer,
+      never promoted to measured), preserving full test conditions —
+      sufficiency evaluation demotes facts missing required conditions.
+      Profile rebind requires explicit per-field disposition;
+      conflicting sources coexist (no overwrite), reconciled only by
+      explicit operator decision. rp22_consumption_view projects facts
+      into RP22 observations capped at nominal/modelled basis.
+    checks:
+      - id: interop-rp1-ingestion
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_interop.py
+        description: >
+          RP1F10-60 fixtures: profile identity hash, variant identity
+          separation, undeclared source-field verbatim preservation,
+          condition-completeness sufficiency, suitability verdict +
+          reason codes, rebind disposition enforcement, conflicting-
+          source coexistence and forced reconciliation, RP22 basis cap,
+          repository seal/forge rejection.
+      - id: interop-rp1-remainder
+        kind: manual
+        description: >
+          CEDIA RP1-1 の最終公開版スキーマ確定時の profile 再バインド、
+          実メーカー Performance Facts シート (PDF/スプレッドシート) の
+          抽出器実装、第三者ラボ/規格データセットの実ソース接続は残件。
