@@ -18,6 +18,11 @@ from .cad_external_standards import (
 )
 from .cad_measurement_state import StateComparabilityVerdict
 from .cad_measurement_uncertainty import MeasurementUncertaintyBudget
+from .cad_response_target import (
+    ResponseTargetProfile,
+    SpectralBalanceEvaluation,
+)
+from .cad_rp22_profile import RP22Evaluation
 from .cad_stimulus_registry import StimulusMeasurementPin
 
 
@@ -404,4 +409,174 @@ def restore_record_line(record: ConfigurationRestoreRecord) -> str:
     return (
         f'復元: {restore_verdict_label(record.verdict)}'
         f'（{record.result_status}）'
+    )
+
+
+# ---------------------------------------------------------------------------
+# REV56-TARGETS: RP22 standards profile + response-target authority
+# (#579/#588)
+
+_RP22_PARAMETER_VERDICT_LABELS = {
+    'met': '達成',
+    'not_met': '未達成',
+    'insufficient_evidence': '証拠不足',
+    'not_applicable': '適用外',
+    'unsupported': 'マッピング未対応',
+}
+
+_RP22_CONFORMANCE_LABELS = {
+    'met': '適合',
+    'not_met': '不適合',
+    'indeterminate': '判定不能',
+}
+
+_RP22_EVIDENCE_CLASS_LABELS = {
+    'design_prediction': '設計予測',
+    'as_built': '竣工時',
+    'measured_commissioning': '実測コミッショニング',
+    'unknown': '証拠区分不明',
+}
+
+_RP22_EVALUATION_KIND_LABELS = {
+    'design_evaluation': '設計評価',
+    'as_built_evaluation': '竣工評価',
+    'measured_commissioning_evaluation': '実測コミッショニング評価',
+}
+
+_RP22_MAPPING_STATUS_LABELS = {
+    'supported': '対応済み',
+    'supported_with_limitations': '制限付き対応',
+    'measurement_required': '実測証拠が必要',
+    'unsupported': '未対応（正直な未マップ）',
+}
+
+_RP22_DYNAMICS_BASIS_LABELS = {
+    'nominal_spec_only': '定格仕様のみ',
+    'modelled_small_signal': '小信号モデル',
+    'modelled_with_output_limits': '出力限界込みモデル',
+    'lab_measured_output': '実測出力（ラボ）',
+    'in_room_measured_capability': '室内実測能力',
+    'commissioned_verified': 'コミッショニング検証済み',
+}
+
+_RESPONSE_TARGET_KIND_LABELS = {
+    'project_defined': 'プロジェクト定義',
+    'user_preference': 'ユーザー選好',
+    'provider_device_profile': 'プロバイダ/機器プロファイル',
+    'external_standard_profile': '外部規格プロファイル',
+    'measured_reference_derived': '実測由来ターゲット',
+    'system_capability_derived': 'システム能力由来',
+    'research_profile': '研究由来プロファイル',
+    'unknown': '由来不明',
+}
+
+_TARGET_BINDING_STATE_LABELS = {
+    'resolved_exact': '版特定済み',
+    'source_version_ambiguous': '版特定が曖昧',
+    'unregistered': 'レジストリ未登録',
+    'license_profile_unavailable': 'ライセンス制約で取得不可',
+}
+
+_SEAT_COVERAGE_LABELS = {
+    'evaluated': '評価済み',
+    'no_coverage': 'カバレッジなし',
+    'normalization_failed': '正規化不可',
+}
+
+_SEAT_ROLE_LABELS = {
+    'control': 'コントロール席',
+    'holdout': 'ホールドアウト席',
+    'evaluation': '評価席',
+}
+
+
+def rp22_parameter_verdict_label(verdict: str) -> str:
+    return _RP22_PARAMETER_VERDICT_LABELS.get(verdict, verdict)
+
+
+def rp22_conformance_label(verdict: str) -> str:
+    return _RP22_CONFORMANCE_LABELS.get(verdict, verdict)
+
+
+def rp22_evidence_class_label(evidence_class: str) -> str:
+    return _RP22_EVIDENCE_CLASS_LABELS.get(evidence_class, evidence_class)
+
+
+def rp22_evaluation_kind_label(kind: str) -> str:
+    return _RP22_EVALUATION_KIND_LABELS.get(kind, kind)
+
+
+def rp22_mapping_status_label(status: str) -> str:
+    return _RP22_MAPPING_STATUS_LABELS.get(status, status)
+
+
+def rp22_dynamics_basis_label(basis: str) -> str:
+    return _RP22_DYNAMICS_BASIS_LABELS.get(basis, basis)
+
+
+def response_target_kind_label(kind: str) -> str:
+    return _RESPONSE_TARGET_KIND_LABELS.get(kind, kind)
+
+
+def target_binding_state_label(state: str) -> str:
+    return _TARGET_BINDING_STATE_LABELS.get(state, state)
+
+
+def seat_coverage_label(status: str) -> str:
+    return _SEAT_COVERAGE_LABELS.get(status, status)
+
+
+def seat_role_label(role: str) -> str:
+    return _SEAT_ROLE_LABELS.get(role, role)
+
+
+def rp22_evaluation_line(evaluation: RP22Evaluation) -> str:
+    """One JA line for an RP22 conformance evaluation (#579): the
+    evaluation kind, requested level and overall verdict stay separate —
+    a requested level is never claimed as achieved."""
+    met = sum(
+        1 for item in evaluation.results if item.verdict == 'met'
+    )
+    return (
+        f'RP22評価: {rp22_evaluation_kind_label(evaluation.evaluation_kind)}'
+        f' 要求レベル {evaluation.requested_level}'
+        f' — {rp22_conformance_label(evaluation.strict_conformance)}'
+        f'（達成 {met}/21'
+        f'・証拠不足 {len(evaluation.insufficient_parameter_ids)}）'
+    )
+
+
+def response_target_line(profile: ResponseTargetProfile) -> str:
+    """One JA line for a response-target profile (#588): kind + declared
+    comparison semantics; an external binding shows its state honestly."""
+    parts = [
+        response_target_kind_label(profile.kind),
+        f'帯域 {profile.frequency_validity_hz or "全域"}',
+        f'集約 {profile.semantics.aggregation}',
+    ]
+    if profile.external_binding is not None:
+        parts.append(
+            target_binding_state_label(profile.external_binding.binding_state)
+        )
+    return '応答目標: ' + ' — '.join(parts)
+
+
+def spectral_balance_line(evaluation: SpectralBalanceEvaluation) -> str:
+    """One JA line for a spectral-balance evaluation (#588): target
+    tracking and seat-to-seat spread are reported as separate numbers,
+    never one hidden score."""
+    target = (
+        f'目標乖離RMS {evaluation.mean_rms_target_deviation_db:.2f} dB'
+        if evaluation.mean_rms_target_deviation_db is not None
+        else '目標乖離なし'
+    )
+    spread = (
+        f'座席間ばらつき最大 {evaluation.seat_to_seat_spread_max_db:.2f} dB'
+        if evaluation.seat_to_seat_spread_max_db is not None
+        else '座席間ばらつきなし'
+    )
+    return (
+        f'スペクトルバランス: {target} · {spread}'
+        f'（{evaluation.seats_evaluated} 席評価'
+        f'・{evaluation.seats_without_coverage} 席カバレッジなし）'
     )

@@ -221,6 +221,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_standard_lifecycle_observations": "規格ライフサイクル観測",
     "cad_standard_profile_mappings": "規格プロファイルマッピング",
     "cad_standard_revision_diffs": "規格改版差分",
+    "cad_rp22_profiles": "RP22標準プロファイル",
+    "cad_rp22_evaluations": "RP22適合性評価",
+    "cad_response_targets": "応答目標プロファイル",
+    "cad_spectral_balance_evaluations": "スペクトルバランス評価",
 }
 
 

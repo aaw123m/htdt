@@ -2495,6 +2495,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_stdpin_document ON cad_standard_evaluation_pins(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp22_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, profile_sha256 TEXT NOT NULL UNIQUE, registry_key TEXT NOT NULL, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(profile_id, profile_version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp22_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, evaluation_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_response_targets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, target_sha256 TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(profile_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spectral_balance_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, evaluation_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp22eval_profile ON cad_rp22_evaluations(profile_id, profile_version, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp22eval_document ON cad_rp22_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rstarget_document ON cad_response_targets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sbeval_profile ON cad_spectral_balance_evaluations(profile_id, profile_version, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sbeval_document ON cad_spectral_balance_evaluations(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2768,6 +2804,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_raw_source_records',
     'cad_reconciliation_decisions',
     'cad_reference_playback_profiles',
+    'cad_response_targets',
     'cad_review_notes',
     'cad_robust_design_assessments',
     'cad_robustness_evaluations',
@@ -2778,6 +2815,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_roomsim_batch_specs',
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
+    'cad_rp22_evaluations',
+    'cad_rp22_profiles',
     'cad_screen_transfer_selections',
     'cad_screen_transfers',
     'cad_search_specs',
@@ -2792,6 +2831,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_speaker_definitions',
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
+    'cad_spectral_balance_evaluations',
     'cad_standard_evaluation_pins',
     'cad_standard_lifecycle_observations',
     'cad_standard_profile_mappings',
