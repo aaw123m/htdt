@@ -249,6 +249,7 @@ FieldReturnRouting = Literal[
     'known_project_lineage',
     'unknown_project_reference',
     'legacy_project_ref',
+    'channel_project_match',
     'unrouted',
 ]
 
@@ -262,6 +263,28 @@ def classify_field_return_routing(
     if manifest.project is None:
         return 'unrouted'
     return classify_project_reference(manifest.project, tuple(known_projects))
+
+
+def _channel_routing(
+    channel_project_ref: str | None,
+    known_projects: Sequence[HTDTProjectReference],
+) -> tuple[FieldReturnRouting, str | None]:
+    """Route a document-less artifact by the delivery channel's scope.
+
+    Container-form field returns carry no project reference in the root
+    document — the only destination signal is the pairing the bytes
+    arrived on, whose ``project_ref`` is the issuing project's id. When
+    that id resolves to a known project the contribution is honestly
+    attributed ('channel_project_match' — channel-declared, never
+    document-claimed); anything else stays unrouted.
+    """
+
+    if not channel_project_ref:
+        return 'unrouted', None
+    known_ids = {item.project_id for item in known_projects}
+    if channel_project_ref in known_ids:
+        return 'channel_project_match', channel_project_ref
+    return 'unrouted', None
 
 
 ContributionDuplicateClass = Literal[
@@ -313,6 +336,7 @@ class StagedFieldReturn(BaseModel):
     plan_sha256: str | None = None
     manifest_json: str | None = None
     detail: str | None = None
+    recorded_at_utc: str | None = None
 
 
 # --- .htdtfieldreturn container wire form (capture-side issue #400) ------------
@@ -463,7 +487,11 @@ def read_field_return_container(
     return entries, envelope, document
 
 
-def _stage_field_return_container(artifact: bytes) -> StagedFieldReturn:
+def _stage_field_return_container(
+    artifact: bytes,
+    channel_project_ref: str | None = None,
+    known_projects: Sequence[HTDTProjectReference] = (),
+) -> StagedFieldReturn:
     digest = sha256(artifact).hexdigest()
     try:
         _entries, envelope, document = read_field_return_container(artifact)
@@ -476,6 +504,7 @@ def _stage_field_return_container(artifact: bytes) -> StagedFieldReturn:
             detail=str(exc),
         )
     manifest_json = _canonical_json(document)
+    routing, matched = _channel_routing(channel_project_ref, known_projects)
     if envelope.schema_version not in SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS:
         return StagedFieldReturn(
             contribution_id=envelope.contribution_id,
@@ -491,40 +520,54 @@ def _stage_field_return_container(artifact: bytes) -> StagedFieldReturn:
                 'compatible HTDT release'
             ),
         )
+    # Container root docs carry mission/plan identity but no project
+    # reference — the pairing's declared scope is the routing signal.
+    detail = (
+        f'container {envelope.schema_version}: '
+        f'{len(envelope.authority_documents)} authority documents, '
+        f'{len(envelope.evidence_assets)} evidence assets'
+    )
+    if routing == 'channel_project_match':
+        detail += '; scoped by pairing'
     return StagedFieldReturn(
         contribution_id=envelope.contribution_id,
         artifact_sha256=digest,
         validation_state='validated',
-        # Container root docs carry mission/plan identity but no project
-        # reference — routing classification stays honest 'unrouted'.
-        routing='unrouted',
+        routing=routing,
+        matched_project_id=matched,
         mission_id=envelope.mission_id,
         plan_sha256=envelope.plan_sha256,
         manifest_json=manifest_json,
-        detail=(
-            f'container {envelope.schema_version}: '
-            f'{len(envelope.authority_documents)} authority documents, '
-            f'{len(envelope.evidence_assets)} evidence assets'
-        ),
+        detail=detail,
     )
 
 
 def stage_field_return_artifact(
     artifact: bytes,
     known_projects: Sequence[HTDTProjectReference] = (),
+    *,
+    channel_project_ref: str | None = None,
 ) -> StagedFieldReturn:
     """Stage whichever wire form was handed in: the emitted
     ``.htdtfieldreturn`` container (stored ZIP), or a bare
-    ``htdt.field-return`` JSON manifest."""
+    ``htdt.field-return`` JSON manifest. ``channel_project_ref`` is the
+    delivery pairing's declared project scope — the routing signal for
+    artifacts that carry no project reference of their own."""
 
     if artifact[:4] == _STORED_ZIP_MAGIC:
-        return _stage_field_return_container(artifact)
-    return stage_field_return(artifact, known_projects)
+        return _stage_field_return_container(
+            artifact, channel_project_ref, known_projects
+        )
+    return stage_field_return(
+        artifact, known_projects, channel_project_ref=channel_project_ref
+    )
 
 
 def stage_field_return(
     artifact: bytes,
     known_projects: Sequence[HTDTProjectReference] = (),
+    *,
+    channel_project_ref: str | None = None,
 ) -> StagedFieldReturn:
     """Validate + classify one .htdtfieldreturn for staging (§2/§4/§17).
 
@@ -590,6 +633,10 @@ def stage_field_return(
         and routing in {'exact_project_match', 'known_project_lineage'}
     ):
         matched = manifest.project.project_id
+    elif manifest.project is None:
+        routing, matched = _channel_routing(
+            channel_project_ref, known_projects
+        )
     return StagedFieldReturn(
         contribution_id=manifest.contribution_id,
         artifact_sha256=digest,
@@ -626,16 +673,22 @@ class FieldReturnRepository:
         self,
         artifact: bytes,
         known_projects: Sequence[HTDTProjectReference] = (),
+        *,
+        channel_project_ref: str | None = None,
     ) -> StagedFieldReturn:
         """Persist staging state with deterministic duplicate semantics."""
 
-        staged, _created = self.stage_artifact(artifact, known_projects)
+        staged, _created = self.stage_artifact(
+            artifact, known_projects, channel_project_ref=channel_project_ref
+        )
         return staged
 
     def stage_artifact(
         self,
         artifact: bytes,
         known_projects: Sequence[HTDTProjectReference] = (),
+        *,
+        channel_project_ref: str | None = None,
     ) -> tuple[StagedFieldReturn, bool]:
         """Stage the emitted wire form and report whether a new row landed.
 
@@ -645,7 +698,11 @@ class FieldReturnRepository:
         """
 
         return self._stage_entry(
-            stage_field_return_artifact(artifact, known_projects)
+            stage_field_return_artifact(
+                artifact,
+                known_projects,
+                channel_project_ref=channel_project_ref,
+            )
         )
 
     def _stage_entry(
@@ -721,6 +778,7 @@ class FieldReturnRepository:
             plan_sha256=row['plan_sha256'],
             manifest_json=row['manifest_json'],
             detail=row['detail'],
+            recorded_at_utc=row['recorded_at_utc'],
         )
 
     def list_staged(self) -> tuple[StagedFieldReturn, ...]:
@@ -743,6 +801,7 @@ class FieldReturnRepository:
                 plan_sha256=row['plan_sha256'],
                 manifest_json=row['manifest_json'],
                 detail=row['detail'],
+                recorded_at_utc=row['recorded_at_utc'],
             )
             for row in rows
         )

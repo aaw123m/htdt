@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from math import cos, isfinite, pi, sin
 from typing import Callable, Iterable
 
 from .cad_direct_view import capture_entity_type_to_scene_kind
 from .cad_repository import SceneRepository
+from .cad_schema import connect_sqlite, require_native_tables
 from .cad_scene import (
     EntityBodyGeometry,
     FootprintVertex,
@@ -63,8 +65,11 @@ class CaptureEntityPromotionError(ValueError):
     """Promotion executor failure — recorded as a blocked promotion."""
 
 
-#: authority kind this executor materializes.
-EXECUTABLE_ENTITY_AUTHORITY_KIND = 'annotations'
+#: authority kinds this executor materializes: annotations become scene
+#: entities; measurements become durable provenance bindings on the
+#: document's head revision.
+EXECUTABLE_ENTITY_AUTHORITY_KINDS = ('annotations', 'measurements')
+EXECUTABLE_ENTITY_AUTHORITY_KIND = EXECUTABLE_ENTITY_AUTHORITY_KINDS[0]
 
 _DERIVED_CANDIDATES_SCHEMA = 'htdt.capture.derived-geometry-candidates'
 _DERIVED_CANDIDATES_PATH = 'derived/geometry-candidates.json'
@@ -103,6 +108,23 @@ class EntityPromotionOutcome:
     reused_existing_entity_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MeasurementPromotionOutcome:
+    """Summary of one measurements promotion run.
+
+    Measurements are scalar field observations — promoting them binds each
+    record's identity chain (handoff, payload hash, coordinate space) to the
+    document's head revision as ``capture_authoring_provenances`` rows, so
+    they are available to the reconciliation workflow without overwriting
+    scene geometry.
+    """
+
+    document_id: str
+    scene_revision_id: str
+    promoted_record_ids: tuple[str, ...]
+    reused_record_ids: tuple[str, ...]
+
+
 def promoted_entity_id(record_kind: str, lineage_digest: str, record_id: str) -> str:
     """Deterministic scene id for one promoted record.
 
@@ -115,6 +137,23 @@ def promoted_entity_id(record_kind: str, lineage_digest: str, record_id: str) ->
         f'{record_kind}:{lineage_digest}:{record_id}'.encode('utf-8')
     ).hexdigest()[:16]
     return f'capture-entity-{digest}'
+
+
+def promoted_provenance_id(
+    record_kind: str, lineage_digest: str, record_id: str
+) -> str:
+    """Deterministic id for one promoted record's provenance binding."""
+
+    digest = sha256(
+        f'provenance:{record_kind}:{lineage_digest}:{record_id}'.encode(
+            'utf-8'
+        )
+    ).hexdigest()[:24]
+    return f'capture-provenance-{digest}'
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _identity4() -> tuple[tuple[float, float, float, float], ...]:
@@ -257,12 +296,18 @@ class CaptureEntityPromotionService:
         """Inbox ``promote`` executor bound to one target document."""
 
         def executor(plan: CaptureIngestionPlan, kind: str) -> str:
-            if kind != EXECUTABLE_ENTITY_AUTHORITY_KIND:
-                raise CaptureEntityPromotionError(
-                    f'authority kind {kind!r} has no entity promotion path'
+            if kind == 'annotations':
+                outcome = self.promote_annotations(plan, document_id)
+                return f'scene-entities:{outcome.scene_revision_id}'
+            if kind == 'measurements':
+                outcome = self.promote_measurements(plan, document_id)
+                return (
+                    'measurement-provenances:'
+                    f'{outcome.scene_revision_id}'
                 )
-            outcome = self.promote_annotations(plan, document_id)
-            return f'scene-entities:{outcome.scene_revision_id}'
+            raise CaptureEntityPromotionError(
+                f'authority kind {kind!r} has no promotion path'
+            )
 
         return executor
 
@@ -353,6 +398,92 @@ class CaptureEntityPromotionService:
             promoted_entity_ids=tuple(e.entity_id for e in created),
             skipped=tuple(skipped),
             reused_existing_entity_ids=tuple(reused),
+        )
+
+    def promote_measurements(
+        self,
+        plan: CaptureIngestionPlan,
+        document_id: str,
+    ) -> MeasurementPromotionOutcome:
+        """Bind the plan's measurement records to the document head revision.
+
+        Promotion materializes each measurement as a durable
+        ``capture_authoring_provenances`` row — the provenance
+        ``CaptureAuthoringService.apply`` produces — preserving the capture
+        identity chain instead of copying values into scene geometry.
+        """
+
+        head = self.scene_repository.current_head(document_id)
+        if head is None:
+            raise CaptureEntityPromotionError(
+                f'document {document_id} has no scene revision'
+            )
+        batch = self.authoring_service.authoring_inputs(plan.lineage_digest)
+        if not batch.measurements:
+            raise CaptureEntityPromotionError(
+                'ingestion carries no measurement records'
+            )
+        promoted: list[str] = []
+        reused: list[str] = []
+        with connect_sqlite(self.scene_repository.path) as connection:
+            require_native_tables(connection, 'capture_authoring_provenances')
+            for measurement in batch.measurements:
+                provenance = self.authoring_service.apply(
+                    batch,
+                    measurement,
+                    scene_revision_id=head.revision_id,
+                    operator_action='capture inbox measurements promotion',
+                )
+                provenance_id = promoted_provenance_id(
+                    'measurement', plan.lineage_digest, measurement.record_id
+                )
+                existing = connection.execute(
+                    'SELECT 1 FROM capture_authoring_provenances '
+                    'WHERE provenance_id = ? AND applied_to_document_id = ?',
+                    (provenance_id, document_id),
+                ).fetchone()
+                if existing is not None:
+                    reused.append(measurement.record_id)
+                    continue
+                connection.execute(
+                    'INSERT INTO capture_authoring_provenances('
+                    'provenance_id, capture_lineage_digest, bundle_digest,'
+                    ' capture_revision_id, record_kind, record_id,'
+                    ' authority_record_handoff_id, source_payload_sha256,'
+                    ' coordinate_space_id, applied_to_document_id,'
+                    ' applied_to_scene_revision_id, operator_action,'
+                    ' resolved_refs_json, quantity_type, quantity_value,'
+                    ' quantity_unit, created_at_utc'
+                    ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (
+                        provenance_id,
+                        provenance.capture_lineage_digest,
+                        provenance.bundle_digest,
+                        provenance.capture_revision_id,
+                        'measurement',
+                        provenance.record_id,
+                        provenance.authority_record_handoff_id,
+                        provenance.source_payload_sha256,
+                        provenance.coordinate_space_id,
+                        document_id,
+                        provenance.applied_to_scene_revision_id,
+                        provenance.operator_action,
+                        json.dumps(provenance.resolved_refs),
+                        measurement.quantity_type,
+                        measurement.value,
+                        measurement.unit,
+                        _utc_now(),
+                    ),
+                )
+                promoted.append(measurement.record_id)
+            connection.commit()
+        if not promoted and not reused:
+            raise CaptureEntityPromotionError('no measurement records bound')
+        return MeasurementPromotionOutcome(
+            document_id=document_id,
+            scene_revision_id=head.revision_id,
+            promoted_record_ids=tuple(promoted),
+            reused_record_ids=tuple(reused),
         )
 
     # ---- internals ---------------------------------------------------------

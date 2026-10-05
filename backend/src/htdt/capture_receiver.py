@@ -108,12 +108,17 @@ RECEIVER_PATH_PREFIX = '/htdt-capture/v1'
 DELIVERABLE_KINDS = ('capture_bundle', 'field_return')
 
 # Authority families an end-to-end promotion path can actually execute
-# today: ``annotations`` materialize into real SceneEntity objects through
-# CaptureEntityPromotionService (the Capture Inbox promote executor). The
-# remaining kinds stay staging-only until their production executors land.
+# today through CaptureEntityPromotionService (the Capture Inbox promote
+# executor): ``annotations`` materialize into real SceneEntity objects and
+# ``measurements`` materialize into durable provenance bindings on the
+# document's head revision. The remaining kinds stay staging-only until
+# their production executors land.
 # ``PROMOTION_AUTHORITY_KINDS`` stays the staging-level inventory (what the
 # inbox classifies); this is the executable subset capabilities advertises.
-EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = ('annotations',)
+EXECUTABLE_AUTHORITY_KINDS: tuple[str, ...] = (
+    'annotations',
+    'measurements',
+)
 
 # How many bytes a single upload may declare/be — same ingest ceiling the
 # file-import path enforces, applied to the wire.
@@ -1016,7 +1021,9 @@ class CaptureReceiverService:
 
         try:
             staged, created = self.field_return_repository.stage_artifact(
-                body, self._known_project_references()
+                body,
+                self._known_project_references(),
+                channel_project_ref=pairing.project_ref,
             )
         except FieldReturnConflictError as exc:
             return reject(

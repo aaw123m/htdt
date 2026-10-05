@@ -263,6 +263,10 @@ _LAZY_IMPORTS = {
         '.capture_entity_promotion',
         'CaptureEntityPromotionService',
     ),
+    'FieldReturnRepository': (
+        '.field_return_ingestion',
+        'FieldReturnRepository',
+    ),
     'CaptureSemanticPromotionRepository': (
         '.capture_semantic_promotion',
         'CaptureSemanticPromotionRepository',
@@ -2393,9 +2397,20 @@ class WorkflowApplicationComposition:
                 raise ValueError(
                     'promotion requires a project scope; assign one first'
                 )
+            inspection = repository.inspect(lineage_digest)
+            available = (
+                inspection.available_authority_kinds
+                if inspection is not None
+                else ()
+            )
+            kinds = tuple(
+                kind
+                for kind in ('annotations', 'measurements')
+                if kind in available
+            ) or ('annotations',)
             return repository.promote(
                 lineage_digest,
-                ('annotations',),
+                kinds,
                 reason=reason,
                 executor=entity_promotion.promotion_executor(document_id),
             )
@@ -2410,6 +2425,9 @@ class WorkflowApplicationComposition:
             promote_item=promote_item,
             list_projects=self.project_library.list_projects,
             assign_scope=repository.assign_scope,
+            list_contributions=lambda: _self.FieldReturnRepository(
+                self.repository.path
+            ).list_staged(),
         )
         return WorkspaceMount.from_widget(
             page,

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capture_fixture_support as support  # noqa: E402
 
 from htdt.cad_repository import SceneRepository
+from htdt.cad_schema import connect_sqlite
 from htdt.cad_scene import RoomPrism, SceneDocument
 from htdt.capture_entity_promotion import (
     CaptureEntityPromotionError,
@@ -334,7 +335,7 @@ def test_executor_rejects_other_kinds(tmp_path: Path) -> None:
     plan = ingestion.get_ingestion(lineage)
     executor = service.promotion_executor(DOCUMENT_ID)
     with pytest.raises(CaptureEntityPromotionError):
-        executor(plan, 'measurements')
+        executor(plan, 'connected_space')
 
 
 def test_unassigned_document_has_no_head(tmp_path: Path) -> None:
@@ -351,3 +352,52 @@ def ingestion_plan(lineage_digest: str, tmp_path: Path):
     plan = repository.get_ingestion(lineage_digest)
     assert plan is not None
     return plan
+
+
+def test_measurements_promotion_binds_provenance(tmp_path: Path) -> None:
+    service, scene, ingestion, lineage = _services(tmp_path)
+    plan = ingestion.get_ingestion(lineage)
+    outcome = service.promote_measurements(plan, DOCUMENT_ID)
+    head = scene.current_head(DOCUMENT_ID)
+    assert outcome.promoted_record_ids != ()
+    assert outcome.reused_record_ids == ()
+    assert outcome.scene_revision_id == head.revision_id
+    with connect_sqlite(scene.path) as connection:
+        rows = connection.execute(
+            'SELECT * FROM capture_authoring_provenances'
+        ).fetchall()
+    assert len(rows) == len(outcome.promoted_record_ids)
+    row = rows[0]
+    assert row['record_kind'] == 'measurement'
+    assert row['capture_lineage_digest'] == lineage
+    assert row['applied_to_document_id'] == DOCUMENT_ID
+    assert row['applied_to_scene_revision_id'] == head.revision_id
+    assert row['quantity_type'] == 'room_width'
+    assert row['quantity_value'] == pytest.approx(3.4)
+    assert row['quantity_unit'] == 'm'
+    # Promotion must not touch scene geometry.
+    assert scene.current_head(DOCUMENT_ID).document.entities == ()
+
+
+def test_measurements_promotion_is_idempotent(tmp_path: Path) -> None:
+    service, scene, ingestion, lineage = _services(tmp_path)
+    plan = ingestion.get_ingestion(lineage)
+    first = service.promote_measurements(plan, DOCUMENT_ID)
+    second = service.promote_measurements(plan, DOCUMENT_ID)
+    assert second.promoted_record_ids == ()
+    assert second.reused_record_ids == first.promoted_record_ids
+    with connect_sqlite(scene.path) as connection:
+        count = connection.execute(
+            'SELECT COUNT(*) AS n FROM capture_authoring_provenances'
+        ).fetchone()['n']
+    assert count == len(first.promoted_record_ids)
+
+
+def test_measurements_executor_kind_dispatch(tmp_path: Path) -> None:
+    service, _scene, ingestion, lineage = _services(tmp_path)
+    plan = ingestion.get_ingestion(lineage)
+    executor = service.promotion_executor(DOCUMENT_ID)
+    created = executor(plan, 'measurements')
+    assert created.startswith('measurement-provenances:')
+    with pytest.raises(CaptureEntityPromotionError):
+        executor(plan, 'connected_space')

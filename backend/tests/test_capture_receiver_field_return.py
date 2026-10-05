@@ -470,3 +470,58 @@ class TestFieldReturnDelivery:
         staged = FieldReturnRepository(service.path).get(contribution_id)
         assert staged is not None
         assert staged.validation_state == 'validated'
+
+    def test_container_routes_by_pairing_project_scope(self, tmp_path):
+        """A container with no project ref routes via the pairing's scope."""
+        service = _rig(tmp_path)
+        project_id = str(uuid.uuid4())
+        with sqlite3.connect(service.path) as connection:
+            connection.execute(
+                'INSERT INTO htdt_project_documents('
+                'project_id, document_id, display_name, description,'
+                ' created_at_utc, updated_at_utc, archived'
+                ") VALUES (?, ?, 'scoped project', NULL, 'now', 'now', 0)",
+                (project_id, str(uuid.uuid4())),
+            )
+        pairing, _payload = service.begin_pairing(project_ref=project_id)
+        service.confirm_pairing(pairing.pairing_id)
+        archive, document = _field_return_archive()
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=document['contribution_id'],
+                artifact_digest=document['content_digest'],
+                delivery_id='delivery-scoped',
+            ),
+            archive,
+        )
+        assert status == 200
+        staged = FieldReturnRepository(service.path).get(
+            document['contribution_id']
+        )
+        assert staged is not None
+        assert staged.routing == 'channel_project_match'
+        assert staged.matched_project_id == project_id
+
+    def test_unscoped_pairing_keeps_container_unrouted(self, tmp_path):
+        service = _rig(tmp_path)
+        pairing = _active_pairing(service)
+        archive, document = _field_return_archive()
+        status, _receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=document['contribution_id'],
+                artifact_digest=document['content_digest'],
+                delivery_id='delivery-unscoped',
+            ),
+            archive,
+        )
+        assert status == 200
+        staged = FieldReturnRepository(service.path).get(
+            document['contribution_id']
+        )
+        assert staged is not None
+        assert staged.routing == 'unrouted'
+        assert staged.matched_project_id is None

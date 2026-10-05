@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -698,6 +699,7 @@ class CaptureInboxPage(QWidget):
         promote_item: Callable[[str, str], object] | None = None,
         list_projects: Callable[[], tuple] | None = None,
         assign_scope: Callable[[str, str], object] | None = None,
+        list_contributions: Callable[[], tuple] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -710,6 +712,8 @@ class CaptureInboxPage(QWidget):
         self._promote_item = promote_item
         self._list_projects = list_projects
         self._assign_scope = assign_scope
+        self._list_contributions = list_contributions
+        self._contributions: tuple = ()
         self._last_inspection = None
         layout = _page_layout(
             self,
@@ -796,7 +800,11 @@ class CaptureInboxPage(QWidget):
         detail_layout.addLayout(actions)
         splitter.addWidget(detail_panel)
         splitter.setStretchFactor(0, 1)
-        layout.addWidget(splitter, 1)
+        tabs = QTabWidget()
+        tabs.addTab(splitter, "キャプチャ配送")
+        if self._list_contributions is not None:
+            tabs.addTab(self._build_contributions_tab(), "フィールドリターン")
+        layout.addWidget(tabs, 1)
         self.refresh()
 
     def _selected_row_data(self) -> tuple[str, str] | None:
@@ -973,7 +981,10 @@ class CaptureInboxPage(QWidget):
             return False
         if not capture_inbox_item_project_id(item):
             return False
-        return "annotations" in inspection.available_authority_kinds
+        return bool(
+            set(inspection.available_authority_kinds)
+            & {"annotations", "measurements"}
+        )
 
     def _promote(self) -> None:
         digest = self._selected_digest()
@@ -1068,6 +1079,149 @@ class CaptureInboxPage(QWidget):
                     cell.setData(_INBOX_LINEAGE_ROLE, item.lineage_digest)
                 self.table.setItem(row, column, cell)
         self._sync_detail()
+        self._refresh_contributions()
+
+    # -- field-return contributions -------------------------------------
+
+    _CONTRIB_VALIDATION_LABELS = {
+        "validated": "検証済み",
+        "unsupported": "未対応バージョン",
+        "malformed": "不正",
+    }
+    _CONTRIB_ROUTING_LABELS = {
+        "exact_project_match": "プロジェクト一致",
+        "known_project_lineage": "系譜一致",
+        "unknown_project_reference": "不明なプロジェクト参照",
+        "legacy_project_ref": "従来参照",
+        "channel_project_match": "ペアリング割当",
+        "unrouted": "未振分",
+    }
+
+    def _build_contributions_tab(self) -> QWidget:
+        """Received field-return contributions staged by the receiver."""
+
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        intro = QLabel(
+            "ペアリング済みデバイスから届いたフィールドリターン（現地作業の完了報告）"
+            "の一覧です。項目を選ぶと詳細を確認できます。"
+        )
+        intro.setWordWrap(True)
+        set_typography_role(intro, TypographyRole.SECONDARY)
+        layout.addWidget(intro)
+        self.contribution_table = QTableWidget(0, 4)
+        self.contribution_table.setAccessibleName("フィールドリターン一覧")
+        self.contribution_table.setToolTip(
+            "受け取ったフィールドリターン貢献の一覧です。"
+            "行を選ぶと下に詳細が表示されます。"
+        )
+        self.contribution_table.setHorizontalHeaderLabels(
+            ("貢献", "検証", "ルーティング", "受信")
+        )
+        for _col, _tip in enumerate((
+            "貢献の識別子（先頭のみ表示）",
+            "アーティファクトの検証状態",
+            "保存先プロジェクトへの振分状態",
+            "受信日時（UTC）",
+        )):
+            self.contribution_table.horizontalHeaderItem(_col).setToolTip(_tip)
+        self.contribution_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.contribution_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.contribution_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.contribution_table.itemSelectionChanged.connect(
+            self._sync_contribution_detail
+        )
+        layout.addWidget(self.contribution_table, 1)
+        self.contribution_detail = QLabel(
+            "一覧から項目を選択すると詳細を表示します。"
+        )
+        self.contribution_detail.setWordWrap(True)
+        self.contribution_detail.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        set_typography_role(
+            self.contribution_detail, TypographyRole.SECONDARY
+        )
+        layout.addWidget(self.contribution_detail)
+        return panel
+
+    def _refresh_contributions(self) -> None:
+        if self._list_contributions is None:
+            return
+        self._contributions = self._list_contributions()
+        self.contribution_table.setRowCount(0)
+        for contribution in self._contributions:
+            row = self.contribution_table.rowCount()
+            self.contribution_table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    f"{(contribution.contribution_id or '—')[:12]}…",
+                    self._CONTRIB_VALIDATION_LABELS.get(
+                        contribution.validation_state,
+                        contribution.validation_state,
+                    ),
+                    self._CONTRIB_ROUTING_LABELS.get(
+                        contribution.routing, contribution.routing
+                    ),
+                    contribution.recorded_at_utc or "",
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, contribution.contribution_id
+                    )
+                self.contribution_table.setItem(row, column, cell)
+        self._sync_contribution_detail()
+
+    def _sync_contribution_detail(self) -> None:
+        items = self.contribution_table.selectedItems()
+        index = None
+        for item in items:
+            if item.column() == 0:
+                index = item.row()
+                break
+        if index is None or index >= len(self._contributions):
+            if self.contribution_table.rowCount() == 0:
+                self.contribution_detail.setText(
+                    "フィールドリターンはまだ届いていません。"
+                )
+            else:
+                self.contribution_detail.setText(
+                    "一覧から項目を選択すると詳細を表示します。"
+                )
+            return
+        contribution = self._contributions[index]
+        lines = [
+            f"貢献: {contribution.contribution_id}",
+            f"検証: "
+            + self._CONTRIB_VALIDATION_LABELS.get(
+                contribution.validation_state, contribution.validation_state
+            ),
+            "ルーティング: "
+            + self._CONTRIB_ROUTING_LABELS.get(
+                contribution.routing, contribution.routing
+            )
+            + (
+                f"（{contribution.matched_project_id}）"
+                if contribution.matched_project_id
+                else ""
+            ),
+        ]
+        if contribution.mission_id:
+            lines.append(f"ミッション: {contribution.mission_id}")
+        if contribution.plan_sha256:
+            lines.append(f"計画: {contribution.plan_sha256[:16]}…")
+        lines.append(f"アーティファクト: {contribution.artifact_sha256[:16]}…")
+        if contribution.detail:
+            lines.append(f"詳細: {contribution.detail}")
+        self.contribution_detail.setText("\n".join(lines))
 
 
 _OPERATION_STATE_LABELS = {
