@@ -1148,3 +1148,361 @@ def assess_matrix_currency(
         stale_reasons=tuple(reasons),
         stale_cell_ids=tuple(stale_cells),
     )
+
+
+# ---------------------------------------------------------------------------
+# REV52: verify-only verification record for a persisted matrix run
+# ---------------------------------------------------------------------------
+
+MATRIX_RUN_VERIFICATION_AUTHORITY_VERSION = (
+    'prediction-matrix-run-verification-1'
+)
+
+
+class MatrixCellVerification(BaseModel):
+    """One matrix cell exactly as the run recorded it — verbatim, with reason."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    cell_id: str = Field(pattern=r'^matrix-cell:[0-9a-f]{64}$')
+    matrix_source_id: str = Field(min_length=1)
+    matrix_receiver_id: str = Field(min_length=1)
+    state: MatrixCellState
+    result_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    blocked_reason: str | None = None
+
+
+class MatrixProviderVerification(BaseModel):
+    """What one persisted matrix run honestly verifies about one provider."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    matrix_source_id: str = Field(min_length=1)
+    provider_id: str | None = Field(default=None, min_length=1)
+    provider_semantic_sha256: str | None = Field(
+        default=None, pattern=r'^[0-9a-f]{64}$'
+    )
+    # Only what re-derivation proved: 'frequency_response_magnitude' when at
+    # least one cell verified; 'frequency_response_phase' additionally only
+    # when every verified cell carried phase and the provider declares it.
+    verified_observables: tuple[str, ...] = ()
+    verified_cells: tuple[str, ...] = ()
+    unverified_cells: tuple[str, ...] = ()
+    coverage_complete: bool
+
+
+class MatrixRunVerification(BaseModel):
+    """Verify-only verification record for one persisted matrix run (REV52).
+
+    Re-derives every produced cell's result authority from the persisted
+    provider records — the replay ``CadPredictionMatrixRepository`` cannot
+    do on reopen — and records exactly which cells/providers verified.
+    Nothing unverified is claimed; the record persists to the authority
+    store, where its ref is honest validation-authority material for
+    provider evidence promotion at candidate/fixture scope only.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema_version: Literal[1] = PREDICTION_MATRIX_SCHEMA_VERSION
+    authority_version: Literal[
+        'prediction-matrix-run-verification-1'
+    ] = MATRIX_RUN_VERIFICATION_AUTHORITY_VERSION
+    verification_id: str = Field(
+        pattern=r'^prediction-matrix-run-verification:[0-9a-f]{64}$'
+    )
+    semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+    spec_id: str = Field(pattern=r'^prediction-matrix-spec:[0-9a-f]{64}$')
+    spec_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    result_set_id: str = Field(
+        pattern=r'^prediction-matrix-result:[0-9a-f]{64}$'
+    )
+    result_set_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    run_id: str = Field(pattern=r'^prediction-matrix-run:[0-9a-f]{64}$')
+    run_semantic_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    attempt: int = Field(ge=1)
+    run_state: MatrixRunState
+    failure_reason: str | None = Field(default=None, min_length=1)
+    cells: tuple[MatrixCellVerification, ...] = Field(min_length=1)
+    providers: tuple[MatrixProviderVerification, ...] = Field(min_length=1)
+    coherent_sum_eligible: bool
+    coherent_compatibility_reasons: tuple[str, ...] = ()
+
+    @model_validator(mode='after')
+    def validate_verification(self) -> 'MatrixRunVerification':
+        expected = _digest(self.semantic_payload())
+        if self.semantic_sha256 != expected:
+            raise ValueError('matrix run verification semantic hash mismatch')
+        if self.verification_id != (
+            f'prediction-matrix-run-verification:{expected}'
+        ):
+            raise ValueError('matrix run verification id mismatch')
+        return self
+
+    def semantic_payload(self) -> dict[str, Any]:
+        payload = self.model_dump(
+            mode='json',
+            exclude={'verification_id', 'semantic_sha256'},
+        )
+        if self.failure_reason is None:
+            payload.pop('failure_reason', None)
+        if not self.coherent_compatibility_reasons:
+            payload.pop('coherent_compatibility_reasons', None)
+        return payload
+
+    def provider_entry(
+        self, provider_id: str
+    ) -> MatrixProviderVerification | None:
+        return next(
+            (
+                item
+                for item in self.providers
+                if item.provider_id == provider_id
+            ),
+            None,
+        )
+
+
+def _cell_transfer_result_sha256(
+    spec: PredictionMatrixSpec,
+    provider: LowBandPredictionProvider,
+    receiver_id: str,
+    response,
+) -> str:
+    """Re-derive the result authority collect_matrix_results recorded."""
+    return _digest(
+        {
+            'kind': 'matrix-cell-transfer',
+            'spec_semantic_sha256': spec.semantic_sha256,
+            'provider_id': provider.provider_id,
+            'receiver_id': receiver_id,
+            'frequency_hz': list(response.frequency_hz),
+            'magnitude_pa': list(response.magnitude_pa),
+            'phase_deg': (
+                list(response.phase_deg)
+                if response.phase_deg is not None
+                else None
+            ),
+            'pressure_reference_pa': float(response.pressure_reference_pa),
+        }
+    )
+
+
+def build_matrix_run_verification(
+    *,
+    spec: PredictionMatrixSpec,
+    result_set: TransferMatrixResultSet,
+    run: MatrixExecutionRun,
+    providers: dict[str, LowBandPredictionProvider],
+) -> MatrixRunVerification:
+    """Re-verify one persisted matrix run against persisted providers.
+
+    Every READY/CACHED cell must re-derive its recorded result authority
+    and transfer contents from the resolved provider record — a persisted
+    result that does not replay fails closed instead of being stamped
+    verified. Unproduced cells are recorded verbatim with their reason.
+    """
+    if (
+        result_set.spec_id != spec.spec_id
+        or result_set.spec_semantic_sha256 != spec.semantic_sha256
+    ):
+        raise ValueError(
+            'matrix run verification result set does not belong to the spec'
+        )
+    if (
+        run.spec_id != spec.spec_id
+        or run.spec_semantic_sha256 != spec.semantic_sha256
+    ):
+        raise ValueError('matrix run does not belong to the spec')
+    if run.result_set_sha256 != result_set.semantic_sha256:
+        raise ValueError(
+            'matrix run result set hash does not match the persisted '
+            'result set'
+        )
+    if run.state not in ('READY', 'BLOCKED', 'FAILED', 'CANCELLED'):
+        raise ValueError('non-terminal matrix run cannot be verified')
+    counts: dict[str, int] = {}
+    for cell in result_set.cells:
+        counts[cell.state] = counts.get(cell.state, 0) + 1
+    if counts != dict(run.cell_state_counts):
+        raise ValueError(
+            'matrix run cell-state counts do not reproduce from the '
+            'persisted result set'
+        )
+
+    receivers_by_id = {
+        item.matrix_receiver_id: item for item in spec.receivers
+    }
+    per_source: dict[str, dict[str, object]] = {
+        source.matrix_source_id: {
+            'provider': providers.get(source.matrix_source_id),
+            'verified': [],
+            'unverified': [],
+            'phase_ready': True,
+        }
+        for source in spec.sources
+    }
+    cells: list[MatrixCellVerification] = []
+    for cell in result_set.cells:
+        entry = per_source.get(cell.matrix_source_id)
+        if entry is None:
+            raise ValueError(
+                'matrix result set carries a cell for an unknown source'
+            )
+        receiver = receivers_by_id.get(cell.matrix_receiver_id)
+        if receiver is None:
+            raise ValueError(
+                'matrix result set carries a cell for an unknown receiver'
+            )
+        if cell.state not in ('READY', 'CACHED'):
+            if cell.state in ('QUEUED', 'RUNNING', 'STALE'):
+                raise ValueError(
+                    'non-terminal matrix cell cannot be verified'
+                )
+            entry['unverified'].append(cell.cell_id)
+            cells.append(
+                MatrixCellVerification(
+                    cell_id=cell.cell_id,
+                    matrix_source_id=cell.matrix_source_id,
+                    matrix_receiver_id=cell.matrix_receiver_id,
+                    state=cell.state,
+                    result_sha256=cell.result_sha256,
+                    blocked_reason=cell.blocked_reason,
+                )
+            )
+            continue
+        provider = entry['provider']
+        if provider is None:
+            raise ValueError(
+                'verified matrix cell has no persisted provider authority'
+            )
+        response = next(
+            (
+                item
+                for item in provider.receiver_responses
+                if item.receiver_id == receiver.receiver_id
+            ),
+            None,
+        )
+        if response is None:
+            raise ValueError(
+                'verified matrix cell is not covered by the persisted '
+                'provider'
+            )
+        expected_sha = _cell_transfer_result_sha256(
+            spec, provider, receiver.receiver_id, response
+        )
+        if expected_sha != cell.result_sha256:
+            raise ValueError(
+                'verified matrix cell result authority does not reproduce '
+                'from the persisted provider'
+            )
+        transfer = result_set.transfer_for_cell(cell.cell_id)
+        if transfer != MatrixCellTransfer(
+            cell_id=cell.cell_id,
+            frequency_hz=response.frequency_hz,
+            magnitude_pa=response.magnitude_pa,
+            phase_deg=response.phase_deg,
+            pressure_reference_pa=response.pressure_reference_pa,
+            provider_ref=provider.ref(),
+            result_authority_ref=provider.result_artifact_ref,
+            source_normalization_id=provider.source_normalization_id,
+            phasor_convention=response.phase_convention,
+            timing_authority=provider.timing_authority,
+        ):
+            raise ValueError(
+                'verified matrix cell transfer does not reproduce from '
+                'the persisted provider'
+            )
+        if (
+            response.phase_deg is None
+            or provider.phase_capability != 'READY'
+        ):
+            entry['phase_ready'] = False
+        entry['verified'].append(cell.cell_id)
+        cells.append(
+            MatrixCellVerification(
+                cell_id=cell.cell_id,
+                matrix_source_id=cell.matrix_source_id,
+                matrix_receiver_id=cell.matrix_receiver_id,
+                state=cell.state,
+                result_sha256=cell.result_sha256,
+                blocked_reason=cell.blocked_reason,
+            )
+        )
+
+    provider_entries: list[MatrixProviderVerification] = []
+    for source in spec.sources:
+        entry = per_source[source.matrix_source_id]
+        provider = entry['provider']
+        verified = tuple(entry['verified'])
+        unverified = tuple(entry['unverified'])
+        observables: tuple[str, ...] = (
+            ('frequency_response_magnitude',) if verified else ()
+        )
+        if verified and entry['phase_ready']:
+            observables = observables + ('frequency_response_phase',)
+        provider_entries.append(
+            MatrixProviderVerification(
+                matrix_source_id=source.matrix_source_id,
+                provider_id=(
+                    None if provider is None else provider.provider_id
+                ),
+                provider_semantic_sha256=(
+                    None
+                    if provider is None
+                    else provider.semantic_sha256
+                ),
+                verified_observables=observables,
+                verified_cells=verified,
+                unverified_cells=unverified,
+                coverage_complete=(
+                    provider is not None and not unverified
+                ),
+            )
+        )
+
+    probe = MatrixRunVerification.model_construct(
+        schema_version=PREDICTION_MATRIX_SCHEMA_VERSION,
+        authority_version=MATRIX_RUN_VERIFICATION_AUTHORITY_VERSION,
+        verification_id='prediction-matrix-run-verification:' + '0' * 64,
+        semantic_sha256='0' * 64,
+        spec_id=spec.spec_id,
+        spec_semantic_sha256=spec.semantic_sha256,
+        result_set_id=result_set.result_id,
+        result_set_semantic_sha256=result_set.semantic_sha256,
+        run_id=run.run_id,
+        run_semantic_sha256=run.semantic_sha256,
+        attempt=run.attempt,
+        run_state=run.state,
+        failure_reason=run.failure_reason,
+        cells=tuple(cells),
+        providers=tuple(provider_entries),
+        coherent_sum_eligible=result_set.coherent_sum_eligible,
+        coherent_compatibility_reasons=(
+            result_set.coherent_compatibility_reasons
+        ),
+    )
+    digest = _digest(probe.semantic_payload())
+    return MatrixRunVerification(
+        verification_id=f'prediction-matrix-run-verification:{digest}',
+        semantic_sha256=digest,
+        spec_id=spec.spec_id,
+        spec_semantic_sha256=spec.semantic_sha256,
+        result_set_id=result_set.result_id,
+        result_set_semantic_sha256=result_set.semantic_sha256,
+        run_id=run.run_id,
+        run_semantic_sha256=run.semantic_sha256,
+        attempt=run.attempt,
+        run_state=run.state,
+        failure_reason=run.failure_reason,
+        cells=tuple(cells),
+        providers=tuple(provider_entries),
+        coherent_sum_eligible=result_set.coherent_sum_eligible,
+        coherent_compatibility_reasons=(
+            result_set.coherent_compatibility_reasons
+        ),
+    )

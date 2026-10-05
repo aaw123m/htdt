@@ -209,7 +209,13 @@ def test_manifest_persists_bound_to_persisted_descriptor(
     listed = reopened.list_capability_manifests(
         adapter_descriptor_id=descriptor.descriptor_id
     )
-    assert listed == (manifest,)
+    # REV52: descriptor persistence auto-emits the declared manifest,
+    # so the explicit save joins it rather than standing alone.
+    declared = build_solver_capability_manifest(
+        descriptor=descriptor,
+        rows=derive_solver_capability_rows(descriptor),
+    )
+    assert listed == (declared, manifest)
 
 
 def test_manifest_save_requires_persisted_descriptor(tmp_path: Path) -> None:
@@ -338,8 +344,11 @@ def test_result_commit_emits_manifest_idempotently(tmp_path: Path) -> None:
     manifests = repository.list_capability_manifests(
         adapter_descriptor_id=descriptor.descriptor_id
     )
-    assert len(manifests) == 1
-    states = {row.phenomenon: row.state for row in manifests[0].rows}
+    # REV52: the descriptor persist already emitted the declared manifest;
+    # the produced-narrowed emit is a separate audit row (produced
+    # reasons differ by design even when coverage converges).
+    assert len(manifests) == 2
+    states = {row.phenomenon: row.state for row in manifests[1].rows}
     assert states['direct_sound'] == 'SUPPORTED'
     assert states['coherent_phase'] == 'UNSUPPORTED'
     # Re-emitting the identical derivation is a no-op, not a conflict.
@@ -368,6 +377,13 @@ def test_result_commit_emit_fails_closed_on_stale_descriptor(
         executor._persist_capability_manifest(
             stale, produced_observables=('deterministic_paths',)
         )
+    # REV52: only the descriptor-persist declaration manifest survives —
+    # the failed produced emit added nothing.
     assert repository.list_capability_manifests(
         adapter_descriptor_id=descriptor.descriptor_id
-    ) == ()
+    ) == (
+        build_solver_capability_manifest(
+            descriptor=descriptor,
+            rows=derive_solver_capability_rows(descriptor),
+        ),
+    )

@@ -395,6 +395,19 @@ class PredictionMatrixDialog(QDialog):
         except ValueError as exc:
             self.status.setText(f"行列の実行に失敗しました: {operation_error_message(exc)}")
             return
+        try:
+            # REV52: persist the verify-only verification record so the run
+            # can serve as provider-capability evidence.
+            self.lane.persist_matrix_run_verification(run.run_id)
+        except ValueError as exc:
+            self.status.setText(
+                f"行列を実行しました: 実行 {run.attempt} "
+                f"({state_token_label(run.state)}) — "
+                f"検証記録の永続化に失敗しました: {operation_error_message(exc)}"
+            )
+            self._reload_matrix()
+            self._refresh_actions()
+            return
         self.status.setText(
             f"行列を実行しました: 実行 {run.attempt} "
             f"({state_token_label(run.state)})"

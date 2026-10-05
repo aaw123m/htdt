@@ -24,6 +24,11 @@ from .cad_acoustic_solver_adapter import (
     AcousticSolverDispatchBinding,
 )
 from .cad_acoustic_solver_dispatch_repository import CadAcousticSolverDispatchRepository
+from .cad_solver_capability_manifest import (
+    SolverCapabilityManifest,
+    build_solver_capability_manifest,
+    derive_solver_capability_rows,
+)
 from .cad_acoustic_solver_result import (
     AcousticSolverArtifactManifest,
     AcousticSolverObservableArtifact,
@@ -8082,38 +8087,70 @@ class CadDeterministicPathArtifactRepository:
                     raise ValueError(
                         'deterministic path artifact id exists with different semantics'
                     )
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_deterministic_path_artifacts(
-                    artifact_id,
-                    semantic_sha256,
-                    execution_id,
-                    execution_provenance_authority_id,
-                    execution_input_id,
-                    snapshot_id,
-                    prediction_request_id,
-                    dispatch_binding_id,
-                    r120_compiled_geometry_id,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    artifact.artifact_id,
-                    artifact.semantic_sha256,
-                    artifact.execution_id,
-                    provenance.authority_id,
-                    artifact.execution_input_id,
-                    artifact.snapshot_id,
-                    artifact.prediction_request_id,
-                    artifact.dispatch_binding_id,
-                    artifact.r120_compiled_geometry_id,
-                    artifact.model_dump_json(),
-                    _utc_now(),
-                ),
-            )
+                artifact = persisted
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO cad_deterministic_path_artifacts(
+                        artifact_id,
+                        semantic_sha256,
+                        execution_id,
+                        execution_provenance_authority_id,
+                        execution_input_id,
+                        snapshot_id,
+                        prediction_request_id,
+                        dispatch_binding_id,
+                        r120_compiled_geometry_id,
+                        payload_json,
+                        recorded_at_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        artifact.artifact_id,
+                        artifact.semantic_sha256,
+                        artifact.execution_id,
+                        provenance.authority_id,
+                        artifact.execution_input_id,
+                        artifact.snapshot_id,
+                        artifact.prediction_request_id,
+                        artifact.dispatch_binding_id,
+                        artifact.r120_compiled_geometry_id,
+                        artifact.model_dump_json(),
+                        _utc_now(),
+                    ),
+                )
+        self._emit_produced_capability_manifest(artifact)
         return artifact
+
+    def _emit_produced_capability_manifest(
+        self,
+        artifact: DeterministicPathArtifact,
+    ) -> SolverCapabilityManifest:
+        """Persist the capability manifest this committed artifact produced.
+
+        GA result-commit emit — same shape as the R130A/polyhedral executor
+        emit: produced observables narrow the descriptor-declared
+        derivation, and a produced observable outside the declaration
+        raises (fail closed).
+        """
+        descriptor = self.dispatch_repository.get_descriptor(
+            artifact.adapter_descriptor_id
+        )
+        if descriptor is None or descriptor.semantic_sha256 != (
+            artifact.adapter_descriptor_sha256
+        ):
+            raise ValueError(
+                'deterministic GA capability emit requires the persisted '
+                'exact adapter descriptor'
+            )
+        manifest = build_solver_capability_manifest(
+            descriptor=descriptor,
+            rows=derive_solver_capability_rows(
+                descriptor,
+                produced_observables=(DETERMINISTIC_PATHS_OBSERVABLE,),
+            ),
+        )
+        return self.dispatch_repository.save_capability_manifest(manifest)
 
     def get(self, artifact_id: str) -> DeterministicPathArtifact | None:
         with closing(self._connect()) as connection, connection:

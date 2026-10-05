@@ -62,9 +62,18 @@ from .cad_acoustic_solver_result import (
 from .cad_candidate_wave_execution import ExactJsonAuthorityStore
 from .cad_equipment import FrequencyDomain
 from .cad_geometric_acoustics_portal import GeometricPortalGraph
+from .cad_prediction_matrix import (
+    MATRIX_RUN_VERIFICATION_AUTHORITY_VERSION,
+    MatrixRunVerification,
+    build_matrix_run_verification,
+)
+from .cad_prediction_matrix_repository import (
+    CadPredictionMatrixRepository,
+)
 from .cad_prediction_provider import (
     CadPredictionProviderRepository,
     LowBandPredictionProvider,
+    PredictionProviderRef,
     build_r130_low_band_prediction_provider,
 )
 from .cad_repository import SceneRepository
@@ -180,6 +189,9 @@ class PredictionAuthorityLane:
             snapshot_request_resolver=self.snapshot_repository,
             solver_result_resolver=self,
             external_payload_resolver=self.authority_store.read_payload,
+        )
+        self.matrix_repository = CadPredictionMatrixRepository(
+            scene_repository
         )
 
     # -- persistence-verifying resolvers ------------------------------------
@@ -497,6 +509,131 @@ class PredictionAuthorityLane:
             external_payload_resolver=self.authority_store.read_payload,
         )
         return self.provider_repository.save_provider(provider)
+
+    def persist_matrix_run_verification(
+        self,
+        run_id: str,
+    ) -> tuple[MatrixRunVerification, ExactExternalAuthorityRef]:
+        """Verify-only persistence for one persisted matrix run (REV52).
+
+        Re-derives every produced cell's result authority from the
+        persisted provider records — the replay the matrix repository
+        cannot do on reopen — and stores the verification record in the
+        authority store. Nothing about the run or providers is mutated;
+        cells that did not verify stay unclaimed. The returned ref is
+        honest validation-authority material for provider promotion at
+        candidate/fixture scope.
+        """
+        run = self.matrix_repository.get_run(run_id)
+        if run is None:
+            raise ValueError('matrix run is not persisted')
+        spec = self.matrix_repository.get_spec(run.spec_id)
+        result_set = next(
+            (
+                item
+                for item in self.matrix_repository.list_result_sets(
+                    run.spec_id
+                )
+                if item.semantic_sha256 == run.result_set_sha256
+            ),
+            None,
+        )
+        if spec is None or result_set is None:
+            raise ValueError(
+                'matrix run authorities are not fully persisted'
+            )
+        cell_source = {
+            cell.cell_id: cell.matrix_source_id
+            for cell in result_set.cells
+        }
+        providers: dict[str, LowBandPredictionProvider] = {}
+        for transfer in result_set.transfers:
+            ref = transfer.provider_ref
+            if not isinstance(ref, PredictionProviderRef):
+                continue
+            source_id = cell_source.get(transfer.cell_id)
+            if source_id is None:
+                raise ValueError(
+                    'matrix transfer references a cell outside the result set'
+                )
+            provider = self.provider_repository.get_provider(ref.provider_id)
+            if (
+                provider is None
+                or provider.semantic_sha256 != ref.semantic_sha256
+            ):
+                raise ValueError(
+                    'verified matrix cell provider is not persisted'
+                )
+            providers[source_id] = provider
+        verification = build_matrix_run_verification(
+            spec=spec,
+            result_set=result_set,
+            run=run,
+            providers=providers,
+        )
+        # Persist the full record so reopen validates the hash-bound ids.
+        ref = self.authority_store.put_json(
+            'prediction-matrix-run-verification',
+            MATRIX_RUN_VERIFICATION_AUTHORITY_VERSION,
+            verification.model_dump(mode='json'),
+        )
+        return verification, ref
+
+    def promote_provider_via_matrix_run(
+        self,
+        provider_id: str,
+        verification_ref: ExactExternalAuthorityRef,
+    ) -> LowBandPredictionProvider:
+        """Promote a candidate provider on a persisted matrix verification.
+
+        The verification record must exist in the authority store and must
+        verify this provider with complete receiver coverage — a partial
+        or absent coverage is no promotion evidence (fail closed). Matrix
+        verification is not measured owned-room evidence, so the promotion
+        lands exactly at ``validated``/``synthetic_fixture``.
+        """
+        provider = self.provider_repository.get_provider(provider_id)
+        if provider is None:
+            raise ValueError('prediction provider is not persisted')
+        payload = self.authority_store.read_payload(verification_ref)
+        verification = MatrixRunVerification.model_validate(payload)
+        entry = verification.provider_entry(provider_id)
+        if entry is None:
+            raise ValueError(
+                'matrix run verification does not cover this provider'
+            )
+        if not entry.coverage_complete:
+            raise ValueError(
+                'matrix run verification does not verify every receiver '
+                'this provider covers'
+            )
+        envelope = self.get(provider.result_envelope_id)
+        if envelope is None:
+            raise ValueError('acoustic solver result does not exist')
+        snapshot = self.snapshot_repository.get_snapshot(
+            envelope.acoustic_scene_snapshot_id
+        )
+        if snapshot is None:
+            raise ValueError('acoustic scene snapshot does not exist')
+        request = self.snapshot_repository.get_prediction_request(
+            envelope.prediction_request_id
+        )
+        if request is None:
+            raise ValueError('acoustic prediction request does not exist')
+        revision = self.scene_repository.get(snapshot.scene_revision_id)
+        if revision is None:
+            raise ValueError('scene revision does not exist')
+        promoted = build_r130_low_band_prediction_provider(
+            revision=revision,
+            snapshot=snapshot,
+            request=request,
+            result=envelope,
+            external_payload_resolver=self.authority_store.read_payload,
+            evidence_state='validated',
+            evidence_scope='synthetic_fixture',
+            validation_authority_ref=verification_ref,
+        )
+        return self.provider_repository.save_provider(promoted)
 
 
 __all__ = [

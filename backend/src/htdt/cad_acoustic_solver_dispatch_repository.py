@@ -23,7 +23,11 @@ from .cad_schema import (
     require_native_tables,
     connect_sqlite,
 )
-from .cad_solver_capability_manifest import SolverCapabilityManifest
+from .cad_solver_capability_manifest import (
+    SolverCapabilityManifest,
+    build_solver_capability_manifest,
+    derive_solver_capability_rows,
+)
 from .r120_geometry_compiler import ExactExternalAuthorityRef
 from .clock import utc_now_iso as _utc_now
 
@@ -163,32 +167,51 @@ class CadAcousticSolverDispatchRepository:
                     raise ValueError(
                         'solver adapter descriptor id exists with different semantics'
                     )
-                return persisted
-            connection.execute(
-                """
-                INSERT INTO cad_acoustic_solver_adapters(
-                    descriptor_id,
-                    semantic_sha256,
-                    adapter_id,
-                    adapter_version,
-                    model_solver_role_id,
-                    acoustic_domain,
-                    payload_json,
-                    recorded_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    descriptor.descriptor_id,
-                    descriptor.semantic_sha256,
-                    descriptor.adapter_id,
-                    descriptor.adapter_version,
-                    descriptor.model_solver_role_id,
-                    descriptor.acoustic_domain,
-                    descriptor.model_dump_json(),
-                    _utc_now(),
-                ),
-            )
+                descriptor = persisted
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO cad_acoustic_solver_adapters(
+                        descriptor_id,
+                        semantic_sha256,
+                        adapter_id,
+                        adapter_version,
+                        model_solver_role_id,
+                        acoustic_domain,
+                        payload_json,
+                        recorded_at_utc
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        descriptor.descriptor_id,
+                        descriptor.semantic_sha256,
+                        descriptor.adapter_id,
+                        descriptor.adapter_version,
+                        descriptor.model_solver_role_id,
+                        descriptor.acoustic_domain,
+                        descriptor.model_dump_json(),
+                        _utc_now(),
+                    ),
+                )
+        self._emit_declared_capability_manifest(descriptor)
         return descriptor
+
+    def _emit_declared_capability_manifest(
+        self,
+        descriptor: AcousticSolverAdapterDescriptor,
+    ) -> SolverCapabilityManifest:
+        """Persist the capability manifest a persisted descriptor declares.
+
+        Descriptor persistence is the declaration emit point for every
+        solver lane: the derivation table marks unevidenced phenomena
+        UNSUPPORTED (fail closed), so an identical manifest re-save is a
+        deduped no-op.
+        """
+        manifest = build_solver_capability_manifest(
+            descriptor=descriptor,
+            rows=derive_solver_capability_rows(descriptor),
+        )
+        return self.save_capability_manifest(manifest)
 
     def get_descriptor(
         self,
