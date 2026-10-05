@@ -784,6 +784,16 @@ class _RepositoryChain:
             )
 
             return CadSeatingAcousticsRepository(scene)
+        if name == 'ifc_interop':
+            from .cad_ifc_repository import CadIfcInteropRepository
+
+            return CadIfcInteropRepository(scene)
+        if name == 'performance_facts':
+            from .cad_performance_facts_repository import (
+                CadPerformanceFactsRepository,
+            )
+
+            return CadPerformanceFactsRepository(scene)
         raise KeyError(name)
 
 
@@ -3330,6 +3340,78 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_exposure_assessments',
         ('assessment_id',),
         _get('safe_listening', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'ifc_import_artifact',
+        'cad_ifc_import_artifacts',
+        ('artifact_id',),
+        _get('ifc_interop', 'get_import_artifact'),
+    ),
+    _ReplayProbe(
+        'ifc_entity_mapping',
+        'cad_ifc_entity_mappings',
+        ('mapping_id',),
+        _get('ifc_interop', 'get_entity_mapping'),
+    ),
+    _ReplayProbe(
+        'ifc_revision_delta',
+        'cad_ifc_revision_deltas',
+        ('delta_id',),
+        _get('ifc_interop', 'get_revision_delta'),
+    ),
+    _ReplayProbe(
+        'ifc_intake_profile',
+        'cad_ifc_intake_profiles',
+        ('profile_id',),
+        _get('ifc_interop', 'get_intake_profile'),
+    ),
+    _ReplayProbe(
+        'ifc_intake_evaluation',
+        'cad_ifc_intake_evaluations',
+        ('evaluation_id',),
+        _get('ifc_interop', 'get_intake_evaluation'),
+    ),
+    _ReplayProbe(
+        'ifc_export_package',
+        'cad_ifc_exports',
+        ('export_id',),
+        _get('ifc_interop', 'get_export_package'),
+    ),
+    _ReplayProbe(
+        'performance_fact_profile',
+        'cad_performance_fact_profiles',
+        ('profile_id',),
+        _get('performance_facts', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'performance_fact_product',
+        'cad_performance_fact_products',
+        ('product_id',),
+        _get('performance_facts', 'get_product'),
+    ),
+    _ReplayProbe(
+        'performance_fact',
+        'cad_performance_facts',
+        ('fact_id',),
+        _get('performance_facts', 'get_fact'),
+    ),
+    _ReplayProbe(
+        'performance_fact_import',
+        'cad_performance_fact_imports',
+        ('import_id',),
+        _get('performance_facts', 'get_import'),
+    ),
+    _ReplayProbe(
+        'performance_fact_evaluation',
+        'cad_performance_fact_evaluations',
+        ('evaluation_id',),
+        _get('performance_facts', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'performance_fact_rebind',
+        'cad_performance_fact_rebinds',
+        ('rebind_id',),
+        _get('performance_facts', 'get_rebind'),
     ),
 )
 

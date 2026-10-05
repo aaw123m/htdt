@@ -3176,6 +3176,63 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_expassess_doc ON cad_exposure_assessments(document_id, seq ASC)
     """
     ,
+    # REV56-INTEROP: openBIM IFC 4.3 interoperability (#578)
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_import_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, file_name TEXT NOT NULL, schema_identifier TEXT NOT NULL, imported_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_entity_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, import_artifact_id TEXT NOT NULL, ifc_global_id TEXT, ifc_type TEXT NOT NULL, htdt_role TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifcmap_artifact ON cad_ifc_entity_mappings(import_artifact_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_revision_deltas ( seq INTEGER PRIMARY KEY AUTOINCREMENT, delta_id TEXT NOT NULL UNIQUE, delta_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, prior_artifact_id TEXT NOT NULL, new_artifact_id TEXT NOT NULL, reconciliation_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_intake_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, name TEXT NOT NULL, profile_version TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_intake_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, file_sha256 TEXT NOT NULL, overall_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ifc_exports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, export_id TEXT NOT NULL UNIQUE, export_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mode TEXT NOT NULL, source_artifact_id TEXT, step_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_fact_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, publisher TEXT NOT NULL, family TEXT NOT NULL, document_reference TEXT NOT NULL, maturity_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_fact_products ( seq INTEGER PRIMARY KEY AUTOINCREMENT, product_id TEXT NOT NULL UNIQUE, product_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manufacturer TEXT NOT NULL, model TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_facts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, fact_id TEXT NOT NULL UNIQUE, fact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, product_id TEXT NOT NULL, product_sha256 TEXT NOT NULL, quantity_kind TEXT NOT NULL, evidence_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pff_product ON cad_performance_facts(product_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_fact_imports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, import_id TEXT NOT NULL UNIQUE, import_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, extraction_state TEXT NOT NULL, imported_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_fact_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, product_id TEXT NOT NULL, product_sha256 TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_performance_fact_rebinds ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rebind_id TEXT NOT NULL UNIQUE, rebind_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, from_profile_id TEXT NOT NULL, to_profile_id TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -3698,4 +3755,16 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_test_exposure_plans',
     'cad_exposure_gates',
     'cad_exposure_assessments',
+    'cad_ifc_import_artifacts',
+    'cad_ifc_entity_mappings',
+    'cad_ifc_revision_deltas',
+    'cad_ifc_intake_profiles',
+    'cad_ifc_intake_evaluations',
+    'cad_ifc_exports',
+    'cad_performance_fact_profiles',
+    'cad_performance_fact_products',
+    'cad_performance_facts',
+    'cad_performance_fact_imports',
+    'cad_performance_fact_evaluations',
+    'cad_performance_fact_rebinds',
 )
