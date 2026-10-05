@@ -85,6 +85,14 @@ SCHEMA_DIR = Path(__file__).resolve().parent / "capture_contract"
 # they are governed by media type plus lineage binding.
 FRAME_DESCRIPTOR_RE = re.compile(r"^evidence/frames/[^/]+\.json$")
 
+# Protocol wire-contract schemas vendored next to the bundle document
+# schemas (sync_capture_contract.EXTRA_EMITTER_FILES). They describe
+# standalone protocol payloads — e.g. ingestion plans persisted in the
+# ingestion repository — not bundle member paths, so they never appear
+# in the support matrix's family documents and must not be flagged as
+# orphaned schema files.
+NON_BUNDLE_SCHEMA_DOCUMENTS = frozenset({"htdt-ingestion-plan-v1"})
+
 _SUPPORT_MATRIX_PATH = SCHEMA_DIR / "support-matrix.json"
 _support_matrix: dict | None = None
 

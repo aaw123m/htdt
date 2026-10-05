@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 from htdt.capture_bundle import (
+    NON_BUNDLE_SCHEMA_DOCUMENTS,
     SCHEMA_DIR,
     _load_schema,
     _load_support_matrix,
@@ -116,7 +117,18 @@ def test_no_orphan_or_shared_schema_documents() -> None:
         p.name[: -len(".schema.json")]
         for p in SCHEMA_DIR.glob("*.schema.json")
     }
-    orphans = on_disk - set(referenced)
+    # Protocol schemas are exempt — but the exemption list must itself
+    # stay honest: every name must be a real shipped schema and must not
+    # double as a bundle family document.
+    assert NON_BUNDLE_SCHEMA_DOCUMENTS <= on_disk, (
+        "NON_BUNDLE_SCHEMA_DOCUMENTS names a schema not on disk: "
+        f"{sorted(NON_BUNDLE_SCHEMA_DOCUMENTS - on_disk)}"
+    )
+    assert not (NON_BUNDLE_SCHEMA_DOCUMENTS & set(referenced)), (
+        "protocol schema also claimed as a bundle document: "
+        f"{sorted(NON_BUNDLE_SCHEMA_DOCUMENTS & set(referenced))}"
+    )
+    orphans = on_disk - set(referenced) - NON_BUNDLE_SCHEMA_DOCUMENTS
     assert not orphans, (
         f"schema files with no matrix entry: {sorted(orphans)}"
     )
