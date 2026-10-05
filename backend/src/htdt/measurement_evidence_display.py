@@ -482,6 +482,9 @@ def spatial_binding_line(binding: CampaignPointBinding) -> str:
     return (
         f'測定点束縛: {binding.point_id}（計画 {binding.design_id[:30]}…'
         f' / {deviation}）'
+    )
+
+
 # ---------------------------------------------------------------------------
 # REV56-TARGETS: RP22 standards profile + response-target authority
 # (#579/#588)
