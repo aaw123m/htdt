@@ -470,3 +470,34 @@ def test_recovery_releases_pooled_read_handles_on_journal_dirs(
     config = load_bootstrap_config(bootstrap)
     assert config is not None and Path(config.data_dir) == destination
     repository.close()
+
+
+def test_recovery_promotes_staged_into_existing_empty_destination(
+    tmp_path: Path,
+) -> None:
+    """Same empty-destination case through the recovery path: a journal
+    at STAGED_VERIFIED whose destination was pre-created empty must still
+    promote — on Windows the raw ``os.replace`` fails on every retry."""
+    source = tmp_path / 'source'
+    _seed_data_dir(source)
+    destination = tmp_path / 'dest'
+    destination.mkdir()
+    staged = tmp_path / 'staged'
+    parked = tmp_path / 'source.relocated-x'
+    bootstrap = tmp_path / 'boot.json'
+    shutil.copytree(source, staged)
+    _write_journal(
+        _journal(source, destination, staged, parked, 'STAGED_VERIFIED'),
+        bootstrap,
+    )
+
+    events = recover_interrupted_relocation(bootstrap_path=bootstrap)
+
+    assert events
+    assert (destination / DATABASE_NAME).is_file()
+    assert not source.exists()
+    assert (parked / DATABASE_NAME).is_file()
+    config = load_bootstrap_config(bootstrap)
+    assert config is not None
+    assert Path(config.data_dir) == destination
+    assert _journal_exists(bootstrap) is None

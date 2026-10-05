@@ -460,6 +460,40 @@ def plan_data_relocation(
     )
 
 
+def _promote_directory(source: Path, destination: Path) -> None:
+    """``os.replace`` a directory onto the destination path.
+
+    On Windows ``os.replace`` refuses to move a directory onto ANY existing
+    directory — even an empty one (WinError 5) — while a POSIX rename only
+    replaces an empty directory. The relocation plan explicitly allows an
+    existing *empty* destination, so remove it first; a non-empty one still
+    fails honestly rather than merging into foreign content.
+    """
+
+    if destination.is_dir() and not any(destination.iterdir()):
+        destination.rmdir()
+    os.replace(source, destination)
+
+
+def _park_directory(source: Path, parked: Path) -> Path:
+    """Move *source* aside to *parked*, returning the name actually used.
+
+    A leftover or foreign occupant at the requested park slot can never be
+    overwritten silently: an empty placeholder is reclaimed, a populated
+    one diverts the park to ``<parked>.<n>`` so both generations survive.
+    """
+
+    target = parked
+    suffix = 1
+    while target.exists() and (not target.is_dir() or any(target.iterdir())):
+        target = parked.with_name(f'{parked.name}.{suffix}')
+        suffix += 1
+    if target.exists():
+        target.rmdir()
+    os.replace(source, target)
+    return target
+
+
 def _verify_staged_root(staged: Path) -> None:
     """Verification phase: the copied root must be a valid data directory."""
 
@@ -724,7 +758,7 @@ def _recover_journal_locked(
             # never promotable even when it happens to contain a database.
             _verify_staged_root(staged)
             destination.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(staged, destination)
+            _promote_directory(staged, destination)
             events.append(
                 RelocationRecoveryEvent(
                     'destination_promoted',
@@ -771,7 +805,7 @@ def _recover_journal_locked(
         # Destination holds a verified generation — finish the cutover.
         _verify_staged_root(destination)
         if source.is_dir():
-            os.replace(source, parked)
+            parked = _park_directory(source, parked)
             events.append(
                 RelocationRecoveryEvent(
                     'source_parked', f'source parked at {parked}'
@@ -1023,12 +1057,12 @@ def execute_data_relocation(
                     release_read_handles_under(swap_root)
                 guard.release()
                 destination_dir.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(staged, destination_dir)
+                _promote_directory(staged, destination_dir)
                 journal = _journal_with_phase(
                     journal, 'DESTINATION_PROMOTED', journal_path
                 )
                 try:
-                    os.replace(source_dir, parked)
+                    parked_actual = _park_directory(source_dir, parked)
                 except OSError as exc:
                     raise DataRelocationError(
                         f'the verified copy is live at {destination_dir}, but '
@@ -1037,7 +1071,10 @@ def execute_data_relocation(
                         'the cutover on the next startup.'
                     ) from exc
                 journal = _journal_with_phase(
-                    journal, 'SOURCE_PARKED', journal_path
+                    journal,
+                    'SOURCE_PARKED',
+                    journal_path,
+                    parked_dir=str(parked_actual),
                 )
 
                 # Point the bootstrap config at the new root.

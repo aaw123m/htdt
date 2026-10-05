@@ -1160,3 +1160,73 @@ def test_repository_open_recovers_pending_swap_under_live_repository(
     _assert_no_restore_artifacts(data_dir)
     repository.close()
     reopened.close()
+
+
+def test_crashed_restore_into_empty_root_recovers_to_empty_state(
+    tmp_path: Path, monkeypatch
+):
+    """Restoring onto a fresh data root has no pre-restore generation.
+
+    A crash after the journal write but before the first swap move, with
+    the staging dir gone, previously hit 'no restorable database remains'
+    on every launch — a brick loop over an honestly-empty pre-state. The
+    journal now records which live objects the swap evacuated, so the
+    rollback settles to the true empty pre-state instead (REV52).
+    """
+    source_dir = tmp_path / 'source'
+    repository, _first, digest, raw = _seed_data(source_dir)
+    baseline = tmp_path / 'baseline.htdt-backup'
+    create_backup(source_dir, baseline)
+    repository.close()
+
+    data_dir = tmp_path / 'data'
+    _inject_swap_crash(monkeypatch, before_move=1)
+    with pytest.raises(_SimulatedCrash):
+        restore_backup(data_dir, baseline)
+    monkeypatch.undo()
+
+    # The journal survives; the staging dir does not (real crash).
+    assert not (data_dir / 'cad-scenes.sqlite3').exists()
+
+    events = recover_interrupted_restore(data_dir)
+
+    assert [event.action for event in events] == ['rolled_back']
+    assert not (data_dir / 'cad-scenes.sqlite3').exists()
+    _assert_no_restore_artifacts(data_dir)
+
+    # And a subsequent normal restore can still complete.
+    restored, pre_restore = restore_backup(data_dir, baseline)
+    assert pre_restore is None
+    reopened = SceneRepository(data_dir / 'cad-scenes.sqlite3')
+    try:
+        assert (data_dir / 'measurement-assets' / digest).read_bytes() == raw
+    finally:
+        reopened.close()
+
+
+def test_unregistered_table_refuses_backup_even_with_allow_stale(
+    tmp_path: Path,
+):
+    """A persistent table outside the audit registry is a coverage gap —
+    never degradable, even under the allow_stale safety-snapshot escape
+    (REV52: the audit-to-backup refuse path verified end to end)."""
+    data_dir = tmp_path / 'data'
+    repository, _first, _digest, _raw = _seed_data(data_dir)
+    with closing(
+        sqlite3.connect(repository.path)
+    ) as connection, connection:
+        connection.execute(
+            'CREATE TABLE unregistered_rev52_probe (payload_json TEXT NOT NULL)'
+        )
+    repository.close()
+
+    with pytest.raises(Exception) as strict:
+        create_backup(data_dir, tmp_path / 'a.htdt-backup')
+    with pytest.raises(Exception) as stale:
+        create_backup(
+            data_dir, tmp_path / 'b.htdt-backup', allow_stale=True
+        )
+    assert 'unregistered_rev52_probe' in str(strict.value) + str(
+        getattr(strict.value, 'report', '')
+    ) or 'coverage' in str(strict.value).lower()
+    assert type(stale.value) is type(strict.value)

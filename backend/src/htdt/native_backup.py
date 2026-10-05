@@ -1424,12 +1424,33 @@ def _rollback_legacy_archive_members(data_dir: Path, rollback_root: Path) -> Non
         _replace_durable(parked, live_member)
 
 
-def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
-    """Restore the pre-swap live generation preserved in the rollback dir."""
+def _rollback_restore_swap(
+    data_dir: Path,
+    rollback_root: Path,
+    *,
+    pre_restore_live: dict[str, Any] | None = None,
+) -> None:
+    """Restore the pre-swap live generation preserved in the rollback dir.
+
+    ``pre_restore_live`` is the journal's record of which live objects the
+    interrupted swap evacuated (``None`` = unknown, e.g. an orphan or a
+    journal from an older build — fall back to the strictest reading). A
+    crash before the first evacuation leaves the canonical rollback slot
+    free, and a post-crash occupant may legitimately claim it — only the
+    journal can tell "pre-restore truth was empty" from "pre-restore
+    database is missing". Without that record the recovery either adopts
+    a foreign database as the pre-restore generation or bricks the launch
+    on an honestly-empty live root.
+    """
     live_database = data_dir / DATABASE_NAME
     live_assets = data_dir / MEASUREMENT_ASSETS_NAME
     rollback_database = rollback_root / DATABASE_NAME
     rollback_assets = rollback_root / MEASUREMENT_ASSETS_NAME
+    expected_database = (
+        True
+        if pre_restore_live is None
+        else bool(pre_restore_live.get('database', True))
+    )
 
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1460,14 +1481,25 @@ def _rollback_restore_swap(data_dir: Path, rollback_root: Path) -> None:
         if rollback_aux.exists() and not live_aux.exists():
             _replace_durable(rollback_aux, live_aux)
     if not live_database.is_file():
-        raise RestoreRecoveryError(
-            'no restorable database remains live or in the rollback directory'
-        )
-    _sqlite_health(live_database)
-    _validate_asset_contract(
-        data_dir=data_dir,
-        database_path=live_database,
-    )
+        if expected_database:
+            raise RestoreRecoveryError(
+                'no restorable database remains live or in the rollback '
+                'directory'
+            )
+    else:
+        try:
+            _sqlite_health(live_database)
+            _validate_asset_contract(
+                data_dir=data_dir,
+                database_path=live_database,
+            )
+        except Exception:
+            if expected_database:
+                raise
+            # A post-crash occupant that cannot serve as the live
+            # generation is parked back in the rollback dir (never blessed
+            # as recovered state); the honest pre-restore truth was empty.
+            _evacuate_into(live_database, rollback_root)
     _fsync_directory(data_dir)
 
 
@@ -1568,7 +1600,15 @@ def _recover_journaled_swap(
         )
 
     try:
-        _rollback_restore_swap(data_dir, rollback_root)
+        _rollback_restore_swap(
+            data_dir,
+            rollback_root,
+            pre_restore_live=(
+                journal.get('pre_restore_live')
+                if isinstance(journal.get('pre_restore_live'), dict)
+                else None
+            ),
+        )
     except Exception as exc:
         failures.append(f'rollback failed: {exc}')
     else:
@@ -1894,6 +1934,22 @@ def _restore_backup(
             'pre_restore_backup': (
                 str(_canonical_data_path(pre_backup)) if pre_backup is not None else None
             ),
+            # Which live objects the swap is about to evacuate — journaled
+            # BEFORE the first move so recovery can distinguish "the
+            # pre-restore truth was empty" from "the pre-restore database
+            # is missing" and never adopts a post-crash occupant as the
+            # pre-restore generation (or bricks on an honestly-empty root).
+            'pre_restore_live': {
+                'database': existing_database.is_file(),
+                'measurement_assets': (
+                    data_dir / MEASUREMENT_ASSETS_NAME
+                ).exists(),
+                'auxiliary': [
+                    component.path
+                    for component in backup_included_components()
+                    if (data_dir / component.path).exists()
+                ],
+            },
             'restored_manifest': manifest.model_dump(mode='json'),
         }
         # The durable intent record lands before any live byte moves, so a

@@ -57,6 +57,7 @@ from .managed_assets import (
     MANAGED_ASSETS_DIRNAME,
     ManagedAssetError,
     ManagedAssetStore,
+    managed_asset_path,
     sha256_file,
 )
 from .native_row_integrity import verify_native_row_integrity
@@ -75,13 +76,39 @@ _UUID_RE = re.compile(
 _SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 _DB_NAME_RE = re.compile(r'^[a-z0-9_]+$')
 
-#: Managed-asset registry tables whose rows carry (sha256, relative_path,
-#: size_bytes) for files inside the shared MANAGED_ASSETS_DIRNAME store —
-#: bundle asset closure covers all of them.
-_ASSET_REGISTRY_TABLES = (
-    'cad_measurement_assets',
-    'cad_quality_calibration_files',
-)
+#: Managed-asset byte evidence, imported from the authority-graph audit:
+#: the audit's ``_ASSET_TABLES`` is the single registry of which rows
+#: require retained bytes — table, sha column, optional size column,
+#: optional relative-path column, optional row predicate. Rows whose
+#: table declares a ``relative_path`` name their file under the data
+#: root; digest-only rows resolve to the content address
+#: ``measurement-assets/<sha>`` (their backing bytes normally arrive
+#: through a pulled registry row, but bare retained files are covered
+#: too — an exported row must never dangle over dropped evidence).
+from .native_authority_audit import _ASSET_TABLES
+
+
+def _row_matches_asset_where(record: dict, where: str | None) -> bool:
+    """Evaluate the audit registry's simple row predicates on one record.
+
+    Supported forms today: ``column='literal'`` and ``column IS NOT NULL``.
+    Anything else fails closed — a future spec shape cannot silently
+    misroute asset coverage.
+    """
+
+    if where is None:
+        return True
+    if where.endswith(' IS NOT NULL'):
+        column = where[: -len(' IS NOT NULL')].strip()
+        return record.get(column) is not None
+    column, _eq, literal = where.partition('=')
+    column = column.strip()
+    literal = literal.strip()
+    if literal.startswith("'") and literal.endswith("'") and column:
+        return str(record.get(column)) == literal[1:-1]
+    raise ProjectBundleError(
+        f'bundle asset coverage predicate is not understood: {where}'
+    )
 
 #: Machine-local device/receiver state that must never travel in a
 #: project bundle. Pairing tokens, LAN endpoints, delivery logs, queued
@@ -467,41 +494,76 @@ def export_project_bundle(
                 'export a possibly-incomplete bundle'
             )
 
-        # Asset closure: every managed-asset registry row pulled in by the
-        # walk requires its managed file. Entries carry only the declared
-        # identity — the bytes stream into the archive one file at a time
-        # during ``_write_bundle`` (hash/size-verified as they are written),
-        # so export memory stays constant regardless of project size.
-        asset_rows = [
-            row
-            for registry in _ASSET_REGISTRY_TABLES
-            for row in exported.get(registry, [])
-        ]
+        # Asset closure: every managed-asset byte-evidence row pulled in by
+        # the walk requires its retained file — the same coverage set the
+        # authority-graph audit enforces (``_ASSET_TABLES``), so a bundle
+        # never silently drops evidence a row claims to bind. Rows with a
+        # declared ``relative_path`` resolve under the data root with the
+        # shared containment check; digest-only rows resolve to their
+        # content address in the shared store. Entries carry only the
+        # declared identity — the bytes stream into the archive one file
+        # at a time during ``_write_bundle`` (hash/size-verified as they
+        # are written), so export memory stays constant regardless of
+        # project size.
+        store = ManagedAssetStore(data_dir / MANAGED_ASSETS_DIRNAME)
         asset_entries: list[BundleAssetEntry] = []
-        asset_files: list[tuple[str, int, Path]] = []
-        for row_json in asset_rows:
-            record = dict(zip(row_json['columns'], row_json['values']))
-            digest = str(record['sha256'])
-            relative = str(record['relative_path'])
-            asset_path = data_dir / relative
-            if not asset_path.is_file():
-                raise ProjectBundleError(
-                    'referenced managed asset is missing from the data '
-                    f'directory (integrity error, not an omission): {digest}'
+        asset_files: dict[str, tuple[int, Path]] = {}
+        for table, sha_column, size_column, path_column, where in (
+            _ASSET_TABLES
+        ):
+            for row_json in exported.get(table, []):
+                record = dict(zip(row_json['columns'], row_json['values']))
+                if not _row_matches_asset_where(record, where):
+                    continue
+                digest = str(record[sha_column])
+                if path_column is not None and record.get(path_column):
+                    relative = str(record[path_column]).replace('\\', '/')
+                    try:
+                        asset_path = managed_asset_path(data_dir, relative)
+                    except ManagedAssetError as exc:
+                        raise ProjectBundleError(
+                            'managed asset path in the database is unsafe '
+                            f'or escapes the data root (integrity error, '
+                            f'not an omission): {relative}'
+                        ) from exc
+                else:
+                    asset_path = store.asset_path(digest)
+                if asset_path.is_symlink() or not asset_path.is_file():
+                    raise ProjectBundleError(
+                        'referenced managed asset is missing from the data '
+                        'directory (integrity error, not an omission): '
+                        f'{digest}'
+                    )
+                size = (
+                    int(record[size_column])
+                    if size_column is not None
+                    and record.get(size_column) is not None
+                    else asset_path.stat().st_size
                 )
-            size = int(record['size_bytes'])
-            filename = str(record.get('filename') or '')
-            asset_entries.append(
-                BundleAssetEntry(
-                    sha256=digest,
-                    size_bytes=size,
-                    media_type=_MEDIA_TYPES.get(
-                        Path(filename).suffix.lower(),
-                        'application/octet-stream',
-                    ),
+                if asset_path.stat().st_size != size:
+                    raise ProjectBundleError(
+                        'referenced managed asset size disagrees with its '
+                        f'database record (integrity error, not an '
+                        f'omission): {digest}'
+                    )
+                if digest in asset_files:
+                    continue
+                filename = str(record.get('filename') or '')
+                asset_entries.append(
+                    BundleAssetEntry(
+                        sha256=digest,
+                        size_bytes=size,
+                        media_type=_MEDIA_TYPES.get(
+                            Path(filename).suffix.lower(),
+                            'application/octet-stream',
+                        ),
+                    )
                 )
-            )
-            asset_files.append((digest, size, asset_path))
+                asset_files[digest] = (size, asset_path)
+        asset_file_list = [
+            (digest, size, asset_path)
+            for digest, (size, asset_path) in asset_files.items()
+        ]
 
         library = ProjectLibraryRepository(repository)
         project_entry = library.get_by_document_id(document_id)
@@ -553,7 +615,7 @@ def export_project_bundle(
             update={'manifest_sha256': manifest.identity_hash()}
         )
 
-    _write_bundle(destination, manifest, db_payloads, asset_files)
+    _write_bundle(destination, manifest, db_payloads, asset_file_list)
     return ProjectBundleExportResult(
         archive_path=str(destination),
         document_id=document_id,
@@ -852,20 +914,51 @@ def import_project_bundle(
         manifest_assets = {entry.sha256: entry for entry in manifest.assets}
         # Asset rows must match the manifest entries exactly — the
         # archive's database rows may not lie about what the asset bytes
-        # are. Proven before any install runs.
-        for registry in _ASSET_REGISTRY_TABLES:
-            for row in exported.get(registry, []):
+        # are. Proven before any install runs. The covered set is the
+        # authority-graph audit's ``_ASSET_TABLES`` — the same coverage
+        # the export ships: rows declaring a byte size require a shipped
+        # member at their content address; digest-only evidence accepts
+        # bytes already retained in the local store, and any declared
+        # relative_path must resolve into the store so an imported row
+        # never dangles over bytes installed elsewhere.
+        for table, sha_column, size_column, path_column, where in (
+            _ASSET_TABLES
+        ):
+            for row in exported.get(table, []):
                 record = dict(zip(row['columns'], row['values']))
-                digest = str(record['sha256'])
+                if not _row_matches_asset_where(record, where):
+                    continue
+                digest = str(record[sha_column])
                 entry = manifest_assets.get(digest)
                 if (
-                    entry is None
-                    or int(record['size_bytes']) != entry.size_bytes
+                    size_column is not None
+                    and record.get(size_column) is not None
                 ):
-                    raise BundleManifestInvalidError(
-                        f'{registry} row disagrees with the manifest: '
-                        f'{digest}'
-                    )
+                    if (
+                        entry is None
+                        or int(record[size_column]) != entry.size_bytes
+                    ):
+                        raise BundleManifestInvalidError(
+                            f'{table} row disagrees with the manifest: '
+                            f'{digest}'
+                        )
+                elif entry is None:
+                    target = store.asset_path(digest)
+                    if not target.is_file() or sha256_file(target) != digest:
+                        raise BundleManifestInvalidError(
+                            f'{table} row requires managed asset bytes the '
+                            f'bundle does not carry: {digest}'
+                        )
+                if (
+                    path_column is not None
+                    and record.get(path_column) is not None
+                ):
+                    relative = str(record[path_column]).replace('\\', '/')
+                    if relative != f'{MANAGED_ASSETS_DIRNAME}/{digest}':
+                        raise BundleManifestInvalidError(
+                            f'{table} row declares a managed asset path '
+                            f'outside the shared store: {relative}'
+                        )
         installed_assets: set[str] = set()
         imported_assets = 0
         reused_assets = 0

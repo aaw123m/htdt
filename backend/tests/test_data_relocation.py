@@ -174,3 +174,29 @@ def test_blocked_plan_raises_before_moving(tmp_path: Path) -> None:
     with pytest.raises(DataRelocationBlockedError):
         execute_data_relocation(source, source / 'inner' / 'dest')
     assert (source / DATABASE_NAME).is_file()
+
+
+def test_execute_relocation_into_existing_empty_destination(
+    tmp_path: Path,
+) -> None:
+    """An existing EMPTY destination is allowed by the plan — and the
+    cutover must honor it on Windows too, where ``os.replace`` refuses to
+    move a directory onto any existing directory, even an empty one
+    (WinError 5 → the journal post-STAGED_VERIFIED recovery would retry
+    the same rename forever and brick startup)."""
+    source = tmp_path / 'source'
+    _seed_data_dir(source)
+    destination = tmp_path / 'moved' / 'data'
+    destination.mkdir(parents=True)
+    bootstrap = tmp_path / 'boot.json'
+
+    plan, parked = execute_data_relocation(
+        source, destination, bootstrap_path=bootstrap
+    )
+
+    assert (destination / DATABASE_NAME).is_file()
+    repository = SceneRepository(destination / DATABASE_NAME)
+    assert repository.current_head('doc-1') is not None
+    config = load_bootstrap_config(bootstrap)
+    assert config is not None
+    assert Path(config.data_dir) == destination
