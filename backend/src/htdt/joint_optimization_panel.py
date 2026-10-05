@@ -46,6 +46,7 @@ from .joint_optimization_context import (
     JointBaseline,
     JointOptimizationContext,
     JointSearchMode,
+    _UNSET_BASELINE,
 )
 from .ui_theme import (
     SemanticState,
@@ -456,9 +457,16 @@ class JointOptimizationPanel(QWidget):
             return None
         return items[0].data(0, Qt.ItemDataRole.UserRole)
 
-    def _spec_staleness(self, spec_id: str) -> tuple[str, ...]:
+    def _spec_staleness(
+        self,
+        spec_id: str,
+        *,
+        baseline: JointBaseline | None | object = _UNSET_BASELINE,
+    ) -> tuple[str, ...]:
         try:
-            return self.context.assess_spec_staleness(spec_id)
+            return self.context.assess_spec_staleness(
+                spec_id, baseline=baseline
+            )
         except Exception:
             return ('assessment_failed',)
 
@@ -604,6 +612,14 @@ class JointOptimizationPanel(QWidget):
             specs = self.context.list_specs()
         except Exception:
             return
+        # One baseline resolution serves every row: assessing each spec
+        # separately would re-read the whole authority chain per spec.
+        baseline: JointBaseline | None | object = _UNSET_BASELINE
+        if specs:
+            try:
+                baseline = self.context.resolve_baseline()
+            except Exception:
+                baseline = _UNSET_BASELINE
         for spec in specs:
             dsp_count = len(spec.dsp_variables)
             mode = (
@@ -611,7 +627,7 @@ class JointOptimizationPanel(QWidget):
                 if spec.dsp_variables
                 else _MODE_LABELS['placement_only']
             )
-            reasons = self._spec_staleness(spec.spec_id)
+            reasons = self._spec_staleness(spec.spec_id, baseline=baseline)
             candidates = self.context.joint_repository.count_candidates(
                 spec.spec_id
             )

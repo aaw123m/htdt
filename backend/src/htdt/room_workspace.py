@@ -6027,13 +6027,13 @@ class RoomWorkspace(QWidget):
                 # that would clear the pose selection just stored.
                 self.video_panel._syncing = True
                 try:
-                    widgets['eye_z'].spin.setValue(
+                    widgets['eye_z'].spin.set_value_m(
                         pose.eye_reference_offset_local_m.z_m
                     )
-                    widgets['head_z'].spin.setValue(
+                    widgets['head_z'].spin.set_value_m(
                         pose.head_center_offset_local_m.z_m
                     )
-                    widgets['head_r'].spin.setValue(pose.head_radius_m)
+                    widgets['head_r'].spin.set_value_m(pose.head_radius_m)
                 finally:
                     self.video_panel._syncing = False
         self._video_bindings_changed()
@@ -6188,12 +6188,12 @@ class RoomWorkspace(QWidget):
             document_id=self.controller.document_id,
             label=label.strip(),
             eye_reference_offset_local_m=Offset3(
-                x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value())
+                x_m=0.0, y_m=0.0, z_m=float(widgets['eye_z'].spin.value_m())
             ),
             head_center_offset_local_m=Offset3(
-                x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value())
+                x_m=0.0, y_m=0.0, z_m=float(widgets['head_z'].spin.value_m())
             ),
-            head_radius_m=float(widgets['head_r'].spin.value()),
+            head_radius_m=float(widgets['head_r'].spin.value_m()),
             provenance='部屋映像パネルで作成 (UX120)',
         )
         self.listener_pose_repository.save_pose(pose)
@@ -6400,7 +6400,9 @@ class RoomWorkspace(QWidget):
 
     def _video_create_display_spec(self) -> None:
         """Register a user-defined direct-view display specification (#1054)."""
-        dialog = DisplaySpecDialog(self)
+        dialog = DisplaySpecDialog(
+            self, length_policy=self.video_panel.length_policy()
+        )
         if dialog.exec() != DisplaySpecDialog.DialogCode.Accepted:
             return
         values = dialog.values()

@@ -656,28 +656,30 @@ class OptimizationWorkflowWorkspace(QWidget):
             except Exception:  # noqa: BLE001 — plan state unreadable
                 pass
             try:
-                campaign_count += len(
-                    controller.campaign_repository.list_for_search_spec(spec_id)
+                campaign_count += (
+                    controller.campaign_repository.count_for_search_spec(
+                        spec_id
+                    )
                 )
             except Exception:  # noqa: BLE001 — campaign state unreadable
                 pass
             try:
-                evaluation_count += len(
-                    controller.objective_repository.list_evaluations(spec_id)
+                evaluation_count += (
+                    controller.objective_repository.count_evaluations(spec_id)
                 )
             except Exception:  # noqa: BLE001 — evidence state unreadable
                 pass
             try:
-                pareto_set_count += len(
-                    controller.objective_repository.list_pareto_sets(spec_id)
+                pareto_set_count += (
+                    controller.objective_repository.count_pareto_sets(spec_id)
                 )
             except Exception:  # noqa: BLE001 — comparison state unreadable
                 pass
             try:
                 # The browse path skips per-record evidence re-attestation —
                 # a stale record must not blank the whole guide.
-                validation_count += len(
-                    controller.validation_repository.inspect_for_search_spec(
+                validation_count += (
+                    controller.validation_repository.count_for_search_spec(
                         spec_id
                     )
                 )

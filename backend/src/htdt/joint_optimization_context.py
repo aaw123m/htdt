@@ -65,6 +65,10 @@ DspParameterName = Literal[
 
 JointSearchMode = Literal['placement_only', 'dsp_only', 'joint']
 
+#: Sentinel for ``assess_spec_staleness(baseline=...)``: distinguishes a
+#: caller that resolved ``None`` from one that wants the method to resolve.
+_UNSET_BASELINE = object()
+
 # Declared magnitude-authority band for DSP variables authored in the UI.
 # Low-frequency integration band; the same value is used for both the
 # capability gate and the JointDspVariable.required_band_hz field.
@@ -639,12 +643,19 @@ class JointOptimizationContext:
     def assess_spec_staleness(
         self,
         spec_id: str,
+        *,
+        baseline: JointBaseline | None | object = _UNSET_BASELINE,
     ) -> tuple[str, ...]:
         """Typed staleness between a persisted spec and the live baseline.
 
         An unresolved baseline reports ``('baseline_unresolved',)`` so the UI
         can gate execution without conflating missing authorities with
         authority drift.
+
+        Callers assessing several specs in one refresh pass the same
+        resolved ``baseline`` — resolving it once per spec would re-read the
+        whole authority chain (variants, plans, specs, latest evaluations)
+        N times for identical input.
         """
 
         spec = self.joint_repository.get_spec(spec_id)
@@ -652,7 +663,8 @@ class JointOptimizationContext:
             raise ValueError(
                 'joint optimization spec is not persisted: ' + spec_id
             )
-        baseline = self.resolve_baseline()
+        if baseline is _UNSET_BASELINE:
+            baseline = self.resolve_baseline()
         if baseline is None:
             return ('baseline_unresolved',)
         return assess_joint_spec_staleness(

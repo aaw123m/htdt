@@ -960,18 +960,27 @@ class MeasurementPageWorkspace(QWidget):
         self._refresh_pending()
         self._refresh_batch(batch_items, views)
         self._refresh_assignment_options(batch_items)
-        self._refresh_campaign(views)
+        # Runner plans are listed once per refresh: the campaign combo,
+        # onboarding steps and journey strip previously paid a full
+        # document-scoped listing each.
+        runner_plans = self.controller.runner_plans()
+        runner_plan_created = self.controller.runner_plan_created_at_utc()
+        self._refresh_campaign(
+            views, plans=runner_plans, plan_created=runner_plan_created
+        )
         self._refresh_quality(views)
         self._refresh_comparison_choices(views)
-        self._refresh_onboarding()
+        self._refresh_onboarding(plans=runner_plans)
         self._refresh_authority_inventory()
-        self._refresh_journey(batch_items, views)
+        self._refresh_journey(batch_items, views, plans=runner_plans)
         self._refresh_record_surfaces()
 
     def _refresh_journey(
         self,
         batch_items: list[BatchImportItem] | tuple[BatchImportItem, ...],
         views: tuple[MeasurementView, ...] | list[MeasurementView],
+        *,
+        plans=None,
     ) -> None:
         """Re-evaluate the numbered journey strip from persisted state.
 
@@ -991,7 +1000,9 @@ class MeasurementPageWorkspace(QWidget):
         cells_remaining = 0
         if scene_saved:
             try:
-                plans = self.controller.runner_plans()
+                plans = (
+                    self.controller.runner_plans() if plans is None else plans
+                )
                 plan_count = len(plans)
                 for plan in plans:
                     runs = self.controller.runner_repository.list_runs(
@@ -3801,11 +3812,16 @@ class MeasurementPageWorkspace(QWidget):
     def _refresh_campaign(
         self,
         views: tuple[MeasurementView, ...] | None = None,
+        *,
+        plans=None,
+        plan_created=None,
     ) -> None:
         if views is None:
             views = self.controller.measurement_views()
-        plans = self.controller.runner_plans()
-        plan_created = self.controller.runner_plan_created_at_utc()
+        if plans is None:
+            plans = self.controller.runner_plans()
+        if plan_created is None:
+            plan_created = self.controller.runner_plan_created_at_utc()
         previous = self.campaign_plan_combo.currentData()
         self.campaign_plan_combo.blockSignals(True)
         self.campaign_plan_combo.clear()
@@ -5710,7 +5726,7 @@ class MeasurementPageWorkspace(QWidget):
         if isinstance(link, str) and link in _CONTEXT_IDS:
             self.set_context(link)
 
-    def _refresh_onboarding(self) -> None:
+    def _refresh_onboarding(self, *, plans=None) -> None:
         contexts = self.controller.quality_repository.list_acquisition_contexts()
         context = next(
             (entry for entry in contexts if entry.microphone is not None),
@@ -5724,7 +5740,11 @@ class MeasurementPageWorkspace(QWidget):
             level_calibrations=(
                 self.controller.quality_repository.list_level_calibrations()
             ),
-            plan_count=len(self.controller.runner_plans()),
+            plan_count=(
+                len(plans)
+                if plans is not None
+                else len(self.controller.runner_plans())
+            ),
         )
         self._onboarding_steps: tuple[InstrumentStep, ...] = steps
         status_labels = {

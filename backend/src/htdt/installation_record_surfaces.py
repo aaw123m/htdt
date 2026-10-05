@@ -548,14 +548,16 @@ class InstallationRecordDialog(QDialog):
         except Exception:  # noqa: BLE001 — unreadable store fails closed below
             self._definitions = []
 
+        bindings = self.binding_repository.latest_bindings_for_document(
+            self.document_id
+        )
+        contexts = self.context_repository.latest_contexts_for_document(
+            self.document_id
+        )
         self.entity_status.clear()
         for entity in self._speakers:
-            binding = self.binding_repository.get_binding_for_entity(
-                self.document_id, entity.entity_id
-            )
-            context = self.context_repository.get_context_for_entity(
-                self.document_id, entity.entity_id
-            )
+            binding = bindings.get(entity.entity_id)
+            context = contexts.get(entity.entity_id)
             self.entity_status.addTopLevelItem(
                 QTreeWidgetItem(
                     [

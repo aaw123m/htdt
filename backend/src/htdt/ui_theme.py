@@ -423,7 +423,9 @@ QPushButton[role="primary"]:pressed {{
 QPushButton:disabled, QToolButton:disabled {{
     background-color: {interaction.disabled_surface.hex};
     color: {t.disabled.hex};
-    border-color: transparent;
+    /* keep the control silhouette visible — a transparent border on the
+       near-identical disabled surface makes the button unreadable */
+    border-color: {s.separator.hex};
 }}
 
 QLineEdit, QPlainTextEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox {{

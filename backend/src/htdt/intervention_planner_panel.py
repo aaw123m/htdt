@@ -401,16 +401,18 @@ class InterventionPlannerPanel(QFrame):
             for entity in head.document.entities
             if entity.kind == 'speaker'
         ]
+        bindings = self.binding_repository.latest_bindings_for_document(
+            self.planner.document_id
+        )
+        contexts = self.context_repository.latest_contexts_for_document(
+            self.planner.document_id
+        )
         bound = 0
         installed = 0
         for entity in speakers:
-            if self.binding_repository.get_binding_for_entity(
-                self.planner.document_id, entity.entity_id
-            ) is not None:
+            if bindings.get(entity.entity_id) is not None:
                 bound += 1
-            if self.context_repository.get_context_for_entity(
-                self.planner.document_id, entity.entity_id
-            ) is not None:
+            if contexts.get(entity.entity_id) is not None:
                 installed += 1
         if not speakers:
             self.install_summary.setText(

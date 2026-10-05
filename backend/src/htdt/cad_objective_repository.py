@@ -596,6 +596,36 @@ class CadObjectiveRepository:
             for row in rows
         )
 
+    def count_evaluations(self, search_spec_id: str) -> int:
+        """Persisted evaluation count for one search spec.
+
+        Metadata only — unlike ``list_evaluations`` this does not replay
+        per-evaluation authority; use it for display counters, never to make
+        claims about evaluation payloads.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT COUNT(*) AS evaluation_count '
+                'FROM cad_objective_evaluations WHERE search_spec_id=?',
+                (search_spec_id,),
+            ).fetchone()
+        return int(row['evaluation_count'])
+
+    def count_pareto_sets(self, search_spec_id: str) -> int:
+        """Persisted Pareto-set count for one search spec.
+
+        Metadata only — unlike ``list_pareto_sets`` this does not replay
+        per-set authority (referenced evaluations and the canonical front);
+        use it for display counters only.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT COUNT(*) AS pareto_count '
+                'FROM cad_pareto_sets WHERE search_spec_id=?',
+                (search_spec_id,),
+            ).fetchone()
+        return int(row['pareto_count'])
+
     def _require_pareto_authority(
         self,
         pareto_set: CadParetoSet,

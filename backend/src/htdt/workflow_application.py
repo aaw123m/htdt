@@ -3130,6 +3130,7 @@ class WorkflowApplicationComposition:
         geometry_panel = _self.RoomGeometryPanel(geometry_input)
         workspace.attach_geometry_panel(geometry_panel)
         bind_length_policy_widget(geometry_panel, preferences)
+        bind_length_policy_widget(workspace.video_panel, preferences)
         transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)
         workspace.attach_transform_input(transform_input)
         # Hard placement constraints (#486): reject drag commits that would

@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -339,10 +340,23 @@ class GeometryImportDialog(QDialog):
         set_typography_role(source, TypographyRole.SECTION_TITLE)
         layout.addWidget(source)
 
-        layout.addWidget(self._build_declaration_group())
-        layout.addWidget(self._build_diagnostics_group())
-        layout.addWidget(self._build_repair_group())
-        layout.addWidget(self._build_destination_group())
+        # The four group boxes measure ~1130px stacked — far past a 768px
+        # screen, so the resize(680, 720) alone hid the import button and
+        # lower groups. Keep the header and the Ok/Cancel row pinned and
+        # scroll the content instead (same pattern as _scroll_wrap in
+        # measurement_record_surfaces).
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(self._build_declaration_group())
+        content_layout.addWidget(self._build_diagnostics_group())
+        content_layout.addWidget(self._build_repair_group())
+        content_layout.addWidget(self._build_destination_group())
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, stretch=1)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
