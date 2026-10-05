@@ -59,6 +59,7 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 
 if TYPE_CHECKING:
     from .measurement_workflow import RewReadSource
+from .multi_sub_optimization_panel import MultiSubBaselinePanel
 from .standards_workspace import StandardsVariantComparisonPanel
 from .system_expansion_widgets import (
     SystemExpansionMeasurementPanel,
@@ -496,6 +497,8 @@ class OptimizationWorkflowWorkspace(QWidget):
         if page_id == "comparison" and hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
             self.standards_comparison_panel.refresh()
+            if hasattr(self, "multi_sub_baseline_panel"):
+                self.multi_sub_baseline_panel._load()
         if page_id == "interventions" and hasattr(self, "intervention_planner_panel"):
             self.intervention_planner_panel.refresh()
         if page_id == "validation":
@@ -554,6 +557,8 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.joint_optimization_panel.refresh()
         if hasattr(self, "system_expansion_compare_panel"):
             self.system_expansion_compare_panel.refresh()
+        if hasattr(self, "multi_sub_baseline_panel"):
+            self.multi_sub_baseline_panel._load()
         if hasattr(self, "system_expansion_measurement_panel"):
             self.system_expansion_measurement_panel.refresh()
         if (
@@ -1277,6 +1282,12 @@ class OptimizationWorkflowWorkspace(QWidget):
             self.system_expansion.document_id,
         )
         layout.addWidget(self.standards_comparison_panel)
+
+        self.multi_sub_baseline_panel = MultiSubBaselinePanel(
+            self.system_expansion.scene_repository,
+            self.system_expansion.document_id,
+        )
+        layout.addWidget(self.multi_sub_baseline_panel)
 
         metrics_card, metrics = _card(
             "比較する指標",

@@ -408,6 +408,12 @@ class _RepositoryChain:
             )
 
             return CadCorrectionQualificationRepository(scene)
+        if name == 'multi_sub_optimization':
+            from .cad_multi_sub_optimization_repository import (
+                CadMultiSubOptimizationRepository,
+            )
+
+            return CadMultiSubOptimizationRepository(scene)
         if name == 'joint':
             from .cad_joint_optimization_repository import (
                 CadJointOptimizationRepository,
@@ -2058,6 +2064,36 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_correction_qualifications',
         ('qualification_id',),
         _get('correction_qualification', 'get'),
+    ),
+    _ReplayProbe(
+        'multi_sub_candidate',
+        'cad_multi_sub_candidates',
+        ('candidate_id',),
+        _get('multi_sub_optimization', 'get_candidate'),
+    ),
+    _ReplayProbe(
+        'multi_sub_evaluation',
+        'cad_multi_sub_evaluations',
+        ('evaluation_id',),
+        _get('multi_sub_optimization', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'multi_sub_qualification',
+        'cad_multi_sub_qualifications',
+        ('qualification_id',),
+        _get('multi_sub_optimization', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'multi_sub_stage_comparison',
+        'cad_multi_sub_stage_comparisons',
+        ('comparison_id',),
+        _get('multi_sub_optimization', 'get_stage_comparison'),
+    ),
+    _ReplayProbe(
+        'multi_sub_deployment',
+        'cad_multi_sub_deployments',
+        ('verification_id',),
+        _get('multi_sub_optimization', 'get_deployment'),
     ),
     _ReplayProbe(
         'system_variant_as_built',
