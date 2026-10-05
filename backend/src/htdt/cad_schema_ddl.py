@@ -3233,6 +3233,166 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_performance_fact_rebinds ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rebind_id TEXT NOT NULL UNIQUE, rebind_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, from_profile_id TEXT NOT NULL, to_profile_id TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rack_enclosures ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rack_id TEXT NOT NULL UNIQUE, rack_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, enclosure_kind TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rackenv_doc ON cad_rack_enclosures(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rack_devices ( seq INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL UNIQUE, device_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, rack_ref_id TEXT NOT NULL, role TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rackdev_doc ON cad_rack_devices(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_branch_circuits ( seq INTEGER PRIMARY KEY AUTOINCREMENT, circuit_id TEXT NOT NULL UNIQUE, circuit_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, nominal_voltage_v REAL, breaker_rating_a REAL, continuous_load_policy TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_circuit_doc ON cad_branch_circuits(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_power_protection_devices ( seq INTEGER PRIMARY KEY AUTOINCREMENT, protection_id TEXT NOT NULL UNIQUE, protection_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_protdev_doc ON cad_power_protection_devices(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_poe_budgets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, poe_id TEXT NOT NULL UNIQUE, poe_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, standard TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_poe_doc ON cad_poe_budgets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_infrastructure_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_infscn_doc ON cad_infrastructure_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rack_thermal_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rack_ref_id TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rmeas_doc ON cad_rack_thermal_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_infrastructure_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT NOT NULL, overall_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rqual_scn ON cad_infrastructure_qualifications(scenario_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_immersive_contents ( seq INTEGER PRIMARY KEY AUTOINCREMENT, content_id TEXT NOT NULL UNIQUE, content_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, metadata_class TEXT NOT NULL, format_label TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_icont_doc ON cad_immersive_contents(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_renderer_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_label TEXT NOT NULL, capability_source TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rcap_doc ON cad_renderer_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_speaker_layouts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, layout_id TEXT NOT NULL UNIQUE, layout_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, label TEXT, evidence TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_slay_doc ON cad_speaker_layouts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_render_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, session_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, content_ref_id TEXT NOT NULL, decoder_mode TEXT NOT NULL, upmixer_state TEXT NOT NULL, started_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rsess_doc ON cad_render_sessions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_render_output_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, capture_method TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_robs_sess ON cad_render_output_observations(session_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_render_path_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, overall_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rpqual_sess ON cad_render_path_qualifications(session_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_electrical_noise_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, symptom TEXT NOT NULL, instrument TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_enobs_doc ON cad_electrical_noise_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_audio_interconnects ( seq INTEGER PRIMARY KEY AUTOINCREMENT, interconnect_id TEXT NOT NULL UNIQUE, interconnect_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, interface_class TEXT NOT NULL, shield_termination TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_icnx_doc ON cad_audio_interconnects(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_noise_isolation_tests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, test_id TEXT NOT NULL UNIQUE, test_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, observation_ref_id TEXT NOT NULL, performed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_itest_obs ON cad_noise_isolation_tests(observation_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_humbuzz_diagnostics ( seq INTEGER PRIMARY KEY AUTOINCREMENT, diagnostic_id TEXT NOT NULL UNIQUE, diagnostic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, classification TEXT NOT NULL, hypothesis_state TEXT NOT NULL, recommendation TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hdiag_doc ON cad_humbuzz_diagnostics(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_noise_mitigations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, attempt_id TEXT NOT NULL UNIQUE, attempt_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, diagnostic_ref TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, performed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hmit_diag ON cad_noise_mitigations(diagnostic_ref, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_humbuzz_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, diagnostic_ref TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hverd_diag ON cad_humbuzz_verdicts(diagnostic_ref, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -3767,4 +3927,24 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_performance_fact_imports',
     'cad_performance_fact_evaluations',
     'cad_performance_fact_rebinds',
+    'cad_rack_enclosures',
+    'cad_rack_devices',
+    'cad_branch_circuits',
+    'cad_power_protection_devices',
+    'cad_poe_budgets',
+    'cad_infrastructure_scenarios',
+    'cad_rack_thermal_measurements',
+    'cad_infrastructure_qualifications',
+    'cad_immersive_contents',
+    'cad_renderer_capabilities',
+    'cad_speaker_layouts',
+    'cad_render_sessions',
+    'cad_render_output_observations',
+    'cad_render_path_qualifications',
+    'cad_electrical_noise_observations',
+    'cad_audio_interconnects',
+    'cad_noise_isolation_tests',
+    'cad_humbuzz_diagnostics',
+    'cad_noise_mitigations',
+    'cad_humbuzz_verdicts',
 )

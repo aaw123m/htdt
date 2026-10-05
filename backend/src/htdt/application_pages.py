@@ -322,6 +322,29 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_performance_fact_imports": "性能ファクト取込",
     "cad_performance_fact_evaluations": "製品適合評価",
     "cad_performance_fact_rebinds": "プロファイル再バインド",
+    # REV56-INFRA: #587 ラック/電源/熱適格性
+    "cad_rack_enclosures": "ラックエンクロージャ",
+    "cad_rack_devices": "ラック収納機器",
+    "cad_branch_circuits": "分岐回路",
+    "cad_power_protection_devices": "電源保護機器",
+    "cad_poe_budgets": "PoE電力バジェット",
+    "cad_infrastructure_scenarios": "インフラ動作シナリオ",
+    "cad_rack_thermal_measurements": "ラック熱測定",
+    "cad_infrastructure_qualifications": "インフラ適格評価",
+    # REV56-INFRA: #603 イマーシブレンダーパス
+    "cad_immersive_contents": "イマーシブコンテンツ",
+    "cad_renderer_capabilities": "レンダラ能力プロファイル",
+    "cad_speaker_layouts": "スピーカーレイアウト宣言",
+    "cad_render_sessions": "レンダリングセッション",
+    "cad_render_output_observations": "出力観測",
+    "cad_render_path_qualifications": "レンダーパス適格評価",
+    # REV56-INFRA: #606 ハム/バズ/接地EMC診断
+    "cad_electrical_noise_observations": "電気ノイズ観測",
+    "cad_audio_interconnects": "音声インターコネクト証跡",
+    "cad_noise_isolation_tests": "ノイズ分離試験",
+    "cad_humbuzz_diagnostics": "ハム/バズ診断",
+    "cad_noise_mitigations": "ノイズ是正措置",
+    "cad_humbuzz_verdicts": "ハム/バズ評価",
 }
 
 
