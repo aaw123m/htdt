@@ -48,6 +48,16 @@ DBクエリパターン・権威配線・ドキュメント一致を系統的に
 - `backend/tests/test_rev49_fullsweep.py` — 10 tests: CommandContext 全 workspace 網羅 (crash 回帰)、新 nav command の deep-link/ラベル/実行、`list_plans_for_document` が per-baseline 列挙と一致 + fail-closed JOIN、MetricSpinBox の unit 切替・min/max SI 変換、3 パネルの policy 伝播、help topic family バインド。
 - 影響 scoped pytest: command_registry / palette_search / help_registry / cad_system_health / rev44 系 surfaces (healthsync/staged/install/authority/surfaces) / field_explorer / geomport / room_workspace / room_inspector / room_cadux / prefs / data_management / accessible_labels / workflow_application 等 42 ファイル。
 
+## 実機 GUI 検証 (Windows 実 display, 1024×768) — 全項目 PASS
+
+- Ctrl+K パレットが全 6 ワークスペース (概要/部屋/測定/最適化/プレゼン/映像調整) で開くことを確認 — 旧 ValueError/KeyError サイト両方修復。
+- 「プレゼン」「映像調整」「受入検証」パレット検索→実行で各 surface へ遷移。
+- 長さ表示ポリシー: pref=mm で geometry 天井高・installation 実測クリアランス・field-explorer グリッド間隔/プローブが mm 表示、m へ切替で開いたままの dialog も live 変換 (0.10 m ⇔ 100.00 mm)、SI 権威不変。
+- stride 精度修正を機能実証: 0.10 m ストライドで 41×51 サンプル生成 — mm ポリシー下でも正しい (旧バグなら ~1 サンプルに壊れていた)。
+- AV同期/健全性チェック/プリセット記録 dialog: 768px 高さでスクロールし最下部ボタンへ到達可能。
+- 管理ボタンの JA ツールチップ確認、全 touch パネルにデザイン崩れなし。
+
 ## 残タスク・フォローアップ
 
-- GUI 実機検証: palette が全 workspace で開くこと、geometry/installation/field-explorer の単位切替、AV sync/health dialog のスクロール到達性を recording で確認。
+- **`音場エクスプローラー…` ボタンがダークテーマでほぼ不可視** — 実機検証で発見。存在してクリックは可能だがコントラストが低すぎて空白に見える。styling 追従として別途修正候補 (LOW: 機能は動作、視認性のみ)。
+- 検証時に GPU-less box で Mesa DLL 欠落による起動クラッシュを経験 — blueprint initialize の Mesa 配置ステップを手動復元で解決。環境依存でコード不具合ではない。
