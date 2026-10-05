@@ -736,6 +736,18 @@ class _RepositoryChain:
             )
 
             return CadWiringTraceRepository(scene)
+        if name == 'health_drift':
+            from .cad_health_drift_repository import (
+                CadHealthDriftRepository,
+            )
+
+            return CadHealthDriftRepository(scene)
+        if name == 'substitution_impact':
+            from .cad_substitution_impact_repository import (
+                CadSubstitutionImpactRepository,
+            )
+
+            return CadSubstitutionImpactRepository(scene)
         raise KeyError(name)
 
 
@@ -2915,6 +2927,86 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_logical_physical_bindings',
         ('binding_id',),
         _get('wiring_trace', 'get_binding'),
+    ),
+    # REV56-LIFECYCLE (#595 health/drift monitoring, #596 substitution
+    # impact)
+    _ReplayProbe(
+        'monitoring_declaration',
+        'cad_monitoring_declarations',
+        ('declaration_id',),
+        _get('health_drift', 'get_declaration'),
+    ),
+    _ReplayProbe(
+        'lifecycle_observation',
+        'cad_lifecycle_observations',
+        ('observation_id',),
+        _get('health_drift', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'change_event',
+        'cad_change_events',
+        ('event_id',),
+        _get('health_drift', 'get_change_event'),
+    ),
+    _ReplayProbe(
+        'trend_assessment',
+        'cad_trend_assessments',
+        ('assessment_id',),
+        _get('health_drift', 'get_trend_assessment'),
+    ),
+    _ReplayProbe(
+        'symptom_episode',
+        'cad_symptom_episodes',
+        ('episode_id',),
+        _get('health_drift', 'get_symptom_episode'),
+    ),
+    _ReplayProbe(
+        'drift_assessment',
+        'cad_drift_assessments',
+        ('assessment_id',),
+        _get('health_drift', 'get_drift_assessment'),
+    ),
+    _ReplayProbe(
+        'reverification_trigger',
+        'cad_reverification_triggers',
+        ('trigger_id',),
+        _get('health_drift', 'get_trigger'),
+    ),
+    _ReplayProbe(
+        'restore_confirmation',
+        'cad_restore_confirmations',
+        ('confirmation_id',),
+        _get('health_drift', 'get_restore_confirmation'),
+    ),
+    _ReplayProbe(
+        'substitution_proposal',
+        'cad_substitution_proposals',
+        ('proposal_id',),
+        _get('substitution_impact', 'get_proposal'),
+    ),
+    _ReplayProbe(
+        'change_impact_assessment',
+        'cad_change_impact_assessments',
+        ('assessment_id',),
+        _get('substitution_impact', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'substitution_decision',
+        'cad_substitution_decisions',
+        ('decision_id',),
+        _get('substitution_impact', 'get_decision'),
+    ),
+    _ReplayProbe(
+        'asbuilt_reconciliation',
+        'cad_asbuilt_reconciliations',
+        ('reconciliation_id',),
+        _get('substitution_impact', 'get_reconciliation'),
+    ),
+    _ReplayProbe(
+        'equipment_schedule_record',
+        'cad_equipment_schedule_records',
+        ('schedule_id',),
+        _get('substitution_impact', 'get_schedule'),
     ),
 )
 
