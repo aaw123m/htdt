@@ -833,6 +833,25 @@ class _RepositoryChain:
             )
 
             return CadElectricalNoiseRepository(scene)
+        # REV57-METRO authorities.
+        if name == 'timebase_authority':
+            from .cad_timebase_authority_repository import (
+                CadTimebaseAuthorityRepository,
+            )
+
+            return CadTimebaseAuthorityRepository(scene)
+        if name == 'evidence_bundle':
+            from .cad_evidence_bundle_repository import (
+                CadEvidenceBundleRepository,
+            )
+
+            return CadEvidenceBundleRepository(scene)
+        if name == 'calibration_lifecycle':
+            from .cad_calibration_lifecycle_repository import (
+                CadCalibrationLifecycleRepository,
+            )
+
+            return CadCalibrationLifecycleRepository(scene)
         raise KeyError(name)
 
 
@@ -3574,6 +3593,99 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_humbuzz_verdicts',
         ('verdict_id',),
         _get('electrical_noise', 'get_verdict'),
+    ),
+    # REV57-METRO: #609 timebase / clock authority
+    _ReplayProbe(
+        'timebase_clock_domain',
+        'cad_timebase_clock_domains',
+        ('clock_domain_id',),
+        _get('timebase_authority', 'get_clock_domain'),
+    ),
+    _ReplayProbe(
+        'measurement_timebase',
+        'cad_measurement_timebases',
+        ('timebase_id',),
+        _get('timebase_authority', 'get_timebase'),
+    ),
+    _ReplayProbe(
+        'timebase_capability_assessment',
+        'cad_timebase_capability_assessments',
+        ('assessment_id',),
+        _get('timebase_authority', 'get_assessment'),
+    ),
+    # REV57-METRO: #610 evidence bundle / integrity manifest
+    _ReplayProbe(
+        'evidence_bundle',
+        'cad_evidence_bundles',
+        ('bundle_id',),
+        _get('evidence_bundle', 'get_bundle'),
+    ),
+    _ReplayProbe(
+        'evidence_artifact',
+        'cad_evidence_artifacts',
+        ('artifact_id',),
+        _get('evidence_bundle', 'get_artifact'),
+    ),
+    _ReplayProbe(
+        'evidence_derivation_edge',
+        'cad_evidence_derivation_edges',
+        ('edge_id',),
+        _get('evidence_bundle', 'get_edge'),
+    ),
+    _ReplayProbe(
+        'evidence_attestation',
+        'cad_evidence_attestations',
+        ('attestation_id',),
+        _get('evidence_bundle', 'get_attestation'),
+    ),
+    _ReplayProbe(
+        'evidence_bundle_validation',
+        'cad_evidence_bundle_validations',
+        ('verdict_id',),
+        _get('evidence_bundle', 'get_verdict'),
+    ),
+    # REV57-METRO: #611 instrument calibration lifecycle
+    _ReplayProbe(
+        'instrument_instance',
+        'cad_instrument_instances',
+        ('instrument_id',),
+        _get('calibration_lifecycle', 'get_instrument'),
+    ),
+    _ReplayProbe(
+        'calibration_event',
+        'cad_calibration_events',
+        ('calibration_id',),
+        _get('calibration_lifecycle', 'get_calibration'),
+    ),
+    _ReplayProbe(
+        'calibration_interval_policy',
+        'cad_calibration_interval_policies',
+        ('policy_id',),
+        _get('calibration_lifecycle', 'get_policy'),
+    ),
+    _ReplayProbe(
+        'instrument_verification_check',
+        'cad_instrument_verification_checks',
+        ('check_id',),
+        _get('calibration_lifecycle', 'get_check'),
+    ),
+    _ReplayProbe(
+        'instrument_service_event',
+        'cad_instrument_service_events',
+        ('event_id',),
+        _get('calibration_lifecycle', 'get_service_event'),
+    ),
+    _ReplayProbe(
+        'instrument_fitness_assessment',
+        'cad_instrument_fitness_assessments',
+        ('assessment_id',),
+        _get('calibration_lifecycle', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'out_of_tolerance_review',
+        'cad_out_of_tolerance_reviews',
+        ('review_id',),
+        _get('calibration_lifecycle', 'get_review'),
     ),
 )
 

@@ -3393,6 +3393,141 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_hverd_diag ON cad_humbuzz_verdicts(diagnostic_ref, seq ASC)
     """
     ,
+    # REV57-METRO: measurement timebase / clock authority (#609)
+    """
+    CREATE TABLE IF NOT EXISTS cad_timebase_clock_domains ( seq INTEGER PRIMARY KEY AUTOINCREMENT, clock_domain_id TEXT NOT NULL UNIQUE, clock_domain_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, domain_kind TEXT NOT NULL, device_identity TEXT, nominal_sample_rate_hz REAL, effective_sample_rate_hz REAL, common_clock_group TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_clkdom_doc ON cad_timebase_clock_domains(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_timebases ( seq INTEGER PRIMARY KEY AUTOINCREMENT, timebase_id TEXT NOT NULL UNIQUE, timebase_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, topology TEXT NOT NULL, topology_evidence TEXT NOT NULL, sequential_anchor TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mtbase_doc ON cad_measurement_timebases(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_timebase_capability_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, timebase_ref_id TEXT NOT NULL, timing_uncertainty_s REAL, drift_material INTEGER, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tbcap_tb ON cad_timebase_capability_assessments(timebase_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tbcap_doc ON cad_timebase_capability_assessments(document_id, seq ASC)
+    """
+    ,
+    # REV57-METRO: reproducible evidence bundle / integrity manifest (#610)
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_bundles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, bundle_id TEXT NOT NULL UNIQUE, bundle_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, purpose TEXT NOT NULL, status TEXT NOT NULL, completeness_profile TEXT NOT NULL, reproducibility_level TEXT NOT NULL, producer_software TEXT NOT NULL, producer_version TEXT NOT NULL, manifest_root_sha256 TEXT, created_at_utc TEXT NOT NULL, finalized_at_utc TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evbun_doc ON cad_evidence_bundles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_id TEXT NOT NULL, logical_role TEXT NOT NULL, artifact_class TEXT NOT NULL, inclusion TEXT NOT NULL, package_path TEXT, required INTEGER NOT NULL, rights_sensitivity TEXT NOT NULL, digest TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evart_bundle ON cad_evidence_artifacts(bundle_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evart_doc ON cad_evidence_artifacts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_derivation_edges ( seq INTEGER PRIMARY KEY AUTOINCREMENT, edge_id TEXT NOT NULL UNIQUE, edge_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_id TEXT NOT NULL, operation TEXT NOT NULL, software_identity TEXT NOT NULL, output_artifact_id TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evedge_bundle ON cad_evidence_derivation_edges(bundle_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_attestations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, attestation_id TEXT NOT NULL UNIQUE, attestation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_ref_id TEXT NOT NULL, signer_identity TEXT NOT NULL, role TEXT NOT NULL, signed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evatt_bundle ON cad_evidence_attestations(bundle_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_bundle_validations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_ref_id TEXT NOT NULL, profile TEXT NOT NULL, state TEXT NOT NULL, validation_version TEXT NOT NULL, validated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evval_bundle ON cad_evidence_bundle_validations(bundle_ref_id, seq ASC)
+    """
+    ,
+    # REV57-METRO: instrument calibration lifecycle (#611)
+    """
+    CREATE TABLE IF NOT EXISTS cad_instrument_instances ( seq INTEGER PRIMARY KEY AUTOINCREMENT, instrument_id TEXT NOT NULL UNIQUE, instrument_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, category TEXT NOT NULL, serial_or_instance_id TEXT NOT NULL, service_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calinst_doc ON cad_instrument_instances(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, calibration_id TEXT NOT NULL UNIQUE, calibration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT NOT NULL, event_kind TEXT NOT NULL, performed_at_utc TEXT NOT NULL, provider_or_lab TEXT, traceability_class TEXT NOT NULL, valid_until_utc TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calevt_inst ON cad_calibration_events(instrument_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calevt_doc ON cad_calibration_events(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_calibration_interval_policies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, policy_id TEXT NOT NULL UNIQUE, policy_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT, instrument_category TEXT, basis TEXT NOT NULL, nominal_interval_days INTEGER, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calpol_doc ON cad_calibration_interval_policies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_instrument_verification_checks ( seq INTEGER PRIMARY KEY AUTOINCREMENT, check_id TEXT NOT NULL UNIQUE, check_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT NOT NULL, kind TEXT NOT NULL, outcome TEXT NOT NULL, campaign_id TEXT, performed_at_utc TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calchk_inst ON cad_instrument_verification_checks(instrument_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_instrument_service_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT NOT NULL, kind TEXT NOT NULL, occurred_at_utc TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calsvc_inst ON cad_instrument_service_events(instrument_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_instrument_fitness_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT NOT NULL, at_utc TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calfit_inst ON cad_instrument_fitness_assessments(instrument_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_out_of_tolerance_reviews ( seq INTEGER PRIMARY KEY AUTOINCREMENT, review_id TEXT NOT NULL UNIQUE, review_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instrument_ref_id TEXT NOT NULL, triggering_ref_id TEXT NOT NULL, last_known_valid_at_utc TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_caloot_inst ON cad_out_of_tolerance_reviews(instrument_ref_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -3947,4 +4082,19 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_humbuzz_diagnostics',
     'cad_noise_mitigations',
     'cad_humbuzz_verdicts',
+    'cad_timebase_clock_domains',
+    'cad_measurement_timebases',
+    'cad_timebase_capability_assessments',
+    'cad_evidence_bundles',
+    'cad_evidence_artifacts',
+    'cad_evidence_derivation_edges',
+    'cad_evidence_attestations',
+    'cad_evidence_bundle_validations',
+    'cad_instrument_instances',
+    'cad_calibration_events',
+    'cad_calibration_interval_policies',
+    'cad_instrument_verification_checks',
+    'cad_instrument_service_events',
+    'cad_instrument_fitness_assessments',
+    'cad_out_of_tolerance_reviews',
 )

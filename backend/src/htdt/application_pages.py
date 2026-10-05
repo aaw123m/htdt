@@ -345,6 +345,24 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_humbuzz_diagnostics": "ハム/バズ診断",
     "cad_noise_mitigations": "ノイズ是正措置",
     "cad_humbuzz_verdicts": "ハム/バズ評価",
+    # REV57-METRO: #609 タイムベース/クロック権威
+    "cad_timebase_clock_domains": "クロックドメイン宣言",
+    "cad_measurement_timebases": "測定タイムベース権威",
+    "cad_timebase_capability_assessments": "タイムベース能力評価",
+    # REV57-METRO: #610 証拠バンドル/整合性マニフェスト
+    "cad_evidence_bundles": "証拠バンドル",
+    "cad_evidence_artifacts": "証拠アーティファクト",
+    "cad_evidence_derivation_edges": "派生プロビナンスエッジ",
+    "cad_evidence_attestations": "バンドルアテステーション",
+    "cad_evidence_bundle_validations": "バンドル検証判定",
+    # REV57-METRO: #611 校正ライフサイクル
+    "cad_instrument_instances": "測定器インスタンス",
+    "cad_calibration_events": "校正イベント",
+    "cad_calibration_interval_policies": "校正間隔ポリシー",
+    "cad_instrument_verification_checks": "検証チェック記録",
+    "cad_instrument_service_events": "機器サービスイベント",
+    "cad_instrument_fitness_assessments": "機器適性評価",
+    "cad_out_of_tolerance_reviews": "公差外影響レビュー",
 }
 
 

@@ -1291,3 +1291,136 @@ def exposure_assessment_line(assessment: ExposureAssessment) -> str:
     if failed:
         parts.append('不合格: ' + ' / '.join(failed))
     return '曝露評価: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV57-METRO: #609 タイムベース/クロック権威, #610 証拠バンドル, #611 校正ライフサイクル
+#
+
+_TIMEBASE_CAPABILITY_LABELS = {
+    'magnitude_vs_time': '振幅-時間プロファイル',
+    'absolute_delay': '絶対遅延',
+    'relative_delay_between_channels': 'チャンネル間相対遅延',
+    'phase_response': '位相応答',
+    'group_delay': '群遅延',
+    'impulse_response_alignment': 'インパルス応答アライメント',
+    'frequency_response_magnitude': '周波数応答(振幅)',
+    'vector_averaging_complex_transfer': 'ベクトル平均/複素伝達関数',
+}
+
+_CAPABILITY_STATE_LABELS = {
+    'valid': '有効',
+    'limited': '限定',
+    'invalid': '不可',
+    'unknown': '不明',
+}
+
+_BUNDLE_VALIDATION_STATE_LABELS = {
+    'complete_valid': '完全・検証済',
+    'complete_but_external_dependencies': '完全・外部依存あり',
+    'incomplete': '不完全',
+    'integrity_failure': '整合性不整合',
+    'profile_mismatch': 'プロファイル不一致',
+    'unresolved_reference': '未解決参照',
+}
+
+_INSTRUMENT_FITNESS_LABELS = {
+    'fit_for_purpose': '用途適合',
+    'fit_with_limitations': '限定付き適合',
+    'calibration_overdue_by_policy': '校正期限超過(ポリシー)',
+    'calibration_review_required': '校正レビュー要',
+    'check_required': 'チェック要',
+    'out_of_tolerance': '公差外',
+    'unknown': '不明',
+}
+
+_UNTAMPERED_LABEL = '未検証'
+
+
+def timebase_capability_label(capability: str) -> str:
+    return _TIMEBASE_CAPABILITY_LABELS.get(capability, capability)
+
+
+def capability_state_label(state: str) -> str:
+    return _CAPABILITY_STATE_LABELS.get(state, state)
+
+
+def bundle_validation_state_label(state: str) -> str:
+    return _BUNDLE_VALIDATION_STATE_LABELS.get(state, state)
+
+
+def instrument_fitness_state_label(state: str) -> str:
+    return _INSTRUMENT_FITNESS_LABELS.get(state, state)
+
+
+def timebase_capability_line(assessment) -> str:
+    """One JA line for a timebase capability assessment (#609): the
+    per-capability states — 公称レート一致だけで位相は有効と読まない。"""
+    parts = []
+    for capability, state in assessment.capabilities:
+        label = timebase_capability_label(capability)
+        parts.append(f'{label}: {capability_state_label(state)}')
+    if assessment.notes:
+        parts.append(assessment.notes)
+    return 'タイムベース能力: ' + ' — '.join(parts)
+
+
+_BUNDLE_CHECK_LABELS = {
+    'status_finalized': '確定状態',
+    'manifest_root': 'マニフェストルート',
+    'payload_presence': 'ペイロード存在',
+    'digest_match': 'ダイジェスト一致',
+    'external_dependencies': '外部依存',
+    'required_roles': '必須ロール',
+    'derivation_integrity': '派生整合性',
+    'reproducibility_vs_content': '再現性と内容',
+}
+
+_BUNDLE_CHECK_RESULT_LABELS = {
+    'verified': '検証済',
+    'limited': '限定',
+    'failed': '不合格',
+    'not_applicable': '対象外',
+}
+
+
+def bundle_check_label(check: str) -> str:
+    return _BUNDLE_CHECK_LABELS.get(check, check)
+
+
+def bundle_check_result_label(result: str) -> str:
+    return _BUNDLE_CHECK_RESULT_LABELS.get(result, result)
+
+
+def bundle_validation_line(verdict) -> str:
+    """One JA line for a bundle validation verdict (#610): fail-closed
+    state — 未解決参照・整合性不整合を完全と読み違えない。"""
+    parts = [bundle_validation_state_label(verdict.state)]
+    checks_failed = [
+        bundle_check_label(check)
+        for check, result in verdict.checks
+        if result == 'failed'
+    ]
+    if checks_failed:
+        parts.append('不整合: ' + ' / '.join(checks_failed))
+    if verdict.missing_roles:
+        parts.append(f'欠落ロール {len(verdict.missing_roles)} 件')
+    if verdict.unresolved_references:
+        parts.append(f'未解決参照 {len(verdict.unresolved_references)} 件')
+    if verdict.external_dependencies:
+        parts.append(f'外部依存 {len(verdict.external_dependencies)} 件')
+    return '証拠バンドル検証: ' + ' — '.join(parts)
+
+
+def instrument_fitness_line(assessment) -> str:
+    """One JA line for an instrument fitness assessment (#611): the
+    as-of state — 期限超過は機器の物理的故障とは読み分ける。"""
+    parts = [
+        f'{instrument_fitness_state_label(assessment.state)}'
+        f' ({assessment.at_utc} 時点)'
+    ]
+    if assessment.limitations:
+        parts.append('制限: ' + ' / '.join(assessment.limitations))
+    if assessment.reasons:
+        parts.append(assessment.reasons[0])
+    return '機器適性: ' + ' — '.join(parts)

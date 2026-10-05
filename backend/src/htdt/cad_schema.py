@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 35
+NATIVE_SCHEMA_VERSION = 36
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1403,6 +1403,20 @@ def _migrate_34_to_35(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_35_to_36(connection: sqlite3.Connection) -> None:
+    # Install the REV57-METRO authorities (#609 measurement timebase /
+    # clock authority: clock domains, per-capture timebases, capability
+    # assessments; #610 reproducible evidence bundle: bundle manifests,
+    # artifact entries, derivation edges, attestations, validation
+    # verdicts; #611 instrument calibration lifecycle: instrument
+    # instances, calibration events, interval policies, verification
+    # checks, service events, fitness assessments, out-of-tolerance
+    # reviews): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1439,6 +1453,7 @@ _MIGRATIONS = {
     33: _migrate_32_to_33,
     34: _migrate_33_to_34,
     35: _migrate_34_to_35,
+    36: _migrate_35_to_36,
 }
 
 
