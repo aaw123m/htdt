@@ -64,6 +64,7 @@ from .cad_review_package import (
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
 from .room_viewport import RoomOverlayState, RoomViewport3D
+from .user_facing_error import warn_user
 
 
 _VIEW_ONLY_OVERLAYS = RoomOverlayState(grid=True, labels=True)
@@ -372,7 +373,7 @@ class PresentationWorkspace(QWidget):
         try:
             self.presentation_repository.save_session(session)
         except (ValueError, PresentationConflictError) as exc:
-            QMessageBox.warning(self, 'プレゼン', f'保存に失敗: {exc}')
+            warn_user(self, 'プレゼン: セッションを保存できませんでした', exc)
             return
         self._pending_viewpoints.clear()
         self.pending_label.setText('0 件')
@@ -397,7 +398,7 @@ class PresentationWorkspace(QWidget):
         try:
             document = self.presentation_repository.session_document(session)
         except ValueError as exc:
-            QMessageBox.warning(self, 'プレゼン', f'再現に失敗: {exc}')
+            warn_user(self, 'プレゼン: セッションを再現できませんでした', exc)
             return
         self._session_document = document
         self._render_document_into(self.viewport, document)
@@ -572,7 +573,7 @@ class PresentationWorkspace(QWidget):
                 right_alt
             )
         except ValueError as exc:
-            QMessageBox.warning(self, 'A/B比較', f'再現に失敗: {exc}')
+            warn_user(self, 'A/B比較: 対象を再現できませんでした', exc)
             return
         self._render_document_into(self.left_viewport, left_doc)
         self._render_document_into(self.right_viewport, right_doc)
@@ -635,7 +636,7 @@ class PresentationWorkspace(QWidget):
                 self, 'A/B比較', '同期バインディングを保存しました'
             )
         except (ValueError, PresentationConflictError) as exc:
-            QMessageBox.warning(self, 'A/B比較', f'保存に失敗: {exc}')
+            warn_user(self, 'A/B比較: バインディングを保存できませんでした', exc)
 
     # ------------------------------------------------------------------
     # Decisions page
@@ -802,7 +803,7 @@ class PresentationWorkspace(QWidget):
             )
             self._refresh_decision_lists()
         except Exception as exc:
-            QMessageBox.warning(self, '決定', f'記録に失敗: {exc}')
+            warn_user(self, '決定を記録できませんでした', exc)
 
     def _save_proposal(self) -> None:
         if self._session is None:
@@ -834,7 +835,7 @@ class PresentationWorkspace(QWidget):
             QMessageBox.information(self, '提案', '提案を記録しました')
             self._refresh_decision_lists()
         except (ValueError, PresentationConflictError) as exc:
-            QMessageBox.warning(self, '提案', f'記録に失敗: {exc}')
+            warn_user(self, '提案を記録できませんでした', exc)
 
     def _save_note(self) -> None:
         if self._session is None:
@@ -871,7 +872,7 @@ class PresentationWorkspace(QWidget):
                 self, 'レビューメモ', 'メモを保存しました'
             )
         except Exception as exc:
-            QMessageBox.warning(self, 'レビューメモ', f'保存に失敗: {exc}')
+            warn_user(self, 'レビューメモを保存できませんでした', exc)
 
     # ------------------------------------------------------------------
     # Export page
@@ -976,7 +977,7 @@ class PresentationWorkspace(QWidget):
                 yaw_steps_deg=yaw_steps,
             )
         except Exception as exc:
-            QMessageBox.warning(self, '出力', f'生成に失敗: {exc}')
+            warn_user(self, 'レビューパッケージを生成できませんでした', exc)
             return
         caps = '; '.join(
             f'{row.capability}={row.state}'
@@ -1012,7 +1013,7 @@ class PresentationWorkspace(QWidget):
                 decision_repository=self.decision_repository,
             )
         except Exception as exc:
-            QMessageBox.warning(self, '出力', f'生成に失敗: {exc}')
+            warn_user(self, '提案書パッケージを生成できませんでした', exc)
             return
         self.export_status.setText(
             f'生成完了: {result.output_dir}\n'
