@@ -884,6 +884,56 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #579/#588: RP22 profile and response-target rows duplicate sealed
+    # payload state. ``profile_version`` on cad_rp22_evaluations is derived
+    # from the pinned profile's edition (not an evaluation payload field),
+    # so it is not bound.
+    'cad_rp22_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_version', 'edition'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('registry_key', 'registry_key'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_rp22_evaluations': (
+        'payload_json',
+        (
+            _b('evaluation_id', 'evaluation_id'),
+            _b('document_id', 'document_id'),
+            _b('profile_id', 'profile_id'),
+            _b('evaluation_sha256', 'evaluation_sha256'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_response_targets': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('version', 'version'),
+            _b('document_id', 'document_id'),
+            _b('target_sha256', 'target_sha256'),
+            _b('kind', 'kind'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_spectral_balance_evaluations': (
+        'payload_json',
+        (
+            _b('evaluation_id', 'evaluation_id'),
+            _b('document_id', 'document_id'),
+            _b('profile_id', 'profile_id'),
+            _b('profile_version', 'profile_version'),
+            _b('evaluation_sha256', 'evaluation_sha256'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
     'cad_cost_records': (
         'payload_json',
         (

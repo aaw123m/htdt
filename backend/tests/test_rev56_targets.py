@@ -936,3 +936,34 @@ def test_sbt70_ja_labels_and_lines():
     )
     line = spectral_balance_line(target_eval)
     assert '目標乖離RMS' in line and '座席間ばらつき' in line
+
+
+def test_new_tables_join_fail_closed_registries(tmp_path):
+    """The four v26 tables must be covered by every fail-closed
+    registry: authority-audit replay probes and row-integrity payload
+    bindings. Missing coverage quarantines migrations and breaks
+    backups (found by e2e testing)."""
+    from htdt.native_authority_audit import _REPLAY_TABLES, audit_table_modes
+    from htdt.native_row_integrity import (
+        _ROW_BINDINGS,
+        _UNBOUND_PAYLOAD_TABLES,
+        scan_native_row_integrity,
+    )
+    import sqlite3
+
+    tables = {
+        'cad_rp22_profiles',
+        'cad_rp22_evaluations',
+        'cad_response_targets',
+        'cad_spectral_balance_evaluations',
+    }
+    assert tables <= _REPLAY_TABLES
+    assert tables <= set(audit_table_modes())
+    for table in tables:
+        assert (
+            table in _ROW_BINDINGS or table in _UNBOUND_PAYLOAD_TABLES
+        ), table
+
+    scene = SceneRepository(tmp_path / 'cad.sqlite3')
+    with sqlite3.connect(scene.path) as connection:
+        assert scan_native_row_integrity(connection) == ()

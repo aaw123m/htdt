@@ -450,6 +450,18 @@ class _RepositoryChain:
             )
 
             return CadDeviceSnapshotRepository(scene)
+        if name == 'rp22_profile':
+            from .cad_rp22_profile_repository import (
+                CadRP22ProfileRepository,
+            )
+
+            return CadRP22ProfileRepository(scene)
+        if name == 'response_target':
+            from .cad_response_target_repository import (
+                CadResponseTargetRepository,
+            )
+
+            return CadResponseTargetRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2262,6 +2274,30 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_device_replacement_assessments',
         ('assessment_id',),
         _get('device_snapshot', 'get_replacement_assessment'),
+    ),
+    _ReplayProbe(
+        'rp22_profile',
+        'cad_rp22_profiles',
+        ('profile_id', 'profile_version'),
+        _get('rp22_profile', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'rp22_evaluation',
+        'cad_rp22_evaluations',
+        ('evaluation_id',),
+        _get('rp22_profile', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'response_target',
+        'cad_response_targets',
+        ('profile_id', 'version'),
+        _get('response_target', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'spectral_balance_evaluation',
+        'cad_spectral_balance_evaluations',
+        ('evaluation_id',),
+        _get('response_target', 'get_evaluation'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',
