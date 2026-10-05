@@ -1,6 +1,6 @@
 # 測定手順と外部連携の契約
 
-> 2026-09-15 / 計画仕様。実機測定・インポーター実装は未実施。
+> 2026-09-15 / 計画仕様。REW取込（ファイル・API読取）と測定workspaceは実装済み。実機測定campaign（O60R）は別gate。実装状態は[IMPLEMENTATION_STATUS](IMPLEMENTATION_STATUS.md)を正本とする。
 > スコープは[全体計画](PROJECT_PLAN.md)、内部表現は[データ・解析](DATA_AND_ANALYSIS.md)を参照。
 
 ## 1. 最初に収集する情報

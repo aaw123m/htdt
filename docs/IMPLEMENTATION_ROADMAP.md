@@ -315,6 +315,8 @@ Issue #90のsynthetic software-completion laneは完了。real-repository fixtur
 
 新規software feature trackとして [Issue #170 — StandardsProfile](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/170)、[Issue #101 — arbitrary-room hybrid acoustics](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/101)、[Issue #102 — GUI backup/restore/migration](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/102)、[Issue #118 — native UI/UX overhaul](https://github.com/bolph71656-ai/Home-Theater-Digital-Twin/issues/118) がopen。#101はR100〜R180として本書へ組み込み、#83の実測gateを迂回しない。#118はUX100〜UX160として、HTMをUX benchmarkにしつつnavigation/workspace/layoutを再構成する。R100Bは並行可能だが、R110+の新しい入力UIを旧dock shellへ増築しない。#102はN90 backup authorityを再利用するUI改善であり、archive semanticsを二重実装しない。
 
+2026-10-04/05追記: post-0.1 issue sliceとして、Issue #2のsolver契約（`AcousticGeometryDerivation` provenance権威・`SolverCapabilityManifest` phenomenon宣言・r100a-5 fixture・遷移連続性検証、PR #543 + REV51/52 emit配線）、Issue #533のactive-LF制御計画（適格性・DSP実現性・能力ラベル・計画永続化、PR #544）、Issue #534の「プレゼン」workspace（PM10〜PM40、PR #547）、Issue #538のauralization evidence（PR #548）、Issue #541の「映像調整」workspace（PR #551）、guided受入検証wizard（PR #549/#550）、capture promotionの非affine/shear拒否（#545/#546）、open-issue検証システム（PR #535/#537/#540）、測定品質producer（PR #521）、計測権威登録面5種・予測行列・健全性baseline・設置記録・テンプレート保存（REV44: PR #527〜#532）をmainへ反映した。REV42〜REV53の継続レビューで capture/backup/restore/bundle/relocation の整合性欠陥・UI overflow・例外漏洩も併せて修正済み。物理gate（UX160・O60R・O90E・O100実機）の残件は不変。現在状態の正本は[実装ステータス](IMPLEMENTATION_STATUS.md)末尾「REV42〜REV53」節。
+
 旧Issue #41等の初期milestoneは履歴としてclose済みであり、今後の再開点として扱わない。追加機能を実装する場合は、この完成済みmainを起点に新しいIssue/PRを作り、既存authority契約を弱めない。
 
 
