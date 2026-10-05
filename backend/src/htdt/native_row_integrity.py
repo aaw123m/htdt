@@ -2132,6 +2132,167 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV56-BUILDING: #576 inter-room isolation authorities, #589
+    # mechanical-noise qualification, #590 seating/occupancy — every
+    # mirrored column is a payload field duplicate.
+    'cad_isolation_elements': (
+        'payload_json',
+        (
+            _b('element_id', 'element_id'),
+            _b('element_sha256', 'element_sha256'),
+            _b('document_id', 'document_id'),
+            _b('label', 'label'),
+            _b('construction_class', 'construction_class'),
+        ),
+        (),
+    ),
+    'cad_interroom_scenarios': (
+        'payload_json',
+        (
+            _b('scenario_id', 'scenario_id'),
+            _b('scenario_sha256', 'scenario_sha256'),
+            _b('document_id', 'document_id'),
+            _b('label', 'label'),
+            _b('source_region_id', 'source_region_id'),
+            _b('receiving_region_id', 'receiving_region_id'),
+            _b('construction_state', 'construction_state'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_interroom_field_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_id', 'scenario_id'),
+            _b('scenario_sha256', 'scenario_sha256'),
+            _b('method_profile', 'method_profile'),
+            _b('measured_at_utc', 'measured_at_utc'),
+        ),
+        (),
+    ),
+    'cad_isolation_calibrations': (
+        'payload_json',
+        (
+            _b('calibration_id', 'calibration_id'),
+            _b('calibration_sha256', 'calibration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_id', 'scenario_id'),
+            _b('model_ref', 'model_ref'),
+        ),
+        (),
+    ),
+    'cad_isolation_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_id', 'scenario_id'),
+            _b('scenario_sha256', 'scenario_sha256'),
+            _b('lifecycle_state', 'lifecycle_state'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_mechanical_noise_tests': (
+        'payload_json',
+        (
+            _b('test_id', 'test_id'),
+            _b('test_sha256', 'test_sha256'),
+            _b('document_id', 'document_id'),
+            _b('label', 'label'),
+            _b('signal_type', 'stimulus', 'signal_type'),
+            _b('captured_at_utc', 'captured_at_utc'),
+        ),
+        (),
+    ),
+    'cad_rattle_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('test_id', 'test_id'),
+            _b('test_sha256', 'test_sha256'),
+            _b('kind', 'kind'),
+            _b('localization_state', 'localization_state'),
+            _b('detected_at_utc', 'detected_at_utc'),
+        ),
+        (),
+    ),
+    'cad_remediation_actions': (
+        'payload_json',
+        (
+            _b('action_id', 'action_id'),
+            _b('action_sha256', 'action_sha256'),
+            _b('document_id', 'document_id'),
+            _b('action_kind', 'action_kind'),
+            _b('performed_at_utc', 'performed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_mechanical_noise_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('overall_verdict', 'overall_verdict'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_seat_acoustic_models': (
+        'payload_json',
+        (
+            _b('seat_model_id', 'seat_model_id'),
+            _b('seat_model_sha256', 'seat_model_sha256'),
+            _b('document_id', 'document_id'),
+            _b('seat_entity_id', 'seat_entity_id'),
+            _b('geometry_source', 'geometry', 'source'),
+        ),
+        (),
+    ),
+    'cad_occupancy_scenarios': (
+        'payload_json',
+        (
+            _b('occupancy_scenario_id', 'occupancy_scenario_id'),
+            _b('occupancy_sha256', 'occupancy_sha256'),
+            _b('document_id', 'document_id'),
+            _b('label', 'label'),
+            _b('state', 'state'),
+            _b('comparability_key', 'comparability_key'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_clearance_evaluations': (
+        'payload_json',
+        (
+            _b('evaluation_id', 'evaluation_id'),
+            _b('evaluation_sha256', 'evaluation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('occupancy_scenario_id', 'occupancy_scenario_id'),
+            _b('occupancy_scenario_sha256', 'occupancy_scenario_sha256'),
+            _b('listener_ref', 'listener_ref'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_seating_commissioning_results': (
+        'payload_json',
+        (
+            _b('result_id', 'result_id'),
+            _b('result_sha256', 'result_sha256'),
+            _b('document_id', 'document_id'),
+            _b('verdict', 'verdict'),
+            _b('measured_at_utc', 'measured_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

@@ -505,3 +505,86 @@ issues:
         description: >
           85 dBC リファレンス等の再生系較正チェーン（calibrated_chain_ref
           の実計測供給）とストリーミング実測の自動 ingest 配線は残件。
+
+  - issue: 576
+    title: "REV56-BUILDING: inter-room sound-isolation qualification authority"
+    notes: >
+      Sealed IsolationConstructionElement (build-up + lab/field/declared
+      evidence; generic_label cannot carry TL values), ordered
+      InterRoomIsolationScenario with path taxonomy (direct/flanking/
+      floor-ceiling/door/window/duct/penetration/portal/structure/
+      unknown), ISO 16283-1-style banded InterRoomFieldMeasurement
+      (conformance computed, informal stays diagnostic),
+      IsolationCalibrationRecord (fit/holdout disjoint), and fail-closed
+      SoundIsolationQualification: per-band evidence state, LF validity
+      domain (no Rw extrapolation below 100 Hz), declared-but-unmodelled
+      paths demote modelled bands, receiving-SPL estimates only when
+      source spectrum AND banded level-difference both exist.
+    checks:
+      - id: building-isolation-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_building.py
+        description: >
+          ISO10-70 fixtures: sealed identity, generic-label honesty,
+          per-band verdicts + LF domains, criterion evaluation,
+          lifecycle fail-closed, calibration holdout, append-only
+          repository + forged-seal rejection.
+      - id: building-isolation-field-remainder
+        kind: manual
+        description: >
+          ISO 16283-1 実測キャンペーン（スピーカー位置・低域手続・
+          実容量）、要素ラボ TL データの一次資料登録、ISO 12354-1
+          詳細モデルの Kij/側路計算自体は未実装（権威として宣言のみ）。
+  - issue: 589
+    title: "REV56-BUILDING: mechanical rattle / structure-borne noise qualification"
+    notes: >
+      Sealed MechanicalNoiseTest (exact stress stimulus + operating
+      state), RattleEvent (onset level/band, hysteresis, repeatability,
+      localization state machine, room-object vs loudspeaker
+      attribution), VibrationSensorEvidence (relative_diagnostic unless
+      calibrated), append-only RemediationAction, and fail-closed
+      MechanicalNoiseQualification: resolved verdicts require a retest
+      at stress level; FR sweeps contribute no rattle evidence; project
+      target above tested level caps at resolved_with_limitations.
+    checks:
+      - id: building-mechanical-noise-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_building.py
+        description: >
+          MRT10-60 fixtures: FR sweep rejected as stressor, retest-gated
+          resolution, level-cap degradation, sensor self-calibration
+          rejection, commit-order + forged-seal rejection.
+      - id: building-rattle-field-remainder
+        kind: manual
+        description: >
+          RP22 §8.4 準拠の実施ストレス再生 + 聴感/加速度計証拠収集、
+          HVAC 気流騒音 (#580) との別途切り分け証拠、リスニング位置
+          実測配線は残件。
+  - issue: 590
+    title: "REV56-BUILDING: seating / occupancy acoustic authority"
+    notes: >
+      Sealed SeatAcousticModel (geometry source vs acoustic evidence
+      class as separate honest layers — generic/assumed can never be
+      measurement-grade), OccupancyScenario with content-derived
+      comparability_key, ListenerEarAuthority (ear authority separate
+      from seat reference), DirectSoundClearanceEvaluation geometric
+      eligibility gate (clear/partially_occluded/occluded/
+      clear_with_position_tolerance_risk/unknown_geometry), and
+      SeatingCommissioningResult with enumerable failure reasons.
+    checks:
+      - id: building-seating-occupancy-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_building.py
+        description: >
+          SOA10-70 fixtures: evidence-layer honesty, occluded/clear/
+          tolerance-risk verdicts, occupancy comparability,
+          commissioning failure-reason enumeration, repository seal.
+      - id: building-seating-field-remainder
+        kind: manual
+        description: >
+          実座席の占有/非占有吸収係数の実測供給、複数列ソルバー
+          (#101/#102) への遮蔽ゲート伝搬配線、耳位置の計測ワーク
+          フロー統合は残件。

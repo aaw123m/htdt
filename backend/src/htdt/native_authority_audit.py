@@ -766,6 +766,24 @@ class _RepositoryChain:
             )
 
             return CadNetworkAVRepository(scene)
+        if name == 'isolation_authority':
+            from .cad_isolation_authority_repository import (
+                CadIsolationAuthorityRepository,
+            )
+
+            return CadIsolationAuthorityRepository(scene)
+        if name == 'mechanical_noise':
+            from .cad_mechanical_noise_repository import (
+                CadMechanicalNoiseRepository,
+            )
+
+            return CadMechanicalNoiseRepository(scene)
+        if name == 'seating_acoustics':
+            from .cad_seating_acoustics_repository import (
+                CadSeatingAcousticsRepository,
+            )
+
+            return CadSeatingAcousticsRepository(scene)
         raise KeyError(name)
 
 
@@ -3122,6 +3140,85 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_network_av_qualifications',
         ('qualification_id',),
         _get('network_av', 'get_qualification'),
+    ),
+    # ---- REV56-BUILDING authorities -----------------------------------
+    _ReplayProbe(
+        'isolation_element',
+        'cad_isolation_elements',
+        ('element_id',),
+        _get('isolation_authority', 'get_element'),
+    ),
+    _ReplayProbe(
+        'interroom_scenario',
+        'cad_interroom_scenarios',
+        ('scenario_id',),
+        _get('isolation_authority', 'get_scenario'),
+    ),
+    _ReplayProbe(
+        'interroom_field_measurement',
+        'cad_interroom_field_measurements',
+        ('measurement_id',),
+        _get('isolation_authority', 'get_field_measurement'),
+    ),
+    _ReplayProbe(
+        'isolation_calibration',
+        'cad_isolation_calibrations',
+        ('calibration_id',),
+        _get('isolation_authority', 'get_calibration'),
+    ),
+    _ReplayProbe(
+        'isolation_qualification',
+        'cad_isolation_qualifications',
+        ('qualification_id',),
+        _get('isolation_authority', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'mechanical_noise_test',
+        'cad_mechanical_noise_tests',
+        ('test_id',),
+        _get('mechanical_noise', 'get_test'),
+    ),
+    _ReplayProbe(
+        'rattle_event',
+        'cad_rattle_events',
+        ('event_id',),
+        _get('mechanical_noise', 'get_event'),
+    ),
+    _ReplayProbe(
+        'remediation_action',
+        'cad_remediation_actions',
+        ('action_id',),
+        _get('mechanical_noise', 'get_remediation'),
+    ),
+    _ReplayProbe(
+        'mechanical_noise_qualification',
+        'cad_mechanical_noise_qualifications',
+        ('qualification_id',),
+        _get('mechanical_noise', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'seat_acoustic_model',
+        'cad_seat_acoustic_models',
+        ('seat_model_id',),
+        _get('seating_acoustics', 'get_seat_model'),
+    ),
+    _ReplayProbe(
+        'occupancy_scenario',
+        'cad_occupancy_scenarios',
+        ('occupancy_scenario_id',),
+        _get('seating_acoustics', 'get_occupancy_scenario'),
+    ),
+    _ReplayProbe(
+        'clearance_evaluation',
+        'cad_clearance_evaluations',
+        ('evaluation_id',),
+        _get('seating_acoustics', 'get_clearance_evaluation'),
+    ),
+    _ReplayProbe(
+        'seating_commissioning_result',
+        'cad_seating_commissioning_results',
+        ('result_id',),
+        _get('seating_acoustics', 'get_commissioning_result'),
     ),
 )
 
