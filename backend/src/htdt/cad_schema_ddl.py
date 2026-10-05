@@ -3528,6 +3528,132 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_caloot_inst ON cad_out_of_tolerance_reviews(instrument_ref_id, seq ASC)
     """
     ,
+    # REV57-PHYS: #613 geometry survey, #614 installed-source boundary,
+    # #615 porous absorber authorities.
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_survey_instruments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, instrument_id TEXT NOT NULL UNIQUE, instrument_sha256 TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, capability_class TEXT NOT NULL, manufacturer TEXT, model TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_survey_campaigns ( seq INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL UNIQUE, campaign_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gsurvey_doc ON cad_geo_survey_campaigns(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_element_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, element_id TEXT NOT NULL UNIQUE, element_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, element_key TEXT NOT NULL, observation_state TEXT NOT NULL, derivation_stage TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gev_doc ON cad_geo_element_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_control_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, control_id TEXT NOT NULL UNIQUE, control_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, campaign_id TEXT, instrument_id TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gctrl_doc ON cad_geo_control_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_reconciliations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reconciliation_id TEXT NOT NULL UNIQUE, reconciliation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, element_key TEXT NOT NULL, approved_change INTEGER NOT NULL DEFAULT 0, reconciled_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_grec_doc ON cad_geo_reconciliations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_task_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL UNIQUE, task_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, task_class TEXT NOT NULL, tolerance_mm REAL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geo_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, element_count INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gqual_doc ON cad_geo_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_meas_conditions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, condition_id TEXT NOT NULL UNIQUE, condition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_dataset_id TEXT NOT NULL, environment TEXT NOT NULL, evidence_class TEXT NOT NULL, includes_installed_boundary INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_smc_dataset ON cad_src_meas_conditions(source_dataset_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_mounting_conditions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mounting_id TEXT NOT NULL UNIQUE, mounting_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_ref TEXT NOT NULL, kind TEXT NOT NULL, rear_cavity TEXT NOT NULL, declared_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_smnt_doc ON cad_src_mounting_conditions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_boundary_corrections ( seq INTEGER PRIMARY KEY AUTOINCREMENT, correction_id TEXT NOT NULL UNIQUE, correction_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL, model_identity TEXT NOT NULL, model_version TEXT NOT NULL, domain TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mounting_id TEXT NOT NULL, mounting_sha256 TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_smeas_mount ON cad_src_measurements(mounting_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_boundary_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_dataset_id TEXT NOT NULL, mounting_id TEXT NOT NULL, mounting_sha256 TEXT NOT NULL, state TEXT NOT NULL, achieved_capability TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sbqual_src ON cad_src_boundary_qualifications(source_dataset_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sbqual_mount ON cad_src_boundary_qualifications(mounting_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pam_parameter_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, material_ref TEXT NOT NULL, quantity TEXT NOT NULL, evidence_class TEXT NOT NULL, method TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pamparam_mat ON cad_pam_parameter_evidence(material_ref, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pam_material_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL UNIQUE, model_sha256 TEXT NOT NULL UNIQUE, family TEXT NOT NULL, label TEXT NOT NULL, version TEXT NOT NULL, compute_capable INTEGER NOT NULL DEFAULT 0, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pam_buildups ( seq INTEGER PRIMARY KEY AUTOINCREMENT, buildup_id TEXT NOT NULL UNIQUE, buildup_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT, backing TEXT NOT NULL, anisotropy TEXT NOT NULL, layer_count INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pambu_doc ON cad_pam_buildups(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pam_predictions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, prediction_id TEXT NOT NULL UNIQUE, prediction_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_id TEXT NOT NULL, model_sha256 TEXT NOT NULL, buildup_id TEXT NOT NULL, buildup_sha256 TEXT NOT NULL, eligibility TEXT NOT NULL, evidence_class TEXT NOT NULL, computed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pampred_bu ON cad_pam_predictions(buildup_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pam_fit_comparisons ( seq INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL UNIQUE, comparison_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, prediction_id TEXT, prediction_sha256 TEXT, measured_evidence_ref TEXT NOT NULL, verdict TEXT NOT NULL, compared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pamfit_doc ON cad_pam_fit_comparisons(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4097,4 +4223,22 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_instrument_service_events',
     'cad_instrument_fitness_assessments',
     'cad_out_of_tolerance_reviews',
+    # REV57-PHYS: #613/#614/#615.
+    'cad_geo_survey_instruments',
+    'cad_geo_survey_campaigns',
+    'cad_geo_element_evidence',
+    'cad_geo_control_measurements',
+    'cad_geo_reconciliations',
+    'cad_geo_task_requirements',
+    'cad_geo_qualifications',
+    'cad_src_meas_conditions',
+    'cad_src_mounting_conditions',
+    'cad_src_boundary_corrections',
+    'cad_src_measurements',
+    'cad_src_boundary_qualifications',
+    'cad_pam_parameter_evidence',
+    'cad_pam_material_models',
+    'cad_pam_buildups',
+    'cad_pam_predictions',
+    'cad_pam_fit_comparisons',
 )

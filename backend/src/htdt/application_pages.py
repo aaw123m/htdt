@@ -363,6 +363,24 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_instrument_service_events": "機器サービスイベント",
     "cad_instrument_fitness_assessments": "機器適性評価",
     "cad_out_of_tolerance_reviews": "公差外影響レビュー",
+    # REV57-PHYS: #613 幾何測量 / #614 設置スピーカー境界 / #615 多孔質吸収体
+    "cad_geo_survey_instruments": "測量機器",
+    "cad_geo_survey_campaigns": "測量キャンペーン",
+    "cad_geo_element_evidence": "幾何要素証跡",
+    "cad_geo_control_measurements": "測量コントロール計測",
+    "cad_geo_reconciliations": "as-built 整合",
+    "cad_geo_task_requirements": "幾何タスク要件",
+    "cad_geo_qualifications": "幾何適格評価",
+    "cad_src_meas_conditions": "スピーカー測定条件",
+    "cad_src_mounting_conditions": "設置条件",
+    "cad_src_boundary_corrections": "境界補正",
+    "cad_src_measurements": "設置済み計測",
+    "cad_src_boundary_qualifications": "境界適格評価",
+    "cad_pam_parameter_evidence": "多孔材パラメータ証跡",
+    "cad_pam_material_models": "多孔材モデル",
+    "cad_pam_buildups": "多孔材構成",
+    "cad_pam_predictions": "多孔材予測",
+    "cad_pam_fit_comparisons": "多孔材フィット比較",
 }
 
 

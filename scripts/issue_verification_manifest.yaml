@@ -773,3 +773,105 @@ issues:
         description: >
           実計測器との spectra インポート、#597 物理配線台帳との双方向
           リンク UI、接地配線図 (#588) 側からの回路系統統合は残件。
+  - issue: 613
+    title: "REV57-PHYS: geometry survey / scan metrology authority"
+    notes: >
+      GeometrySurveyInstrument + SurveyCampaign + GeometricElementEvidence
+      + GeometryControlMeasurement + AsBuiltReconciliation +
+      GeometryTaskRequirement/AsBuiltGeometryQualification are content-
+      sealed append-only records. Element states fail closed:
+      design_only / observed_unqualified / field_checked /
+      control_check_failed / registration_limited / insufficient_evidence
+      / stale_after_change. Controls consumed by registration never
+      verify the elements registered with them (leakage flag); elements
+      citing multiple campaigns without declared registration are
+      registration-limited; declared precision can never exceed as-built
+      evidence — task verdicts degrade to fit_with_limitations or
+      insufficient_evidence.
+    checks:
+      - id: phys-geometry-survey
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_phys.py
+        description: >
+          Seal/identity, append-only + forge rejection, persisted-parent
+          enforcement, field_checked/fit verdict, design-only demotion,
+          control failure + leakage, multi-campaign + uncharacterized
+          registration limits, stale elements, unresolved reconciliation
+          demotion, repository chain, native audit replay.
+      - id: phys-geometry-remainder
+        kind: manual
+        description: >
+          TLS/スキャン実データのインポート配線 (point-cloud PLY/IFC 取込)、
+          計測機器台帳 UI、校正証明書バインディング、部屋エディタとの
+          element_key 結合は残件。
+  - issue: 614
+    title: "REV57-PHYS: installed loudspeaker boundary-condition authority"
+    notes: >
+      SourceMeasurementCondition (dataset capture condition + whether it
+      already embeds the installed boundary) + InstalledMountingCondition
+      (mount kind, rear cavity, finite-baffle geometry, DSP preset refs)
+      + SourceBoundaryCorrection (kind/model identity; 'path_effect'
+      unconstructable — SBIR stays under #129) + InstalledSourceMeasurement
+      (fit/holdout disjoint positions) + evaluate_installed_source →
+      InstalledSourceQualification with a capability ladder
+      (reference_source_only … installed_measured_transfer), double-apply
+      guards (dataset-embedded boundary vs boundary gain →
+      conflicting_corrections; DSP preset + model gain →
+      DSP_DOUBLE_COMPENSATION_RISK) and verification states.
+    checks:
+      - id: phys-installed-boundary
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_phys.py
+        description: >
+          Free-field data on in-wall mounts fails closed; half-space
+          declared correction raises capability honestly; double-apply
+          detection both directions; manufacturer presets need product
+          binding; path-effect corrections unconstructable; fit/holdout
+          disjoint; holdout-verified promotion; repository chain and
+          sealed pinning, audit replay.
+      - id: phys-installed-boundary-remainder
+        kind: manual
+        description: >
+          実スピーカーデータセット (#168 EASE/SPICE 等) への condition
+          付与、実設置の mounted geometry 生成 UI、#129 SBIR 権威との
+          双方向参照、#282 screen-transfer 権威の後続実装、予測パイプ
+          側からの capability 問い合わせ配線は残件。
+  - issue: 615
+    title: "REV57-PHYS: porous-absorber physical-model authority"
+    notes: >
+      PorousParameterEvidence carries method identity (ISO 9053-1:2026
+      static / ISO 9053-2:2020 alternating / historical 2018 / inverse
+      estimated — inverse never relabels). PorousMaterialModel declares
+      family (Delany-Bazley, Miki, JCA, …) + validity domain + required
+      parameters; evaluate_porous_model_eligibility fails closed on
+      missing params / not-implemented families / material-class veto /
+      declared anisotropy / unsupported facing+backing / out-of-domain —
+      never clips. predict_porous_boundary computes only in-domain bands
+      (others land in excluded_bands_hz — never extrapolated) for rigid /
+      free_air backing; parametric predictions are evidence_class-locked
+      to 'parametric_model_prediction' and export to #570's
+      MaterialBoundaryEvidence via derived_conversion, never 'measured'.
+      PorousFitComparison keeps fit/holdout band sets disjoint with
+      verdicts fit_only/validated_on_holdout/residual_exceeds_declared.
+    checks:
+      - id: phys-porous-absorber
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_phys.py
+        description: >
+          Measured/inverse evidence-class guards, missing-param +
+          not-implemented + material veto + anisotropy fail-closed, DB
+          band physics (out-of-domain exclusion, rigid-backing α curve),
+          Miki-vs-JCA ballpark agreement, finite-absorbing backing
+          honesty, multilayer limitation, fit/holdout disjointness,
+          holdout verdict, #570 boundary-evidence export, repository
+          chain + model/buildup sha pinning, audit replay.
+      - id: phys-porous-remainder
+        kind: manual
+        description: >
+          実材料カタログの σ 証跡登録 UI、ISO 10534-2 インピーダンス管
+          データ取込 (#615 後続)、material build-up 側 (#570/#631) への
+          prediction 差し込み配線、斜め入射/散乱入射拡張、Biot/
+          poroelastic 実装は残件。

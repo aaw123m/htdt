@@ -1424,3 +1424,192 @@ def instrument_fitness_line(assessment) -> str:
     if assessment.reasons:
         parts.append(assessment.reasons[0])
     return '機器適性: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV57-PHYS (#613/#614/#615): geometry survey, installed-source boundary,
+# porous absorber authorities.
+
+from .cad_geometry_survey import (  # noqa: E402
+    AsBuiltGeometryQualification,
+    ELEMENT_STATE_LABELS as _GEO_ELEMENT_STATE_LABELS,
+    EVIDENCE_CLASS_LABELS as _GEO_EVIDENCE_CLASS_LABELS,
+    REASON_LABELS as _GEO_REASON_LABELS,
+    TASK_CLASS_LABELS as _GEO_TASK_CLASS_LABELS,
+    TASK_VERDICT_LABELS as _GEO_TASK_VERDICT_LABELS,
+    CAPABILITY_CLASS_LABELS as _GEO_CAPABILITY_LABELS,
+)
+from .cad_installed_source_boundary import (  # noqa: E402
+    CAPABILITY_LABELS as _SRC_CAPABILITY_LABELS,
+    VERIFICATION_STATE_LABELS as _SRC_VERIFICATION_LABELS,
+    MOUNTING_KIND_LABELS as _SRC_MOUNTING_LABELS,
+    REASON_LABELS as _SRC_REASON_LABELS,
+    QUALIFICATION_STATE_LABELS as _SRC_STATE_LABELS,
+    InstalledSourceQualification,
+)
+from .cad_porous_absorber import (  # noqa: E402
+    ELIGIBILITY_LABELS as _PAM_ELIGIBILITY_LABELS,
+    ELIGIBILITY_REASON_LABELS as _PAM_REASON_LABELS,
+    FIT_VERDICT_LABELS as _PAM_FIT_LABELS,
+    MODEL_FAMILY_LABELS as _PAM_FAMILY_LABELS,
+    PorousBoundaryPrediction,
+    PorousFitComparison,
+)
+
+
+def geometry_element_state_label(state: str) -> str:
+    return _GEO_ELEMENT_STATE_LABELS.get(state, state)
+
+
+def geometry_task_verdict_label(verdict: str) -> str:
+    return _GEO_TASK_VERDICT_LABELS.get(verdict, verdict)
+
+
+def geometry_evidence_class_label(evidence_class: str) -> str:
+    return _GEO_EVIDENCE_CLASS_LABELS.get(evidence_class, evidence_class)
+
+
+def geometry_task_class_label(task_class: str) -> str:
+    return _GEO_TASK_CLASS_LABELS.get(task_class, task_class)
+
+
+def survey_capability_label(capability: str) -> str:
+    return _GEO_CAPABILITY_LABELS.get(capability, capability)
+
+
+def geometry_qualification_reason_label(reason: str) -> str:
+    return _GEO_REASON_LABELS.get(reason, reason)
+
+
+def geometry_qualification_line(
+    qualification: AsBuiltGeometryQualification,
+) -> str:
+    """One JA line for a geometry qualification (#613): the strictest
+    element state, then which tasks passed/failed — CAD 精度宣言が
+    as-built 証跡を超えることはない。"""
+    states = [e.state for e in qualification.element_states]
+    worst = states[0] if states else 'insufficient_evidence'
+    for state in (
+        'stale_after_change', 'insufficient_evidence', 'design_only',
+        'control_check_failed', 'registration_limited',
+        'observed_unqualified', 'field_checked',
+    ):
+        if state in states:
+            worst = state
+            break
+    parts = [geometry_element_state_label(worst)]
+    parts.append(f'{len(qualification.element_states)} 要素')
+    fitted = [
+        geometry_task_class_label(v.task_class)
+        for v in qualification.task_verdicts
+        if v.verdict == 'fit_for_declared_task'
+    ]
+    blocked = [
+        geometry_task_class_label(v.task_class)
+        for v in qualification.task_verdicts
+        if v.verdict != 'fit_for_declared_task'
+    ]
+    if fitted:
+        parts.append('適合: ' + ' / '.join(fitted))
+    if blocked:
+        parts.append('不足: ' + ' / '.join(blocked))
+    return '幾何適格評価: ' + ' — '.join(parts)
+
+
+def installed_source_state_label(state: str) -> str:
+    return _SRC_STATE_LABELS.get(state, state)
+
+
+def installed_mounting_label(kind: str) -> str:
+    return _SRC_MOUNTING_LABELS.get(kind, kind)
+
+
+def boundary_capability_label(capability: str) -> str:
+    return _SRC_CAPABILITY_LABELS.get(capability, capability)
+
+
+def boundary_verification_label(state: str) -> str:
+    return _SRC_VERIFICATION_LABELS.get(state, state)
+
+
+def installed_source_reason_label(reason: str) -> str:
+    return _SRC_REASON_LABELS.get(reason, reason)
+
+
+def installed_source_line(
+    qualification: InstalledSourceQualification,
+) -> str:
+    """One JA line for an installed-source qualification (#614): state,
+    achieved capability and verification — free-field データは境界設置を
+    黙認しない。"""
+    parts = [installed_source_state_label(qualification.state)]
+    parts.append(boundary_capability_label(qualification.achieved_capability))
+    if qualification.verification != 'unverified':
+        parts.append(boundary_verification_label(qualification.verification))
+    notes = [
+        installed_source_reason_label(r) for r in qualification.reasons
+        if r in (
+            'FINITE_BAFFLE_NOT_HALF_SPACE', 'REAR_CAVITY_UNCHARACTERIZED',
+            'DSP_DOUBLE_COMPENSATION_RISK',
+            'MEASUREMENT_INCOMPATIBLE_WITH_MOUNTING',
+        )
+    ]
+    if notes:
+        parts.append(' / '.join(notes))
+    return '設置スピーカー境界評価: ' + ' — '.join(parts)
+
+
+def porous_eligibility_label(eligibility: str) -> str:
+    return _PAM_ELIGIBILITY_LABELS.get(eligibility, eligibility)
+
+
+def porous_eligibility_reason_label(reason: str) -> str:
+    return _PAM_REASON_LABELS.get(reason, reason)
+
+
+def porous_fit_verdict_label(verdict: str) -> str:
+    return _PAM_FIT_LABELS.get(verdict, verdict)
+
+
+def porous_model_family_label(family: str) -> str:
+    return _PAM_FAMILY_LABELS.get(family, family)
+
+
+def porous_prediction_line(prediction: PorousBoundaryPrediction) -> str:
+    """One JA line for a porous prediction (#615): model family,
+    eligibility and excluded bands — 妥当域外は絶対に射影しない。"""
+    parts = [porous_eligibility_label(prediction.eligibility)]
+    emitted = len(prediction.bands)
+    parts.append(f'{emitted} 帯域算出')
+    if prediction.excluded_bands_hz:
+        low = min(prediction.excluded_bands_hz)
+        high = max(prediction.excluded_bands_hz)
+        parts.append(
+            f'除外帯域 {low:g}–{high:g} Hz'
+            f' ({len(prediction.excluded_bands_hz)} 点)'
+        )
+    if prediction.limitations:
+        parts.append(
+            ' / '.join(
+                porous_eligibility_reason_label(r)
+                for r in prediction.limitations
+            )
+        )
+    return '多孔材予測: ' + ' — '.join(parts)
+
+
+def porous_fit_line(comparison: PorousFitComparison) -> str:
+    """One JA line for a fit comparison (#615): verdict plus band
+    statistics — パラメトリック予測は実測とは決して同じ種類の証跡に
+    ならない。"""
+    parts = [porous_fit_verdict_label(comparison.verdict)]
+    if comparison.fit_band_hz:
+        parts.append(f'フィット帯域 {len(comparison.fit_band_hz)}')
+    if comparison.holdout_band_hz:
+        parts.append(f'ホールドアウト {len(comparison.holdout_band_hz)}')
+    residuals = [
+        r.residual for r in comparison.residuals if r.residual is not None
+    ]
+    if residuals:
+        parts.append(f'最大α残差 {max(residuals):.3f}')
+    return '多孔材フィット評価: ' + ' — '.join(parts)

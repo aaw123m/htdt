@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 36
+NATIVE_SCHEMA_VERSION = 37
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1417,6 +1417,20 @@ def _migrate_35_to_36(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_36_to_37(connection: sqlite3.Connection) -> None:
+    # Install the REV57-PHYS authorities (#613 geometry survey: survey
+    # instruments, campaigns, element geometry evidence, control
+    # measurements, as-built reconciliations, task requirements,
+    # qualifications; #614 installed-source boundary: source
+    # measurement conditions, mounting conditions, boundary
+    # corrections, installed measurements, qualifications; #615 porous
+    # absorber: parameter evidence, material models, build-ups,
+    # predictions, fit comparisons): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1454,6 +1468,7 @@ _MIGRATIONS = {
     34: _migrate_33_to_34,
     35: _migrate_34_to_35,
     36: _migrate_35_to_36,
+    37: _migrate_36_to_37,
 }
 
 

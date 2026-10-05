@@ -852,6 +852,25 @@ class _RepositoryChain:
             )
 
             return CadCalibrationLifecycleRepository(scene)
+        # REV57-PHYS authorities.
+        if name == 'geometry_survey':
+            from .cad_geometry_survey_repository import (
+                CadGeometrySurveyRepository,
+            )
+
+            return CadGeometrySurveyRepository(scene)
+        if name == 'installed_source':
+            from .cad_installed_source_boundary_repository import (
+                CadInstalledSourceBoundaryRepository,
+            )
+
+            return CadInstalledSourceBoundaryRepository(scene)
+        if name == 'porous_absorber':
+            from .cad_porous_absorber_repository import (
+                CadPorousAbsorberRepository,
+            )
+
+            return CadPorousAbsorberRepository(scene)
         raise KeyError(name)
 
 
@@ -3686,6 +3705,111 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_out_of_tolerance_reviews',
         ('review_id',),
         _get('calibration_lifecycle', 'get_review'),
+    ),
+    # REV57-PHYS: #613 geometry survey authority
+    _ReplayProbe(
+        'geo_survey_instrument',
+        'cad_geo_survey_instruments',
+        ('instrument_id',),
+        _get('geometry_survey', 'get_instrument'),
+    ),
+    _ReplayProbe(
+        'geo_survey_campaign',
+        'cad_geo_survey_campaigns',
+        ('campaign_id',),
+        _get('geometry_survey', 'get_campaign'),
+    ),
+    _ReplayProbe(
+        'geo_element_evidence',
+        'cad_geo_element_evidence',
+        ('element_id',),
+        _get('geometry_survey', 'get_element'),
+    ),
+    _ReplayProbe(
+        'geo_control_measurement',
+        'cad_geo_control_measurements',
+        ('control_id',),
+        _get('geometry_survey', 'get_control'),
+    ),
+    _ReplayProbe(
+        'geo_reconciliation',
+        'cad_geo_reconciliations',
+        ('reconciliation_id',),
+        _get('geometry_survey', 'get_reconciliation'),
+    ),
+    _ReplayProbe(
+        'geo_task_requirement',
+        'cad_geo_task_requirements',
+        ('task_id',),
+        _get('geometry_survey', 'get_task_requirement'),
+    ),
+    _ReplayProbe(
+        'geo_qualification',
+        'cad_geo_qualifications',
+        ('qualification_id',),
+        _get('geometry_survey', 'get_qualification'),
+    ),
+    # REV57-PHYS: #614 installed-source boundary authority
+    _ReplayProbe(
+        'src_meas_condition',
+        'cad_src_meas_conditions',
+        ('condition_id',),
+        _get('installed_source', 'get_condition'),
+    ),
+    _ReplayProbe(
+        'src_mounting_condition',
+        'cad_src_mounting_conditions',
+        ('mounting_id',),
+        _get('installed_source', 'get_mounting'),
+    ),
+    _ReplayProbe(
+        'src_boundary_correction',
+        'cad_src_boundary_corrections',
+        ('correction_id',),
+        _get('installed_source', 'get_correction'),
+    ),
+    _ReplayProbe(
+        'src_measurement',
+        'cad_src_measurements',
+        ('measurement_id',),
+        _get('installed_source', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'src_boundary_qualification',
+        'cad_src_boundary_qualifications',
+        ('qualification_id',),
+        _get('installed_source', 'get_qualification'),
+    ),
+    # REV57-PHYS: #615 porous absorber authority
+    _ReplayProbe(
+        'pam_parameter_evidence',
+        'cad_pam_parameter_evidence',
+        ('evidence_id',),
+        _get('porous_absorber', 'get_parameter'),
+    ),
+    _ReplayProbe(
+        'pam_material_model',
+        'cad_pam_material_models',
+        ('model_id',),
+        _get('porous_absorber', 'get_model'),
+    ),
+    _ReplayProbe(
+        'pam_buildup',
+        'cad_pam_buildups',
+        ('buildup_id',),
+        _get('porous_absorber', 'get_buildup'),
+    ),
+    _ReplayProbe(
+        'pam_prediction',
+        'cad_pam_predictions',
+        ('prediction_id',),
+        _get('porous_absorber', 'get_prediction'),
+    ),
+    _ReplayProbe(
+        'pam_fit_comparison',
+        'cad_pam_fit_comparisons',
+        ('comparison_id',),
+        _get('porous_absorber', 'get_comparison'),
     ),
 )
 
