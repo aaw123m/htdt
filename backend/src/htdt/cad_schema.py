@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 26
+NATIVE_SCHEMA_VERSION = 27
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1294,6 +1294,16 @@ def _migrate_25_to_26(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_26_to_27(connection: sqlite3.Connection) -> None:
+    # Install the REV56-TARGETS authorities (#579 RP22 standards
+    # profile: parameter-declaration profiles + per-parameter
+    # evaluations; #588 response-target authority: response-target
+    # profiles + spectral-balance evaluations): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1321,6 +1331,7 @@ _MIGRATIONS = {
     24: _migrate_23_to_24,
     25: _migrate_24_to_25,
     26: _migrate_25_to_26,
+    27: _migrate_26_to_27,
 }
 
 

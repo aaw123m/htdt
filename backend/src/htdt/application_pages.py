@@ -230,6 +230,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_rp32_verification_plans": "RP32検証計画",
     "cad_rp32_verification_records": "RP32検証レコード",
     "cad_rp32_reports": "RP32コミッショニングレポート",
+    "cad_rp22_profiles": "RP22標準プロファイル",
+    "cad_rp22_evaluations": "RP22適合性評価",
+    "cad_response_targets": "応答目標プロファイル",
+    "cad_spectral_balance_evaluations": "スペクトルバランス評価",
 }
 
 
