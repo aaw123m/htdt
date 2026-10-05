@@ -101,6 +101,16 @@ def test_shell_registers_application_destinations(tmp_path) -> None:
             factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
         ),
         WorkspaceRegistration(
+            workspace_id=WorkspaceId.PRESENTATION,
+            label='プレゼン',
+            factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
+        ),
+        WorkspaceRegistration(
+            workspace_id=WorkspaceId.VIDEO,
+            label='映像調整',
+            factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
+        ),
+        WorkspaceRegistration(
             workspace_id=ApplicationDestinationId.PROJECTS,
             label='プロジェクト',
             factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
@@ -138,6 +148,16 @@ def test_shell_project_identity_visible(tmp_path) -> None:
         WorkspaceRegistration(
             workspace_id=WorkspaceId.OPTIMIZATION,
             label='最適化',
+            factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
+        ),
+        WorkspaceRegistration(
+            workspace_id=WorkspaceId.PRESENTATION,
+            label='プレゼン',
+            factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
+        ),
+        WorkspaceRegistration(
+            workspace_id=WorkspaceId.VIDEO,
+            label='映像調整',
             factory=lambda: WorkspaceMount.from_widget(__import__('PySide6.QtWidgets', fromlist=['QWidget']).QWidget()),
         ),
     )
