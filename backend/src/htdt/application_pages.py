@@ -193,6 +193,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_frequency_responses": "周波数応答",
     "cad_impulse_responses": "インパルス応答",
     "cad_calibration_plans": "校正プラン",
+    "cad_correction_qualifications": "補正修飾レコード",
     "cad_comparison_records": "比較履歴",
 }
 

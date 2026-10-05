@@ -517,6 +517,19 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_correction_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('correction_subject_id', 'subject', 'subject_id'),
+            _b('correction_subject_sha256', 'subject', 'subject_sha256'),
+            _b('state', 'state'),
+            _b('scope', 'scope'),
+        ),
+        (),
+    ),
     'cad_cost_records': (
         'payload_json',
         (
