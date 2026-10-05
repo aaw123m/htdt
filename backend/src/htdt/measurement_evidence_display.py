@@ -1,12 +1,21 @@
 """Quality-page display helpers for REV56 measurement evidence.
 
-Pure functions — no Qt — so the uncertainty / stability / stimulus-pin
-summary lines shown on the quality page stay testable without a widget.
+Pure functions — no Qt — so the uncertainty / stability / stimulus-pin /
+device-snapshot / standards-registry summary lines shown on the quality
+page stay testable without a widget.
 """
 
 from __future__ import annotations
 
 from .cad_bass_management_qualification import BassManagementQualification
+from .cad_device_snapshot import (
+    ConfigurationRestoreRecord,
+    DeviceConfigurationSnapshot,
+)
+from .cad_external_standards import (
+    ExternalStandardDocument,
+    StandardsEvaluationPin,
+)
 from .cad_measurement_state import StateComparabilityVerdict
 from .cad_measurement_uncertainty import MeasurementUncertaintyBudget
 from .cad_stimulus_registry import StimulusMeasurementPin
@@ -214,3 +223,185 @@ def quality_evidence_detail_lines(
             '状態安定性: 未記録（測定時の状態証拠がありません）'
         )
     return lines
+
+
+# ---------------------------------------------------------------------------
+# REV56-SNAPSTD: device snapshot/restore + external standards registry
+# (#592/#599) JA labels — absence and conflicts stay honest.
+# ---------------------------------------------------------------------------
+
+_STANDARD_LIFECYCLE_LABELS = {
+    'draft': '草案',
+    'public_review': '公開レビュー中',
+    'dis_fdis_prepublication': 'DIS/FDIS（発行前）',
+    'industry_review': '業界レビュー中',
+    'published_current': '現行',
+    'reaffirmed': '再確認済み（現行）',
+    'under_revision': '改正作業中',
+    'superseded': '旧版（新版に置き換え）',
+    'revised': '改訂済み',
+    'withdrawn': '撤回済み',
+    'replaced_by': '代替規格あり',
+    'historical': '歴史的版（保存用）',
+    'status_conflict': '発行元の情報が矛盾',
+    'unknown': '状態不明',
+}
+
+_STANDARD_ADMISSION_LABELS = {
+    'discovered': '発見済み',
+    'primary_source_confirmed': '一次情報確認済み',
+    'rights_reviewed': '権利確認済み',
+    'profile_parsed_mapped': 'プロファイル対応付け済み',
+    'mapping_reviewed': 'マッピングレビュー済み',
+    'validated': '検証済み',
+    'production_eligible': '本番適格',
+    'limited': '限定使用',
+    'retired_for_new_projects': '新規プロジェクトでは退役',
+}
+
+_STANDARD_CAPABILITY_LABELS = {
+    'production_eligible': '本番適格',
+    'limited': '限定使用',
+    'draft_research_only': '草案・研究専用',
+    'not_registered': '未登録',
+    'source_ambiguous': '一次情報が矛盾',
+    'mapping_unvalidated': 'マッピング未検証',
+    'license_profile_unavailable': 'ライセンスプロファイル利用不可',
+    'superseded_historical_only': '旧版（歴史的参照のみ）',
+    'retired_for_new_projects': '新規プロジェクトでは退役',
+}
+
+_STANDARD_RIGHTS_LABELS = {
+    'public_metadata_only': '公開メタデータのみ',
+    'public_open_standard': '公開規格',
+    'licensed_internal_profile': 'ライセンス内部プロファイル',
+    'user_provided_licensed_source': 'ユーザー提供ライセンス版',
+    'derived_rules_allowed': '派生ルール許可',
+    'reference_only': '参照専用',
+    'redistribution_prohibited': '再配布禁止',
+    'unknown_rights': '権利不明',
+}
+
+_DEVICE_EVIDENCE_CLASS_LABELS = {
+    'device_readback': '機器から読み出し',
+    'device_export_backup': '機器バックアップ出力',
+    'htdt_applied_request': 'HTDT適用要求',
+    'user_recorded': 'ユーザー記録',
+    'screenshot_documented': 'スクリーンショット記録',
+    'inferred_from_measurement': '測定から推定',
+    'unknown': '不明',
+}
+
+_DEVICE_TRANSITION_LABELS = {
+    'factory_default': '出荷状態',
+    'initial_configuration': '初期設定',
+    'calibration': '校正',
+    'manual_tuning': '手動調整',
+    'known_good_promotion': '既知良好への昇格',
+    'experiment': '実験',
+    'firmware_transition': 'ファームウェア更新',
+    'restore': '復元',
+    'rollback': 'ロールバック',
+    'service': '保守',
+    'other': 'その他',
+}
+
+_RESTORE_VERDICT_LABELS = {
+    'restored_exact_observed_state': '観測状態どおり復元',
+    'restored_with_differences': '差異ありで復元',
+    'restore_unverified': '復元未検証',
+    'restore_incompatible': '復元不適合',
+    'restore_failed': '復元失敗',
+}
+
+_PORTABILITY_CLASS_LABELS = {
+    'portable_to_same_model': '同一機種へ移行可',
+    'portable_with_firmware_constraint': 'ファームウェア条件付き移行可',
+    'device_instance_bound': '機器個体に紐付き',
+    'license_bound': 'ライセンス紐付き',
+    'measurement_reuse_conditional': '測定再利用は条件付き',
+    'not_portable': '移行不可',
+    'unknown': '不明',
+}
+
+
+def standards_lifecycle_label(status: str) -> str:
+    return _STANDARD_LIFECYCLE_LABELS.get(status, status)
+
+
+def standards_admission_label(state: str) -> str:
+    return _STANDARD_ADMISSION_LABELS.get(state, state)
+
+
+def standards_capability_label(verdict: str) -> str:
+    return _STANDARD_CAPABILITY_LABELS.get(verdict, verdict)
+
+
+def standards_rights_label(rights: str) -> str:
+    return _STANDARD_RIGHTS_LABELS.get(rights, rights)
+
+
+def device_evidence_class_label(evidence_class: str) -> str:
+    return _DEVICE_EVIDENCE_CLASS_LABELS.get(evidence_class, evidence_class)
+
+
+def device_transition_label(kind: str) -> str:
+    return _DEVICE_TRANSITION_LABELS.get(kind, kind)
+
+
+def restore_verdict_label(verdict: str) -> str:
+    return _RESTORE_VERDICT_LABELS.get(verdict, verdict)
+
+
+def portability_class_label(portability_class: str) -> str:
+    return _PORTABILITY_CLASS_LABELS.get(
+        portability_class, portability_class
+    )
+
+
+def standards_document_line(document: ExternalStandardDocument) -> str:
+    """One JA line for a registered external standard document (#599):
+    edition + lifecycle + admission; a superseding edition is named when
+    registered."""
+    parts = [
+        f'{document.document_number}:{document.edition}',
+        standards_lifecycle_label(document.lifecycle),
+        standards_admission_label(document.admission),
+    ]
+    if document.replaced_by:
+        parts.append(f'後継 {document.replaced_by}')
+    return '外部規格: ' + ' — '.join(parts)
+
+
+def standards_pin_line(pin: StandardsEvaluationPin) -> str:
+    """One JA line for an evaluation's standard pin (#599): the exact
+    edition + mapping the result was computed against."""
+    mapping = pin.mapping_version or 'マッピングなし'
+    return (
+        f'規格ピン: {pin.standard_id}@{pin.edition}'
+        f'（{mapping}）— {pin.result}'
+    )
+
+
+def device_snapshot_line(snapshot: DeviceConfigurationSnapshot) -> str:
+    """One JA line for a device configuration snapshot (#592): identity
+    pins stay honest — unobserved pins render 不明, never guessed."""
+    identity = ' '.join(
+        part for part in (snapshot.manufacturer, snapshot.model) if part
+    ) or '機種不明'
+    firmware = snapshot.firmware_version or 'ファームウェア不明'
+    return (
+        f'デバイス状態: {identity}（{firmware}）— '
+        f'{device_evidence_class_label(snapshot.evidence_class)} '
+        f'{len(snapshot.fields)} 項目 · '
+        f'{device_transition_label(snapshot.transition_kind)}'
+    )
+
+
+def restore_record_line(record: ConfigurationRestoreRecord) -> str:
+    """One JA line for a restore record (#592): the verdict is the
+    evidence-derived claim, never the tool's own success message."""
+    return (
+        f'復元: {restore_verdict_label(record.verdict)}'
+        f'（{record.result_status}）'
+    )

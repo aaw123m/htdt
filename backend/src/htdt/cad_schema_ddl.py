@@ -2403,6 +2403,98 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_mtr_document ON cad_measurement_transforms(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_backup_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, content_sha256 TEXT NOT NULL UNIQUE, device_equipment_id TEXT NOT NULL, manufacturer TEXT, model TEXT, firmware_version TEXT, backup_format TEXT, privacy_class TEXT NOT NULL, captured_at_utc TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_config_snapshots ( seq INTEGER PRIMARY KEY AUTOINCREMENT, snapshot_id TEXT NOT NULL UNIQUE, snapshot_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instance_id TEXT NOT NULL, evidence_class TEXT NOT NULL, transition_kind TEXT NOT NULL, firmware_version TEXT, state_content_sha256 TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_firmware_transitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transition_id TEXT NOT NULL UNIQUE, transition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instance_id TEXT NOT NULL, from_firmware TEXT, to_firmware TEXT NOT NULL, migration_result TEXT NOT NULL, rollback_status TEXT NOT NULL, updated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_known_good_baselines ( seq INTEGER PRIMARY KEY AUTOINCREMENT, baseline_id TEXT NOT NULL UNIQUE, baseline_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instance_id TEXT NOT NULL, snapshot_sha256 TEXT NOT NULL, promoted_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_replacement_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_instance_id TEXT NOT NULL, target_instance_id TEXT NOT NULL, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_restore_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, restore_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_instance_id TEXT NOT NULL, artifact_sha256 TEXT, source_snapshot_sha256 TEXT, result_status TEXT NOT NULL, verdict TEXT NOT NULL, restored_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devsnap_instance ON cad_device_config_snapshots(instance_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devsnap_document ON cad_device_config_snapshots(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devbackup_device ON cad_device_backup_artifacts(device_equipment_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devfw_instance ON cad_device_firmware_transitions(instance_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devkg_instance ON cad_device_known_good_baselines(instance_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devrpl_instances ON cad_device_replacement_assessments(source_instance_id, target_instance_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_devrst_target ON cad_device_restore_records(target_instance_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_external_standard_documents ( seq INTEGER PRIMARY KEY AUTOINCREMENT, registry_key TEXT NOT NULL UNIQUE, standard_id TEXT NOT NULL, edition TEXT NOT NULL, document_number TEXT NOT NULL, publisher TEXT NOT NULL, lifecycle TEXT NOT NULL, admission TEXT NOT NULL, rights TEXT NOT NULL, replaced_by TEXT, registered_at_utc TEXT NOT NULL, document_sha TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_standard_evaluation_pins ( seq INTEGER PRIMARY KEY AUTOINCREMENT, pin_id TEXT NOT NULL UNIQUE, pin_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, standard_id TEXT NOT NULL, edition TEXT NOT NULL, mapping_id TEXT, result TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_standard_lifecycle_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, standard_id TEXT NOT NULL, edition TEXT NOT NULL, claimed_lifecycle TEXT NOT NULL, source_tier TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_standard_profile_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, standard_id TEXT NOT NULL, edition TEXT NOT NULL, mapping_version TEXT NOT NULL, calculation_version TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_standard_revision_diffs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, diff_id TEXT NOT NULL UNIQUE, diff_sha256 TEXT NOT NULL UNIQUE, from_standard_id TEXT NOT NULL, from_edition TEXT NOT NULL, to_standard_id TEXT NOT NULL, to_edition TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stddoc_standard ON cad_external_standard_documents(standard_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stdobs_standard ON cad_standard_lifecycle_observations(standard_id, edition, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stdmap_standard ON cad_standard_profile_mappings(standard_id, edition, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stdpin_standard ON cad_standard_evaluation_pins(standard_id, edition, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stdpin_document ON cad_standard_evaluation_pins(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2510,7 +2602,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_deterministic_ga_execution_inputs',
     'cad_deterministic_path_artifacts',
     'cad_device_action_acks',
+    'cad_device_backup_artifacts',
     'cad_device_capability_snapshots',
+    'cad_device_config_snapshots',
+    'cad_device_firmware_transitions',
+    'cad_device_known_good_baselines',
+    'cad_device_replacement_assessments',
+    'cad_device_restore_records',
     'cad_device_target_bindings',
     'cad_direct_level_evaluations',
     'cad_direct_level_scenarios',
@@ -2532,6 +2630,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_extended_parameter_evidence',
     'cad_extended_search_specs',
     'cad_external_dependencies',
+    'cad_external_standard_documents',
     'cad_field_evidence',
     'cad_field_evidence_records',
     'cad_field_evidence_targets',
@@ -2693,6 +2792,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_speaker_definitions',
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
+    'cad_standard_evaluation_pins',
+    'cad_standard_lifecycle_observations',
+    'cad_standard_profile_mappings',
+    'cad_standard_revision_diffs',
     'cad_standards_evaluations',
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
