@@ -28,9 +28,12 @@ Every step in a gate is exactly one of three kinds:
 A step is never marked auto-verified unless the check ran on this machine.
 Verdicts from checks are fail-closed: `pass`, `fail`, `unavailable`
 (dependency missing — REW down, script absent), or `deferred` (two-phase
-checks like restart persistence). `unavailable` → step **blocked**, never
-silently pending or passed. Steps can also be marked **スキップ** or
-**不合格** — the run status then honestly reports `partial`/`failed`.
+checks like restart persistence). `unavailable` keeps the step **pending**
+with the reason recorded — it is not a verdict on the system under test,
+never silently passed or bricked into a terminal state (`blocked` remains
+in the model as a terminal status but no current path sets it). Steps can
+also be marked **スキップ** or **不合格** — the run status then honestly
+reports `partial`/`failed`.
 
 ## The gate manifest
 

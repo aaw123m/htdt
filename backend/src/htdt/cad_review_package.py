@@ -430,6 +430,8 @@ _DEFAULT_YAW_STEPS_DEG: tuple[int, ...] = (-60, -30, 30, 60)
 def derived_yaw_steps(step_deg: int, reach_deg: int = 120) -> tuple[int, ...]:
     """Yaw offsets for a declared step size: every multiple of the step
     inside ±``reach_deg``, 0 excluded (the pinned frame covers 0)."""
+    if step_deg < 1:
+        raise ValueError('yaw step must be a positive number of degrees')
     reach = (reach_deg // step_deg) * step_deg
     return tuple(
         offset
