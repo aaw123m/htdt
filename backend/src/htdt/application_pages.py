@@ -292,6 +292,18 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_occupancy_scenarios": "占有シナリオ",
     "cad_clearance_evaluations": "直達音クリアランス評価",
     "cad_seating_commissioning_results": "座席コミッショニング結果",
+    "cad_ifc_import_artifacts": "IFCインポート成果物",
+    "cad_ifc_entity_mappings": "IFCエンティティマッピング",
+    "cad_ifc_revision_deltas": "IFCリビジョン差分",
+    "cad_ifc_intake_profiles": "IFC取込プロファイル",
+    "cad_ifc_intake_evaluations": "IFC取込評価",
+    "cad_ifc_exports": "IFCエクスポート",
+    "cad_performance_fact_profiles": "性能ファクトプロファイル",
+    "cad_performance_fact_products": "製品識別情報",
+    "cad_performance_facts": "性能ファクト",
+    "cad_performance_fact_imports": "性能ファクト取込",
+    "cad_performance_fact_evaluations": "製品適合評価",
+    "cad_performance_fact_rebinds": "プロファイル再バインド",
 }
 
 
