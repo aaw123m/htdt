@@ -494,6 +494,51 @@ def _park_directory(source: Path, parked: Path) -> Path:
     return target
 
 
+def _locate_parked_source(
+    journal: RelocationJournal, parked: Path
+) -> Path | None:
+    """Resolve the directory holding the pre-relocation generation.
+
+    ``journal.parked_dir`` is only the *planned* park name until the
+    SOURCE_PARKED journal write lands: a crash between the park rename
+    and that write leaves the real generation at a diverted
+    ``<parked>.<n>`` sibling while the journaled name may hold an older
+    parked generation or foreign content. The database digest recorded
+    at PREPARED identifies the generation by content, so a stale plan
+    name can never promote the wrong directory back live. Journals from
+    before the digest was recorded fall back to trusting the journaled
+    name exactly.
+    """
+
+    digest = journal.source_database_sha256
+    if digest is None:
+        return parked if parked.is_dir() else None
+    prefix = f'{parked.name}.'
+    try:
+        siblings = list(parked.parent.iterdir())
+    except OSError:
+        siblings = []
+    candidates = [parked] + sorted(
+        (
+            sibling
+            for sibling in siblings
+            if sibling.name.startswith(prefix)
+            and sibling.name[len(prefix) :].isdigit()
+        ),
+        key=lambda sibling: int(sibling.name[len(prefix) :]),
+    )
+    for candidate in candidates:
+        database = candidate / DATABASE_NAME
+        if not candidate.is_dir() or not database.is_file():
+            continue
+        try:
+            if sha256_file(database) == digest:
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
 def _verify_staged_root(staged: Path) -> None:
     """Verification phase: the copied root must be a valid data directory."""
 
@@ -779,22 +824,62 @@ def _recover_journal_locked(
                 # forward promote: ``os.replace`` cannot move a directory
                 # over even an EMPTY post-crash residue dir on Windows,
                 # while foreign content must still block the restore.
-                if parked.is_dir() and (
-                    not source.exists()
-                    or (source.is_dir() and not any(source.iterdir()))
-                ):
-                    _promote_directory(parked, source)
+                # And the journaled park slot is only the *planned* name
+                # until SOURCE_PARKED lands — resolve the generation by
+                # its journaled database digest, not by slot name alone.
+                parked_source = _locate_parked_source(journal, parked)
+                source_free = not source.exists() or (
+                    source.is_dir() and not any(source.iterdir())
+                )
+                if parked_source is not None and source_free:
+                    _promote_directory(parked_source, source)
                     events.append(
                         RelocationRecoveryEvent(
                             'source_restored',
                             f'parked source restored to {source}',
                         )
                     )
+                    journal_path.unlink(missing_ok=True)
+                    raise DataRelocationError(
+                        f'relocation journal records phase {journal.phase} '
+                        f'but {destination} has no database; rolled the '
+                        f'source back to {source} and cleared the '
+                        'transaction'
+                    )
+                source_database = source / DATABASE_NAME
+                source_is_generation = (
+                    journal.source_database_sha256 is not None
+                    and source_database.is_file()
+                    and sha256_file(source_database)
+                    == journal.source_database_sha256
+                )
+                if source_is_generation:
+                    detail = (
+                        f'{source} already holds the pre-relocation '
+                        'generation'
+                    )
+                elif parked_source is not None:
+                    detail = (
+                        f'the parked generation at {parked_source} was '
+                        f'left in place because {source} already holds '
+                        'content'
+                    )
+                elif source_free:
+                    detail = (
+                        'no restorable parked generation was found at '
+                        f'{parked} or its numbered siblings'
+                    )
+                else:
+                    detail = (
+                        f'{source} holds content and no restorable parked '
+                        f'generation was found at {parked} or its '
+                        'numbered siblings'
+                    )
                 journal_path.unlink(missing_ok=True)
                 raise DataRelocationError(
                     f'relocation journal records phase {journal.phase} but '
-                    f'{destination} has no database; rolled the source back '
-                    f'to {source} and cleared the transaction'
+                    f'{destination} has no database; {detail}; cleared '
+                    'the transaction'
                 )
             # Copy never reached promotion: the source was never touched and
             # the partial staged copy is disposable.
