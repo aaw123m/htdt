@@ -794,6 +794,45 @@ class _RepositoryChain:
             )
 
             return CadPerformanceFactsRepository(scene)
+        # REV56-OPS probes already reference these authorities; the
+        # factory branches were missing, so a populated table raised
+        # KeyError at replay time.
+        if name == 'security_authority':
+            from .cad_security_authority_repository import (
+                CadSecurityAuthorityRepository,
+            )
+
+            return CadSecurityAuthorityRepository(scene)
+        if name == 'control_scenario':
+            from .cad_control_scenario_repository import (
+                CadControlScenarioRepository,
+            )
+
+            return CadControlScenarioRepository(scene)
+        if name == 'safe_listening':
+            from .cad_safe_listening_repository import (
+                CadSafeListeningRepository,
+            )
+
+            return CadSafeListeningRepository(scene)
+        if name == 'infrastructure':
+            from .cad_infrastructure_repository import (
+                CadInfrastructureRepository,
+            )
+
+            return CadInfrastructureRepository(scene)
+        if name == 'render_path':
+            from .cad_render_path_repository import (
+                CadRenderPathRepository,
+            )
+
+            return CadRenderPathRepository(scene)
+        if name == 'electrical_noise':
+            from .cad_electrical_noise_repository import (
+                CadElectricalNoiseRepository,
+            )
+
+            return CadElectricalNoiseRepository(scene)
         raise KeyError(name)
 
 
@@ -3412,6 +3451,129 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_performance_fact_rebinds',
         ('rebind_id',),
         _get('performance_facts', 'get_rebind'),
+    ),
+    # REV56-INFRA: #587 rack/power/thermal
+    _ReplayProbe(
+        'rack_enclosure',
+        'cad_rack_enclosures',
+        ('rack_id',),
+        _get('infrastructure', 'get_rack'),
+    ),
+    _ReplayProbe(
+        'rack_device',
+        'cad_rack_devices',
+        ('device_id',),
+        _get('infrastructure', 'get_rack_device'),
+    ),
+    _ReplayProbe(
+        'branch_circuit',
+        'cad_branch_circuits',
+        ('circuit_id',),
+        _get('infrastructure', 'get_circuit'),
+    ),
+    _ReplayProbe(
+        'power_protection_device',
+        'cad_power_protection_devices',
+        ('protection_id',),
+        _get('infrastructure', 'get_protection'),
+    ),
+    _ReplayProbe(
+        'poe_budget',
+        'cad_poe_budgets',
+        ('poe_id',),
+        _get('infrastructure', 'get_poe_budget'),
+    ),
+    _ReplayProbe(
+        'infrastructure_scenario',
+        'cad_infrastructure_scenarios',
+        ('scenario_id',),
+        _get('infrastructure', 'get_scenario'),
+    ),
+    _ReplayProbe(
+        'rack_thermal_measurement',
+        'cad_rack_thermal_measurements',
+        ('measurement_id',),
+        _get('infrastructure', 'get_thermal_measurement'),
+    ),
+    _ReplayProbe(
+        'infrastructure_qualification',
+        'cad_infrastructure_qualifications',
+        ('qualification_id',),
+        _get('infrastructure', 'get_qualification'),
+    ),
+    # REV56-INFRA: #603 immersive render path
+    _ReplayProbe(
+        'immersive_content',
+        'cad_immersive_contents',
+        ('content_id',),
+        _get('render_path', 'get_content'),
+    ),
+    _ReplayProbe(
+        'renderer_capability',
+        'cad_renderer_capabilities',
+        ('capability_id',),
+        _get('render_path', 'get_capability'),
+    ),
+    _ReplayProbe(
+        'speaker_layout',
+        'cad_speaker_layouts',
+        ('layout_id',),
+        _get('render_path', 'get_layout'),
+    ),
+    _ReplayProbe(
+        'render_session',
+        'cad_render_sessions',
+        ('session_id',),
+        _get('render_path', 'get_session'),
+    ),
+    _ReplayProbe(
+        'render_output_observation',
+        'cad_render_output_observations',
+        ('observation_id',),
+        _get('render_path', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'render_path_qualification',
+        'cad_render_path_qualifications',
+        ('qualification_id',),
+        _get('render_path', 'get_qualification'),
+    ),
+    # REV56-INFRA: #606 hum/buzz grounding-EMC
+    _ReplayProbe(
+        'electrical_noise_observation',
+        'cad_electrical_noise_observations',
+        ('observation_id',),
+        _get('electrical_noise', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'audio_interconnect',
+        'cad_audio_interconnects',
+        ('interconnect_id',),
+        _get('electrical_noise', 'get_interconnect'),
+    ),
+    _ReplayProbe(
+        'noise_isolation_test',
+        'cad_noise_isolation_tests',
+        ('test_id',),
+        _get('electrical_noise', 'get_isolation_test'),
+    ),
+    _ReplayProbe(
+        'humbuzz_diagnostic',
+        'cad_humbuzz_diagnostics',
+        ('diagnostic_id',),
+        _get('electrical_noise', 'get_diagnostic'),
+    ),
+    _ReplayProbe(
+        'noise_mitigation',
+        'cad_noise_mitigations',
+        ('attempt_id',),
+        _get('electrical_noise', 'get_mitigation'),
+    ),
+    _ReplayProbe(
+        'humbuzz_verdict',
+        'cad_humbuzz_verdicts',
+        ('verdict_id',),
+        _get('electrical_noise', 'get_verdict'),
     ),
 )
 

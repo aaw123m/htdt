@@ -663,3 +663,113 @@ issues:
           CEDIA RP1-1 の最終公開版スキーマ確定時の profile 再バインド、
           実メーカー Performance Facts シート (PDF/スプレッドシート) の
           抽出器実装、第三者ラボ/規格データセットの実ソース接続は残件。
+  - issue: 587
+    title: "REV56-INFRA: rack/power/thermal infrastructure qualification"
+    notes: >
+      RackEnclosure + InstalledRackDevice records carry declared
+      identity, position and per-device thermal/electrical evidence with
+      an explicit evidence class (manufacturer thermal data / nameplate /
+      measured / assumed / unknown) — a nameplate maximum is never
+      presented as a measured heat load. BranchCircuit evaluates the
+      declared continuous-load policy (continuous_derated = 0.8x
+      nameplate, nameplate/other = 1.0x, unknown = unbounded) rather
+      than hard-coding a code threshold. PowerProtectionDevice keeps
+      surge/backup/regulation/sequencing/monitoring as distinct
+      capabilities ('power conditioner' is never a UPS). PoEBudget
+      enforces per-port ceilings against the 802.3af/at/bt-T3/bt-T4
+      standard plus an aggregate budget. evaluate_infrastructure runs
+      per-scenario: BTU/h (1 W = 3.412 BTU/h) to CFM (1.08 constant)
+      calculated cooling against declared airflow, measured steady-state
+      temperature (still-rising measurements are evidence of
+      unqualified, never of 'close enough'), per-circuit load vs usable
+      capacity, UPS rating/runtime vs the scenario requirement, cooling
+      fan noise composed into #580 refs, and serviceability. Verdict
+      dimensions stay separate; overall qualification is fail-closed.
+    checks:
+      - id: infra-rack-thermal
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_infra.py
+        description: >
+          RPT10-80 fixtures: BTU->CFM first-order math honesty,
+          passive-only guidance cap, still-rising measurement demotion,
+          continuous-derate circuit policy, protection capability-set
+          honesty, PoE port ceiling + aggregate, UPS runtime vs
+          scenario, append-only conflict/integrity, seal-forge
+          rejection, repository replay.
+      - id: infra-rack-remainder
+        kind: manual
+        description: >
+          実ラック現場の測定器連携、熱画像・気流実測の機器別バインド、
+          電気設計者レビュー導線の UI 化は残件。
+  - issue: 603
+    title: "REV56-INFRA: immersive render-path qualification"
+    notes: >
+      ImmersiveContentProfile carries content identity, container
+      transport and metadata class (channel-bed/object/scene-HOA/
+      matrix/mixed) with parser-source requirements — structural counts
+      can never come from listening impressions. RendererCapabilityProfile
+      binds exact device+firmware+license, supported formats/layouts,
+      native-renderer vs upmixer capability. SpeakerLayoutDeclaration
+      keeps the four layout authorities distinct (physically installed /
+      processor configured / content native / rendered output). RenderSession
+      binds the content, renderer, configured/installed layouts and the
+      transported format — transport fallback to PCM/core is a verdict
+      axis, not silent. RenderedOutputObservation records per-output
+      activity as proof of use, never algorithm identity. Verdict axes
+      (format render eligibility, layout geometry eligibility, output
+      channel activity, deferred acoustic performance) never collapse
+      into an 'Atmos compliant' boolean; x.y.z middle figure is the LFE
+      channel count, never the physical subwoofer count.
+    checks:
+      - id: infra-render-path
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_infra.py
+        description: >
+          RND10-70 fixtures: metadata-source capability honesty,
+          configured-vs-installed layout mismatch, transport fallback,
+          upmix vs native provenance, x.y.z LFE-vs-sub separation,
+          output-activity axes, repository replay, seal/forge
+          rejection.
+      - id: infra-render-remainder
+        kind: manual
+        description: >
+          実 AVR/プロセッサのデコーダ readback 連携 (#592 側)、権利処理済み
+          テスト素材の実運用、アコースティック性能側 (#573) への統合は残件。
+  - issue: 606
+    title: "REV56-INFRA: hum/buzz grounding-EMC diagnosis"
+    notes: >
+      ElectricalNoiseObservation captures symptom/channel/path/state/
+      instrument plus optional spectral components; classification from
+      the pattern produces a hypothesis, never a confirmed cause.
+      AudioInterconnectEvidence carries interface class, connector form
+      and shield termination with a basis field — a 'chassis_at_entry'
+      (AES48-style) claim requires manufacturer documentation or
+      inspection, never connector-shape assumption. NoiseIsolationTest
+      binds bounded divide-and-isolate steps with a required
+      protective_earth_preserved: True literal — earth defeat is not
+      expressible. HumBuzzDiagnostic keeps suspect factors as
+      hypotheses; 'building_earthing' evidence produces the
+      refer_to_qualified_electrician recommendation and nothing else.
+      NoiseMitigationAttempt closes a closed safe-kind set with the
+      identical-capture repeat observation required for any resolved
+      outcome — an unmeasured fix is 'not_evaluated'. Mechanical rattle
+      (#589) and room background (#580) symptoms classify out via
+      external_authority_ref rather than being claimed electrically.
+    checks:
+      - id: infra-humbuzz
+        kind: pytest
+        tests:
+          - backend/tests/test_rev56_infra.py
+        description: >
+          HUM10-70 fixtures: spectrum-to-hypothesis separation,
+          shield-termination basis honesty, PE-preserved step literal,
+          electrician-referral hard rule, repeat-capture resolution
+          requirement, external-authority classification, repository
+          replay, seal/forge rejection.
+      - id: infra-humbuzz-remainder
+        kind: manual
+        description: >
+          実計測器との spectra インポート、#597 物理配線台帳との双方向
+          リンク UI、接地配線図 (#588) 側からの回路系統統合は残件。

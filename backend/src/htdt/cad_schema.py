@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 34
+NATIVE_SCHEMA_VERSION = 35
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1387,6 +1387,22 @@ def _migrate_33_to_34(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_34_to_35(connection: sqlite3.Connection) -> None:
+    # Install the REV56-INFRA authorities (#587 rack/power/thermal
+    # qualification: rack enclosures, installed devices, branch
+    # circuits, protection devices, PoE budgets, operating scenarios,
+    # thermal measurements, qualification verdicts; #603 immersive
+    # render-path qualification: content profiles, renderer
+    # capabilities, the four distinct speaker-layout authorities,
+    # render sessions, output observations, verdicts; #606 hum/buzz
+    # grounding-EMC diagnosis: noise observations, interconnect
+    # evidence, isolation tests, diagnostics, safe mitigations,
+    # verdicts): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1422,6 +1438,7 @@ _MIGRATIONS = {
     32: _migrate_31_to_32,
     33: _migrate_32_to_33,
     34: _migrate_33_to_34,
+    35: _migrate_34_to_35,
 }
 
 
