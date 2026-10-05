@@ -3,7 +3,8 @@
 スコープ: issues #577 (P0), #604 (P0)
 ブランチ: `devin/1791198586-rev56-decision`
 スキーマ: native schema v22 → v23（4 テーブル追加）
-マージ: merge commit `ee278881`（merge-test 経由で main へセルフマージ済み）
+マージ: merge commits `ee278881`（実装）+ `9e9d149a`（本書）
+（merge-test 経由で main へセルフマージ済み）
 
 ## 実装範囲
 
