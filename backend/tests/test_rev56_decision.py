@@ -1167,3 +1167,128 @@ def test_uq_assessment_repository_round_trip(tmp_path):
     )
     with pytest.raises(RobustDesignConflictError):
         repository.save_assessment(tampered)
+
+
+# ---------------------------------------------------------------------------
+# Optimization-workflow wiring regression (#577 UI path)
+
+
+def test_o90_envelope_pairwise_verdict_uses_sampled_envelope_fields(tmp_path):
+    """Regression: _pairwise_objective_verdict must read
+    sampled_max_value/sampled_min_value from SampledObjectiveEnvelope —
+    a wrong attribute name previously raised AttributeError and failed
+    the whole verdict refresh."""
+    from types import SimpleNamespace
+
+    from htdt.optimization_objectives import ObjectiveMetric
+    from htdt.optimization_robustness import (
+        RobustnessEvaluation,
+        SampledObjectiveEnvelope,
+    )
+    from htdt.optimization_workflow_controller import (
+        OptimizationWorkflowController,
+    )
+
+    scene = SceneRepository(tmp_path / 'cad.sqlite3')
+    scene.save(make_empty_scene('doc-1'), parent_revision_id=None)
+    repository = CadDecisionRuleRepository(scene)
+    controller = SimpleNamespace(
+        document_id='doc-1',
+        decision_repository=repository,
+    )
+
+    def _evaluation(candidate_id, lo, hi):
+        from htdt.canonical_json import canonical_sha256
+
+        kwargs = dict(
+            evaluation_id='re-pending',
+            robustness_spec_id=f'rspec-{candidate_id}',
+            robustness_spec_sha256='e' * 64,
+            candidate_id=candidate_id,
+            objective_id='obj-1',
+            objective_unit='dB',
+            direction='minimize',
+            nominal_sample_id='s-nominal',
+            nominal_value=(lo + hi) / 2.0,
+            local_sensitivities=(),
+            sampled_worst_sample_id='s-hi',
+            sampled_worst_value=hi,
+            sample_ids=('s-nominal', 's-lo', 's-hi'),
+            sampled_envelope=SampledObjectiveEnvelope(
+                sampled_min_sample_id='s-lo',
+                sampled_min_value=lo,
+                sampled_max_sample_id='s-hi',
+                sampled_max_value=hi,
+            ),
+            feasible_fraction=1.0,
+            sampling_provenance_sha256=_H,
+            percentile_semantics='not_available_bounded_interval',
+            evaluation_sha256='0' * 64,
+            created_at_utc=NOW,
+        )
+        draft = RobustnessEvaluation.model_construct(**kwargs)
+        digest = canonical_sha256(draft.identity_payload())
+        return RobustnessEvaluation(
+            **{
+                **kwargs,
+                'evaluation_id': f're-{digest[:24]}',
+                'evaluation_sha256': digest,
+            }
+        )
+
+    metric_a = ObjectiveMetric(
+        objective_id='obj-1', value=10.0, unit='dB', direction='minimize'
+    )
+    metric_b = ObjectiveMetric(
+        objective_id='obj-1', value=11.0, unit='dB', direction='minimize'
+    )
+    evaluation_a = SimpleNamespace(
+        candidate_id='cand-a',
+        evaluation_id='eval-a',
+        evaluation_sha256='c' * 64,
+        created_at_utc=NOW,
+    )
+    evaluation_b = SimpleNamespace(
+        candidate_id='cand-b',
+        evaluation_id='eval-b',
+        evaluation_sha256='d' * 64,
+        created_at_utc=NOW,
+    )
+    envelopes = {
+        ('cand-a', 'obj-1'): _evaluation('cand-a', 8.0, 12.5),
+        ('cand-b', 'obj-1'): _evaluation('cand-b', 9.0, 13.5),
+    }
+    envelope_times = {'cand-a': NOW, 'cand-b': NOW}
+
+    kwargs = dict(
+        objective_id='obj-1',
+        metric_a=metric_a,
+        metric_b=metric_b,
+        evaluation_a=evaluation_a,
+        evaluation_b=evaluation_b,
+        envelopes=envelopes,
+        envelope_times=envelope_times,
+        spec_id='spec-1',
+    )
+    verdict = OptimizationWorkflowController._pairwise_objective_verdict(
+        controller, **kwargs
+    )
+    assert verdict.verdict in {
+        'clearly_superior_with_declared_evidence',
+        'superior_with_limitations',
+        'evidentially_indeterminate',
+        'practically_equivalent',
+        'insufficient_evidence',
+    }
+    assert repository.get_verdict(verdict.verdict_id) == verdict
+    assert len(repository.list_rules_for_document('doc-1')) == 1
+
+    # Content-hash idempotent: recomputing the same comparison must not
+    # create duplicate persisted rows.
+    verdict_again = (
+        OptimizationWorkflowController._pairwise_objective_verdict(
+            controller, **kwargs
+        )
+    )
+    assert verdict_again.verdict_id == verdict.verdict_id
+    assert len(repository.list_verdicts_for_document('doc-1')) == 1
