@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 26
+NATIVE_SCHEMA_VERSION = 27
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1294,6 +1294,17 @@ def _migrate_25_to_26(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_26_to_27(connection: sqlite3.Connection) -> None:
+    # Install the REV56-METRICS authorities (#580 background-noise metric
+    # profiles/measurements/criterion evaluations; #605 STI profiles,
+    # measurements, predictions and dialogue assessments; #607 content
+    # loudness profiles, programme measurements, normalization
+    # observations, playback gain states and matching records): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1321,6 +1332,7 @@ _MIGRATIONS = {
     24: _migrate_23_to_24,
     25: _migrate_24_to_25,
     26: _migrate_25_to_26,
+    27: _migrate_26_to_27,
 }
 
 

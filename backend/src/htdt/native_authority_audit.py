@@ -462,6 +462,24 @@ class _RepositoryChain:
             )
 
             return CadRp32Repository(scene)
+        if name == 'room_noise_metric':
+            from .cad_room_noise_metrics_repository import (
+                CadRoomNoiseMetricRepository,
+            )
+
+            return CadRoomNoiseMetricRepository(scene)
+        if name == 'sti':
+            from .cad_sti_repository import (
+                CadSTIRepository,
+            )
+
+            return CadSTIRepository(scene)
+        if name == 'loudness':
+            from .cad_loudness_repository import (
+                CadLoudnessRepository,
+            )
+
+            return CadLoudnessRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2751,6 +2769,79 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
             'record_id',
         ),
         _verify_calibration_evidence_event,
+    ),
+    # ---- REV56-METRICS authorities ------------------------------------
+    _ReplayProbe(
+        'room_noise_metric_profile',
+        'cad_room_noise_metric_profiles',
+        ('profile_id',),
+        _get('room_noise_metric', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'background_noise_measurement',
+        'cad_background_noise_measurements',
+        ('measurement_id',),
+        _get('room_noise_metric', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'noise_criterion_evaluation',
+        'cad_noise_criterion_evaluations',
+        ('evaluation_id',),
+        _get('room_noise_metric', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'speech_intelligibility_profile',
+        'cad_speech_intelligibility_profiles',
+        ('profile_id',),
+        _get('sti', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'sti_measurement',
+        'cad_sti_measurements',
+        ('measurement_id',),
+        _get('sti', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'sti_prediction',
+        'cad_sti_predictions',
+        ('prediction_id',),
+        _get('sti', 'get_prediction'),
+    ),
+    _ReplayProbe(
+        'dialogue_intelligibility_assessment',
+        'cad_dialogue_intelligibility_assessments',
+        ('assessment_id',),
+        _get('sti', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'content_loudness_profile',
+        'cad_content_loudness_profiles',
+        ('profile_id',),
+        _get('loudness', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'programme_loudness_measurement',
+        'cad_programme_loudness_measurements',
+        ('measurement_id',),
+        _get('loudness', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'normalization_observation',
+        'cad_normalization_observations',
+        ('observation_id',),
+        _get('loudness', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'playback_gain_state',
+        'cad_playback_gain_states',
+        ('state_id',),
+        _get('loudness', 'get_gain_state'),
+    ),
+    _ReplayProbe(
+        'loudness_matching_record',
+        'cad_loudness_matching_records',
+        ('record_id',),
+        _get('loudness', 'get_matching_record'),
     ),
 )
 
