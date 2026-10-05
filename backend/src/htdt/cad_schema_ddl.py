@@ -2576,6 +2576,110 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_room_noise_metric_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, metric_family TEXT NOT NULL, standard_id TEXT NOT NULL, standard_edition TEXT NOT NULL, status TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_background_noise_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, temporal_class TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_noise_criterion_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurement_id TEXT NOT NULL, measurement_sha256 TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, metric_family TEXT NOT NULL, applicability TEXT NOT NULL, rating_label TEXT, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_speech_intelligibility_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, standard_id TEXT NOT NULL, standard_edition TEXT NOT NULL, method TEXT NOT NULL, voice_class TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sti_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, method TEXT NOT NULL, noise_measurement_id TEXT NOT NULL, sti_value REAL, applicability TEXT NOT NULL, seat_ref TEXT, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sti_predictions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, prediction_id TEXT NOT NULL UNIQUE, prediction_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, method TEXT NOT NULL, model_version TEXT NOT NULL, validation_ref TEXT, noise_measurement_id TEXT NOT NULL, sti_value REAL, predicted_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dialogue_intelligibility_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, seat_count INTEGER NOT NULL, worst_seat_label TEXT, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_content_loudness_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, standard_id TEXT NOT NULL, standard_edition TEXT NOT NULL, eligibility TEXT NOT NULL, algorithm_version TEXT NOT NULL, channel_config TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_programme_loudness_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, source_class TEXT NOT NULL, channel_config TEXT NOT NULL, integrated_loudness_lufs REAL, true_peak_dbtp REAL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_normalization_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_class TEXT NOT NULL, mode TEXT NOT NULL, target_lufs REAL, applied_gain_db REAL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_gain_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL UNIQUE, state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, normalization_observation_id TEXT, master_volume_db REAL, measured_in_room_spl_db REAL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_loudness_matching_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, comparison_label TEXT NOT NULL, target_quantity TEXT NOT NULL, residual_mismatch_db REAL NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rnprof_document ON cad_room_noise_metric_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bnmeas_document ON cad_background_noise_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nceval_measurement ON cad_noise_criterion_evaluations(measurement_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nceval_document ON cad_noise_criterion_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stiprof_document ON cad_speech_intelligibility_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimeas_document ON cad_sti_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stimeas_noise ON cad_sti_measurements(noise_measurement_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_stipred_document ON cad_sti_predictions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dia_document ON cad_dialogue_intelligibility_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ldnprof_document ON cad_content_loudness_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_plm_document ON cad_programme_loudness_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_norm_document ON cad_normalization_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pgs_document ON cad_playback_gain_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lmr_document ON cad_loudness_matching_records(document_id, seq ASC)
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_rp22_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL, profile_version TEXT NOT NULL, profile_sha256 TEXT NOT NULL UNIQUE, registry_key TEXT NOT NULL, payload_json TEXT NOT NULL, created_at_utc TEXT NOT NULL, UNIQUE(profile_id, profile_version) )
     """
     ,
@@ -2677,6 +2781,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_auralization_routing_declarations',
     'cad_av_latency_measurements',
     'cad_av_sync_conditions',
+    'cad_background_noise_measurements',
     'cad_bass_management_profiles',
     'cad_bass_management_selections',
     'cad_bass_qualifications',
@@ -2700,6 +2805,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_compute_benchmarks',
     'cad_constraint_snapshots',
     'cad_constraint_workspaces',
+    'cad_content_loudness_profiles',
     'cad_correction_qualifications',
     'cad_cost_evaluations',
     'cad_cost_records',
@@ -2726,6 +2832,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_device_replacement_assessments',
     'cad_device_restore_records',
     'cad_device_target_bindings',
+    'cad_dialogue_intelligibility_assessments',
     'cad_direct_level_evaluations',
     'cad_direct_level_scenarios',
     'cad_direct_view_evaluations',
@@ -2793,6 +2900,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_line_level_stages',
     'cad_listener_pose_selections',
     'cad_listener_poses',
+    'cad_loudness_matching_records',
     'cad_material_definitions',
     'cad_material_evidence',
     'cad_materialized_pattern_points',
@@ -2830,6 +2938,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_multifidelity_plans',
     'cad_multifidelity_screening_evaluations',
     'cad_multifidelity_stage_results',
+    'cad_noise_criterion_evaluations',
+    'cad_normalization_observations',
     'cad_o90_robust_pareto_evaluations',
     'cad_objective_evaluations',
     'cad_observed_device_states',
@@ -2840,6 +2950,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_planned_observed_deltas',
     'cad_playback_chain_evaluations',
     'cad_playback_chain_scenarios',
+    'cad_playback_gain_states',
     'cad_playback_level_conditions',
     'cad_prediction_measurement_registrations',
     'cad_prediction_measurement_residual_reports',
@@ -2859,6 +2970,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_projector_spec_evidence',
     'cad_projector_spec_source_assets',
     'cad_projector_specifications',
+    'cad_programme_loudness_measurements',
     'cad_proposal_objective_result_authorities',
     'cad_proposal_perturbation_samples',
     'cad_proposal_robust_pareto_evaluations',
@@ -2892,6 +3004,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_robustness_validation_cases',
     'cad_robustness_validation_decisions',
     'cad_room_operating_states',
+    'cad_room_noise_metric_profiles',
     'cad_roomsim_batch_specs',
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
@@ -2921,6 +3034,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
     'cad_spectral_balance_evaluations',
+    'cad_speech_intelligibility_profiles',
     'cad_standard_evaluation_pins',
     'cad_standard_lifecycle_observations',
     'cad_standard_profile_mappings',
@@ -2929,6 +3043,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',
+    'cad_sti_measurements',
+    'cad_sti_predictions',
     'cad_stimulus_assets',
     'cad_stimulus_eligibility',
     'cad_stimulus_pins',

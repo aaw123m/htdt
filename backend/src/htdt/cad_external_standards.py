@@ -1349,6 +1349,95 @@ def seed_standard_documents(
             rights='public_metadata_only',
             admission='primary_source_confirmed',
         ),
+        # REV56-METRICS additions: the NCB lineage of S12.2 and the
+        # programme-loudness standards the loudness authority cites.
+        dict(
+            standard_id='ansi-asa-s12-2',
+            edition='1995',
+            document_number='ANSI/ASA S12.2-1995 (R2019)',
+            publisher='ASA / Acoustical Society of America',
+            title='Criteria for Evaluating Room Noise — introduces the '
+                  'Balanced Noise Criteria (NCB) curves; reaffirmed 2019, '
+                  'superseded by S12.2-2019/2026 NC/RNC lineage',
+            lifecycle='superseded',
+            rights='public_metadata_only',
+            admission='validated',
+            replaced_by='ansi-asa-s12-2@2019',
+            dependency_refs=(
+                dict(
+                    standard_id='cedia-cta-rp22',
+                    edition='v1.2',
+                    role='background_noise_metric',
+                    note='RP22 noise-floor targets cite the NCB lineage '
+                         'of the 1995 edition; evaluations pin this '
+                         'edition even though it is superseded.',
+                ),
+            ),
+            notes='Beranek NCB curve table (JASA 1989 Table 1) plus the '
+                  'low-frequency vibration Regions A/B — retained '
+                  'because RP22 pins NCB, not NC.',
+        ),
+        dict(
+            standard_id='itu-r-bs1770',
+            edition='5',
+            document_number='ITU-R BS.1770-5 (11/2023)',
+            publisher='ITU-R',
+            title='Algorithms to measure audio programme loudness and '
+                  'true-peak audio level',
+            lifecycle='published_current',
+            rights='public_open_standard',
+            admission='validated',
+            publication_date='2023-11',
+            primary_source_url='https://www.itu.int/rec/R-REC-BS.1770',
+            primary_source_tier='standards_body_catalog',
+            source_checked_at_utc='2026-10-05T00:00:00+00:00',
+            notes='Production-current recommendation: K-weighting, '
+                  'absolute -70 LUFS + relative -10 LU gating, Annex 2 '
+                  'true-peak oversampling, Annex 3 extended layouts, '
+                  'Annex 4 object-based measurement.',
+        ),
+        dict(
+            standard_id='itu-r-bs1770',
+            edition='2026-draft',
+            document_number='ITU-R BS.1770 draft revision (2026 WP6C)',
+            publisher='ITU-R',
+            title='Draft revision of BS.1770 under WP6C — reported in '
+                  '2026 but not a published recommendation',
+            lifecycle='draft',
+            rights='public_metadata_only',
+            admission='discovered',
+            notes='Research-only registration: profile results under '
+                  'this edition are never production citations. '
+                  'Supersedes nothing until published.',
+        ),
+        dict(
+            standard_id='aes77',
+            edition='2023',
+            document_number='AES77-2023',
+            publisher='AES',
+            title='AES recommended practice — Loudness guidelines for '
+                  'streaming and on-demand audio',
+            lifecycle='published_current',
+            rights='public_metadata_only',
+            admission='validated',
+            publication_date='2023-10',
+            notes='Distribution-side loudness guidance; AES explicitly '
+                  'notes it does not define device playback targets.',
+        ),
+        dict(
+            standard_id='ebu-r128',
+            edition='v5.0',
+            document_number='EBU R128 v5.0',
+            publisher='EBU',
+            title='Loudness normalisation and permitted maximum level '
+                  'of audio signals',
+            lifecycle='published_current',
+            rights='public_open_standard',
+            admission='validated',
+            publication_date='2023-01',
+            notes='Separate normalization/distribution profile — never '
+                  'merged with programme measurement or room level.',
+        ),
     )
     return tuple(
         build_standard_document(
