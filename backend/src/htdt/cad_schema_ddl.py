@@ -1498,6 +1498,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_correction_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, correction_subject_id TEXT NOT NULL, correction_subject_sha256 TEXT NOT NULL, state TEXT NOT NULL, scope TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_correction_qualification_document ON cad_correction_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_correction_qualification_subject ON cad_correction_qualifications(correction_subject_id, seq ASC)
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_cost_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, variant_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
     """
     ,
@@ -2282,6 +2294,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_compute_benchmarks',
     'cad_constraint_snapshots',
     'cad_constraint_workspaces',
+    'cad_correction_qualifications',
     'cad_cost_evaluations',
     'cad_cost_records',
     'cad_coverage_evaluations',

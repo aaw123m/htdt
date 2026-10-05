@@ -53,6 +53,10 @@ from .capture_inbox import CaptureInboxRepository
 from .cad_av_sync_repository import CadAVSyncRepository
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_calibration_workflow import CadCalibrationWorkflowService
+from .cad_correction_qualification import qualification_scope_label
+from .cad_correction_qualification_repository import (
+    CadCorrectionQualificationRepository,
+)
 from .cad_design_checkpoint_repository import CadDesignCheckpointRepository
 from .cad_operating_preset_repository import CadOperatingPresetRepository
 from .cad_project_activity import CadProjectActivityService
@@ -4178,6 +4182,42 @@ class WorkflowApplicationComposition:
             )
         )
 
+    def _correction_qualification_scopes(self) -> dict[str, str]:
+        """{plan_id: JA scope label} for plans with current qualification.
+
+        Only records sealed against the plan's exact semantic hash are
+        shown — a re-planned correction reads 未修飾 until it is qualified
+        again (#568).
+        """
+
+        try:
+            repository = CadCorrectionQualificationRepository(self.repository)
+        except Exception:
+            return {}
+        labels: dict[str, str] = {}
+        try:
+            plans = CadCalibrationRepository(
+                scene_repository=self.repository,
+                system_variant_repository=CadSystemVariantRepository(
+                    self.repository
+                ),
+                measurement_repository=CadMeasurementRepository(
+                    self.repository
+                ),
+                quality_repository=CadMeasurementQualityRepository(
+                    CadMeasurementRepository(self.repository)
+                ),
+            ).list_plans(self.document_id)
+        except Exception:
+            return {}
+        for plan in plans:
+            record = repository.current_for_correction(
+                self.document_id, plan.plan_id, plan.plan_semantic_sha256
+            )
+            if record is not None:
+                labels[plan.plan_id] = qualification_scope_label(record.scope)
+        return labels
+
     def _export_calibration_settings(self) -> None:
         """Operator action behind ``calibration.export_settings``.
 
@@ -4223,13 +4263,15 @@ class WorkflowApplicationComposition:
                 ),
             )
             return
+        qualification_scopes = self._correction_qualification_scopes()
         plan_id = self._pick_one(
             "校正設定の書き出し",
             "書き出す校正プランを選択してください",
             [
                 (
                     f'{plan.plan_id} · {plan.sample_rate_hz} Hz · '
-                    f'{plan.created_at_utc}',
+                    f'{plan.created_at_utc} · 修飾状態: '
+                    f'{qualification_scopes.get(plan.plan_id, "未修飾")}',
                     plan.plan_id,
                 )
                 for plan in supported

@@ -402,6 +402,12 @@ class _RepositoryChain:
             )
 
             return CadPredictionMeasurementRegistrationRepository(scene)
+        if name == 'correction_qualification':
+            from .cad_correction_qualification_repository import (
+                CadCorrectionQualificationRepository,
+            )
+
+            return CadCorrectionQualificationRepository(scene)
         if name == 'joint':
             from .cad_joint_optimization_repository import (
                 CadJointOptimizationRepository,
@@ -2046,6 +2052,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_prediction_measurement_residual_reports',
         ('report_id',),
         _get('prediction_measurement_registration', 'get_report'),
+    ),
+    _ReplayProbe(
+        'correction_qualification',
+        'cad_correction_qualifications',
+        ('qualification_id',),
+        _get('correction_qualification', 'get'),
     ),
     _ReplayProbe(
         'system_variant_as_built',
