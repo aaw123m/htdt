@@ -433,6 +433,105 @@ def test_unassigned_document_has_no_head(tmp_path: Path) -> None:
         service.promote_annotations(plan, 'nonexistent-document')
 
 
+def test_newest_authority_wins_per_space(tmp_path: Path) -> None:
+    """REV53: two semantic promotions for one (document, space) — the
+    entity promotion must apply the newest authority, not whichever
+    promotion_id content hash happens to sort last."""
+    from types import SimpleNamespace
+
+    from htdt.capture_semantic_promotion import (
+        CaptureSemanticPromotionRecord,
+    )
+
+    _service, scene, ingestion, lineage = _services(
+        tmp_path,
+        entities_overrides={
+            'physical_envelope': {
+                'width_m': 0.3, 'height_m': 0.5, 'depth_m': 0.25,
+                'provenance': 'user_measured',
+                'source_evidence_refs': [],
+            },
+        },
+    )
+
+    def translate_x(dx: float) -> tuple:
+        return (
+            (1.0, 0.0, 0.0, dx),
+            (0.0, 1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0, 0.0),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+
+    def request(matrix: tuple):
+        return SimpleNamespace(
+            target_document_id=DOCUMENT_ID,
+            world_to_scene_authority=SimpleNamespace(
+                coordinate_space_id=support.SPACE_ID,
+                transform=SimpleNamespace(
+                    matrix_source_to_scene_m=matrix
+                ),
+            ),
+        )
+
+    # promotion_id ASC iterates '0…' before 'f…' — give the OLDER record
+    # the lexically larger id so the hash order visits it last (the
+    # arbitrary winner pre-fix), while created_at_utc marks it older.
+    older_id = 'capture-semantic-promotion:' + 'f' * 64
+    newer_id = 'capture-semantic-promotion:' + '0' * 64
+    requests = {
+        older_id: request(translate_x(100.0)),
+        newer_id: request(translate_x(0.0)),
+    }
+    records = [
+        CaptureSemanticPromotionRecord(
+            promotion_id=older_id,
+            ingestion_run_id='capture-ingestion-run:' + 'a' * 64,
+            raw_mesh_binding_id=None,
+            mesh_composition_id=None,
+            source_scene_revision_id='rev-src',
+            scene_revision_id='rev-old',
+            semantic_geometry_id='semantic-acoustic-geometry:' + 'c' * 64,
+            prior_semantic_geometry_id=None,
+            created_at_utc='2024-01-01T00:00:00+00:00',
+        ),
+        CaptureSemanticPromotionRecord(
+            promotion_id=newer_id,
+            ingestion_run_id='capture-ingestion-run:' + 'b' * 64,
+            raw_mesh_binding_id=None,
+            mesh_composition_id=None,
+            source_scene_revision_id='rev-src',
+            scene_revision_id='rev-new',
+            semantic_geometry_id='semantic-acoustic-geometry:' + 'd' * 64,
+            prior_semantic_geometry_id=None,
+            created_at_utc='2024-06-01T00:00:00+00:00',
+        ),
+    ]
+
+    class _StubSemanticRepo:
+        def __init__(self, repo_records: list, repo_requests: dict) -> None:
+            self._records = repo_records
+            self._requests = repo_requests
+
+        def list_promotions(self):
+            return list(self._records)
+
+        def promotion_request(self, promotion_id: str):
+            return self._requests.get(promotion_id)
+
+    service = CaptureEntityPromotionService(
+        ingestion,
+        scene,
+        semantic_promotion_repository=_StubSemanticRepo(records, requests),
+    )
+    service.promote_annotations(
+        ingestion_plan(lineage, tmp_path), DOCUMENT_ID
+    )
+    entity = scene.current_head(DOCUMENT_ID).document.entities[0]
+    # The NEWER authority (no world→scene offset) must win; the older
+    # +100 m x shift only applies if promotion_id hash order is trusted.
+    assert entity.position.x_m == pytest.approx(1.0)
+
+
 def ingestion_plan(lineage_digest: str, tmp_path: Path):
     repository = CaptureIngestionRepository(
         SceneRepository(tmp_path / 'cad.sqlite3')

@@ -190,11 +190,16 @@ def test_runner_never_promotes_and_rejects_junk(tmp_path: Path) -> None:
     runner.shutdown()
     outcomes = [r.outcome for batch in batches for _, r, _ in batch if r]
     assert outcomes and all(o == 'failed' for o in outcomes)
-    # Nothing staged — a junk drop must not become an inbox row.
+    # A junk drop stages a rejected-envelope row — failed deliveries
+    # stay operator-visible — and it carries the watch lane's
+    # provenance, not a document-open.
     inbox = CaptureInboxRepository(
         repository, CaptureIngestionRepository(repository)
     )
-    assert inbox.list_items() == ()
+    items = inbox.list_items()
+    assert len(items) == 1
+    assert items[0].bundle_validation == 'rejected'
+    assert items[0].arrival_source == WATCH_ARRIVAL_SOURCE
 
 
 def test_runner_retries_failed_route_and_stages_later(

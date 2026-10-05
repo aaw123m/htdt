@@ -37,6 +37,7 @@ from htdt.capture_bundle import (
 )
 from htdt.capture_ingestion_transaction import (
     CaptureIngestionCommitResult,
+    CaptureIngestionPlan,
     CaptureIngestionRepository,
     CaptureIngestionTransactionError,
     CapturePayloadContractError,
@@ -248,6 +249,25 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    # The committed ingestion belongs in the Inbox too: an unstaged run
+    # only surfaces when another lane's reconcile pass picks it up — and
+    # would then carry 'restart_recovery' provenance instead of this
+    # lane's. Staging here is bookkeeping, never the import's success
+    # criterion, so a staging failure warns rather than reports failure.
+    try:
+        staged_plan = CaptureIngestionPlan.model_validate(
+            build_ingestion_plan(FrozenBundle(args.artifact))
+        )
+        inbox.stage(
+            staged_plan,
+            arrival_source='cli_import',
+            source_detail=str(args.artifact),
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(
+            json.dumps({'warning': f'inbox staging failed: {exc}'}),
+            file=sys.stderr,
+        )
     print(json.dumps(result.__dict__, indent=2, sort_keys=True))
     return 0
 

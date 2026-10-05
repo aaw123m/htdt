@@ -417,6 +417,74 @@ def test_verify_persisted_ingestion_rejects_unknown_or_foreign_plan(
         repository.verify_persisted_ingestion(typed)
 
 
+def test_reingest_persists_legacy_quality_backfill(tmp_path: Path) -> None:
+    """REV53: a pre-#337 row stuck at quality_state='unresolved' must be
+    durably backfilled by the idempotent re-ingest path — the verification
+    repair writes must not roll back with the verify read."""
+    repository = CaptureIngestionRepository(
+        SceneRepository(tmp_path / 'cad.sqlite3')
+    )
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    assert repository.ingest(plan, payloads).created
+    lineage = typed.lineage_digest
+
+    # Simulate a pre-gate legacy row.
+    _tamper(
+        repository.path,
+        (
+            "UPDATE capture_ingestion_runs SET quality_state='unresolved', "
+            'quality_payload_sha256=NULL, quality_ruleset_version=NULL '
+            'WHERE lineage_digest=?',
+            (lineage,),
+        ),
+    )
+    assert (
+        repository.get_capture_quality_state(lineage).state == 'unresolved'
+    )
+
+    second = repository.ingest(plan, payloads)
+    assert not second.created
+    assert second.quality_state == 'validated'
+    persisted = repository.get_capture_quality_state(lineage)
+    assert persisted.state == 'validated'
+    assert persisted.ruleset_version == '1.0.0'
+    assert repository.require_quality_state(lineage).state == 'validated'
+
+
+def test_verify_persisted_ingestion_persists_quality_backfill(
+    tmp_path: Path,
+) -> None:
+    """REV53: the standalone integrity check is also the backfill lane —
+    its repair writes must commit, not roll back with the close."""
+    repository = CaptureIngestionRepository(
+        SceneRepository(tmp_path / 'cad.sqlite3')
+    )
+    plan, payloads = _plan_and_payloads()
+    typed = CaptureIngestionPlan.model_validate(plan)
+    assert repository.ingest(plan, payloads).created
+    lineage = typed.lineage_digest
+
+    _tamper(
+        repository.path,
+        (
+            "UPDATE capture_ingestion_runs SET quality_state='unresolved', "
+            'quality_payload_sha256=NULL, quality_ruleset_version=NULL '
+            'WHERE lineage_digest=?',
+            (lineage,),
+        ),
+    )
+    assert (
+        repository.get_capture_quality_state(lineage).state == 'unresolved'
+    )
+
+    verified = repository.verify_persisted_ingestion(typed)
+    assert verified.quality_state == 'validated'
+    persisted = repository.get_capture_quality_state(lineage)
+    assert persisted.state == 'validated'
+    assert repository.require_quality_state(lineage).state == 'validated'
+
+
 def test_reimport_after_source_link_delete_fails_closed(tmp_path: Path) -> None:
     repository = CaptureIngestionRepository(
         SceneRepository(tmp_path / 'cad.sqlite3')

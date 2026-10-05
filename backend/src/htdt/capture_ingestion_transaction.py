@@ -2171,7 +2171,12 @@ class CaptureIngestionRepository:
                         typed,
                         existing,
                     )
-                    connection.rollback()
+                    # The verify also repairs legacy rows as it runs
+                    # (capture-revision registration, bundle-manifest
+                    # backfill, quality-column backfill on pre-gate
+                    # 'unresolved' rows). Rolling back here would report
+                    # the repaired state while leaving the row damaged.
+                    connection.commit()
                     return verified
 
                 recorded_at = datetime.now(timezone.utc).isoformat()
@@ -2386,11 +2391,16 @@ class CaptureIngestionRepository:
                     'ingestion run is not persisted: '
                     f'{run_id}'
                 )
-            return self._verify_persisted_materialization(
+            verified = self._verify_persisted_materialization(
                 connection,
                 typed,
                 run,
             )
+            # Same repair writes as the re-ingest path: keep the
+            # quality/registration backfills instead of rolling them
+            # back with the close.
+            connection.commit()
+            return verified
 
     def get_ingestion_run(
         self, ingestion_run_id: str

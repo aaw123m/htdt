@@ -406,7 +406,16 @@ class CaptureEntityPromotionService:
             return {}
         spaces = set(plan.bundle.coordinate_space_ids)
         by_space: dict[str, CaptureWorldToSceneAuthority] = {}
-        for record in self.semantic_promotion_repository.list_promotions():
+        # ``list_promotions`` orders by promotion_id — a content hash —
+        # so iteration order says nothing about which promotion is the
+        # newest. Order by created_at_utc explicitly (promotion_id is the
+        # deterministic tiebreak) so the LAST write per space is the
+        # newest one.
+        records = sorted(
+            self.semantic_promotion_repository.list_promotions(),
+            key=lambda record: (record.created_at_utc, record.promotion_id),
+        )
+        for record in records:
             request = (
                 self.semantic_promotion_repository.promotion_request(
                     record.promotion_id
