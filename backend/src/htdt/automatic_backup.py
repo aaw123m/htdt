@@ -222,6 +222,32 @@ def managed_data_fingerprint(data_dir: Path) -> str:
     # managed state and must invalidate the fingerprint on its own.
     for component in backup_included_components():
         candidate = data_dir / component.path
+        if component.is_directory:
+            if not candidate.is_dir():
+                parts.append(f'aux:{component.path}:absent')
+                continue
+            # A directory component's own stat cannot see edits inside it
+            # — an inner-file write leaves the directory mtime untouched,
+            # so fold each member's name/size/mtime like the managed-asset
+            # store signature does above (REV53-PASS4).
+            entries: list[str] = []
+            try:
+                members = list(candidate.rglob('*'))
+            except OSError:
+                members = []
+            for member in sorted(members):
+                try:
+                    if not member.is_file():
+                        continue
+                    stat = member.stat()
+                except OSError:
+                    continue
+                entries.append(
+                    f'{member.relative_to(candidate).as_posix()}:'
+                    f'{stat.st_size}:{stat.st_mtime_ns}'
+                )
+            parts.append(f"aux:{component.path}:dir:{','.join(entries)}")
+            continue
         try:
             stat = candidate.stat()
             parts.append(

@@ -1429,6 +1429,7 @@ def _rollback_restore_swap(
     rollback_root: Path,
     *,
     pre_restore_live: dict[str, Any] | None = None,
+    restored_database_sha256: str | None = None,
 ) -> None:
     """Restore the pre-swap live generation preserved in the rollback dir.
 
@@ -1441,6 +1442,12 @@ def _rollback_restore_swap(
     database is missing". Without that record the recovery either adopts
     a foreign database as the pre-restore generation or bricks the launch
     on an honestly-empty live root.
+
+    ``restored_database_sha256`` is the interrupted swap's own staged
+    database digest: when the journal says the pre-restore database was
+    absent, the canonical slot can cycle that very file back into live —
+    it is the payload the swap failed to commit, not recovered state, so
+    it is parked again rather than blessed (REV53-PASS4).
     """
     live_database = data_dir / DATABASE_NAME
     live_assets = data_dir / MEASUREMENT_ASSETS_NAME
@@ -1450,6 +1457,11 @@ def _rollback_restore_swap(
         True
         if pre_restore_live is None
         else bool(pre_restore_live.get('database', True))
+    )
+    expected_assets = (
+        True
+        if pre_restore_live is None
+        else bool(pre_restore_live.get('measurement_assets', True))
     )
 
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -1473,7 +1485,10 @@ def _rollback_restore_swap(
     _rollback_legacy_archive_members(data_dir, rollback_root)
     if rollback_database.exists():
         _replace_durable(rollback_database, live_database)
-    if rollback_assets.exists():
+    # Journaled-absent measurement assets stay parked: whatever occupied
+    # the canonical slot was live only after the crash, so adopting it
+    # would fabricate pre-restore content the journal says never existed.
+    if rollback_assets.exists() and expected_assets:
         _replace_durable(rollback_assets, live_assets)
     for component in backup_included_components():
         live_aux = data_dir / component.path
@@ -1486,6 +1501,16 @@ def _rollback_restore_swap(
                 'no restorable database remains live or in the rollback '
                 'directory'
             )
+    elif (
+        not expected_database
+        and restored_database_sha256 is not None
+        and _sha256_file(live_database) == restored_database_sha256
+    ):
+        # The canonical slot cycled the interrupted swap's own staged
+        # database back into live — the journal says the pre-restore
+        # generation was absent, so this file is the payload the swap
+        # failed to commit, not recovered data. Park it again.
+        _evacuate_into(live_database, rollback_root)
     else:
         try:
             _sqlite_health(live_database)
@@ -1607,6 +1632,14 @@ def _recover_journaled_swap(
                 journal.get('pre_restore_live')
                 if isinstance(journal.get('pre_restore_live'), dict)
                 else None
+            ),
+            restored_database_sha256=next(
+                (
+                    item.sha256
+                    for item in manifest.files
+                    if item.kind == 'database'
+                ),
+                None,
             ),
         )
     except Exception as exc:

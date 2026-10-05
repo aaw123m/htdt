@@ -516,8 +516,24 @@ def export_project_bundle(
                 if not _row_matches_asset_where(record, where):
                     continue
                 digest = str(record[sha_column])
+                if not _SHA256_RE.match(digest):
+                    raise ProjectBundleError(
+                        'managed asset row carries a malformed digest '
+                        '(integrity error, not an omission): '
+                        f'{sha_column}={digest}'
+                    )
                 if path_column is not None and record.get(path_column):
                     relative = str(record[path_column]).replace('\\', '/')
+                    # The importer pins registry rows to their content
+                    # address — export must enforce the same invariant or
+                    # it ships a bundle no import can ever accept.
+                    if relative != f'{MANAGED_ASSETS_DIRNAME}/{digest}':
+                        raise ProjectBundleError(
+                            'managed asset path in the database is not '
+                            'the shared-store content address of its '
+                            'digest (integrity error, not an omission): '
+                            f'{relative}'
+                        )
                     try:
                         asset_path = managed_asset_path(data_dir, relative)
                     except ManagedAssetError as exc:
@@ -929,6 +945,11 @@ def import_project_bundle(
                 if not _row_matches_asset_where(record, where):
                     continue
                 digest = str(record[sha_column])
+                if not _SHA256_RE.match(digest):
+                    raise BundleManifestInvalidError(
+                        f'{table} row carries a malformed digest: '
+                        f'{digest}'
+                    )
                 entry = manifest_assets.get(digest)
                 if (
                     size_column is not None

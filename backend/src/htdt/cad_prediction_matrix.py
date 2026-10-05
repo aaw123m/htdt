@@ -1340,6 +1340,7 @@ def build_matrix_run_verification(
         source.matrix_source_id: {
             'provider': providers.get(source.matrix_source_id),
             'verified': [],
+            'verified_receivers': set(),
             'unverified': [],
             'phase_ready': True,
         }
@@ -1423,6 +1424,7 @@ def build_matrix_run_verification(
         ):
             entry['phase_ready'] = False
         entry['verified'].append(cell.cell_id)
+        entry['verified_receivers'].add(receiver.receiver_id)
         cells.append(
             MatrixCellVerification(
                 cell_id=cell.cell_id,
@@ -1438,6 +1440,13 @@ def build_matrix_run_verification(
     for source in spec.sources:
         entry = per_source[source.matrix_source_id]
         provider = entry['provider']
+        provider_receivers = (
+            frozenset()
+            if provider is None
+            else frozenset(
+                item.receiver_id for item in provider.receiver_responses
+            )
+        )
         verified = tuple(entry['verified'])
         unverified = tuple(entry['unverified'])
         observables: tuple[str, ...] = (
@@ -1460,7 +1469,13 @@ def build_matrix_run_verification(
                 verified_cells=verified,
                 unverified_cells=unverified,
                 coverage_complete=(
-                    provider is not None and not unverified
+                    provider is not None
+                    and not unverified
+                    # Complete means the matrix verified every receiver
+                    # the provider covers — a run that touched only part
+                    # of the provider's coverage cannot stamp it
+                    # verified end-to-end (REV53-PASS4).
+                    and provider_receivers <= entry['verified_receivers']
                 ),
             )
         )

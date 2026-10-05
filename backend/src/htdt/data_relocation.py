@@ -775,8 +775,15 @@ def _recover_journal_locked(
                 # The journal claims a promoted destination that does not
                 # exist — roll the source back to its original name so the
                 # pre-relocation generation is what the next launch sees.
-                if not source.is_dir() and parked.is_dir():
-                    os.replace(parked, source)
+                # The rollback rename needs the same treatment as the
+                # forward promote: ``os.replace`` cannot move a directory
+                # over even an EMPTY post-crash residue dir on Windows,
+                # while foreign content must still block the restore.
+                if parked.is_dir() and (
+                    not source.exists()
+                    or (source.is_dir() and not any(source.iterdir()))
+                ):
+                    _promote_directory(parked, source)
                     events.append(
                         RelocationRecoveryEvent(
                             'source_restored',
