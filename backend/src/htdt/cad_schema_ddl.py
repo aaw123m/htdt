@@ -319,6 +319,26 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_multi_sub_candidates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, candidate_id TEXT NOT NULL UNIQUE, candidate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, strategy TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_multi_sub_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, candidate_id TEXT NOT NULL, document_id TEXT NOT NULL, population TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(candidate_id) REFERENCES cad_multi_sub_candidates(candidate_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_multi_sub_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, baseline_candidate_id TEXT NOT NULL, candidate_id TEXT NOT NULL, claim TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(baseline_candidate_id) REFERENCES cad_multi_sub_candidates(candidate_id), FOREIGN KEY(candidate_id) REFERENCES cad_multi_sub_candidates(candidate_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_multi_sub_stage_comparisons ( seq INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL UNIQUE, comparison_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_multi_sub_deployments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, qualification_id TEXT NOT NULL, candidate_id TEXT NOT NULL, document_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(candidate_id) REFERENCES cad_multi_sub_candidates(candidate_id) )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_multifidelity_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, domain TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
     """
     ,
@@ -1203,6 +1223,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_model_validation_search_seq ON cad_model_validations(search_spec_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_candidates_document_seq ON cad_multi_sub_candidates(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_evaluations_candidate_seq ON cad_multi_sub_evaluations(candidate_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_evaluations_document_seq ON cad_multi_sub_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_qualifications_document_seq ON cad_multi_sub_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_stage_comparisons_document_seq ON cad_multi_sub_stage_comparisons(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_multi_sub_deployments_document_seq ON cad_multi_sub_deployments(document_id, seq ASC)
     """
     ,
     """
@@ -2387,6 +2431,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_model_validations',
     'cad_multi_seat_results',
     'cad_multi_seat_sets',
+    'cad_multi_sub_candidates',
+    'cad_multi_sub_deployments',
+    'cad_multi_sub_evaluations',
+    'cad_multi_sub_qualifications',
+    'cad_multi_sub_stage_comparisons',
     'cad_multifidelity_finalizations',
     'cad_multifidelity_plans',
     'cad_multifidelity_screening_evaluations',
@@ -2524,6 +2573,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_wave_excitation_source_assets',
     'cad_wave_source_excitation_bindings',
     'cad_wiring_checks',
+    'capture_authoring_provenances',
     'capture_authority_records',
     'capture_bundles',
     'capture_connected_space_documents',

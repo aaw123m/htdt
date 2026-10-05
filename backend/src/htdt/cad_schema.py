@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 20
+NATIVE_SCHEMA_VERSION = 21
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1233,6 +1233,15 @@ def _migrate_19_to_20(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_20_to_21(connection: sqlite3.Connection) -> None:
+    # Install the #569 conventional multi-sub optimization tables
+    # (candidates, seat-population evaluations, qualifications, staged
+    # comparisons, deployment verifications): new append-only authorities
+    # the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1254,6 +1263,7 @@ _MIGRATIONS = {
     18: _migrate_17_to_18,
     19: _migrate_18_to_19,
     20: _migrate_19_to_20,
+    21: _migrate_20_to_21,
 }
 
 
