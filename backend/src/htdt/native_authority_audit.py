@@ -724,6 +724,18 @@ class _RepositoryChain:
             )
 
             return CadFieldExplorerRepository(scene)
+        if name == 'electrical_compatibility':
+            from .cad_electrical_compatibility_repository import (
+                CadElectricalCompatibilityRepository,
+            )
+
+            return CadElectricalCompatibilityRepository(scene)
+        if name == 'wiring_trace':
+            from .cad_wiring_trace_repository import (
+                CadWiringTraceRepository,
+            )
+
+            return CadWiringTraceRepository(scene)
         raise KeyError(name)
 
 
@@ -2878,6 +2890,31 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_loudness_matching_records',
         ('record_id',),
         _get('loudness', 'get_matching_record'),
+    ),
+    # REV56-ELEC (#593 electrical qualification, #597 wiring traceability)
+    _ReplayProbe(
+        'electrical_qualification',
+        'cad_electrical_qualifications',
+        ('qualification_id',),
+        _get('electrical_compatibility', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'physical_interconnect',
+        'cad_physical_interconnects',
+        ('path_id', 'version'),
+        _get('wiring_trace', 'get_interconnect'),
+    ),
+    _ReplayProbe(
+        'wiring_verification',
+        'cad_wiring_verifications',
+        ('verification_id',),
+        _get('wiring_trace', 'get_verification'),
+    ),
+    _ReplayProbe(
+        'logical_physical_binding',
+        'cad_logical_physical_bindings',
+        ('binding_id',),
+        _get('wiring_trace', 'get_binding'),
     ),
 )
 

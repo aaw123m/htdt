@@ -654,3 +654,230 @@ def spectral_balance_line(evaluation: SpectralBalanceEvaluation) -> str:
         f'（{evaluation.seats_evaluated} 席評価'
         f'・{evaluation.seats_without_coverage} 席カバレッジなし）'
     )
+
+
+# ---------------------------------------------------------------------------
+# REV56-ELEC: electrical compatibility + physical interconnect (#593/#597).
+# ---------------------------------------------------------------------------
+
+from .cad_electrical_compatibility import ElectricalPlaybackQualification
+from .cad_physical_interconnect import (
+    LogicalPhysicalBinding,
+    PathStateAssessment,
+    PhysicalInterconnect,
+    WiringTestResult,
+)
+
+_ELEC_VERDICT_LABELS = {
+    'qualified': '適合',
+    'unqualified': '不適合',
+    'indeterminate': '証拠不足（未判定）',
+}
+
+_ELEC_FAILURE_LABELS = {
+    'load_below_amplifier_rating': '負荷インピーダンスがアンプ定格下限を下回る',
+    'current_margin_insufficient': '電流マージン不足',
+    'voltage_margin_insufficient': '電圧マージン不足',
+    'multichannel_power_limit': 'マルチチャンネル同時出力制限',
+    'digital_headroom_limit': 'デジタルヘッドルーム超過',
+    'amplifier_clipping': 'アンプ出力上限超過（クリップ）',
+    'thermal_derating': '連続熱定格超過',
+    'cable_loss_excessive': 'ケーブル損失過大（アンプ出力不達）',
+    'loudspeaker_compression_limit': 'スピーカー出力上限超過',
+    'protection_engagement': '保護動作条件',
+    'insufficient_evidence': '証拠不足',
+}
+
+_ELEC_CAPABILITY_CLASS_LABELS = {
+    'spec_sheet_estimate': 'スペックシート推定',
+    'electrically_qualified_model': '電気モデル適合済み',
+    'acoustic_output_measured': '音響出力実測済み',
+    'in_room_commissioned': '現地コミッショニング済み',
+}
+
+_ELEC_STRESS_LABELS = {
+    'short_burst': '短時間バースト',
+    'program_like': 'プログラム同等',
+    'sustained': '連続持続',
+    'thermally_stabilized': '熱定常',
+}
+
+_PATH_EVIDENCE_LABELS = {
+    'designed_path': '設計上の経路',
+    'installed_reported_path': '設置報告済み経路',
+    'field_observed_path': '現場目視済み経路',
+    'verified_path': '検証済み経路',
+    'unverified_declaration': '未検証の宣言',
+    'failed_path': '検証不合格経路',
+}
+
+_PATH_OBSERVATION_LABELS = {
+    'observed_both_ends': '両端目視済み',
+    'observed_one_end': '片端のみ目視',
+    'documented_not_observed': '書面のみ（未目視）',
+    'inferred_by_test': '測定による推定',
+    'unknown_route': '経路不明',
+}
+
+_BINDING_STATE_LABELS = {
+    'verified_binding': '検証済みバインド',
+    'observed_binding': '目視済みバインド',
+    'reported_binding': '報告済みバインド',
+    'designed_binding': '設計上のバインド',
+    'unverified_routing': '未検証ルーティング',
+    'unverified_declaration': '未検証の宣言',
+    'mismatched': '端点不一致',
+    'stale': '改訂により陳腐化',
+    'failed_path': '物理経路不合格',
+}
+
+_WIRING_TEST_LABELS = {
+    'continuity_test': '導通試験',
+    'insulation_test': '絶縁試験',
+    'impedance_sweep': 'インピーダンス掃引',
+    'level_continuity_check': 'レベル導通確認',
+    'polarity_check': '極性確認',
+    'pairing_response_check': 'ペアリング応答確認',
+    'bitstream_integrity_check': 'ビットストリーム整合性確認',
+    'end_to_end_signal_check': 'エンドツーエンド信号確認',
+    'visual_label_check': 'ラベル目視確認',
+    'length_measurement': '長さ実測',
+    'domain_qualification': 'ドメイン適合評価',
+}
+
+_WIRING_RESULT_LABELS = {
+    'pass': '合格',
+    'fail': '不合格',
+    'inconclusive': '不確定',
+}
+
+
+def electrical_verdict_label(verdict: str) -> str:
+    return _ELEC_VERDICT_LABELS.get(verdict, verdict)
+
+
+def electrical_failure_label(code: str) -> str:
+    return _ELEC_FAILURE_LABELS.get(code, code)
+
+
+def capability_class_label(capability_class: str) -> str:
+    return _ELEC_CAPABILITY_CLASS_LABELS.get(
+        capability_class, capability_class
+    )
+
+
+def stress_profile_label(profile: str) -> str:
+    return _ELEC_STRESS_LABELS.get(profile, profile)
+
+
+def path_evidence_label(state: str) -> str:
+    return _PATH_EVIDENCE_LABELS.get(state, state)
+
+
+def path_observation_label(state: str) -> str:
+    return _PATH_OBSERVATION_LABELS.get(state, state)
+
+
+def binding_state_label(state: str) -> str:
+    return _BINDING_STATE_LABELS.get(state, state)
+
+
+def wiring_test_label(kind: str) -> str:
+    return _WIRING_TEST_LABELS.get(kind, kind)
+
+
+def wiring_result_label(result: str) -> str:
+    return _WIRING_RESULT_LABELS.get(result, result)
+
+
+def electrical_qualification_line(
+    qualification: ElectricalPlaybackQualification,
+) -> str:
+    """One JA line for an electrical qualification (#593): verdict +
+    dominant limiter + failure reasons; indeterminate is never rendered
+    as a fail or a pass."""
+    parts = [electrical_verdict_label(qualification.verdict)]
+    if qualification.dominant_limiter is not None:
+        parts.append(
+            f'主制約 {qualification.dominant_limiter}'
+        )
+    if qualification.failure_codes:
+        parts.append(
+            '理由: '
+            + '・'.join(
+                electrical_failure_label(code)
+                for code in qualification.failure_codes
+            )
+        )
+    parts.append(capability_class_label(qualification.capability_class))
+    return '電気適合性: ' + ' — '.join(parts)
+
+
+def physical_interconnect_line(
+    path: PhysicalInterconnect,
+    assessment: PathStateAssessment | None = None,
+) -> str:
+    """One JA line for a physical interconnect (#597): declared and
+    evaluated states are reported separately so a declaration never
+    parades as verification."""
+    state = (
+        assessment.evaluated_state
+        if assessment is not None
+        else path.evidence_state
+    )
+    parts = [
+        f'{path.path_id} v{path.version}',
+        f'{path_class_label(path.path_class)}',
+        path_evidence_label(path.evidence_state),
+    ]
+    if assessment is not None and state != path.evidence_state:
+        parts.append(f'評価: {path_evidence_label(state)}')
+    observed = (
+        path_observation_label(path.observation_state)
+        if path.observation_state is not None
+        else '経路状態不明'
+    )
+    parts.append(observed)
+    return '物理経路: ' + ' — '.join(parts)
+
+
+def path_class_label(path_class: str) -> str:
+    return _PATH_CLASS_LABELS.get(path_class, path_class)
+
+
+_PATH_CLASS_LABELS = {
+    'analog_speaker_wire': 'アナログ・スピーカー線',
+    'analog_balanced_audio': 'アナログ・バランス音声',
+    'analog_unbalanced_audio': 'アナログ・アンバランス音声',
+    'digital_audio': 'デジタル音声',
+    'network_audio_stream': 'ネットワーク音声ストリーム',
+    'hdmi_family': 'HDMI系',
+    'avio_streaming': 'AVoIPストリーミング',
+    'control_signaling': '制御信号',
+    'wireless_logical': '無線（論理）',
+    'power_feed': '電源フィード',
+}
+
+
+def logical_binding_line(binding: LogicalPhysicalBinding) -> str:
+    """One JA line for a logical→physical binding (#597): the state names
+    what evidence stands behind the routing claim."""
+    return (
+        f'バインド: {binding.logical_path_ref} → '
+        f'{binding.physical_path_id} — '
+        f'{binding_state_label(binding.binding_state)}'
+    )
+
+
+def wiring_test_line(result: WiringTestResult) -> str:
+    """One JA line for a wiring test result (#597): test kind + verdict +
+    measured value when present."""
+    parts = [
+        wiring_test_label(result.test_kind),
+        wiring_result_label(result.result),
+    ]
+    if result.measured_value is not None and result.measured_unit:
+        parts.append(
+            f'実測 {result.measured_value} {result.measured_unit}'
+        )
+    return '検証: ' + ' — '.join(parts)

@@ -2715,6 +2715,50 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_sbeval_document ON cad_spectral_balance_evaluations(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_electrical_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_sha256 TEXT NOT NULL, equipment_sha256 TEXT NOT NULL, verdict TEXT NOT NULL, capability_class TEXT NOT NULL, qualification_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_physical_interconnects ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL, version TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT, scene_content_hash TEXT, path_class TEXT NOT NULL, evidence_state TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, UNIQUE(path_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wiring_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, path_id TEXT NOT NULL, path_sha256 TEXT NOT NULL, test_kind TEXT NOT NULL, result TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_logical_physical_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, logical_ref_kind TEXT NOT NULL, logical_ref_id TEXT NOT NULL, path_id TEXT NOT NULL, path_sha256 TEXT NOT NULL, semantic_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_elecqual_document ON cad_electrical_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_elecqual_scenario ON cad_electrical_qualifications(scenario_sha256, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_physint_document ON cad_physical_interconnects(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_physint_path ON cad_physical_interconnects(path_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wirever_path ON cad_wiring_verifications(path_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wirebind_document ON cad_logical_physical_bindings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wirebind_logical ON cad_logical_physical_bindings(logical_ref_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2843,6 +2887,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_environment_profiles',
     'cad_environment_selections',
     'cad_equipment_binding_semantics',
+    'cad_electrical_qualifications',
     'cad_equipment_definitions',
     'cad_equipment_evidence_authorities',
     'cad_equipment_upgrades',
@@ -2900,6 +2945,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_line_level_stages',
     'cad_listener_pose_selections',
     'cad_listener_poses',
+    'cad_logical_physical_bindings',
     'cad_loudness_matching_records',
     'cad_material_definitions',
     'cad_material_evidence',
@@ -2946,6 +2992,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_operating_presets',
     'cad_pareto_sets',
     'cad_perturbation_samples',
+    'cad_physical_interconnects',
     'cad_plan_target_bindings',
     'cad_planned_observed_deltas',
     'cad_playback_chain_evaluations',
@@ -3101,6 +3148,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_wave_excitation_source_assets',
     'cad_wave_source_excitation_bindings',
     'cad_wiring_checks',
+    'cad_wiring_verifications',
     'capture_authoring_provenances',
     'capture_authority_records',
     'capture_bundles',

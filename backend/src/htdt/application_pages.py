@@ -246,6 +246,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_rp22_evaluations": "RP22適合性評価",
     "cad_response_targets": "応答目標プロファイル",
     "cad_spectral_balance_evaluations": "スペクトルバランス評価",
+    "cad_electrical_qualifications": "アンプ・スピーカー電気適合性評価",
+    "cad_physical_interconnects": "物理配線経路（as-built）",
+    "cad_wiring_verifications": "配線検証レコード",
+    "cad_logical_physical_bindings": "論理経路・物理配線バインディング",
 }
 
 

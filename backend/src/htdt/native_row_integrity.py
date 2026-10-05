@@ -1660,6 +1660,64 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV56-ELEC (#593 electrical qualification, #597 as-built wiring
+    # traceability): index columns mirror the sealed payload fields.
+    'cad_electrical_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('document_id', 'document_id'),
+            _b('scenario_sha256', 'scenario', 'scenario_sha256'),
+            _b('equipment_sha256', 'scenario', 'equipment', 'semantic_sha256'),
+            _b('verdict', 'verdict'),
+            _b('capability_class', 'capability_class'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_physical_interconnects': (
+        'payload_json',
+        (
+            _b('path_id', 'path_id'),
+            _b('version', 'version'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id', optional=True),
+            _b('scene_content_hash', 'scene_content_hash', optional=True),
+            _b('path_class', 'path_class'),
+            _b('evidence_state', 'evidence_state'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('recorded_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_wiring_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('test_kind', 'test_kind'),
+            _b('result', 'result'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('recorded_at_utc', 'verified_at_utc'),
+        ),
+        (),
+    ),
+    'cad_logical_physical_bindings': (
+        'payload_json',
+        (
+            _b('binding_id', 'binding_id'),
+            _b('document_id', 'document_id'),
+            _b('logical_ref_kind', 'logical_ref_kind'),
+            _b('logical_ref_id', 'logical_ref_id'),
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

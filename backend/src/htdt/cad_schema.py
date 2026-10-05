@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 28
+NATIVE_SCHEMA_VERSION = 29
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1315,6 +1315,16 @@ def _migrate_27_to_28(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_28_to_29(connection: sqlite3.Connection) -> None:
+    # Install the REV56-ELEC authorities (#593 electrical playback
+    # qualification: amplifier↔loudspeaker compatibility verdicts;
+    # #597 as-built wiring traceability: physical interconnects,
+    # verifications, logical→physical bindings): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1344,6 +1354,7 @@ _MIGRATIONS = {
     26: _migrate_25_to_26,
     27: _migrate_26_to_27,
     28: _migrate_27_to_28,
+    29: _migrate_28_to_29,
 }
 
 
