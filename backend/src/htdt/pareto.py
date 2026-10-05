@@ -94,37 +94,63 @@ def dominates(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
     )
 
 
-def _dominates_metrics(
-    a: tuple[ObjectiveMetric, ...],
-    b: tuple[ObjectiveMetric, ...],
-) -> bool:
-    if len(a) != len(b) or not a:
-        raise ParetoError('dominance comparison requires non-empty vectors of equal length')
+def _metric_comparison_key(
+    metric: ObjectiveMetric,
+) -> tuple[str, str, float, str]:
+    """(objective_id, definition_id, comparison value, direction) once per metric.
 
+    ``definition_id`` resolves the effective definition — a canonical SHA-256
+    for legacy metrics — so the O(n^2) dominance sweep must never recompute it
+    inside a pairwise loop.
+    """
+    return (
+        metric.objective_id,
+        metric.definition_id,
+        metric.comparison_value(),
+        metric.direction,
+    )
+
+
+def _dominates_keys(
+    a: tuple[tuple[str, str, float, str], ...],
+    b: tuple[tuple[str, str, float, str], ...],
+) -> bool:
     no_worse = True
     strictly_better = False
     for left, right in zip(a, b, strict=True):
-        if left.definition_id != right.definition_id:
+        if left[1] != right[1]:
             raise ParetoError(
-                f'objective {left.objective_id} comparison authority mismatch'
+                f'objective {left[0]} comparison authority mismatch'
             )
-        left_value = left.comparison_value()
-        right_value = right.comparison_value()
-        if left.direction == 'minimize':
+        left_value = left[2]
+        right_value = right[2]
+        if left[3] == 'minimize':
             if left_value > right_value:
                 no_worse = False
                 break
             if left_value < right_value:
                 strictly_better = True
-        elif left.direction == 'maximize':
+        elif left[3] == 'maximize':
             if left_value < right_value:
                 no_worse = False
                 break
             if left_value > right_value:
                 strictly_better = True
         else:  # pragma: no cover - Pydantic guards the closed direction enum.
-            raise ParetoError(f'unsupported Pareto objective direction: {left.direction}')
+            raise ParetoError(f'unsupported Pareto objective direction: {left[3]}')
     return no_worse and strictly_better
+
+
+def _dominates_metrics(
+    a: tuple[ObjectiveMetric, ...],
+    b: tuple[ObjectiveMetric, ...],
+) -> bool:
+    if len(a) != len(b) or not a:
+        raise ParetoError('dominance comparison requires non-empty vectors of equal length')
+    return _dominates_keys(
+        tuple(_metric_comparison_key(metric) for metric in a),
+        tuple(_metric_comparison_key(metric) for metric in b),
+    )
 
 
 def pareto_front(
@@ -153,17 +179,27 @@ def pareto_front(
     }
     _validate_comparison_authority(metrics_by_candidate, selected)
 
+    # Resolve each selected metric's comparison authority/value/direction
+    # once: recomputing them inside the O(n^2) dominance sweep repeats a
+    # canonical-hash + model round-trip per pair.
+    keys_by_candidate = {
+        candidate_id: tuple(
+            _metric_comparison_key(metric) for metric in metrics
+        )
+        for candidate_id, metrics in metrics_by_candidate.items()
+    }
+
     dominated_by: dict[str, tuple[str, ...]] = {}
     non_dominated: list[str] = []
     for vector in vectors:
-        vector_metrics = metrics_by_candidate[vector.candidate_id]
+        vector_keys = keys_by_candidate[vector.candidate_id]
         dominators = tuple(
             other.candidate_id
             for other in vectors
             if other.candidate_id != vector.candidate_id
-            and _dominates_metrics(
-                metrics_by_candidate[other.candidate_id],
-                vector_metrics,
+            and _dominates_keys(
+                keys_by_candidate[other.candidate_id],
+                vector_keys,
             )
         )
         dominated_by[vector.candidate_id] = dominators

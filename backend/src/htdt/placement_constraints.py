@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import isfinite, sqrt
 from typing import Any, Annotated, Literal
 
@@ -413,8 +414,8 @@ def _rejection(constraint_id: str, kind: str, entity_ids: list[str], message: st
     }
 
 
-def _resolved_positions(context_payload: dict[str, Any], overrides: dict[str, CandidatePoint3D]) -> tuple[dict[str, dict[str, float] | None], set[str]]:
-    positions = _entity_baselines(context_payload)
+def _resolved_positions(baselines: dict[str, dict[str, float] | None], overrides: dict[str, CandidatePoint3D]) -> tuple[dict[str, dict[str, float] | None], set[str]]:
+    positions = dict(baselines)
     unknown = set(overrides) - set(positions)
     if unknown:
         raise ValueError('Unknown candidate entity_id values: ' + ', '.join(sorted(unknown)))
@@ -430,27 +431,112 @@ class StoredConstraintSetSpec(BaseModel):
     constraints: list[PlacementConstraint] = Field(default_factory=list)
 
 
-def evaluate_constraint_set(
+@dataclass(frozen=True)
+class PreparedConstraintContext:
+    """Context-derived evaluation state invariant across candidate requests.
+
+    Room geometry, wall edges and entity baselines depend only on the Context
+    payload, so batch callers (search enumeration, topology sweeps) can prepare
+    them once instead of rebuilding shapely structures per candidate.
+    """
+
+    room_polygon: Polygon
+    edges: dict[str, LineString]
+    geometry: dict[str, Any]
+    baselines: dict[str, dict[str, float] | None]
+    room_height: float
+    room_width: float
+
+
+@dataclass(frozen=True)
+class PreparedConstraintEvaluation:
+    """Context+spec state hoisted out of per-candidate evaluation.
+
+    Spec validation, entity profiles and region geometries are invariant when a
+    batch enumerates candidates against one pinned constraint spec; preparing
+    them once keeps per-candidate work to position resolution and geometry
+    checks only.
+    """
+
+    context: PreparedConstraintContext
+    spec: StoredConstraintSetSpec
+    profiles: dict[str, EntityProfile]
+    base_relevant_ids: frozenset[str]
+    region_geometries: tuple[BaseGeometry | None, ...]
+
+
+def prepare_constraint_context(
+    context_payload: dict[str, Any],
+) -> PreparedConstraintContext:
+    """Prepare the Context-invariant half of constraint evaluation."""
+    room_polygon, edges, geometry = _room_polygon_and_edges(context_payload)
+    return PreparedConstraintContext(
+        room_polygon=room_polygon,
+        edges=edges,
+        geometry=geometry,
+        baselines=_entity_baselines(context_payload),
+        room_height=float(context_payload['room']['height_m']),
+        room_width=float(context_payload['room']['width_m']),
+    )
+
+
+def prepare_constraint_spec(
+    context: PreparedConstraintContext,
+    raw_spec: dict[str, Any],
+) -> PreparedConstraintEvaluation:
+    """Validate a stored constraint spec once against a prepared context."""
+    spec = StoredConstraintSetSpec.model_validate(raw_spec)
+    if spec.geometry_version != context.geometry['geometry_version']:
+        raise ValueError(
+            f"ConstraintSet geometry version {spec.geometry_version} does not match current engine geometry version {context.geometry['geometry_version']}"
+        )
+    relevant_ids: set[str] = set()
+    region_geometries: list[BaseGeometry | None] = []
+    for constraint in spec.constraints:
+        relevant_ids.update(_constraint_entity_ids(constraint))
+        if isinstance(constraint, (AllowedRegionConstraint, ExclusionRegionConstraint)):
+            region_geometries.append(_region_geometry(constraint.region))
+        else:
+            region_geometries.append(None)
+    profiles = {item.entity_id: item for item in spec.entity_profiles}
+    relevant_ids.update(profiles)
+    return PreparedConstraintEvaluation(
+        context=context,
+        spec=spec,
+        profiles=profiles,
+        base_relevant_ids=frozenset(relevant_ids),
+        region_geometries=tuple(region_geometries),
+    )
+
+
+def prepare_constraint_evaluation(
     context_payload: dict[str, Any],
     raw_spec: dict[str, Any],
+) -> PreparedConstraintEvaluation:
+    """Prepare one Context+spec pair for repeated candidate evaluation."""
+    return prepare_constraint_spec(
+        prepare_constraint_context(context_payload),
+        raw_spec,
+    )
+
+
+def evaluate_prepared_constraint_set(
+    prepared: PreparedConstraintEvaluation,
     request: PlacementEvaluationRequest,
 ) -> dict[str, Any]:
-    spec = StoredConstraintSetSpec.model_validate(raw_spec)
-    room_polygon, edges, geometry = _room_polygon_and_edges(context_payload)
-    if spec.geometry_version != geometry['geometry_version']:
-        raise ValueError(
-            f"ConstraintSet geometry version {spec.geometry_version} does not match current engine geometry version {geometry['geometry_version']}"
-        )
-    resolved, overridden = _resolved_positions(context_payload, request.positions)
-    baselines = _entity_baselines(context_payload)
-    profiles = {item.entity_id: item for item in spec.entity_profiles}
+    context = prepared.context
+    spec = prepared.spec
+    room_polygon = context.room_polygon
+    edges = context.edges
+    geometry = context.geometry
+    baselines = context.baselines
+    profiles = prepared.profiles
+    resolved, overridden = _resolved_positions(baselines, request.positions)
     rejections: list[dict[str, Any]] = []
     observations: list[dict[str, Any]] = []
 
-    relevant_ids = set(overridden) | set(profiles)
-    for constraint in spec.constraints:
-        relevant_ids.update(_constraint_entity_ids(constraint))
-    room_height = float(context_payload['room']['height_m'])
+    relevant_ids = prepared.base_relevant_ids | overridden
+    room_height = context.room_height
     for entity_id in sorted(relevant_ids):
         position = resolved.get(entity_id)
         if position is None:
@@ -517,9 +603,10 @@ def evaluate_constraint_set(
         ))
         return None
 
-    for constraint in spec.constraints:
+    for index, constraint in enumerate(spec.constraints):
         if isinstance(constraint, AllowedRegionConstraint):
-            region = _region_geometry(constraint.region)
+            region = prepared.region_geometries[index]
+            assert region is not None  # prepared for every region constraint
             for entity_id in constraint.entity_ids:
                 position = require_position(constraint.constraint_id, constraint.kind, entity_id)
                 if position is None:
@@ -540,7 +627,8 @@ def evaluate_constraint_set(
                     ))
 
         elif isinstance(constraint, ExclusionRegionConstraint):
-            region = _region_geometry(constraint.region)
+            region = prepared.region_geometries[index]
+            assert region is not None  # prepared for every region constraint
             for entity_id in constraint.entity_ids:
                 position = require_position(constraint.constraint_id, constraint.kind, entity_id)
                 if position is None:
@@ -746,7 +834,7 @@ def evaluate_constraint_set(
             relation = constraint.relation
             if relation == 'mirror_x':
                 actual = (a[0] + b[0]) / 2.0
-                target = constraint.mirror_axis_x_m if constraint.mirror_axis_x_m is not None else float(context_payload['room']['width_m']) / 2.0
+                target = constraint.mirror_axis_x_m if constraint.mirror_axis_x_m is not None else context.room_width / 2.0
             elif relation.startswith('equal_delta_'):
                 axis = {'equal_delta_x': 0, 'equal_delta_y': 1, 'equal_delta_z': 2}[relation]
                 baseline_a = _position_tuple(baselines[constraint.entity_a])  # validated at creation
@@ -784,3 +872,20 @@ def evaluate_constraint_set(
         'observations': observations,
         'rejections': rejections,
     }
+
+
+def evaluate_constraint_set(
+    context_payload: dict[str, Any],
+    raw_spec: dict[str, Any],
+    request: PlacementEvaluationRequest,
+) -> dict[str, Any]:
+    """Single-shot Context+spec evaluation (prepare-once convenience wrapper).
+
+    Batch callers should use ``prepare_constraint_evaluation``/
+    ``evaluate_prepared_constraint_set`` so context geometry and spec
+    validation are not rebuilt per candidate.
+    """
+    return evaluate_prepared_constraint_set(
+        prepare_constraint_evaluation(context_payload, raw_spec),
+        request,
+    )

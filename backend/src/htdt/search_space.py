@@ -10,7 +10,11 @@ from typing import Any, Callable, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from .canonical_json import canonical_sha256
-from .placement_constraints import PlacementEvaluationRequest, evaluate_constraint_set
+from .placement_constraints import (
+    PlacementEvaluationRequest,
+    evaluate_prepared_constraint_set,
+    prepare_constraint_evaluation,
+)
 
 
 SEARCH_SPACE_ALGORITHM_VERSION = 'search-space-grid-1'
@@ -318,6 +322,13 @@ def generate_search_space(
     if raw_count > spec.candidate_limit:
         raise ValueError(f'Raw candidate estimate {raw_count} exceeds SearchSpec candidate_limit {spec.candidate_limit}')
 
+    # Context geometry and the pinned constraint spec are invariant across the
+    # Cartesian sweep: validate/prepare them once instead of per candidate.
+    prepared_constraints = prepare_constraint_evaluation(
+        context_payload,
+        constraint_set_spec,
+    )
+
     page: list[dict[str, Any]] = []
     all_candidates: list[dict[str, Any]] = []
     candidate_ids: list[str] = []
@@ -341,9 +352,8 @@ def generate_search_space(
             entity_id: {f'{axis}_m': resolved[entity_id][axis] for axis in _AXES}
             for entity_id in sorted(touched)
         }
-        evaluation = evaluate_constraint_set(
-            context_payload,
-            constraint_set_spec,
+        evaluation = evaluate_prepared_constraint_set(
+            prepared_constraints,
             PlacementEvaluationRequest.model_validate({'positions': overrides}),
         )
         if not evaluation['feasible']:

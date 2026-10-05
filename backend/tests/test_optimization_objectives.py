@@ -143,6 +143,51 @@ def test_pareto_front_keeps_known_non_dominated_set_in_input_order() -> None:
     assert not dominates((1.0, 1.0), (1.0, 1.0))
 
 
+def test_pareto_front_matches_reference_dominance_over_larger_population() -> None:
+    """REV54 hoisted per-metric comparison keys out of the O(n^2) sweep; the
+    front and dominator sets must be identical to a naive reference scan."""
+    vectors = tuple(
+        vector(
+            f'c{i}',
+            (i % 17) * 0.5 + (i * 7 % 11) * 0.1,
+            (i % 13) * 0.4 + (i * 5 % 7) * 0.2,
+        )
+        for i in range(60)
+    )
+    result = pareto_front(vectors)
+
+    values = {
+        item.candidate_id: tuple(metric.value for metric in item.metrics)
+        for item in vectors
+    }
+
+    def ref_dominates(a: str, b: str) -> bool:
+        return all(x <= y for x, y in zip(values[a], values[b])) and any(
+            x < y for x, y in zip(values[a], values[b])
+        )
+
+    expected_front = tuple(
+        item.candidate_id
+        for item in vectors
+        if not any(
+            other.candidate_id != item.candidate_id
+            and ref_dominates(other.candidate_id, item.candidate_id)
+            for other in vectors
+        )
+    )
+    expected_dominated_by = {
+        item.candidate_id: tuple(
+            other.candidate_id
+            for other in vectors
+            if other.candidate_id != item.candidate_id
+            and ref_dominates(other.candidate_id, item.candidate_id)
+        )
+        for item in vectors
+    }
+    assert result.non_dominated_candidate_ids == expected_front
+    assert result.dominated_by == expected_dominated_by
+
+
 def test_pareto_empty_population_is_typed_empty() -> None:
     """Empty input must be distinguishable from corrupt input."""
     with pytest.raises(ParetoEmptyError):

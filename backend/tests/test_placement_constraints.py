@@ -11,6 +11,10 @@ from htdt.placement_constraints import (
     ConstraintSetCreate,
     PlacementEvaluationRequest,
     evaluate_constraint_set,
+    evaluate_prepared_constraint_set,
+    prepare_constraint_context,
+    prepare_constraint_evaluation,
+    prepare_constraint_spec,
     validate_constraint_set_for_context,
 )
 
@@ -161,6 +165,56 @@ def test_unknown_candidate_entity_is_rejected_not_ignored() -> None:
             context_payload(), stored_spec(),
             PlacementEvaluationRequest.model_validate({'positions': {'UNKNOWN': {'x_m': 1, 'y_m': 1, 'z_m': 1}}}),
         )
+
+
+def test_prepared_evaluation_is_identical_to_single_shot_per_candidate() -> None:
+    """Prepared context+spec evaluation must equal evaluate_constraint_set.
+
+    REV54 hoisted room geometry/spec validation out of the candidate sweep;
+    the batch path must remain bit-identical to the single-shot API.
+    """
+    context = context_payload()
+    spec = stored_spec()
+    prepared = prepare_constraint_evaluation(context, spec)
+    candidate_positions = [
+        {
+            'FL': {'x_m': x, 'y_m': y, 'z_m': 1.0},
+            'FR': {'x_m': 4.0 - x, 'y_m': y, 'z_m': 1.0},
+        }
+        for x in (0.5, 0.9, 1.5, 2.0)
+        for y in (0.4, 1.0, 1.6, 2.2)
+    ]
+    for positions in candidate_positions:
+        request = PlacementEvaluationRequest.model_validate(
+            {'positions': positions}
+        )
+        assert (
+            evaluate_prepared_constraint_set(prepared, request)
+            == evaluate_constraint_set(context, spec, request)
+        )
+
+
+def test_prepare_constraint_spec_shares_context_across_specs() -> None:
+    """The two-level prepare API lets sweeps vary the spec per candidate
+    (topology placement re-derives profiles) while reusing room geometry."""
+    context = context_payload()
+    spec = stored_spec()
+    prepared_context = prepare_constraint_context(context)
+    prepared = prepare_constraint_spec(prepared_context, spec)
+    request = PlacementEvaluationRequest.model_validate({'positions': {
+        'FL': {'x_m': 0.9, 'y_m': 1.1, 'z_m': 1.0},
+        'FR': {'x_m': 3.1, 'y_m': 1.1, 'z_m': 1.0},
+    }})
+    assert (
+        evaluate_prepared_constraint_set(prepared, request)
+        == evaluate_constraint_set(context, spec, request)
+    )
+    # A spec whose geometry version does not match the prepared context still
+    # fails closed at prepare time.
+    stale_spec = dict(spec)
+    stale_spec['geometry_version'] = 'room-geometry-stale'
+    with pytest.raises(ValueError, match='geometry version'):
+        prepare_constraint_spec(prepared_context, stale_spec)
 
 
 def test_constraint_set_api_persists_immutable_spec_and_evaluates(tmp_path: Path) -> None:

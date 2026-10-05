@@ -42,7 +42,11 @@ from .placement_constraints import (
     ConstraintSetCreate,
     LinkedPlacementConstraint,
     PlacementEvaluationRequest,
+    PreparedConstraintContext,
     evaluate_constraint_set,
+    evaluate_prepared_constraint_set,
+    prepare_constraint_context,
+    prepare_constraint_spec,
     validate_constraint_set_for_context,
 )
 from .search_space import (
@@ -817,16 +821,14 @@ def _o10_prefilter_constraint_spec(
 
 def _final_pose_constraint_rejections(
     *,
-    virtual_scene: SceneDocument,
     preview: SceneDocument,
     spec: TopologyPlacementSearchSpec,
     positions: dict[str, dict[str, float]],
+    constraint_set: CadConstraintSet,
+    prepared_context: PreparedConstraintContext,
 ) -> tuple[str, ...]:
     """Evaluate canonical G10 constraints with exact final O80 footprints."""
 
-    constraint_set = CadConstraintSet.model_validate(
-        json.loads(spec.constraint_snapshot_json)
-    )
     placement_ids = {
         item.entity_id
         for item in spec.placement_specs
@@ -838,11 +840,12 @@ def _final_pose_constraint_rejections(
     )
     final_profiles = final_request.model_dump(mode='json')['entity_profiles']
 
+    # Context geometry is invariant across the base x orientation sweep; the
+    # per-candidate spec still carries this candidate's exact final profiles.
     final_spec = json.loads(spec.g10_constraint_spec_json)
     final_spec['entity_profiles'] = final_profiles
-    evaluation = evaluate_constraint_set(
-        scene_to_g10_context(virtual_scene),
-        final_spec,
+    evaluation = evaluate_prepared_constraint_set(
+        prepare_constraint_spec(prepared_context, final_spec),
         PlacementEvaluationRequest.model_validate({
             'positions': positions,
         }),
@@ -1020,6 +1023,7 @@ def generate_topology_placement_candidates(
     constraint_set = CadConstraintSet.model_validate(
         json.loads(spec.constraint_snapshot_json)
     )
+    prepared_g10_context = prepare_constraint_context(context)
 
     ordered_angles = _ordered_angle_axes(spec.placement_specs)
     angle_value_lists = [
@@ -1071,10 +1075,11 @@ def generate_topology_placement_candidates(
                 )
             else:
                 rejections = _final_pose_constraint_rejections(
-                    virtual_scene=virtual_scene,
                     preview=preview,
                     spec=spec,
                     positions=base_candidate.positions,
+                    constraint_set=constraint_set,
+                    prepared_context=prepared_g10_context,
                 )
             if rejections:
                 for constraint_id in rejections:
@@ -1223,10 +1228,15 @@ def topology_candidate_document(
                 )
     else:
         rejections = _final_pose_constraint_rejections(
-            virtual_scene=virtual_scene,
             preview=preview,
             spec=spec,
             positions=candidate.positions,
+            constraint_set=CadConstraintSet.model_validate(
+                json.loads(spec.constraint_snapshot_json)
+            ),
+            prepared_context=prepare_constraint_context(
+                scene_to_g10_context(virtual_scene)
+            ),
         )
         if rejections:
             raise ValueError(
