@@ -112,7 +112,9 @@ Predictionを単独global destinationとして固定しない。
 - 部屋
 - 測定
 - 最適化
-- workspace以外のapplication destination: プロジェクト / 取り込み / アクティビティ / ライブラリ / サポート
+- プレゼン
+- 映像調整
+- workspace以外のapplication destination: プロジェクト / 取り込み / アクティビティ / ライブラリ / サポート / 受入検証
 - 下端に 設定（ヘルプは常設buttonではなく `Ctrl+K` palette経由）
 
 global destinationは原則4〜5個以内。icon-onlyを既定にせず、short labelを併記する。必要ならrail自体をcollapseできる。

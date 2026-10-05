@@ -3365,7 +3365,7 @@ class SelectionInspector(QFrame):
                     "name": entity.name,
                     "role": self.role_field.currentText(),
                     "shape": body_kind,
-                    "radius": self.radius_field.value(),
+                    "radius": self.radius_field.value_m(),
                     "footprint": self.footprint_field.text(),
                 }
             )
@@ -3407,7 +3407,7 @@ class SelectionInspector(QFrame):
             )
         if widget is self.radius_field:
             return abs(
-                self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+                self.radius_field.value_m() - float(self._baseline.get("radius", 0.0))
             ) <= 1e-9
         for editor, key in (
             (self.position_editor, "position"),
@@ -3673,7 +3673,7 @@ class SelectionInspector(QFrame):
         if shape != self._baseline.get("shape"):
             return True
         if shape == "cylinder" and abs(
-            self.radius_field.value() - float(self._baseline.get("radius", 0.0))
+            self.radius_field.value_m() - float(self._baseline.get("radius", 0.0))
         ) > 1e-9:
             return True
         if shape == "extruded_polygon" and self.footprint_field.text() != self._baseline.get(

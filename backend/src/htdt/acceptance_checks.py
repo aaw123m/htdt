@@ -347,9 +347,13 @@ def check_persistence_probe(ctx: CheckContext, arg: str) -> AutoCheckResult:
                 detail_ja='再起動前に記録したプローブ証跡が見つかりません。',
             )
         try:
-            marker = json.loads(content.decode('utf-8'))
+            parsed = json.loads(content.decode('utf-8'))
         except (TypeError, ValueError):
-            marker = None
+            parsed = None
+        # A JSON value that is not an object (list, scalar, string) is a
+        # foreign/corrupt probe asset, not a marker — ``dict.get`` would
+        # raise AttributeError. Treat it as absent and re-issue below.
+        marker = parsed if isinstance(parsed, dict) else None
         if marker is not None and marker.get('run_id') != ctx.run_id:
             return AutoCheckResult(
                 verdict='fail',

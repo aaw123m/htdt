@@ -126,6 +126,77 @@ def _environment_snapshot() -> dict[str, Any]:
     return snapshot
 
 
+def _apply_check_result(
+    steps: list,
+    step_id: str,
+    result,
+    capture_only: bool,
+) -> list | None:
+    """Fold one worker result into the run's step list.
+
+    Returns the mutated step list, or ``None`` when the result was
+    dropped — the step was decided while the check ran, or the step id
+    no longer exists in this run. Callers must only commit a revision
+    when the return is not ``None``: a dropped result that still
+    commits writes a phantom no-op revision into the hash-chained
+    journal.
+    """
+
+    steps = list(steps)
+    for index, record in enumerate(steps):
+        if record.step_id != step_id:
+            continue
+        if record.status != 'pending':
+            # The step was decided while the check ran — a stale
+            # result must never overwrite a recorded verdict.
+            return None
+        now = utc_now_iso()
+        detail = {
+            'verdict': result.verdict,
+            'detail_ja': result.detail_ja,
+            **result.evidence,
+            'checked_at_utc': now,
+        }
+        if capture_only or record.kind != 'auto':
+            # Auto-capture: record the observation; the human still
+            # confirms the step. Failed captures stay pending.
+            steps[index] = record.model_copy(
+                update={'check_detail': detail}
+            )
+        elif result.verdict == 'pass':
+            steps[index] = record.model_copy(
+                update={
+                    'status': 'passed',
+                    'verdict_source': 'auto_check',
+                    'check_detail': detail,
+                    'recorded_at_utc': now,
+                }
+            )
+        elif result.verdict in ('deferred', 'unavailable'):
+            # Unavailable = the check could not run (REW down, missing
+            # dependency). That is not a verdict on the system under
+            # test — the step stays pending with the reason recorded,
+            # never bricked into 'blocked'.
+            steps[index] = record.model_copy(
+                update={
+                    'status': 'pending',
+                    'check_detail': detail,
+                    'note': result.detail_ja,
+                }
+            )
+        else:
+            steps[index] = record.model_copy(
+                update={
+                    'status': 'failed',
+                    'verdict_source': 'auto_check',
+                    'check_detail': detail,
+                    'recorded_at_utc': now,
+                }
+            )
+        return steps
+    return None
+
+
 class _AutoCheckWorker(QThread):
     """Runs a (possibly slow) auto check off the GUI thread."""
 
@@ -592,58 +663,13 @@ class AcceptancePage(QWidget):
         latest = self.repository.latest(run_id)
         if latest is None:
             return
-        steps = list(latest.steps)
-        for index, record in enumerate(steps):
-            if record.step_id != step_id:
-                continue
-            if record.status != 'pending':
-                # The step was decided while the check ran — a stale
-                # result must never overwrite a recorded verdict.
-                break
-            now = utc_now_iso()
-            detail = {
-                'verdict': result.verdict,
-                'detail_ja': result.detail_ja,
-                **result.evidence,
-                'checked_at_utc': now,
-            }
-            if capture_only or record.kind != 'auto':
-                # Auto-capture: record the observation; the human still
-                # confirms the step. Failed captures stay pending.
-                steps[index] = record.model_copy(
-                    update={'check_detail': detail}
-                )
-            elif result.verdict == 'pass':
-                steps[index] = record.model_copy(
-                    update={
-                        'status': 'passed',
-                        'verdict_source': 'auto_check',
-                        'check_detail': detail,
-                        'recorded_at_utc': now,
-                    }
-                )
-            elif result.verdict in ('deferred', 'unavailable'):
-                # Unavailable = the check could not run (REW down, missing
-                # dependency). That is not a verdict on the system under
-                # test — the step stays pending with the reason recorded,
-                # never bricked into 'blocked'.
-                steps[index] = record.model_copy(
-                    update={
-                        'status': 'pending',
-                        'check_detail': detail,
-                        'note': result.detail_ja,
-                    }
-                )
-            else:
-                steps[index] = record.model_copy(
-                    update={
-                        'status': 'failed',
-                        'verdict_source': 'auto_check',
-                        'check_detail': detail,
-                        'recorded_at_utc': now,
-                    }
-                )
-            break
+        steps = _apply_check_result(
+            list(latest.steps), step_id, result, capture_only
+        )
+        if steps is None:
+            # Result dropped — no step changed, so no journal revision.
+            self._select_row(step_id)
+            return
         self._run = self.repository.commit(latest, steps)
         self._refresh_run_list()
         self._render_run()
