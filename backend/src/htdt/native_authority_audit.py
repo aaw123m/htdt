@@ -414,6 +414,18 @@ class _RepositoryChain:
             )
 
             return CadMeasurementEvidenceRepository(scene)
+        if name == 'decision_rule':
+            from .cad_decision_rule_repository import (
+                CadDecisionRuleRepository,
+            )
+
+            return CadDecisionRuleRepository(scene)
+        if name == 'robust_design':
+            from .cad_robust_design_repository import (
+                CadRobustDesignRepository,
+            )
+
+            return CadRobustDesignRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2106,6 +2118,30 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_measurement_transforms',
         ('transform_id',),
         _get('measurement_evidence', 'get_transform'),
+    ),
+    _ReplayProbe(
+        'decision_rule',
+        'cad_decision_rule_specs',
+        ('rule_id',),
+        _get('decision_rule', 'get_rule'),
+    ),
+    _ReplayProbe(
+        'decision_verdict',
+        'cad_decision_verdicts',
+        ('verdict_id',),
+        _get('decision_rule', 'get_verdict'),
+    ),
+    _ReplayProbe(
+        'uncertain_input_set',
+        'cad_uncertain_input_sets',
+        ('input_set_id',),
+        _get('robust_design', 'get_input_set'),
+    ),
+    _ReplayProbe(
+        'robust_design_assessment',
+        'cad_robust_design_assessments',
+        ('assessment_id',),
+        _get('robust_design', 'get_assessment'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',

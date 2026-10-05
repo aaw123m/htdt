@@ -201,6 +201,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_measurement_state_snapshots": "測定状態スナップショット",
     "cad_measurement_state_verdicts": "測定状態判定",
     "cad_measurement_transforms": "測定変換レコード",
+    "cad_decision_rule_specs": "決定ルール仕様",
+    "cad_decision_verdicts": "証拠判定レコード",
+    "cad_uncertain_input_sets": "不確かさ入力セット",
+    "cad_robust_design_assessments": "堅牢設計評価",
 }
 
 

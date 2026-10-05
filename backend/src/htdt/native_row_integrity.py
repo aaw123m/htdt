@@ -596,6 +596,55 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_decision_rule_specs': (
+        'payload_json',
+        (
+            _b('rule_id', 'rule_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('decision_type', 'decision_type'),
+            _b('criterion_id', 'criterion_id'),
+        ),
+        (),
+    ),
+    'cad_decision_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('rule_id', 'rule_id'),
+            _b('rule_sha256', 'rule_sha256'),
+            _b('decision_type', 'decision_type'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_uncertain_input_sets': (
+        'payload_json',
+        (
+            _b('input_set_id', 'input_set_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id'),
+            _b('scene_content_hash', 'scene_content_hash'),
+            _b('model_ref', 'model_ref'),
+        ),
+        (),
+    ),
+    'cad_robust_design_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('input_set_id', 'input_set_id'),
+            _b('input_set_sha256', 'input_set_sha256'),
+            _b('propagation_spec_id', 'propagation_spec_id'),
+            _b('propagation_spec_sha256', 'propagation_spec_sha256'),
+        ),
+        (),
+    ),
     'cad_cost_records': (
         'payload_json',
         (
