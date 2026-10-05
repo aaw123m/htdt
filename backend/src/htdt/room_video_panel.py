@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -517,21 +518,21 @@ class _SpinRow(QWidget):
 
     def __init__(self, label: str, *, minimum: float, maximum: float, step: float, value: float, parent=None) -> None:
         super().__init__(parent)
-        row = QHBoxLayout(self)
+        row = QVBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(4)
+        row.setSpacing(2)
         text = QLabel(label)
         set_typography_role(text, TypographyRole.SECONDARY)
-        # Wrap long JA labels so the row's minimum width stays near the
-        # spin's width — otherwise a narrow right panel pushes the spin
-        # off-screen behind a horizontal scrollbar.
+        # Label sits above the spin (like a wrapped form row): a side-by-side
+        # label+spin needs ~300px at mm widths, pushing the spin off-screen
+        # in the narrow placement column.
         text.setWordWrap(True)
         self.spin = MetricSpinBox(
             self, minimum_m=minimum, maximum_m=maximum
         )
         self.spin.setSingleStep(step)
         self.spin.set_value_m(value)
-        row.addWidget(text, stretch=1)
+        row.addWidget(text)
         row.addWidget(self.spin)
 
 
@@ -698,6 +699,7 @@ class RoomVideoPanel(QWidget):
         display_layout.addLayout(display_spec_row)
 
         self.display_heading = QLabel("ディスプレイ有効画域（バインド未設定）")
+        self.display_heading.setWordWrap(True)
         set_typography_role(self.display_heading, TypographyRole.SECONDARY)
         display_layout.addWidget(self.display_heading)
         display_form = QFormLayout()
@@ -1119,12 +1121,22 @@ class RoomVideoPanel(QWidget):
                             decimals=self._length_policy.decimals,
                         )
                     row_id = QLineEdit('row-1')
+                    row_id.setMinimumWidth(72)
+                    row_id.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        row_id.sizePolicy().verticalPolicy(),
+                    )
                     riser_combo = QComboBox()
                     # Created per seat card at refresh time — keep it
                     # shrinkable like the ctor-time combos in this column.
                     riser_combo.setMinimumContentsLength(6)
                     riser_combo.setSizeAdjustPolicy(
                         QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
+                    riser_combo.setMinimumWidth(72)
+                    riser_combo.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        riser_combo.sizePolicy().verticalPolicy(),
                     )
                     riser_combo.addItem("（ライザーなし）", None)
                     for riser in risers:
@@ -1139,6 +1151,11 @@ class RoomVideoPanel(QWidget):
                     pose_combo.setMinimumContentsLength(6)
                     pose_combo.setSizeAdjustPolicy(
                         QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
+                    pose_combo.setMinimumWidth(72)
+                    pose_combo.setSizePolicy(
+                        QSizePolicy.Policy.Ignored,
+                        pose_combo.sizePolicy().verticalPolicy(),
                     )
                     pose_combo.addItem("カスタム（手動値）", None)
                     pose_combo.setToolTip(

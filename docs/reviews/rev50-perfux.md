@@ -87,3 +87,45 @@ document スコープ、disabled border、video panel ポリシー伝播
 回帰テスト: `test_rev50_perfux.py` に `test_placement_column_content_stays_inside_right_stack`
 (パネル/座席カードの最小幅 ≤248px、座席カードコンボの縮退ポリシー、`_SpinRow` ラベル
 wordWrap、カードフォーム `WrapLongRows`、座席視点ボタン行分離) を追加。
+
+### 追補2 — 配置列の深掘り修正 (GUI 再検証で部分不足を検出 → 拡大)
+
+PR #556 の検証で、初期修正だけでは既定レイアウト (~283px 実ビューポート) に
+対しコンテンツ最小幅が不足していたことが判明 (358→238px でも残りの複数
+ウィジェット行 ~333-437px が実質駆動因子)。パネルごとドリルダウンして
+実測し、複数ウィジェット水平行を全て縦構造化 + フィールド縮退床 72px を
+全列に適用。
+
+| # | 修正 | 対象 |
+| --- | --- | --- |
+| F5 | 列スイープに `QAbstractSpinBox`/`QLineEdit` を追加: `setMinimumWidth(72)` + `QSizePolicy.Ignored` | `RoomWorkspace` (ctor 時 findChildren 一括) |
+| F6 | `_SpinRow` を横並び→縦積み (`QVBoxLayout`: ラベル上段+スピン下段) | `room_video_panel` |
+| F7 | `seat_view_row` 分割 (コンボ行 + ボタン行) — F3 の確定 | `room_video_panel` |
+| F8 | `_field_pair` (min/max 2 フィールド) を縦積み化 | `system_expansion_widgets` |
+| F9 | `_ProposalSpeakerRow`: ヘッダーから `削除` を分離 → `詳細` ボタンと controls 行化、行マージン 6→4、コンボ床 64 | `system_expansion_widgets` |
+| F10 | 追加スピーカー行ヘッダーの 2 ボタン (`＋行を追加`/`＋サラウンドペア`) をタイトル行と分離 | `system_expansion_widgets` |
+| F11 | `機器・音源ライブラリ…` / `再生チェーン…` ボタン行を縦積み化 | `system_expansion_widgets` |
+| F12 | 既存スピーカー行の `equipment` コンボに len6+縮退ポリシー | `system_expansion_widgets` |
+| F13 | 制約追加ボタン 4 連 (`通路`/`機器`/`表面`/`音響処`) を 1 行→2×2 グリッド化 | `room_constraints_panel` |
+| F14 | 実測クリアランス 2 列グリッドを 1 列化 (check+spin ペア×6 → 縦) | `installation_panel` |
+| F15 | `_OverrideRow` (axis/required/rationale) に 72px 床 + Ignored | `installation_panel` |
+| F16 | `ディスプレイ有効画域` 見出しラベルに `setWordWrap(True)` (228px 駆動因子) | `room_video_panel` |
+
+計測 (オフスクリーン `minimumSizeHint().width()`、列スイープ適用後):
+
+| パネル | 修正前 | 修正後 |
+| --- | --- | --- |
+| SystemExpansion | 410 | 270 |
+| SeatPriority | 240 | 240 |
+| Installation | 414 | 240 |
+| Constraints | 332 | 164 |
+| Standards | 218 | 218 |
+| Video (+座席カード) | 358 | 192 |
+
+実ビューポート ~283px に対し全パネル ≤270px → 横スクロール非発生。
+回帰テスト更新: `test_placement_column_content_stays_inside_right_stack` が
+全 6 パネルを `show()`+スイープ複製→`processEvents`→最小幅 ≤280px で検証。
+
+学び: `minimumSizeHint` はレイアウトキャッシュ — `setSizePolicy`/`setMinimumWidth`
+後は `QApplication.processEvents()` (LayoutRequest フラッシュ) しないと
+計測値が古いままになる (テストで 282 vs 実測 192 の差として検出)。

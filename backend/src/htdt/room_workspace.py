@@ -12,6 +12,7 @@ from uuid import uuid4
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -4294,16 +4295,28 @@ class RoomWorkspace(QWidget):
         placement_layout.addWidget(self.standards_panel)
         placement_layout.addWidget(self.installation_panel)
         placement_layout.addStretch(1)
-        # Narrow-column safety: let every combo in this column shrink to a
-        # short minimum and every form wrap its label above the field
-        # instead of forcing the scroll area's horizontal scrollbar (long
-        # spec/variant labels otherwise push rows off-screen). Combos and
-        # forms built later at refresh time repeat the same treatment at
-        # their creation sites.
+        # Narrow-column safety: every combo in this column shrinks to a short
+        # minimum, every line edit and spin box may squeeze below its size
+        # hint (a hard floor keeps it usable), and every form wraps its label
+        # above the field — otherwise long spec names and mm-unit values
+        # force the scroll area's horizontal scrollbar. Widgets built later
+        # at refresh time repeat the same treatment at their creation sites.
         for _combo in placement_body.findChildren(QComboBox):
             _combo.setMinimumContentsLength(6)
             _combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            _combo.setMinimumWidth(72)
+            _combo.setSizePolicy(
+                QSizePolicy.Policy.Ignored, _combo.sizePolicy().verticalPolicy()
+            )
+        for _field in (
+            *placement_body.findChildren(QAbstractSpinBox),
+            *placement_body.findChildren(QLineEdit),
+        ):
+            _field.setMinimumWidth(72)
+            _field.setSizePolicy(
+                QSizePolicy.Policy.Ignored, _field.sizePolicy().verticalPolicy()
             )
         for _form in placement_body.findChildren(QFormLayout):
             _form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)

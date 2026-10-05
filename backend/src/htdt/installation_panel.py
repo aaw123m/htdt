@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -193,10 +194,27 @@ class _OverrideRow(QWidget):
         self.axis_combo = _styled_combo()
         for axis, label in _AXIS_LABELS.items():
             self.axis_combo.addItem(label, axis)
+        # Runtime-built row — keep every field shrinkable like the ctor-time
+        # widgets in this narrow column (min 72px floor).
+        self.axis_combo.setMinimumWidth(72)
+        self.axis_combo.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.axis_combo.sizePolicy().verticalPolicy(),
+        )
         self.required_spin = MetricSpinBox(minimum_m=0.0, maximum_m=20.0)
         self.required_spin.setAccessibleName('必要クリアランス')
+        self.required_spin.setMinimumWidth(72)
+        self.required_spin.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.required_spin.sizePolicy().verticalPolicy(),
+        )
         self.rationale_edit = QLineEdit()
         self.rationale_edit.setPlaceholderText('上書きの根拠（必須）')
+        self.rationale_edit.setMinimumWidth(72)
+        self.rationale_edit.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            self.rationale_edit.sizePolicy().verticalPolicy(),
+        )
         layout.addWidget(self.axis_combo)
         layout.addWidget(self.required_spin)
         layout.addWidget(self.rationale_edit, 1)
@@ -303,14 +321,15 @@ class InstallationPanel(QFrame):
             check.toggled.connect(spin.setEnabled)
             self.clearance_checks[field] = check
             self.clearance_spins[field] = spin
-            row, column = divmod(index, 2)
+            # One column: a 2×N grid of (check + mm spin) pairs needs ~450px,
+            # overflowing the narrow placement column.
             pair = QWidget()
             pair_layout = QHBoxLayout(pair)
             pair_layout.setContentsMargins(0, 0, 0, 0)
             pair_layout.setSpacing(4)
             pair_layout.addWidget(check)
             pair_layout.addWidget(spin, 1)
-            clearances_grid.addWidget(pair, row, column)
+            clearances_grid.addWidget(pair, index, 0)
         form.addRow('実測クリアランス', clearances_widget)
 
         overrides_widget = QWidget()

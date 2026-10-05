@@ -395,13 +395,48 @@ def test_tall_dialogs_scroll_instead_of_overflowing() -> None:
 # -- placement column narrow-width safety --------------------------------------
 
 
+def _placement_column_sweep(body) -> None:
+    """Replicates RoomWorkspace's placement-column policy applied in its ctor."""
+
+    from PySide6.QtWidgets import (
+        QAbstractSpinBox,
+        QComboBox,
+        QFormLayout,
+        QLineEdit,
+        QSizePolicy,
+    )
+
+    for combo in body.findChildren(QComboBox):
+        combo.setMinimumContentsLength(6)
+        combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        combo.setMinimumWidth(72)
+        combo.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            combo.sizePolicy().verticalPolicy(),
+        )
+    for field in (
+        *body.findChildren(QAbstractSpinBox),
+        *body.findChildren(QLineEdit),
+    ):
+        field.setMinimumWidth(72)
+        field.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            field.sizePolicy().verticalPolicy(),
+        )
+    for form in body.findChildren(QFormLayout):
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
+
 def test_placement_column_content_stays_inside_right_stack(tmp_path: Path) -> None:
     """Placement right-panel content must not force a horizontal scrollbar.
 
-    The right stack's minimum width is 248px; before this fix the video
-    panel's content minimum was ~358px (seat spins + 登録… buttons ended up
-    off-screen behind a horizontal scrollbar).  Forms now wrap long labels
-    above their fields and combos shrink to a short minimum.
+    The default right-stack viewport is ~283px at 1024x768; before this fix
+    several panels forced content minimums of 330-560px (seat spins + 登録…
+    buttons ended up off-screen behind a horizontal scrollbar).  Forms now
+    wrap long labels above their fields and combos/fields shrink to a short
+    minimum, so every panel's content minimum stays under the viewport.
     """
 
     _app()
@@ -409,8 +444,16 @@ def test_placement_column_content_stays_inside_right_stack(tmp_path: Path) -> No
     from htdt.cad_repository import SceneRepository
     from htdt.cad_scene import F1_DOCUMENT_ID, make_f1_scene
     from htdt.cad_video_workspace import VideoGeometryWorkspace
+    from htdt.installation_panel import InstallationPanel
+    from htdt.room_constraints_panel import RoomConstraintsPanel
     from htdt.room_video_panel import RoomVideoPanel
     from htdt.room_workspace import RoomWorkspaceController
+    from htdt.seat_priority_panel import SeatPriorityPanel
+    from htdt.standards_workspace import StandardsCriterionPanel
+    from htdt.system_expansion_widgets import (
+        SystemExpansionRoomPanel,
+        SystemExpansionWorkflowService,
+    )
 
     repository = SceneRepository(tmp_path / 'scenes.sqlite3')
     repository.save(make_f1_scene(), parent_revision_id=None)
@@ -430,21 +473,31 @@ def test_placement_column_content_stays_inside_right_stack(tmp_path: Path) -> No
         None,
         (),
     )
-    # Replicates RoomWorkspace's placement-column policy applied in its ctor.
-    for combo in panel.findChildren(QComboBox):
-        if combo.sizeAdjustPolicy() == QComboBox.SizeAdjustPolicy.AdjustToContents:
-            continue
-        combo.setMinimumContentsLength(6)
-        combo.setSizeAdjustPolicy(
-            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
-        )
-    panel.show()
+    service = SystemExpansionWorkflowService(repository, F1_DOCUMENT_ID)
+    panels = {
+        'system_expansion': SystemExpansionRoomPanel(service),
+        'constraints': RoomConstraintsPanel(),
+        'video': panel,
+        'seat_priority': SeatPriorityPanel(repository, F1_DOCUMENT_ID),
+        'standards': StandardsCriterionPanel(repository, F1_DOCUMENT_ID),
+        'installation': InstallationPanel(
+            repository, service.equipment_repository, F1_DOCUMENT_ID
+        ),
+    }
+    for body in panels.values():
+        body.show()
+        _placement_column_sweep(body)
+    # Policy changes post LayoutRequest events — flush so the layouts
+    # recompute their cached minimum sizes before asserting.
+    from PySide6.QtWidgets import QApplication
 
-    # Whole panel + seat card stay inside the 248px stack minimum.
-    assert panel.minimumSizeHint().width() <= 248
+    QApplication.processEvents()
+    # The real scroll viewport is ~283px at the default 1024x768 layout.
+    for name, body in panels.items():
+        assert body.minimumSizeHint().width() <= 280, name
     card = panel.seats_box.itemAt(0).widget()
     assert card is not None
-    assert card.minimumSizeHint().width() <= 248
+    assert card.minimumSizeHint().width() <= 280
 
     # Seat-card combos created at refresh time shrink like ctor-time combos.
     seat_widgets = panel._seat_widgets[seat.entity_id]
