@@ -195,6 +195,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_calibration_plans": "校正プラン",
     "cad_correction_qualifications": "補正修飾レコード",
     "cad_comparison_records": "比較履歴",
+    "cad_decision_rule_specs": "決定ルール仕様",
+    "cad_decision_verdicts": "証拠判定レコード",
+    "cad_uncertain_input_sets": "不確かさ入力セット",
+    "cad_robust_design_assessments": "堅牢設計評価",
 }
 
 

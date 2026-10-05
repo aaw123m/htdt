@@ -40,6 +40,15 @@ from .cad_measurement_quality_producer import CadMeasurementQualityProducer
 from .cad_measurement_quality_repository import CadMeasurementQualityRepository
 from .cad_measurement_repository import CadMeasurementRepository
 from .cad_measurements import measurement_record_for_revision, normalize_rew_api_snapshot
+from .cad_decision_rule import (
+    DecisionSubject,
+    VERDICT_LABELS,
+    UncertaintyCompositionManifest,
+    UncertaintySourceRef,
+    build_decision_rule_spec,
+    evaluate_pairwise_preference,
+)
+from .cad_decision_rule_repository import CadDecisionRuleRepository
 from .cad_model_validation_repository import CadModelValidationRepository
 from .cad_model_validation_service import CadModelValidationService
 from .cad_objective_repository import CadObjectiveRepository
@@ -98,6 +107,14 @@ _EVIDENCE_CLASS_LABELS = {
     "predicted": "予測",
     "derived": "派生",
     "hypothesis": "仮説",
+}
+_DECISION_REASON_LABELS = {
+    'no_declared_uncertainty_resolution': '宣言された不確かさ証拠がありません',
+    'separation_below_evidence_resolution': '差が結合分解能以下です',
+    'separation_exceeds_composed_resolution': '差が結合分解能を超えています',
+    'separation_within_practical_equivalence': '実用同等しきい値内です',
+    'declared_limitations_apply': '宣言された制約付きです',
+    'nominal_leader_display_only': '名目順位のみ表示',
 }
 
 
@@ -193,6 +210,7 @@ class OptimizationWorkflowController(
             objective_repository=self.objective_repository,
             extended_search_repository=self.extended_repository,
         )
+        self.decision_repository = CadDecisionRuleRepository(repository)
         self.adaptive_extended_repository = CadAdaptiveExtendedRepository(
             self.extended_repository,
             self.validation_repository,
@@ -450,6 +468,8 @@ class OptimizationWorkflowController(
             self.pareto_summary_label.setText(
                 "部屋または制約が変更されたため、この探索設定ではPareto比較を更新できません"
             )
+            if self.decision_verdict_label is not None:
+                self.decision_verdict_label.setText("証拠判定は利用できません")
             self.statusChanged.emit(
                 "Pareto比較を更新できません · 部屋または制約が変更されています"
             )
@@ -467,6 +487,8 @@ class OptimizationWorkflowController(
             self.objective_list.clear()
             self.pareto_tree.clear()
             self.pareto_summary_label.setText("この探索設定には比較できる指標データがありません")
+            if self.decision_verdict_label is not None:
+                self.decision_verdict_label.setText("証拠判定は利用できません")
             return
 
         available = tuple(metric.objective_id for metric in evaluations[0].vector.metrics)
@@ -481,6 +503,8 @@ class OptimizationWorkflowController(
                 self.pareto_summary_label.setText(
                     "候補間で比較指標が一致しないため、Pareto比較を中止しました"
                 )
+                if self.decision_verdict_label is not None:
+                    self.decision_verdict_label.setText("証拠判定は利用できません")
                 return
             if any(
                 metric_map[objective_id].unit != expected_units[objective_id]
@@ -490,6 +514,8 @@ class OptimizationWorkflowController(
                 self.pareto_summary_label.setText(
                     "候補間で指標の単位が一致しないため、Pareto比較を中止しました"
                 )
+                if self.decision_verdict_label is not None:
+                    self.decision_verdict_label.setText("証拠判定は利用できません")
                 return
 
         previous = {
@@ -520,6 +546,8 @@ class OptimizationWorkflowController(
         except Exception as exc:
             self.pareto_tree.clear()
             self.pareto_summary_label.setText(f"Pareto比較を作成できません · {operation_error_message(exc)}")
+            if self.decision_verdict_label is not None:
+                self.decision_verdict_label.setText("証拠判定は利用できません")
             return
 
         non_dominated = set(pareto_set.result.non_dominated_candidate_ids)
@@ -549,6 +577,230 @@ class OptimizationWorkflowController(
             f"{len(evaluations)}候補 · 非劣 {len(non_dominated)} · "
             f"指標 {len(selected)}{reused}"
         )
+        self._refresh_decision_verdicts(spec_id, evaluations, selected)
+
+    # REV56 (#577): pairwise preference verdicts gated on the declared
+    # uncertainty evidence — the comparison surface shows a rankable /
+    # indistinguishable / insufficient-evidence verdict plus its reason,
+    # never a bare numeric ordering.
+    _DECISION_PAIR_CAP = 8
+
+    def _refresh_decision_verdicts(
+        self,
+        spec_id: str,
+        evaluations,
+        selected: tuple[str, ...],
+    ) -> None:
+        if self.decision_verdict_label is None:
+            return
+        try:
+            self._apply_decision_verdicts(spec_id, evaluations, selected)
+        except Exception as exc:
+            self.decision_verdict_label.setText(
+                f"証拠判定を計算できません · {operation_error_message(exc)}"
+            )
+
+    def _apply_decision_verdicts(
+        self,
+        spec_id: str,
+        evaluations,
+        selected: tuple[str, ...],
+    ) -> None:
+        scene_revision_id = getattr(self.working, 'source_revision_id', None)
+        envelopes: dict[tuple[str, str], object] = {}
+        envelope_times: dict[str, str] = {}
+        if scene_revision_id is not None:
+            evaluation_ids = {
+                evaluation.evaluation_id for evaluation in evaluations
+            }
+            latest_spec_by_candidate: dict[str, object] = {}
+            for rspec in self.robustness_repository.list_specs_for_search(
+                document_id=self.document_id,
+                scene_revision_id=scene_revision_id,
+                search_spec_id=spec_id,
+            ):
+                # the envelope is bound to the exact nominal evaluation it
+                # perturbed — evidence for a stale evaluation is not reused
+                if rspec.nominal_objective_evaluation_id in evaluation_ids:
+                    latest_spec_by_candidate[rspec.candidate_id] = rspec
+            for candidate_id, rspec in latest_spec_by_candidate.items():
+                envelope_times[candidate_id] = rspec.created_at_utc
+                for reval in self.robustness_repository.list_evaluations(
+                    rspec.robustness_spec_id
+                ):
+                    envelopes[(candidate_id, reval.objective_id)] = reval
+
+        compared = list(evaluations)[: self._DECISION_PAIR_CAP]
+        lines: list[str] = []
+        counts: dict[str, int] = {}
+        for index_a in range(len(compared)):
+            for index_b in range(index_a + 1, len(compared)):
+                evaluation_a = compared[index_a]
+                evaluation_b = compared[index_b]
+                metrics_a = {
+                    metric.objective_id: metric
+                    for metric in evaluation_a.vector.metrics
+                }
+                metrics_b = {
+                    metric.objective_id: metric
+                    for metric in evaluation_b.vector.metrics
+                }
+                for objective_id in selected:
+                    metric_a = metrics_a.get(objective_id)
+                    metric_b = metrics_b.get(objective_id)
+                    if (
+                        metric_a is None
+                        or metric_b is None
+                        or metric_a.direction not in ('minimize', 'maximize')
+                    ):
+                        continue
+                    verdict = self._pairwise_objective_verdict(
+                        objective_id=objective_id,
+                        metric_a=metric_a,
+                        metric_b=metric_b,
+                        evaluation_a=evaluation_a,
+                        evaluation_b=evaluation_b,
+                        envelopes=envelopes,
+                        envelope_times=envelope_times,
+                        spec_id=spec_id,
+                    )
+                    counts[verdict.verdict] = counts.get(verdict.verdict, 0) + 1
+                    if verdict.verdict in (
+                        'evidentially_indeterminate',
+                        'insufficient_evidence',
+                        'clearly_superior_within_declared_evidence',
+                    ) and len(lines) < 8:
+                        lines.append(
+                            f"{evaluation_a.candidate_id[:12]}↔"
+                            f"{evaluation_b.candidate_id[:12]} "
+                            f"{_objective_display_name(objective_id)}: "
+                            f"{VERDICT_LABELS[verdict.verdict]}"
+                            + (
+                                f" — {_DECISION_REASON_LABELS.get(code, code)}"
+                                if (code := next(
+                                    iter(verdict.reason_codes), ''))
+                                else ''
+                            )
+                        )
+        if not counts:
+            self.decision_verdict_label.setText(
+                "証拠判定できる候補ペアがありません"
+            )
+            return
+        total = sum(counts.values())
+        ordered = sorted(
+            counts.items(), key=lambda pair: pair[0]
+        )
+        heading = ' · '.join(
+            f"{VERDICT_LABELS[kind]} {count}" for kind, count in ordered
+        )
+        lines.insert(0, f"証拠判定 {total}件: {heading}")
+        self.decision_verdict_label.setText('\n'.join(lines))
+
+    def _pairwise_objective_verdict(
+        self,
+        *,
+        objective_id: str,
+        metric_a,
+        metric_b,
+        evaluation_a,
+        evaluation_b,
+        envelopes: dict[tuple[str, str], object],
+        envelope_times: dict[str, str],
+        spec_id: str,
+    ):
+        evidence_a = envelopes.get((evaluation_a.candidate_id, objective_id))
+        evidence_b = envelopes.get((evaluation_b.candidate_id, objective_id))
+        sources: list[UncertaintySourceRef] = []
+        if evidence_a is not None and evidence_a.sampled_envelope is not None:
+            half_width = (
+                evidence_a.sampled_envelope.sampled_max
+                - evidence_a.sampled_envelope.sampled_min
+            ) / 2.0
+            sources.append(
+                UncertaintySourceRef(
+                    source_id=f'o90-envelope:{evaluation_a.candidate_id}',
+                    source_class='input_installation_variation',
+                    representation='bounded_interval',
+                    value=half_width,
+                    unit=metric_a.unit,
+                    scope='independent',
+                    authority_ref=evidence_a.evaluation_id,
+                )
+            )
+        if evidence_b is not None and evidence_b.sampled_envelope is not None:
+            half_width = (
+                evidence_b.sampled_envelope.sampled_max
+                - evidence_b.sampled_envelope.sampled_min
+            ) / 2.0
+            sources.append(
+                UncertaintySourceRef(
+                    source_id=f'o90-envelope:{evaluation_b.candidate_id}',
+                    source_class='input_installation_variation',
+                    representation='bounded_interval',
+                    value=half_width,
+                    unit=metric_b.unit,
+                    scope='independent',
+                    authority_ref=evidence_b.evaluation_id,
+                )
+            )
+        timestamps = [
+            evaluation_a.created_at_utc,
+            evaluation_b.created_at_utc,
+        ]
+        for candidate_id in (
+            evaluation_a.candidate_id, evaluation_b.candidate_id
+        ):
+            if candidate_id in envelope_times:
+                timestamps.append(envelope_times[candidate_id])
+        rule = build_decision_rule_spec(
+            document_id=self.document_id,
+            rule_version_label='o90-envelope-pairwise-v1',
+            decision_type='pairwise_candidate_preference',
+            criterion_id=objective_id,
+            criterion_unit=metric_a.unit,
+            criterion_direction=metric_a.direction,
+            uncertainty_manifest=UncertaintyCompositionManifest(
+                sources=tuple(sources),
+                combination_method='bounded_linear_sum',
+                combination_justification=(
+                    'O90幾何・設置ばらつきの評価サンプル包絡半幅を線形和で結合'
+                    ' — 相関は未宣言のため共通モード相殺を仮定せず保守的に扱う'
+                    if sources
+                    else 'この指標・候補ペアには宣言された不確かさ証拠がない'
+                ),
+            ),
+            risk_policy={
+                'policy_id': 'balanced_design_exploration',
+                'allow_nominal_rank_display': True,
+            },
+            declared_limitations=(
+                '材料・測定・モデル不確かさはこの判定に未合成'
+                ' — 結合分解能は幾何・設置ばらつきの下限',
+            ) if sources else (),
+            created_at_utc=max(timestamps),
+        )
+        verdict = evaluate_pairwise_preference(
+            rule,
+            candidate_a=DecisionSubject(
+                candidate_id=evaluation_a.candidate_id,
+                evaluation_id=evaluation_a.evaluation_id,
+                evaluation_sha256=evaluation_a.evaluation_sha256,
+            ),
+            candidate_b=DecisionSubject(
+                candidate_id=evaluation_b.candidate_id,
+                evaluation_id=evaluation_b.evaluation_id,
+                evaluation_sha256=evaluation_b.evaluation_sha256,
+            ),
+            value_a=float(metric_a.value),
+            value_b=float(metric_b.value),
+            search_spec_id=spec_id,
+            limitations=rule.declared_limitations,
+            created_at_utc=max(timestamps),
+        )
+        self.decision_repository.save_rule(rule)
+        self.decision_repository.save_verdict(verdict)
+        return verdict
 
     def _pareto_candidate_selected(self) -> None:
         if self.pareto_tree is None or self.search_candidate_tree is None:
@@ -915,6 +1167,8 @@ class OptimizationWorkflowController(
         self.pareto_refresh_button = QPushButton("Pareto集合を更新")
         self.pareto_refresh_button.clicked.connect(self.refresh_pareto_comparison)
         self.pareto_summary_label = QLabel("比較指標が未読み込みです")
+        self.decision_verdict_label = QLabel("証拠判定は未評価です")
+        self.decision_verdict_label.setAccessibleName('証拠判定')
         self.pareto_tree = QTreeWidget()
         self.pareto_tree.setAccessibleName('Pareto比較候補')
         self.pareto_tree.setHeaderLabels(["候補", "Pareto", "根拠", "指標"])

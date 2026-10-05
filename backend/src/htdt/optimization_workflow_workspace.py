@@ -1306,6 +1306,11 @@ class OptimizationWorkflowWorkspace(QWidget):
             "「非劣」は複数指標で他候補に支配されないことを示し、音質の総合順位や自動推奨ではありません。",
         )
         pareto.addWidget(_required(self.pareto_tree, "pareto_tree"), 1)
+        verdict_label = _required(
+            self.decision_verdict_label, "decision_verdict_label"
+        )
+        verdict_label.setWordWrap(True)
+        pareto.addWidget(verdict_label)
 
         layout.addWidget(metrics_card)
         layout.addWidget(pareto_card, 1)

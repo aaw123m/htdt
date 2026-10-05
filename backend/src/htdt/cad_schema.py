@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 21
+NATIVE_SCHEMA_VERSION = 22
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1243,6 +1243,16 @@ def _migrate_20_to_21(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_21_to_22(connection: sqlite3.Connection) -> None:
+    # Install the REV56 evidence-aware decision rule tables (#577:
+    # decision rule specs + evidence verdicts) and the #604 uncertainty
+    # propagation tables (uncertain input sets + robust design
+    # assessments): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1265,6 +1275,7 @@ _MIGRATIONS = {
     19: _migrate_18_to_19,
     20: _migrate_19_to_20,
     21: _migrate_20_to_21,
+    22: _migrate_21_to_22,
 }
 
 

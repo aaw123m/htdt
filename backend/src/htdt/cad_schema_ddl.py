@@ -347,6 +347,22 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_decision_rule_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rule_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, decision_type TEXT NOT NULL, criterion_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decision_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rule_id TEXT NOT NULL, rule_sha256 TEXT NOT NULL, decision_type TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_uncertain_input_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, input_set_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, scene_content_hash TEXT NOT NULL, model_ref TEXT, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_robust_design_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, input_set_id TEXT NOT NULL, input_set_sha256 TEXT NOT NULL, propagation_spec_id TEXT NOT NULL, propagation_spec_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_prediction_provider_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL, consumer_kind TEXT NOT NULL, consumer_id TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -1259,6 +1275,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_o90_robust_pareto_search_seq ON cad_o90_robust_pareto_evaluations( search_spec_id, seq ASC )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decision_rule_spec_document ON cad_decision_rule_specs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decision_verdict_rule ON cad_decision_verdicts(rule_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decision_verdict_document ON cad_decision_verdicts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_uncertain_input_set_document ON cad_uncertain_input_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_robust_design_document ON cad_robust_design_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_robust_design_input_set ON cad_robust_design_assessments(input_set_id, seq ASC)
     """
     ,
     """
@@ -2347,6 +2387,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_data_source_registry',
     'cad_dataset_level_references',
     'cad_dataset_reviews',
+    'cad_decision_rule_specs',
+    'cad_decision_verdicts',
     'cad_dependency_resolution_events',
     'cad_design_briefs',
     'cad_design_checkpoints',
@@ -2508,6 +2550,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_reconciliation_decisions',
     'cad_reference_playback_profiles',
     'cad_review_notes',
+    'cad_robust_design_assessments',
     'cad_robustness_evaluations',
     'cad_robustness_specs',
     'cad_robustness_validation_cases',
@@ -2562,6 +2605,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_treatment_boundary_overlays',
     'cad_treatment_comparison_outcomes',
     'cad_treatment_evidence_authorities',
+    'cad_uncertain_input_sets',
     'cad_upgrade_adoptions',
     'cad_upstream_version_candidates',
     'cad_validation_benchmark_specs',
