@@ -2759,6 +2759,117 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_wirebind_logical ON cad_logical_physical_bindings(logical_ref_id, seq ASC)
     """
     ,
+    # REV56-TRANSPORT: #582 A/V latency authority
+    """
+    CREATE TABLE IF NOT EXISTS cad_av_latency_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT, profile_kind TEXT NOT NULL, label TEXT NOT NULL, standard_ref TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_av_latency_paths ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL, version TEXT NOT NULL, path_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT, signal_path_version TEXT, signal_path_sha256 TEXT, display_picture_mode TEXT, audio_route TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(path_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_av_latency_path_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, path_sha256 TEXT NOT NULL, method TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_avsyncmeas_path ON cad_av_latency_path_measurements(path_id, path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_av_latency_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, path_sha256 TEXT NOT NULL, profile_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_avsyncqual_path ON cad_av_latency_qualifications(path_id, path_version, seq ASC)
+    """
+    ,
+    # REV56-TRANSPORT: #583 HDMI design & verification authority
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_signal_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, width_px INTEGER NOT NULL, height_px INTEGER NOT NULL, refresh_hz REAL NOT NULL, hdcp_required TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_edid_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT NOT NULL, signal_path_version TEXT NOT NULL, signal_path_sha256 TEXT NOT NULL, interception_kind TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_edidart_path ON cad_hdmi_edid_artifacts(signal_path_id, signal_path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_hdcp_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT NOT NULL, signal_path_version TEXT NOT NULL, signal_path_sha256 TEXT NOT NULL, negotiated_version TEXT NOT NULL, auth_state TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hdcpobs_path ON cad_hdmi_hdcp_observations(signal_path_id, signal_path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_link_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT NOT NULL, signal_path_version TEXT NOT NULL, signal_path_sha256 TEXT NOT NULL, link_mode TEXT NOT NULL, negotiated_rate_gbps REAL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_linkobs_path ON cad_hdmi_link_observations(signal_path_id, signal_path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_verification_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT NOT NULL, signal_path_version TEXT NOT NULL, signal_path_sha256 TEXT NOT NULL, required_profile_id TEXT NOT NULL, verdict TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hdmiver_path ON cad_hdmi_verification_records(signal_path_id, signal_path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hdmi_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, signal_path_id TEXT NOT NULL, signal_path_version TEXT NOT NULL, signal_path_sha256 TEXT NOT NULL, required_profile_id TEXT NOT NULL, theoretical_status TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hdmiqual_path ON cad_hdmi_qualifications(signal_path_id, signal_path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp28_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT, label TEXT NOT NULL, standard_id TEXT NOT NULL, edition TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    # REV56-TRANSPORT: #591 networked AV qualification authority
+    """
+    CREATE TABLE IF NOT EXISTS cad_network_av_paths ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL, version TEXT NOT NULL, path_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE(path_id, version) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_network_media_flows ( seq INTEGER PRIMARY KEY AUTOINCREMENT, flow_id TEXT NOT NULL UNIQUE, flow_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, provider_profile TEXT NOT NULL, delivery TEXT NOT NULL, clock_requirement TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_netflow_path ON cad_network_media_flows(path_id, path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_network_transport_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, kind TEXT NOT NULL, flow_id TEXT, interface_ref TEXT, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_netobs_path ON cad_network_transport_observations(path_id, path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_network_timing_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, ptp_domain INTEGER, node_state TEXT NOT NULL, lock_state TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ptpobs_path ON cad_network_timing_observations(path_id, path_version, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_network_av_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_id TEXT NOT NULL, path_version TEXT NOT NULL, flow_id TEXT NOT NULL, flow_sha256 TEXT NOT NULL, media_state TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_netqual_path ON cad_network_av_qualifications(path_id, path_version, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -3221,4 +3332,20 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_color_measurement_sets',
     'cad_ambient_reflectance_profiles',
     'template_instantiations',
+    'cad_av_latency_profiles',
+    'cad_av_latency_paths',
+    'cad_av_latency_path_measurements',
+    'cad_av_latency_qualifications',
+    'cad_hdmi_signal_profiles',
+    'cad_hdmi_edid_artifacts',
+    'cad_hdmi_hdcp_observations',
+    'cad_hdmi_link_observations',
+    'cad_hdmi_verification_records',
+    'cad_hdmi_qualifications',
+    'cad_rp28_profiles',
+    'cad_network_av_paths',
+    'cad_network_media_flows',
+    'cad_network_transport_observations',
+    'cad_network_timing_observations',
+    'cad_network_av_qualifications',
 )
