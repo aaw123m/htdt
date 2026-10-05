@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 19
+NATIVE_SCHEMA_VERSION = 20
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1225,6 +1225,14 @@ def _migrate_18_to_19(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_19_to_20(connection: sqlite3.Connection) -> None:
+    # Install the #564 prediction<->measurement registration tables
+    # (registrations plus sealed residual reports): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1245,6 +1253,7 @@ _MIGRATIONS = {
     17: _migrate_16_to_17,
     18: _migrate_17_to_18,
     19: _migrate_18_to_19,
+    20: _migrate_19_to_20,
 }
 
 

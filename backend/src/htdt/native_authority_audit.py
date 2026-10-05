@@ -396,6 +396,12 @@ class _RepositoryChain:
             )
 
             return CadModelCalibrationRepository(scene)
+        if name == 'prediction_measurement_registration':
+            from .cad_prediction_measurement_registration_repository import (
+                CadPredictionMeasurementRegistrationRepository,
+            )
+
+            return CadPredictionMeasurementRegistrationRepository(scene)
         if name == 'joint':
             from .cad_joint_optimization_repository import (
                 CadJointOptimizationRepository,
@@ -2028,6 +2034,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_calibration_evidence_events',
         ('record_id', 'freeze_id'),
         _verify_calibration_evidence_event_ref,
+    ),
+    _ReplayProbe(
+        'prediction_measurement_registration',
+        'cad_prediction_measurement_registrations',
+        ('registration_id',),
+        _get('prediction_measurement_registration', 'get'),
+    ),
+    _ReplayProbe(
+        'prediction_measurement_residual_report',
+        'cad_prediction_measurement_residual_reports',
+        ('report_id',),
+        _get('prediction_measurement_registration', 'get_report'),
     ),
     _ReplayProbe(
         'system_variant_as_built',

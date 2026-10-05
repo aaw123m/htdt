@@ -426,6 +426,56 @@ def _format_band(band: tuple[float, float] | None) -> str:
     return f"{band[0]:.1f}–{band[1]:.1f} Hz"
 
 
+def _comparability_state_label(state: str) -> str:
+    """JA labels for the #564 comparability gate verdict."""
+    return {
+        "comparable": "比較可能",
+        "comparable_with_limitations": "条件付き比較可能",
+        "incomparable": "比較不可",
+        "insufficient_evidence": "証拠不足",
+    }.get(state, state)
+
+
+def _timing_method_label(method: str) -> str:
+    """JA labels for the #564 time-reference method vocabulary."""
+    return {
+        "exact_reference": "正確な基準",
+        "acoustic_timing_reference": "音響基準",
+        "known_hardware_latency": "既知のハード遅延",
+        "estimated_from_direct_arrival": "直接波推定",
+        "estimated_by_correlation": "相関推定",
+        "unknown": "不明",
+    }.get(method, method)
+
+
+def _partition_label(partition: str) -> str:
+    return {
+        "calibration": "キャリブレーション",
+        "holdout": "ホールドアウト",
+        "repeatability": "再現性",
+        "unassigned": "未割当",
+    }.get(partition, partition)
+
+
+def _observable_label(observable: str) -> str:
+    return {
+        "magnitude_db": "帯域レベル残差",
+        "phase_deg": "位相残差",
+        "direct_arrival_time": "直接波到達時刻",
+        "early_reflection_time": "初期反射到達時刻",
+        "modal_peak_frequency": "モードピーク周波数",
+        "decay_time": "減衰時間",
+    }.get(observable, observable)
+
+
+def _observable_state_label(state: str) -> str:
+    return {
+        "computed": "算出",
+        "unsupported": "対象外",
+        "insufficient_data": "データ不足",
+    }.get(state, state)
+
+
 def _set_plot_appearance(plot: pg.PlotWidget) -> None:
     """Standard scientific canvas — shared grammar lives in
     ``scientific_plot_style`` (#579); this stays as the local call-site shim."""
@@ -5450,6 +5500,55 @@ class MeasurementPageWorkspace(QWidget):
         setup_layout.addLayout(compare_row)
         layout.addWidget(setup_card)
 
+        registration_card, registration_layout = _card(
+            "予測↔実測 登録（#564）", host
+        )
+        registration_card.setObjectName("pmRegistrationCard")
+        self.registration_state_label = QLabel(
+            "実測×予測の比較には登録レコードが必要です。", registration_card
+        )
+        self.registration_state_label.setWordWrap(True)
+        registration_layout.addWidget(self.registration_state_label)
+
+        registration_actions = QHBoxLayout()
+        self.register_pair_button = QPushButton(
+            "登録レコードを作成", registration_card
+        )
+        self.register_pair_button.setToolTip(
+            "選択中の実測×予測ペアを座標・時間・レベル基準つきで登録します。"
+        )
+        self.register_pair_button.clicked.connect(self._create_registration)
+        registration_actions.addWidget(self.register_pair_button)
+        self.residual_compute_button = QPushButton(
+            "残差を計算", registration_card
+        )
+        self.residual_compute_button.setToolTip(
+            "登録済みペアの残差レポートを計算して保存します。"
+        )
+        self.residual_compute_button.clicked.connect(self._compute_residuals)
+        registration_actions.addWidget(self.residual_compute_button)
+        registration_actions.addStretch(1)
+        registration_layout.addLayout(registration_actions)
+
+        self.residual_summary_label = QLabel("", registration_card)
+        self.residual_summary_label.setWordWrap(True)
+        registration_layout.addWidget(self.residual_summary_label)
+
+        self.registration_table = QTableWidget(0, 6, registration_card)
+        self.registration_table.setHorizontalHeaderLabels(
+            ["測定", "比較可否", "鮮度", "位置差", "時間方式", "パーティション"]
+        )
+        self.registration_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.registration_table.verticalHeader().setVisible(False)
+        self.registration_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
+        self.registration_table.setMaximumHeight(140)
+        registration_layout.addWidget(self.registration_table)
+        layout.addWidget(registration_card)
+
         plot_card, plot_layout = _card("周波数応答", host)
         cursor_row = QHBoxLayout()
         self.comparison_cursor_check = QCheckBox("カーソル", plot_card)
@@ -5979,6 +6078,7 @@ class MeasurementPageWorkspace(QWidget):
             )
             for column, value in enumerate(values):
                 self.comparison_history.setItem(row_index, column, QTableWidgetItem(value))
+        self._refresh_registration_panel(views)
 
     @staticmethod
     def _fill_dataset_combo(
@@ -6107,6 +6207,222 @@ class MeasurementPageWorkspace(QWidget):
         self.comparison_export_png_button.setEnabled(False)
         self._update_context_label()
         self._preview_comparison_pair()
+        self._refresh_registration_panel()
+
+    def _registration_service(self):
+        """Lazily build the #564 registration service over the workspace repos."""
+        try:
+            from .cad_prediction_measurement_service import (
+                PredictionMeasurementService,
+            )
+
+            return PredictionMeasurementService(
+                self.controller.scene_repository,
+                self.controller.document_id,
+                measurement_repository=self.controller.measurement_repository,
+                quality_repository=getattr(
+                    self.controller, 'quality_repository', None
+                ),
+            )
+        except Exception:
+            return None
+
+    def _selected_pair_views(self) -> tuple:
+        a_id = self.measured_combo.currentData()
+        b_id = self.predicted_combo.currentData()
+        views = self.controller.measurement_views()
+        a_view = next((v for v in views if v.dataset_id == a_id), None)
+        b_view = next((v for v in views if v.dataset_id == b_id), None)
+        return a_view, b_view
+
+    def _selected_measured_predicted(self) -> tuple:
+        """Return (measured_view, predicted_view) or (None, None) (#564)."""
+        a_view, b_view = self._selected_pair_views()
+        if a_view is None or b_view is None:
+            return None, None
+        measured, predicted = a_view, b_view
+        if a_view.evidence_type == 'predicted':
+            measured, predicted = b_view, a_view
+        if measured.evidence_type != 'measured' or predicted.evidence_type != 'predicted':
+            return None, None
+        return measured, predicted
+
+    def _pair_registration(self):
+        measured, predicted = self._selected_measured_predicted()
+        if measured is None or predicted is None or predicted.dataset_id is None:
+            return None
+        service = self._registration_service()
+        if service is None:
+            return None
+        for registration in service.list_registrations():
+            if (
+                registration.measurement.measurement_id == measured.measurement_id
+                and registration.prediction.kind == 'imported_prediction_dataset'
+                and registration.prediction.prediction_id == predicted.dataset_id
+            ):
+                return registration
+        return None
+
+    def _refresh_registration_panel(self, views=None) -> None:
+        if getattr(self, 'registration_table', None) is None:
+            return
+        service = self._registration_service()
+        try:
+            registrations = (
+                service.list_registrations() if service is not None else ()
+            )
+        except Exception:
+            registrations = ()
+        freshness = {}
+        for registration in registrations:
+            try:
+                freshness[registration.registration_id] = (
+                    service.registration_freshness(registration)
+                )
+            except Exception:
+                freshness[registration.registration_id] = 'current'
+        self.registration_table.setRowCount(len(registrations))
+        for row, registration in enumerate(registrations):
+            delta = (
+                '—'
+                if registration.receiver.position_delta_m is None
+                else f'{registration.receiver.position_delta_m * 1000:.0f} mm'
+            )
+            stale = freshness.get(registration.registration_id, 'current')
+            values = (
+                registration.measurement.measurement_id[:10],
+                _comparability_state_label(registration.comparability.state),
+                '最新' if stale == 'current' else '古い配置',
+                delta,
+                _timing_method_label(registration.timing.method),
+                _partition_label(registration.partition),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.ItemDataRole.UserRole, registration.registration_id)
+                self.registration_table.setItem(row, column, item)
+
+        measured, predicted = self._selected_measured_predicted()
+        mixed = measured is not None
+        registration = self._pair_registration() if mixed else None
+        self._current_pair_registration = registration
+        self.register_pair_button.setEnabled(
+            bool(mixed and service is not None)
+        )
+        can_compute = bool(
+            registration is not None
+            and registration.comparability.state
+            in ('comparable', 'comparable_with_limitations')
+            and freshness.get(registration.registration_id, 'current') == 'current'
+        )
+        self.residual_compute_button.setEnabled(can_compute)
+        if not mixed:
+            self.registration_state_label.setText(
+                '実測×予測ペアを選択すると登録できます。'
+            )
+        elif registration is None:
+            self.registration_state_label.setText(
+                '未登録 — 比較する前に登録レコードを作成してください。'
+            )
+        else:
+            verdict = registration.comparability
+            parts = [_comparability_state_label(verdict.state)]
+            if verdict.comparable_band_hz is not None:
+                parts.append(_format_band(verdict.comparable_band_hz))
+            if verdict.limitations:
+                parts.append(f'制限 {len(verdict.limitations)} 件')
+            if freshness.get(registration.registration_id) != 'current':
+                parts.append('古い配置（stale）')
+            self.registration_state_label.setText('登録済み: ' + ' · '.join(parts))
+
+    def _create_registration(self) -> None:
+        measured, predicted = self._selected_measured_predicted()
+        if measured is None or predicted is None or predicted.dataset_id is None:
+            self._set_notice(
+                '実測×予測ペアを選択してください。', SemanticState.WARNING
+            )
+            return
+        service = self._registration_service()
+        if service is None:
+            self._set_notice('登録サービスを初期化できません。', SemanticState.ERROR)
+            return
+        try:
+            registration = service.register_pair(
+                measured.measurement_id,
+                prediction_dataset_id=predicted.dataset_id,
+                spatial_method='exact_scene_xyz',
+                spatial_provenance='manual',
+            )
+        except Exception as exc:
+            self._operation_error_notice('登録できませんでした', exc)
+            return
+        state = _comparability_state_label(registration.comparability.state)
+        self._set_notice(f'登録レコードを作成しました（{state}）。', SemanticState.SUCCESS)
+        self._refresh_registration_panel()
+
+    def _compute_residuals(self) -> None:
+        registration = getattr(self, '_current_pair_registration', None)
+        if registration is None:
+            self._set_notice(
+                '残差を計算する登録レコードがありません。',
+                SemanticState.WARNING,
+            )
+            return
+        service = self._registration_service()
+        if service is None:
+            self._set_notice('登録サービスを初期化できません。', SemanticState.ERROR)
+            return
+        try:
+            report = service.compute_and_persist_residual_report(
+                registration.registration_id
+            )
+        except Exception as exc:
+            self._operation_error_notice('残差を計算できませんでした', exc)
+            return
+        lines: list[str] = []
+        for observable in report.observables:
+            if observable.state != 'computed':
+                lines.append(
+                    f'{_observable_label(observable.observable)}: '
+                    f'{_observable_state_label(observable.state)}'
+                    + (f'（{observable.reason}）' if observable.reason else '')
+                )
+                continue
+            if observable.observable == 'magnitude_db' and observable.magnitude_bands:
+                rms_values = [
+                    band.rms_difference_db
+                    for band in observable.magnitude_bands
+                    if band.rms_difference_db is not None
+                ]
+                summary = (
+                    f'{max(rms_values):.2f} dB（最大帯域RMS）'
+                    if rms_values
+                    else '算出'
+                )
+                lines.append(f'帯域レベル残差: {summary}')
+            elif observable.observable == 'phase_deg' and observable.phase_bands:
+                worst = max(
+                    band.mean_abs_difference_deg
+                    for band in observable.phase_bands
+                    if band.mean_abs_difference_deg is not None
+                )
+                lines.append(f'位相残差: {worst:.1f} deg（最大帯域平均絶対差）')
+            elif observable.observable == 'direct_arrival_time' and observable.direct_arrival is not None:
+                arrival = observable.direct_arrival
+                lines.append(
+                    '到達時刻誤差: '
+                    + (
+                        f'{arrival.error_s * 1000:.2f} ms'
+                        if arrival.error_s is not None
+                        else '予測遅延なし'
+                    )
+                )
+            else:
+                lines.append(f'{_observable_label(observable.observable)}: 算出')
+        self.residual_summary_label.setText(
+            '残差レポートを保存しました。\n' + '\n'.join(lines)
+        )
+        self._set_notice('残差レポートを保存しました。', SemanticState.SUCCESS)
 
     def _plot_dataset_trace(
         self,
@@ -6238,6 +6554,36 @@ class MeasurementPageWorkspace(QWidget):
         if not isinstance(a_id, str) or not isinstance(b_id, str) or not a_id or not b_id:
             self._set_notice("A と B にデータセットを選択してください。", SemanticState.WARNING)
             return
+        # #564: a measured-vs-predicted comparison requires an explicit
+        # registration record — residuals computed without a registered
+        # coordinate/timing/level basis would be silently contaminated.
+        measured_view, predicted_view = self._selected_measured_predicted()
+        if measured_view is not None:
+            registration = self._pair_registration()
+            if registration is None:
+                self._set_notice(
+                    '実測×予測の比較には登録レコードが必要です。'
+                    '「登録レコードを作成」を実行してください。',
+                    SemanticState.WARNING,
+                )
+                return
+            freshness_ok = True
+            service = self._registration_service()
+            if service is not None:
+                freshness_ok = (
+                    service.registration_freshness(registration) == 'current'
+                )
+            if registration.comparability.state not in (
+                'comparable',
+                'comparable_with_limitations',
+            ) or not freshness_ok:
+                self._set_notice(
+                    'この登録ペアは比較できません: '
+                    + _comparability_state_label(registration.comparability.state)
+                    + ('（古い配置）' if not freshness_ok else ''),
+                    SemanticState.ERROR,
+                )
+                return
         reference_band = None
         if self.ref_band_check.isChecked():
             low = float(self.ref_low.value())

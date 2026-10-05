@@ -1804,6 +1804,14 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_prediction_measurement_registrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, registration_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, measurement_id TEXT NOT NULL, comparability_state TEXT NOT NULL, partition TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(measurement_id) REFERENCES cad_measurements(measurement_id) )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_prediction_measurement_residual_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, registration_id TEXT NOT NULL, document_id TEXT NOT NULL, partition TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, FOREIGN KEY(registration_id) REFERENCES cad_prediction_measurement_registrations(registration_id) )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_playback_level_conditions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, condition_id TEXT NOT NULL, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, condition_sha256 TEXT NOT NULL UNIQUE, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, UNIQUE (condition_id, scene_revision_id, condition_sha256) )
     """
     ,
@@ -2394,6 +2402,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_playback_chain_evaluations',
     'cad_playback_chain_scenarios',
     'cad_playback_level_conditions',
+    'cad_prediction_measurement_registrations',
+    'cad_prediction_measurement_residual_reports',
     'cad_prediction_matrix_result_sets',
     'cad_prediction_matrix_runs',
     'cad_prediction_matrix_specs',
