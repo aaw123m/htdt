@@ -736,6 +736,24 @@ class _RepositoryChain:
             )
 
             return CadWiringTraceRepository(scene)
+        if name == 'av_latency':
+            from .cad_av_latency_repository import (
+                CadAVLatencyRepository,
+            )
+
+            return CadAVLatencyRepository(scene)
+        if name == 'hdmi_verification':
+            from .cad_hdmi_verification_repository import (
+                CadHDMIVerificationRepository,
+            )
+
+            return CadHDMIVerificationRepository(scene)
+        if name == 'network_av':
+            from .cad_network_av_repository import (
+                CadNetworkAVRepository,
+            )
+
+            return CadNetworkAVRepository(scene)
         raise KeyError(name)
 
 
@@ -2915,6 +2933,103 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_logical_physical_bindings',
         ('binding_id',),
         _get('wiring_trace', 'get_binding'),
+    ),
+    # REV56-TRANSPORT: #582/#583/#591
+    _ReplayProbe(
+        'av_latency_profile',
+        'cad_av_latency_profiles',
+        ('profile_id',),
+        _get('av_latency', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'av_latency_path',
+        'cad_av_latency_paths',
+        ('path_id', 'version'),
+        _get('av_latency', 'get_path'),
+    ),
+    _ReplayProbe(
+        'av_latency_path_measurement',
+        'cad_av_latency_path_measurements',
+        ('measurement_id',),
+        _get('av_latency', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'av_latency_qualification',
+        'cad_av_latency_qualifications',
+        ('qualification_id',),
+        _get('av_latency', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'hdmi_signal_profile',
+        'cad_hdmi_signal_profiles',
+        ('profile_id',),
+        _get('hdmi_verification', 'get_signal_profile'),
+    ),
+    _ReplayProbe(
+        'hdmi_edid_artifact',
+        'cad_hdmi_edid_artifacts',
+        ('artifact_id',),
+        _get('hdmi_verification', 'get_edid_artifact'),
+    ),
+    _ReplayProbe(
+        'hdmi_hdcp_observation',
+        'cad_hdmi_hdcp_observations',
+        ('observation_id',),
+        _get('hdmi_verification', 'get_hdcp_observation'),
+    ),
+    _ReplayProbe(
+        'hdmi_link_observation',
+        'cad_hdmi_link_observations',
+        ('observation_id',),
+        _get('hdmi_verification', 'get_link_observation'),
+    ),
+    _ReplayProbe(
+        'hdmi_verification_record',
+        'cad_hdmi_verification_records',
+        ('record_id',),
+        _get('hdmi_verification', 'get_verification_record'),
+    ),
+    _ReplayProbe(
+        'hdmi_qualification',
+        'cad_hdmi_qualifications',
+        ('qualification_id',),
+        _get('hdmi_verification', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'rp28_profile',
+        'cad_rp28_profiles',
+        ('profile_id',),
+        _get('hdmi_verification', 'get_rp28_profile'),
+    ),
+    _ReplayProbe(
+        'network_av_path',
+        'cad_network_av_paths',
+        ('path_id', 'version'),
+        _get('network_av', 'get_path'),
+    ),
+    _ReplayProbe(
+        'network_media_flow',
+        'cad_network_media_flows',
+        ('flow_id',),
+        _get('network_av', 'get_flow'),
+    ),
+    _ReplayProbe(
+        'network_transport_observation',
+        'cad_network_transport_observations',
+        ('observation_id',),
+        _get('network_av', 'get_transport_observation'),
+    ),
+    _ReplayProbe(
+        'network_timing_observation',
+        'cad_network_timing_observations',
+        ('observation_id',),
+        _get('network_av', 'get_timing_observation'),
+    ),
+    _ReplayProbe(
+        'network_av_qualification',
+        'cad_network_av_qualifications',
+        ('qualification_id',),
+        _get('network_av', 'get_qualification'),
     ),
 )
 

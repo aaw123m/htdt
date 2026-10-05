@@ -250,6 +250,22 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_physical_interconnects": "物理配線経路（as-built）",
     "cad_wiring_verifications": "配線検証レコード",
     "cad_logical_physical_bindings": "論理経路・物理配線バインディング",
+    "cad_av_latency_profiles": "A/V同期プロファイル",
+    "cad_av_latency_paths": "A/V遅延パス",
+    "cad_av_latency_path_measurements": "A/V同期測定",
+    "cad_av_latency_qualifications": "A/V同期適合評価",
+    "cad_hdmi_signal_profiles": "HDMI要求信号プロファイル",
+    "cad_hdmi_edid_artifacts": "EDIDアーティファクト",
+    "cad_hdmi_hdcp_observations": "HDCP状態観測",
+    "cad_hdmi_link_observations": "HDMIリンク状態観測",
+    "cad_hdmi_verification_records": "HDMI検証レコード",
+    "cad_hdmi_qualifications": "HDMI適合評価",
+    "cad_rp28_profiles": "RP28プロファイル",
+    "cad_network_av_paths": "ネットワークAV経路",
+    "cad_network_media_flows": "ネットワークメディアフロー",
+    "cad_network_transport_observations": "ネットワーク伝送観測",
+    "cad_network_timing_observations": "ネットワークタイミング観測",
+    "cad_network_av_qualifications": "ネットワークAV適合評価",
 }
 
 
