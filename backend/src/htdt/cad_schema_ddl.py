@@ -383,6 +383,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS cad_spatial_campaign_designs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, design_id TEXT NOT NULL UNIQUE, design_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT, scene_content_hash TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_campaign_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, design_id TEXT NOT NULL, design_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_campaign_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, binding_sha256 TEXT NOT NULL UNIQUE, design_id TEXT NOT NULL, design_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, point_id TEXT NOT NULL, measurement_id TEXT NOT NULL, measurement_sha256 TEXT NOT NULL, deviation_m REAL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, publisher TEXT NOT NULL, revision TEXT NOT NULL, source_access_kind TEXT NOT NULL, clause_mapping_state TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_reconciliations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reconciliation_id TEXT NOT NULL UNIQUE, reconciliation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_readiness ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, plan_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, state TEXT NOT NULL, assessed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_verification_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, spatial_design_id TEXT, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_verification_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, plan_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, readiness_assessment_id TEXT NOT NULL, overall_state TEXT NOT NULL, rp22_state TEXT NOT NULL, completed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_rp32_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, plan_id TEXT NOT NULL, record_id TEXT NOT NULL, overall_state TEXT NOT NULL, generated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS cad_prediction_provider_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, provider_id TEXT NOT NULL, consumer_kind TEXT NOT NULL, consumer_id TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -1351,6 +1387,50 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """
     CREATE INDEX IF NOT EXISTS idx_bass_qualifications_document ON cad_bass_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spatial_designs_document ON cad_spatial_campaign_designs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spatial_evaluations_design ON cad_spatial_campaign_evaluations(design_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spatial_evaluations_document ON cad_spatial_campaign_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spatial_bindings_design ON cad_spatial_campaign_bindings(design_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spatial_bindings_measurement ON cad_spatial_campaign_bindings(measurement_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_profiles_created ON cad_rp32_profiles(created_at_utc, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_reconciliations_document ON cad_rp32_reconciliations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_readiness_plan ON cad_rp32_readiness(plan_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_plans_profile ON cad_rp32_verification_plans(profile_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_records_plan ON cad_rp32_verification_records(plan_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rp32_reports_document ON cad_rp32_reports(document_id, seq ASC)
     """
     ,
     """
@@ -2778,6 +2858,12 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_roomsim_batch_specs',
     'cad_roomsim_candidate_attempts',
     'cad_routing_profiles',
+    'cad_rp32_profiles',
+    'cad_rp32_readiness',
+    'cad_rp32_reconciliations',
+    'cad_rp32_reports',
+    'cad_rp32_verification_plans',
+    'cad_rp32_verification_records',
     'cad_screen_transfer_selections',
     'cad_screen_transfers',
     'cad_search_specs',
@@ -2788,6 +2874,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_source_response_selections',
     'cad_source_responses',
     'cad_source_review_decisions',
+    'cad_spatial_campaign_bindings',
+    'cad_spatial_campaign_designs',
+    'cad_spatial_campaign_evaluations',
     'cad_speaker_datasets',
     'cad_speaker_definitions',
     'cad_speaker_electrical_loads',

@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 25
+NATIVE_SCHEMA_VERSION = 26
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1284,6 +1284,16 @@ def _migrate_24_to_25(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_25_to_26(connection: sqlite3.Connection) -> None:
+    # Install the REV56-CAMPPROFILE authorities (#581 spatial campaign
+    # designs/evaluations/capture bindings; #585 RP32 commissioning
+    # profiles, reconciliations, readiness assessments, verification
+    # plans/records, and reports): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1310,6 +1320,7 @@ _MIGRATIONS = {
     23: _migrate_22_to_23,
     24: _migrate_23_to_24,
     25: _migrate_24_to_25,
+    26: _migrate_25_to_26,
 }
 
 

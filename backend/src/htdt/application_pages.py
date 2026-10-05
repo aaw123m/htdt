@@ -221,6 +221,15 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_standard_lifecycle_observations": "規格ライフサイクル観測",
     "cad_standard_profile_mappings": "規格プロファイルマッピング",
     "cad_standard_revision_diffs": "規格改版差分",
+    "cad_spatial_campaign_designs": "空間測定キャンペーン設計",
+    "cad_spatial_campaign_evaluations": "空間キャンペーン設計評価",
+    "cad_spatial_campaign_bindings": "測定点キャプチャ束縛",
+    "cad_rp32_profiles": "RP32コミッショニングプロファイル",
+    "cad_rp32_reconciliations": "RP32設計・実測照合",
+    "cad_rp32_readiness": "RP32測定準備評価",
+    "cad_rp32_verification_plans": "RP32検証計画",
+    "cad_rp32_verification_records": "RP32検証レコード",
+    "cad_rp32_reports": "RP32コミッショニングレポート",
 }
 
 

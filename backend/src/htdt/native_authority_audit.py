@@ -450,6 +450,18 @@ class _RepositoryChain:
             )
 
             return CadDeviceSnapshotRepository(scene)
+        if name == 'spatial_campaign':
+            from .cad_spatial_campaign_repository import (
+                CadSpatialCampaignRepository,
+            )
+
+            return CadSpatialCampaignRepository(scene)
+        if name == 'rp32_commissioning':
+            from .cad_rp32_repository import (
+                CadRp32Repository,
+            )
+
+            return CadRp32Repository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2262,6 +2274,60 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_device_replacement_assessments',
         ('assessment_id',),
         _get('device_snapshot', 'get_replacement_assessment'),
+    ),
+    _ReplayProbe(
+        'spatial_campaign_design',
+        'cad_spatial_campaign_designs',
+        ('design_id',),
+        _get('spatial_campaign', 'get_design'),
+    ),
+    _ReplayProbe(
+        'spatial_campaign_evaluation',
+        'cad_spatial_campaign_evaluations',
+        ('evaluation_id',),
+        _get('spatial_campaign', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'spatial_campaign_binding',
+        'cad_spatial_campaign_bindings',
+        ('binding_id',),
+        _get('spatial_campaign', 'get_binding'),
+    ),
+    _ReplayProbe(
+        'rp32_profile',
+        'cad_rp32_profiles',
+        ('profile_id',),
+        _get('rp32_commissioning', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'rp32_reconciliation',
+        'cad_rp32_reconciliations',
+        ('reconciliation_id',),
+        _get('rp32_commissioning', 'get_reconciliation'),
+    ),
+    _ReplayProbe(
+        'rp32_readiness',
+        'cad_rp32_readiness',
+        ('assessment_id',),
+        _get('rp32_commissioning', 'get_readiness'),
+    ),
+    _ReplayProbe(
+        'rp32_verification_plan',
+        'cad_rp32_verification_plans',
+        ('plan_id',),
+        _get('rp32_commissioning', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'rp32_verification_record',
+        'cad_rp32_verification_records',
+        ('record_id',),
+        _get('rp32_commissioning', 'get_record'),
+    ),
+    _ReplayProbe(
+        'rp32_report',
+        'cad_rp32_reports',
+        ('report_id',),
+        _get('rp32_commissioning', 'get_report'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',

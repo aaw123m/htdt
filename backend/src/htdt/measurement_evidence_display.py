@@ -18,6 +18,7 @@ from .cad_external_standards import (
 )
 from .cad_measurement_state import StateComparabilityVerdict
 from .cad_measurement_uncertainty import MeasurementUncertaintyBudget
+from .cad_spatial_campaign import CampaignPointBinding
 from .cad_stimulus_registry import StimulusMeasurementPin
 
 
@@ -404,4 +405,76 @@ def restore_record_line(record: ConfigurationRestoreRecord) -> str:
     return (
         f'復元: {restore_verdict_label(record.verdict)}'
         f'（{record.result_status}）'
+    )
+
+
+# ---------------------------------------------------------------------------
+# REV56-CAMPPROFILE: spatial campaign bindings + RP32 labels (#581/#585).
+# ---------------------------------------------------------------------------
+
+_POINT_ROLE_LABELS = {
+    'reference_alignment': '基準点',
+    'optimization': '最適化用',
+    'spatial_holdout': '空間ホールドアウト',
+    'repeatability': '再現性',
+    'diagnostic': '診断',
+    'boundary_stress': '境界ストレス',
+    'standards_required': '規格要求',
+}
+
+_EVALUATION_STATE_LABELS = {
+    'valid': '妥当',
+    'valid_with_warnings': '警告付き妥当',
+    'invalid': '不備あり',
+}
+
+_RP32_STATE_LABELS = {
+    'verified': '検証済み',
+    'verified_with_limitations': '制限付き検証済み',
+    'failed': '不合格',
+    'incomplete': '未完',
+    'inconclusive': '不確定',
+}
+
+_RP22_STATE_LABELS = {
+    'rp22_design_target': 'RP22設計目標',
+    'rp22_as_built_predicted': 'RP22竣工予測',
+    'rp22_rp32_measured_verified': 'RP22実測検証済み',
+    'rp22_rp32_measured_verified_with_limitations': 'RP22実測検証済み（制限付き）',
+    'rp22_rp32_measured_failed': 'RP22実測不合格',
+    'rp22_verification_incomplete': 'RP22検証未完',
+}
+
+
+def point_role_label(role: str) -> str:
+    return _POINT_ROLE_LABELS.get(role, role)
+
+
+def campaign_evaluation_state_label(state: str) -> str:
+    return _EVALUATION_STATE_LABELS.get(state, state)
+
+
+def rp32_overall_state_label(state: str) -> str:
+    return _RP32_STATE_LABELS.get(state, state)
+
+
+def rp22_state_label(state: str) -> str:
+    return _RP22_STATE_LABELS.get(state, state)
+
+
+def spatial_binding_line(binding: CampaignPointBinding) -> str:
+    """One JA line for a measurement's campaign-point binding (#581).
+
+    Deviation is shown honestly — a binding without an observed position
+    reads as 位置未記録, never as zero deviation.
+    """
+    if binding.observed_position is None:
+        deviation = '位置未記録'
+    elif binding.deviation_m is not None:
+        deviation = f'計画から {binding.deviation_m * 1000:.0f} mm'
+    else:
+        deviation = '位置未記録'
+    return (
+        f'測定点束縛: {binding.point_id}（計画 {binding.design_id[:30]}…'
+        f' / {deviation}）'
     )

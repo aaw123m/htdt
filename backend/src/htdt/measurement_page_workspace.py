@@ -563,6 +563,7 @@ class MeasurementPageWorkspace(QWidget):
         # the quality-detail panel (#572/#573).
         self._measurement_evidence_repository = None
         self._stimulus_registry_repository = None
+        self._spatial_campaign_repository = None
         # REV40-REWAUTO: REW automation state. Auto jobs share the worker
         # pool but are excluded from the deactivation/dirty busy gate via
         # ``_rew_auto_job_keys`` — a background poll must never trap the
@@ -4762,6 +4763,9 @@ class MeasurementPageWorkspace(QWidget):
             lines.extend(
                 self._stimulus_pin_lines(measurement_id)
             )
+            lines.extend(
+                self._spatial_campaign_lines(measurement_id)
+            )
             return lines
         except Exception:
             return ["不確かさ/状態安定性: 証拠レコードを読み込めませんでした"]
@@ -4795,6 +4799,59 @@ class MeasurementPageWorkspace(QWidget):
             return [stimulus_pin_line(pin) for pin in pins]
         except Exception:
             return ['刺激ピン: 登録簿を読み込めませんでした']
+
+    def _spatial_campaign_lines(self, measurement_id: str) -> list[str]:
+        """REV56-CAMPPROFILE (#581): campaign-point bindings for the
+        selected measurement. An unbound measurement is honest — bound is
+        shown with the declared point role and observed-position
+        deviation; a lookup failure degrades to an unavailable line,
+        never a silent claim."""
+        try:
+            if self._spatial_campaign_repository is None:
+                from .cad_spatial_campaign_repository import (
+                    CadSpatialCampaignRepository,
+                )
+
+                self._spatial_campaign_repository = (
+                    CadSpatialCampaignRepository(
+                        self.controller.scene_repository
+                    )
+                )
+            bindings = (
+                self._spatial_campaign_repository.bindings_for_measurement(
+                    measurement_id
+                )
+            )
+            if not bindings:
+                return [
+                    '空間キャンペーン: 未束縛'
+                    '（この測定は宣言済み測定点計画に結ばれていません）'
+                ]
+            from .measurement_evidence_display import (
+                point_role_label,
+                spatial_binding_line,
+            )
+
+            lines: list[str] = []
+            for binding in bindings:
+                design = self._spatial_campaign_repository.get_design(
+                    binding.design_id
+                )
+                point = (
+                    design.point(binding.point_id) if design else None
+                )
+                line = spatial_binding_line(binding)
+                if point is not None:
+                    roles = '、'.join(
+                        point_role_label(role) for role in point.roles
+                    )
+                    line = f'{line} — 役割: {roles}'
+                lines.append(line)
+            return lines
+        except Exception:
+            return [
+                '空間キャンペーン: 束縛レコードを読み込めませんでした'
+            ]
 
     def _show_quality_row(self, row_index: int) -> None:
         if not (0 <= row_index < len(self._quality_views)):
