@@ -1,6 +1,7 @@
 # HTDT Release Scope & Capability Maturity Matrix — Issue #735
 
 > 制定: 2026-09-24 / basis: main@e7012185 / 対象: post-0.1 release planning・roadmap convergence
+> 2026-10-05追記: REV42〜53で「プレゼン」「映像調整」「受入検証」等のsurface追加。行を追補済み。
 
 This is the **canonical** release/scope answer to:
 
@@ -117,6 +118,11 @@ For a feature shown as normal/stable UI, the relevant subset of:
 | Field companion (#728) | B | POST_1_0 | SOFTWARE_IMPLEMENTED | no | SPEC_ONLY | pending | no | #728 |
 | Cloud/realtime collaboration | — | OUT_OF_SCOPE | SPEC_ONLY | no | n/a | n/a | no | #730 |
 | Video/lighting/electrical adjuncts | B | POST_1_0 | SOFTWARE_IMPLEMENTED | partial | mixed | pending | no | #655 tier B |
+| 映像調整 workspace (#541) | B | NEXT_RELEASE_OPTIONAL | UI_INTEGRATED | yes | NOT_VALIDATED | pending | yes | #541 |
+| プレゼン workspace (#534) | B | NEXT_RELEASE_OPTIONAL | UI_INTEGRATED | yes | NOT_VALIDATED | pending | yes | #534 |
+| 受入検証 wizard | A | NEXT_RELEASE_OPTIONAL | UI_INTEGRATED | yes | NOT_VALIDATED | pending | yes | REV48 |
+| Capture inbox / entity promotion | A | NEXT_RELEASE_REQUIRED | UI_INTEGRATED | yes | NOT_VALIDATED | pending | yes | #539 |
+| Issue verification system | — | dev tool | SOFTWARE_IMPLEMENTED | n/a | n/a | n/a | dev-facing | #535/#537/#540 |
 | Sound isolation multi-room | B | POST_1_0 | SOFTWARE_IMPLEMENTED | partial | NOT_VALIDATED | pending | no | #602/#655 |
 
 `*` = gate pending the next owned-Windows/numeric acceptance batch —

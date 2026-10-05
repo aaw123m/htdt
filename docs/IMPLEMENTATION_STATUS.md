@@ -1,6 +1,6 @@
 # 実装ステータス
 
-> 更新: 2026-09-21 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR #291の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue #170 StandardsProfile + workspace integration実装 / Issue #101: PR #289 R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR #295 R130D target-window diagnostic後もNOT_VALIDATED、PR #292 R150 bounded one-Portal first-order reflection、PR #432 R150 multi-Portal cross-region reflected pathsをmain反映、PR #287 R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過
+> 更新: 2026-10-05 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR #291の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue #170 StandardsProfile + workspace integration実装 / Issue #101: PR #289 R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR #295 R130D target-window diagnostic後もNOT_VALIDATED、PR #292 R150 bounded one-Portal first-order reflection、PR #432 R150 multi-Portal cross-region reflected pathsをmain反映、PR #287 R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過 / post-0.1追加surface: プレゼン・映像調整・受入検証wizard・capture entity昇格・solver capability manifest・auralization・active-LF制御計画・品質プロデューサー・open-issue検証システムを実装済み（詳細は末尾「REV42〜REV53」節）
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧browser/backendの詳細履歴は[2026-09-16 archive](IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md)へ保存する。
 > 注記: `.github/workflows` のGitHub Actions CIはこのmirrorでは削除済み（commit `b47f052`）。本書の「CI #nnn PASS」「Windows Release Artifact #nn」等は当時の実行記録であり、現在の検証はlocalのbackend test suiteと `scripts/` のpackaging/validation gateで行う。
 
@@ -32,7 +32,7 @@ N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software val
 
 | 区分 | 現在の状態 |
 |---|---|
-| main | **N05〜N90 stable releaseとO10〜O80 software pathをmerge済み**。O90/O100 software authorityとworkflow UXは実装済み。PR #291でUX160の部分owned-Windows acceptanceと発見不具合修正を反映したが、full UX160は`BLOCKED / NOT ACCEPTED`、actual owned-room evidenceも残件。R-seriesはPR #289でR100B exact 4 GL2 substeps experiment、PR #292でR150 bounded one-Portal first-order reflection、PR #432でR150 multi-Portal cross-region reflected paths、PR #295でR130D target-window diagnosticまで反映し、PR #287のR160 explicit frequency-grid reconciliation / bounded complex stitch authorityも維持。R100B candidate-wide production adoptionは`NO_GO`、R130D general-3D physicsは`NOT_VALIDATED`、R160 production/broadband validationは未成立。R140 real GPU evidence、R180/owned-room validationも未完了 |
+| main | **N05〜N90 stable releaseとO10〜O80 software pathをmerge済み**。O90/O100 software authorityとworkflow UXは実装済み。PR #291でUX160の部分owned-Windows acceptanceと発見不具合修正を反映したが、full UX160は`BLOCKED / NOT ACCEPTED`、actual owned-room evidenceも残件。R-seriesはPR #289でR100B exact 4 GL2 substeps experiment、PR #292でR150 bounded one-Portal first-order reflection、PR #432でR150 multi-Portal cross-region reflected paths、PR #295でR130D target-window diagnosticまで反映し、PR #287のR160 explicit frequency-grid reconciliation / bounded complex stitch authorityも維持。R100B candidate-wide production adoptionは`NO_GO`、R130D general-3D physicsは`NOT_VALIDATED`、R160 production/broadband validationは未成立。R140 real GPU evidence、R180/owned-room validationも未完了。post-0.1追加surface（プレゼン・映像調整・受入検証・capture昇格・solver capability manifest等）は末尾「REV42〜REV53」節が正本 |
 | N80 tracking | Issue #65（closed） / Issue #67（O20 closed） / PR #74 merged |
 | O60 tracking | Issue #75 / PR #76（implementation history） / PR #78 merged。final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3`、CI #427 PASS |
 | O90 tracking | Issue #140 / #146。O90A/B authorityとprobability/cancel/cache/stale safeguardsを実装し、O90CをPR #228/#236/#238、O90D workflow-first robustness software UIをPR #249、O90E owned-room robustness validation authorityをPR #266でmain反映済み。actual owned-room evidence未登録のためproduction gateはclosed。残件はreal evidence acquisition/validationとUX160 owned-Windows visual acceptance |
@@ -906,3 +906,32 @@ and workspace UX; no hardware/physical-room evidence involved).
   (analysis_export, analysis_study, external_dependency_resolver,
   installation_handoff) green; `python -m compileall src/htdt` clean.
   Windows GUI paths (export dialog) unchanged in behavior.
+
+## REV42〜REV53 — 改善レビューラウンドとpost-0.1 issue実装 — 2026-10-04/05
+
+> この節はREV42〜REV53（継続的な全体レビュー→修正→改善ループ）でmainへ反映された現在の事実の正本。各ラウンドの詳細な欠陥・検証記録は `docs/reviews/rev4*.md` / `rev5*.md` 参照。schemaはnative v18。
+
+### 追加されたuser-facing surface / authority
+
+- **「プレゼン」workspace**（Issue #534 / REV47-ISS534）: 決定論的 `PresentationSession`、保存ビューポイント再生、同期A/B比較、提案・決定・レビューメモ記録、オフライン360レビューパッケージと提案書パッケージの書き出し。編集面ではなく確定権威のread-only再生面。`CadPresentationRepository`がpin済みauthorityのsave/verify/materializeを担当。
+- **「映像調整」workspace**（Issue #541 / REV48-VIDEO）: HCFR CSV取込（`.chc`は非公開形式のためunsupportedを明示）→既存の測色/EOTF/光度authorityによるSDR/HDR診断→証拠引用つき是正アクション→before/after証跡比較（比較不能は`INCOMPARABLE`+理由）。guidedジャーニー構成。
+- **「受入検証」guided wizard**（application destination / REV48-HWGUIDE）: 物理受入ゲート（windows-m10・o60r・ux160・golden-path・native-matrix・o90e・o100-physical）を`auto`/`guided_manual`/`attest`の3種ステップへ分解したmanifest（`htdt/acceptance_gates.py`、各stepは受入書・スクリプトの実項目に`source_ref`で紐付け）。autoはクリック一発で実チェック実行、guided-manualは手順表示+証拠自動取得+1クリック確認、attestは型付き証言+digest-bound証拠添付。実行ランはrevisioned永続化（schema v18）・再起動越え再開・完了時に`htdt.acceptance-evidence-bundle` JSON出力。詳細は[GUIDED_ACCEPTANCE](GUIDED_ACCEPTANCE.md)。
+- **capture entity昇格**（PR #539 / `capture_entity_promotion.py`）: 取り込みinboxのannotationを SceneEntity へ promote するexecutor。rejected envelopeも`rejected:` lineageでinboxにstageされる。
+- **solver capability manifest / geometry provenance**（Issue #2 / REV47-ISS2）: `SolverCapabilityManifest`がper-path phenomenon行・有効帯域・UNSUPPORTED理由を宣言し、`AcousticGeometryDerivation`がhash-bound provenance権威として永続化。REV51-WIRE/REV52-GAEMITでGA descriptor persist・wave executor・polyhedral result-commit・artifact commit emitまでruntime emit経路を接続済み。
+- **auralization evidence**（Issue #538 / REV47-ISS538）: `AuralizationRoutingDeclaration`・`AuralizationCapability`（IR出自・検証帯域・HRTF、overclaimはfail-closed）、実測vs予測のバンド一致検証、改竄検出つき共有レビューパッケージ（schema v17）。
+- **active-LF制御計画**（Issue #533 / REV47-ISS533）: 配列/wavefront適格性モデル、パス分類（diagonal/content_feed/cross_channel_support）、マルチシートLF目的、DSP資源実現性（UNKNOWN含む）、能力ラベル分離、計画永続化+ライフサイクルジャーナル。
+- **計測権威の登録面**（REV44-QUALITYAUTH / PR #529）: レベル校正・タイミング基準・刺激プロファイル・ルーティング・データセットレベル基準の5種登録UI。SPL準備ステップが完了可能になり、品質プロデューサーがUNKNOWN以上を実データで解決可能。
+- **予測行列+適格性証明の登録面**（REV44-SURFACES / PR #528）: provider登録→行列作成→実行。`MatrixRunVerification`（REV52-GAEMIT）でcoverage完備時のみ`validated`/`synthetic_fixture`へ昇格するverify-only永続化（実測`owned_room`はclaimしない）。
+- **健全性ベースライン+AV同期記録**（REV44-HEALTHSYNC / PR #530）: 概要「稼働状況」ドメインが実データで点灯。
+- **設置コンテキスト/設置基準登録**（REV44-INSTALL / PR #531）: 部屋→スピーカー・座席の「設置の記録」パネル。設置ハンドオフが実値を受け取る。
+- **テンプレート保存**（REV44 / PR #527）: 「現在のプロジェクトをテンプレートとして保存」メニュー。
+- **測定品質レポートproducer**（REV42 / PR #521）: `CadMeasurementQualityProducer`が証明可能な証拠のみから品質レポートを導出（取込み帯域/タイミング・retained校正・IR・反復性）。証明不能項目は`unknown/missing`で記録し捏造しない。全コミット経路に配線+冪等backfill。
+- **open issue検証システム**（REV44〜46 / PR #535/#537/#540）: `scripts/issue_verification_manifest.yaml` + `verify_open_issues.py` + `verify-open-issues.yml` workflow（手動起動）。issue→実在チェックの正直なマッピング、プロセスツリー/job-object containment、comment upsert、SHA-keyed cache。詳細は[ISSUE_VERIFICATION](ISSUE_VERIFICATION.md)。
+
+### 構造/整合性の修正（REV43/49〜53の主要分）
+
+- capture watchのdrop消失2件（再キュー上限+拒否通知）、inbox staging/promotionの整合性、品質backfillの永続化漏れ（冪等ingest経路がrollbackしていた）、world→scene権威の空間別・時系列正規化、watch-folder rejectionのprovenance修正（REV53-CAPTURE）。
+- backup/restore/bundle/relocation: Windows `_promote_directory`/`_park_directory`による永続brick防止、`_ASSET_TABLES`駆動のexport/import対称化（acceptance-evidenceのsilent drop防止）、fingerprintのaux/subtree coverage、中断restoreの`pre_restore_live` rollback（REV52-DATA→REV53-PASS4のrollback脚統一・sha一致検出・expected_assets gateまで）。
+- capture promotionの非affine/shear transform拒否（#545/#546）。
+- UX: 右パネルリサイズ（QSplitter）、配置パネルの横overflow解消、768px溢れdialogのQScrollArea化、Ctrl+Kパレットの新workspace対応、field_explorerの表示単位混入修正、生例外→JA `warn_user`化（17+9箇所）、28ボタンのJA tooltip、dark themeのdisabled視認性、HealthCheckDialogのN+1解消、`count_evaluations`等の計測改善（489ms→2.93ms、3904ms→263ms）。
+- 反復レビュー（REV50-SECOND/REV51-PASS3/REV53-PASS4）で導入欠陥を継続捕捉・修正。REV51-PASS3は実欠陥0件。

@@ -22,13 +22,19 @@ stable personal Windows releaseは **0.1.0** です。
 - 凹polygon room、wall / opening、speaker / seat / screen / furniture / AV機器 / measurement point
 - placement hard constraintと理由overlay
 - immutable SceneRevision / recovery / view state
-- REW実測workspace、Frequency Response表示、過去配置ghost、A/B比較
-- prediction authority / geometry compatibility / reflection overlay
+- REW実測workspace、Frequency Response表示、過去配置ghost、A/B比較、測定品質レポート（証拠導出・証明不能項目はUNKNOWN）
+- captureインボックス: 外部bundleのstage→検査→SceneEntity昇格、棄却記録とorphan照合
+- prediction authority / geometry compatibility / reflection overlay、solver capability manifest（経路別の現象能力・有効帯域・UNSUPPORTED理由を宣言）
 - deterministic SearchSpec / placement candidate
 - objective vector / Pareto比較
 - candidate→exact SceneRevision→Measurement Plan→N60 measured evidenceの閉ループ
 - O60 holdout trend / sensitivity / repeatability / applicability validation authority
+- 「プレゼン」workspace: 確定権威のビューポイント再生・同期A/B比較・決定記録・オフライン共有パッケージ
+- 「映像調整」workspace: ディスプレイ測定取込→診断→是正アクション→before/after検証
+- 「受入検証」wizard: 物理受入ゲートを auto/手順ガイド/証言 の3種ステップで実行し、証拠bundleを出力
+- active-LF制御計画（適格性・DSP実現性・能力ラベル分離）とauralization review package
 - stable Windows package / installer / update / backup / restore / uninstall data retention
+- open issue検証システム（manifest→runner→手動起動workflowで回帰検証）
 
 N05〜N90のnative release pathとO10〜O80のsoftware pathは実装済みです。O90 robust/tolerance-aware optimizationはO90A〜O90Dまで実装済みです。bounded / distribution / empirical / discrete uncertainty、probability-gated statistics、cancel/cache/resume/stale protection、auditable multi-fidelity screening、common-fidelity robust-Pareto finalizationに加え、PR #249でworkflow-first「ばらつき耐性」UIまでmainへ反映済みです。残るO90E owned-room robust validationとUX160 owned-Windows visual acceptanceは別gateです。O100 system expansion / virtual channel topology optimizationはO100A〜O100Fまで実装済みです。O100G backendはPR #235でproposal→explicit As-built、PR #239でexact As-built→measured evidence binding、PR #244でSystemVariant-specific MeasurementPlan / Campaignまで実装済みです。PR #255でRoom/Optimize workflow-first UX、proposed/as-built/measured badge・ghost、SystemVariant comparison、apply confirmation、measured presentationも実装済みです。残件はUX160 owned-Windows visual acceptanceのfull gateです（PR #291で部分acceptanceは反映済み）。詳細な現在地は[実装ステータス](docs/IMPLEMENTATION_STATUS.md)を正本とします。  
 O70 Adaptive Plannerは `development_synthetic` で、O80 Extended SearchとAdaptive Extended acquisitionはsynthetic directional capabilityでsoftware pathを最後まで確認できます。一方、`production_owned_room` recommendationとowned-room directional capabilityは、**独立した実室O60 validation evidenceが成立するまでfail-closed**です。
