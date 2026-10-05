@@ -530,6 +530,72 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_measurement_uncertainty_budgets': (
+        'payload_json',
+        (
+            _b('budget_id', 'budget_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('measurement_id', 'measurement_id', optional=True),
+            _b('dataset_id', 'dataset_id', optional=True),
+        ),
+        (),
+    ),
+    'cad_measurement_significance_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_kind', 'subject_kind'),
+            _b('subject_ref_id', 'subject_ref_id', optional=True),
+            _b('budget_id', 'budget_id'),
+        ),
+        (),
+    ),
+    'cad_measurement_state_policies': (
+        'payload_json',
+        (
+            _b('policy_id', 'policy_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('name', 'name'),
+        ),
+        (),
+    ),
+    'cad_measurement_state_snapshots': (
+        'payload_json',
+        (
+            _b('snapshot_id', 'snapshot_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('measurement_id', 'measurement_id'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_measurement_state_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_kind', 'subject_kind'),
+            _b('state', 'state'),
+            _b('policy_id', 'policy_id', optional=True),
+        ),
+        (),
+    ),
+    'cad_measurement_transforms': (
+        'payload_json',
+        (
+            _b('transform_id', 'transform_id'),
+            _b('semantic_sha256', 'semantic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('kind', 'kind'),
+        ),
+        (),
+    ),
     'cad_cost_records': (
         'payload_json',
         (

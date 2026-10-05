@@ -408,6 +408,12 @@ class _RepositoryChain:
             )
 
             return CadCorrectionQualificationRepository(scene)
+        if name == 'measurement_evidence':
+            from .cad_measurement_evidence_repository import (
+                CadMeasurementEvidenceRepository,
+            )
+
+            return CadMeasurementEvidenceRepository(scene)
         if name == 'multi_sub_optimization':
             from .cad_multi_sub_optimization_repository import (
                 CadMultiSubOptimizationRepository,
@@ -2064,6 +2070,42 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_correction_qualifications',
         ('qualification_id',),
         _get('correction_qualification', 'get'),
+    ),
+    _ReplayProbe(
+        'measurement_uncertainty_budget',
+        'cad_measurement_uncertainty_budgets',
+        ('budget_id',),
+        _get('measurement_evidence', 'get_uncertainty_budget'),
+    ),
+    _ReplayProbe(
+        'measurement_significance_assessment',
+        'cad_measurement_significance_assessments',
+        ('assessment_id',),
+        _get('measurement_evidence', 'get_significance_assessment'),
+    ),
+    _ReplayProbe(
+        'measurement_state_policy',
+        'cad_measurement_state_policies',
+        ('policy_id',),
+        _get('measurement_evidence', 'get_state_policy'),
+    ),
+    _ReplayProbe(
+        'measurement_state_snapshot',
+        'cad_measurement_state_snapshots',
+        ('snapshot_id',),
+        _get('measurement_evidence', 'get_state_snapshot'),
+    ),
+    _ReplayProbe(
+        'measurement_state_verdict',
+        'cad_measurement_state_verdicts',
+        ('verdict_id',),
+        _get('measurement_evidence', 'get_state_verdict'),
+    ),
+    _ReplayProbe(
+        'measurement_transform',
+        'cad_measurement_transforms',
+        ('transform_id',),
+        _get('measurement_evidence', 'get_transform'),
     ),
     _ReplayProbe(
         'multi_sub_candidate',

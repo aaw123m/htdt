@@ -2251,6 +2251,62 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS cad_video_import_batches ( document_id TEXT NOT NULL, batch_id TEXT NOT NULL, session_id TEXT, measurement_set_id TEXT NOT NULL, format_id TEXT NOT NULL, batch_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, PRIMARY KEY (document_id, batch_id) )
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_uncertainty_budgets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, budget_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurement_id TEXT, dataset_id TEXT, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mub_document ON cad_measurement_uncertainty_budgets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mub_measurement ON cad_measurement_uncertainty_budgets(measurement_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_significance_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT, budget_id TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_msa_document ON cad_measurement_significance_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_state_policies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, policy_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, name TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mspol_document ON cad_measurement_state_policies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_state_snapshots ( seq INTEGER PRIMARY KEY AUTOINCREMENT, snapshot_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurement_id TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mss_document ON cad_measurement_state_snapshots(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mss_measurement ON cad_measurement_state_snapshots(measurement_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_state_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, state TEXT NOT NULL, policy_id TEXT, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_msv_document ON cad_measurement_state_verdicts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_transforms ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transform_id TEXT NOT NULL UNIQUE, semantic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL, recorded_at_utc TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mtr_document ON cad_measurement_transforms(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -2438,8 +2494,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_measurement_runner_events',
     'cad_measurement_runner_plans',
     'cad_measurement_runner_runs',
+    'cad_measurement_significance_assessments',
+    'cad_measurement_state_policies',
+    'cad_measurement_state_snapshots',
+    'cad_measurement_state_verdicts',
     'cad_measurement_target_lineages',
     'cad_measurement_target_patterns',
+    'cad_measurement_transforms',
+    'cad_measurement_uncertainty_budgets',
     'cad_measurements',
     'cad_model_validations',
     'cad_multi_seat_results',
