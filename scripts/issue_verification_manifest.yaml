@@ -3796,3 +3796,77 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_infra2.py::test_compliance_claim_ladder]
         description: Safety ≠ EMC; field symptom ≠ product fault.
+  - issue: 660
+    title: "Displayed tonal-gradation / banding authority"
+    notes: >
+      DisplayedGradationObservation (dgo-) binds the pinned stimulus
+      + declared range semantics (full/limited — 'unknown' fails,
+      mismatched range itself causes banding). evaluate:
+      10-bit/HDR reporting ≠ displayed gradation
+      (nominal_spec_is_not_result).
+    checks:
+      - id: displayed-gradation
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_fidelity_claim_ladder]
+        description: Nominal bit depth ≠ displayed result.
+  - issue: 688
+    title: "Colour gamut volume authority"
+    notes: >
+      ColourVolumeMeasurement (cvol-) records IDMS v1.3 gamut-volume
+      method + colour space (L*a*b*/ICtCp) + measurement ref; a
+      coverage fraction requires the reference volume. 2D triangle
+      coverage ≠ luminance-dependent volume (triangle_is_not_volume).
+    checks:
+      - id: colour-volume
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_volume_requires_space_method_and_measurement]
+        description: IDMS v1.3 volumetric method pinned.
+  - issue: 672
+    title: "Installed spatial-resolution / contrast-modulation authority"
+    notes: >
+      SpatialResolutionEvidence (sres-) binds contrast-modulation /
+      MTF / line-pattern method to the installed chain — a nominal
+      4K raster is not resolved detail (raster_is_not_resolution).
+    checks:
+      - id: spatial-resolution
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_resolution_requires_method_and_measurement]
+        description: Raster ≠ resolved detail.
+  - issue: 756
+    title: "Low-luminance / stray-light metrology authority"
+    notes: >
+      LowLuminanceCapability (llc-) declares minimum luminance, dark
+      offset and stray-light control (elimination tube/mask/
+      instrument-corrected — 'unknown'/'none' without a declared
+      minimum fails). A calibrated meter still reads its own veiling
+      glare at DUT black (calibrated_meter_is_not_black_evidence).
+    checks:
+      - id: low-luminance
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_metrology_claim_ladder]
+        description: Calibration ≠ black-level validity.
+  - issue: 759
+    title: "Projector dynamic-light / temporal contrast authority"
+    notes: >
+      DynamicContrastMeasurement (dcm-) pins stimulus + control mode
+      + adaptation history; 'dynamic_advertised' requires control
+      mode + adaptation history and evaluates to
+      dynamic_is_not_stable_quantity (marketing context only).
+    checks:
+      - id: dynamic-contrast
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_dynamic_contrast_requires_context]
+        description: Dynamic scalar ≠ stable physical quantity.
+  - issue: 760
+    title: "Display-wall acoustic boundary authority"
+    notes: >
+      DisplayWallBoundary (dwb-) registers wall kind/area/placement;
+      speakers behind a transparency-claimed wall require measured
+      transmission evidence. WallAcousticImpact (wai-) binds TL/
+      reflection/SBIR to measurement. evaluate:
+      video_wall_is_also_acoustic / transparency_unmeasured.
+    checks:
+      - id: display-wall
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_wall_claim_ladder]
+        description: Video device = several-m2 acoustic boundary.
