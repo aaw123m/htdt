@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 60
+NATIVE_SCHEMA_VERSION = 62
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1692,8 +1692,23 @@ def _migrate_58_to_59(connection: sqlite3.Connection) -> None:
     for statement in NATIVE_BASELINE_DDL:
         connection.execute(statement)
 
-
 def _migrate_59_to_60(connection: sqlite3.Connection) -> None:
+    # Install the REV59-QUALNUM authorities (#703 numerical
+    # reproducibility, #716 imaging chain, #717 wireless AV): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_60_to_61(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DRAWPROF authorities (#741 CEB23-B video
+    # profile, #742 J-STD-710 symbols, #733 timed text): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_61_to_62(connection: sqlite3.Connection) -> None:
     # Install the REV59-CODEPOLICY authorities (#746 seating
     # circulation / egress / accessibility evidence, #748 lighting
     # temporal modulation (TLM/TLA), #722 project data privacy &
@@ -1764,6 +1779,8 @@ _MIGRATIONS = {
     58: _migrate_57_to_58,
     59: _migrate_58_to_59,
     60: _migrate_59_to_60,
+    61: _migrate_60_to_61,
+    62: _migrate_61_to_62,
 }
 
 

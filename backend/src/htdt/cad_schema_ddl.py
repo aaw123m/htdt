@@ -6235,6 +6235,138 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_svo_doc ON cad_service_access_observations(document_id, seq ASC)
     """
     ,
+    # REV59-QUALNUM: #703 numerical reproducibility, #716 imaging
+    # measurement chain, #717 wireless AV transport.
+    """
+    CREATE TABLE IF NOT EXISTS cad_numerical_repro_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, precision_kind TEXT NOT NULL, parallelism_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nrep_doc ON cad_numerical_repro_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_stochastic_realizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, realization_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srez_doc ON cad_stochastic_realizations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_numerical_comparisons ( seq INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL UNIQUE, comparison_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, domain TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nxcmp_doc ON cad_numerical_comparisons(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_imaging_measurement_chains ( seq INTEGER PRIMARY KEY AUTOINCREMENT, chain_id TEXT NOT NULL UNIQUE, chain_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_state TEXT NOT NULL, shutter_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_imc_doc ON cad_imaging_measurement_chains(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_camera_calibrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, calibration_id TEXT NOT NULL UNIQUE, calibration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_camcal_doc ON cad_camera_calibrations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_camera_derived_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, measurand TEXT NOT NULL, processing_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cdo_doc ON cad_camera_derived_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_av_links ( seq INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT NOT NULL UNIQUE, link_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, transport_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wav_doc ON cad_wireless_av_links(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_transport_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, link_ref_id TEXT NOT NULL, dropout_events INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wto_doc ON cad_wireless_transport_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_sync_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, link_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wsync_doc ON cad_wireless_sync_evidence(document_id, seq ASC)
+    """
+    ,
+    # REV59-DRAWPROF: #741 CEB23-B video profile, #742 J-STD-710
+    # drawing symbols, #733 timed-text presentation.
+    """
+    CREATE TABLE IF NOT EXISTS cad_ht_video_design_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, edition TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_htvdp_doc ON cad_ht_video_design_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ceb23_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ceb23_doc ON cad_ceb23_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drawing_symbol_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, edition TEXT NOT NULL, rights_provenance TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ads_doc ON cad_drawing_symbol_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_symbol_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, device_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dsm_doc ON cad_device_symbol_mappings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drawing_export_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, export_id TEXT NOT NULL UNIQUE, export_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, export_format TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dexp_doc ON cad_drawing_export_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_timed_text_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ttp_doc ON cad_timed_text_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_caption_render_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cro_doc ON cad_caption_render_observations(document_id, seq ASC)
+    """
+    ,
     # REV59-CODEPOLICY: #746 egress/accessibility, #748 lighting TLM/TLA,
     # #722 project data privacy/sharing.
     """
@@ -6342,6 +6474,8 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
 )
+
+
 
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -7214,6 +7348,24 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_resonant_performance_records',
     'cad_service_envelope_profiles',
     'cad_service_access_observations',
+    # REV59-QUALNUM: #703 / #716 / #717.
+    'cad_numerical_repro_profiles',
+    'cad_stochastic_realizations',
+    'cad_numerical_comparisons',
+    'cad_imaging_measurement_chains',
+    'cad_camera_calibrations',
+    'cad_camera_derived_observations',
+    'cad_wireless_av_links',
+    'cad_wireless_transport_observations',
+    'cad_wireless_sync_evidence',
+    # REV59-DRAWPROF: #741 / #742 / #733.
+    'cad_ht_video_design_profiles',
+    'cad_ceb23_evaluations',
+    'cad_drawing_symbol_profiles',
+    'cad_device_symbol_mappings',
+    'cad_drawing_export_records',
+    'cad_timed_text_profiles',
+    'cad_caption_render_observations',
     # REV59-CODEPOLICY: #746 / #748 / #722.
     'cad_life_safety_profiles',
     'cad_circulation_routes',

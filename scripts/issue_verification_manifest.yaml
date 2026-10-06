@@ -3374,6 +3374,128 @@ issues:
           - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_is_not_serviceable
           - backend/tests/test_rev59_roomq.py::TestServiceability::test_verified
         description: Fit-vs-serviceable separation, item gating.
+  - issue: 703
+    title: "Numerical solver reproducibility authority"
+    notes: >
+      NumericalReproducibilityProfile (nrep-) pins precision /
+      parallelism / reduction-order / seed policy — pinned reduction
+      order requires a reproducible-reduction ref (ReproBLAS-class).
+      StochasticRealizationRecord (srez-) requires a recorded seed for
+      stochastic kinds and a pinned result. CrossPlatformNumerical-
+      Comparison (nxcmp-) binds >=2 realizations + measured metric
+      deviations (+ optional ensemble CI). evaluate_numerical_
+      difference_claim: difference inside the run-to-run band is never
+      a deterministic ordering; a larger difference still needs a
+      pinned-order profile to claim deterministic truth.
+    checks:
+      - id: numerical-reproducibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_qualnum.py::TestNumericalReproducibility::test_within_variability
+          - backend/tests/test_rev59_qualnum.py::TestNumericalReproducibility::test_deterministic_needs_pinned_profile
+          - backend/tests/test_rev59_qualnum.py::TestNumericalReproducibility::test_deterministic_order
+        description: >
+          Variability-envelope gating, pinned-order honesty, ensemble
+          margin.
+  - issue: 716
+    title: "Camera / imaging-measurement-chain authority"
+    notes: >
+      ImagingMeasurementChain (imc-) declares camera/lens/sensor/
+      shutter/exposure/WB/ISP/geometry alignment — 'qualified'
+      requires pinned geometric alignment + named measurands.
+      CameraCalibrationProfile (camcal-) pins distortion (ISO 17850),
+      MTF (ISO 9335) and moiré evidence. CameraDerivedObservation
+      (cdo-) binds measurand + processing state. evaluate_imaging_
+      evidence_claim: unqualified chain is not display truth; auto
+      exposure/WB is incomparable; tone-mapped/compressed is not raw;
+      rolling shutter corrupts temporal measurands; resolution claims
+      need camera-MTF qualification.
+    checks:
+      - id: imaging-chain
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_qualnum.py::TestImagingChain::test_unqualified_not_truth
+          - backend/tests/test_rev59_qualnum.py::TestImagingChain::test_auto_exposure_incomparable
+          - backend/tests/test_rev59_qualnum.py::TestImagingChain::test_mtf_calibration_gate
+        description: >
+          IDMS v1.3 §3.8/§3.2.11/§3.10 chain gates, processing-state
+          honesty.
+  - issue: 717
+    title: "Wireless AV transport qualification"
+    notes: >
+      WirelessAVLink (wav-) declares transport/endpoints/codec/
+      topology; provider claims require a pinned provider ref.
+      WirelessTransportObservation (wto-) binds measured latency,
+      loss, dropouts, reconnects, channel changes. Wireless-
+      SynchronizationEvidence (wsync-) binds measured inter-speaker
+      offset. evaluate_wireless_claim: logical routing is not
+      transport evidence; provider claims are not field qualification;
+      observed dropouts block 'qualified'; multi-endpoint audio needs
+      measured sync.
+    checks:
+      - id: wireless-av
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_qualnum.py::TestWirelessAV::test_routing_not_transport
+          - backend/tests/test_rev59_qualnum.py::TestWirelessAV::test_dropout
+          - backend/tests/test_rev59_qualnum.py::TestWirelessAV::test_qualified
+        description: >
+          Routing-vs-transport separation, provider-claim honesty,
+          dropout/sync gating.
+  - issue: 741
+    title: "CTA/CEDIA-CEB23-B home-theater video-design profile"
+    notes: >
+      HomeTheaterVideoDesignProfile (htvdp-) pins the standard
+      document + exact edition + a requirement→authority map over the
+      CEB23 coverage keys — never embedding protected text.
+      CEB23Evaluation (ceb23-) binds per-requirement evidence class.
+      evaluate_ceb23_requirement: unmapped requirements and
+      out-of-profile keys are refused; design predictions never
+      masquerade as as-built verification.
+    checks:
+      - id: ceb23-profile
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_drawprof.py::TestCEB23Profile::test_unmapped_requirement
+          - backend/tests/test_rev59_drawprof.py::TestCEB23Profile::test_design_vs_asbuilt
+        description: Requirement mapping + evidence-class honesty.
+  - issue: 742
+    title: "AV architectural-drawing symbol profile (J-STD-710)"
+    notes: >
+      ArchitecturalDrawingSymbolProfile (ads-) pins edition —
+      jstd710_2015 production vs jstd710_202x_draft kept distinct — +
+      rights provenance (licensed_pack needs pinned rights evidence;
+      'unknown' fails closed). DeviceSymbolMapping (dsm-) binds
+      device_kind→symbol+revision. DrawingExportRecord (dexp-) binds
+      the profile + mappings actually used. evaluate_symbol_claim:
+      undeclared rights → unlicensed; edition mismatch →
+      revision_mismatch.
+    checks:
+      - id: drawing-symbols
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_drawprof.py::TestDrawingSymbols::test_unlicensed
+          - backend/tests/test_rev59_drawprof.py::TestDrawingSymbols::test_revision_mismatch
+          - backend/tests/test_rev59_drawprof.py::TestDrawingSymbols::test_mapped
+        description: Rights provenance + edition honesty.
+  - issue: 733
+    title: "Subtitle / caption presentation qualification"
+    notes: >
+      TimedTextPresentationProfile (ttp-) pins the profile kind
+      (IMSC Text 1.3 / CTA-708-E / TTML2 / etc.) + the actual masked
+      render surface — 'unknown' kind is not a claim.
+      CaptionRenderObservation (cro-) binds timing, mask positioning,
+      legibility and language evidence. evaluate_subtitle_claim:
+      decoding a track is not presentation; timing, mask position and
+      legibility are each gated.
+    checks:
+      - id: subtitle-presentation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_drawprof.py::TestTimedText::test_track_not_presentation
+          - backend/tests/test_rev59_drawprof.py::TestTimedText::test_outside_mask
+          - backend/tests/test_rev59_drawprof.py::TestTimedText::test_qualified
+        description: Track-vs-presentation separation, legibility gate.
   - issue: 746
     title: "Seating circulation / egress / accessibility evidence authority"
     notes: >
