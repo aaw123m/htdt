@@ -5205,6 +5205,122 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_mdtqual_obs ON cad_modal_decay_qualifications(observation_ref_id, seq ASC)
     """
     ,
+    # REV59-UNITS: #728 typed physical-quantity authority — quantities,
+    # operations.
+    """
+    CREATE TABLE IF NOT EXISTS cad_typed_quantities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, quantity_id TEXT NOT NULL UNIQUE, quantity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, quantity_kind TEXT NOT NULL, value_kind TEXT NOT NULL, canonical_value REAL NOT NULL, canonical_unit TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_quantity_operations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL UNIQUE, operation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, operation TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tqty_doc ON cad_typed_quantities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tqop_doc ON cad_quantity_operations(document_id, seq ASC)
+    """
+    ,
+    # REV59-UNITS: #730 engineering-assumption / permissible-use ledger —
+    # assumptions, resolutions, permissible-use assessments.
+    """
+    CREATE TABLE IF NOT EXISTS cad_engineering_assumptions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assumption_id TEXT NOT NULL UNIQUE, assumption_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, assumption_kind TEXT NOT NULL, evidence_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_assumption_resolutions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, resolution_id TEXT NOT NULL UNIQUE, resolution_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assumption_ref_id TEXT NOT NULL, resolution_state TEXT NOT NULL, resolved_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_permissible_use_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, intended_use TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_asm_doc ON cad_engineering_assumptions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_asm_subject ON cad_engineering_assumptions(subject_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_asmres_doc ON cad_assumption_resolutions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_asmres_asm ON cad_assumption_resolutions(assumption_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_asmpu_doc ON cad_permissible_use_assessments(document_id, seq ASC)
+    """
+    ,
+    # REV59-UNITS: #720 perceptual relevance / audibility authority —
+    # model profiles, assessments.
+    """
+    CREATE TABLE IF NOT EXISTS cad_perceptual_model_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_kind TEXT NOT NULL, scope_class TEXT NOT NULL, literature_ref TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_audibility_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, difference_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pprof_doc ON cad_perceptual_model_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_aud_doc ON cad_audibility_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_aud_profile ON cad_audibility_assessments(profile_ref_id, seq ASC)
+    """
+    ,
+    # REV59-UNITS: #719 residual diagnostic-hypothesis authority —
+    # cases, hypotheses, tests, verdicts.
+    """
+    CREATE TABLE IF NOT EXISTS cad_diagnostic_cases ( seq INTEGER PRIMARY KEY AUTOINCREMENT, case_id TEXT NOT NULL UNIQUE, case_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, symptom_ref_id TEXT NOT NULL, status TEXT NOT NULL, opened_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diagnostic_hypotheses ( seq INTEGER PRIMARY KEY AUTOINCREMENT, hypothesis_id TEXT NOT NULL UNIQUE, hypothesis_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, case_ref_id TEXT NOT NULL, cause_family TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diagnostic_tests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, test_id TEXT NOT NULL UNIQUE, test_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, case_ref_id TEXT NOT NULL, test_kind TEXT NOT NULL, verdict TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diagnostic_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, case_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diagcase_doc ON cad_diagnostic_cases(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diahyp_doc ON cad_diagnostic_hypotheses(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diahyp_case ON cad_diagnostic_hypotheses(case_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diatest_doc ON cad_diagnostic_tests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diatest_case ON cad_diagnostic_tests(case_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_diaverdict_doc ON cad_diagnostic_verdicts(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5952,4 +6068,16 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_reflection_correspondence_verdicts',
     'cad_modal_decay_observations',
     'cad_modal_decay_qualifications',
+    # REV59-UNITS: #728 / #730 / #720 / #719.
+    'cad_typed_quantities',
+    'cad_quantity_operations',
+    'cad_engineering_assumptions',
+    'cad_assumption_resolutions',
+    'cad_permissible_use_assessments',
+    'cad_perceptual_model_profiles',
+    'cad_audibility_assessments',
+    'cad_diagnostic_cases',
+    'cad_diagnostic_hypotheses',
+    'cad_diagnostic_tests',
+    'cad_diagnostic_verdicts',
 )

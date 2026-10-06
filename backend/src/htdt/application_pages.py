@@ -557,6 +557,21 @@ _LIFECYCLE_TABLE_LABELS = {
     # REV58-VALIDMETH: #706 時周波モーダル減衰
     "cad_modal_decay_observations": "時周波減衰観測",
     "cad_modal_decay_qualifications": "時周波減衰適格",
+    # REV59-UNITS: #728 型付き物理量
+    "cad_typed_quantities": "型付き物理量",
+    "cad_quantity_operations": "物理量演算評価",
+    # REV59-UNITS: #730 工学仮定台帳
+    "cad_engineering_assumptions": "工学仮定",
+    "cad_assumption_resolutions": "仮定解消記録",
+    "cad_permissible_use_assessments": "許容用途評価",
+    # REV59-UNITS: #720 知覚関連性/可聴性
+    "cad_perceptual_model_profiles": "知覚モデルプロファイル",
+    "cad_audibility_assessments": "可聴性評価",
+    # REV59-UNITS: #719 残差診断仮説
+    "cad_diagnostic_cases": "診断ケース",
+    "cad_diagnostic_hypotheses": "診断仮説",
+    "cad_diagnostic_tests": "診断試験",
+    "cad_diagnostic_verdicts": "診断判定",
 }
 
 

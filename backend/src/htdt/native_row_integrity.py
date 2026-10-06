@@ -5514,6 +5514,152 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV59-UNITS: #728 typed physical quantity.
+    'cad_typed_quantities': (
+        'payload_json',
+        (
+            _b('quantity_id', 'quantity_id'),
+            _b('quantity_sha256', 'quantity_sha256'),
+            _b('document_id', 'document_id'),
+            _b('quantity_kind', 'quantity_kind'),
+            _b('value_kind', 'value_kind'),
+            _b('canonical_value', 'canonical_value'),
+            _b('canonical_unit', 'canonical_unit'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_quantity_operations': (
+        'payload_json',
+        (
+            _b('operation_id', 'operation_id'),
+            _b('operation_sha256', 'operation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('operation', 'operation'),
+            _b('state', 'state'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV59-UNITS: #730 engineering-assumption ledger.
+    'cad_engineering_assumptions': (
+        'payload_json',
+        (
+            _b('assumption_id', 'assumption_id'),
+            _b('assumption_sha256', 'assumption_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('assumption_kind', 'assumption_kind'),
+            _b('evidence_state', 'evidence_state'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_assumption_resolutions': (
+        'payload_json',
+        (
+            _b('resolution_id', 'resolution_id'),
+            _b('resolution_sha256', 'resolution_sha256'),
+            _b('document_id', 'document_id'),
+            _b('assumption_ref_id', 'assumption_ref', 'ref_id'),
+            _b('resolution_state', 'resolution_state'),
+            _b('resolved_at_utc', 'resolved_at_utc'),
+        ),
+        (),
+    ),
+    'cad_permissible_use_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('intended_use', 'intended_use'),
+            _b('verdict', 'verdict'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV59-UNITS: #720 perceptual relevance / audibility.
+    'cad_perceptual_model_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('model_kind', 'model_kind'),
+            _b('scope_class', 'applicability', 'scope_class'),
+            _b('literature_ref', 'literature_ref'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_audibility_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('difference_ref_id', 'difference_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV59-UNITS: #719 residual diagnostic-hypothesis.
+    'cad_diagnostic_cases': (
+        'payload_json',
+        (
+            _b('case_id', 'case_id'),
+            _b('case_sha256', 'case_sha256'),
+            _b('document_id', 'document_id'),
+            _b('symptom_ref_id', 'symptom_ref', 'ref_id'),
+            _b('status', 'status'),
+            _b('opened_at_utc', 'opened_at_utc'),
+        ),
+        (),
+    ),
+    'cad_diagnostic_hypotheses': (
+        'payload_json',
+        (
+            _b('hypothesis_id', 'hypothesis_id'),
+            _b('hypothesis_sha256', 'hypothesis_sha256'),
+            _b('document_id', 'document_id'),
+            _b('case_ref_id', 'case_ref', 'ref_id'),
+            _b('cause_family', 'cause_family'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_diagnostic_tests': (
+        'payload_json',
+        (
+            _b('test_id', 'test_id'),
+            _b('test_sha256', 'test_sha256'),
+            _b('document_id', 'document_id'),
+            _b('case_ref_id', 'case_ref', 'ref_id'),
+            _b('test_kind', 'test_kind'),
+            _b('verdict', 'verdict'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_diagnostic_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('case_ref_id', 'case_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
