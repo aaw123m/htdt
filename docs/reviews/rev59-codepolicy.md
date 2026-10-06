@@ -1,7 +1,7 @@
 # REV59-CODEPOLICY レビュー記録 — 避難/出入権威 + 照明時間変調 + データプライバシー
 
 対象 issue: #746 (P1), #748 (P1), #722 (P1)
-着地: schema v63、新規 13 テーブル、リポジトリ `cad_code_policy_repository`、回帰テスト `test_rev59_codepolicy.py` 44 件
+着地: schema v64、新規 13 テーブル、リポジトリ `cad_code_policy_repository`、回帰テスト `test_rev59_codepolicy.py` 44 件
 
 ## 実装権威
 

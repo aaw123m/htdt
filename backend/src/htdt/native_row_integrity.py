@@ -7232,6 +7232,101 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_listening_experiment_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method_kind', 'method_kind'),
+            _b('impairment_regime', 'impairment_regime'),
+        ),
+        (),
+    ),
+    'cad_listener_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('training_completed', 'training_completed'),
+        ),
+        (),
+    ),
+    'cad_subjective_inference_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_assistive_listening_paths': (
+        'payload_json',
+        (
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('document_id', 'document_id'),
+            _b('technology', 'technology'),
+        ),
+        (),
+    ),
+    'cad_als_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_receiver_compatibility_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+            _b('compatible', 'compatible'),
+        ),
+        (),
+    ),
+    'cad_dynamic_binaural_sessions': (
+        'payload_json',
+        (
+            _b('session_id', 'session_id'),
+            _b('session_sha256', 'session_sha256'),
+            _b('document_id', 'document_id'),
+            _b('hrtf_class', 'hrtf_class'),
+        ),
+        (),
+    ),
+    'cad_pose_tracking_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_binaural_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+
 }
 
 

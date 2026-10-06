@@ -1275,6 +1275,12 @@ class _RepositoryChain:
             )
 
             return CadTreatmentSafetyRepository(scene)
+        if name == 'listening_evidence':
+            from .cad_listening_evidence_repository import (
+                CadListeningEvidenceRepository,
+            )
+
+            return CadListeningEvidenceRepository(scene)
         raise KeyError(name)
 
 
@@ -6093,6 +6099,60 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_finish_assembly_evidence',
         ('assembly_id',),
         _get('treatment_safety', 'get_assembly_evidence'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_listening_experiment_plans',
+        ('plan_id',),
+        _get('listening_evidence', 'get_listening_plan'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_listener_qualifications',
+        ('qualification_id',),
+        _get('listening_evidence', 'get_listener_qualification'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_subjective_inference_records',
+        ('record_id',),
+        _get('listening_evidence', 'get_inference_record'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_assistive_listening_paths',
+        ('path_id',),
+        _get('listening_evidence', 'get_als_path'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_als_qualifications',
+        ('qualification_id',),
+        _get('listening_evidence', 'get_als_qualification'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_receiver_compatibility_evidence',
+        ('evidence_id',),
+        _get('listening_evidence', 'get_receiver_evidence'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_dynamic_binaural_sessions',
+        ('session_id',),
+        _get('listening_evidence', 'get_binaural_session'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_pose_tracking_evidence',
+        ('evidence_id',),
+        _get('listening_evidence', 'get_pose_evidence'),
+    ),
+    _ReplayProbe(
+        'listening_evidence',
+        'cad_binaural_qualifications',
+        ('qualification_id',),
+        _get('listening_evidence', 'get_binaural_qualification'),
     ),
 )
 
