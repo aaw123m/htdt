@@ -7557,6 +7557,280 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_power_sequence_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('amplifier_step', 'amplifier_step'),
+            _b('amplifier_last_on_first_off', 'amplifier_last_on_first_off'),
+        ),
+        (),
+    ),
+    'cad_power_sequence_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_power_quality_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('instrument_class', 'instrument_class'),
+        ),
+        (),
+    ),
+    'cad_indoor_air_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('sensor_class', 'sensor_class'),
+        ),
+        (),
+    ),
+    'cad_material_emission_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('emission_class', 'emission_class'),
+        ),
+        (),
+    ),
+    'cad_product_safety_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('safety_standard', 'safety_standard'),
+        ),
+        (),
+    ),
+    'cad_emc_compliance_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_kind', 'profile_kind'),
+        ),
+        (),
+    ),
+    'cad_displayed_gradation_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('range_semantics', 'range_semantics'),
+            _b('banding_observed', 'banding_observed'),
+        ),
+        (),
+    ),
+    'cad_colour_volume_measurements': (
+        'payload_json',
+        (
+            _b('volume_id', 'volume_id'),
+            _b('volume_sha256', 'volume_sha256'),
+            _b('document_id', 'document_id'),
+            _b('colour_space', 'colour_space'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_spatial_resolution_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_low_luminance_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stray_light_control', 'stray_light_control'),
+        ),
+        (),
+    ),
+    'cad_dynamic_contrast_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('contrast_kind', 'contrast_kind'),
+        ),
+        (),
+    ),
+    'cad_display_wall_boundaries': (
+        'payload_json',
+        (
+            _b('boundary_id', 'boundary_id'),
+            _b('boundary_sha256', 'boundary_sha256'),
+            _b('document_id', 'document_id'),
+            _b('wall_kind', 'wall_kind'),
+            _b('acoustic_transparency_claim', 'acoustic_transparency_claim'),
+        ),
+        (),
+    ),
+    'cad_wall_acoustic_impacts': (
+        'payload_json',
+        (
+            _b('impact_id', 'impact_id'),
+            _b('impact_sha256', 'impact_sha256'),
+            _b('document_id', 'document_id'),
+            _b('boundary_ref_id', 'boundary_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_panning_continuity_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_kind', 'stimulus_kind'),
+        ),
+        (),
+    ),
+    'cad_subwoofer_localization_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_kind', 'stimulus_kind'),
+            _b('crossover_hz', 'crossover_hz'),
+        ),
+        (),
+    ),
+    'cad_groupdelay_audibility': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_kind', 'stimulus_kind'),
+            _b('peak_delay_ms', 'peak_delay_ms'),
+            _b('frequency_hz', 'frequency_hz'),
+        ),
+        (),
+    ),
+    'cad_headphone_coupling_evidence': (
+        'payload_json',
+        (
+            _b('coupling_id', 'coupling_id'),
+            _b('coupling_sha256', 'coupling_sha256'),
+            _b('document_id', 'document_id'),
+            _b('compensation_kind', 'compensation_kind'),
+            _b('fit_state', 'fit_state'),
+        ),
+        (),
+    ),
+    'cad_structureborne_paths': (
+        'payload_json',
+        (
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('document_id', 'document_id'),
+            _b('source_kind', 'source_kind'),
+            _b('mount_kind', 'mount_kind'),
+        ),
+        (),
+    ),
+    'cad_spatial_remapping_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('remap_mode', 'remap_mode'),
+        ),
+        (),
+    ),
+    'cad_codec_fidelity_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('media_kind', 'media_kind'),
+            _b('codec_family', 'codec_family'),
+        ),
+        (),
+    ),
+    'cad_fft_spectral_estimator_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('window_kind', 'window_kind'),
+            _b('enbw_bins', 'enbw_bins'),
+        ),
+        (),
+    ),
+    'cad_clock_domain_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('domain_kind', 'domain_kind'),
+            _b('lock_state', 'lock_state'),
+        ),
+        (),
+    ),
+    'cad_external_fact_claims': (
+        'payload_json',
+        (
+            _b('claim_id', 'claim_id'),
+            _b('claim_sha256', 'claim_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject', 'subject'),
+            _b('published_on', 'published_on'),
+        ),
+        (),
+    ),
+    'cad_fact_conflict_resolutions': (
+        'payload_json',
+        (
+            _b('resolution_id', 'resolution_id'),
+            _b('resolution_sha256', 'resolution_sha256'),
+            _b('document_id', 'document_id'),
+            _b('resolution_kind', 'resolution_kind'),
+        ),
+        (),
+    ),
+    'cad_bom_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bom_version', 'bom_version'),
+        ),
+        (),
+    ),
 
 }
 

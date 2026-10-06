@@ -6790,6 +6790,17 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
 )
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_power_sequence_plans (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT NOT NULL UNIQUE,
+    plan_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    amplifier_step TEXT,
+    amplifier_last_on_first_off INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
     """CREATE TABLE IF NOT EXISTS cad_arbitrary_stimulus_measurements (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     stimulus_id TEXT NOT NULL UNIQUE,
@@ -6920,12 +6931,33 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
 )
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_power_sequence_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    plan_ref_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
     """CREATE TABLE IF NOT EXISTS cad_thiele_small_derivations (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
     derivation_id TEXT NOT NULL UNIQUE,
     derivation_sha256 TEXT NOT NULL,
     document_id TEXT NOT NULL,
     model_fit_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_power_quality_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    instrument_class TEXT NOT NULL,
     payload_json TEXT NOT NULL
 )
     """
@@ -6973,6 +7005,326 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """CREATE INDEX IF NOT EXISTS cad_thiele_small_derivations_document_idx ON cad_thiele_small_derivations (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_indoor_air_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    sensor_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_material_emission_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    emission_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_product_safety_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    safety_standard TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_emc_compliance_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    profile_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_sequence_plans_document_idx ON cad_power_sequence_plans (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_sequence_evidence_document_idx ON cad_power_sequence_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_quality_observations_document_idx ON cad_power_quality_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_indoor_air_observations_document_idx ON cad_indoor_air_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_material_emission_evidence_document_idx ON cad_material_emission_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_product_safety_evidence_document_idx ON cad_product_safety_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_emc_compliance_evidence_document_idx ON cad_emc_compliance_evidence (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_displayed_gradation_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    range_semantics TEXT NOT NULL,
+    banding_observed INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_colour_volume_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    volume_id TEXT NOT NULL UNIQUE,
+    volume_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    colour_space TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_resolution_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_low_luminance_capabilities (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    capability_id TEXT NOT NULL UNIQUE,
+    capability_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stray_light_control TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_dynamic_contrast_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    measurement_id TEXT NOT NULL UNIQUE,
+    measurement_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    contrast_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_display_wall_boundaries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    boundary_id TEXT NOT NULL UNIQUE,
+    boundary_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    wall_kind TEXT NOT NULL,
+    acoustic_transparency_claim TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_wall_acoustic_impacts (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    impact_id TEXT NOT NULL UNIQUE,
+    impact_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    boundary_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_displayed_gradation_observations_document_idx ON cad_displayed_gradation_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_colour_volume_measurements_document_idx ON cad_colour_volume_measurements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_resolution_evidence_document_idx ON cad_spatial_resolution_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_low_luminance_capabilities_document_idx ON cad_low_luminance_capabilities (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_dynamic_contrast_measurements_document_idx ON cad_dynamic_contrast_measurements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_display_wall_boundaries_document_idx ON cad_display_wall_boundaries (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_wall_acoustic_impacts_document_idx ON cad_wall_acoustic_impacts (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_panning_continuity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_subwoofer_localization_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    crossover_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_groupdelay_audibility (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    verdict_id TEXT NOT NULL UNIQUE,
+    verdict_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    peak_delay_ms REAL,
+    frequency_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_headphone_coupling_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    coupling_id TEXT NOT NULL UNIQUE,
+    coupling_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    compensation_kind TEXT NOT NULL,
+    fit_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_structureborne_paths (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id TEXT NOT NULL UNIQUE,
+    path_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    mount_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_remapping_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    remap_mode TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_panning_continuity_evidence_document_idx ON cad_panning_continuity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_subwoofer_localization_profiles_document_idx ON cad_subwoofer_localization_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_groupdelay_audibility_document_idx ON cad_groupdelay_audibility (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_headphone_coupling_evidence_document_idx ON cad_headphone_coupling_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_structureborne_paths_document_idx ON cad_structureborne_paths (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_remapping_evidence_document_idx ON cad_spatial_remapping_evidence (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_codec_fidelity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    media_kind TEXT NOT NULL,
+    codec_family TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fft_spectral_estimator_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    window_kind TEXT NOT NULL,
+    enbw_bins REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_clock_domain_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    domain_kind TEXT NOT NULL,
+    lock_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_external_fact_claims (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_id TEXT NOT NULL UNIQUE,
+    claim_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    published_on TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fact_conflict_resolutions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    resolution_id TEXT NOT NULL UNIQUE,
+    resolution_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    resolution_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_bom_estimates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id TEXT NOT NULL UNIQUE,
+    estimate_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    bom_version TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_codec_fidelity_evidence_document_idx ON cad_codec_fidelity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fft_spectral_estimator_profiles_document_idx ON cad_fft_spectral_estimator_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_clock_domain_observations_document_idx ON cad_clock_domain_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_external_fact_claims_document_idx ON cad_external_fact_claims (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fact_conflict_resolutions_document_idx ON cad_fact_conflict_resolutions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_bom_estimates_document_idx ON cad_bom_estimates (document_id)
     """
     ,
 )
@@ -7921,4 +8273,30 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_impedance_calibration_states',
     'cad_measured_load_evidence',
     'cad_thiele_small_derivations',
+    'cad_power_sequence_plans',
+    'cad_power_sequence_evidence',
+    'cad_power_quality_observations',
+    'cad_indoor_air_observations',
+    'cad_material_emission_evidence',
+    'cad_product_safety_evidence',
+    'cad_emc_compliance_evidence',
+    'cad_displayed_gradation_observations',
+    'cad_colour_volume_measurements',
+    'cad_spatial_resolution_evidence',
+    'cad_low_luminance_capabilities',
+    'cad_dynamic_contrast_measurements',
+    'cad_display_wall_boundaries',
+    'cad_wall_acoustic_impacts',
+    'cad_panning_continuity_evidence',
+    'cad_subwoofer_localization_profiles',
+    'cad_groupdelay_audibility',
+    'cad_headphone_coupling_evidence',
+    'cad_structureborne_paths',
+    'cad_spatial_remapping_evidence',
+    'cad_codec_fidelity_evidence',
+    'cad_fft_spectral_estimator_profiles',
+    'cad_clock_domain_observations',
+    'cad_external_fact_claims',
+    'cad_fact_conflict_resolutions',
+    'cad_bom_estimates',
 )

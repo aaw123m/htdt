@@ -617,7 +617,7 @@ def test_tamper_detected(tmp_path):
 def test_fresh_migrate(tmp_path):
     db = tmp_path / 'fresh.htdtscene'
     version = ensure_native_schema(db)
-    assert version == 66
+    assert version == 70
     repo = CadFieldMetrologyRepository(SceneRepository(db))
     p = _aam()
     repo.save_identification_profile(p)

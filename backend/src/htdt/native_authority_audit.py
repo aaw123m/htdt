@@ -1293,6 +1293,30 @@ class _RepositoryChain:
             )
 
             return CadFieldMetrologyRepository(scene)
+        if name == 'facility':
+            from .cad_facility_repository import (
+                CadFacilityRepository,
+            )
+
+            return CadFacilityRepository(scene)
+        if name == 'display_authority':
+            from .cad_display_authority_repository import (
+                CadDisplayAuthorityRepository,
+            )
+
+            return CadDisplayAuthorityRepository(scene)
+        if name == 'audio_perception':
+            from .cad_audio_perception_repository import (
+                CadAudioPerceptionRepository,
+            )
+
+            return CadAudioPerceptionRepository(scene)
+        if name == 'signal_authority':
+            from .cad_signal_authority_repository import (
+                CadSignalAuthorityRepository,
+            )
+
+            return CadSignalAuthorityRepository(scene)
         raise KeyError(name)
 
 
@@ -6303,6 +6327,162 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_thiele_small_derivations',
         ('derivation_id',),
         _get('field_metrology', 'get_ts_derivation'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_sequence_plans',
+        ('plan_id',),
+        _get('facility', 'get_power_plan'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_sequence_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_power_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_quality_observations',
+        ('observation_id',),
+        _get('facility', 'get_quality_observation'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_indoor_air_observations',
+        ('observation_id',),
+        _get('facility', 'get_indoor_observation'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_material_emission_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_emission_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_product_safety_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_safety_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_emc_compliance_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_emc_evidence'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_displayed_gradation_observations',
+        ('observation_id',),
+        _get('display_authority', 'get_gradation_observation'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_colour_volume_measurements',
+        ('volume_id',),
+        _get('display_authority', 'get_colour_volume'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_spatial_resolution_evidence',
+        ('evidence_id',),
+        _get('display_authority', 'get_resolution_evidence'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_low_luminance_capabilities',
+        ('capability_id',),
+        _get('display_authority', 'get_luminance_capability'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_dynamic_contrast_measurements',
+        ('measurement_id',),
+        _get('display_authority', 'get_contrast_measurement'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_display_wall_boundaries',
+        ('boundary_id',),
+        _get('display_authority', 'get_wall_boundary'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_wall_acoustic_impacts',
+        ('impact_id',),
+        _get('display_authority', 'get_wall_impact'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_panning_continuity_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_continuity_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_subwoofer_localization_profiles',
+        ('profile_id',),
+        _get('audio_perception', 'get_localization_profile'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_groupdelay_audibility',
+        ('verdict_id',),
+        _get('audio_perception', 'get_groupdelay_verdict'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_headphone_coupling_evidence',
+        ('coupling_id',),
+        _get('audio_perception', 'get_coupling_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_structureborne_paths',
+        ('path_id',),
+        _get('audio_perception', 'get_structureborne_path'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_spatial_remapping_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_remap_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_codec_fidelity_evidence',
+        ('evidence_id',),
+        _get('signal_authority', 'get_codec_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fft_spectral_estimator_profiles',
+        ('profile_id',),
+        _get('signal_authority', 'get_spectral_profile'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_clock_domain_observations',
+        ('observation_id',),
+        _get('signal_authority', 'get_clock_observation'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_external_fact_claims',
+        ('claim_id',),
+        _get('signal_authority', 'get_fact_claim'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fact_conflict_resolutions',
+        ('resolution_id',),
+        _get('signal_authority', 'get_fact_resolution'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_bom_estimates',
+        ('estimate_id',),
+        _get('signal_authority', 'get_bom_estimate'),
     ),
 
 )

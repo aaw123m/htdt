@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 66
+NATIVE_SCHEMA_VERSION = 70
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1743,12 +1743,54 @@ def _migrate_64_to_65(connection):
 
 
 def _migrate_65_to_66(connection):
+    # REV59-INFRA2 (#736 power sequencing, #738 AC quality,
+    # #740 occupied IAQ, #750 material emissions, #751 product
+    # safety, #752 EMC): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+
+def _migrate_66_to_67(connection):
+    # REV59-DISPLAY3 (#660 gradation, #688 colour volume,
+    # #672 spatial resolution, #756 low-luminance, #759
+    # dynamic contrast, #760 wall boundary): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+
+def _migrate_67_to_68(connection):
+    # REV59-AUDIO2 (#652 panning continuity, #669 subwoofer
+    # localization, #657 group-delay audibility, #702
+    # headphone coupling, #653 structure-borne, #664
+    # remapping): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+
+def _migrate_68_to_69(connection):
+    # REV59-SIGNAL (#747/#753 codec fidelity, #749 spectral
+    # estimator, #670 clock domains, #765 fact claims,
+    # #667 BOM): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_69_to_70(connection):
     # REV59-AUDIOMET-B (#661 adaptive identification, #663 live
     # dual-channel TF, #658 microphone arrays, #662 impedance/T-S):
     # new append-only authorities the idempotent baseline creates.
     for statement in NATIVE_BASELINE_DDL:
         connection.execute(statement)
-
 
 
 _MIGRATIONS = {
@@ -1818,6 +1860,10 @@ _MIGRATIONS = {
     64: _migrate_63_to_64,
     65: _migrate_64_to_65,
     66: _migrate_65_to_66,
+    67: _migrate_66_to_67,
+    68: _migrate_67_to_68,
+    69: _migrate_68_to_69,
+    70: _migrate_69_to_70,
 }
 
 

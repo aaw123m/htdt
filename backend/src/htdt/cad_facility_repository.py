@@ -1,0 +1,291 @@
+"""Append-only persistence for REV59-INFRA2 authorities.
+
+Seven tables in one repository — power sequencing (#736), AC
+power quality (#738), occupied-room IAQ (#740), material emissions
+(#750), product safety (#751), EMC compliance (#752).
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+import sqlite3
+from typing import Any
+
+from .cad_repository import SceneRepository
+from .cad_schema import connect_sqlite, require_native_tables
+from .canonical_json import canonical_sha256
+from .cad_power_sequence import (
+    PowerQualityObservation,
+    PowerSequenceEvidence,
+    PowerSequencePlan,
+)
+from .cad_indoor_environment import (
+    IndoorAirObservation,
+    MaterialEmissionEvidence,
+)
+from .cad_product_compliance import (
+    EMCComplianceEvidence,
+    ProductSafetyEvidence,
+)
+
+
+class FacilityConflictError(ValueError):
+    """An INFRA2 save violated append-only identity rules."""
+
+
+class FacilityIntegrityError(ValueError):
+    """A stored INFRA2 row disagreed with its payload."""
+
+
+def _assert_sealed(record: object, sha_field: str, id_field: str) -> None:
+    sha = canonical_sha256(record.identity_payload())  # type: ignore[attr-defined]
+    if getattr(record, sha_field) != sha:
+        raise FacilityIntegrityError(
+            'record payload does not match its sealed sha256'
+        )
+    rid = getattr(record, id_field)
+    prefix = rid.rsplit('-', 1)[0]
+    if rid != f'{prefix}-{sha[:24]}':
+        raise FacilityIntegrityError(
+            'record id does not match its sealed sha256'
+        )
+
+
+class _SealedStore:
+    """Generic append-only store for one sealed record type."""
+
+    def __init__(
+        self,
+        connection_factory: Any,
+        table: str,
+        model: type,
+        id_field: str,
+        sha_field: str,
+        columns: tuple[tuple[str, str], ...],
+    ) -> None:
+        self._connect = connection_factory
+        self.table = table
+        self.model = model
+        self.id_field = id_field
+        self.sha_field = sha_field
+        self.columns = columns
+
+    def _column_value(self, record: Any, path: str) -> Any:
+        if path == '__document_id__':
+            return record.document_id
+        value: Any = record
+        for part in path.split('.'):
+            value = getattr(value, part)
+        return value
+
+    def save(self, record: Any) -> None:
+        _assert_sealed(record, self.sha_field, self.id_field)
+        rid = getattr(record, self.id_field)
+        existing = self.get(rid)
+        if existing is not None:
+            if getattr(existing, self.sha_field) == getattr(
+                record, self.sha_field
+            ):
+                return
+            raise FacilityConflictError(
+                f'{self.table} records are append-only'
+            )
+        cols = ', '.join(
+            [self.id_field, self.sha_field]
+            + [c[0] for c in self.columns]
+            + ['payload_json']
+        )
+        placeholders = ', '.join(['?'] * (2 + len(self.columns) + 1))
+        values = (
+            rid,
+            getattr(record, self.sha_field),
+            *(
+                self._column_value(record, path)
+                for _, path in self.columns
+            ),
+            record.model_dump_json(),
+        )
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                f'INSERT INTO {self.table} ({cols}) '
+                f'VALUES ({placeholders})',
+                values,
+            )
+
+    def get(self, rid: str) -> Any | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f'SELECT * FROM {self.table} WHERE {self.id_field}=?',
+                (rid,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = self.model.model_validate_json(row['payload_json'])
+        if getattr(record, self.id_field) != row[self.id_field]:
+            raise FacilityIntegrityError(
+                f'stored {self.table} id disagrees with its payload'
+            )
+        if getattr(record, self.sha_field) != row[self.sha_field]:
+            raise FacilityIntegrityError(
+                f'stored {self.table} sha disagrees with its payload'
+            )
+        for column, path in self.columns:
+            if record.__dict__.get(path.split('.')[0]) is None:
+                continue
+            expected = self._column_value(record, path)
+            if isinstance(expected, bool):
+                expected = int(expected)
+            if row[column] != expected:
+                raise FacilityIntegrityError(
+                    f'stored {self.table}.{column} disagrees '
+                    'with its payload'
+                )
+        return record
+
+    def list(self, document_id: str | None = None) -> tuple[Any, ...]:
+        query = f'SELECT payload_json FROM {self.table}'
+        params: tuple[str, ...] = ()
+        if document_id is not None:
+            query += ' WHERE document_id=?'
+            params = (document_id,)
+        query += ' ORDER BY seq ASC'
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+        return tuple(
+            self.model.model_validate_json(r['payload_json'])
+            for r in rows
+        )
+
+
+def _ref(column: str, path: str) -> tuple[str, str]:
+    return (column, f'{path}.ref_id')
+
+
+class CadFacilityRepository:
+    """Native storage for the #736/#738/#740/#750/#751/#752
+    authorities."""
+
+    def __init__(self, scene_repository: SceneRepository) -> None:
+        self.scene_repository = scene_repository
+        self.path = scene_repository.path
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(
+                connection,
+                'cad_power_sequence_plans',
+                'cad_power_sequence_evidence',
+                'cad_power_quality_observations',
+                'cad_indoor_air_observations',
+                'cad_material_emission_evidence',
+                'cad_product_safety_evidence',
+                'cad_emc_compliance_evidence',
+            )
+
+        self.power_plans = _SealedStore(
+            self._connect, 'cad_power_sequence_plans',
+            PowerSequencePlan, 'plan_id', 'plan_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('amplifier_step', 'amplifier_step'),
+                ('amplifier_last_on_first_off', 'amplifier_last_on_first_off'),
+            ),
+        )
+
+        self.power_evidence = _SealedStore(
+            self._connect, 'cad_power_sequence_evidence',
+            PowerSequenceEvidence, 'evidence_id', 'evidence_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('plan_ref_id', 'plan_ref'),
+                ('outcome', 'outcome'),
+            ),
+        )
+
+        self.quality_observations = _SealedStore(
+            self._connect, 'cad_power_quality_observations',
+            PowerQualityObservation, 'observation_id', 'observation_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('instrument_class', 'instrument_class'),
+            ),
+        )
+
+        self.indoor_observations = _SealedStore(
+            self._connect, 'cad_indoor_air_observations',
+            IndoorAirObservation, 'observation_id', 'observation_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('sensor_class', 'sensor_class'),
+            ),
+        )
+
+        self.emission_evidence = _SealedStore(
+            self._connect, 'cad_material_emission_evidence',
+            MaterialEmissionEvidence, 'evidence_id', 'evidence_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('emission_class', 'emission_class'),
+            ),
+        )
+
+        self.safety_evidence = _SealedStore(
+            self._connect, 'cad_product_safety_evidence',
+            ProductSafetyEvidence, 'evidence_id', 'evidence_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('safety_standard', 'safety_standard'),
+            ),
+        )
+
+        self.emc_evidence = _SealedStore(
+            self._connect, 'cad_emc_compliance_evidence',
+            EMCComplianceEvidence, 'evidence_id', 'evidence_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('profile_kind', 'profile_kind'),
+            ),
+        )
+
+    def _connect(self) -> sqlite3.Connection:
+        return connect_sqlite(self.path)
+
+    def save_power_plan(self, record: PowerSequencePlan) -> None:
+        self.power_plans.save(record)
+
+    def get_power_plan(self, rid: str) -> PowerSequencePlan | None:
+        return self.power_plans.get(rid)
+
+    def save_power_evidence(self, record: PowerSequenceEvidence) -> None:
+        self.power_evidence.save(record)
+
+    def get_power_evidence(self, rid: str) -> PowerSequenceEvidence | None:
+        return self.power_evidence.get(rid)
+
+    def save_quality_observation(self, record: PowerQualityObservation) -> None:
+        self.quality_observations.save(record)
+
+    def get_quality_observation(self, rid: str) -> PowerQualityObservation | None:
+        return self.quality_observations.get(rid)
+
+    def save_indoor_observation(self, record: IndoorAirObservation) -> None:
+        self.indoor_observations.save(record)
+
+    def get_indoor_observation(self, rid: str) -> IndoorAirObservation | None:
+        return self.indoor_observations.get(rid)
+
+    def save_emission_evidence(self, record: MaterialEmissionEvidence) -> None:
+        self.emission_evidence.save(record)
+
+    def get_emission_evidence(self, rid: str) -> MaterialEmissionEvidence | None:
+        return self.emission_evidence.get(rid)
+
+    def save_safety_evidence(self, record: ProductSafetyEvidence) -> None:
+        self.safety_evidence.save(record)
+
+    def get_safety_evidence(self, rid: str) -> ProductSafetyEvidence | None:
+        return self.safety_evidence.get(rid)
+
+    def save_emc_evidence(self, record: EMCComplianceEvidence) -> None:
+        self.emc_evidence.save(record)
+
+    def get_emc_evidence(self, rid: str) -> EMCComplianceEvidence | None:
+        return self.emc_evidence.get(rid)

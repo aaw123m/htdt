@@ -3823,3 +3823,286 @@ issues:
           - backend/tests/test_rev59_audiometb.py::test_load_evidence_requires_trace_and_calibration
           - backend/tests/test_rev59_audiometb.py::test_ts_derivation_requires_method_inputs
         description: Field Z(f) evidence ≠ catalog data; calibration gates.
+  - issue: 736
+    title: "Power sequencing / operational-state authority"
+    notes: >
+      PowerSequencePlan (pseq-) declares ordered steps with
+      amplifier last-on/first-off + inrush staging + EDID/control
+      dependencies. PowerSequenceEvidence (psev-) records outcome —
+      'clean_sequence' requires observation evidence. AVIXA
+      ELEC-104/105 basis.
+    checks:
+      - id: power-sequence
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_power_claim_ladder]
+        description: Capacity ≠ sequencing; clean run needs observation.
+  - issue: 738
+    title: "AC power-quality observation authority"
+    notes: >
+      PowerQualityObservation (pqo-) requires declared instrument
+      class (IEC 61000-4-30 A/S), observed events, and capture ref
+      for symptom correlation (reboot/clipping/relock/hum).
+    checks:
+      - id: power-quality
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_quality_observation_requires_class_and_events]
+        description: Instrument class + event capture fail-closed.
+  - issue: 740
+    title: "Occupied-room IAQ / thermal authority"
+    notes: >
+      IndoorAirObservation (iao-) binds sensor class + CO2/temp/RH +
+      session duration + capture ref. evaluate_indoor_claim: a
+      ventilating design does not prove occupied outcome.
+    checks:
+      - id: indoor-observation
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_indoor_claim_ladder]
+        description: Design ≠ measured occupied outcome.
+  - issue: 750
+    title: "Material chemical-emission evidence authority"
+    notes: >
+      MaterialEmissionEvidence (mem-) records VOC/formaldehyde/SVOC
+      chamber results bound to exact tested product; a manufacturer
+      program claim alone does not bound room IAQ.
+    checks:
+      - id: material-emission
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_emission_requires_descriptor_and_report]
+        description: Product certificate ≠ room IAQ.
+  - issue: 751
+    title: "Product-safety certification authority"
+    notes: >
+      ProductSafetyEvidence (pse-) records IEC 62368-1/UL/etc +
+      edition + tested variant + certificate + market scope. HTDT
+      records certification identity, not safety testing.
+    checks:
+      - id: product-safety
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_safety_requires_certificate_and_variant]
+        description: Performance compatibility ≠ safety listing.
+  - issue: 752
+    title: "EMC emissions/immunity authority"
+    notes: >
+      EMCComplianceEvidence (emc-) records CISPR 32 class A/B /
+      CISPR 35 immunity bound to tested configuration. Safety
+      approval ≠ EMC; a field symptom alone ≠ non-conformance.
+    checks:
+      - id: emc-compliance
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_compliance_claim_ladder]
+        description: Safety ≠ EMC; field symptom ≠ product fault.
+  - issue: 660
+    title: "Displayed tonal-gradation / banding authority"
+    notes: >
+      DisplayedGradationObservation (dgo-) binds the pinned stimulus
+      + declared range semantics (full/limited — 'unknown' fails,
+      mismatched range itself causes banding). evaluate:
+      10-bit/HDR reporting ≠ displayed gradation
+      (nominal_spec_is_not_result).
+    checks:
+      - id: displayed-gradation
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_fidelity_claim_ladder]
+        description: Nominal bit depth ≠ displayed result.
+  - issue: 688
+    title: "Colour gamut volume authority"
+    notes: >
+      ColourVolumeMeasurement (cvol-) records IDMS v1.3 gamut-volume
+      method + colour space (L*a*b*/ICtCp) + measurement ref; a
+      coverage fraction requires the reference volume. 2D triangle
+      coverage ≠ luminance-dependent volume (triangle_is_not_volume).
+    checks:
+      - id: colour-volume
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_volume_requires_space_method_and_measurement]
+        description: IDMS v1.3 volumetric method pinned.
+  - issue: 672
+    title: "Installed spatial-resolution / contrast-modulation authority"
+    notes: >
+      SpatialResolutionEvidence (sres-) binds contrast-modulation /
+      MTF / line-pattern method to the installed chain — a nominal
+      4K raster is not resolved detail (raster_is_not_resolution).
+    checks:
+      - id: spatial-resolution
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_resolution_requires_method_and_measurement]
+        description: Raster ≠ resolved detail.
+  - issue: 756
+    title: "Low-luminance / stray-light metrology authority"
+    notes: >
+      LowLuminanceCapability (llc-) declares minimum luminance, dark
+      offset and stray-light control (elimination tube/mask/
+      instrument-corrected — 'unknown'/'none' without a declared
+      minimum fails). A calibrated meter still reads its own veiling
+      glare at DUT black (calibrated_meter_is_not_black_evidence).
+    checks:
+      - id: low-luminance
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_metrology_claim_ladder]
+        description: Calibration ≠ black-level validity.
+  - issue: 759
+    title: "Projector dynamic-light / temporal contrast authority"
+    notes: >
+      DynamicContrastMeasurement (dcm-) pins stimulus + control mode
+      + adaptation history; 'dynamic_advertised' requires control
+      mode + adaptation history and evaluates to
+      dynamic_is_not_stable_quantity (marketing context only).
+    checks:
+      - id: dynamic-contrast
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_dynamic_contrast_requires_context]
+        description: Dynamic scalar ≠ stable physical quantity.
+  - issue: 760
+    title: "Display-wall acoustic boundary authority"
+    notes: >
+      DisplayWallBoundary (dwb-) registers wall kind/area/placement;
+      speakers behind a transparency-claimed wall require measured
+      transmission evidence. WallAcousticImpact (wai-) binds TL/
+      reflection/SBIR to measurement. evaluate:
+      video_wall_is_also_acoustic / transparency_unmeasured.
+    checks:
+      - id: display-wall
+        kind: pytest
+        tests: [backend/tests/test_rev59_display3.py::test_wall_claim_ladder]
+        description: Video device = several-m2 acoustic boundary.
+  - issue: 652
+    title: "Inter-channel panning continuity authority"
+    notes: >
+      PanningContinuityEvidence (pce-) binds timbre/level/time
+      deltas across a specific channel pair to measurement —
+      per-channel calibration does not prove inter-channel
+      continuity (per_channel_is_not_interchannel).
+    checks:
+      - id: panning-continuity
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: Per-channel ≠ inter-channel.
+  - issue: 669
+    title: "Subwoofer localization context authority"
+    notes: >
+      SubwooferLocalizationProfile (slp-) requires crossover +
+      separation + count + stimulus + distortion-leakage bound +
+      delay-alignment ref. Frequency-only thresholds rejected
+      (fixed_rule_misapplied).
+    checks:
+      - id: subwoofer-localization
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: "'80 Hz rule' is not universal."
+  - issue: 657
+    title: "Group-delay audibility authority"
+    notes: >
+      GroupDelayAudibility (gda-) requires peak value AND frequency
+      AND stimulus AND threshold ref — a peak alone is not an
+      audibility verdict (peak_is_not_audibility); lower is not
+      automatically better (lower_is_not_better).
+    checks:
+      - id: groupdelay-audibility
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: Frequency/stimulus-dependent thresholds.
+  - issue: 702
+    title: "Headphone coupling qualification authority"
+    notes: >
+      HeadphoneCouplingEvidence (hpc-) requires headphone model +
+      compensation kind + fit state + filter ref. Exact BRIR render
+      ≠ eardrum signal (brir_is_not_eardrum); individualized
+      compensation needs verified placement.
+    checks:
+      - id: headphone-coupling
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: HpTF varies by listener and repeated placement.
+  - issue: 653
+    title: "Structure-borne vibration path authority"
+    notes: >
+      StructurebornePath (sbp-) declares source + mount/coupling +
+      receiving room. Airborne isolation does not cover mechanical
+      injection (airborne_is_not_structureborne). ISO 10848-1
+      flanking basis.
+    checks:
+      - id: structureborne-path
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Airborne ≠ structure-borne.
+  - issue: 664
+    title: "Actual-position spatial remapping authority"
+    notes: >
+      SpatialRemappingEvidence (srm-) declares remap mode
+      (2d/3d/automatic) + measured actual positions + reference
+      layout + phantom-landing verification. Remapping from ideal
+      layout alone fails (measured_positions_required).
+    checks:
+      - id: spatial-remapping
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Measured actual positions required.
+  - issue: 747
+    title: "Audio codec/playback fidelity authority"
+    notes: >
+      CodecFidelityEvidence (cfx-) declares media kind + codec
+      family + detected impairments + source/master ref. Decode
+      success is not fidelity (playback_is_not_fidelity);
+      lossy codec without transparency evidence fails.
+    checks:
+      - id: codec-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Playback ≠ transparency.
+  - issue: 753
+    title: "Video codec/source fidelity authority"
+    notes: >
+      Same cfx- evidence for video — negotiated format and
+      calibrated display do not prove delivered fidelity
+      (blocking/texture-loss/chroma/temporal impairments flagged).
+    checks:
+      - id: video-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Correct playback ≠ source fidelity.
+  - issue: 749
+    title: "Spectral estimator semantics authority"
+    notes: >
+      SpectralEstimatorProfile (sep-) declares record duration,
+      FFT size, window, ENBW, coherent-gain correction, leakage —
+      a dense bin grid alone is not resolving power
+      (density_is_not_resolution).
+    checks:
+      - id: spectral-estimator
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Aperture/window/ENBW pinned.
+  - issue: 670
+    title: "Playback digital clock domain authority"
+    notes: >
+      ClockDomainObservation (cdo-) declares domain kind + lock
+      state + ASRC presence — correct routing does not prove a
+      synchronized clock tree (lock_unverified / asrc_undeclared).
+    checks:
+      - id: clock-domains
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Lock and ASRC gated.
+  - issue: 765
+    title: "Conflicting external fact preservation"
+    notes: >
+      ExternalFactClaim (efc-) keeps each source claim immutable
+      with provenance + applicability; FactConflictResolution
+      (fcr-) resolves by recency/scope/hierarchy preserving both
+      sides — never silent overwrite.
+    checks:
+      - id: fact-preservation
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: Contradictions preserved, not overwritten.
+  - issue: 667
+    title: "BOM / commercial estimate authority"
+    notes: >
+      BomEstimate (bom-) derives versioned line items from the
+      engineered-system ref; priced lines require a supplier
+      source — commercial data stays separate from technical truth.
+    checks:
+      - id: bom-estimate
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: BOM bound to engineering; pricing separate.
