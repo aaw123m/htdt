@@ -4471,3 +4471,32 @@ def migration_verification_line(verification) -> str:
     if failed:
         parts.append('失敗: {0}'.format(', '.join(failed)))
     return '移行検証: ' + ' — '.join(parts)
+
+
+from .cad_sound_strength import (  # noqa: E402
+    G_LABELS as _G_LABELS,
+)
+from .cad_resonant_treatment import (  # noqa: E402
+    RESONANT_LABELS as _RESONANT_LABELS,
+)
+from .cad_serviceability import (  # noqa: E402
+    SERVICE_LABELS as _SERVICE_LABELS,
+)
+
+
+def sound_strength_line(verdict: str) -> str:
+    """One JA line for a sound-strength verdict (#761) —
+    G は通常の SPL やルームゲインではない。"""
+    return 'サウンドストレングスG: ' + _G_LABELS.get(verdict, verdict)
+
+
+def resonant_treatment_line(verdict: str) -> str:
+    """One JA line for a resonant-treatment verdict (#704) —
+    単一オクターブ係数は共振系を表さない。"""
+    return '共振吸音: ' + _RESONANT_LABELS.get(verdict, verdict)
+
+
+def serviceability_line(verdict: str) -> str:
+    """One JA line for a serviceability verdict (#707) —
+    CAD適合は保守性を意味しない。"""
+    return '保守性: ' + _SERVICE_LABELS.get(verdict, verdict)

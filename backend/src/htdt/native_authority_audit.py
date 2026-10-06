@@ -1245,6 +1245,12 @@ class _RepositoryChain:
             )
 
             return CadArchiveMigrationRepository(scene)
+        if name == 'room_qualification':
+            from .cad_room_qualification_repository import (
+                CadRoomQualificationRepository,
+            )
+
+            return CadRoomQualificationRepository(scene)
         raise KeyError(name)
 
 
@@ -5812,6 +5818,43 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_evidence_supersession_records',
         ('record_id',),
         _get('measurement_setup', 'get_supersession_record'),
+    ),
+    # REV59-ROOMQ: #761/#704/#707 room-qualification authorities
+    _ReplayProbe(
+        'sound_strength_observation',
+        'cad_sound_strength_observations',
+        ('observation_id',),
+        _get('room_qualification', 'get_g_observation'),
+    ),
+    _ReplayProbe(
+        'sound_strength_qualification',
+        'cad_sound_strength_qualifications',
+        ('qualification_id',),
+        _get('room_qualification', 'get_g_qualification'),
+    ),
+    _ReplayProbe(
+        'resonant_absorber_profile',
+        'cad_resonant_absorber_profiles',
+        ('profile_id',),
+        _get('room_qualification', 'get_resonant_profile'),
+    ),
+    _ReplayProbe(
+        'resonant_performance_record',
+        'cad_resonant_performance_records',
+        ('record_id',),
+        _get('room_qualification', 'get_resonant_record'),
+    ),
+    _ReplayProbe(
+        'service_envelope_profile',
+        'cad_service_envelope_profiles',
+        ('profile_id',),
+        _get('room_qualification', 'get_service_envelope'),
+    ),
+    _ReplayProbe(
+        'service_access_observation',
+        'cad_service_access_observations',
+        ('observation_id',),
+        _get('room_qualification', 'get_service_observation'),
     ),
 )
 

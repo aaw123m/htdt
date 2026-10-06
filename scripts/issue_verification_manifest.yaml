@@ -3329,3 +3329,48 @@ issues:
           project export (#710 系) からの ArchiveSnapshot 生成、
           意味チェックサムの実 semantic-comparator 実装、ARC
           fixture の実アーカイブ再現は残件。
+  - issue: 761
+    title: "Sound-strength G authority"
+    notes: >
+      SoundStrengthObservation (gobs-) pins method + band + source-
+      power ref. SoundStrengthQualification (gqual-) binds verdicts to
+      pinned observations. evaluate_g_claim: installed SPL, room gain
+      and normalized FR are never G; no absolute source reference →
+      g_relative_only.
+    checks:
+      - id: sound-strength-g
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestSoundStrength::test_spl_not_g
+          - backend/tests/test_rev59_roomq.py::TestSoundStrength::test_g_established
+        description: G-vs-SPL separation, source-power pinning.
+  - issue: 704
+    title: "Resonant acoustic-treatment physical-model authority"
+    notes: >
+      ResonantAbsorberProfile (res-) declares kind + physical
+      parameters; 'porous' rejected (belongs to #615).
+      ResonantPerformanceRecord (rpr-) pins derivation — 'declared_only'
+      carries no figures. evaluate_resonance_claim: single octave-band
+      alpha and porous-equivalent claims refused.
+    checks:
+      - id: resonant-treatment
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestResonantTreatment::test_single_alpha_inadequate
+          - backend/tests/test_rev59_roomq.py::TestResonantTreatment::test_model_declared
+        description: Resonant-vs-porous separation, parameter gating.
+  - issue: 707
+    title: "AV serviceability / maintenance-envelope authority"
+    notes: >
+      ServiceEnvelopeProfile (svc-) pins required access items per
+      device; ServiceAccessObservation (svo-) binds installed
+      reachable/blocked states. evaluate_serviceability_claim: CAD fit
+      never implies serviceable; blocked or unverified required items
+      degrade the verdict.
+    checks:
+      - id: serviceability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_is_not_serviceable
+          - backend/tests/test_rev59_roomq.py::TestServiceability::test_verified
+        description: Fit-vs-serviceable separation, item gating.

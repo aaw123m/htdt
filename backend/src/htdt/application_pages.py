@@ -682,6 +682,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_archive_verifications": "アーカイブ再読出し検証",
     "cad_migration_records": "移行レコード",
     "cad_migration_verifications": "移行検証",
+    "cad_sound_strength_observations": "サウンドストレングスG観測レコード",
+    "cad_sound_strength_qualifications": "サウンドストレングスG適格レコード",
+    "cad_resonant_absorber_profiles": "共振吸音体プロファイル",
+    "cad_resonant_performance_records": "共振吸音性能レコード",
+    "cad_service_envelope_profiles": "保守エンベローププロファイル",
+    "cad_service_access_observations": "保守アクセス観測レコード",
 }
 
 
