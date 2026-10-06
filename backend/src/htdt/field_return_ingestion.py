@@ -355,12 +355,30 @@ _STORED_ZIP_MAGIC = b'PK\x03\x04'
 
 
 class FieldReturnContainerDocRef(BaseModel):
-    """One declared document/asset ref on the container root document."""
+    """One declared document ref on the container root document.
+
+    ``schema`` is required on authority documents — it names the typed
+    payload family the ref carries."""
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     path: str = Field(min_length=1)
     schema: str = Field(min_length=1)
+    sha256: str = Field(pattern=HEX64)
+    bytes: int = Field(ge=0)
+
+
+class FieldReturnContainerAssetRef(BaseModel):
+    """Evidence-asset ref: raw payload bytes, no declared schema.
+
+    The app emits ``application/octet-stream``; containers written
+    before the media-type token landed carry ``""`` — both stage.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    path: str = Field(min_length=1)
+    schema: str = ''
     sha256: str = Field(pattern=HEX64)
     bytes: int = Field(ge=0)
 
@@ -392,7 +410,7 @@ class FieldReturnContainerDocument(BaseModel):
     related_capture_revision_ids: list[str] = []
     task_fulfillment_ledger: list[dict] = []
     authority_documents: list[FieldReturnContainerDocRef] = []
-    evidence_assets: list[FieldReturnContainerDocRef] = []
+    evidence_assets: list[FieldReturnContainerAssetRef] = []
     content_digest: str = Field(pattern=HEX64)
 
 
@@ -491,6 +509,8 @@ def _stage_field_return_container(
     artifact: bytes,
     channel_project_ref: str | None = None,
     known_projects: Sequence[HTDTProjectReference] = (),
+    *,
+    declared_content_digest: str | None = None,
 ) -> StagedFieldReturn:
     digest = sha256(artifact).hexdigest()
     try:
@@ -502,6 +522,23 @@ def _stage_field_return_container(
             validation_state='malformed',
             routing='unrouted',
             detail=str(exc),
+        )
+    # Wire-level cross-check: the sender's declared semantic digest must
+    # equal the document's own content_digest — a divergent claim stages
+    # silently otherwise and the receipt echoes the wrong value back.
+    if (
+        declared_content_digest is not None
+        and declared_content_digest != envelope.content_digest
+    ):
+        return StagedFieldReturn(
+            contribution_id=envelope.contribution_id,
+            artifact_sha256=digest,
+            validation_state='malformed',
+            routing='unrouted',
+            detail=(
+                'artifact digest header disagrees with the container '
+                'content digest'
+            ),
         )
     manifest_json = _canonical_json(document)
     routing, matched = _channel_routing(channel_project_ref, known_projects)
@@ -547,16 +584,23 @@ def stage_field_return_artifact(
     known_projects: Sequence[HTDTProjectReference] = (),
     *,
     channel_project_ref: str | None = None,
+    declared_content_digest: str | None = None,
 ) -> StagedFieldReturn:
     """Stage whichever wire form was handed in: the emitted
     ``.htdtfieldreturn`` container (stored ZIP), or a bare
     ``htdt.field-return`` JSON manifest. ``channel_project_ref`` is the
     delivery pairing's declared project scope — the routing signal for
-    artifacts that carry no project reference of their own."""
+    artifacts that carry no project reference of their own.
+    ``declared_content_digest`` is the sender's claimed semantic digest
+    (the wire ``X-HTDT-Artifact-Digest`` header): container-form
+    artifacts must carry a matching document ``content_digest``."""
 
     if artifact[:4] == _STORED_ZIP_MAGIC:
         return _stage_field_return_container(
-            artifact, channel_project_ref, known_projects
+            artifact,
+            channel_project_ref,
+            known_projects,
+            declared_content_digest=declared_content_digest,
         )
     return stage_field_return(
         artifact, known_projects, channel_project_ref=channel_project_ref
@@ -689,6 +733,7 @@ class FieldReturnRepository:
         known_projects: Sequence[HTDTProjectReference] = (),
         *,
         channel_project_ref: str | None = None,
+        declared_content_digest: str | None = None,
     ) -> tuple[StagedFieldReturn, bool]:
         """Stage the emitted wire form and report whether a new row landed.
 
@@ -702,6 +747,7 @@ class FieldReturnRepository:
                 artifact,
                 known_projects,
                 channel_project_ref=channel_project_ref,
+                declared_content_digest=declared_content_digest,
             )
         )
 

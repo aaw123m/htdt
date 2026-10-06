@@ -188,9 +188,14 @@ def _receipt_body(package, pairing, device: str = 'dev-1') -> bytes:
     }).encode()
 
 
+_MISSION_PAYLOAD = json.dumps(
+    {'schema': 'htdt.capture-mission', 'schema_version': '1.0.0'}
+).encode()
+
+
 def test_mission_receipt_requires_capture_instance_header(tmp_path: Path) -> None:
     service, pairing = _receiver_service(tmp_path)
-    package = service.queue_mission_package('pkg-1', b'bytes')
+    package = service.queue_mission_package('pkg-1', _MISSION_PAYLOAD)
     status, body = service.handle_mission_receipt(
         pairing.pairing_token, 'pkg-1', _receipt_body(package, pairing), None
     )
@@ -200,7 +205,7 @@ def test_mission_receipt_requires_capture_instance_header(tmp_path: Path) -> Non
 
 def test_mission_receipt_rejects_device_mismatch(tmp_path: Path) -> None:
     service, pairing = _receiver_service(tmp_path)
-    package = service.queue_mission_package('pkg-2', b'bytes')
+    package = service.queue_mission_package('pkg-2', _MISSION_PAYLOAD)
     status, body = service.handle_mission_receipt(
         pairing.pairing_token,
         'pkg-2',

@@ -829,10 +829,15 @@ class CaptureReceiverService:
             except CaptureReceiverError as exc:
                 # delivery id replayed with different bytes: report the
                 # conflict instead of dropping the connection unanswered.
+                # Full identity echoes let the sender's receipt
+                # validation classify this as the dedup conflict it is.
                 return 409, {
                     'ingestion_outcome': 'rejected',
                     'artifact_kind': artifact_kind,
                     'artifact_id': artifact_id,
+                    'artifact_digest': artifact_digest,
+                    'capture_revision_id': capture_revision_id,
+                    'bundle_digest': bundle_digest,
                     'detail': str(exc),
                 }
             return status, {
@@ -877,6 +882,10 @@ class CaptureReceiverService:
                 return 409, {
                     'ingestion_outcome': 'rejected',
                     'artifact_kind': artifact_kind,
+                    'artifact_id': artifact_id,
+                    'artifact_digest': artifact_digest,
+                    'capture_revision_id': capture_revision_id,
+                    'bundle_digest': bundle_digest,
                     'detail': 'delivery id replayed with different bytes',
                 }
             # a re-delivery of an accepted delivery resolves to the same
@@ -1024,6 +1033,7 @@ class CaptureReceiverService:
                 body,
                 self._known_project_references(),
                 channel_project_ref=pairing.project_ref,
+                declared_content_digest=artifact_digest,
             )
         except FieldReturnConflictError as exc:
             return reject(
@@ -1304,7 +1314,71 @@ class CaptureReceiverService:
             raise CaptureReceiverError(
                 'mission package exceeds the receive-leg byte ceiling'
             )
+        # Fail-closed grammar guard: the pull lane serves Capture apps,
+        # which decode only the `htdt.capture-mission` envelope or a bare
+        # `htdt.capture-task-plan` document. Queueing another grammar
+        # mints a package every device rejects at import — forever
+        # re-listed, never settled (round-trip audit).
+        try:
+            decoded = json.loads(payload.decode('utf-8'))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise CaptureReceiverError(
+                'mission package payload is not valid JSON'
+            ) from exc
+        if (
+            not isinstance(decoded, dict)
+            or decoded.get('schema')
+            not in ('htdt.capture-mission', 'htdt.capture-task-plan')
+            or not isinstance(decoded.get('schema_version'), str)
+            or not decoded.get('schema_version')
+        ):
+            raise CaptureReceiverError(
+                'mission package payload is not a decodable capture '
+                'mission document (htdt.capture-mission / '
+                'htdt.capture-task-plan)'
+            )
         descriptor = dict(descriptor or {})
+        # The app's receiver_requirement struct strictly decodes the
+        # fields below — a divergent value used to break the WHOLE
+        # listing decode on the device. Validate the shape at write
+        # time so a queuer can never store a requirement that breaks
+        # every pending package.
+        requirement = descriptor.get('receiver_requirement')
+        if requirement is not None:
+            if not isinstance(requirement, dict):
+                raise CaptureReceiverError(
+                    'receiver_requirement must be an object'
+                )
+            for key in (
+                'required_authority_families',
+                'required_payload_schemas',
+            ):
+                if key not in requirement:
+                    raise CaptureReceiverError(
+                        f'receiver_requirement missing required {key}'
+                    )
+                if not isinstance(requirement[key], list) or any(
+                    not isinstance(item, str) for item in requirement[key]
+                ):
+                    raise CaptureReceiverError(
+                        f'receiver_requirement {key} must be a list '
+                        'of strings'
+                    )
+            if not isinstance(
+                requirement.get('require_mission_receipts'), bool
+            ):
+                raise CaptureReceiverError(
+                    'receiver_requirement missing required '
+                    'require_mission_receipts'
+                )
+            for key in ('destination_project_ref', 'min_handoff_protocol'):
+                if (
+                    requirement.get(key) is not None
+                    and not isinstance(requirement[key], str)
+                ):
+                    raise CaptureReceiverError(
+                        f'receiver_requirement {key} must be a string'
+                    )
         descriptor['package_id'] = package_id
         descriptor.setdefault('byte_size', len(payload))
         descriptor.setdefault('package_sha256', _sha256_text(payload))

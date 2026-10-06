@@ -293,6 +293,88 @@ class TestFieldReturnDelivery:
         )
         assert status == 409
         assert receipt['ingestion_outcome'] == 'rejected'
+        # Full identity echoes: the sender's receipt validation must be
+        # able to classify this as the dedup conflict it is, not a
+        # payload-mutation failure.
+        assert receipt['artifact_id'] == document['contribution_id']
+        assert receipt['artifact_digest'] == document['content_digest']
+        assert 'conflict' in (receipt['detail'] or '') or (
+            'replayed' in (receipt['detail'] or '')
+        )
+
+    def test_declared_digest_must_match_container_content(self, tmp_path):
+        service = _rig(tmp_path)
+        pairing = _active_pairing(service)
+        archive, document = _field_return_archive()
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=document['contribution_id'],
+                artifact_digest='0' * 64,  # divergent semantic digest
+            ),
+            archive,
+        )
+        assert status == 400
+        assert receipt['ingestion_outcome'] == 'rejected'
+        assert 'digest' in (receipt['detail'] or '')
+
+    def test_empty_schema_evidence_asset_stages(self, tmp_path):
+        # Containers written before the media-type token landed carry
+        # `schema: ""` on evidence refs — they must still stage.
+        service = _rig(tmp_path)
+        pairing = _active_pairing(service)
+        cid = str(uuid.uuid4())
+        payload = b'evidence-bytes-emptysch'
+        document = _root_document(
+            contribution_id=cid,
+            evidence_assets=[_doc_ref(f'evidence/{cid}.bin', '', payload)],
+        )
+        entries = {
+            ROOT_PATH: json.dumps(document).encode('utf-8'),
+            f'evidence/{cid}.bin': payload,
+        }
+        archive = _container(entries)
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=cid,
+                artifact_digest=document['content_digest'],
+            ),
+            archive,
+        )
+        assert status == 200
+        assert receipt['ingestion_outcome'] == 'accepted'
+
+    def test_empty_schema_authority_document_still_rejected(self, tmp_path):
+        # Authority refs keep the strict schema contract — only evidence
+        # assets tolerate the legacy empty token.
+        service = _rig(tmp_path)
+        pairing = _active_pairing(service)
+        cid = str(uuid.uuid4())
+        payload = b'{}'
+        document = _root_document(
+            contribution_id=cid,
+            authority_documents=[_doc_ref('authority/a.json', '', payload)],
+        )
+        archive = _container(
+            {
+                ROOT_PATH: json.dumps(document).encode('utf-8'),
+                'authority/a.json': payload,
+            }
+        )
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=cid,
+                artifact_digest=document['content_digest'],
+            ),
+            archive,
+        )
+        assert status == 400
+        assert receipt['ingestion_outcome'] == 'rejected'
 
     def test_malformed_container_rejected_and_staged(self, tmp_path):
         service = _rig(tmp_path)
