@@ -2508,6 +2508,328 @@ issues:
           waterfall/spectrogram レンダラから transform 宣言の自動
           取得、#676 decay processing レコードへの processing_refs
           自動 pin、MDT fixture の実測再現 (MDT10-80) は残件。
+  - issue: 682
+    title: "REV58-DISPLAYMEAS: pattern-generator stimulus fidelity authority"
+    notes: >
+      PatternGeneratorInstance (pginst-) seals the exact generator —
+      class (hardware/software/display-internal TPG/LUT box/processor/
+      player/GPU), firmware + control software + API adapter versions,
+      port, config hash, declared per-stage capability. RequestedVideoPatch
+      (reqpatch-) sha-pins its #608 stimulus asset plus the exact numeric
+      identity (code values, bit depth, range, encoding, colorimetry,
+      EOTF, chroma, raster, HDR metadata). DeliveredStimulusObservation
+      (delobs-) records what actually left the chain with its observation
+      point and verification means — readback/analyzer observations must
+      pin evidence; 'unverified' may not assert delivered values.
+      evaluate_patch_delivery proves code-value/range/bit-depth/encoding/
+      HDR mismatches; evaluate_generator_fidelity derives a fail-closed
+      verdict — any delivered_mismatch is unqualified, mixed
+      verified/unverified is insufficient_evidence, documented transforms
+      cap at qualified_with_limitations.
+    checks:
+      - id: pattern-generator-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_pg10_records_seal_with_prefixed_ids
+          - backend/tests/test_rev58_displaymeas.py::test_pg11_patch_requires_stimulus_sha_pin
+          - backend/tests/test_rev58_displaymeas.py::test_pg12_verified_observation_matches
+          - backend/tests/test_rev58_displaymeas.py::test_pg13_unverified_observation_is_not_a_pass
+          - backend/tests/test_rev58_displaymeas.py::test_pg14_code_value_shift_is_a_mismatch
+          - backend/tests/test_rev58_displaymeas.py::test_pg15_range_mapping_drift_detected
+          - backend/tests/test_rev58_displaymeas.py::test_pg16_documented_transform_caps_at_limited
+          - backend/tests/test_rev58_displaymeas.py::test_pg17_generator_fidelity_ladder
+          - backend/tests/test_rev58_displaymeas.py::test_pg50_repository_roundtrip_and_integrity
+        description: >
+          Stimulus sha pinning, unverified delivery is not a pass,
+          mismatch detection, transform-declared limitation, verdict
+          ladder, sealed repository round-trip and tamper evidence.
+      - id: pattern-generator-remainder
+        kind: manual
+        description: >
+          実ジェネレータのプロトコル readback 自動収集とパッチシーケンス
+          生成 UI は残件。
+  - issue: 680
+    title: "REV58-DISPLAYMEAS: colorimeter spectral mismatch / probe-matching authority"
+    notes: >
+      InstrumentIdentity pins physical unit (kind + manufacturer + model
+      + serial + firmware + mode + integration time + #611 calibration
+      ref). DisplaySpdIdentity pins the exact SPD state — picture/gamut/
+      white-point/emitter/content/dimming/optical-path fields plus SPD
+      basis (measured SPD requires its pinned content). DisplayMeterMatchProfile
+      (mmprof-) seals target(tristimulus)×reference(spectro) pair +
+      display state + pre-existing correction + patch set + algorithm +
+      correction artifact hash. ProbeMatchObservation (pmobs-) requires a
+      residual per patch. ProbeMatchVerification (pmver-) verifies on an
+      independent holdout set. evaluate_correction_applicability compares
+      every axis of a stored match to current state: different unit /
+      display / picture state -> not_applicable; double-application risk
+      detected; verification missing caps at applicable_with_limitations.
+    checks:
+      - id: meter-match-applicability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_mm10_records_seal_and_validate
+          - backend/tests/test_rev58_displaymeas.py::test_mm11_verified_match_applies_with_limitations
+          - backend/tests/test_rev58_displaymeas.py::test_mm12_different_target_unit_is_not_applicable
+          - backend/tests/test_rev58_displaymeas.py::test_mm13_picture_state_change_stales_the_match
+          - backend/tests/test_rev58_displaymeas.py::test_mm14_double_application_risk
+          - backend/tests/test_rev58_displaymeas.py::test_mm15_observation_requires_residuals
+          - backend/tests/test_rev58_displaymeas.py::test_mm50_repository_roundtrip
+        description: >
+          Instrument/display-state binding, active-correction pin, holdout
+          verification, per-axis applicability fail-close.
+      - id: meter-match-remainder
+        kind: manual
+        description: >
+          実測定器ペアでの match 測定ウィザードと correction artifact
+          生成は残件。
+  - issue: 686
+    title: "REV58-DISPLAYMEAS: display additivity / RGB separation / volumetric authority"
+    notes: >
+      DisplayAdditivityObservation (daobs-) seals component-vs-combined
+      XYZ at declared levels on one #625 display state. RGBSeparationAssessment
+      (rgbs-) seals per-channel ramps (r/g/b keys required) with declared
+      coupling residual. VolumetricCharacterisation (dvol-) enforces dense
+      grid coverage (measured_count >= grid^3). HoldoutVerification
+      (dhold-) requires an independent patch set. evaluate_model_eligibility
+      gates each calibration family fail-closed: sparse/matrix families
+      need additivity AND ramp separation, volumetric LUTs need dense
+      characterisation, holdout failure is inappropriate, missing
+      evidence is honest insufficient_evidence — never implied eligible.
+      CharacterisationPlan (charplan-) derives the minimum density from
+      evidence.
+    checks:
+      - id: additivity-model-eligibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_da10_additivity_residual_measured
+          - backend/tests/test_rev58_displaymeas.py::test_da11_sparse_model_requires_independence_evidence
+          - backend/tests/test_rev58_displaymeas.py::test_da12_non_additive_display_rejects_matrix
+          - backend/tests/test_rev58_displaymeas.py::test_da13_volumetric_lut_requires_dense_measurement
+          - backend/tests/test_rev58_displaymeas.py::test_da14_volumetric_coverage_is_enforced
+          - backend/tests/test_rev58_displaymeas.py::test_da15_characterisation_plan_seals
+          - backend/tests/test_rev58_displaymeas.py::test_da50_repository_roundtrip
+        description: >
+          Additivity residual, family-specific evidence requirements,
+          grid coverage enforcement, holdout independence.
+      - id: additivity-remainder
+        kind: manual
+        description: >
+          実ディスプレイでの加法性/RGB ランプ採取ウィザードは残件。
+  - issue: 647
+    title: "REV58-DISPLAYMEAS: temporal display fidelity authority"
+    notes: >
+      TemporalDisplayState (tdstate-) pins the exact motion state —
+      display-state ref + input/refresh rates + VRR + interpolation +
+      BFI/strobe + overdrive + low-latency mode (composes with #625 pin;
+      different mode is different identity). TemporalStepResponseMeasurement
+      (tstep-) requires a pinned waveform + declared rise/fall/settle
+      definitions + sensor bandwidth. MotionArtifactMeasurement (mart-)
+      keeps blur mechanisms distinct; FlickerMeasurement (tflick-) and
+      ImageRetentionObservation (tret-) carry instrumented/documented/
+      subjective classes. evaluate_temporal_qualification returns
+      per-claim verdicts — only measurements sha-bound to THIS state
+      count, absent evidence is insufficient_evidence, refresh labels
+      never qualify.
+    checks:
+      - id: temporal-display-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_td10_claims_need_in_state_measurements
+          - backend/tests/test_rev58_displaymeas.py::test_td11_fast_settling_step_supports_response_claim
+          - backend/tests/test_rev58_displaymeas.py::test_td12_other_state_measurements_do_not_count
+          - backend/tests/test_rev58_displaymeas.py::test_td13_step_response_needs_a_level_change
+          - backend/tests/test_rev58_displaymeas.py::test_td50_repository_roundtrip
+        description: >
+          State binding via sha, per-claim verdicts, measurement
+          requirements.
+      - id: temporal-remainder
+        kind: manual
+        description: >
+          光学ステップ応答・動画アーティファクトの実測ウィザードは残件。
+  - issue: 666
+    title: "REV58-DISPLAYMEAS: LUT closed-loop calibration authority"
+    notes: >
+      DisplayLUTArtifact (lutart-) seals kind/grid/precision + five
+      declared code domains + target semantics (HDR requires peak
+      nits) + payload hash. LUTGenerationRecord (lutgen-) pins
+      characterisation + patch set + engine identity. LUTPreflightVerification
+      (lutpre-) — a numeric pass without a domain-scaling check is not a
+      pass. LUTDeploymentRecord (lutdep-) pins device/slot/write method +
+      readback hash — a write without matching readback is not
+      deployment. LUTPostVerification (lutpost-) requires an independent
+      holdout on the same physical path; side effects are reported, never
+      hidden. evaluate_lut_closed_loop walks the fail-closed ladder:
+      missing generation provenance -> insufficient_evidence; preflight
+      missing/failed -> unverified/failed; readback mismatch -> failed;
+      non-independent holdout -> unverified; post failure -> failed;
+      side effects cap at loop_limited.
+    checks:
+      - id: lut-closed-loop
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_lut10_closed_loop_requires_every_stage
+          - backend/tests/test_rev58_displaymeas.py::test_lut11_missing_generation_is_insufficient_evidence
+          - backend/tests/test_rev58_displaymeas.py::test_lut12_preflight_missing_is_unverified
+          - backend/tests/test_rev58_displaymeas.py::test_lut13_readback_mismatch_fails_the_loop
+          - backend/tests/test_rev58_displaymeas.py::test_lut14_holdout_must_be_independent_of_generation_set
+          - backend/tests/test_rev58_displaymeas.py::test_lut15_observed_side_effects_cap_at_limited
+          - backend/tests/test_rev58_displaymeas.py::test_lut16_hdr_target_needs_peak_luminance
+          - backend/tests/test_rev58_displaymeas.py::test_lut17_domains_must_be_declared
+          - backend/tests/test_rev58_displaymeas.py::test_lut50_repository_roundtrip
+        description: >
+          Full ladder fail-close, domain/target semantics validation,
+          readback and holdout independence enforcement.
+      - id: lut-loop-remainder
+        kind: manual
+        description: >
+          実機への LUT 書き込み/readback 自動化と post-verify 採取は残件。
+         
+  - issue: 723
+    summary: >
+      Device apply transaction / rollback authority. ApplyCapabilityProfile
+      (apcap-) declares per-device mutation semantics — atomic capabilities
+      require api_documented/behavior_observed evidence, never assumed from a
+      multi-field API. DeviceApplyPlan (applan-) is the immutable pre-mutation
+      plan binding desired-state hash, ordered writes, pre-state evidence and
+      rollback strategy. ApplyWriteRecord (apwrite-) records each write with an
+      honest outcome; acknowledged requires ack payload sha. ApplyVerificationRecord
+      (apver-) is the readback comparison — only it can yield fully_applied;
+      write success alone yields insufficient_evidence. RollbackPlan/RollbackExecutionRecord
+      (rbplan-/rbexec-) gate exact-rollback claims on full pre-state evidence
+      (Trinnov precedent: preset backups exclude source configuration).
+      DeviceApplyTransaction (aptxn-) seals the lifecycle with a fail-closed
+      state verdict (not_started/fully_applied/partially_applied/rolled_back/
+      apply_failed/unknown_state/insufficient_evidence).
+    checks:
+      - id: apply-transaction
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_apply.py::test_atomic_capability_requires_observed_evidence
+          - backend/tests/test_rev59_apply.py::test_plan_requires_full_write_order_coverage
+          - backend/tests/test_rev59_apply.py::test_write_success_alone_is_insufficient_evidence
+          - backend/tests/test_rev59_apply.py::test_fully_applied_only_with_readback_verification
+          - backend/tests/test_rev59_apply.py::test_verdict_unknown_state_on_interruption
+          - backend/tests/test_rev59_apply.py::test_exact_claim_from_full_evidence
+          - backend/tests/test_rev59_apply.py::test_user_recorded_only_cannot_claim
+          - backend/tests/test_rev59_apply.py::test_transaction_requires_verification_for_fully_applied
+          - backend/tests/test_rev59_apply.py::test_repository_roundtrip
+        description: >
+          Capability taxonomy gate, plan immutability, write-outcome honesty,
+          readback-verified verdicts, rollback evidence tiers, transaction
+          lifecycle sealing.
+      - id: apply-remainder
+        kind: manual
+        description: >
+          実機デバイスへの適用実行・ロック取得・readback 自動化は残件
+          （測定ウィザード/デバイスアダプタ経由）。
+  - issue: 763
+    title: "Fractional-octave filter / band-integration authority (IEC 61260)"
+    notes: >
+      FractionalOctaveProfile (foct-) pins band kind, frequency standard,
+      filter class, processing domain and integration semantics; an IEC
+      claim requires class 0/1/2 + a filtered domain — bin-integration
+      (e.g. REW third-octave from FFT bins) is partially_pinned, never an
+      IEC filter bank. compare_band_semantics is fail-closed across kind /
+      standard / semantics / filtered-vs-binned paths.
+    checks:
+      - id: band-semantics
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_iec_standard_requires_iec_class
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_iec_standard_requires_filtered_domain
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_verdict_pinned
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_compare_incomparable_domain
+        description: >
+          IEC 61260 class/domain fail-closed validation; bin-integration
+          honestly pinned as non-IEC; cross-semantics comparison rejects.
+  - issue: 764
+    title: "RIR mixing-time / echo-density authority"
+    notes: >
+      EchoDensityProfile (edp-) pins the estimator + parameters;
+      MixingTimeEstimate (mixt-) is position/basis-bound with uncertainty;
+      evaluate_transition never establishes sufficiently_mixed from a
+      user-declared or threshold-less profile; late_handoff_gate makes RT
+      alone insufficient evidence for early→late handoff.
+    checks:
+      - id: mixing-time
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_rt_alone_not_evidence
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_no_estimate_is_insufficient
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_user_declared_not_mixed
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_threshold_mixed
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_handoff_supported
+        description: >
+          RT-alone rejection, estimator pinning, position-bound estimates,
+          transition verdict ladder.
+  - issue: 755
+    title: "Measured acoustic-field interpolation authority"
+    notes: >
+      InterpolationProfile (fint-) pins method/quantity — method unknown
+      cannot anchor a profile, model_assisted restricted to
+      reconstruction-capable methods. FieldSurfaceRecord (fsurf-) binds
+      measured support points + per-cell support kind;
+      evaluate_field_claim gates measured_surface (all cells measured),
+      reconstructed/model_aided (model_dependent, never looks measured),
+      complex quantities via plain interpolators (overclaimed).
+    checks:
+      - id: field-interpolation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_measured_surface_requires_all_measured
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_complex_quantity_via_linear_overclaimed
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_model_aided_is_model_dependent
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_no_measured_points_insufficient
+        description: >
+          Measured vs interpolated cell honesty; complex-quantity method
+          gate; model-assisted surfaces flagged model_dependent.
+  - issue: 770
+    title: "Acoustic-solver compute-budget / scaling authority"
+    notes: >
+      SolverBudgetProfile (cbp-) binds fidelity axes to predicted costs
+      with evidence tiers (observed_run requires run ref);
+      ComputeObservation (cobs-) keeps actual runtime/memory separate so
+      extrapolation cannot launder as measured; AccuracyCostEnvelope
+      (cenv-) binds fidelity+cost to #566 accuracy evidence;
+      fidelity_cost_gate flags fidelity declared without cost evidence.
+    checks:
+      - id: compute-budget
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_predicted_cost_observed_run_requires_ref
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_budget_over
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_fidelity_gate_missing
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_budget_unknown_unobserved
+        description: >
+          Predicted-vs-observed separation, budget verdicts, fidelity cost
+          evidence gate.
+  - issue: 766
+    title: "Open spatial-RIR benchmark admission — dEchorate + MeshRIR"
+    notes: >
+      Admission/research-plan issue. Plan recorded in
+      docs/validation/spatial-rir-benchmark-admission.md (dEchorate
+      calibrated early-echo + MeshRIR dense grids; roles, partitions,
+      leakage controls per #698).
+    checks:
+      - id: spatial-rir-admission
+        kind: manual
+        description: >
+          計画書を docs/validation/spatial-rir-benchmark-admission.md に
+          記録。実取込・fixture 化は後続（データDL・ライセンス処理を含む）。
+  - issue: 768
+    title: "Measured room-state sensitivity benchmark admission — Motus + Arni"
+    notes: >
+      Admission/research-plan issue. Plan recorded in
+      docs/validation/room-state-benchmark-admission.md (Motus 3320
+      furniture-state RIRs + Arni 132k panel-state IRs; change-sensitivity
+      metrics, holdout partitions, calibration-boundary rules).
+    checks:
+      - id: room-state-admission
+        kind: manual
+        description: >
+          計画書を docs/validation/room-state-benchmark-admission.md に
+          記録。実取込・fixture 化は後続。
   - issue: 729
     title: "REV59-DEPS: authority dependency / staleness graph"
     notes: >

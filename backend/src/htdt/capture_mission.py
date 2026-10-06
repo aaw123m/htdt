@@ -1194,15 +1194,19 @@ def _app_projection(
     catalog = _app_equipment_catalog(package)
     if catalog is not None:
         app_plan['equipment_catalog'] = catalog
-    # Authority families are minted only in the receiver's promotable
-    # vocabulary: semantic-task records are staged verbatim today, so
-    # requiring their families would hard-fail every mission honestly —
-    # only measurement promotion is executable end-to-end.
-    families = ['measurements'] if measurement_items else []
+    # Authority families are minted only in the receiver's executable
+    # vocabulary: semantic fulfillments promote as 'annotations'-family
+    # records (entities + authorities payloads) and measurement
+    # fulfillments as 'measurements' — both executable end-to-end.
+    families: list[str] = []
     schemas: list[str] = []
     if semantic_items:
-        schemas.append('htdt.capture.authorities')
+        families.append('annotations')
+        schemas.extend(
+            ['htdt.capture.entities', 'htdt.capture.authorities']
+        )
     if measurement_items:
+        families.append('measurements')
         schemas.append('htdt.capture.measurements')
     if surface_items:
         schemas.append('htdt.capture.opening-review')
