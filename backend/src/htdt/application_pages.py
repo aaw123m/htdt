@@ -457,6 +457,14 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_tactile_vibration_measurements": "振動測定",
     "cad_tactile_profiles": "触覚プロファイル",
     "cad_tactile_vibration_qualifications": "触覚振動適格評価",
+    # REV57-MOUNT: #620 AV取付/構造支持証拠
+    "cad_mount_assemblies": "取付アセンブリ",
+    "cad_mount_load_evidence": "取付荷重証拠",
+    "cad_mount_support_elements": "構造支持要素",
+    "cad_mount_manufacturer_requirements": "メーカー取付要件",
+    "cad_mount_structural_approvals": "構造承認記録",
+    "cad_mount_inspection_records": "取付検査記録",
+    "cad_mount_qualifications": "取付支持修飾",
 }
 
 

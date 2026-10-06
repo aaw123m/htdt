@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 41
+NATIVE_SCHEMA_VERSION = 42
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1495,6 +1495,17 @@ def _migrate_40_to_41(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_41_to_42(connection: sqlite3.Connection) -> None:
+    # Install the REV57-MOUNT authority (#620 AV mounting /
+    # structural-support evidence: assemblies, load evidence, support
+    # elements, manufacturer requirements, structural approvals,
+    # inspection records, qualifications): a new append-only authority
+    # the idempotent baseline creates. REV57-INST took v41 first, so
+    # REV57-MOUNT lands as v42.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1537,6 +1548,7 @@ _MIGRATIONS = {
     39: _migrate_38_to_39,
     40: _migrate_39_to_40,
     41: _migrate_40_to_41,
+    42: _migrate_41_to_42,
 }
 
 

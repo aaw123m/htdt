@@ -1458,3 +1458,49 @@ issues:
           #609 との stimulus+timebase pin、複数シート集計ビュー
           (per-seat 保持)、preference 主観評価権威との分離配線、
           ISO 2631-1 Ed.3 発行時の lifecycle 昇格は残件。
+  - issue: 620
+    title: "REV57-MOUNT: AV mounting / structural-support evidence authority"
+    notes: >
+      CadMountingAssembly pins the exact equipment→mount→hardware→
+      support-point chain (per-component identity state, secondary
+      retention, duty state, isolation flag, cable-route pins) — CAD
+      placement alone never claims mountable. CadMountLoadEvidence /
+      CadSupportElementRecord / CadManufacturerMountingRequirement /
+      CadStructuralApprovalRecord / CadMountingInspectionRecord
+      separate declared demand, declared capacity, manufacturer
+      instructions, approval evidence class and as-built observation;
+      declared capacity is pinned, never derived from BIM/scan
+      geometry. evaluate_mounting_support ladders deepest-defect-first:
+      stale_after_change → manufacturer_mounting_incompatible →
+      support_unknown → as_built_mismatch →
+      support_capacity_insufficient → interference →
+      structural_approval_required (overhead, suspension layers,
+      isolation, or no approval at all) → duty_uncovered →
+      installation_inspection_required → approved_with_limitations →
+      design_support_evidence_complete. Suspended loudspeakers keep
+      the three E1.8/E1.56 layers (enclosure / support point / field
+      rigging) independent — E1.8 enclosure evidence never approves
+      the building support point, and a suspended ceiling grid is
+      never a support point.
+    checks:
+      - id: mount-structural-support
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_mount.py
+        description: >
+          MNT10–MNT70 issue scenarios: complete projector chain,
+          CAD-only ceiling speaker fail-closed, E1.8-only suspended
+          loudspeaker, substitution staleness, hidden-blocking
+          support_unknown, isolation mount professional
+          requirement, motorized screen static-only limitation;
+          capacity/duty/interference/inspection/as-built rungs;
+          ref-kind, demand, grid, approver, rating, E1.8-source and
+          inspection validators; sealed-record tamper evidence;
+          repository round-trip and drift detection.
+      - id: mount-structural-support-remainder
+        kind: manual
+        description: >
+          #596 置換影響レコードから substitution_flags への自動変換、
+          #595 スケジューラ連携の検査期限管理 (next_due_at_utc は保持済)、
+          #597 ケーブル経路との干渉幾何計算 (cable_route_refs は pin のみ)、
+          UI 入力フォーム、地域法規プロファイルの体系化は残件。

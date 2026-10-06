@@ -965,6 +965,13 @@ class _RepositoryChain:
             )
 
             return CadTactileVibrationRepository(scene)
+        # REV57-MOUNT authority.
+        if name == 'mounting_support':
+            from .cad_mounting_support_repository import (
+                CadMountingSupportRepository,
+            )
+
+            return CadMountingSupportRepository(scene)
         raise KeyError(name)
 
 
@@ -4228,7 +4235,7 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('qualification_id',),
         _get('media_playback', 'get_qualification'),
     ),
-    # REV57-INST: #616 HVAC acoustic/airflow co-design authority
+    # REV57-INST: #616/#618/#631/#612 authorities
     _ReplayProbe(
         'hvac_scenario',
         'cad_hvac_ventilation_scenarios',
@@ -4333,6 +4340,49 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_tactile_vibration_qualifications',
         ('qualification_id',),
         _get('tactile_vibration', 'get_qualification'),
+    ),
+    # REV57-MOUNT: #620 AV mounting / structural-support evidence
+    _ReplayProbe(
+        'mount_assembly',
+        'cad_mount_assemblies',
+        ('assembly_id',),
+        _get('mounting_support', 'get_assembly'),
+    ),
+    _ReplayProbe(
+        'mount_load_evidence',
+        'cad_mount_load_evidence',
+        ('evidence_id',),
+        _get('mounting_support', 'get_load_evidence'),
+    ),
+    _ReplayProbe(
+        'mount_support_element',
+        'cad_mount_support_elements',
+        ('element_id',),
+        _get('mounting_support', 'get_support_element'),
+    ),
+    _ReplayProbe(
+        'mount_manufacturer_requirement',
+        'cad_mount_manufacturer_requirements',
+        ('requirement_id',),
+        _get('mounting_support', 'get_manufacturer_requirement'),
+    ),
+    _ReplayProbe(
+        'mount_structural_approval',
+        'cad_mount_structural_approvals',
+        ('approval_id',),
+        _get('mounting_support', 'get_approval'),
+    ),
+    _ReplayProbe(
+        'mount_inspection',
+        'cad_mount_inspection_records',
+        ('inspection_id',),
+        _get('mounting_support', 'get_inspection'),
+    ),
+    _ReplayProbe(
+        'mount_qualification',
+        'cad_mount_qualifications',
+        ('qualification_id',),
+        _get('mounting_support', 'get_qualification'),
     ),
 )
 

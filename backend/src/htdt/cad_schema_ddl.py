@@ -4296,6 +4296,91 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_tvqual_doc ON cad_tactile_vibration_qualifications(document_id, seq ASC)
     """
     ,
+    # REV57-MOUNT: AV mounting / structural-support authority (#620)
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_assemblies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assembly_id TEXT NOT NULL UNIQUE, assembly_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, equipment_ref_id TEXT, placement_ref_id TEXT, equipment_class TEXT NOT NULL, support_method TEXT NOT NULL, overhead_suspension INTEGER NOT NULL, duty_state TEXT NOT NULL, interference_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntassy_doc ON cad_mount_assemblies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntassy_equipment ON cad_mount_assemblies(equipment_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_load_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assembly_ref_id TEXT NOT NULL, mass_kg REAL, weight_n REAL, duty_state TEXT NOT NULL, source_class TEXT NOT NULL, measured_at_utc TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntload_assy ON cad_mount_load_evidence(assembly_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntload_doc ON cad_mount_load_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_support_elements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, element_id TEXT NOT NULL UNIQUE, element_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assembly_ref_id TEXT NOT NULL, element_class TEXT NOT NULL, geometry_ref_id TEXT, hidden_condition_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntsup_assy ON cad_mount_support_elements(assembly_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntsup_doc ON cad_mount_support_elements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_manufacturer_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, requirement_id TEXT NOT NULL UNIQUE, requirement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, secondary_retention TEXT NOT NULL, enclosure_suspension TEXT NOT NULL, vesa_pattern TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntreq_subject ON cad_mount_manufacturer_requirements(subject_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntreq_doc ON cad_mount_manufacturer_requirements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_structural_approvals ( seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE, approval_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assembly_ref_id TEXT, evidence_class TEXT NOT NULL, approval_scope TEXT NOT NULL, duty_coverage TEXT NOT NULL, standard_ref_id TEXT, jurisdiction TEXT, issued_at_utc TEXT, expires_at_utc TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntappr_assy ON cad_mount_structural_approvals(assembly_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntappr_doc ON cad_mount_structural_approvals(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_inspection_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, inspection_id TEXT NOT NULL UNIQUE, inspection_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assembly_ref_id TEXT NOT NULL, inspection_kind TEXT NOT NULL, inspector_class TEXT NOT NULL, findings TEXT NOT NULL, inspected_at_utc TEXT NOT NULL, next_due_at_utc TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntinsp_assy ON cad_mount_inspection_records(assembly_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntinsp_doc ON cad_mount_inspection_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mount_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assembly_ref_id TEXT NOT NULL, support_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntqual_assy ON cad_mount_qualifications(assembly_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mntqual_doc ON cad_mount_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4956,4 +5041,12 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_tactile_vibration_measurements',
     'cad_tactile_profiles',
     'cad_tactile_vibration_qualifications',
+    # REV57-MOUNT: #620.
+    'cad_mount_assemblies',
+    'cad_mount_load_evidence',
+    'cad_mount_support_elements',
+    'cad_mount_manufacturer_requirements',
+    'cad_mount_structural_approvals',
+    'cad_mount_inspection_records',
+    'cad_mount_qualifications',
 )

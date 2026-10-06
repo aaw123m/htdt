@@ -2448,3 +2448,68 @@ def tactile_vibration_line(qualification) -> str:
         )
     return '触覚振動評価: ' + ' — '.join(parts)
 
+
+# REV57-MOUNT (#620): AV mounting / structural-support evidence.
+
+_MOUNT_SUPPORT_STATE_LABELS = {
+    'design_support_evidence_complete': '設計支持証拠完備',
+    'approved_with_limitations': '限定付き承認',
+    'installation_inspection_required': '設置検査が必要',
+    'structural_approval_required': '構造承認が必要',
+    'manufacturer_mounting_incompatible': 'メーカー取付要件非適合',
+    'support_capacity_insufficient': '支持容量不足（宣言値）',
+    'support_unknown': '支持構造不明',
+    'as_built_mismatch': '竣工状態不一致',
+    'stale_after_change': '変更後に陳腐化',
+}
+
+_SUSPENSION_LAYER_LABELS = {
+    'capable': '対応可能',
+    'incompatible': '非適合',
+    'unknown': '不明',
+    'not_applicable': '対象外',
+}
+
+
+def mounting_support_state_label(state: str) -> str:
+    return _MOUNT_SUPPORT_STATE_LABELS.get(state, state)
+
+
+def suspension_layer_label(state: str) -> str:
+    return _SUSPENSION_LAYER_LABELS.get(state, state)
+
+
+def mounting_qualification_line(qualification) -> str:
+    """One JA line for a mounting-support qualification (#620): verdict
+    plus the suspension layers and any declared demand/rating —
+    CAD 上の配置だけで「取付可能」とは読まない。"""
+    parts = [
+        mounting_support_state_label(qualification.support_state)
+    ]
+    layers = qualification.suspension_layers
+    if layers is not None and (
+        layers.enclosure_capability != 'not_applicable'
+        or layers.building_support_point != 'not_applicable'
+        or layers.field_rigging_assembly != 'not_applicable'
+    ):
+        parts.append(
+            '吊下げ層: 筐体='
+            + suspension_layer_label(layers.enclosure_capability)
+            + ' / 支持点='
+            + suspension_layer_label(layers.building_support_point)
+            + ' / 現場組立='
+            + suspension_layer_label(layers.field_rigging_assembly)
+        )
+    if qualification.demand_vs_rating_kg is not None:
+        parts.append(
+            '宣言定格−宣言荷重: {0:+.1f} kg'.format(
+                qualification.demand_vs_rating_kg,
+            )
+        )
+    if qualification.stale_flags:
+        parts.append(
+            '陳腐化: ' + ' / '.join(qualification.stale_flags[:4])
+        )
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '取付支持修飾: ' + ' — '.join(parts)
