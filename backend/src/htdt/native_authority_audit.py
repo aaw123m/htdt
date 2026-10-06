@@ -1354,6 +1354,12 @@ class _RepositoryChain:
             )
 
             return CadDiagnosticHypothesisRepository(scene)
+        if name == 'manifest_gates':
+            from .cad_manifest_gate_repository import (
+                CadManifestGateRepository,
+            )
+
+            return CadManifestGateRepository(scene)
         if name == 'loudspeaker_evidence':
             from .cad_loudspeaker_evidence_repository import (
                 CadLoudspeakerEvidenceRepository,
@@ -6790,6 +6796,20 @@ _ASSET_TABLES: tuple[
     # REV48: acceptance-evidence rows are digest-bound managed-asset
     # manifests — each must resolve to its retained file.
     ('htdt_acceptance_evidence', 'sha256', 'size_bytes', 'relative_path', None),
+    # REV59-CLOSEAUX: manifest-gate bridge.
+    _ReplayProbe(
+        'manifest_gate',
+        'cad_manifest_gates',
+        ('gate_id',),
+        _get('manifest_gates', 'get_manifest_gate'),
+    ),
+    _ReplayProbe(
+        'gate_run_result',
+        'cad_gate_run_results',
+        ('result_id',),
+        _get('manifest_gates', 'get_gate_run_result'),
+    ),
+
 )
 
 _REPLAY_TABLES = frozenset(probe.table for probe in _REPLAY_PROBES)
