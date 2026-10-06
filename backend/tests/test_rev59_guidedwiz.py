@@ -337,12 +337,12 @@ def test_page_lists_issues_and_commits_evidence(tmp_path):
     )
     assert page.issue_list.count() == 1
     item = page.issue_list.item(0)
-    assert '一部検証済み' in item.text()
+    assert '未評価' in item.text()
 
     page.issue_list.setCurrentRow(0)
     assert page.check_list.count() == 3
-    # auto gates exist but nothing has run → partially_verified ladder
-    assert '一部検証済み' in page.verdict_label.text()
+    # gates exist but nothing has run → unevaluated ladder
+    assert '未評価' in page.verdict_label.text()
 
     # select the manual check → guided controls enabled
     page.check_list.setCurrentRow(2)

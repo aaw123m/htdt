@@ -288,6 +288,11 @@ def evaluate_issue_verdict(
     manual = [g for g in gates if g.check_kind == 'manual']
     if not auto:
         return 'manual_required', 'no automated checks declared'
+    if all(
+        evaluate_gate(g, results.get(g.gate_id))[0] == 'unevaluated'
+        for g in gates
+    ):
+        return 'unevaluated', 'no gate results committed yet'
     for g in auto:
         v, _ = evaluate_gate(g, results.get(g.gate_id))
         if v == 'unsatisfied':

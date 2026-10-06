@@ -159,6 +159,9 @@ def test_issue_verdict_ladder(tmp_path):
     # manual_required: no auto gates
     v, _ = evaluate_issue_verdict((manual,), {})
     assert v == 'manual_required'
+    # unevaluated: gates exist but nothing has run yet
+    v, _ = evaluate_issue_verdict((auto, manual), {})
+    assert v == 'unevaluated'
     # failing: auto failed
     bad = GateRunResult.create({
         'document_id': DOC, 'gate_ref': _ref(auto.gate_id),
