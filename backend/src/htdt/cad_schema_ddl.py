@@ -3654,6 +3654,132 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_pamfit_doc ON cad_pam_fit_comparisons(document_id, seq ASC)
     """
     ,
+    # REV57-DISP: #625 direct-view display, #626 observer metamerism,
+    # #633 viewing environment authorities.
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_display_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, display_state_id TEXT NOT NULL UNIQUE, display_state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, panel_technology TEXT NOT NULL, content_mode TEXT NOT NULL, local_dimming TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvstate_doc ON cad_dv_display_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_stimulus_contexts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stimulus_context_id TEXT NOT NULL UNIQUE, stimulus_context_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stimulus_ref TEXT, field_kind TEXT NOT NULL, window_size_percent REAL, apl_percent REAL, content_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvstim_doc ON cad_dv_stimulus_contexts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_photometric_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_id TEXT NOT NULL, display_state_sha256 TEXT NOT NULL, stimulus_context_id TEXT NOT NULL, stimulus_context_sha256 TEXT NOT NULL, quantity TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvmeas_state ON cad_dv_photometric_measurements(display_state_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_temporal_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_id TEXT NOT NULL, display_state_sha256 TEXT NOT NULL, state TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvobs_state ON cad_dv_temporal_observations(display_state_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_spatial_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spatial_id TEXT NOT NULL UNIQUE, spatial_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_id TEXT NOT NULL, display_state_sha256 TEXT NOT NULL, stimulus_context_id TEXT NOT NULL, stimulus_context_sha256 TEXT NOT NULL, observable TEXT NOT NULL, point_count INTEGER NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvspatial_state ON cad_dv_spatial_measurements(display_state_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_angle_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, angle_id TEXT NOT NULL UNIQUE, angle_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_id TEXT NOT NULL, display_state_sha256 TEXT NOT NULL, stimulus_context_id TEXT NOT NULL, stimulus_context_sha256 TEXT NOT NULL, horizontal_angle_deg REAL NOT NULL, vertical_angle_deg REAL NOT NULL, seat_ref TEXT, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvangle_state ON cad_dv_angle_measurements(display_state_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dv_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_id TEXT NOT NULL, display_state_sha256 TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dvqual_state ON cad_dv_qualifications(display_state_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_om_spectral_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spectral_state_id TEXT NOT NULL UNIQUE, spectral_state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_ref TEXT NOT NULL, system_kind TEXT NOT NULL, evidence_class TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_omstate_doc ON cad_om_spectral_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_om_observer_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL, revision TEXT, observer_set TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_om_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, reference_state_id TEXT NOT NULL, reference_state_sha256 TEXT NOT NULL, dut_state_id TEXT NOT NULL, dut_state_sha256 TEXT NOT NULL, profile_id TEXT NOT NULL, profile_sha256 TEXT NOT NULL, result_class TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_omeval_doc ON cad_om_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_om_perceptual_matches ( seq INTEGER PRIMARY KEY AUTOINCREMENT, match_id TEXT NOT NULL UNIQUE, match_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, reference_state_id TEXT NOT NULL, dut_state_id TEXT NOT NULL, observer_identity_class TEXT NOT NULL, observer_count INTEGER NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ommatch_doc ON cad_om_perceptual_matches(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_om_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, goal TEXT NOT NULL, verdict TEXT NOT NULL, reference_state_id TEXT NOT NULL, dut_state_id TEXT NOT NULL, evaluation_id TEXT, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_omqual_doc ON cad_om_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ve_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, room_ref TEXT, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_veobs_doc ON cad_ve_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ve_geometry_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, geometry_id TEXT NOT NULL UNIQUE, geometry_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, observation_id TEXT, observation_sha256 TEXT, seat_ref TEXT, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vegeo_doc ON cad_ve_geometry_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ve_lighting_scenes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scene_id TEXT NOT NULL UNIQUE, scene_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, bound_observation_id TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vescene_doc ON cad_ve_lighting_scenes(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ve_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, observation_id TEXT NOT NULL, observation_sha256 TEXT NOT NULL, profile_kind TEXT NOT NULL, profile_scope TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vequal_doc ON cad_ve_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4241,4 +4367,21 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_pam_buildups',
     'cad_pam_predictions',
     'cad_pam_fit_comparisons',
+    # REV57-DISP: #625/#626/#633.
+    'cad_dv_display_states',
+    'cad_dv_stimulus_contexts',
+    'cad_dv_photometric_measurements',
+    'cad_dv_temporal_observations',
+    'cad_dv_spatial_measurements',
+    'cad_dv_angle_measurements',
+    'cad_dv_qualifications',
+    'cad_om_spectral_states',
+    'cad_om_observer_profiles',
+    'cad_om_evaluations',
+    'cad_om_perceptual_matches',
+    'cad_om_qualifications',
+    'cad_ve_observations',
+    'cad_ve_geometry_observations',
+    'cad_ve_lighting_scenes',
+    'cad_ve_qualifications',
 )

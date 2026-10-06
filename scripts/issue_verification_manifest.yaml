@@ -875,3 +875,140 @@ issues:
           データ取込 (#615 後続)、material build-up 側 (#570/#631) への
           prediction 差し込み配線、斜め入射/散乱入射拡張、Biot/
           poroelastic 実装は残件。
+  - issue: 625
+    title: "REV57-DISP: direct-view display dynamic/spatial qualification"
+    notes: >
+      DirectViewDisplayState pins every materially relevant control
+      (panel tech, firmware, picture mode, SDR/HDR mode, backlight /
+      OLED light, local dimming, contrast enhancer, tone mapping,
+      ambient adaptation, eco, motion, refresh) — UNKNOWN never
+      defaults to off. DisplayStimulusContext makes the stimulus part
+      of identity: window size, position, surround level, APL, sequence
+      order, hold duration, inter-pattern interval, full-field vs
+      windowed, static vs dynamic, HDR metadata/EOTF/container.
+      Photometric quantities are distinct kinds
+      (transient_peak / stabilized_window / sustained_full_field /
+      time_series / black / chromaticity / EOTF point) — a transient
+      peak is never promoted to sustained, and instrument-floor blacks
+      are bounded, never infinite. Temporal dimming is only recorded as
+      observed/provider-documented (community ASBL/TPC/GSR labels do
+      not transfer); local-dimming-active black claims carry
+      LOCAL_DIMMING_ACTIVE_UNMEASURED; contrast kinds never conflate;
+      spatial uniformity keeps raw points canonical; per-seat off-axis
+      claims fail closed per seat (SEAT_COVERAGE_INCOMPLETE); a static
+      sweep never proves dynamic tone mapping; APL coverage < 2 limits
+      across-content claims (ABL is state-dependent measured behavior).
+    checks:
+      - id: disp-direct-view
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_disp.py
+        description: >
+          DTV10–DTV90 fixtures: single-APL limitation vs APL-sweep
+          qualification, window-size-undeclared, temporal dimming
+          attach, provider-protection doc-ref requirement, local-
+          dimming active/unknown black limits, contrast-kind
+          conflation, per-seat coverage, uniformity grid/sparse,
+          warmup/order composition, adaptive-ambient limitation,
+          instrument-floor bounded black, static-vs-dynamic EOTF,
+          transient→sustained veto, content-independent unsupported,
+          UNKNOWN honesty, context window rules, spatial uniqueness,
+          repository chain + append-only + forge rejection, audit
+          replay.
+      - id: disp-direct-view-remainder
+        kind: manual
+        description: >
+          実機計測取込 (spects は #611 instrument 権威と結合)、画面
+          ユニフォーミティのヒートマップ可視化、パターンデータ配信
+          (#608 stimulus registry) との stimulus_sha256 相互結合、
+          #259 viewing-envelope ジオメトリ連携 UI、ABL/ASBL 時系列
+          収集バッチ、視角測定機器姿勢管理は残件。
+  - issue: 626
+    title: "REV57-DISP: display observer-metamerism authority"
+    notes: >
+      DisplaySpectralState binds display_ref/system_kind + SPD evidence
+      (spectroradiometer-measured requires instrument binding;
+      tristimulus-only can never carry an SPD). ObserverModelProfile
+      pins the exact calculation profile — IEC TS 61966-13:2023+COR1
+      :2025 and ANSI/CTA-6035 are restricted to light-emitting or
+      backlit transmitting displays and refuse construction against
+      projected-reflected systems. ObserverMetamerismEvaluation is
+      pair-bound (reference + DUT shas + profile sha); result classes
+      keep instrument spectral mismatch / standard-observer difference /
+      observer metameric failure separate. PerceptualMatchRecord keeps
+      the nominal target immutable — a user white offset is a recorded
+      delta, never a redefinition; multi-observer records require a
+      panel/sample identity class and no health/genetic data.
+      evaluate_observer_metamerism: x/y-only → insufficient_spectral_
+      evidence; profile mismatch → profile_inapplicable; meter-
+      explained → instrument_mismatch_explains; bound evaluation →
+      verified_within_profile (always with METER_CORRECTION_NOT_
+      OBSERVER_PROOF — meter-corrected is never perceptually identical
+      for all observers); same SPD pair → SAME_SPD_PAIR; unpaired
+      evaluation → conflicting_evidence; single-observer match →
+      SINGLE_OBSERVER_NOT_UNIVERSAL demotes verified.
+    checks:
+      - id: disp-observer-metamerism
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_disp.py
+        description: >
+          OMF10–OMF60 fixtures: identical SPD pair verified with
+          SAME_SPD_PAIR, same-xy/different-SPD metric evaluable,
+          instrument-mismatch class separation, single-observer
+          demotion, nominal-target immutability, projection scope
+          veto at both profile construction and evaluation,
+          tristimulus-only insufficiency, SPD/instrument binding
+          rules, metric units requirement, multi-observer identity
+          class, unpaired evaluation conflict, repository chain,
+          audit replay.
+      - id: disp-observer-metamerism-remainder
+        kind: manual
+        description: >
+          IEC TS 61966-13 / CIE 2006 cone fundamentals の実メトリクス
+          計算実装、分光放射計 (#611) との計器 sha256 結合、複数
+          観察者パネル収集フロー、投影 (#619) 側の別権威化は残件。
+  - issue: 633
+    title: "REV57-DISP: video viewing-environment authority"
+    notes: >
+      ViewingEnvironmentObservation captures room state separately
+      from display output: ambient illuminance, incident light on the
+      image surface (never room lux), surround luminance/periphery/
+      chromaticity/CCT + spectral evidence class, wall/floor/ceiling
+      reflectance + colour, stray-light sources, blinds/door,
+      automation scene ref. SurroundState.neutral_chromaticity_declared
+      is a measured D65-band check — CCT alone never claims a spectral
+      D65 surround (SPECTRAL_EVIDENCE_INSUFFICIENT). Profiles
+      (itu_bt2035_reference_hdtv / itu_bt500_* / itu_bt2166_hdr_sdr_
+      critical_monitoring / project_defined_* / normal_use_scenario)
+      map to explicit requirement sets; hard requirements
+      (neutral chromaticity, no stray light, dark room) fail the
+      profile when unmet. Broadcast profiles are method profiles —
+      non-selected scopes carry NOT_REQUESTED_PROFILE +
+      PROFILE_SCOPE_NOTE, so a residential room is never declared
+      defective for missing BT.2166. ViewingGeometryObservation binds
+      seats; LightingSceneRecord binds automation scenes to captured
+      observations; compare_viewing_environments reports changed axes
+      (wall repaint → not_comparable) and prior_change_axes marks
+      evidence stale independently of the display chain.
+    checks:
+      - id: disp-viewing-environment
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_disp.py
+        description: >
+          VVE10–VVE80 fixtures: BT.2035 dark-theater met, bright-room
+          dark_room fail, coloured bias light chromaticity unmet,
+          stray-light fail, environment/display separation, side-seat
+          geometry binding, per-scene qualification, wall-repaint
+          staleness + comparability, CCT-only spectral insufficiency,
+          incident-vs-room lux separation, scope notes, normal-use
+          capture-only, unbound geometry unknown, repository chain,
+          audit replay.
+      - id: disp-viewing-environment-remainder
+        kind: manual
+        description: >
+          照度計/分光計 (#611) との計器 sha256 結合、#259 geometry
+          survey の seat 結合、照明自動化連携 (scene push)、CEDIA
+          RP23/CEB22 住宅プロファイルの要件セット拡張、UI への環境
+          評価カード配線は残件。
