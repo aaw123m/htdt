@@ -2,8 +2,10 @@
 
 スコープ: issue #675 / #674 / #673 / #671 / #677 / #706（全 P1）
 ブランチ: `devin/1791271884-rev58-validmeth`（merge-test 経由マージ）
-スキーマ: native schema v46 → v47（16 テーブル + インデックス追加 —
-`NATIVE_SCHEMA_TABLES` 登録済み）
+スキーマ: native schema v47 → v48（16 テーブル + インデックス追加 —
+`NATIVE_SCHEMA_TABLES` 登録済み。REV58-AUDIOMODEL が作業中に v47 を
+先取したため連番で v48 に着地 — 両側のテーブル・バインディング・
+移行関数を併存）
 
 設計原則は REV57/REV58 と同じ: すべての権威レコードは
 content-addressed な frozen pydantic モデル（`_seal` + sha256 +
