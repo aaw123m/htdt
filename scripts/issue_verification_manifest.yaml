@@ -3496,3 +3496,56 @@ issues:
           - backend/tests/test_rev59_drawprof.py::TestTimedText::test_outside_mask
           - backend/tests/test_rev59_drawprof.py::TestTimedText::test_qualified
         description: Track-vs-presentation separation, legibility gate.
+  - issue: 694
+    title: "Finite acoustic-treatment edge / size-effect authority"
+    notes: >
+      FiniteAbsorberGeometry (fag-) pins finite extents, edge state,
+      mounting and baffle context. FiniteTreatmentBoundaryModel (ftbm-)
+      binds the geometry to the solver boundary model — claiming
+      infinite-plane equivalence requires pinned edge-effect evidence.
+      evaluate_finite_absorber_claim: no geometry → insufficient;
+      finite object with no model → infinite_plane_misapplied; lab
+      sample ≠ installed object → sample_size_unaccounted.
+    checks:
+      - id: finite-absorber
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_finite_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_infinite_plane_equivalence_needs_edge_evidence
+        description: Infinite-plane ≠ finite object; edge/ISO-354 sample honesty.
+  - issue: 646
+    title: "Precedence / discrete-echo perceptual-risk authority"
+    notes: >
+      PrecedenceProfile (prec-) pins stimulus class and listening
+      context — echo threshold is stimulus-dependent, 'unknown'
+      stimulus fails closed. EchoRiskObservation (erk-) binds
+      delay/level/direction to a phenomenon classification (fusion,
+      localization dominance, suppression, segregation, image shift).
+      evaluate_echo_risk_claim: fixed delay rules →
+      fixed_rule_misapplied; no profile → stimulus_unqualified;
+      physical data alone → unresolved_risk.
+    checks:
+      - id: precedence-echo
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_echo_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_profile_rejects_unknown_stimulus
+        description: No fixed 20ms rule; phenomenon-honest classification.
+  - issue: 648
+    title: "Acoustic-finish fire / reaction-to-fire evidence authority"
+    notes: >
+      ReactionToFireEvidence (rtf-) pins test standard (ASTM E84 /
+      NFPA 286 / EN 13501-1 / etc.), the tested assembly descriptor and
+      the report ref. FinishAssemblySafetyEvidence (fas-) binds that
+      evidence to the declared installation assembly parts.
+      evaluate_fire_eligibility_claim: acoustic suitability →
+      acoustic_not_safety; wrong standard for the requirement →
+      test_scope_mismatch; lab result without assembly →
+      lab_result_is_not_installation.
+    checks:
+      - id: fire-evidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_fire_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_assembly_requires_parts_and_evidence
+        description: Lab result ≠ installed eligibility; standard-scope honesty.
