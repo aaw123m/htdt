@@ -8084,6 +8084,29 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         (),
     ),
 
+    # REV59-CLOSEAUX: manifest-gate bridge.
+    'cad_manifest_gates': (
+        'payload_json',
+        (
+            _b('gate_id', 'gate_id'),
+            _b('gate_sha256', 'gate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('issue_ref', 'issue_ref'),
+            _b('check_kind', 'check_kind'),
+        ),
+        (),
+    ),
+    'cad_gate_run_results': (
+        'payload_json',
+        (
+            _b('result_id', 'result_id'),
+            _b('result_sha256', 'result_sha256'),
+            _b('document_id', 'document_id'),
+            _b('gate_ref_id', 'gate_ref_id'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
     # REV59-UNITS: #728 typed physical quantity.
     'cad_typed_quantities': (
         'payload_json',

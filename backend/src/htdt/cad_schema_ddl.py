@@ -7706,6 +7706,34 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
 
+    """CREATE TABLE IF NOT EXISTS cad_manifest_gates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    gate_id TEXT NOT NULL UNIQUE,
+    gate_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    issue_ref TEXT NOT NULL,
+    check_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_gate_run_results (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    result_id TEXT NOT NULL UNIQUE,
+    result_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    gate_ref_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_manifest_gates_document_idx ON cad_manifest_gates (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_gate_run_results_document_idx ON cad_gate_run_results (document_id)
+    """
+    ,
 )
 
 
@@ -8712,4 +8740,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_grille_transfer_evidence',
     'cad_front_layer_applicability',
 
+    'cad_manifest_gates',
+    'cad_gate_run_results',
 )
