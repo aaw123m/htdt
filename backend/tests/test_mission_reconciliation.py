@@ -149,6 +149,7 @@ def test_drift_summary_matches_reconciliation() -> None:
 
 
 def test_mission_return_reconciliation_lines_e2e(tmp_path) -> None:
+    import json
     import sqlite3
     import uuid
     from types import SimpleNamespace
@@ -249,3 +250,36 @@ def test_mission_return_reconciliation_lines_e2e(tmp_path) -> None:
         )
         == ()
     )
+
+    # The .htdtfieldreturn container the app actually ships resolves
+    # through its task_fulfillment_ledger — task_item:<id> refs decode
+    # to the mission's task ids.
+    container_doc = {
+        'schema': 'htdt.field_return',
+        'schema_version': '2.0.0',
+        'authority_binding_scope': 'contribution_id',
+        'contribution_id': str(uuid.uuid4()),
+        'mission_id': mission.mission_id,
+        'created_at': '2026-01-01T00:00:00+00:00',
+        'finalized_at': '2026-01-01T00:00:00+00:00',
+        'provenance': {},
+        'task_fulfillment_ledger': [
+            {
+                'item_ref': f'task_item:{task_id}',
+                'title': 'verify',
+                'requirement': 'required',
+                'outcome': 'fulfilled',
+                'fulfilled_by_refs': ['field_evidence:abc'],
+            },
+        ],
+        'content_digest': '0' * 64,
+    }
+    container = SimpleNamespace(
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=json.dumps(container_doc),
+    )
+    lines = mission_return_reconciliation_lines(
+        container, repository
+    )
+    assert '要調整 1件' in lines[0]

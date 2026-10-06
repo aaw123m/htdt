@@ -327,7 +327,6 @@ def mission_return_reconciliation_lines(
     from contextlib import closing
 
     from .cad_schema import connect_sqlite
-    from .field_return_ingestion import FieldReturnManifest
 
     mission_id = getattr(contribution, 'mission_id', None)
     if mission_id is None:
@@ -369,15 +368,9 @@ def mission_return_reconciliation_lines(
     manifest_json = getattr(contribution, 'manifest_json', None)
     if manifest_json is None:
         return ('照合: 返却マニフェストが記録されていません',)
-    try:
-        manifest = FieldReturnManifest.model_validate_json(manifest_json)
-    except ValueError:
+    returned_ids = _returned_task_ids(manifest_json)
+    if returned_ids is None:
         return ('照合: 返却マニフェストを解読できません',)
-    returned_ids = [
-        outcome.task_id
-        for outcome in manifest.task_outcomes
-        if outcome.outcome == 'fulfilled'
-    ]
     try:
         report = reconcile_mission_return(
             package.mission,
@@ -401,3 +394,56 @@ def mission_return_reconciliation_lines(
         in ('needs_reconciliation', 'historical_target_removed')
     )
     return tuple(lines)
+
+
+_CONTAINER_FULFILLED_OUTCOMES = frozenset({
+    'fulfilled',
+    'partially_fulfilled',
+})
+
+
+def _returned_task_ids(manifest_json: str) -> list[str] | None:
+    """Task ids a staged contribution reports as fulfilled.
+
+    Two wire families stage into the same table: the flat
+    ``htdt.field-return`` manifest (``task_outcomes``) and the
+    ``.htdtfieldreturn`` container the app actually ships
+    (``task_fulfillment_ledger`` on the ``htdt.field_return`` root
+    document). ``None`` means neither family decoded.
+    """
+    from .field_return_ingestion import (
+        FieldReturnContainerDocument,
+        FieldReturnManifest,
+    )
+
+    try:
+        manifest = FieldReturnManifest.model_validate_json(manifest_json)
+    except ValueError:
+        manifest = None
+    if manifest is not None:
+        return [
+            outcome.task_id
+            for outcome in manifest.task_outcomes
+            if outcome.outcome == 'fulfilled'
+        ]
+    try:
+        container = FieldReturnContainerDocument.model_validate_json(
+            manifest_json
+        )
+    except ValueError:
+        return None
+    task_ids: list[str] = []
+    for entry in container.task_fulfillment_ledger:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get('outcome') not in _CONTAINER_FULFILLED_OUTCOMES:
+            continue
+        item_ref = entry.get('item_ref')
+        if not isinstance(item_ref, str):
+            continue
+        task_ids.append(
+            item_ref.split(':', 1)[1]
+            if ':' in item_ref
+            else item_ref
+        )
+    return task_ids
