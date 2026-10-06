@@ -2018,3 +2018,156 @@ def environment_comparability_line(
             )
         )
     return '視聴環境比較: ' + ' — '.join(parts)
+_CHANNEL_IDENTITY_VERDICT_LABELS = {
+    'verified': '検証済',
+    'verified_compensated': '補償付き検証済',
+    'verified_with_limitations': '限定付き検証済',
+    'identity_mismatch': '同一性不一致',
+    'polarity_fault': '極性異常',
+    'not_driven_by_renderer': 'レンダラー未駆動',
+    'stale': '陳腐化',
+    'insufficient_evidence': '証拠不足',
+}
+
+_CHANNEL_RECONCILIATION_LABELS = {
+    'all_match': '全一致',
+    'device_map_mismatch': 'デバイスマップ不一致',
+    'physical_path_mismatch': '物理経路不一致',
+    'acoustic_endpoint_mismatch': '音響端点不一致',
+    'multiple_unexpected_endpoints': '複数の予期せぬ端点',
+    'insufficient_evidence': '証拠不足',
+}
+
+_COVERAGE_STATE_LABELS = {
+    'predicted_only': '予測のみ',
+    'field_measured': '実測済',
+    'predicted_and_measured_agree_within_envelope':
+        '予測と実測が包絡内一致',
+    'qualified_with_limitations': '限定付き適格',
+    'source_directivity_limited': '音源指向性限定',
+    'occlusion_limited': '遮蔽限定',
+    'spatial_sampling_insufficient': '空間サンプリング不足',
+    'profile_source_ambiguous': 'プロファイル出所不明',
+    'indeterminate': '判定不能',
+}
+
+_MATCHED_SET_VERDICT_LABELS = {
+    'matched_within_declared_tolerance': '宣言公差内で整合',
+    'matched_within_project_tolerance': 'プロジェクト公差内で整合',
+    'outlier_detected': '外れ値検出',
+    'suspected_defect': '不良疑い',
+    'environment_dependent': '環境依存',
+    'measurement_inconclusive': '測定不確定',
+    'no_population_tolerance_available': '集団公差なし',
+    'insufficient_evidence': '証拠不足',
+}
+
+_PLAYBACK_VERDICT_LABELS = {
+    'qualified_exact_profile': '正確なプロファイルで適格',
+    'qualified_with_fallback': 'フォールバック付き適格',
+    'qualified_with_limitations': '限定付き適格',
+    'player_unsupported': 'プレイヤー非対応',
+    'output_profile_mismatch': '出力プロファイル不一致',
+    'transport_dependency_failed': '伝送依存性失敗',
+    'intermittent': '断続的',
+    'insufficient_evidence': '証拠不足',
+}
+
+
+def channel_identity_verdict_label(verdict: str) -> str:
+    return _CHANNEL_IDENTITY_VERDICT_LABELS.get(verdict, verdict)
+
+
+def channel_reconciliation_label(state: str) -> str:
+    return _CHANNEL_RECONCILIATION_LABELS.get(state, state)
+
+
+def coverage_state_label(state: str) -> str:
+    return _COVERAGE_STATE_LABELS.get(state, state)
+
+
+def matched_set_verdict_label(verdict: str) -> str:
+    return _MATCHED_SET_VERDICT_LABELS.get(verdict, verdict)
+
+
+def playback_verdict_label(verdict: str) -> str:
+    return _PLAYBACK_VERDICT_LABELS.get(verdict, verdict)
+
+
+def channel_identity_evaluation_line(evaluation) -> str:
+    """One JA line for a channel-identity evaluation (#621): verdict,
+    reconciliation and polarity summary — マッピング宣言だけで
+    「再生済」とは読まない。"""
+    parts = [
+        f'{evaluation.logical_channel}: '
+        + channel_identity_verdict_label(evaluation.verdict),
+        channel_reconciliation_label(evaluation.reconciliation),
+    ]
+    if evaluation.unexpected_speaker_entity_ids:
+        parts.append(
+            '予期せぬ端点: '
+            + ' / '.join(evaluation.unexpected_speaker_entity_ids)
+        )
+    if evaluation.missing_speaker_entity_ids:
+        parts.append(
+            '未到達: ' + ' / '.join(evaluation.missing_speaker_entity_ids)
+        )
+    if evaluation.reasons:
+        parts.append(evaluation.reasons[0])
+    return 'チャネル同一性評価: ' + ' — '.join(parts)
+
+
+def coverage_qualification_line(qualification) -> str:
+    """One JA line for a coverage qualification (#634): fail-closed
+    coverage state plus limiting positions — 単一 MLP トレースだけで
+    全域カバレッジとは読まない。"""
+    parts = [coverage_state_label(qualification.coverage_state)]
+    limiting = [
+        f'{position_id}: {state}'
+        for position_id, state in qualification.position_states
+        if state != qualification.coverage_state
+    ]
+    if limiting:
+        parts.append('限定位置: ' + ' / '.join(limiting[:4]))
+    if qualification.limiting_position_ids:
+        parts.append(
+            '限定: ' + ' / '.join(qualification.limiting_position_ids[:4])
+        )
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'カバレッジ修飾: ' + ' — '.join(parts)
+
+
+def matched_set_qualification_line(qualification) -> str:
+    """One JA line for a matched-set qualification (#628): verdict plus
+    the limiting metric — 型番一致だけで個体差なしとは読まない。"""
+    parts = [matched_set_verdict_label(qualification.verdict)]
+    outside = [
+        f'{verdict.metric}: '
+        + ' / '.join(verdict.limiting_instance_ids or ('?',))
+        for verdict in qualification.metric_verdicts
+        if verdict.state == 'outside'
+    ]
+    if outside:
+        parts.append('公差外: ' + ' ; '.join(outside[:3]))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'マッチドセット修飾: ' + ' — '.join(parts)
+
+
+def playback_qualification_line(qualification) -> str:
+    """One JA line for a playback qualification (#632): verdict plus the
+    observed output — メタデータ宣言だけで「Atmos 再生済」とは読まない。"""
+    parts = [playback_verdict_label(qualification.verdict)]
+    if qualification.fallback_state:
+        parts.append(f'観測出力: {qualification.fallback_state}')
+    if qualification.failure_attribution not in (
+        None,
+        'not_applicable',
+    ):
+        parts.append(f'失敗属性: {qualification.failure_attribution}')
+    if qualification.stale:
+        parts.append('スタック更新後の陳腐化')
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '再生能力修飾: ' + ' — '.join(parts)

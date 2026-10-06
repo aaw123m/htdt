@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 39
+NATIVE_SCHEMA_VERSION = 40
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1461,6 +1461,24 @@ def _migrate_38_to_39(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+
+def _migrate_39_to_40(connection: sqlite3.Connection) -> None:
+    # Install the REV57-AUD authorities (#621 acoustic channel-identity /
+    # polarity verification: identity chains, endpoint observations,
+    # identity tests, per-layer polarity records, per-channel
+    # evaluations; #634 listener-area coverage / acoustic-aim
+    # qualification: aim states, listener areas, coverage predictions,
+    # measurement sets, qualifications; #628 installed loudspeaker
+    # instance variation: per-instance evidence, model→instance deltas,
+    # matched-set declarations and qualifications; #632 media-playback
+    # capability: stack identities, media profile requirements,
+    # capability records, operation runs, qualifications): new
+    # append-only authorities the idempotent baseline creates. REV57-DISP
+    # took v39 first, so REV57-AUD lands as v40.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1501,6 +1519,7 @@ _MIGRATIONS = {
     37: _migrate_36_to_37,
     38: _migrate_37_to_38,
     39: _migrate_38_to_39,
+    40: _migrate_39_to_40,
 }
 
 

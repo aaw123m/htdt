@@ -915,6 +915,31 @@ class _RepositoryChain:
             )
 
             return CadViewingEnvironmentRepository(scene)
+        # REV57-AUD authorities.
+        if name == 'channel_identity':
+            from .cad_channel_identity_repository import (
+                CadChannelIdentityRepository,
+            )
+
+            return CadChannelIdentityRepository(scene)
+        if name == 'coverage_aim':
+            from .cad_coverage_aim_repository import (
+                CadCoverageAimRepository,
+            )
+
+            return CadCoverageAimRepository(scene)
+        if name == 'instance_variation':
+            from .cad_instance_variation_repository import (
+                CadInstanceVariationRepository,
+            )
+
+            return CadInstanceVariationRepository(scene)
+        if name == 'media_playback':
+            from .cad_media_playback_repository import (
+                CadMediaPlaybackRepository,
+            )
+
+            return CadMediaPlaybackRepository(scene)
         raise KeyError(name)
 
 
@@ -4059,6 +4084,124 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_ve_qualifications',
         ('qualification_id',),
         _get('viewing_environment', 'get_qualification'),
+    ),
+    # REV57-AUD: #621 acoustic channel-identity / polarity verification
+    _ReplayProbe(
+        'channel_identity_chain',
+        'cad_channel_identity_chains',
+        ('chain_id',),
+        _get('channel_identity', 'get_chain'),
+    ),
+    _ReplayProbe(
+        'acoustic_endpoint_observation',
+        'cad_acoustic_endpoint_observations',
+        ('observation_id',),
+        _get('channel_identity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'channel_identity_test',
+        'cad_channel_identity_tests',
+        ('test_id',),
+        _get('channel_identity', 'get_test'),
+    ),
+    _ReplayProbe(
+        'polarity_verification_record',
+        'cad_polarity_verification_records',
+        ('record_id',),
+        _get('channel_identity', 'get_polarity_record'),
+    ),
+    _ReplayProbe(
+        'channel_identity_evaluation',
+        'cad_channel_identity_evaluations',
+        ('evaluation_id',),
+        _get('channel_identity', 'get_evaluation'),
+    ),
+    # REV57-AUD: #634 listener-area coverage / acoustic-aim
+    _ReplayProbe(
+        'acoustic_aim_state',
+        'cad_acoustic_aim_states',
+        ('aim_id',),
+        _get('coverage_aim', 'get_aim_state'),
+    ),
+    _ReplayProbe(
+        'coverage_listener_area',
+        'cad_coverage_listener_areas',
+        ('area_id',),
+        _get('coverage_aim', 'get_listener_area'),
+    ),
+    _ReplayProbe(
+        'coverage_prediction',
+        'cad_coverage_predictions',
+        ('prediction_id',),
+        _get('coverage_aim', 'get_prediction'),
+    ),
+    _ReplayProbe(
+        'coverage_measurement_set',
+        'cad_coverage_measurement_sets',
+        ('set_id',),
+        _get('coverage_aim', 'get_measurement_set'),
+    ),
+    _ReplayProbe(
+        'coverage_qualification',
+        'cad_coverage_qualifications',
+        ('qualification_id',),
+        _get('coverage_aim', 'get_qualification'),
+    ),
+    # REV57-AUD: #628 installed loudspeaker instance variation
+    _ReplayProbe(
+        'instance_acoustic_evidence',
+        'cad_instance_acoustic_evidence',
+        ('evidence_id',),
+        _get('instance_variation', 'get_evidence'),
+    ),
+    _ReplayProbe(
+        'model_instance_delta',
+        'cad_model_instance_deltas',
+        ('delta_id',),
+        _get('instance_variation', 'get_delta'),
+    ),
+    _ReplayProbe(
+        'matched_set_declaration',
+        'cad_matched_set_declarations',
+        ('set_id',),
+        _get('instance_variation', 'get_matched_set'),
+    ),
+    _ReplayProbe(
+        'matched_set_qualification',
+        'cad_matched_set_qualifications',
+        ('qualification_id',),
+        _get('instance_variation', 'get_qualification'),
+    ),
+    # REV57-AUD: #632 media-playback capability qualification
+    _ReplayProbe(
+        'playback_stack_identity',
+        'cad_playback_stack_identities',
+        ('stack_id',),
+        _get('media_playback', 'get_stack'),
+    ),
+    _ReplayProbe(
+        'media_profile_requirement',
+        'cad_media_profile_requirements',
+        ('requirement_id',),
+        _get('media_playback', 'get_requirement'),
+    ),
+    _ReplayProbe(
+        'playback_capability_record',
+        'cad_playback_capability_records',
+        ('record_id',),
+        _get('media_playback', 'get_record'),
+    ),
+    _ReplayProbe(
+        'playback_operation_run',
+        'cad_playback_operation_runs',
+        ('run_id',),
+        _get('media_playback', 'get_run'),
+    ),
+    _ReplayProbe(
+        'playback_qualification',
+        'cad_playback_qualifications',
+        ('qualification_id',),
+        _get('media_playback', 'get_qualification'),
     ),
 )
 

@@ -3956,6 +3956,210 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_vequal_doc ON cad_ve_qualifications(document_id, seq ASC)
     """
     ,
+    # REV57-AUD: acoustic channel-identity / polarity verification (#621)
+    """
+    CREATE TABLE IF NOT EXISTS cad_channel_identity_chains ( seq INTEGER PRIMARY KEY AUTOINCREMENT, chain_id TEXT NOT NULL UNIQUE, chain_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, logical_channel TEXT NOT NULL, channel_class TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chchain_doc ON cad_channel_identity_chains(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_endpoint_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method TEXT NOT NULL, confidence TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chiobs_doc ON cad_acoustic_endpoint_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_channel_identity_tests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, test_id TEXT NOT NULL UNIQUE, test_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, stimulus_class TEXT NOT NULL, tested_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chitest_chain ON cad_channel_identity_tests(chain_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chitest_doc ON cad_channel_identity_tests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_polarity_verification_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, physical_wiring_state TEXT NOT NULL, dsp_polarity_state TEXT NOT NULL, acoustic_polarity_state TEXT NOT NULL, policy_acceptance TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chipol_chain ON cad_polarity_verification_records(chain_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chipol_doc ON cad_polarity_verification_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_channel_identity_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, logical_channel TEXT NOT NULL, verdict TEXT NOT NULL, reconciliation TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chieval_chain ON cad_channel_identity_evaluations(chain_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_chieval_doc ON cad_channel_identity_evaluations(document_id, seq ASC)
+    """
+    ,
+    # REV57-AUD: listener-area coverage / acoustic-aim qualification (#634)
+    """
+    CREATE TABLE IF NOT EXISTS cad_acoustic_aim_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, aim_id TEXT NOT NULL UNIQUE, aim_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, speaker_entity_id TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_aim_doc ON cad_acoustic_aim_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_coverage_listener_areas ( seq INTEGER PRIMARY KEY AUTOINCREMENT, area_id TEXT NOT NULL UNIQUE, area_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, position_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_covarea_doc ON cad_coverage_listener_areas(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_coverage_predictions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, prediction_id TEXT NOT NULL UNIQUE, prediction_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, area_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, summation_model TEXT NOT NULL, path_count INTEGER NOT NULL, predicted_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_covpred_area ON cad_coverage_predictions(area_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_covpred_doc ON cad_coverage_predictions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_coverage_measurement_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL UNIQUE, set_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, area_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, observation_count INTEGER NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_covmeas_area ON cad_coverage_measurement_sets(area_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_covmeas_doc ON cad_coverage_measurement_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_coverage_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, area_ref_id TEXT NOT NULL, coverage_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_coveval_area ON cad_coverage_qualifications(area_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_coveval_doc ON cad_coverage_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV57-AUD: installed loudspeaker instance variation (#628)
+    """
+    CREATE TABLE IF NOT EXISTS cad_instance_acoustic_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, instance_ref_id TEXT, evidence_level TEXT NOT NULL, evidence_source TEXT NOT NULL, measurement_domain TEXT NOT NULL, measured_at_utc TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_instev_instance ON cad_instance_acoustic_evidence(instance_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_instev_doc ON cad_instance_acoustic_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_model_instance_deltas ( seq INTEGER PRIMARY KEY AUTOINCREMENT, delta_id TEXT NOT NULL UNIQUE, delta_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, reference_evidence_ref_id TEXT NOT NULL, instance_evidence_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, max_delta_db REAL, algorithm TEXT NOT NULL, derived_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_instdelta_inst ON cad_model_instance_deltas(instance_evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_instdelta_doc ON cad_model_instance_deltas(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_matched_set_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL UNIQUE, set_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, role TEXT NOT NULL, member_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_matchset_doc ON cad_matched_set_declarations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_matched_set_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, set_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_setqual_set ON cad_matched_set_qualifications(set_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_setqual_doc ON cad_matched_set_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV57-AUD: media-playback capability qualification (#632)
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_stack_identities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stack_id TEXT NOT NULL UNIQUE, stack_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_class TEXT NOT NULL, device_identity TEXT NOT NULL, app_name TEXT, app_version TEXT, os_version TEXT, firmware TEXT, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbstack_doc ON cad_playback_stack_identities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_media_profile_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, requirement_id TEXT NOT NULL UNIQUE, requirement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, delivery_class TEXT NOT NULL, video_codec TEXT, audio_codec TEXT, encryption_requirement TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbmedia_doc ON cad_media_profile_requirements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_capability_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stack_ref_id TEXT NOT NULL, media_ref_id TEXT NOT NULL, capability_class TEXT NOT NULL, evidence_class TEXT NOT NULL, output_state TEXT, failure_attribution TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbcap_stack ON cad_playback_capability_records(stack_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbcap_doc ON cad_playback_capability_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_operation_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stack_ref_id TEXT NOT NULL, media_ref_id TEXT NOT NULL, scenario TEXT NOT NULL, duration_s REAL, operation_count INTEGER NOT NULL, started_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbrun_stack ON cad_playback_operation_runs(stack_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbrun_doc ON cad_playback_operation_runs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stack_ref_id TEXT NOT NULL, media_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbqual_stack ON cad_playback_qualifications(stack_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pbqual_doc ON cad_playback_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4578,4 +4782,24 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_ve_geometry_observations',
     'cad_ve_lighting_scenes',
     'cad_ve_qualifications',
+    # REV57-AUD: #621/#634/#628/#632.
+    'cad_channel_identity_chains',
+    'cad_acoustic_endpoint_observations',
+    'cad_channel_identity_tests',
+    'cad_polarity_verification_records',
+    'cad_channel_identity_evaluations',
+    'cad_acoustic_aim_states',
+    'cad_coverage_listener_areas',
+    'cad_coverage_predictions',
+    'cad_coverage_measurement_sets',
+    'cad_coverage_qualifications',
+    'cad_instance_acoustic_evidence',
+    'cad_model_instance_deltas',
+    'cad_matched_set_declarations',
+    'cad_matched_set_qualifications',
+    'cad_playback_stack_identities',
+    'cad_media_profile_requirements',
+    'cad_playback_capability_records',
+    'cad_playback_operation_runs',
+    'cad_playback_qualifications',
 )

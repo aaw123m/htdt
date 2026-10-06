@@ -419,6 +419,26 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_ve_geometry_observations": "視聴幾何観測",
     "cad_ve_lighting_scenes": "照明シーン",
     "cad_ve_qualifications": "視聴環境適格評価",
+    # REV57-AUD: #621/#634/#628/#632.
+    "cad_channel_identity_chains": "チャネル同一性チェーン",
+    "cad_acoustic_endpoint_observations": "音響端点観測",
+    "cad_channel_identity_tests": "チャネル同一性テスト",
+    "cad_polarity_verification_records": "極性検証記録",
+    "cad_channel_identity_evaluations": "チャネル同一性評価",
+    "cad_acoustic_aim_states": "音響エイム状態",
+    "cad_coverage_listener_areas": "カバレッジ聴取エリア",
+    "cad_coverage_predictions": "カバレッジ予測",
+    "cad_coverage_measurement_sets": "カバレッジ実測セット",
+    "cad_coverage_qualifications": "カバレッジ修飾",
+    "cad_instance_acoustic_evidence": "個体音響証跡",
+    "cad_model_instance_deltas": "型番↔個体デルタ",
+    "cad_matched_set_declarations": "マッチドセット宣言",
+    "cad_matched_set_qualifications": "マッチドセット修飾",
+    "cad_playback_stack_identities": "再生スタック同一性",
+    "cad_media_profile_requirements": "メディアプロファイル要件",
+    "cad_playback_capability_records": "再生能力記録",
+    "cad_playback_operation_runs": "再生オペレーション実行",
+    "cad_playback_qualifications": "再生能力修飾",
 }
 
 
