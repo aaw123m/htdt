@@ -718,6 +718,14 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_dynamic_binaural_sessions": "動的バイノーラルセッション",
     "cad_pose_tracking_evidence": "姿勢追跡証拠",
     "cad_binaural_qualifications": "バイノーラル適格レコード",
+    "cad_receiver_reference_points": "受信基準点",
+    "cad_microphone_capsule_poses": "マイクカプセル位置",
+    "cad_measurement_fixtures": "測定治具",
+    "cad_fixture_scattering_evidence": "治具散乱証拠",
+    "cad_discrete_reflection_events": "離散反射イベント",
+    "cad_echo_diagnostics": "エコー診断",
+    "cad_drr_method_profiles": "DRR手法プロファイル",
+    "cad_drr_measurements": "DRR測定値",
 
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",

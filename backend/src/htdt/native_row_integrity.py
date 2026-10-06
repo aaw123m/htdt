@@ -7326,6 +7326,87 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_receiver_reference_points': (
+        'payload_json',
+        (
+            _b('reference_id', 'reference_id'),
+            _b('reference_sha256', 'reference_sha256'),
+            _b('document_id', 'document_id'),
+            _b('point_kind', 'point_kind'),
+        ),
+        (),
+    ),
+    'cad_microphone_capsule_poses': (
+        'payload_json',
+        (
+            _b('pose_id', 'pose_id'),
+            _b('pose_sha256', 'pose_sha256'),
+            _b('document_id', 'document_id'),
+            _b('reference_ref_id', 'reference_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_measurement_fixtures': (
+        'payload_json',
+        (
+            _b('fixture_id', 'fixture_id'),
+            _b('fixture_sha256', 'fixture_sha256'),
+            _b('document_id', 'document_id'),
+            _b('fixture_kind', 'fixture_kind'),
+        ),
+        (),
+    ),
+    'cad_fixture_scattering_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bound_kind', 'bound_kind'),
+        ),
+        (),
+    ),
+    'cad_discrete_reflection_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('periodicity', 'periodicity'),
+        ),
+        (),
+    ),
+    'cad_echo_diagnostics': (
+        'payload_json',
+        (
+            _b('diagnostic_id', 'diagnostic_id'),
+            _b('diagnostic_sha256', 'diagnostic_sha256'),
+            _b('document_id', 'document_id'),
+            _b('signal_class', 'signal_class'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_drr_method_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('receiver_kind', 'receiver_kind'),
+        ),
+        (),
+    ),
+    'cad_drr_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method_ref_id', 'method_ref', 'ref_id'),
+        ),
+        (),
+    ),
 
     # REV59-UNITS: #728 typed physical quantity.
     'cad_typed_quantities': (

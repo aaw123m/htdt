@@ -3660,6 +3660,74 @@ issues:
           - backend/tests/test_rev59_listenexp.py::test_binaural_claim_ladder
           - backend/tests/test_rev59_listenexp.py::test_ptrk_declared_latency_needs_measurement
         description: Static ≠ dynamic; latency/angular-sampling gates.
+  - issue: 774
+    title: "Measurement receiver reference-point authority"
+    notes: >
+      ReceiverReferencePoint (rref-) declares which physical point a
+      capsule position stands for (acoustic_centre vs diaphragm/
+      grid/manufacturer reference) — IEC 61094-8: a non-acoustic-centre
+      reference must declare the offset or its uncertainty.
+      MicrophoneCapsulePose (mcp-) binds surveyed position to that
+      reference. evaluate_receiver_origin_claim gates precision claims
+      (phase/early-reflection delay need frequency-dependent
+      acoustic-centre evidence).
+    checks:
+      - id: receiver-reference
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiomet.py::test_receiver_claim_ladder
+          - backend/tests/test_rev59_audiomet.py::test_receiver_requires_point_kind
+        description: Reference-point ≠ acoustic-centre honesty (IEC 61094-8).
+  - issue: 743
+    title: "Acoustic measurement-fixture / observer-scattering authority"
+    notes: >
+      MeasurementFixture (mfx-) registers each object near capsule/
+      source (clip, boom, stand, array frame, cable, laptop, operator).
+      FixtureScatteringEvidence (fsx-) binds a measured/estimated
+      magnitude bound — 'measured' requires evidence ref.
+      evaluate_fixture_claim: a calibrated mic does not make the
+      setup transparent; registered fixtures without a bound →
+      scattering_unbounded (Terashima 2021: 1mm holder band ~2dB @20kHz).
+    checks:
+      - id: fixture-scattering
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiomet.py::test_fixture_claim_ladder
+          - backend/tests/test_rev59_audiomet.py::test_scattering_measured_needs_evidence
+        description: Calibrated mic ≠ transparent setup.
+  - issue: 773
+    title: "Flutter / focused-echo objective diagnostics"
+    notes: >
+      DiscreteReflectionEvent (dre-) binds delay/level/periodicity to
+      pinned ETC evidence; periodic trains require the repetition
+      interval. EchoDiagnostic (edia-) is signal-class-scoped
+      (Dietsch & Kraak family) — 'unknown' class fails closed and a
+      disturbing-echo verdict requires criterion value + threshold
+      ref. evaluate_echo_diagnostic_claim: clean broadband metrics are
+      not echo evidence.
+    checks:
+      - id: echo-diagnostic
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiomet.py::test_echo_claim_ladder
+          - backend/tests/test_rev59_audiomet.py::test_diagnostic_requires_signal_class_and_threshold
+        description: Broadband-clean ≠ echo-free; signal-scoped criterion.
+  - issue: 678
+    title: "Direct-to-reverberant ratio (DRR) authority"
+    notes: >
+      DRRMethodProfile (drrm-) pins direct-window, receiver kind
+      (omni/binaural/directional), band and boundary geometry —
+      'unknown' receiver or non-positive window fails closed.
+      DRRMeasurement (drrv-) requires method + measurement refs.
+      evaluate_drr_claim: bare scalar → unbounded; differing windows/
+      receivers/bands → cross_method_comparison.
+    checks:
+      - id: drr-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiomet.py::test_drr_claim_ladder
+          - backend/tests/test_rev59_audiomet.py::test_drr_measurement_requires_method_and_evidence
+        description: Method-dependent scalar honesty.
   - issue: 728
     title: "Typed physical-quantity / unit authority"
     notes: >
