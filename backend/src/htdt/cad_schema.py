@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 52
+NATIVE_SCHEMA_VERSION = 53
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1631,6 +1631,14 @@ def _migrate_51_to_52(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_52_to_53(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DIGCHAIN authorities (#745 clock jitter, #744
+    # word-length/dither path, #739 playback SRC, #650 crosstalk):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1684,6 +1692,7 @@ _MIGRATIONS = {
     50: _migrate_49_to_50,
     51: _migrate_50_to_51,
     52: _migrate_51_to_52,
+    53: _migrate_52_to_53,
 }
 
 

@@ -2830,3 +2830,86 @@ issues:
         description: >
           計画書を docs/validation/room-state-benchmark-admission.md に
           記録。実取込・fixture 化は後続。
+  - issue: 745
+    title: "Digital sample-clock jitter metrology — lock is not low jitter"
+    notes: >
+      SampleClockJitterProfile (jmp-) pins the measurands an instrument
+      actually covers; SampleClockJitterObservation (job-), JitterTransfer-
+      Measurement (jtf-) and ConverterJitterSusceptibility (cjs-) carry the
+      evidence. evaluate_jitter_claim: lock alone is supported_with_limitations
+      (lock_only_not_jitter); low_jitter needs observations (spectrum for full
+      support); converter_immune needs dedicated susceptibility evidence —
+      ordinary audio measurements are insufficient (Dunn). AES-12id-2020
+      basis; AES-12id-R stays RESEARCH_ONLY until published.
+    checks:
+      - id: jitter-metrology
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_lock_only_not_low_jitter
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_low_jitter_needs_observation
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_immunity_needs_susceptibility
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_susceptibility_verdict_needs_data
+        description: >
+          Lock-vs-jitter separation, susceptibility evidence requirement,
+          spectrum vs scalar verdicts.
+  - issue: 744
+    title: "Digital-audio word-length / dither / gain authority"
+    notes: >
+      DitherNoiseShapeProfile (dns-) pins dither kind (undithered /
+      subtractive / non-subtractive TPDF / shaped — Lipshitz 1992 taxonomy)
+      and shape order; DigitalPathTransformRecord (dpt-) seals each
+      requantization/gain stage with declared rounding mode or pinned dither.
+      evaluate_low_level_claim: undithered truncation anywhere in the path
+      makes low-level claims uncontrolled — the format label cannot hide
+      requantization (Vanderkooy & Lipshitz 1989). AES17-2020 FS semantics.
+    checks:
+      - id: wordlength-path
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_undithered_truncation_uncontrolled
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_dithered_path_controlled
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_requantization_needs_rounding_or_dither
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_noise_shaped_requires_order
+        description: >
+          Undithered-requantization detection, dither profile pinning,
+          low-level verdict ladder.
+  - issue: 739
+    title: "Playback sample-rate-conversion authority — hidden SRC state"
+    notes: >
+      PlaybackSrcProfile (srcp-) declares rates + algorithm (asynchronous
+      SRC is a clock-domain crossing, not file conversion — Midya et al.);
+      SrcQualificationRecord (srcq-) pins measured alias/image rejection;
+      ClockDomainCrossingRecord (cdc-) keeps declared vs observed crossing.
+      evaluate_src_claim: declared same_domain + observed crossing →
+      hidden_conversion; unqualified stage → converted_unqualified;
+      exact-sample claim impossible while conversions exist.
+    checks:
+      - id: playback-src
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_hidden_conversion
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_unqualified_stage
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_exact_claim_not_sample_exact_with_src
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_crossing_observed_needs_evidence
+        description: >
+          Hidden-SRC detection, qualification gate, sample-identity claim
+          fail-closed.
+  - issue: 650
+    title: "Interchannel crosstalk / separation qualification"
+    notes: >
+      InterchannelLeakageMeasurement (xtk-) binds driven/observed pair +
+      stage + method (IEC 60268-3 / AES17 / swept sine / stimulus-specific)
+      + stimulus pin; ChannelSeparationQualification (csep-) seals
+      threshold + worst-case + pair coverage verdict. evaluate_separation-
+      claim: routing verified alone is insufficient_evidence; intended
+      matrix mixing stays a separate declarand from unintended leakage.
+    checks:
+      - id: channel-separation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_routing_alone_insufficient
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_qualified_requires_full_pairs
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_qualified_verdict
+        description: >
+          Routing-vs-isolation separation, pair-coverage gate, threshold
+          verdicts.
