@@ -1085,6 +1085,37 @@ class _RepositoryChain:
             )
 
             return CadValidationStatisticsRepository(scene)
+        # REV58-DISPLAYMEAS authorities.
+        if name == 'pattern_generator_fidelity':
+            from .cad_display_metrology_repository import (
+                CadPatternGeneratorFidelityRepository,
+            )
+
+            return CadPatternGeneratorFidelityRepository(scene)
+        if name == 'meter_match':
+            from .cad_display_metrology_repository import (
+                CadMeterMatchRepository,
+            )
+
+            return CadMeterMatchRepository(scene)
+        if name == 'display_additivity':
+            from .cad_display_metrology_repository import (
+                CadDisplayAdditivityRepository,
+            )
+
+            return CadDisplayAdditivityRepository(scene)
+        if name == 'temporal_display':
+            from .cad_display_metrology_repository import (
+                CadTemporalDisplayRepository,
+            )
+
+            return CadTemporalDisplayRepository(scene)
+        if name == 'lut_closed_loop':
+            from .cad_display_metrology_repository import (
+                CadLutClosedLoopRepository,
+            )
+
+            return CadLutClosedLoopRepository(scene)
         raise KeyError(name)
 
 
@@ -4868,6 +4899,167 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_challenge_qualifications',
         ('qualification_id',),
         _get('validation_statistics', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #682 pattern-generator fidelity
+    _ReplayProbe(
+        'pg_generator_instance',
+        'cad_pg_generator_instances',
+        ('generator_id',),
+        _get('pattern_generator_fidelity', 'get_generator'),
+    ),
+    _ReplayProbe(
+        'pg_requested_patch',
+        'cad_pg_requested_patches',
+        ('patch_id',),
+        _get('pattern_generator_fidelity', 'get_patch'),
+    ),
+    _ReplayProbe(
+        'pg_delivered_observation',
+        'cad_pg_delivered_observations',
+        ('observation_id',),
+        _get('pattern_generator_fidelity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'pg_fidelity_qualification',
+        'cad_pg_fidelity_qualifications',
+        ('qualification_id',),
+        _get('pattern_generator_fidelity', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #680 probe matching / spectral mismatch
+    _ReplayProbe(
+        'mm_match_profile',
+        'cad_mm_match_profiles',
+        ('match_id',),
+        _get('meter_match', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'mm_match_observation',
+        'cad_mm_match_observations',
+        ('observation_id',),
+        _get('meter_match', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'mm_verification',
+        'cad_mm_verifications',
+        ('verification_id',),
+        _get('meter_match', 'get_verification'),
+    ),
+    _ReplayProbe(
+        'mm_applicability',
+        'cad_mm_applicability',
+        ('applicability_id',),
+        _get('meter_match', 'get_applicability'),
+    ),
+    # REV58-DISPLAYMEAS: #686 additivity / separation / volumetric
+    _ReplayProbe(
+        'da_additivity_observation',
+        'cad_da_additivity_observations',
+        ('observation_id',),
+        _get('display_additivity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'da_separation_assessment',
+        'cad_da_separation_assessments',
+        ('assessment_id',),
+        _get('display_additivity', 'get_separation'),
+    ),
+    _ReplayProbe(
+        'da_volumetric_characterisation',
+        'cad_da_volumetric_characterisations',
+        ('characterisation_id',),
+        _get('display_additivity', 'get_characterisation'),
+    ),
+    _ReplayProbe(
+        'da_holdout_verification',
+        'cad_da_holdout_verifications',
+        ('verification_id',),
+        _get('display_additivity', 'get_holdout'),
+    ),
+    _ReplayProbe(
+        'da_model_eligibility',
+        'cad_da_model_eligibility',
+        ('eligibility_id',),
+        _get('display_additivity', 'get_eligibility'),
+    ),
+    _ReplayProbe(
+        'da_characterisation_plan',
+        'cad_da_characterisation_plans',
+        ('plan_id',),
+        _get('display_additivity', 'get_plan'),
+    ),
+    # REV58-DISPLAYMEAS: #647 temporal display fidelity
+    _ReplayProbe(
+        'td_state',
+        'cad_td_states',
+        ('state_id',),
+        _get('temporal_display', 'get_state'),
+    ),
+    _ReplayProbe(
+        'td_step_response',
+        'cad_td_step_responses',
+        ('measurement_id',),
+        _get('temporal_display', 'get_step_response'),
+    ),
+    _ReplayProbe(
+        'td_motion_measurement',
+        'cad_td_motion_measurements',
+        ('measurement_id',),
+        _get('temporal_display', 'get_motion_measurement'),
+    ),
+    _ReplayProbe(
+        'td_flicker_measurement',
+        'cad_td_flicker_measurements',
+        ('measurement_id',),
+        _get('temporal_display', 'get_flicker_measurement'),
+    ),
+    _ReplayProbe(
+        'td_retention_observation',
+        'cad_td_retention_observations',
+        ('observation_id',),
+        _get('temporal_display', 'get_retention_observation'),
+    ),
+    _ReplayProbe(
+        'td_qualification',
+        'cad_td_qualifications',
+        ('qualification_id',),
+        _get('temporal_display', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #666 LUT closed-loop calibration
+    _ReplayProbe(
+        'lut_artifact',
+        'cad_lut_artifacts',
+        ('artifact_id',),
+        _get('lut_closed_loop', 'get_artifact'),
+    ),
+    _ReplayProbe(
+        'lut_generation_record',
+        'cad_lut_generation_records',
+        ('generation_id',),
+        _get('lut_closed_loop', 'get_generation'),
+    ),
+    _ReplayProbe(
+        'lut_preflight_verification',
+        'cad_lut_preflight_verifications',
+        ('preflight_id',),
+        _get('lut_closed_loop', 'get_preflight'),
+    ),
+    _ReplayProbe(
+        'lut_deployment',
+        'cad_lut_deployments',
+        ('deployment_id',),
+        _get('lut_closed_loop', 'get_deployment'),
+    ),
+    _ReplayProbe(
+        'lut_post_verification',
+        'cad_lut_post_verifications',
+        ('post_verification_id',),
+        _get('lut_closed_loop', 'get_post_verification'),
+    ),
+    _ReplayProbe(
+        'lut_qualification',
+        'cad_lut_qualifications',
+        ('qualification_id',),
+        _get('lut_closed_loop', 'get_qualification'),
     ),
 )
 

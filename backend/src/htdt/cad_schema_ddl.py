@@ -5025,6 +5025,219 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_vsqual_design ON cad_challenge_qualifications(design_ref_id, seq ASC)
     """
     ,
+    # REV58-DISPLAYMEAS: #682 / #680 / #686 / #647 / #666.
+    """
+    CREATE TABLE IF NOT EXISTS cad_pg_generator_instances ( seq INTEGER PRIMARY KEY AUTOINCREMENT, generator_id TEXT NOT NULL UNIQUE, generator_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, generator_class TEXT NOT NULL, manufacturer TEXT NOT NULL, model TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pggen_doc ON cad_pg_generator_instances(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pg_requested_patches ( seq INTEGER PRIMARY KEY AUTOINCREMENT, patch_id TEXT NOT NULL UNIQUE, patch_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stimulus_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pgpatch_doc ON cad_pg_requested_patches(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pg_delivered_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, patch_ref_id TEXT NOT NULL, generator_ref_id TEXT NOT NULL, observation_point TEXT NOT NULL, verification TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pgobs_doc ON cad_pg_delivered_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pgobs_patch ON cad_pg_delivered_observations(patch_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pg_fidelity_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, generator_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pgqual_doc ON cad_pg_fidelity_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mm_match_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, match_id TEXT NOT NULL UNIQUE, match_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_serial TEXT NOT NULL, reference_serial TEXT NOT NULL, display_instance TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mmprof_doc ON cad_mm_match_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mm_match_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, match_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mmobs_doc ON cad_mm_match_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mm_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, match_ref_id TEXT NOT NULL, passed INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mmver_doc ON cad_mm_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mm_applicability ( seq INTEGER PRIMARY KEY AUTOINCREMENT, applicability_id TEXT NOT NULL UNIQUE, applicability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, match_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mmappl_doc ON cad_mm_applicability(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_additivity_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_daobs_doc ON cad_da_additivity_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_separation_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dasep_doc ON cad_da_separation_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_volumetric_characterisations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, characterisation_id TEXT NOT NULL UNIQUE, characterisation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, grid_size INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_davol_doc ON cad_da_volumetric_characterisations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_holdout_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, model_family TEXT NOT NULL, passed INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dahold_doc ON cad_da_holdout_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_model_eligibility ( seq INTEGER PRIMARY KEY AUTOINCREMENT, eligibility_id TEXT NOT NULL UNIQUE, eligibility_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, model_family TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_daelig_doc ON cad_da_model_eligibility(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_da_characterisation_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, required_capability TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_daplan_doc ON cad_da_characterisation_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL UNIQUE, state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, display_state_ref_id TEXT NOT NULL, input_frame_rate_hz REAL NOT NULL, refresh_rate_hz REAL NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdstate_doc ON cad_td_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_step_responses ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdstep_doc ON cad_td_step_responses(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_motion_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state_ref_id TEXT NOT NULL, mechanism TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdmot_doc ON cad_td_motion_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_flicker_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state_ref_id TEXT NOT NULL, method TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdflick_doc ON cad_td_flicker_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_retention_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state_ref_id TEXT NOT NULL, persistence TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdret_doc ON cad_td_retention_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, state_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tdq_doc ON cad_td_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutart_doc ON cad_lut_artifacts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_generation_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, generation_id TEXT NOT NULL UNIQUE, generation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutgen_doc ON cad_lut_generation_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_preflight_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, preflight_id TEXT NOT NULL UNIQUE, preflight_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, numeric_validation_passed INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutpre_doc ON cad_lut_preflight_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_deployments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, deployment_id TEXT NOT NULL UNIQUE, deployment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, device_instance TEXT NOT NULL, slot TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutdep_doc ON cad_lut_deployments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_post_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, post_verification_id TEXT NOT NULL UNIQUE, post_verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, passed INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutpost_doc ON cad_lut_post_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lut_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lutq_doc ON cad_lut_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5755,4 +5968,31 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_dataset_role_assignments',
     'cad_benchmark_exposures',
     'cad_challenge_qualifications',
+    # REV58-DISPLAYMEAS: #682 / #680 / #686 / #647 / #666.
+    'cad_pg_generator_instances',
+    'cad_pg_requested_patches',
+    'cad_pg_delivered_observations',
+    'cad_pg_fidelity_qualifications',
+    'cad_mm_match_profiles',
+    'cad_mm_match_observations',
+    'cad_mm_verifications',
+    'cad_mm_applicability',
+    'cad_da_additivity_observations',
+    'cad_da_separation_assessments',
+    'cad_da_volumetric_characterisations',
+    'cad_da_holdout_verifications',
+    'cad_da_model_eligibility',
+    'cad_da_characterisation_plans',
+    'cad_td_states',
+    'cad_td_step_responses',
+    'cad_td_motion_measurements',
+    'cad_td_flicker_measurements',
+    'cad_td_retention_observations',
+    'cad_td_qualifications',
+    'cad_lut_artifacts',
+    'cad_lut_generation_records',
+    'cad_lut_preflight_verifications',
+    'cad_lut_deployments',
+    'cad_lut_post_verifications',
+    'cad_lut_qualifications',
 )

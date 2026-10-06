@@ -3247,3 +3247,150 @@ def validation_claim_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '検証主張適格: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV58-DISPLAYMEAS (#682/#680/#686/#647/#666): pattern-generator fidelity,
+# probe matching, display additivity, temporal behaviour, LUT closed loop.
+
+from .cad_pattern_generator_fidelity import (  # noqa: E402
+    REASON_LABELS as _PG_REASON_LABELS,
+    GeneratorFidelityQualification,
+    PatchQualification,
+    PATCH_VERDICT_LABELS as _PG_PATCH_LABELS,
+    VERDICT_LABELS as _PG_VERDICT_LABELS,
+)
+from .cad_meter_match import (  # noqa: E402
+    APPLICABILITY_LABELS as _MM_VERDICT_LABELS,
+    MeterCorrectionApplicability,
+    REASON_LABELS as _MM_REASON_LABELS,
+)
+from .cad_display_additivity import (  # noqa: E402
+    CalibrationModelEligibility,
+    MODEL_FAMILY_LABELS as _DA_MODEL_LABELS,
+    REASON_LABELS as _DA_REASON_LABELS,
+    VERDICT_LABELS as _DA_VERDICT_LABELS,
+)
+from .cad_temporal_display import (  # noqa: E402
+    CLAIM_KIND_LABELS as _TD_CLAIM_KIND_LABELS,
+    TemporalDisplayQualification,
+    VERDICT_LABELS as _TD_VERDICT_LABELS,
+)
+from .cad_lut_closed_loop import (  # noqa: E402
+    REASON_LABELS as _LUT_REASON_LABELS,
+    LUTLoopQualification,
+    VERDICT_LABELS as _LUT_VERDICT_LABELS,
+)
+
+
+def generator_fidelity_line(qualification: GeneratorFidelityQualification) -> str:
+    """One JA line for a generator-fidelity qualification (#682):
+    verdict plus patch coverage — 未観測パッチは届いたとは読まない。"""
+    parts = [_PG_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append(
+        '検証済パッチ {0}/{1}'.format(
+            qualification.observed_patch_count,
+            qualification.requested_patch_count,
+        )
+    )
+    if qualification.reasons:
+        parts.append(
+            _PG_REASON_LABELS.get(
+                qualification.reasons[0], qualification.reasons[0])
+        )
+    return 'ジェネレータ忠実度適格: ' + ' — '.join(parts)
+
+
+def patch_delivery_line(qualification: PatchQualification) -> str:
+    """One JA line for a single patch delivery (#682)."""
+    parts = [_PG_PATCH_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    if qualification.mismatches:
+        parts.append(qualification.mismatches[0].kind)
+    return 'パッチ送出: ' + ' — '.join(parts)
+
+
+def meter_correction_line(
+    applicability: MeterCorrectionApplicability,
+) -> str:
+    """One JA line for meter-correction applicability (#680) —
+    ユニット/表示状態が違えば補正は適用不可。"""
+    parts = [_MM_VERDICT_LABELS.get(
+        applicability.verdict, applicability.verdict)]
+    if applicability.reasons:
+        parts.append(
+            _MM_REASON_LABELS.get(
+                applicability.reasons[0], applicability.reasons[0])
+        )
+    return '計測器補正適用可否: ' + ' — '.join(parts)
+
+
+def calibration_model_line(
+    eligibility: CalibrationModelEligibility,
+) -> str:
+    """One JA line for calibration-model eligibility (#686) —
+    加法性・分離・立体特性・ホールドアウトのゲート結果。"""
+    parts = [_DA_VERDICT_LABELS.get(
+        eligibility.verdict, eligibility.verdict)]
+    parts.append('モデル: {0}'.format(
+            _DA_MODEL_LABELS.get(
+                eligibility.model_family,
+                eligibility.model_family,
+            )
+        ))
+    if eligibility.reasons:
+        parts.append(
+            _DA_REASON_LABELS.get(
+                eligibility.reasons[0], eligibility.reasons[0])
+        )
+    return '校正モデル適格: ' + ' — '.join(parts)
+
+
+def temporal_display_line(
+    qualification: TemporalDisplayQualification,
+) -> str:
+    """One JA line for temporal qualification (#647) — クレーム毎の
+    判定のみ、リフレッシュレート表示は応答速度を意味しない。"""
+    verified = sum(
+        1
+        for v in qualification.claim_verdicts
+        if v.verdict == 'verified'
+    )
+    failed = sum(
+        1
+        for v in qualification.claim_verdicts
+        if v.verdict == 'contradicted'
+    )
+    parts = [
+        '検証 {0} / 反証 {1} / 要求 {2}'.format(
+            verified, failed, len(qualification.claim_verdicts))
+    ]
+    first = next(
+        (
+            v for v in qualification.claim_verdicts
+            if v.verdict != 'verified'
+        ),
+        None,
+    )
+    if first is not None:
+        parts.append(
+            '{0}: {1}'.format(
+                _TD_CLAIM_KIND_LABELS.get(first.kind, first.kind),
+                _TD_VERDICT_LABELS.get(first.verdict, first.verdict),
+            )
+        )
+    return '時間応答適格: ' + ' — '.join(parts)
+
+
+def lut_loop_line(qualification: LUTLoopQualification) -> str:
+    """One JA line for a LUT closed-loop qualification (#666) —
+    生成→転送前→書込→読戻→転送後の各段を個別に扱う。"""
+    parts = [_LUT_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    if qualification.reasons:
+        parts.append(
+            _LUT_REASON_LABELS.get(
+                qualification.reasons[0], qualification.reasons[0])
+        )
+    return 'LUTループ適格: ' + ' — '.join(parts)

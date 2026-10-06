@@ -5307,6 +5307,298 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV58-DISPLAYMEAS: #682 pattern-generator fidelity
+    'cad_pg_generator_instances': (
+        'payload_json',
+        (
+            _b('generator_id', 'generator_id'),
+            _b('generator_sha256', 'generator_sha256'),
+            _b('document_id', 'document_id'),
+            _b('generator_class', 'generator_class'),
+            _b('manufacturer', 'manufacturer'),
+            _b('model', 'model'),
+        ),
+        (),
+    ),
+    'cad_pg_requested_patches': (
+        'payload_json',
+        (
+            _b('patch_id', 'patch_id'),
+            _b('patch_sha256', 'patch_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_ref_id', 'stimulus_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_pg_delivered_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('patch_ref_id', 'patch_ref', 'ref_id'),
+            _b('generator_ref_id', 'generator_ref', 'ref_id'),
+            _b('observation_point', 'observation_point'),
+            _b('verification', 'verification'),
+        ),
+        (),
+    ),
+    'cad_pg_fidelity_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('generator_ref_id', 'generator_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    # REV58-DISPLAYMEAS: #680 probe matching / spectral mismatch
+    'cad_mm_match_profiles': (
+        'payload_json',
+        (
+            _b('match_id', 'match_id'),
+            _b('match_sha256', 'match_sha256'),
+            _b('document_id', 'document_id'),
+            _b('target_serial', 'target_instrument', 'serial'),
+            _b('reference_serial', 'reference_instrument', 'serial'),
+            _b('display_instance', 'display_state', 'display_instance'),
+        ),
+        (),
+    ),
+    'cad_mm_match_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('match_ref_id', 'match_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_mm_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('match_ref_id', 'match_ref', 'ref_id'),
+            _b('passed', 'passed'),
+        ),
+        (),
+    ),
+    'cad_mm_applicability': (
+        'payload_json',
+        (
+            _b('applicability_id', 'applicability_id'),
+            _b('applicability_sha256', 'applicability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('match_ref_id', 'match_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    # REV58-DISPLAYMEAS: #686 additivity / separation / volumetric
+    'cad_da_additivity_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_da_separation_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_da_volumetric_characterisations': (
+        'payload_json',
+        (
+            _b('characterisation_id', 'characterisation_id'),
+            _b('characterisation_sha256', 'characterisation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+            _b('grid_size', 'grid_size'),
+        ),
+        (),
+    ),
+    'cad_da_holdout_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+            _b('model_family', 'model_family'),
+            _b('passed', 'passed'),
+        ),
+        (),
+    ),
+    'cad_da_model_eligibility': (
+        'payload_json',
+        (
+            _b('eligibility_id', 'eligibility_id'),
+            _b('eligibility_sha256', 'eligibility_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+            _b('model_family', 'model_family'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_da_characterisation_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+            _b('required_capability', 'required_capability'),
+        ),
+        (),
+    ),
+    # REV58-DISPLAYMEAS: #647 temporal display fidelity
+    'cad_td_states': (
+        'payload_json',
+        (
+            _b('state_id', 'state_id'),
+            _b('state_sha256', 'state_sha256'),
+            _b('document_id', 'document_id'),
+            _b('display_state_ref_id', 'display_state_ref', 'ref_id'),
+            _b('input_frame_rate_hz', 'input_frame_rate_hz'),
+            _b('refresh_rate_hz', 'refresh_rate_hz'),
+        ),
+        (),
+    ),
+    'cad_td_step_responses': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('state_ref_id', 'state_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_td_motion_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('state_ref_id', 'state_ref', 'ref_id'),
+            _b('mechanism', 'mechanism'),
+        ),
+        (),
+    ),
+    'cad_td_flicker_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('state_ref_id', 'state_ref', 'ref_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_td_retention_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('state_ref_id', 'state_ref', 'ref_id'),
+            _b('persistence', 'persistence'),
+        ),
+        (),
+    ),
+    'cad_td_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('state_ref_id', 'state_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    # REV58-DISPLAYMEAS: #666 LUT closed-loop calibration
+    'cad_lut_artifacts': (
+        'payload_json',
+        (
+            _b('artifact_id', 'artifact_id'),
+            _b('artifact_sha256', 'artifact_sha256'),
+            _b('document_id', 'document_id'),
+            _b('kind', 'kind'),
+        ),
+        (),
+    ),
+    'cad_lut_generation_records': (
+        'payload_json',
+        (
+            _b('generation_id', 'generation_id'),
+            _b('generation_sha256', 'generation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_lut_preflight_verifications': (
+        'payload_json',
+        (
+            _b('preflight_id', 'preflight_id'),
+            _b('preflight_sha256', 'preflight_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('numeric_validation_passed',
+               'numeric_validation_passed'),
+        ),
+        (),
+    ),
+    'cad_lut_deployments': (
+        'payload_json',
+        (
+            _b('deployment_id', 'deployment_id'),
+            _b('deployment_sha256', 'deployment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('device_instance', 'device_instance'),
+            _b('slot', 'slot'),
+        ),
+        (),
+    ),
+    'cad_lut_post_verifications': (
+        'payload_json',
+        (
+            _b('post_verification_id', 'post_verification_id'),
+            _b('post_verification_sha256', 'post_verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id'),
+            _b('passed', 'passed'),
+        ),
+        (),
+    ),
+    'cad_lut_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
 }
 
 

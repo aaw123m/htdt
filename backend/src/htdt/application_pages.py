@@ -535,6 +535,37 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_dataset_role_assignments": "データセット役割割当",
     "cad_benchmark_exposures": "ベンチマーク露出台帳",
     "cad_challenge_qualifications": "検証主張適格評価",
+    # REV58-DISPLAYMEAS: #682 パターンジェネレータ忠実度
+    "cad_pg_generator_instances": "パターンジェネレータ実機",
+    "cad_pg_requested_patches": "要求映像パッチ",
+    "cad_pg_delivered_observations": "送出刺激観測",
+    "cad_pg_fidelity_qualifications": "ジェネレータ忠実度適格評価",
+    # REV58-DISPLAYMEAS: #680 プローブマッチング/分光ミスマッチ
+    "cad_mm_match_profiles": "計測器マッチングプロファイル",
+    "cad_mm_match_observations": "プローブマッチ観測",
+    "cad_mm_verifications": "プローブマッチ検証",
+    "cad_mm_applicability": "補正適用可否評価",
+    # REV58-DISPLAYMEAS: #686 加法性/RGB分離/立体特性
+    "cad_da_additivity_observations": "加法性観測",
+    "cad_da_separation_assessments": "RGB分離評価",
+    "cad_da_volumetric_characterisations": "立体特性測定",
+    "cad_da_holdout_verifications": "ホールドアウト検証",
+    "cad_da_model_eligibility": "校正モデル適格評価",
+    "cad_da_characterisation_plans": "特性測定計画",
+    # REV58-DISPLAYMEAS: #647 時間応答ディスプレイ忠実度
+    "cad_td_states": "時間応答状態",
+    "cad_td_step_responses": "ステップ応答測定",
+    "cad_td_motion_measurements": "動画アーティファクト測定",
+    "cad_td_flicker_measurements": "フリッカー測定",
+    "cad_td_retention_observations": "残像観測",
+    "cad_td_qualifications": "時間応答適格評価",
+    # REV58-DISPLAYMEAS: #666 LUTクローズドループ校正
+    "cad_lut_artifacts": "LUTアーティファクト",
+    "cad_lut_generation_records": "LUT生成レコード",
+    "cad_lut_preflight_verifications": "LUT転送前検証",
+    "cad_lut_deployments": "LUTデプロイ記録",
+    "cad_lut_post_verifications": "LUT転送後検証",
+    "cad_lut_qualifications": "LUTループ適格評価",
 }
 
 
