@@ -3,7 +3,7 @@
 スコープ: issue #654 (P1) / #655 (P1) / #656 (P1) / #690 (P1) /
 #684 (P1) / #681 (P1)
 ブランチ: `devin/1791269165-rev58-audiomodel`（merge-test 経由マージ）
-スキーマ: native schema v45 → v46（14 テーブル + インデックス追加）
+スキーマ: native schema v46 → v47（14 テーブル + インデックス追加）
 
 ## 実装範囲
 
@@ -245,10 +245,11 @@
 
 - `cad_schema_ddl.py`: 14 テーブル + インデックスを
   `NATIVE_BASELINE_DDL` に追加、`NATIVE_SCHEMA_TABLES` 台帳登録。
-- `cad_schema.py`: `NATIVE_SCHEMA_VERSION = 46`、
-  `_migrate_45_to_46`（idempotent `CREATE TABLE IF NOT EXISTS`
+- `cad_schema.py`: `NATIVE_SCHEMA_VERSION = 47`、
+  `_migrate_46_to_47`（idempotent `CREATE TABLE IF NOT EXISTS`
   再生）、`_MIGRATIONS` 登録。`test_cad_schema.py` 台帳に
-  `(46, …)` 追加。
+  `(47, …)` 追加。main 側で REV58-IDENT が v46 を先取したため
+  連番で v47 に着地。
 - `native_authority_audit.py`: `source_origin` /
   `source_field_applicability` / `directivity_resolution` /
   `source_coherence` / `scattering_model` / `edge_diffraction`
