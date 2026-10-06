@@ -4124,6 +4124,84 @@ def separation_claim_line(
     return 'チャネル分離: ' + ' — '.join(parts)
 
 
+from .cad_projector_dynamic_light import (  # noqa: E402
+    VERDICT_LABELS as _CONTRAST_VERDICT_LABELS,
+    TemporalContrastMeasurement,
+)
+from .cad_low_luminance import (  # noqa: E402
+    BLACK_LABELS as _BLACK_LABELS,
+)
+from .cad_display_acoustic_boundary import (  # noqa: E402
+    VERDICT_LABELS as _FRONTSTAGE_LABELS,
+)
+from .cad_codec_fidelity import (  # noqa: E402
+    FIDELITY_LABELS as _FIDELITY_LABELS,
+    CodecChainProfile,
+)
+
+
+def temporal_contrast_line(
+    measurement: TemporalContrastMeasurement, verdict: str
+) -> str:
+    """One JA line for a contrast measurand comparison (#759) —
+    シーケンシャル動的値とネイティブ値は同じ量ではない。"""
+    parts = [_CONTRAST_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(measurement.measurand)
+    return 'コントラスト: ' + ' — '.join(parts)
+
+
+def black_level_line(verdict: str) -> str:
+    """One JA line for a black-level verdict (#756) —
+    「測定不能に低い」は「0 cd/m²」ではない。"""
+    return '黒レベル: ' + _BLACK_LABELS.get(verdict, verdict)
+
+
+def frontstage_line(verdict: str) -> str:
+    """One JA line for a front-stage placement verdict (#760) —
+    大きな表示壁は音響境界でもある。"""
+    return 'フロントステージ: ' + _FRONTSTAGE_LABELS.get(verdict, verdict)
+
+
+def codec_fidelity_line(
+    chain: CodecChainProfile, verdict: str
+) -> str:
+    """One JA line for a codec-fidelity verdict (#753/#747) —
+    再生成功と正しいモードは忠実度の証明にならない。"""
+    parts = [_FIDELITY_LABELS.get(verdict, verdict)]
+    if chain.hidden_processing_detected:
+        parts.append('隠れ処理を検出')
+    return 'コーデック忠実度: ' + ' — '.join(parts)
+
+
+from .cad_power_sequencing import (  # noqa: E402
+    SEQUENCE_LABELS as _SEQ_LABELS,
+)
+from .cad_power_quality import (  # noqa: E402
+    PQ_LABELS as _PQ_LABELS,
+)
+from .cad_emc_evidence import (  # noqa: E402
+    EMC_LABELS as _EMC_LABELS,
+)
+
+
+def power_sequence_line(verdict: str) -> str:
+    """One JA line for a power-sequence verdict (#736) —
+    容量とシーンだけでは安全な順序を証明しない。"""
+    return '電源シーケンス: ' + _SEQ_LABELS.get(verdict, verdict)
+
+
+def power_quality_line(verdict: str) -> str:
+    """One JA line for a supply-quality verdict (#738) —
+    回路容量は電圧安定性を意味しない。"""
+    return '電源品質: ' + _PQ_LABELS.get(verdict, verdict)
+
+
+def emc_line(verdict: str) -> str:
+    """One JA line for an EMC-evidence verdict (#752) —
+    安全性承認はEMC証拠ではなく、症状は不適合の証明ではない。"""
+    return 'EMC証拠: ' + _EMC_LABELS.get(verdict, verdict)
+
+
 # REV59-DEPS: 権威依存/陳腐化 (#729)・証拠アテステーション/時刻権威
 # (#725)・プロジェクトアーカイブ/移行権威 (#718)
 
