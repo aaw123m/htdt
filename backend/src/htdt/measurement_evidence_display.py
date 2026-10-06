@@ -3642,6 +3642,11 @@ from .cad_lut_closed_loop import (  # noqa: E402
     LUTLoopQualification,
     VERDICT_LABELS as _LUT_VERDICT_LABELS,
 )
+from .cad_apply_transaction import (  # noqa: E402
+    CLAIM_LABELS as _APPLY_CLAIM_LABELS,
+    DeviceApplyTransaction,
+    STATE_VERDICT_LABELS as _APPLY_STATE_LABELS,
+)
 
 
 def generator_fidelity_line(qualification: GeneratorFidelityQualification) -> str:
@@ -3997,3 +4002,25 @@ def reproducibility_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '再現性適格: ' + ' — '.join(parts)
+
+
+def apply_transaction_line(transaction: DeviceApplyTransaction) -> str:
+    """One JA line for a device-apply transaction (#723) —
+    書込成功だけでは適用完了とは読まない。"""
+    parts = [_APPLY_STATE_LABELS.get(
+        transaction.state_verdict, transaction.state_verdict)]
+    parts.append('記録済書込み {0}件'.format(len(transaction.write_refs)))
+    if transaction.verification_ref is None:
+        parts.append('適用後検証なし')
+    if (
+        transaction.external_lock_obtained is not None
+        and not transaction.external_lock_obtained
+    ):
+        parts.append('外部ロック未取得')
+    return 'デバイス適用: ' + ' — '.join(parts)
+
+
+def rollback_claim_line(claim: str) -> str:
+    """One JA line for a rollback claim (#723) —
+    部分スナップショットから完全復元は約束しない。"""
+    return 'ロールバック可否: ' + _APPLY_CLAIM_LABELS.get(claim, claim)

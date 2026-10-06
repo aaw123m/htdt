@@ -346,6 +346,7 @@ def test_new_native_database_records_schema_version(tmp_path: Path) -> None:
         (48, 'migrate native schema to v48'),
         (49, 'migrate native schema to v49'),
         (50, 'migrate native schema to v50'),
+        (51, 'migrate native schema to v51'),
     ]
 
 

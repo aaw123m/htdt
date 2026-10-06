@@ -611,6 +611,14 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_reproducibility_campaigns": "再現性キャンペーン",
     "cad_method_precision_models": "測定法精度モデル",
     "cad_reproducibility_qualifications": "再現性適格評価",
+    # REV59-APPLY: #723 デバイス適用トランザクション
+    "cad_apply_capability_profiles": "デバイス適用能力プロファイル",
+    "cad_apply_plans": "デバイス適用計画",
+    "cad_apply_write_records": "適用書込み記録",
+    "cad_apply_verifications": "適用後検証記録",
+    "cad_apply_rollback_plans": "ロールバック計画",
+    "cad_apply_rollback_executions": "ロールバック実行記録",
+    "cad_apply_transactions": "デバイス適用トランザクション",
 }
 
 

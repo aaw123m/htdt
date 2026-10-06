@@ -2685,3 +2685,41 @@ issues:
         description: >
           実機への LUT 書き込み/readback 自動化と post-verify 採取は残件。
          
+  - issue: 723
+    summary: >
+      Device apply transaction / rollback authority. ApplyCapabilityProfile
+      (apcap-) declares per-device mutation semantics — atomic capabilities
+      require api_documented/behavior_observed evidence, never assumed from a
+      multi-field API. DeviceApplyPlan (applan-) is the immutable pre-mutation
+      plan binding desired-state hash, ordered writes, pre-state evidence and
+      rollback strategy. ApplyWriteRecord (apwrite-) records each write with an
+      honest outcome; acknowledged requires ack payload sha. ApplyVerificationRecord
+      (apver-) is the readback comparison — only it can yield fully_applied;
+      write success alone yields insufficient_evidence. RollbackPlan/RollbackExecutionRecord
+      (rbplan-/rbexec-) gate exact-rollback claims on full pre-state evidence
+      (Trinnov precedent: preset backups exclude source configuration).
+      DeviceApplyTransaction (aptxn-) seals the lifecycle with a fail-closed
+      state verdict (not_started/fully_applied/partially_applied/rolled_back/
+      apply_failed/unknown_state/insufficient_evidence).
+    checks:
+      - id: apply-transaction
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_apply.py::test_atomic_capability_requires_observed_evidence
+          - backend/tests/test_rev59_apply.py::test_plan_requires_full_write_order_coverage
+          - backend/tests/test_rev59_apply.py::test_write_success_alone_is_insufficient_evidence
+          - backend/tests/test_rev59_apply.py::test_fully_applied_only_with_readback_verification
+          - backend/tests/test_rev59_apply.py::test_verdict_unknown_state_on_interruption
+          - backend/tests/test_rev59_apply.py::test_exact_claim_from_full_evidence
+          - backend/tests/test_rev59_apply.py::test_user_recorded_only_cannot_claim
+          - backend/tests/test_rev59_apply.py::test_transaction_requires_verification_for_fully_applied
+          - backend/tests/test_rev59_apply.py::test_repository_roundtrip
+        description: >
+          Capability taxonomy gate, plan immutability, write-outcome honesty,
+          readback-verified verdicts, rollback evidence tiers, transaction
+          lifecycle sealing.
+      - id: apply-remainder
+        kind: manual
+        description: >
+          実機デバイスへの適用実行・ロック取得・readback 自動化は残件
+          （測定ウィザード/デバイスアダプタ経由）。
