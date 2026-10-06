@@ -784,8 +784,6 @@ def compute_coverage_metrics(
                 nearest[other] = delta
         if best is not None:
             nearest[point_id] = best
-        elif len(ids) == 1:
-            nearest[point_id] = 0.0
 
     spacings = sorted(nearest.values())
     if spacings:
@@ -838,7 +836,11 @@ def compute_coverage_metrics(
     }
     total_spatial = len(spatial)
     density_share: dict[str, float] = {
-        zone.zone_id: zone_counts.get(zone.zone_id, 0) / total_spatial
+        zone.zone_id: (
+            zone_counts.get(zone.zone_id, 0) / total_spatial
+            if total_spatial
+            else 0.0
+        )
         for zone in area.non_excluded_zones()
     }
     ratios = [
@@ -1829,7 +1831,9 @@ def instantiate_campaign_template(
                 x_m=mins.x_m + (maxs.x_m - mins.x_m) * ((index + 1) / (
                     template.outside_area_count + 1
                 )),
-                y_m=mins.y_m + side * template.spacing_m,
+                y_m=(
+                    mins.y_m if side < 0.0 else maxs.y_m
+                ) + side * template.spacing_m,
                 z_m=centre.z_m,
             )
             points.append(

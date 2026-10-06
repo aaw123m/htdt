@@ -373,7 +373,18 @@ def evaluate_splice(
         )
 
     # Magnitude check on the summed-vs-isolated margin across the band.
-    idx = _band_indices(summed_curve.frequencies_hz, low_hz, high_hz)
+    # Only summed samples inside BOTH isolated curves' measured range
+    # count — interpolation clamps flat outside, so anything beyond the
+    # shared domain would compare against a fabricated endpoint level.
+    shared_low = max(
+        main_curve.frequencies_hz[0], sub_curve.frequencies_hz[0]
+    )
+    shared_high = min(
+        main_curve.frequencies_hz[-1], sub_curve.frequencies_hz[-1]
+    )
+    band_low = max(low_hz, shared_low)
+    band_high = min(high_hz, shared_high)
+    idx = _band_indices(summed_curve.frequencies_hz, band_low, band_high)
     if not idx.size:
         return SpliceVerdict(
             status='unknown',
@@ -381,8 +392,8 @@ def evaluate_splice(
                 crossover_band_low_hz=low_hz,
                 crossover_band_high_hz=high_hz,
             ),
-            detail='summed measurement carries no samples inside the '
-            'crossover band',
+            detail='isolated main/sub measurements do not jointly cover '
+            'any summed sample inside the crossover band',
         )
     margins = np.array(
         [

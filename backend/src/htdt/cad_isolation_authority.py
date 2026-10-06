@@ -924,12 +924,30 @@ def evaluate_isolation_qualification(
         # limiting paths remain listed as attribution diagnostics.
         if has_unmodelled and state == 'modelled':
             state = 'declared'
+        # ``level_difference_db`` only carries an actual level-difference
+        # quantity — an absolute receiving SPL or an undeclared metric has
+        # no place under that name.
         level_difference = (
-            measured_band.value_db if measured_band is not None else None
+            measured_band.value_db
+            if measured_band is not None
+            and measured_band.metric
+            in (
+                'standardized_level_difference_dnt',
+                'normalized_level_difference_dn',
+                'level_difference_d',
+                'apparent_sound_reduction_index_rprime',
+                'sound_reduction_index_r',
+            )
+            else None
         )
         source_level = source_bands.get(_band_key(band_hz))
         estimated_spl: float | None = None
         if (
+            measured_band is not None
+            and measured_band.metric == 'receiving_spl'
+        ):
+            estimated_spl = measured_band.value_db
+        elif (
             source_level is not None
             and level_difference is not None
             and measured_band is not None
@@ -969,6 +987,38 @@ def evaluate_isolation_qualification(
                     criterion_id=criterion.criterion_id,
                     verdict='unsupported',
                     note='no numeric limit declared',
+                )
+            )
+            continue
+        if criterion.kind == 'relative_reduction_target':
+            # A reduction target caps the measured level difference, not
+            # the receiving SPL — comparing limit against estimated SPL
+            # would mix quantities.
+            usable = [
+                v for v in bands
+                if v.level_difference_db is not None
+                and v.evidence_state == 'measured'
+            ]
+            if not usable:
+                criterion_results.append(
+                    IsolationCriterionResult(
+                        criterion_id=criterion.criterion_id,
+                        verdict='unknown',
+                        note='no measured level-difference evidence '
+                        'in domain',
+                    )
+                )
+                continue
+            worst = min(
+                (v.level_difference_db or 0.0) - criterion.limit_db
+                for v in usable
+            )
+            criterion_results.append(
+                IsolationCriterionResult(
+                    criterion_id=criterion.criterion_id,
+                    verdict='pass' if worst >= 0.0 else 'fail',
+                    evaluated_bands_hz=tuple(v.band_hz for v in usable),
+                    worst_margin_db=worst,
                 )
             )
             continue

@@ -595,19 +595,20 @@ def _normalization_offset(
     band = normalization.reference_band_hz
     assert band is not None
     low, high = band
-    response_values = [
-        level for freq, level in response_points if low <= freq <= high
-    ]
-    target_values = [
-        _interpolate(target_points, freq, interpolation)
-        for freq, _level in response_points
+    # Pair the samples — a response point whose frequency the target does
+    # not cover must not enter either mean, or the offset is biased by
+    # asymmetric sample sets.
+    pairs = [
+        (level, _interpolate(target_points, freq, interpolation))
+        for freq, level in response_points
         if low <= freq <= high
     ]
-    target_values = [value for value in target_values if value is not None]
-    if not response_values or not target_values:
+    pairs = [(response, target) for response, target in pairs
+             if target is not None]
+    if not pairs:
         return None
-    return (sum(target_values) / len(target_values)) - (
-        sum(response_values) / len(response_values)
+    return (sum(target for _response, target in pairs) / len(pairs)) - (
+        sum(response for response, _target in pairs) / len(pairs)
     )
 
 

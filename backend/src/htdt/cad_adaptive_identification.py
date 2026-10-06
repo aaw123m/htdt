@@ -467,7 +467,8 @@ def evaluate_adaptive_claim(
             'fixed transfer claim is invalid',
         )
     if estimate.convergence_state in (
-        'not_converged', 'insufficient_duration', 'unknown',
+        'not_converged', 'partially_converged',
+        'insufficient_duration', 'unknown',
     ):
         return (
             'not_converged',
@@ -488,6 +489,12 @@ def evaluate_adaptive_claim(
             'stimulus_defect_limited',
             'the stimulus carries clipping/lossy/unknown defects — '
             'residual defects must not be attributed to the DUT',
+        )
+    if stimulus.defect_state == 'stimulus_band_insufficient':
+        return (
+            'band_limited_estimate',
+            'the declared stimulus lacks energy in part of the claimed '
+            'band — the estimate is partial, not a full-range trace',
         )
     if any(
         band.state != 'identified' for band in estimate.excitation_support
