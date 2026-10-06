@@ -41,7 +41,7 @@ from htdt.cad_microphone_array import (
     evaluate_spatial_claim,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema
+from htdt.cad_schema import NATIVE_SCHEMA_VERSION, ensure_native_schema
 
 
 def _ref(rid: str = 'doc-1') -> AuthorityRef:
@@ -617,7 +617,7 @@ def test_tamper_detected(tmp_path):
 def test_fresh_migrate(tmp_path):
     db = tmp_path / 'fresh.htdtscene'
     version = ensure_native_schema(db)
-    assert version == 70
+    assert version == NATIVE_SCHEMA_VERSION
     repo = CadFieldMetrologyRepository(SceneRepository(db))
     p = _aam()
     repo.save_identification_profile(p)
