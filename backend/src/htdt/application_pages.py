@@ -769,6 +769,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_bom_estimates": "BOM・見積",
     "cad_cadence_delivery_evidence": "コーデンス配信証拠",
     "cad_reference_room_profiles": "参照室プロファイル",
+    "cad_verification_requirements": "検証要件",
+    "cad_verification_closures": "検証クローズ",
 
 }
 

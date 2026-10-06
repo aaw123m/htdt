@@ -7852,6 +7852,27 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_verification_requirements': (
+        'payload_json',
+        (
+            _b('requirement_id', 'requirement_id'),
+            _b('requirement_sha256', 'requirement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('issue_ref', 'issue_ref'),
+            _b('evaluator_kind', 'evaluator_kind'),
+        ),
+        (),
+    ),
+    'cad_verification_closures': (
+        'payload_json',
+        (
+            _b('closure_id', 'closure_id'),
+            _b('closure_sha256', 'closure_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evaluator_verdict', 'evaluator_verdict'),
+        ),
+        (),
+    ),
 
 }
 
