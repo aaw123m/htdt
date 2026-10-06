@@ -5025,6 +5025,186 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_vsqual_design ON cad_challenge_qualifications(design_ref_id, seq ASC)
     """
     ,
+    # REV58-VALIDMETH: #675 optimizer algorithm qualification —
+    # problems, run profiles, qualifications, Pareto assessments.
+    """
+    CREATE TABLE IF NOT EXISTS cad_optimization_problems ( seq INTEGER PRIMARY KEY AUTOINCREMENT, problem_id TEXT NOT NULL UNIQUE, problem_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, problem_label TEXT NOT NULL, objective_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_optimizer_run_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, problem_ref_id TEXT NOT NULL, algorithm_family TEXT NOT NULL, run_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_optimizer_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, state TEXT NOT NULL, optimality_claim TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_pareto_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, state TEXT NOT NULL, reference_status TEXT NOT NULL, nondominated_count INTEGER, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_optprob_doc ON cad_optimization_problems(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_optprof_doc ON cad_optimizer_run_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_optprof_problem ON cad_optimizer_run_profiles(problem_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_optqual_doc ON cad_optimizer_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_optqual_profile ON cad_optimizer_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_parassess_doc ON cad_pareto_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_parassess_profile ON cad_pareto_assessments(profile_ref_id, seq ASC)
+    """
+    ,
+    # REV58-VALIDMETH: #674 acoustic eigenmode / mode-shape validation
+    # — mode pairings, validation verdicts.
+    """
+    CREATE TABLE IF NOT EXISTS cad_mode_pairings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, pairing_id TEXT NOT NULL UNIQUE, pairing_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, pairing_state TEXT NOT NULL, pairing_algorithm TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_eigenmode_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, pairing_ref_id TEXT NOT NULL, state TEXT NOT NULL, frequency_agreement TEXT NOT NULL, shape_agreement TEXT NOT NULL, damping_agreement TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_modpair_doc ON cad_mode_pairings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_eigverd_doc ON cad_eigenmode_verdicts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_eigverd_pairing ON cad_eigenmode_verdicts(pairing_ref_id, seq ASC)
+    """
+    ,
+    # REV58-VALIDMETH: #673 sound-field diffuseness / statistical-model
+    # applicability — assessments, declarations.
+    """
+    CREATE TABLE IF NOT EXISTS cad_diffuseness_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, eligibility_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_statistical_applicability_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, declaration_id TEXT NOT NULL UNIQUE, declaration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assessment_ref_id TEXT, state TEXT NOT NULL, basis TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dffassess_doc ON cad_diffuseness_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dffdec_doc ON cad_statistical_applicability_declarations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dffdec_assess ON cad_statistical_applicability_declarations(assessment_ref_id, seq ASC)
+    """
+    ,
+    # REV58-VALIDMETH: #671 coupled-room multi-slope decay —
+    # multi-slope fits, single-slope adequacy gates, qualifications.
+    """
+    CREATE TABLE IF NOT EXISTS cad_multi_slope_fits ( seq INTEGER PRIMARY KEY AUTOINCREMENT, fit_id TEXT NOT NULL UNIQUE, fit_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, raw_evidence_ref_id TEXT NOT NULL, model_class TEXT NOT NULL, component_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_single_slope_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, raw_evidence_ref_id TEXT NOT NULL, adequacy_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_coupled_decay_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, behavior_state TEXT NOT NULL, state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cplfit_doc ON cad_multi_slope_fits(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cplfit_evidence ON cad_multi_slope_fits(raw_evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cplgate_doc ON cad_single_slope_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cplgate_evidence ON cad_single_slope_assessments(raw_evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cplqual_doc ON cad_coupled_decay_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV58-VALIDMETH: #677 predicted↔measured early-reflection
+    # correspondence — pairings, sets, verdicts.
+    """
+    CREATE TABLE IF NOT EXISTS cad_reflection_pairings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, pairing_id TEXT NOT NULL UNIQUE, pairing_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, correspondence_state TEXT NOT NULL, matching_algorithm TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reflection_correspondence_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL UNIQUE, set_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, registration_ref_id TEXT NOT NULL, pairing_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reflection_correspondence_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, set_ref_id TEXT NOT NULL, state TEXT NOT NULL, matched_pair_count INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rfxpair_doc ON cad_reflection_pairings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rfxset_doc ON cad_reflection_correspondence_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rfxverd_doc ON cad_reflection_correspondence_verdicts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rfxverd_set ON cad_reflection_correspondence_verdicts(set_ref_id, seq ASC)
+    """
+    ,
+    # REV58-VALIDMETH: #706 time-frequency modal-decay authority —
+    # observations, qualifications.
+    """
+    CREATE TABLE IF NOT EXISTS cad_modal_decay_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, raw_evidence_ref_id TEXT NOT NULL, overlap_state TEXT NOT NULL, fit_model TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_modal_decay_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, observation_ref_id TEXT NOT NULL, state TEXT NOT NULL, decay_trustworthy INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mdtobs_doc ON cad_modal_decay_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mdtobs_evidence ON cad_modal_decay_observations(raw_evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mdtqual_doc ON cad_modal_decay_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mdtqual_obs ON cad_modal_decay_qualifications(observation_ref_id, seq ASC)
+    """
+    ,
     # REV58-DISPLAYMEAS: #682 / #680 / #686 / #647 / #666.
     """
     CREATE TABLE IF NOT EXISTS cad_pg_generator_instances ( seq INTEGER PRIMARY KEY AUTOINCREMENT, generator_id TEXT NOT NULL UNIQUE, generator_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, generator_class TEXT NOT NULL, manufacturer TEXT NOT NULL, model TEXT NOT NULL, payload_json TEXT NOT NULL )
@@ -5968,6 +6148,23 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_dataset_role_assignments',
     'cad_benchmark_exposures',
     'cad_challenge_qualifications',
+    # REV58-VALIDMETH: #675 / #674 / #673 / #671 / #677 / #706.
+    'cad_optimization_problems',
+    'cad_optimizer_run_profiles',
+    'cad_optimizer_qualifications',
+    'cad_pareto_assessments',
+    'cad_mode_pairings',
+    'cad_eigenmode_verdicts',
+    'cad_diffuseness_assessments',
+    'cad_statistical_applicability_declarations',
+    'cad_multi_slope_fits',
+    'cad_single_slope_assessments',
+    'cad_coupled_decay_qualifications',
+    'cad_reflection_pairings',
+    'cad_reflection_correspondence_sets',
+    'cad_reflection_correspondence_verdicts',
+    'cad_modal_decay_observations',
+    'cad_modal_decay_qualifications',
     # REV58-DISPLAYMEAS: #682 / #680 / #686 / #647 / #666.
     'cad_pg_generator_instances',
     'cad_pg_requested_patches',

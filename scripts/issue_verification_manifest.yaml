@@ -2269,3 +2269,419 @@ issues:
           BTM/UTD 実装の fixture ライブラリ整備、収束証拠の自動
           収集、geometric fidelity (#685) との live 結合、UI 入力
           フォームは残件。
+  - issue: 675
+    title: "REV58-VALIDMETH: optimizer algorithm qualification authority"
+    notes: >
+      OptimizationProblemIdentity (optprob-) seals the exact problem —
+      decision variables, objectives with direction/unit, constraints,
+      scene/search-spec pins, solver fidelity. OptimizerRunProfile
+      (optprof-) seals algorithm identity (family + implementation +
+      version + RNG/seed policy), the declared budget, the independent
+      run set, equal-budget baselines, known-optimum fixtures and the
+      multi-fidelity policy. evaluate_optimizer_qualification derives a
+      fail-closed verdict: undeclared budget -> insufficient_evidence;
+      a single stochastic run, no baseline and no known-optimum fixture
+      -> qualified_with_limitations at best; a missed known-optimum
+      fixture -> unqualified; global_optimum_proven requires an
+      exact/exhaustive family plus a recovered fixture, otherwise the
+      claim collapses to best_found_under_budget; multi-fidelity
+      profiles without common-fidelity re-evaluation are capped.
+      ParetoApproximationAssessment (parassess-) keeps convergence /
+      diversity / feasibility as separate observables: without a
+      reference front the state is assessed_empirical_only, a
+      best-known aggregate front caps at assessed_with_limitations,
+      and a GD/IGD/epsilon indicator without a pinned reference front
+      is structurally inconsistent.
+    checks:
+      - id: optimizer-qualification
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_opt10_single_stochastic_run_never_reports_seed_robustness
+          - backend/tests/test_rev58_validmeth.py::test_opt20_unqualified_global_claim_collapses
+          - backend/tests/test_rev58_validmeth.py::test_opt30_exhaustive_enumeration_can_prove_optimum
+          - backend/tests/test_rev58_validmeth.py::test_opt40_missed_known_optimum_is_unqualified
+          - backend/tests/test_rev58_validmeth.py::test_opt50_unbenchmarked_search_is_capped
+          - backend/tests/test_rev58_validmeth.py::test_opt60_multifidelity_without_common_fidelity_final
+          - backend/tests/test_rev58_validmeth.py::test_opt70_pareto_without_reference_is_empirical_only
+          - backend/tests/test_rev58_validmeth.py::test_opt75_hypervolume_requires_reference_point
+          - backend/tests/test_rev58_validmeth.py::test_opt80_optimizer_repository_roundtrip_and_integrity
+        description: >
+          Single-run seed-variability cap, optimality-claim collapse,
+          exact-family global proof, fixture regression flags, unbench-
+          marked cap, multi-fidelity common-fidelity rule, Pareto
+          reference-front rules, sealed round-trip and tamper evidence.
+      - id: optimizer-qualification-remainder
+        kind: manual
+        description: >
+          実探索コード (#493/#571 系) から OptimizerRunProfile への
+          自動書き出し、ZDT/DTLZ 系ベンチフィクスチャの自動実行、
+          製品「最適」文言の UI 置き換えは残件。
+  - issue: 674
+    title: "REV58-VALIDMETH: acoustic eigenmode / mode-shape validation authority"
+    notes: >
+      PredictedEigenmodePin / MeasuredModalEvidencePin keep solver-side
+      and measurement-side modal identities separate (complex
+      eigenvalue, mode-shape field ref, identification algorithm +
+      version, uncertainty). ModePairingRecord (modpair-) seals the
+      association with its evidence dimensions — frequency proximity
+      alone cannot even reach paired_high_confidence.
+      evaluate_eigenmode_validation returns a fail-closed verdict:
+      frequency-only evidence caps at frequency_only_match_insufficient;
+      a frequency disagreement is frequency_mismatch, a declared shape
+      band miss is shape_mismatch, a declared damping residual beyond
+      tolerance is damping_mismatch; degenerate subspace matches are
+      honest eigenmode_validated_with_limitations; calibration-consumed
+      pairings are marked calibration_contaminated and capped;
+      participation is recorded, never used to delete a mode.
+    checks:
+      - id: eigenmode-validation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_mod10_clean_pairing_validates
+          - backend/tests/test_rev58_validmeth.py::test_mod20_frequency_alone_never_validates
+          - backend/tests/test_rev58_validmeth.py::test_mod30_shape_below_band_is_shape_mismatch
+          - backend/tests/test_rev58_validmeth.py::test_mod35_frequency_disagree_is_frequency_mismatch
+          - backend/tests/test_rev58_validmeth.py::test_mod40_degenerate_subspace_is_honest
+          - backend/tests/test_rev58_validmeth.py::test_mod50_calibration_role_contaminates
+          - backend/tests/test_rev58_validmeth.py::test_mod60_damping_residual_beyond_tolerance_mismatches
+          - backend/tests/test_rev58_validmeth.py::test_mod70_eigenmode_repository_roundtrip_and_integrity
+        description: >
+          Separate frequency/shape/damping observables, freq-only cap,
+          degenerate-subspace honesty, calibration contamination,
+          participation demotion, sealed round-trip and tamper evidence.
+      - id: eigenmode-validation-remainder
+        kind: manual
+        description: >
+          #972 MeasuredModalModel からの自動 pin、実測モード形状の
+          グリッド整列パイプライン配線、MOD fixture の実測再現
+          (MOD10-80) は残件。
+  - issue: 673
+    title: "REV58-VALIDMETH: sound-field diffuseness / statistical-model applicability authority"
+    notes: >
+      DiffuseFieldDomainPin seals the assessment domain (extent, band,
+      time region, position class). FieldUniformityProfile records one
+      estimator over the domain with its covered property — estimators
+      never substitute for each other. SoundFieldDiffusenessAssessment
+      (diffassess-) seals eligibility with evidence provenance
+      (measured / model_derived_indicator / theory_assumption).
+      evaluate_diffuseness_applicability decides per use: no
+      assessment -> insufficient_evidence/unsupported; non_diffuse or
+      incompatible -> not_applicable; theory-only basis caps at
+      applicable_with_limitations; any uncovered needed property is
+      named; estimator conflicts are kept, never averaged.
+    checks:
+      - id: diffuseness-applicability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_dff10_no_assessment_is_unsupported
+          - backend/tests/test_rev58_validmeth.py::test_dff20_measured_full_coverage_applies
+          - backend/tests/test_rev58_validmeth.py::test_dff30_theory_only_never_claims_direct
+          - backend/tests/test_rev58_validmeth.py::test_dff40_uncovered_needed_property_limits
+          - backend/tests/test_rev58_validmeth.py::test_dff50_non_diffuse_field_is_not_applicable
+          - backend/tests/test_rev58_validmeth.py::test_dff60_biased_field_blocks_isotropy_claim
+          - backend/tests/test_rev58_validmeth.py::test_dff70_diffuseness_repository_roundtrip_and_integrity
+        description: >
+          Fail-closed applicability ladder, provenance-keyed basis,
+          needed-property coverage, conflict retention, sealed
+          round-trip and tamper evidence.
+      - id: diffuseness-applicability-remainder
+        kind: manual
+        description: >
+          実測推定器 (spatial variance / intensity / spatial coherence)
+          の自動実行、RT/散乱係数経路からの拡散推論ブロック配線、
+          DFF fixture の実測再現は残件。
+  - issue: 671
+    title: "REV58-VALIDMETH: coupled-room multi-slope decay authority"
+    notes: >
+      CoupledDecayProfile seals the coupled-scene identity — member
+      AcousticRegions, portal refs with state, solver pin and whether
+      the solver supports inter-region energy exchange.
+      evaluate_single_slope_adequacy is the per-position gate:
+      noise-floor limited -> noise_limited; missing/short dynamic
+      range -> insufficient_range; declared curvature ->
+      multi_slope_supported; only declared-flat with sufficient range
+      is single_slope_adequate. MultiSlopeDecayFit (cplfit-) binds a
+      double-slope / coupled-exponential / non-exponential model to
+      raw evidence. evaluate_coupled_decay: multi-region scene +
+      solver without exchange -> single_slope_collapse_rejected;
+      multi-slope evidence without a bound fit ->
+      qualified_with_limitations; all-adequate -> qualified /
+      single_exponential_decay for the declared positions only.
+    checks:
+      - id: coupled-decay-qualification
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_cpl10_noise_floor_limited
+          - backend/tests/test_rev58_validmeth.py::test_cpl20_short_range_cannot_exonerate_single_slope
+          - backend/tests/test_rev58_validmeth.py::test_cpl30_declared_curvature_supports_multi_slope
+          - backend/tests/test_rev58_validmeth.py::test_cpl40_clean_decay_is_single_slope_adequate
+          - backend/tests/test_rev58_validmeth.py::test_cpl50_solver_without_exchange_rejects_collapse
+          - backend/tests/test_rev58_validmeth.py::test_cpl60_multi_slope_fit_qualifies_double_slope
+          - backend/tests/test_rev58_validmeth.py::test_cpl70_single_region_all_adequate_is_single_exponential
+          - backend/tests/test_rev58_validmeth.py::test_cpl75_no_adequacy_evidence_is_insufficient
+          - backend/tests/test_rev58_validmeth.py::test_cpl80_coupled_repository_roundtrip_and_integrity
+        description: >
+          Per-position adequacy gate (noise/range/curvature), solver
+          exchange precondition, bound multi-slope fit requirement,
+          position-scoped single-exponential qualification, sealed
+          round-trip and tamper evidence.
+      - id: coupled-decay-remainder
+        kind: manual
+        description: >
+          #1029 AcousticPortalCoupling 状態との配線、測定 RIR への
+          マルチスロープフィッタ自動適用、CPL fixture の実測再現
+          (CPL10-80) は残件。
+  - issue: 677
+    title: "REV58-VALIDMETH: predicted-measured early-reflection correspondence authority"
+    notes: >
+      PredictedReflectionPath / ObservedReflectionEvent pin the
+      solver path (ordered interaction refs, path class, DOA) and the
+      extracted event (extraction algorithm + version) separately.
+      ReflectionCorrespondencePairing (rfxpair-) seals each
+      association with inspectable evidence dimensions — time, DOA,
+      geometric path, order, level, spectral, cross-position — never
+      a hidden association score. ReflectionCorrespondenceSet
+      (rfxset-) requires the direct-path registration ref.
+      evaluate_reflection_correspondence: invalid registration ->
+      registration_prerequisite_missing; time-alignment-only
+      pairings count as ambiguous; ambiguous/clustered pairings ->
+      ambiguous_unresolved; all-calibration pairings ->
+      calibration_only_no_independent_validation; unmatched sides are
+      counted, never hidden.
+    checks:
+      - id: reflection-correspondence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_rpa10_missing_registration_fails_closed
+          - backend/tests/test_rev58_validmeth.py::test_rpa20_time_only_pairing_is_ambiguous
+          - backend/tests/test_rev58_validmeth.py::test_rpa30_compound_evidence_qualifies
+          - backend/tests/test_rev58_validmeth.py::test_rpa40_calibration_consumed_pairs_cannot_validate
+          - backend/tests/test_rev58_validmeth.py::test_rpa50_unmatched_side_is_recorded_not_hidden
+          - backend/tests/test_rev58_validmeth.py::test_rpa60_correspondence_repository_roundtrip_and_integrity
+        description: >
+          Registration prerequisite, nearest-peak guardrail, compound
+          evidence qualification, calibration-consumption block,
+          unmatched-side honesty, sealed round-trip and tamper
+          evidence.
+      - id: reflection-correspondence-remainder
+        kind: manual
+        description: >
+          ETC ピーク抽出器からの ObservedReflectionEvent 自動生成、
+          DOA 推定器配線、校正ループへの接続 (校正は pairing を
+          consumption として記録する側) は残件。
+  - issue: 706
+    title: "REV58-VALIDMETH: time-frequency modal-decay authority"
+    notes: >
+      TimeFrequencyDecayTransform seals the transform identity —
+      kind, window/hop/grid/wavelet parameters, normalization,
+      resolutions and declared trustworthy ranges; the transform
+      binding is content-addressed so any parameter change is a new
+      identity. ModalDecayObservation (mdtobs-) binds a mode-candidate
+      decay to its transform and raw evidence, with overlap state,
+      envelope semantic, fit model and uncertainty — a
+      single-exponential fit under unresolved overlap is rejected at
+      record level. evaluate_modal_decay_qualification: no fit ->
+      insufficient_evidence; unresolved/ridge-ambiguous/insufficient
+      resolution -> overlap_unresolved; #676 noise-floor or
+      truncation limits -> noise_or_truncation_limited; partial
+      overlap or missing uncertainty -> qualified_with_limitations.
+      The display is never the truth.
+    checks:
+      - id: modal-decay-qualification
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_validmeth.py::test_mdt10_isolated_mode_with_fit_qualifies
+          - backend/tests/test_rev58_validmeth.py::test_mdt20_picture_without_fit_is_not_evidence
+          - backend/tests/test_rev58_validmeth.py::test_mdt30_unresolved_overlap_is_not_a_mode_decay
+          - backend/tests/test_rev58_validmeth.py::test_mdt40_noise_floor_blocks_truthful_decay
+          - backend/tests/test_rev58_validmeth.py::test_mdt50_partial_overlap_is_limited
+          - backend/tests/test_rev58_validmeth.py::test_mdt60_missing_uncertainty_limits
+          - backend/tests/test_rev58_validmeth.py::test_mdt70_transform_binding_is_content_addressed
+          - backend/tests/test_rev58_validmeth.py::test_mdt80_modal_decay_repository_roundtrip_and_integrity
+        description: >
+          Transform content addressing, no-fit and overlap fail-close,
+          noise/truncation limits from #676 evidence, uncertainty
+          requirement, sealed round-trip and tamper evidence.
+      - id: modal-decay-remainder
+        kind: manual
+        description: >
+          waterfall/spectrogram レンダラから transform 宣言の自動
+          取得、#676 decay processing レコードへの processing_refs
+          自動 pin、MDT fixture の実測再現 (MDT10-80) は残件。
+  - issue: 682
+    title: "REV58-DISPLAYMEAS: pattern-generator stimulus fidelity authority"
+    notes: >
+      PatternGeneratorInstance (pginst-) seals the exact generator —
+      class (hardware/software/display-internal TPG/LUT box/processor/
+      player/GPU), firmware + control software + API adapter versions,
+      port, config hash, declared per-stage capability. RequestedVideoPatch
+      (reqpatch-) sha-pins its #608 stimulus asset plus the exact numeric
+      identity (code values, bit depth, range, encoding, colorimetry,
+      EOTF, chroma, raster, HDR metadata). DeliveredStimulusObservation
+      (delobs-) records what actually left the chain with its observation
+      point and verification means — readback/analyzer observations must
+      pin evidence; 'unverified' may not assert delivered values.
+      evaluate_patch_delivery proves code-value/range/bit-depth/encoding/
+      HDR mismatches; evaluate_generator_fidelity derives a fail-closed
+      verdict — any delivered_mismatch is unqualified, mixed
+      verified/unverified is insufficient_evidence, documented transforms
+      cap at qualified_with_limitations.
+    checks:
+      - id: pattern-generator-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_pg10_records_seal_with_prefixed_ids
+          - backend/tests/test_rev58_displaymeas.py::test_pg11_patch_requires_stimulus_sha_pin
+          - backend/tests/test_rev58_displaymeas.py::test_pg12_verified_observation_matches
+          - backend/tests/test_rev58_displaymeas.py::test_pg13_unverified_observation_is_not_a_pass
+          - backend/tests/test_rev58_displaymeas.py::test_pg14_code_value_shift_is_a_mismatch
+          - backend/tests/test_rev58_displaymeas.py::test_pg15_range_mapping_drift_detected
+          - backend/tests/test_rev58_displaymeas.py::test_pg16_documented_transform_caps_at_limited
+          - backend/tests/test_rev58_displaymeas.py::test_pg17_generator_fidelity_ladder
+          - backend/tests/test_rev58_displaymeas.py::test_pg50_repository_roundtrip_and_integrity
+        description: >
+          Stimulus sha pinning, unverified delivery is not a pass,
+          mismatch detection, transform-declared limitation, verdict
+          ladder, sealed repository round-trip and tamper evidence.
+      - id: pattern-generator-remainder
+        kind: manual
+        description: >
+          実ジェネレータのプロトコル readback 自動収集とパッチシーケンス
+          生成 UI は残件。
+  - issue: 680
+    title: "REV58-DISPLAYMEAS: colorimeter spectral mismatch / probe-matching authority"
+    notes: >
+      InstrumentIdentity pins physical unit (kind + manufacturer + model
+      + serial + firmware + mode + integration time + #611 calibration
+      ref). DisplaySpdIdentity pins the exact SPD state — picture/gamut/
+      white-point/emitter/content/dimming/optical-path fields plus SPD
+      basis (measured SPD requires its pinned content). DisplayMeterMatchProfile
+      (mmprof-) seals target(tristimulus)×reference(spectro) pair +
+      display state + pre-existing correction + patch set + algorithm +
+      correction artifact hash. ProbeMatchObservation (pmobs-) requires a
+      residual per patch. ProbeMatchVerification (pmver-) verifies on an
+      independent holdout set. evaluate_correction_applicability compares
+      every axis of a stored match to current state: different unit /
+      display / picture state -> not_applicable; double-application risk
+      detected; verification missing caps at applicable_with_limitations.
+    checks:
+      - id: meter-match-applicability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_mm10_records_seal_and_validate
+          - backend/tests/test_rev58_displaymeas.py::test_mm11_verified_match_applies_with_limitations
+          - backend/tests/test_rev58_displaymeas.py::test_mm12_different_target_unit_is_not_applicable
+          - backend/tests/test_rev58_displaymeas.py::test_mm13_picture_state_change_stales_the_match
+          - backend/tests/test_rev58_displaymeas.py::test_mm14_double_application_risk
+          - backend/tests/test_rev58_displaymeas.py::test_mm15_observation_requires_residuals
+          - backend/tests/test_rev58_displaymeas.py::test_mm50_repository_roundtrip
+        description: >
+          Instrument/display-state binding, active-correction pin, holdout
+          verification, per-axis applicability fail-close.
+      - id: meter-match-remainder
+        kind: manual
+        description: >
+          実測定器ペアでの match 測定ウィザードと correction artifact
+          生成は残件。
+  - issue: 686
+    title: "REV58-DISPLAYMEAS: display additivity / RGB separation / volumetric authority"
+    notes: >
+      DisplayAdditivityObservation (daobs-) seals component-vs-combined
+      XYZ at declared levels on one #625 display state. RGBSeparationAssessment
+      (rgbs-) seals per-channel ramps (r/g/b keys required) with declared
+      coupling residual. VolumetricCharacterisation (dvol-) enforces dense
+      grid coverage (measured_count >= grid^3). HoldoutVerification
+      (dhold-) requires an independent patch set. evaluate_model_eligibility
+      gates each calibration family fail-closed: sparse/matrix families
+      need additivity AND ramp separation, volumetric LUTs need dense
+      characterisation, holdout failure is inappropriate, missing
+      evidence is honest insufficient_evidence — never implied eligible.
+      CharacterisationPlan (charplan-) derives the minimum density from
+      evidence.
+    checks:
+      - id: additivity-model-eligibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_da10_additivity_residual_measured
+          - backend/tests/test_rev58_displaymeas.py::test_da11_sparse_model_requires_independence_evidence
+          - backend/tests/test_rev58_displaymeas.py::test_da12_non_additive_display_rejects_matrix
+          - backend/tests/test_rev58_displaymeas.py::test_da13_volumetric_lut_requires_dense_measurement
+          - backend/tests/test_rev58_displaymeas.py::test_da14_volumetric_coverage_is_enforced
+          - backend/tests/test_rev58_displaymeas.py::test_da15_characterisation_plan_seals
+          - backend/tests/test_rev58_displaymeas.py::test_da50_repository_roundtrip
+        description: >
+          Additivity residual, family-specific evidence requirements,
+          grid coverage enforcement, holdout independence.
+      - id: additivity-remainder
+        kind: manual
+        description: >
+          実ディスプレイでの加法性/RGB ランプ採取ウィザードは残件。
+  - issue: 647
+    title: "REV58-DISPLAYMEAS: temporal display fidelity authority"
+    notes: >
+      TemporalDisplayState (tdstate-) pins the exact motion state —
+      display-state ref + input/refresh rates + VRR + interpolation +
+      BFI/strobe + overdrive + low-latency mode (composes with #625 pin;
+      different mode is different identity). TemporalStepResponseMeasurement
+      (tstep-) requires a pinned waveform + declared rise/fall/settle
+      definitions + sensor bandwidth. MotionArtifactMeasurement (mart-)
+      keeps blur mechanisms distinct; FlickerMeasurement (tflick-) and
+      ImageRetentionObservation (tret-) carry instrumented/documented/
+      subjective classes. evaluate_temporal_qualification returns
+      per-claim verdicts — only measurements sha-bound to THIS state
+      count, absent evidence is insufficient_evidence, refresh labels
+      never qualify.
+    checks:
+      - id: temporal-display-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_td10_claims_need_in_state_measurements
+          - backend/tests/test_rev58_displaymeas.py::test_td11_fast_settling_step_supports_response_claim
+          - backend/tests/test_rev58_displaymeas.py::test_td12_other_state_measurements_do_not_count
+          - backend/tests/test_rev58_displaymeas.py::test_td13_step_response_needs_a_level_change
+          - backend/tests/test_rev58_displaymeas.py::test_td50_repository_roundtrip
+        description: >
+          State binding via sha, per-claim verdicts, measurement
+          requirements.
+      - id: temporal-remainder
+        kind: manual
+        description: >
+          光学ステップ応答・動画アーティファクトの実測ウィザードは残件。
+  - issue: 666
+    title: "REV58-DISPLAYMEAS: LUT closed-loop calibration authority"
+    notes: >
+      DisplayLUTArtifact (lutart-) seals kind/grid/precision + five
+      declared code domains + target semantics (HDR requires peak
+      nits) + payload hash. LUTGenerationRecord (lutgen-) pins
+      characterisation + patch set + engine identity. LUTPreflightVerification
+      (lutpre-) — a numeric pass without a domain-scaling check is not a
+      pass. LUTDeploymentRecord (lutdep-) pins device/slot/write method +
+      readback hash — a write without matching readback is not
+      deployment. LUTPostVerification (lutpost-) requires an independent
+      holdout on the same physical path; side effects are reported, never
+      hidden. evaluate_lut_closed_loop walks the fail-closed ladder:
+      missing generation provenance -> insufficient_evidence; preflight
+      missing/failed -> unverified/failed; readback mismatch -> failed;
+      non-independent holdout -> unverified; post failure -> failed;
+      side effects cap at loop_limited.
+    checks:
+      - id: lut-closed-loop
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_displaymeas.py::test_lut10_closed_loop_requires_every_stage
+          - backend/tests/test_rev58_displaymeas.py::test_lut11_missing_generation_is_insufficient_evidence
+          - backend/tests/test_rev58_displaymeas.py::test_lut12_preflight_missing_is_unverified
+          - backend/tests/test_rev58_displaymeas.py::test_lut13_readback_mismatch_fails_the_loop
+          - backend/tests/test_rev58_displaymeas.py::test_lut14_holdout_must_be_independent_of_generation_set
+          - backend/tests/test_rev58_displaymeas.py::test_lut15_observed_side_effects_cap_at_limited
+          - backend/tests/test_rev58_displaymeas.py::test_lut16_hdr_target_needs_peak_luminance
+          - backend/tests/test_rev58_displaymeas.py::test_lut17_domains_must_be_declared
+          - backend/tests/test_rev58_displaymeas.py::test_lut50_repository_roundtrip
+        description: >
+          Full ladder fail-close, domain/target semantics validation,
+          readback and holdout independence enforcement.
+      - id: lut-loop-remainder
+        kind: manual
+        description: >
+          実機への LUT 書き込み/readback 自動化と post-verify 採取は残件。
+         

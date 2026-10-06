@@ -535,6 +535,28 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_dataset_role_assignments": "データセット役割割当",
     "cad_benchmark_exposures": "ベンチマーク露出台帳",
     "cad_challenge_qualifications": "検証主張適格評価",
+    # REV58-VALIDMETH: #675 最適化アルゴリズム適格
+    "cad_optimization_problems": "最適化問題同一性",
+    "cad_optimizer_run_profiles": "最適化実行プロファイル",
+    "cad_optimizer_qualifications": "最適化実行適格",
+    "cad_pareto_assessments": "Pareto近似評価",
+    # REV58-VALIDMETH: #674 固有モード検証
+    "cad_mode_pairings": "モード対応付け",
+    "cad_eigenmode_verdicts": "固有モード検証判定",
+    # REV58-VALIDMETH: #673 拡散場適用性
+    "cad_diffuseness_assessments": "拡散場評価",
+    "cad_statistical_applicability_declarations": "統計モデル適用性宣言",
+    # REV58-VALIDMETH: #671 結合室マルチスロープ減衰
+    "cad_multi_slope_fits": "マルチスロープフィット",
+    "cad_single_slope_assessments": "単一スロープ適性評価",
+    "cad_coupled_decay_qualifications": "結合室減衰適格",
+    # REV58-VALIDMETH: #677 初期反射対応
+    "cad_reflection_pairings": "反射対応付け",
+    "cad_reflection_correspondence_sets": "反射対応セット",
+    "cad_reflection_correspondence_verdicts": "反射対応判定",
+    # REV58-VALIDMETH: #706 時周波モーダル減衰
+    "cad_modal_decay_observations": "時周波減衰観測",
+    "cad_modal_decay_qualifications": "時周波減衰適格",
     # REV58-DISPLAYMEAS: #682 パターンジェネレータ忠実度
     "cad_pg_generator_instances": "パターンジェネレータ実機",
     "cad_pg_requested_patches": "要求映像パッチ",

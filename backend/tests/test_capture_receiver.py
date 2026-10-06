@@ -481,6 +481,19 @@ class TestMissionPull:
             'schema': 'htdt.capture-mission',
             'schema_version': '1.0.0',
             'mission_id': 'mission-1',
+            'mission_kind': 'initial_survey',
+            'dependencies': [],
+            'plan': {
+                'schema': 'htdt.capture-task-plan',
+                'schema_version': '2.0.0',
+                'plan_id': 'plan-1',
+                'plan_version': '1.0.0',
+                'project_ref': 'proj-1',
+                'room_name': 'Theater',
+                'entity_checklist': [],
+                'measurement_requests': [],
+                'surface_review_tasks': [],
+            },
         }
     ).encode()
 
@@ -631,6 +644,172 @@ class TestMissionPull:
             },
         )
         assert package.package_id == 'pkg-ok'
+
+    def test_queue_rejects_shape_incoherent_documents(self, tmp_path):
+        service, _pairing = self._active(tmp_path)
+        for bad in (
+            # schema/version match but the fields the app hard-decodes
+            # are absent — decodable-by-schema, rejected-on-import.
+            {'schema': 'htdt.capture-mission',
+             'schema_version': '1.0.0', 'mission_id': 'm-1'},
+            {'schema': 'htdt.capture-mission',
+             'schema_version': '1.0.0', 'mission_id': 'm-1',
+             'mission_kind': 'initial_survey', 'plan': 'not-a-dict'},
+            {'schema': 'htdt.capture-mission',
+             'schema_version': '1.0.0', 'mission_id': 'm-1',
+             'mission_kind': 'initial_survey',
+             'plan': {'schema': 'other', 'schema_version': '1'}},
+            {'schema': 'htdt.capture-task-plan',
+             'schema_version': '2.0.0', 'plan_id': 'p-1'},
+        ):
+            with pytest.raises(CaptureReceiverError):
+                service.queue_mission_package(
+                    'pkg-bad', json.dumps(bad).encode()
+                )
+
+    def test_queue_rejects_app_rejectable_documents(self, tmp_path):
+        """Every payload the app would reject at import is refused at queue."""
+        service, _pairing = self._active(tmp_path)
+
+        def plan(**overrides):
+            base = {
+                'schema': 'htdt.capture-task-plan',
+                'schema_version': '2.0.0',
+                'plan_id': 'p-1',
+                'plan_version': '1.0.0',
+                'project_ref': 'proj-1',
+                'room_name': 'Theater',
+                'entity_checklist': [],
+                'measurement_requests': [],
+                'surface_review_tasks': [],
+            }
+            base.update(overrides)
+            return base
+
+        def envelope(**overrides):
+            base = {
+                'schema': 'htdt.capture-mission',
+                'schema_version': '1.0.0',
+                'mission_id': 'm-1',
+                'mission_kind': 'initial_survey',
+                'plan': plan(),
+                'dependencies': [],
+            }
+            base.update(overrides)
+            return base
+
+        for bad in (
+            # Bare plan: missing required text/list fields or an
+            # unsupported plan version.
+            {k: v for k, v in plan().items() if k != 'plan_version'},
+            {k: v for k, v in plan().items() if k != 'entity_checklist'},
+            {k: v for k, v in plan().items()
+             if k != 'measurement_requests'},
+            {k: v for k, v in plan().items()
+             if k != 'surface_review_tasks'},
+            plan(schema_version='3.0.0'),
+            plan(plan_id=''),
+            plan(entity_checklist='no'),
+            # Envelope: missing/invalid synthesized-Codable required
+            # keys.
+            {k: v for k, v in envelope().items() if k != 'dependencies'},
+            envelope(mission_kind='bogus'),
+            envelope(schema_version='2.0.0'),
+            envelope(plan={k: v for k, v in plan().items()
+                           if k != 'plan_version'}),
+            envelope(plan=plan(schema_version='3.0.0')),
+            envelope(dependencies=[{'ref': 'm-2'}]),
+            envelope(dependencies=[
+                {'ref': 'm-2', 'kind': 'mission_completed',
+                 'required': True},
+            ][:-1] + [{'ref': '', 'kind': 'mission_completed',
+                       'required': True}]),
+            envelope(dependencies=None),
+        ):
+            with pytest.raises(CaptureReceiverError):
+                service.queue_mission_package(
+                    'pkg-bad', json.dumps(bad).encode()
+                )
+
+        # The honest payloads still queue: a minimal bare plan and a
+        # full envelope both decode on the app.
+        service.queue_mission_package('pkg-plan', json.dumps(plan()).encode())
+        service.queue_mission_package(
+            'pkg-env', json.dumps(envelope()).encode()
+        )
+
+    def test_queue_mission_projects_native_package(self, tmp_path):
+        from htdt.cad_scene import (
+            Position3, RoomPrism, SceneDocument, SceneEntity, Size3,
+        )
+        from htdt.capture_mission import (
+            build_mission, build_mission_package,
+            mission_package_wire_payload,
+        )
+        from htdt.project_identity import new_project_reference
+
+        service, pairing = self._active(tmp_path)
+        document = SceneDocument(
+            document_id='doc-1',
+            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+            entities=(
+                SceneEntity(
+                    entity_id='spk-fl',
+                    kind='speaker',
+                    name='Front left',
+                    speaker_role='L',
+                    position=Position3(x_m=1.0, y_m=1.0, z_m=1.0),
+                    size_m=Size3(x_m=0.2, y_m=0.3, z_m=0.4),
+                ),
+            ),
+        )
+        mission = build_mission(
+            document,
+            project=new_project_reference(document_id='doc-1'),
+            purpose='initial_capture',
+            room_name='Theater A',
+        )
+        package = build_mission_package(mission)
+        stored = service.queue_mission(package)
+        # Queued under the mission id; the pull bytes are the app
+        # envelope, not the native package document.
+        assert stored.package_id == mission.mission_id
+        expected = mission_package_wire_payload(package)
+        assert stored.byte_size == len(expected)
+        assert service.mission_package_bytes(mission.mission_id) == (
+            expected
+        )
+        assert stored.required_schema_version == '1.0.0'
+        requirement = stored.receiver_requirement
+        assert requirement['required_authority_families'] == [
+            'measurements'
+        ]
+        assert requirement['require_mission_receipts'] is True
+
+        # The descriptor the listing hands the device decodes the
+        # mission's routing metadata + requirement.
+        status, listing = service.handle_mission_listing(
+            pairing.pairing_token, 'capture-instance-9'
+        )
+        assert status == 200
+        entry = listing['packages'][0]
+        assert entry['package_id'] == mission.mission_id
+        assert entry['mission_id'] == mission.mission_id
+        assert entry['purpose'] == 'initial_capture'
+        assert entry['room_label'] == 'Theater A'
+        assert entry['required_schema_version'] == '1.0.0'
+
+        # The pulled payload is the decodable app envelope.
+        status, body = service.handle_mission_package(
+            pairing.pairing_token, mission.mission_id,
+            'capture-instance-9',
+        )
+        assert status == 200
+        envelope = json.loads(body)
+        assert envelope['schema'] == 'htdt.capture-mission'
+        assert envelope['plan']['schema'] == 'htdt.capture-task-plan'
+        assert envelope['plan']['schema_version'] == '2.0.0'
+        assert envelope['plan']['expected_channel_roles'] == ['L']
 
 
 class TestHttpsEndpoint:
