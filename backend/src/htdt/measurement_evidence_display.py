@@ -30,6 +30,21 @@ from .cad_substitution_impact import ChangeImpactAssessment
 from .cad_security_authority import SecurityReview
 from .cad_control_scenario import ControlScenarioQualification
 from .cad_safe_listening import ExposureAssessment
+from .cad_large_signal import (
+    ExcursionCapability,
+    MechanicalOutputLimitAssessment,
+)
+from .cad_source_normalization import (
+    AbsoluteAcousticOutputAnchor,
+    LoudspeakerSourceNormalization,
+)
+from .cad_thermal_compression import (
+    SustainedOutputTest,
+    ThermalCompressionObservation,
+)
+from .cad_microphone_incidence import MicrophoneIncidenceApplicability
+from .cad_surround_array import ArrayAcousticQualification
+from .cad_grille_transfer import FrontLayerApplicability
 
 
 _TRACEABILITY_LABELS = {
@@ -4587,3 +4602,180 @@ def data_privacy_line(verdict: str) -> str:
     """One JA line for a data-sharing verdict (#722) —
     未分類・秘密情報は外部出力不可。"""
     return 'データプライバシー: ' + _PRIVACY_LABELS.get(verdict, verdict)
+
+
+_LOL_VERDICT_LABELS = {
+    'measured_bounded': '実測で限界確認',
+    'model_bounded': 'モデルで限界を推定',
+    'protection_limited': '保護リミッタが限界',
+    'small_signal_only': '小信号証拠のみ',
+    'insufficient_evidence': '証拠不足',
+}
+
+_LSM_MECHANISM_LABELS = {
+    'driver_excursion': 'ドライバ振幅',
+    'motor_force_factor': 'Bl 低下',
+    'suspension_stiffness': 'サスペンション剛性',
+    'inductance_modulation': 'インダクタンス変調',
+    'port_flow_turbulence': 'ポート乱流',
+    'port_compression': 'ポート圧縮',
+    'port_noise_chuffing': 'ポート雑音',
+    'port_resonance_parasitic': 'ポート共鳴',
+    'passive_radiator_excursion': 'パッシブラジエータ振幅',
+    'dsp_excursion_protection': 'DSP振幅保護',
+    'voltage_limiter': '電圧リミッタ',
+    'current_limiter': '電流リミッタ',
+    'thermal_limiter': '熱リミッタ',
+    'amplifier_clipping': 'アンプクリップ',
+    'unknown_combined': '複合要因（不明）',
+    'unknown': '不明',
+}
+
+
+def output_limit_line(
+    assessment: MechanicalOutputLimitAssessment,
+) -> str:
+    """One JA line for a mechanical output limit (#754) —
+    短時間 SPL の線形外挿は claim にしない。"""
+    parts = [_LOL_VERDICT_LABELS.get(assessment.verdict, assessment.verdict)]
+    parts.append(
+        '限界要因: '
+        + _LSM_MECHANISM_LABELS.get(
+            assessment.limiting_mechanism, assessment.limiting_mechanism
+        )
+    )
+    return '機械的出力限界: ' + ' — '.join(parts)
+
+
+def excursion_capability_line(capability: ExcursionCapability) -> str:
+    """One JA line for excursion evidence (#754) —
+    Xmax は定義基準と測定慣例が一致して初めて比較可能。"""
+    return '振幅能力: {0} / {1}'.format(
+        capability.definition_basis, capability.convention
+    )
+
+
+_ABS_VERDICT_LABELS = {
+    'absolute_spl_prediction_eligible': '絶対SPL予測可',
+    'absolute_with_limitations': '絶対出力（制限付）',
+    'relative_response_only': '相対応答のみ',
+    'large_signal_unsupported': '大信号未対応',
+    'insufficient_source_level_evidence': 'ソースレベル証拠不足',
+}
+
+
+def absolute_output_line(
+    normalization: LoudspeakerSourceNormalization,
+    anchor: AbsoluteAcousticOutputAnchor | None,
+) -> str:
+    """One JA line for an absolute-output claim (#734) —
+    相対応答だけでは絶対出力は読めない。"""
+    verdict = (
+        anchor.verdict
+        if anchor is not None
+        else 'insufficient_source_level_evidence'
+    )
+    parts = [_ABS_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append('基準: ' + normalization.capability)
+    return '絶対出力: ' + ' — '.join(parts)
+
+
+_TCM_CAUSE_LABELS = {
+    'voice_coil_thermal': 'ボイスコイル熱',
+    'amplifier_thermal_limiting': 'アンプ熱制限',
+    'dsp_limiter': 'DSPリミッタ',
+    'excursion_protection': '振幅保護',
+    'power_supply_sag': '電源電圧低下',
+    'powered_sub_protection': '内蔵アンプ保護',
+    'unknown_combined': '複合要因（不明）',
+    'unknown': '不明',
+}
+
+
+def sustained_output_line(
+    test: SustainedOutputTest,
+    observation: ThermalCompressionObservation | None,
+) -> str:
+    """One JA line for a sustained-output claim (#731) —
+    短時間最大 SPL を持続出力とは読まない。"""
+    parts = [test.capability_class]
+    if test.duration_s is not None:
+        parts.append('継続 {0:.0f}s'.format(test.duration_s))
+    if observation is not None and observation.samples:
+        last = observation.samples[-1]
+        parts.append('圧縮 {0:+.1f} dB'.format(-last.loss_db))
+        parts.append(
+            '要因: '
+            + _TCM_CAUSE_LABELS.get(
+                observation.suspected_cause, observation.suspected_cause
+            )
+        )
+    return '持続出力: ' + ' — '.join(parts)
+
+
+_INC_VERDICT_LABELS = {
+    'directly_applicable': '直接適用可',
+    'angular_effect_negligible_within_evidence': '角度影響は証拠内で無視可',
+    'correction_available': '補正適用可',
+    'limited': '限定適用',
+    'incompatible': '入射角不適合',
+    'unknown': '不明',
+}
+
+
+def mic_incidence_line(
+    applicability: MicrophoneIncidenceApplicability,
+) -> str:
+    """One JA line for a microphone-incidence verdict (#732) —
+    0度校正を任意入射角には適用しない。"""
+    parts = [_INC_VERDICT_LABELS.get(
+        applicability.verdict, applicability.verdict)]
+    parts.append('測定対象: ' + applicability.measurand)
+    return 'マイク入射角: ' + ' — '.join(parts)
+
+
+_ARQ_VERDICT_LABELS = {
+    'coverage_uniform': 'カバレッジ均一',
+    'spectral_limited': '周波数特性限定',
+    'localization_tradeoff': '定位低下あり',
+    'seat_anomaly': '席異常あり',
+    'topology_limited': '構成上限定',
+    'unqualified': '未検定',
+}
+
+
+def array_qualification_line(
+    qualification: ArrayAcousticQualification,
+) -> str:
+    """One JA line for an array qualification (#737) —
+    単席測定から全席均一とは読まない。"""
+    parts = [_ARQ_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append('測定席 {0}席'.format(len(qualification.measured_seat_refs)))
+    if qualification.cancellation_seats:
+        parts.append(
+            '相殺席×{0}'.format(qualification.cancellation_seats)
+        )
+    return 'アレイ検定: ' + ' — '.join(parts)
+
+
+_FLT_VERDICT_LABELS = {
+    'base_directivity_directly_applicable': '基礎指向性を直接適用可',
+    'base_directivity_plus_measured_transfer': '基礎応答+透過実測',
+    'installed_front_layer_directivity_available': '実装状態指向性あり',
+    'on_axis_only_correction': '軸上のみ補正可',
+    'directivity_limited': '指向性限定',
+    'unknown': '不明',
+}
+
+
+def front_layer_line(
+    applicability: FrontLayerApplicability,
+) -> str:
+    """One JA line for a front-layer applicability (#735) —
+    透過率 UNKNOWN のとき裸素子応答を適用しない。"""
+    parts = [_FLT_VERDICT_LABELS.get(
+        applicability.verdict, applicability.verdict)]
+    if applicability.layer_ref is None:
+        parts.append('前面層なし')
+    return '前面層: ' + ' — '.join(parts)

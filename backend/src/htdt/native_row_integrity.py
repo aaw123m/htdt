@@ -6998,6 +6998,216 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         (_list_count(
             'cad_migration_verifications', 'check_count', 'checks',
         ),),
+    ),    # REV59-LOUDSPK: #754/#734/#731/#732/#737/#735.
+    'cad_large_signal_models': (
+        'payload_json',
+        (
+            _b('model_id', 'model_id'),
+            _b('model_sha256', 'model_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evidence_class', 'evidence_class'),
+            _b('enclosure_alignment', 'enclosure_alignment'),
+            _b('level_applicability', 'level_applicability'),
+        ),
+        (),
+    ),
+    'cad_excursion_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('transducer_ref_id', 'transducer_ref', 'ref_id'),
+            _b('evidence_class', 'evidence_class'),
+            _b('definition_basis', 'definition_basis'),
+        ),
+        (),
+    ),
+    'cad_vent_flow_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('system_ref_id', 'system_ref', 'ref_id'),
+            _b('mechanism', 'mechanism'),
+        ),
+        (),
+    ),
+    'cad_mechanical_output_limits': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('model_ref_id', 'model_ref', 'ref_id'),
+            _b('limiting_mechanism', 'limiting_mechanism'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_source_normalizations': (
+        'payload_json',
+        (
+            _b('normalization_id', 'normalization_id'),
+            _b('normalization_sha256', 'normalization_sha256'),
+            _b('document_id', 'document_id'),
+            _b('capability', 'capability'),
+            _b('normalization_method', 'normalization_method'),
+        ),
+        (),
+    ),
+    'cad_reference_drive_conditions': (
+        'payload_json',
+        (
+            _b('condition_id', 'condition_id'),
+            _b('condition_sha256', 'condition_sha256'),
+            _b('document_id', 'document_id'),
+            _b('quantity_kind', 'quantity_kind'),
+        ),
+        (),
+    ),
+    'cad_absolute_output_anchors': (
+        'payload_json',
+        (
+            _b('anchor_id', 'anchor_id'),
+            _b('anchor_sha256', 'anchor_sha256'),
+            _b('document_id', 'document_id'),
+            _b('normalization_ref_id', 'normalization_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_sustained_output_tests': (
+        'payload_json',
+        (
+            _b('test_id', 'test_id'),
+            _b('test_sha256', 'test_sha256'),
+            _b('document_id', 'document_id'),
+            _b('capability_class', 'capability_class'),
+            _b('initial_thermal_state', 'initial_thermal_state'),
+        ),
+        (),
+    ),
+    'cad_thermal_compression_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('test_ref_id', 'test_ref', 'ref_id'),
+            _b('suspected_cause', 'suspected_cause'),
+        ),
+        (),
+    ),
+    'cad_recovery_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('test_ref_id', 'test_ref', 'ref_id'),
+            _b('recovery_state', 'recovery_state'),
+        ),
+        (),
+    ),
+    'cad_microphone_directional_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('calibration_field_kind', 'calibration_field_kind'),
+        ),
+        (),
+    ),
+    'cad_receiver_orientation_states': (
+        'payload_json',
+        (
+            _b('state_id', 'state_id'),
+            _b('state_sha256', 'state_sha256'),
+            _b('document_id', 'document_id'),
+            _b('orientation_frame', 'orientation_frame'),
+        ),
+        (),
+    ),
+    'cad_microphone_incidence_applicability': (
+        'payload_json',
+        (
+            _b('applicability_id', 'applicability_id'),
+            _b('applicability_sha256', 'applicability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_same_channel_arrays': (
+        'payload_json',
+        (
+            _b('array_id', 'array_id'),
+            _b('array_sha256', 'array_sha256'),
+            _b('document_id', 'document_id'),
+            _b('logical_channel_ref_id', 'logical_channel_ref', 'ref_id'),
+            _b('topology', 'topology'),
+        ),
+        (),
+    ),
+    'cad_array_reproduction_modes': (
+        'payload_json',
+        (
+            _b('mode_id', 'mode_id'),
+            _b('mode_sha256', 'mode_sha256'),
+            _b('document_id', 'document_id'),
+            _b('array_ref_id', 'array_ref', 'ref_id'),
+            _b('render_mode', 'render_mode'),
+        ),
+        (),
+    ),
+    'cad_array_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('array_ref_id', 'array_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_loudspeaker_front_layers': (
+        'payload_json',
+        (
+            _b('layer_id', 'layer_id'),
+            _b('layer_sha256', 'layer_sha256'),
+            _b('document_id', 'document_id'),
+            _b('loudspeaker_ref_id', 'loudspeaker_ref', 'ref_id'),
+            _b('kind', 'kind'),
+        ),
+        (),
+    ),
+    'cad_grille_transfer_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('layer_ref_id', 'layer_ref', 'ref_id'),
+            _b('evidence_class', 'evidence_class'),
+            _b('transfer_kind', 'transfer_kind'),
+        ),
+        (),
+    ),
+    'cad_front_layer_applicability': (
+        'payload_json',
+        (
+            _b('applicability_id', 'applicability_id'),
+            _b('applicability_sha256', 'applicability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('layer_ref_id', 'layer_ref', 'ref_id', optional=True),
+            _b('verdict', 'verdict'),
+        ),
+        (),
     ),
     # REV59-QUALNUM: #703/#716/#717.
     'cad_numerical_repro_profiles': (
