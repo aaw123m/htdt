@@ -1263,7 +1263,13 @@ class _RepositoryChain:
             )
 
             return CadPresentationProfileRepository(scene)
-        raise KeyError(name)
+        if name == 'treatment_safety':
+            from .cad_treatment_safety_repository import (
+                CadTreatmentSafetyRepository,
+            )
+
+            return CadTreatmentSafetyRepository(scene)
+    raise KeyError(name)
 
 
 @dataclass(frozen=True)
@@ -5966,6 +5972,43 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('observation_id',),
         _get('presentation_profile', 'get_caption_observation'),
     ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finite_absorber_geometries',
+        ('geometry_id',),
+        _get('treatment_safety', 'get_finite_geometry'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finite_treatment_boundary_models',
+        ('model_id',),
+        _get('treatment_safety', 'get_boundary_model'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_precedence_profiles',
+        ('profile_id',),
+        _get('treatment_safety', 'get_precedence_profile'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_echo_risk_observations',
+        ('observation_id',),
+        _get('treatment_safety', 'get_echo_observation'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_reaction_to_fire_evidence',
+        ('evidence_id',),
+        _get('treatment_safety', 'get_fire_evidence'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finish_assembly_evidence',
+        ('assembly_id',),
+        _get('treatment_safety', 'get_assembly_evidence'),
+    ),
+
 )
 
 # Managed-asset manifest/evidence tables: every row must resolve to the
