@@ -7407,6 +7407,156 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_adaptive_identification_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_arbitrary_stimulus_measurements': (
+        'payload_json',
+        (
+            _b('stimulus_id', 'stimulus_id'),
+            _b('stimulus_sha256', 'stimulus_sha256'),
+            _b('document_id', 'document_id'),
+            _b('defect_state', 'defect_state'),
+        ),
+        (),
+    ),
+    'cad_adaptive_transfer_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('convergence_state', 'convergence_state'),
+        ),
+        (),
+    ),
+    'cad_adaptive_residual_evidence': (
+        'payload_json',
+        (
+            _b('residual_id', 'residual_id'),
+            _b('residual_sha256', 'residual_sha256'),
+            _b('document_id', 'document_id'),
+            _b('declared_quantity', 'declared_quantity'),
+        ),
+        (),
+    ),
+    'cad_live_tf_sessions': (
+        'payload_json',
+        (
+            _b('session_id', 'session_id'),
+            _b('session_sha256', 'session_sha256'),
+            _b('document_id', 'document_id'),
+            _b('reference_kind', 'reference_kind'),
+        ),
+        (),
+    ),
+    'cad_dual_channel_tf_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('capture_state', 'capture_state'),
+        ),
+        (),
+    ),
+    'cad_coherence_observations': (
+        'payload_json',
+        (
+            _b('coherence_id', 'coherence_id'),
+            _b('coherence_sha256', 'coherence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('observation_ref_id', 'observation_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_reference_delay_tracks': (
+        'payload_json',
+        (
+            _b('track_id', 'track_id'),
+            _b('track_sha256', 'track_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_microphone_array_geometries': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('geometry_sha256', 'geometry_sha256'),
+            _b('document_id', 'document_id'),
+            _b('topology', 'topology'),
+        ),
+        (),
+    ),
+    'cad_spatial_sampling_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('sync_capability', 'sync_capability'),
+        ),
+        (),
+    ),
+    'cad_beamforming_transforms': (
+        'payload_json',
+        (
+            _b('transform_id', 'transform_id'),
+            _b('transform_sha256', 'transform_sha256'),
+            _b('document_id', 'document_id'),
+            _b('output_state', 'output_state'),
+        ),
+        (),
+    ),
+    'cad_impedance_measurement_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_impedance_calibration_states': (
+        'payload_json',
+        (
+            _b('calibration_id', 'calibration_id'),
+            _b('calibration_sha256', 'calibration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_measured_load_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evidence_class', 'evidence_class'),
+        ),
+        (),
+    ),
+    'cad_thiele_small_derivations': (
+        'payload_json',
+        (
+            _b('derivation_id', 'derivation_id'),
+            _b('derivation_sha256', 'derivation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('model_fit_state', 'model_fit_state'),
+        ),
+        (),
+    ),
 
 }
 

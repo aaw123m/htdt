@@ -1287,6 +1287,12 @@ class _RepositoryChain:
             )
 
             return CadAcousticMetrologyRepository(scene)
+        if name == 'field_metrology':
+            from .cad_field_metrology_repository import (
+                CadFieldMetrologyRepository,
+            )
+
+            return CadFieldMetrologyRepository(scene)
         raise KeyError(name)
 
 
@@ -6207,6 +6213,96 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_drr_measurements',
         ('measurement_id',),
         _get('acoustic_metrology', 'get_drr_measurement'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_adaptive_identification_profiles',
+        ('profile_id',),
+        _get('field_metrology', 'get_identification_profile'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_arbitrary_stimulus_measurements',
+        ('stimulus_id',),
+        _get('field_metrology', 'get_stimulus_measurement'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_adaptive_transfer_estimates',
+        ('estimate_id',),
+        _get('field_metrology', 'get_transfer_estimate'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_adaptive_residual_evidence',
+        ('residual_id',),
+        _get('field_metrology', 'get_residual_evidence'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_live_tf_sessions',
+        ('session_id',),
+        _get('field_metrology', 'get_live_session'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_dual_channel_tf_observations',
+        ('observation_id',),
+        _get('field_metrology', 'get_tf_observation'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_coherence_observations',
+        ('coherence_id',),
+        _get('field_metrology', 'get_coherence_observation'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_reference_delay_tracks',
+        ('track_id',),
+        _get('field_metrology', 'get_delay_track'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_microphone_array_geometries',
+        ('geometry_id',),
+        _get('field_metrology', 'get_array_geometry'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_spatial_sampling_capabilities',
+        ('capability_id',),
+        _get('field_metrology', 'get_sampling_capability'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_beamforming_transforms',
+        ('transform_id',),
+        _get('field_metrology', 'get_beamforming_transform'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_impedance_measurement_profiles',
+        ('profile_id',),
+        _get('field_metrology', 'get_impedance_profile'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_impedance_calibration_states',
+        ('calibration_id',),
+        _get('field_metrology', 'get_impedance_calibration'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_measured_load_evidence',
+        ('evidence_id',),
+        _get('field_metrology', 'get_load_evidence'),
+    ),
+    _ReplayProbe(
+        'field_metrology',
+        'cad_thiele_small_derivations',
+        ('derivation_id',),
+        _get('field_metrology', 'get_ts_derivation'),
     ),
 
 )

@@ -726,6 +726,21 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_echo_diagnostics": "エコー診断",
     "cad_drr_method_profiles": "DRR手法プロファイル",
     "cad_drr_measurements": "DRR測定値",
+    "cad_adaptive_identification_profiles": "適応同定プロファイル",
+    "cad_arbitrary_stimulus_measurements": "任意刺激測定",
+    "cad_adaptive_transfer_estimates": "適応伝達推定",
+    "cad_adaptive_residual_evidence": "適応残差証拠",
+    "cad_live_tf_sessions": "ライブTFセッション",
+    "cad_dual_channel_tf_observations": "二ch伝達観測",
+    "cad_coherence_observations": "コヒーレンス観測",
+    "cad_reference_delay_tracks": "基準遅延追跡",
+    "cad_microphone_array_geometries": "マイクアレイ形状",
+    "cad_spatial_sampling_capabilities": "空間サンプリング能力",
+    "cad_beamforming_transforms": "ビームフォーミング変換",
+    "cad_impedance_measurement_profiles": "インピーダンス測定系",
+    "cad_impedance_calibration_states": "インピーダンス校正状態",
+    "cad_measured_load_evidence": "測定負荷証拠",
+    "cad_thiele_small_derivations": "T-S導出",
 
 }
 

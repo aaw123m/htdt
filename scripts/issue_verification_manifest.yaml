@@ -3728,3 +3728,98 @@ issues:
           - backend/tests/test_rev59_audiomet.py::test_drr_claim_ladder
           - backend/tests/test_rev59_audiomet.py::test_drr_measurement_requires_method_and_evidence
         description: Method-dependent scalar honesty.
+  - issue: 661
+    title: "Adaptive acoustic identification authority"
+    notes: >
+      AdaptiveIdentificationProfile (aam-) pins the estimator method —
+      'unknown' fails closed and a native method requires
+      license_review_status='reviewed_permitted' (FSAF-style code is
+      import-only; Fattah & Zhu 1997 / FSF fast-convergence literature).
+      ArbitraryStimulusMeasurement (asm-) requires exact stimulus
+      identity: file_segment needs asset_sha256 + segment bounds,
+      generated_noise needs realization_seed. AdaptiveTransferEstimate
+      (ate-) binds profile + stimulus + per-band excitation support;
+      ResidualEvidence (are-) decomposes the residual and a TD+N-like
+      quantity can never claim sweep-THD comparability.
+      evaluate_adaptive_claim: unqualified method → unqualified_method;
+      system_changed → stationarity_violated; async clock →
+      clock_limited; partial support → band_limited_estimate.
+    checks:
+      - id: adaptive-identification
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiometb.py::test_adaptive_claim_ladder
+          - backend/tests/test_rev59_audiometb.py::test_profile_requires_declared_method_and_license
+          - backend/tests/test_rev59_audiometb.py::test_stimulus_requires_exact_identity
+          - backend/tests/test_rev59_audiometb.py::test_residual_requires_decomposition_and_not_thd
+        description: Estimator/license/stimulus-identity fail-closed gates.
+  - issue: 663
+    title: "Live dual-channel TF / coherence authority"
+    notes: >
+      LiveTransferFunctionSession (lts-) declares reference_kind,
+      reference channel, measurement channels and clock topology.
+      DualChannelTFObservation (dto-) rejects 'unknown' estimator /
+      mtw / averaging; qualified_capture additionally pins
+      tf_payload/delay/coherence/timebase/stimulus_state refs
+      (Smaart-style delay-tracked capture, Killion & Greiner FFT-TF
+      workflows). CoherenceObservation (coh-) preserves the raw trace;
+      ReferenceDelayTrack (rdt-) records auto-found/tracked delay and
+      masked-change suspicion. evaluate_capture_claim: no session or
+      live-only state → ephemeral_only; provider_defined estimator →
+      estimator_unqualified; async clock → clock_limited;
+      tracker-masked delay change → tracker_masked_change.
+    checks:
+      - id: live-transfer-function
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiometb.py::test_capture_claim_ladder
+          - backend/tests/test_rev59_audiometb.py::test_qualified_capture_requires_pinned_state
+          - backend/tests/test_rev59_audiometb.py::test_observation_requires_estimator_semantics
+        description: Ephemeral ≠ captured; estimator/timebase/delay gates.
+  - issue: 658
+    title: "Microphone-array spatial-sampling authority"
+    notes: >
+      MicrophoneArrayGeometry (mag-) declares topology (never
+      'unknown') and ≥2 member refs with surveyed positions and
+      spacing/aperture — extends #266's synchronized channels with a
+      geometry record. SpatialSamplingCapability (ssc-) pins
+      sync_capability (magnitude_only vs coherent beamforming) and
+      propagation model per-band states (well_sampled /
+      spatial_aliasing_risk / low_frequency_resolution_limited —
+      Van Trees optimum array processing). BeamformingTransform (bft-)
+      requires declared algorithm + steering model; a
+      direction_supported output is only legal with psf_evidence_ref.
+      evaluate_spatial_claim: magnitude-only sync → sync_insufficient;
+      model mismatch; aliased band → spatial_alias_ambiguous;
+      aperture-short band → aperture_limited.
+    checks:
+      - id: mic-array-spatial
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiometb.py::test_spatial_claim_ladder
+          - backend/tests/test_rev59_audiometb.py::test_beamforming_transform_requires_method_and_psf
+          - backend/tests/test_rev59_audiometb.py::test_array_geometry_requires_members_and_topology
+        description: Synced channels ≠ alias-free spatial reconstruction.
+  - issue: 662
+    title: "Loudspeaker impedance / T-S measurement authority"
+    notes: >
+      ImpedanceMeasurementProfile (zmp-) declares target_kind —
+      active_device_input is out-of-scope (different domain) — and
+      method. ImpedanceCalibrationState (zcs-) requires a
+      reference_load_cal step with measured load + uncertainty.
+      MeasuredLoadEvidence (zle-) is signal-domain-bound
+      (small_signal vs large_signal) and a measured_complex_load
+      claim requires phase_trace_ref + calibration_ref (IEC 60268-5 /
+      Thiele 1971 convention). ThieleSmallDerivation (tsd-) pins
+      added_mass_g / sealed_volume_l with uncertainty and a
+      model_fit_state. evaluate_load_claim: complete_passive_loudspeaker_
+      terminals → derivation_ineligible_target; missing calibration →
+      calibration_missing; large-signal evidence caps at state_limited.
+    checks:
+      - id: impedance-ts-measurement
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_audiometb.py::test_load_claim_ladder
+          - backend/tests/test_rev59_audiometb.py::test_load_evidence_requires_trace_and_calibration
+          - backend/tests/test_rev59_audiometb.py::test_ts_derivation_requires_method_inputs
+        description: Field Z(f) evidence ≠ catalog data; calibration gates.

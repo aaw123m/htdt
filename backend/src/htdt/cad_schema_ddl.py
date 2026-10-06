@@ -6780,6 +6780,201 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_drr_measurements_document_idx ON cad_drr_measurements (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_adaptive_identification_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_arbitrary_stimulus_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    stimulus_id TEXT NOT NULL UNIQUE,
+    stimulus_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    defect_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_adaptive_transfer_estimates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id TEXT NOT NULL UNIQUE,
+    estimate_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    convergence_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_adaptive_residual_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    residual_id TEXT NOT NULL UNIQUE,
+    residual_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    declared_quantity TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_live_tf_sessions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    session_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    reference_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_dual_channel_tf_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    capture_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_coherence_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    coherence_id TEXT NOT NULL UNIQUE,
+    coherence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    observation_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_reference_delay_tracks (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id TEXT NOT NULL UNIQUE,
+    track_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_microphone_array_geometries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    geometry_id TEXT NOT NULL UNIQUE,
+    geometry_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    topology TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_sampling_capabilities (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    capability_id TEXT NOT NULL UNIQUE,
+    capability_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    sync_capability TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_beamforming_transforms (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    transform_id TEXT NOT NULL UNIQUE,
+    transform_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    output_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_impedance_measurement_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_impedance_calibration_states (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    calibration_id TEXT NOT NULL UNIQUE,
+    calibration_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    profile_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_measured_load_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    evidence_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_thiele_small_derivations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    derivation_id TEXT NOT NULL UNIQUE,
+    derivation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    model_fit_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_adaptive_identification_profiles_document_idx ON cad_adaptive_identification_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_arbitrary_stimulus_measurements_document_idx ON cad_arbitrary_stimulus_measurements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_adaptive_transfer_estimates_document_idx ON cad_adaptive_transfer_estimates (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_adaptive_residual_evidence_document_idx ON cad_adaptive_residual_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_live_tf_sessions_document_idx ON cad_live_tf_sessions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_dual_channel_tf_observations_document_idx ON cad_dual_channel_tf_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_coherence_observations_document_idx ON cad_coherence_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_reference_delay_tracks_document_idx ON cad_reference_delay_tracks (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_microphone_array_geometries_document_idx ON cad_microphone_array_geometries (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_sampling_capabilities_document_idx ON cad_spatial_sampling_capabilities (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_beamforming_transforms_document_idx ON cad_beamforming_transforms (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_impedance_measurement_profiles_document_idx ON cad_impedance_measurement_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_impedance_calibration_states_document_idx ON cad_impedance_calibration_states (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_measured_load_evidence_document_idx ON cad_measured_load_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_thiele_small_derivations_document_idx ON cad_thiele_small_derivations (document_id)
+    """
+    ,
 )
 
 
@@ -7711,4 +7906,19 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_echo_diagnostics',
     'cad_drr_method_profiles',
     'cad_drr_measurements',
+    'cad_adaptive_identification_profiles',
+    'cad_arbitrary_stimulus_measurements',
+    'cad_adaptive_transfer_estimates',
+    'cad_adaptive_residual_evidence',
+    'cad_live_tf_sessions',
+    'cad_dual_channel_tf_observations',
+    'cad_coherence_observations',
+    'cad_reference_delay_tracks',
+    'cad_microphone_array_geometries',
+    'cad_spatial_sampling_capabilities',
+    'cad_beamforming_transforms',
+    'cad_impedance_measurement_profiles',
+    'cad_impedance_calibration_states',
+    'cad_measured_load_evidence',
+    'cad_thiele_small_derivations',
 )

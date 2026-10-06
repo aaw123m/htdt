@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 65
+NATIVE_SCHEMA_VERSION = 66
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1742,6 +1742,14 @@ def _migrate_64_to_65(connection):
         connection.execute(statement)
 
 
+def _migrate_65_to_66(connection):
+    # REV59-AUDIOMET-B (#661 adaptive identification, #663 live
+    # dual-channel TF, #658 microphone arrays, #662 impedance/T-S):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 
 _MIGRATIONS = {
     1: _migrate_0_to_1,
@@ -1809,6 +1817,7 @@ _MIGRATIONS = {
     63: _migrate_62_to_63,
     64: _migrate_63_to_64,
     65: _migrate_64_to_65,
+    66: _migrate_65_to_66,
 }
 
 
