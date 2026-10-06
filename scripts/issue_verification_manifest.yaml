@@ -1863,3 +1863,246 @@ issues:
           R160 実行パイプラインから composition spec / 連続性
           メトリクス自動供給、Schroeder 周波数の room-volume+
           RT60 からの自動推定器、UI 入力フォームは残件。
+  - issue: 654
+    title: "REV58-AUDIOMODEL: acoustic-reference origin / phase-center authority"
+    notes: >
+      SourceReferenceOriginProfile seals the declared reference-point
+      kinds, per-band acoustic-center estimates (evidence class,
+      method, position, valid band), the dataset reference frame, and
+      the declared capability. Band-limited estimates require a valid
+      band; no_single_center_model cannot assert a position; measured
+      evidence requires a method; absolute-phase capability requires a
+      phase/time reference or measured-delay evidence. Evaluation
+      reports origin_qualified only when a covering estimate exists;
+      geometry-inferred or assumed estimates, boundary mismatch, and
+      frame-only declarations degrade to origin_limited /
+      origin_unverified; undeclared -> insufficient_evidence.
+    checks:
+      - id: source-origin-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_origin_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_origin_profile_requires_pinned_source_ref
+          - backend/tests/test_rev58_audiomodel.py::test_origin_band_limited_estimate_requires_band
+          - backend/tests/test_rev58_audiomodel.py::test_origin_no_single_center_cannot_assert_position
+          - backend/tests/test_rev58_audiomodel.py::test_origin_measured_estimate_requires_method
+          - backend/tests/test_rev58_audiomodel.py::test_origin_absolute_capability_requires_phase_reference
+          - backend/tests/test_rev58_audiomodel.py::test_origin_evaluate_qualified_in_band
+          - backend/tests/test_rev58_audiomodel.py::test_origin_evaluate_limited_outside_band
+          - backend/tests/test_rev58_audiomodel.py::test_origin_undeclared_is_insufficient_evidence
+          - backend/tests/test_rev58_audiomodel.py::test_origin_frame_origin_without_estimate_is_unverified
+          - backend/tests/test_rev58_audiomodel.py::test_origin_boundary_mismatch_limits
+          - backend/tests/test_rev58_audiomodel.py::test_origin_assumed_estimate_limits
+          - backend/tests/test_rev58_audiomodel.py::test_origin_repository_rejects_tampered_row
+        description: >
+          Phase-center evidence classes, band-limited estimates,
+          capability gating, fail-closed verdicts, append-only and
+          tamper evidence.
+      - id: source-origin-remainder
+        kind: manual
+        description: >
+          実測パイプラインからの位相中心自動推定、UI 入力フォーム、
+          excitation authority (#668 系) との live 結合は残件。
+  - issue: 655
+    title: "REV58-AUDIOMODEL: source near-field / far-field applicability authority"
+    notes: >
+      SourceFieldProfile seals the measurement geometry (mic distance,
+      distance reference kind, environment, gate window) and per-band
+      field regimes with applicable distance ranges and transition
+      distances (basis required). Evaluation refuses a far-field model
+      closer than its declared minimum, refuses multi-radiator
+      time-domain semantics for polar-only data, maps near-field scans
+      to nearfield_only without a declared holography derivation
+      (approximation when declared), and returns
+      insufficient_evidence outside declared bands. Gated
+      quasi-anechoic environments lose low-band validity below the
+      gate-window resolution.
+    checks:
+      - id: source-field-applicability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_field_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_field_profile_origin_ref_must_be_origin_authority
+          - backend/tests/test_rev58_audiomodel.py::test_field_gated_environment_requires_gate_window
+          - backend/tests/test_rev58_audiomodel.py::test_field_transition_distance_requires_basis
+          - backend/tests/test_rev58_audiomodel.py::test_field_too_close_refused
+          - backend/tests/test_rev58_audiomodel.py::test_field_directly_applicable_in_domain
+          - backend/tests/test_rev58_audiomodel.py::test_field_multi_radiator_semantics_refused_for_polar_only
+          - backend/tests/test_rev58_audiomodel.py::test_field_band_outside_regimes_is_insufficient_evidence
+          - backend/tests/test_rev58_audiomodel.py::test_field_nearfield_only_without_derivation
+          - backend/tests/test_rev58_audiomodel.py::test_field_nearfield_with_derivation_approximates
+          - backend/tests/test_rev58_audiomodel.py::test_field_gate_limits_low_band
+          - backend/tests/test_rev58_audiomodel.py::test_field_repository_rejects_tampered_row
+        description: >
+          Measurement-distance pinning, far-field reuse bounds, gated
+          low-band validity, near-field scan derivation gating,
+          fail-closed verdicts, tamper evidence.
+      - id: source-field-remainder
+        kind: manual
+        description: >
+          D²/λ 遷移距離の自動推定器、near-field holography 実装との
+          連携、UI 入力フォームは残件。
+  - issue: 656
+    title: "REV58-AUDIOMODEL: directivity angular-resolution / interpolation authority"
+    notes: >
+      DirectivitySamplingProfile seals the measured angular coverage
+      class, direction count, nominal step, dataset kind
+      (magnitude/complex/SH), the declared interpolation
+      (method+domain compatibility, SH requiring a ShRepresentation,
+      complex_tf methods requiring complex data), and per-band
+      angular-capability states. Interpolation grids denser than the
+      measurement are recorded in DirectivityInterpolationRecord but
+      never raise the information ceiling: evaluate_direction_query
+      reports measured/interpolated/limited (per-band states like
+      spatial_aliasing_risk)/extrapolated/outside_coverage and caps
+      the SH order at the declared representation.
+    checks:
+      - id: directivity-resolution-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_dir_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_dir_complex_interp_rejected_on_magnitude_dataset
+          - backend/tests/test_rev58_audiomodel.py::test_dir_sh_method_requires_representation
+          - backend/tests/test_rev58_audiomodel.py::test_dir_method_domain_mismatch_rejected
+          - backend/tests/test_rev58_audiomodel.py::test_dir_measured_direction
+          - backend/tests/test_rev58_audiomodel.py::test_dir_interpolated_eligible
+          - backend/tests/test_rev58_audiomodel.py::test_dir_no_interpolation_is_outside_coverage
+          - backend/tests/test_rev58_audiomodel.py::test_dir_hv_cuts_off_plane_is_outside_coverage
+          - backend/tests/test_rev58_audiomodel.py::test_dir_sh_order_unsupported
+          - backend/tests/test_rev58_audiomodel.py::test_dir_limited_band_capability_downgrades
+          - backend/tests/test_rev58_audiomodel.py::test_dir_interpolation_record_seals
+          - backend/tests/test_rev58_audiomodel.py::test_dir_repository_rejects_tampered_row
+        description: >
+          Measured-grid pinning, method/domain compatibility, coverage
+          gating, SH order cap, interpolation-record sealing,
+          tamper evidence.
+      - id: directivity-resolution-remainder
+        kind: manual
+        description: >
+          球面調和次数の自動推定（空間サンプリング定理から）、
+          heldout 検証の自動実行、バルーン可視化との live 結合は
+          残件。
+  - issue: 690
+    title: "REV58-AUDIOMODEL: multi-source correlation / coherence authority"
+    notes: >
+      SourceCoherenceProfile seals the member sources (each pinning
+      its own profile, stimulus, and filter refs), declared
+      correlation relations with evidence basis, and CSD evidence
+      (sorted positive grid, Hermitian declared). A non-unknown
+      default relation requires covering relations; a deterministic
+      default requires every member to pin a stimulus_ref.
+      evaluate_source_combination refuses incoherent energy summation
+      on deterministic/coherent groups (incompatible_combination),
+      routes partially-coherent groups to CSD or statistical modes
+      only, allows bounded_scenarios only when scenario bounds are
+      declared, and returns insufficient_evidence for undeclared
+      relations.
+    checks:
+      - id: source-coherence-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_deterministic_requires_stimulus_pin
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_relation_requires_basis
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_partial_requires_csd_or_coherence_basis
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_csd_must_declare_hermitian
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_energy_sum_on_deterministic_is_incompatible
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_complex_sum_qualified
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_independent_energy_sum_qualified
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_partial_energy_sum_incompatible
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_undeclared_only_allows_bounds
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_undeclared_with_declared_bounds
+          - backend/tests/test_rev58_audiomodel.py::test_coherence_repository_rejects_tampered_row
+        description: >
+          Correlation declarations with evidence basis, combination
+          mode gating, fail-closed verdicts, tamper evidence.
+      - id: source-coherence-remainder
+        kind: manual
+        description: >
+          実 CSD 測定パイプラインとの連携、サブ/LCR グループの
+          自動検出、bass-management authority との live 結合、
+          UI 入力フォームは残件。
+  - issue: 684
+    title: "REV58-AUDIOMODEL: geometric surface-scattering model qualification authority"
+    notes: >
+      SurfaceReflectionModelProfile seals the solver reflection-model
+      kind and the explicit coefficient-to-distribution mapping:
+      ISO 17497-2 directional-diffusion coefficients and other
+      non-fraction kinds are rejected as solver scalar inputs (allowed
+      only for documentation/display), unit-energy mappings must have
+      fractions summing to 1, and measured-kernel laws need
+      multi-incidence measured data. Coefficient-consuming models
+      require a mapping; measured-directional models require a
+      measured_kernel law; custom_validated requires a real
+      validation tier with evidence refs. Evaluation returns
+      directional_redirection_unsupported when geometry needs
+      redirection the model cannot express.
+    checks:
+      - id: scattering-model-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_scat_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_scat_iso17497_2_cannot_feed_solver_input
+          - backend/tests/test_rev58_audiomodel.py::test_scat_diffusion_kind_as_documentation_role_ok
+          - backend/tests/test_rev58_audiomodel.py::test_scat_coefficient_model_requires_mapping
+          - backend/tests/test_rev58_audiomodel.py::test_scat_unit_energy_requires_fraction_sum
+          - backend/tests/test_rev58_audiomodel.py::test_scat_redirection_required_refused
+          - backend/tests/test_rev58_audiomodel.py::test_scat_redirecting_model_qualified
+          - backend/tests/test_rev58_audiomodel.py::test_scat_early_reflection_on_late_only_model_limits
+          - backend/tests/test_rev58_audiomodel.py::test_scat_repository_rejects_tampered_row
+        description: >
+          Explicit coefficient-to-distribution mapping, non-fraction
+          coefficient rejection, early/late applicability,
+          directional-redirection gating, tamper evidence.
+      - id: scattering-model-remainder
+        kind: manual
+        description: >
+          実測散乱係数取り込み、実ソルバーとの分布写像バインド、
+          material scattering authority (#570 系) との live 結合、
+          UI 入力フォームは残件。
+  - issue: 681
+    title: "REV58-AUDIOMODEL: edge-diffraction model qualification authority"
+    notes: >
+      EdgeDiffractionProfile seals the model family
+      (btm_finite_edge / utd / det_rational / keller /
+       iir_reduced_approximation / numerical_wave_reference /
+       custom_validated — unknown is not declarable), the edge
+      geometry pin (finite edges need a length), wedge material
+      semantics, diffraction order spec, numerics spec with optional
+      convergence evidence, and visibility spec.
+      DiffractionBenchmarkResult sha-pins the profile and records
+      fixture kind / reference class / result (a pass cannot contain
+      mismatches). evaluate_diffraction_model refuses a capability
+      with any failing fixture, requires real fixtures (except
+      numerical_wave_reference which can claim physical_reference
+      with a limitation), caps IIR approximations at
+      perceptual_approximation_capability without strong fixtures,
+      downgrades rigid-boundary models on non-rigid wedges, and caps
+      physical_reference at approximation without convergence
+      evidence.
+    checks:
+      - id: edge-diffraction-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_audiomodel.py::test_dif_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_audiomodel.py::test_dif_finite_edge_requires_length
+          - backend/tests/test_rev58_audiomodel.py::test_dif_unknown_family_not_declarable
+          - backend/tests/test_rev58_audiomodel.py::test_dif_pass_fixture_cannot_mismatch
+          - backend/tests/test_rev58_audiomodel.py::test_dif_benchmark_seals
+          - backend/tests/test_rev58_audiomodel.py::test_dif_no_benchmarks_is_insufficient_evidence
+          - backend/tests/test_rev58_audiomodel.py::test_dif_strong_fixture_gives_reference_capability
+          - backend/tests/test_rev58_audiomodel.py::test_dif_failing_fixture_is_unqualified
+          - backend/tests/test_rev58_audiomodel.py::test_dif_iir_approximation_capped_perceptual
+          - backend/tests/test_rev58_audiomodel.py::test_dif_rigid_model_on_nonrigid_wedge_limited
+          - backend/tests/test_rev58_audiomodel.py::test_dif_missing_convergence_caps_reference
+          - backend/tests/test_rev58_audiomodel.py::test_dif_repository_rejects_tampered_row
+        description: >
+          Model-family declaration, geometry pinning, benchmark
+          sealing and pass consistency, capability ladder,
+          boundary-limited downgrade, tamper evidence.
+      - id: edge-diffraction-remainder
+        kind: manual
+        description: >
+          BTM/UTD 実装の fixture ライブラリ整備、収束証拠の自動
+          収集、geometric fidelity (#685) との live 結合、UI 入力
+          フォームは残件。

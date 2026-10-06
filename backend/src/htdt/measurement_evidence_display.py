@@ -2981,3 +2981,157 @@ def hybrid_handoff_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return 'ハイブリッド引継適格: ' + ' — '.join(parts)
+
+
+# REV58-AUDIOMODEL: 音響モデル権威 (#654/#655/#656/#690/#684/#681)
+
+_ORIGIN_VERDICT_LABELS = {
+    'origin_qualified': '原点適格',
+    'origin_limited': '原点限定',
+    'origin_unverified': '原点未検証',
+    'insufficient_evidence': '証拠不足',
+}
+
+_FIELD_VERDICT_LABELS = {
+    'directly_applicable': '直接適用可',
+    'applicable_with_approximation': '近似で適用可',
+    'transition_field_limited': '遷移場で限定',
+    'distance_too_close_for_selected_far_field_model': (
+        '遠距離場モデルに対し距離不足'
+    ),
+    'nearfield_only': '近接場のみ',
+    'farfield_only': '遠距離場のみ',
+    'requires_explicit_multi_radiator_model': '多放射器モデル必須',
+    'insufficient_evidence': '証拠不足',
+}
+
+_DIRECTION_VERDICT_LABELS = {
+    'measured_direction': '実測方向',
+    'interpolated_eligible': '補間適格',
+    'interpolated_limited': '補間限定',
+    'extrapolated': '外挿',
+    'outside_coverage': 'カバレッジ外',
+    'sh_order_unsupported': 'SH次数超過',
+    'insufficient_evidence': '証拠不足',
+}
+
+_COMBINATION_VERDICT_LABELS = {
+    'combination_qualified': '合成適格',
+    'qualified_with_limitations': '限定付き適格',
+    'qualified_with_scenario_bounds': 'シナリオ境界付き適格',
+    'incompatible_combination': '不整合な合成',
+    'insufficient_evidence': '証拠不足',
+}
+
+_SCATTERING_VERDICT_LABELS = {
+    'qualified_for_declared_domain': '宣言領域で適格',
+    'qualified_with_limitations': '限定付き適格',
+    'directional_redirection_unsupported': '方向再配分非対応',
+    'insufficient_evidence': '証拠不足',
+    'not_qualified': '不適格',
+}
+
+_DIFFRACTION_CAPABILITY_LABELS = {
+    'physical_reference_capability': '物理基準能力',
+    'physical_approximation_capability': '物理近似能力',
+    'perceptual_approximation_capability': '知覚近似能力',
+    'unqualified': '不適格',
+    'insufficient_evidence': '証拠不足',
+}
+
+
+def source_origin_line(qualification) -> str:
+    """One JA line for a source-origin qualification (#654): verdict
+    plus the effective origin kind — CAD ポーズ既定の原点は読まない。"""
+    parts = [_ORIGIN_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append('有効原点: {0}'.format(qualification.effective_origin_kind))
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    elif qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '音源原点適格: ' + ' — '.join(parts)
+
+
+def source_field_line(qualification) -> str:
+    """One JA line for a source-field qualification (#655): verdict
+    plus the effective field regime and requested distance — 測定距離
+    宣言のない遠場再利用は読まない。"""
+    parts = [_FIELD_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append('場種別: {0}'.format(qualification.effective_regime))
+    if qualification.requested_distance_m is not None:
+        parts.append(
+            '要求距離: {0:.2f} m'.format(qualification.requested_distance_m)
+        )
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    elif qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '音場適用適格: ' + ' — '.join(parts)
+
+
+def directivity_direction_line(qualification) -> str:
+    """One JA line for a direction query qualification (#656): verdict
+    plus queried angles — 補間密度は実測情報密度として読まない。"""
+    parts = [_DIRECTION_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append(
+        '方向: az={0:.1f}° el={1:.1f}°'.format(
+            qualification.azimuth_deg, qualification.elevation_deg)
+    )
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    elif qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '方向問合せ適格: ' + ' — '.join(parts)
+
+
+def source_combination_line(qualification) -> str:
+    """One JA line for a source-combination qualification (#690):
+    verdict plus requested/effective modes — 相関証拠なしの独立源仮定は
+    読まない。"""
+    parts = [_COMBINATION_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append('要求モード: {0}'.format(qualification.requested_mode))
+    if qualification.effective_mode is not None and (
+        qualification.effective_mode != qualification.requested_mode
+    ):
+        parts.append('有効モード: {0}'.format(qualification.effective_mode))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '音源合成適格: ' + ' — '.join(parts)
+
+
+def scattering_model_line(qualification) -> str:
+    """One JA line for a scattering-model qualification (#684): verdict
+    plus the effective solver model — 係数を黙って Lambert には読まない。"""
+    parts = [_SCATTERING_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    if qualification.effective_model is not None:
+        parts.append('モデル: {0}'.format(qualification.effective_model))
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    elif qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '散乱モデル適格: ' + ' — '.join(parts)
+
+
+def edge_diffraction_line(qualification) -> str:
+    """One JA line for an edge-diffraction qualification (#681):
+    capability plus covered fixture kinds — 未検証モデルの正確さは
+    読まない。"""
+    parts = [_DIFFRACTION_CAPABILITY_LABELS.get(
+        qualification.capability, qualification.capability)]
+    if qualification.covered_fixture_kinds:
+        parts.append(
+            'fixtures: '
+            + ' / '.join(qualification.covered_fixture_kinds[:4])
+        )
+    if qualification.boundary_limited:
+        parts.append('境界限定')
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    elif qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '回折適格: ' + ' — '.join(parts)
