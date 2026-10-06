@@ -657,6 +657,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_power_quality_qualifications": "電源品質適格レコード",
     "cad_emc_product_profiles": "EMC製品プロファイル",
     "cad_emc_symptom_records": "EMC症状記録",
+    "cad_product_safety_profiles": "製品安全認証プロファイル",
+    "cad_occupied_iaq_observations": "占有時IAQ観測レコード",
+    "cad_occupied_iaq_qualifications": "占有時IAQ適格レコード",
+    "cad_voc_emission_profiles": "VOC排出プロファイル",
 }
 
 

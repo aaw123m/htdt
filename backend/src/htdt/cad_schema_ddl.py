@@ -5957,6 +5957,40 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_emcs_doc ON cad_emc_symptom_records(document_id, seq ASC)
     """
     ,
+    # REV59-BUILDENV: #751 product safety, #740 occupied IAQ,
+    # #750 VOC emissions — four append-only authorities.
+    """
+    CREATE TABLE IF NOT EXISTS cad_product_safety_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, listing_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_psf_doc ON cad_product_safety_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_occupied_iaq_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, room_id TEXT NOT NULL, occupied INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_iaq_doc ON cad_occupied_iaq_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_occupied_iaq_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, room_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_iaqq_doc ON cad_occupied_iaq_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_voc_emission_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_voc_doc ON cad_voc_emission_profiles(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6797,4 +6831,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_power_quality_qualifications',
     'cad_emc_product_profiles',
     'cad_emc_symptom_records',
+    # REV59-BUILDENV: #751 / #740 / #750.
+    'cad_product_safety_profiles',
+    'cad_occupied_iaq_observations',
+    'cad_occupied_iaq_qualifications',
+    'cad_voc_emission_profiles',
 )
