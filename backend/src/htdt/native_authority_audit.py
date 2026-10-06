@@ -1293,6 +1293,12 @@ class _RepositoryChain:
             )
 
             return CadFacilityRepository(scene)
+        if name == 'display_authority':
+            from .cad_display_authority_repository import (
+                CadDisplayAuthorityRepository,
+            )
+
+            return CadDisplayAuthorityRepository(scene)
         raise KeyError(name)
 
 
@@ -6255,6 +6261,48 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_emc_compliance_evidence',
         ('evidence_id',),
         _get('facility', 'get_emc_evidence'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_displayed_gradation_observations',
+        ('observation_id',),
+        _get('display_authority', 'get_gradation_observation'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_colour_volume_measurements',
+        ('volume_id',),
+        _get('display_authority', 'get_colour_volume'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_spatial_resolution_evidence',
+        ('evidence_id',),
+        _get('display_authority', 'get_resolution_evidence'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_low_luminance_capabilities',
+        ('capability_id',),
+        _get('display_authority', 'get_luminance_capability'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_dynamic_contrast_measurements',
+        ('measurement_id',),
+        _get('display_authority', 'get_contrast_measurement'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_display_wall_boundaries',
+        ('boundary_id',),
+        _get('display_authority', 'get_wall_boundary'),
+    ),
+    _ReplayProbe(
+        'display_authority',
+        'cad_wall_acoustic_impacts',
+        ('impact_id',),
+        _get('display_authority', 'get_wall_impact'),
     ),
 
 )

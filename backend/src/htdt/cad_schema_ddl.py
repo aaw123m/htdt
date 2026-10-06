@@ -6873,6 +6873,100 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_emc_compliance_evidence_document_idx ON cad_emc_compliance_evidence (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_displayed_gradation_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    range_semantics TEXT NOT NULL,
+    banding_observed INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_colour_volume_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    volume_id TEXT NOT NULL UNIQUE,
+    volume_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    colour_space TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_resolution_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_low_luminance_capabilities (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    capability_id TEXT NOT NULL UNIQUE,
+    capability_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stray_light_control TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_dynamic_contrast_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    measurement_id TEXT NOT NULL UNIQUE,
+    measurement_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    contrast_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_display_wall_boundaries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    boundary_id TEXT NOT NULL UNIQUE,
+    boundary_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    wall_kind TEXT NOT NULL,
+    acoustic_transparency_claim TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_wall_acoustic_impacts (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    impact_id TEXT NOT NULL UNIQUE,
+    impact_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    boundary_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_displayed_gradation_observations_document_idx ON cad_displayed_gradation_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_colour_volume_measurements_document_idx ON cad_colour_volume_measurements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_resolution_evidence_document_idx ON cad_spatial_resolution_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_low_luminance_capabilities_document_idx ON cad_low_luminance_capabilities (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_dynamic_contrast_measurements_document_idx ON cad_dynamic_contrast_measurements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_display_wall_boundaries_document_idx ON cad_display_wall_boundaries (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_wall_acoustic_impacts_document_idx ON cad_wall_acoustic_impacts (document_id)
+    """
+    ,
 )
 
 
@@ -7811,4 +7905,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_material_emission_evidence',
     'cad_product_safety_evidence',
     'cad_emc_compliance_evidence',
+    'cad_displayed_gradation_observations',
+    'cad_colour_volume_measurements',
+    'cad_spatial_resolution_evidence',
+    'cad_low_luminance_capabilities',
+    'cad_dynamic_contrast_measurements',
+    'cad_display_wall_boundaries',
+    'cad_wall_acoustic_impacts',
 )
