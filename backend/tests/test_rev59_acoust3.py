@@ -24,7 +24,10 @@ from htdt.cad_precedence_echo import (
     evaluate_echo_risk_claim,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema
+from htdt.cad_schema import (
+    NATIVE_SCHEMA_VERSION,
+    ensure_native_schema,
+)
 from htdt.cad_treatment_safety_repository import (
     CadTreatmentSafetyRepository,
     TreatmentSafetyConflictError,
@@ -281,7 +284,7 @@ def test_tamper_detected(tmp_path):
 def test_fresh_migrate(tmp_path):
     db = tmp_path / 'fresh.htdtscene'
     version = ensure_native_schema(db)
-    assert version == 62
+    assert version == NATIVE_SCHEMA_VERSION
     repo = CadTreatmentSafetyRepository(SceneRepository(db))
     g = _geom()
     repo.save_finite_geometry(g)
