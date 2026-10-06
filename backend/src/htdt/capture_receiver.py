@@ -379,7 +379,9 @@ class MissionPackage(BaseModel):
     required_schema_version: str | None = None
     receiver_requirement: dict | None = None
     pairing_id: str | None = None
-    status: Literal['pending', 'received', 'failed'] = 'pending'
+    status: Literal['pending', 'received', 'failed', 'superseded'] = (
+        'pending'
+    )
     status_detail: str = ''
 
     def descriptor(self) -> dict:
@@ -1609,6 +1611,21 @@ class CaptureReceiverService:
                     _utc_now(),
                 ),
             )
+            if package.supersedes_package_id:
+                # A repair mission takes its parent's place on the
+                # pending listing — settle the parent without erasing
+                # a verdict the device already reported.
+                connection.execute(
+                    "UPDATE capture_mission_packages SET "
+                    "status='superseded', status_detail=?, "
+                    "updated_at_utc=? WHERE package_id=? AND "
+                    "status='pending'",
+                    (
+                        f'superseded by {package.package_id}',
+                        _utc_now(),
+                        package.supersedes_package_id,
+                    ),
+                )
         return package
 
     def queue_mission(
@@ -1852,6 +1869,21 @@ class CaptureReceiverService:
                     package_id,
                 ),
             )
+            if result == 'superseding' and package.supersedes_package_id:
+                # The device reports this package replaced its parent —
+                # settle the parent so a queued mission queued before
+                # the receipt does not stay on the pending listing.
+                connection.execute(
+                    "UPDATE capture_mission_packages SET "
+                    "status='superseded', status_detail=?, "
+                    "updated_at_utc=? WHERE package_id=? AND "
+                    "status='pending'",
+                    (
+                        f'superseded by {package.package_id}',
+                        _utc_now(),
+                        package.supersedes_package_id,
+                    ),
+                )
         return 200, {'ok': True}
 
     def list_mission_packages(

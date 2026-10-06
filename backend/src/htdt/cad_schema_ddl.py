@@ -575,6 +575,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS capture_mission_rebase_decisions ( decision_id TEXT PRIMARY KEY, mission_id TEXT NOT NULL, plan_sha256 TEXT NOT NULL, task_id TEXT NOT NULL, source_target_id TEXT NOT NULL, current_target_id TEXT NOT NULL, mapping_reason TEXT NOT NULL, decided_by TEXT NOT NULL, resulting_authority TEXT, created_at_utc TEXT NOT NULL, UNIQUE(mission_id, task_id) )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS capture_receiver_config ( id INTEGER PRIMARY KEY CHECK(id=1), receiver_instance_id TEXT NOT NULL, display_name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, enabled INTEGER NOT NULL, pinned_identity TEXT NOT NULL )
     """
     ,
@@ -8438,6 +8442,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'capture_ingestion_source_links',
     'capture_mesh_compositions',
     'capture_mission_packages',
+    'capture_mission_rebase_decisions',
     'capture_raw_visual_mesh_bindings',
     'capture_receiver_config',
     'capture_receiver_deliveries',

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from hashlib import sha256
 import json
 from typing import Literal, Sequence
@@ -312,17 +313,117 @@ def outstanding_mission_drift_summary(
     }
 
 
-def mission_return_reconciliation_lines(
+class MissionReconciliationRepository:
+    """Persistence for recorded mission-rebase decisions.
+
+    Decisions live beside the mission queue on the receiver's native
+    store — one row per (mission_id, task_id); a re-decision for the
+    same task replaces the earlier mapping.
+    """
+
+    def __init__(self, path: object) -> None:
+        self._path = path
+
+    def record(self, decision: RebaseDecision) -> RebaseDecision:
+        from contextlib import closing
+
+        from .cad_schema import connect_sqlite
+        from .clock import utc_now_iso
+
+        with closing(connect_sqlite(self._path)) as connection, connection:
+            connection.execute(
+                'INSERT INTO capture_mission_rebase_decisions('
+                'decision_id, mission_id, plan_sha256, task_id, '
+                'source_target_id, current_target_id, mapping_reason, '
+                'decided_by, resulting_authority, created_at_utc'
+                ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+                'ON CONFLICT(mission_id, task_id) DO UPDATE SET '
+                'decision_id=excluded.decision_id, '
+                'plan_sha256=excluded.plan_sha256, '
+                'source_target_id=excluded.source_target_id, '
+                'current_target_id=excluded.current_target_id, '
+                'mapping_reason=excluded.mapping_reason, '
+                'decided_by=excluded.decided_by, '
+                'resulting_authority=excluded.resulting_authority',
+                (
+                    decision.decision_id,
+                    decision.mission_id,
+                    decision.plan_sha256,
+                    decision.task_id,
+                    decision.source_target_id,
+                    decision.current_target_id,
+                    decision.mapping_reason,
+                    decision.decided_by,
+                    decision.resulting_authority,
+                    utc_now_iso(),
+                ),
+            )
+        return decision
+
+    def decisions_for_mission(
+        self, mission_id: str
+    ) -> tuple[RebaseDecision, ...]:
+        from contextlib import closing
+
+        from .cad_schema import connect_sqlite
+
+        with closing(connect_sqlite(self._path)) as connection:
+            rows = connection.execute(
+                'SELECT * FROM capture_mission_rebase_decisions '
+                'WHERE mission_id=?',
+                (mission_id,),
+            ).fetchall()
+        return tuple(
+            RebaseDecision(
+                decision_id=row['decision_id'],
+                mission_id=row['mission_id'],
+                plan_sha256=row['plan_sha256'],
+                task_id=row['task_id'],
+                source_target_id=row['source_target_id'],
+                current_target_id=row['current_target_id'],
+                mapping_reason=row['mapping_reason'],
+                decided_by=row['decided_by'],
+                resulting_authority=row['resulting_authority'],
+            )
+            for row in rows
+        )
+
+
+@dataclass(frozen=True)
+class MissionReturnReconciliationContext:
+    """Decoded reconciliation surface for one staged contribution."""
+
+    package: 'CaptureMissionPackage'
+    revision: object
+    returned_task_ids: tuple[str, ...]
+    report: 'MissionReconciliationReport'
+    decisions: tuple[RebaseDecision, ...]
+
+    @property
+    def decided_task_ids(self) -> frozenset[str]:
+        return frozenset(d.task_id for d in self.decisions)
+
+    @property
+    def undecided(self) -> tuple[TaskDriftResult, ...]:
+        decided = self.decided_task_ids
+        return tuple(
+            result
+            for result in self.report.results
+            if result.classification
+            in ('needs_reconciliation', 'historical_target_removed')
+            and result.task_id not in decided
+        )
+
+
+def mission_return_reconciliation_context(
     contribution: object,
     scene_repository: object,
-) -> tuple[str, ...]:
-    """Detail-pane summary lines for one staged field-return contribution.
+) -> MissionReturnReconciliationContext | str | None:
+    """Resolve a staged contribution's reconciliation surface.
 
-    Classification runs live against the matched project's current head —
-    a staged contribution is evidence, so the drift verdict is a decision
-    surface computed on demand, never a stored rewrite. Returns display
-    lines (empty for contributions carrying no mission identity); every
-    un-reconcilable state surfaces as an honest note instead of silence.
+    Returns the context, a localized honest-note string for every
+    un-reconcilable state, or ``None`` when the contribution carries no
+    mission identity.
     """
     from contextlib import closing
 
@@ -330,7 +431,7 @@ def mission_return_reconciliation_lines(
 
     mission_id = getattr(contribution, 'mission_id', None)
     if mission_id is None:
-        return ()
+        return None
     path = scene_repository.path
     with closing(connect_sqlite(path)) as connection:
         row = connection.execute(
@@ -341,14 +442,14 @@ def mission_return_reconciliation_lines(
         if row is None or row['native_package_json'] is None:
             return (
                 '照合: ミッション原本なし'
-                '（このHTDTが発行したミッションではありません）',
+                '（このHTDTが発行したミッションではありません）'
             )
         try:
             package = CaptureMissionPackage.model_validate_json(
                 row['native_package_json']
             )
         except ValueError:
-            return ('照合: ミッション原本を解読できません',)
+            return '照合: ミッション原本を解読できません'
         matched_project_id = getattr(
             contribution, 'matched_project_id', None
         )
@@ -361,16 +462,16 @@ def mission_return_reconciliation_lines(
                 (matched_project_id,),
             ).fetchone()
     if project_row is None:
-        return ('照合: 保存先プロジェクト未確定のため保留',)
+        return '照合: 保存先プロジェクト未確定のため保留'
     revision = scene_repository.current_head(project_row['document_id'])
     if revision is None:
-        return ('照合: プロジェクト文書の現在版がありません',)
+        return '照合: プロジェクト文書の現在版がありません'
     manifest_json = getattr(contribution, 'manifest_json', None)
     if manifest_json is None:
-        return ('照合: 返却マニフェストが記録されていません',)
+        return '照合: 返却マニフェストが記録されていません'
     returned_ids = _returned_task_ids(manifest_json)
     if returned_ids is None:
-        return ('照合: 返却マニフェストを解読できません',)
+        return '照合: 返却マニフェストを解読できません'
     try:
         report = reconcile_mission_return(
             package.mission,
@@ -378,22 +479,127 @@ def mission_return_reconciliation_lines(
             returned_task_ids=returned_ids,
         )
     except MissionReconciliationError as exc:
-        return (f'照合: 照合不能 — {exc}',)
-    removed = sum(
-        item.classification == 'historical_target_removed'
+        return f'照合: 照合不能 — {exc}'
+    decisions = MissionReconciliationRepository(
+        scene_repository.path
+    ).decisions_for_mission(mission_id)
+    return MissionReturnReconciliationContext(
+        package=package,
+        revision=revision,
+        returned_task_ids=tuple(returned_ids),
+        report=report,
+        decisions=decisions,
+    )
+
+
+def mission_return_reconciliation_lines(
+    contribution: object,
+    scene_repository: object,
+) -> tuple[str, ...]:
+    """Detail-pane summary lines for one staged field-return contribution.
+
+    Classification runs live against the matched project's current head —
+    a staged contribution is evidence, so the drift verdict is a decision
+    surface computed on demand, never a stored rewrite. Returns display
+    lines (empty for contributions carrying no mission identity); every
+    un-reconcilable state surfaces as an honest note instead of silence.
+    Recorded rebase decisions surface beside the drift they resolve.
+    """
+    resolved = mission_return_reconciliation_context(
+        contribution, scene_repository
+    )
+    if resolved is None:
+        return ()
+    if isinstance(resolved, str):
+        return (resolved,)
+    report = resolved.report
+    decided = resolved.decided_task_ids
+    decisions_by_task = {d.task_id: d for d in resolved.decisions}
+    undecided_applicable = sum(
+        item.classification == 'applicable' and item.task_id not in decided
         for item in report.results
     )
-    lines = [
-        f'照合: 適用可能 {report.applicable_count}件 / '
-        f'要調整 {report.review_count}件 / 対象消失 {removed}件',
-    ]
-    lines.extend(
-        f'・{result.task_id[:8]}… — {result.reason}'
-        for result in report.results
-        if result.classification
-        in ('needs_reconciliation', 'historical_target_removed')
+    undecided_removed = sum(
+        item.classification == 'historical_target_removed'
+        and item.task_id not in decided
+        for item in report.results
     )
+    undecided_review = sum(
+        item.classification == 'needs_reconciliation'
+        and item.task_id not in decided
+        for item in report.results
+    )
+    decided_count = sum(
+        item.task_id in decided for item in report.results
+    )
+    lines = [
+        f'照合: 適用可能 {undecided_applicable}件 / '
+        f'要調整 {undecided_review}件 / 対象消失 {undecided_removed}件 / '
+        f'決定記録済み {decided_count}件',
+    ]
+    for result in report.results:
+        if result.task_id not in decided and result.classification not in (
+            'needs_reconciliation',
+            'historical_target_removed',
+        ):
+            continue
+        decision = decisions_by_task.get(result.task_id)
+        if decision is None:
+            lines.append(f'・{result.task_id[:8]}… — {result.reason}')
+        else:
+            lines.append(
+                f'・{result.task_id[:8]}… — 決定: '
+                f'{decision.source_target_id}→'
+                f'{decision.current_target_id}'
+                f'（{decision.decided_by}）'
+            )
     return tuple(lines)
+
+
+def record_return_rebase_decision(
+    contribution: object,
+    scene_repository: object,
+    *,
+    task_id: str,
+    current_target_id: str,
+    mapping_reason: str,
+    decided_by: str,
+    resulting_authority: str | None = None,
+) -> RebaseDecision:
+    """Build and persist a rebase decision for one drifted task.
+
+    The task must belong to the issuing mission's plan and pin an entity
+    target — decisions name exact ids on both ends, never fuzzy matches.
+    """
+    resolved = mission_return_reconciliation_context(
+        contribution, scene_repository
+    )
+    if not isinstance(resolved, MissionReturnReconciliationContext):
+        raise MissionReconciliationError(
+            resolved if isinstance(resolved, str) else '照合対象ではありません'
+        )
+    task = next(
+        (
+            item
+            for item in resolved.package.mission.plan.tasks
+            if item.task_id == task_id
+        ),
+        None,
+    )
+    if task is None:
+        raise MissionReconciliationError(
+            'task does not belong to the issuing mission plan'
+        )
+    decision = record_rebase_decision(
+        mission=resolved.package.mission,
+        task=task,
+        current_target_id=current_target_id,
+        mapping_reason=mapping_reason,
+        decided_by=decided_by,
+        resulting_authority=resulting_authority,
+    )
+    repository = MissionReconciliationRepository(scene_repository.path)
+    return repository.record(decision)
 
 
 _CONTAINER_FULFILLED_OUTCOMES = frozenset({

@@ -1347,6 +1347,8 @@ class CaptureInboxPage(QWidget):
         assign_scope: Callable[[str, str], object] | None = None,
         list_contributions: Callable[[], tuple] | None = None,
         reconcile_contribution: Callable[[object], tuple] | None = None,
+        rebase_context: Callable[[object], object] | None = None,
+        rebase_record: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1361,6 +1363,10 @@ class CaptureInboxPage(QWidget):
         self._assign_scope = assign_scope
         self._list_contributions = list_contributions
         self._reconcile_contribution = reconcile_contribution
+        self._rebase_context = rebase_context
+        self._rebase_record = rebase_record
+        self._active_rebase_context = None
+        self._selected_contribution = None
         self._contributions: tuple = ()
         self._last_inspection = None
         layout = _page_layout(
@@ -1797,6 +1803,17 @@ class CaptureInboxPage(QWidget):
             self.contribution_detail, TypographyRole.SECONDARY
         )
         layout.addWidget(self.contribution_detail)
+        self.rebase_button = QPushButton("再基準決定…")
+        self.rebase_button.setAccessibleName("再基準決定")
+        self.rebase_button.setToolTip(
+            "要調整のタスクについて、返却証跡を現在の対象へ"
+            "対応付ける判断を記録します。"
+        )
+        self.rebase_button.setEnabled(False)
+        self.rebase_button.clicked.connect(self._record_rebase_decision)
+        layout.addWidget(self.rebase_button)
+        if self._rebase_record is None:
+            self.rebase_button.setVisible(False)
         return panel
 
     def _refresh_contributions(self) -> None:
@@ -1836,6 +1853,8 @@ class CaptureInboxPage(QWidget):
                 index = item.row()
                 break
         if index is None or index >= len(self._contributions):
+            self._active_rebase_context = None
+            self.rebase_button.setEnabled(False)
             if self.contribution_table.rowCount() == 0:
                 self.contribution_detail.setText(
                     "フィールドリターンはまだ届いていません。"
@@ -1846,6 +1865,21 @@ class CaptureInboxPage(QWidget):
                 )
             return
         contribution = self._contributions[index]
+        self._selected_contribution = contribution
+        if self._rebase_context is not None:
+            try:
+                self._active_rebase_context = self._rebase_context(
+                    contribution
+                )
+            except Exception:
+                self._active_rebase_context = None
+            self.rebase_button.setEnabled(
+                bool(
+                    getattr(
+                        self._active_rebase_context, 'undecided', ()
+                    )
+                )
+            )
         lines = [
             f"貢献: {contribution.contribution_id}",
             f"検証: "
@@ -1872,6 +1906,60 @@ class CaptureInboxPage(QWidget):
         if contribution.detail:
             lines.append(f"詳細: {contribution.detail}")
         self.contribution_detail.setText("\n".join(lines))
+
+    def _record_rebase_decision(self) -> None:
+        context = self._active_rebase_context
+        undecided = getattr(context, 'undecided', None)
+        if not undecided or self._rebase_record is None:
+            return
+        task_labels = [
+            f'{result.task_id[:8]}… — {result.reason}'
+            for result in undecided
+        ]
+        choice, ok = QInputDialog.getItem(
+            self, "再基準決定", "対象タスク:", task_labels, 0, False
+        )
+        if not ok:
+            return
+        task_id = undecided[task_labels.index(choice)].task_id
+        entities = context.revision.document.entities
+        entity_labels = [
+            f'{entity.entity_id} — {entity.name}（{entity.kind}）'
+            for entity in entities
+        ]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "再基準決定",
+            "対応付ける現在の対象:",
+            entity_labels,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        current_target_id = entities[entity_labels.index(choice)].entity_id
+        reason, ok = QInputDialog.getText(
+            self, "再基準決定", "対応付けの理由を入力してください。"
+        )
+        if not ok or not reason.strip():
+            return
+        decided_by, ok = QInputDialog.getText(
+            self, "再基準決定", "決定者名を入力してください。"
+        )
+        if not ok or not decided_by.strip():
+            return
+        try:
+            self._rebase_record(
+                self._selected_contribution,
+                task_id,
+                current_target_id,
+                reason.strip(),
+                decided_by.strip(),
+            )
+        except Exception as exc:
+            warn_user(self, "再基準決定を記録できませんでした", exc)
+            return
+        self._sync_contribution_detail()
 
 
 _OPERATION_STATE_LABELS = {

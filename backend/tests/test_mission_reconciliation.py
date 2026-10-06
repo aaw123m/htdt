@@ -283,3 +283,136 @@ def test_mission_return_reconciliation_lines_e2e(tmp_path) -> None:
         container, repository
     )
     assert '要調整 1件' in lines[0]
+
+
+def test_rebase_decision_persists_and_marks_drift_decided(
+    tmp_path,
+) -> None:
+    import json
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        MissionReconciliationError,
+        MissionReconciliationRepository,
+        mission_return_reconciliation_lines,
+        record_return_rebase_decision,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    saved = repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_id = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    record_id = str(uuid.uuid4())
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': record_id, 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {
+                'task_id': task_id,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': record_id,
+            },
+        ),
+    )
+    contribution = SimpleNamespace(
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+    )
+    # Drift the pinned target before the return lands.
+    drifted = repository.save(
+        _document((_speaker('spk-fl', 'FL', 2.5),)),
+        parent_revision_id=saved.revision.revision_id,
+    )
+    assert '要調整 1件' in mission_return_reconciliation_lines(
+        contribution, repository
+    )[0]
+
+    # The operator decides the drifted evidence maps onto the renamed
+    # current target — recorded once, surfaced on every later view.
+    repository.save(
+        _document((_speaker('spk-fl2', 'FL', 2.5),)),
+        parent_revision_id=drifted.revision.revision_id,
+    )
+    decision = record_return_rebase_decision(
+        contribution,
+        repository,
+        task_id=task_id,
+        current_target_id='spk-fl2',
+        mapping_reason='front-left moved to the new position',
+        decided_by='operator-1',
+    )
+    assert decision.source_target_id == 'spk-fl'
+    assert decision.current_target_id == 'spk-fl2'
+    stored = MissionReconciliationRepository(
+        repository.path
+    ).decisions_for_mission(mission.mission_id)
+    assert len(stored) == 1
+    assert stored[0].decision_id == decision.decision_id
+
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert '決定記録済み 1件' in lines[0]
+    assert 'spk-fl→spk-fl2' in lines[1]
+
+    # A re-decision replaces the earlier mapping, not appends.
+    redecision = record_return_rebase_decision(
+        contribution,
+        repository,
+        task_id=task_id,
+        current_target_id='spk-fl',
+        mapping_reason='mapping corrected',
+        decided_by='operator-2',
+    )
+    stored = MissionReconciliationRepository(
+        repository.path
+    ).decisions_for_mission(mission.mission_id)
+    assert len(stored) == 1
+    assert stored[0].current_target_id == 'spk-fl'
+    assert stored[0].decided_by == 'operator-2'
+    assert stored[0].decision_id != decision.decision_id
+
+    # A task outside the issuing mission is refused.
+    with pytest.raises(MissionReconciliationError):
+        record_return_rebase_decision(
+            contribution,
+            repository,
+            task_id='foreign-task',
+            current_target_id='spk-fl',
+            mapping_reason='bogus',
+            decided_by='operator-1',
+        )
