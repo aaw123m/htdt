@@ -3040,6 +3040,50 @@ _DIFFRACTION_CAPABILITY_LABELS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# REV58-IDENT: 型付き対数量/dB 基準 (#691)・校正同定性 (#689)・検証統計 (#698)
+
+_LOG_OPERATION_STATE_LABELS = {
+    'compatible': '演算適合',
+    'compatible_with_limitations': '限定付き適合',
+    'requires_calibration_bridge': '校正ブリッジ要',
+    'coherent_requires_phase_data': '位相データ要',
+    'nonlinear_chain': '非線形チェーン',
+    'incompatible_quantities': '量不整合',
+    'unverified': '未検証',
+}
+
+_IDENT_CLASS_LABELS = {
+    'structurally_non_unique': '構造的非一意',
+    'weakly_identifiable': '弱同定可能',
+    'practically_identifiable_within_data': 'データ内実質同定可能',
+    'prior_dominated': '事前支配',
+    'bound_dominated': '境界支配',
+    'model_discrepancy_limited': 'モデル乖離限定',
+    'insufficient_evidence': '証拠不足',
+}
+
+_PARAMETER_CLAIM_LABELS = {
+    'parameter_identified_within_domain': '領域内で同定',
+    'parameter_weakly_identified': '弱同定',
+    'parameter_model_dependent': 'モデル依存',
+    'parameter_not_identifiable': '同定不能',
+    'insufficient_evidence': '証拠不足',
+}
+
+_VALIDATION_CLAIM_LABELS = {
+    'locked_challenge_eligible': 'ロック済み検定適格',
+    'qualified_generalization': '汎化適格',
+    'qualified_with_limitations': '限定付き適格',
+    'development_validation_only': '開発検証のみ',
+    'winner_selection_biased': '勝者選択バイアス',
+    'pseudoreplication_detected': '疑似反復検出',
+    'split_mismatch': '分割粒度不一致',
+    'independence_unestablished': '独立性未確立',
+    'insufficient_evidence': '証拠不足',
+}
+
+
 def source_origin_line(qualification) -> str:
     """One JA line for a source-origin qualification (#654): verdict
     plus the effective origin kind — CAD ポーズ既定の原点は読まない。"""
@@ -3135,3 +3179,71 @@ def edge_diffraction_line(qualification) -> str:
     elif qualification.reasons:
         parts.append(qualification.reasons[0])
     return '回折適格: ' + ' — '.join(parts)
+
+
+def log_operation_state_label(state: str) -> str:
+    return _LOG_OPERATION_STATE_LABELS.get(state, state)
+
+
+def identifiability_class_label(state: str) -> str:
+    return _IDENT_CLASS_LABELS.get(state, state)
+
+
+def validation_claim_state_label(state: str) -> str:
+    return _VALIDATION_CLAIM_LABELS.get(state, state)
+
+
+def log_operation_line(operation) -> str:
+    """One JA line for a typed-dB operation verdict (#691): the verdict
+    plus operand count — 基準のない dB 同士は比較も合成もしない。"""
+    parts = [log_operation_state_label(operation.state)]
+    parts.append('演算: {0}'.format(operation.operation))
+    parts.append('オペランド×{0}'.format(len(operation.operand_refs)))
+    if operation.state == 'requires_calibration_bridge':
+        parts.append('校正ブリッジ未提示')
+    if operation.reasons:
+        parts.append(operation.reasons[0])
+    return '対数量演算: ' + ' — '.join(parts)
+
+
+def identifiability_line(assessment) -> str:
+    """One JA line for an identifiability assessment (#689): class plus
+    claim — 良いフィットは一意な物理パラメータを意味しない。"""
+    parts = [
+        identifiability_class_label(assessment.identifiability_class)
+    ]
+    parts.append(
+        '主張: '
+        + _PARAMETER_CLAIM_LABELS.get(
+            assessment.parameter_claim, assessment.parameter_claim
+        )
+    )
+    if assessment.evidence_needs:
+        parts.append('要証拠×{0}'.format(len(assessment.evidence_needs)))
+    if assessment.reasons:
+        parts.append(assessment.reasons[0])
+    return '校正同定性: ' + ' — '.join(parts)
+
+
+def validation_claim_line(qualification) -> str:
+    """One JA line for a validation-claim qualification (#698):
+    verdict plus honest independent/raw counts — N=ビン×席は独立標本
+    ではない。"""
+    parts = [validation_claim_state_label(qualification.state)]
+    parts.append(
+        '独立単位 {0}={1}'.format(
+            qualification.independent_unit,
+            qualification.independent_unit_count,
+        )
+    )
+    parts.append('生観測×{0}'.format(qualification.raw_observation_count))
+    exposed = sum(
+        1
+        for corpus in qualification.corpus_states
+        if corpus.status == 'exposed'
+    )
+    if exposed:
+        parts.append('露出済コーパス×{0}'.format(exposed))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '検証主張適格: ' + ' — '.join(parts)

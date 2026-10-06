@@ -519,6 +519,22 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_diffraction_model_profiles": "回折モデルプロファイル",
     "cad_diffraction_benchmark_results": "回折ベンチ結果",
     "cad_diffraction_qualifications": "回折適格評価",
+    # REV58-IDENT: #691 型付き対数量/dB基準
+    "cad_log_quantities": "型付き対数量",
+    "cad_log_calibration_bridges": "対数量校正ブリッジ",
+    "cad_log_operations": "対数量演算評価",
+    # REV58-IDENT: #689 校正パラメータ同定性
+    "cad_calib_parameter_records": "校正パラメータ記録",
+    "cad_ident_sensitivity_evidence": "同定性感度証拠",
+    "cad_ident_correlation_evidence": "同定性相関証拠",
+    "cad_ident_equivalent_sets": "同定等価解集合",
+    "cad_identifiability_assessments": "同定性評価",
+    # REV58-IDENT: #698 検証サンプル依存/ベンチリーク
+    "cad_validation_statistical_designs": "検証統計設計",
+    "cad_dependence_models": "検証依存構造モデル",
+    "cad_dataset_role_assignments": "データセット役割割当",
+    "cad_benchmark_exposures": "ベンチマーク露出台帳",
+    "cad_challenge_qualifications": "検証主張適格評価",
 }
 
 

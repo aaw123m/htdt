@@ -4921,6 +4921,182 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV58-IDENT: #691 typed logarithmic quantity / dB reference
+    'cad_log_quantities': (
+        'payload_json',
+        (
+            _b('quantity_id', 'quantity_id'),
+            _b('quantity_sha256', 'quantity_sha256'),
+            _b('document_id', 'document_id'),
+            _b('quantity_class', 'quantity_class'),
+            _b('domain', 'domain'),
+            _b('quantity', 'quantity'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_log_calibration_bridges': (
+        'payload_json',
+        (
+            _b('bridge_id', 'bridge_id'),
+            _b('bridge_sha256', 'bridge_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bridge_label', 'bridge_label'),
+            _b('from_domain', 'from_domain'),
+            _b('to_domain', 'to_domain'),
+            _b('status', 'status'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_log_operations': (
+        'payload_json',
+        (
+            _b('operation_id', 'operation_id'),
+            _b('operation_sha256', 'operation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('operation', 'operation'),
+            _b('state', 'state'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV58-IDENT: #689 calibration-parameter identifiability
+    'cad_calib_parameter_records': (
+        'payload_json',
+        (
+            _b('parameter_id', 'parameter_id'),
+            _b('parameter_sha256', 'parameter_sha256'),
+            _b('document_id', 'document_id'),
+            _b('parameter_label', 'parameter_label'),
+            _b('role', 'role'),
+            _b('provenance', 'provenance'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_ident_sensitivity_evidence': (
+        'payload_json',
+        (
+            _b('sensitivity_id', 'sensitivity_id'),
+            _b('sensitivity_sha256', 'sensitivity_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+            _b('calibration_run_ref_id', 'calibration_run_ref', 'ref_id',
+               optional=True),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_ident_correlation_evidence': (
+        'payload_json',
+        (
+            _b('correlation_id', 'correlation_id'),
+            _b('correlation_sha256', 'correlation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_ident_equivalent_sets': (
+        'payload_json',
+        (
+            _b('set_id', 'set_id'),
+            _b('set_sha256', 'set_sha256'),
+            _b('document_id', 'document_id'),
+            _b('multimodal', 'multimodal'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_identifiability_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('parameter_ref_id', 'parameter_ref', 'ref_id'),
+            _b('identifiability_class', 'identifiability_class'),
+            _b('parameter_claim', 'parameter_claim'),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV58-IDENT: #698 validation sample-dependence / leakage
+    'cad_validation_statistical_designs': (
+        'payload_json',
+        (
+            _b('design_id', 'design_id'),
+            _b('design_sha256', 'design_sha256'),
+            _b('document_id', 'document_id'),
+            _b('design_label', 'design_label'),
+            _b('generalization_claim', 'generalization_claim'),
+            _b('independent_unit', 'independent_unit'),
+            _b('independent_unit_count', 'independent_unit_count',
+               optional=True),
+            _b('raw_observation_count', 'raw_observation_count'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_dependence_models': (
+        'payload_json',
+        (
+            _b('dependence_id', 'dependence_id'),
+            _b('dependence_sha256', 'dependence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('design_ref_id', 'design_ref', 'ref_id', optional=True),
+            _b('spatial_correlation_model', 'spatial_correlation_model'),
+            _b('resampling_unit', 'resampling_unit', optional=True),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_dataset_role_assignments': (
+        'payload_json',
+        (
+            _b('assignment_id', 'assignment_id'),
+            _b('assignment_sha256', 'assignment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('corpus_ref_id', 'corpus_ref', 'ref_id'),
+            _b('role', 'role'),
+            _b('context_label', 'context_label'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_benchmark_exposures': (
+        'payload_json',
+        (
+            _b('exposure_id', 'exposure_id'),
+            _b('exposure_sha256', 'exposure_sha256'),
+            _b('document_id', 'document_id'),
+            _b('corpus_ref_id', 'corpus_ref', 'ref_id'),
+            _b('decision_class', 'decision_class'),
+            _b('solver_version', 'solver_version', optional=True),
+            _b('exposed_at_utc', 'exposed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_challenge_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('design_ref_id', 'design_ref', 'ref_id'),
+            _b('state', 'state'),
+            _b('independent_unit', 'independent_unit'),
+            _b('independent_unit_count', 'independent_unit_count',
+               optional=True),
+            _b('evaluation_version', 'evaluation_version'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
     # REV58-AUDIOMODEL: #654 acoustic-reference origin / phase center
     'cad_source_origin_profiles': (
         'payload_json',
@@ -5132,6 +5308,7 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         (),
     ),
 }
+
 
 
 # ---------------------------------------------------------------------------

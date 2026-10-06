@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 46
+NATIVE_SCHEMA_VERSION = 47
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1537,6 +1537,20 @@ def _migrate_44_to_45(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_45_to_46(connection: sqlite3.Connection) -> None:
+    # Install the REV58-IDENT authorities (#691 typed logarithmic
+    # quantity / dB reference: quantities, calibration bridges,
+    # operations; #689 calibration-parameter identifiability:
+    # parameter records, sensitivity evidence, correlation evidence,
+    # equivalent-solution sets, assessments; #698 validation
+    # sample-dependence / benchmark leakage: statistical designs,
+    # dependence models, dataset role assignments, exposure ledger,
+    # challenge qualifications): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_46_to_47(connection: sqlite3.Connection) -> None:
     # Install the REV58-AUDIOMODEL authorities (#654 acoustic-reference
     # origin/phase center: profiles + qualifications; #655 source
     # near/far-field applicability: profiles + qualifications; #656
@@ -1597,6 +1611,7 @@ _MIGRATIONS = {
     44: _migrate_43_to_44,
     45: _migrate_44_to_45,
     46: _migrate_45_to_46,
+    47: _migrate_46_to_47,
 }
 
 

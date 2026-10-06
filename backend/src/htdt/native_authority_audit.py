@@ -1066,6 +1066,25 @@ class _RepositoryChain:
             )
 
             return CadEdgeDiffractionRepository(scene)
+        # REV58-IDENT authorities.
+        if name == 'logarithmic_quantity':
+            from .cad_logarithmic_quantity_repository import (
+                CadLogQuantityRepository,
+            )
+
+            return CadLogQuantityRepository(scene)
+        if name == 'parameter_identifiability':
+            from .cad_parameter_identifiability_repository import (
+                CadParameterIdentifiabilityRepository,
+            )
+
+            return CadParameterIdentifiabilityRepository(scene)
+        if name == 'validation_statistics':
+            from .cad_validation_statistics_repository import (
+                CadValidationStatisticsRepository,
+            )
+
+            return CadValidationStatisticsRepository(scene)
         raise KeyError(name)
 
 
@@ -4768,6 +4787,87 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_diffraction_qualifications',
         ('qualification_id',),
         _get('edge_diffraction', 'get_qualification'),
+    ),
+    # REV58-IDENT: #691 typed logarithmic quantity / dB reference
+    _ReplayProbe(
+        'log_quantity',
+        'cad_log_quantities',
+        ('quantity_id',),
+        _get('logarithmic_quantity', 'get_quantity'),
+    ),
+    _ReplayProbe(
+        'log_calibration_bridge',
+        'cad_log_calibration_bridges',
+        ('bridge_id',),
+        _get('logarithmic_quantity', 'get_bridge'),
+    ),
+    _ReplayProbe(
+        'log_operation',
+        'cad_log_operations',
+        ('operation_id',),
+        _get('logarithmic_quantity', 'get_operation'),
+    ),
+    # REV58-IDENT: #689 calibration-parameter identifiability
+    _ReplayProbe(
+        'calib_parameter_record',
+        'cad_calib_parameter_records',
+        ('parameter_id',),
+        _get('parameter_identifiability', 'get_parameter'),
+    ),
+    _ReplayProbe(
+        'ident_sensitivity_evidence',
+        'cad_ident_sensitivity_evidence',
+        ('sensitivity_id',),
+        _get('parameter_identifiability', 'get_sensitivity'),
+    ),
+    _ReplayProbe(
+        'ident_correlation_evidence',
+        'cad_ident_correlation_evidence',
+        ('correlation_id',),
+        _get('parameter_identifiability', 'get_correlation'),
+    ),
+    _ReplayProbe(
+        'ident_equivalent_set',
+        'cad_ident_equivalent_sets',
+        ('set_id',),
+        _get('parameter_identifiability', 'get_equivalent_set'),
+    ),
+    _ReplayProbe(
+        'identifiability_assessment',
+        'cad_identifiability_assessments',
+        ('assessment_id',),
+        _get('parameter_identifiability', 'get_assessment'),
+    ),
+    # REV58-IDENT: #698 validation sample-dependence / leakage
+    _ReplayProbe(
+        'validation_statistical_design',
+        'cad_validation_statistical_designs',
+        ('design_id',),
+        _get('validation_statistics', 'get_design'),
+    ),
+    _ReplayProbe(
+        'dependence_model',
+        'cad_dependence_models',
+        ('dependence_id',),
+        _get('validation_statistics', 'get_dependence'),
+    ),
+    _ReplayProbe(
+        'dataset_role_assignment',
+        'cad_dataset_role_assignments',
+        ('assignment_id',),
+        _get('validation_statistics', 'get_role_assignment'),
+    ),
+    _ReplayProbe(
+        'benchmark_exposure',
+        'cad_benchmark_exposures',
+        ('exposure_id',),
+        _get('validation_statistics', 'get_exposure'),
+    ),
+    _ReplayProbe(
+        'challenge_qualification',
+        'cad_challenge_qualifications',
+        ('qualification_id',),
+        _get('validation_statistics', 'get_qualification'),
     ),
 )
 
