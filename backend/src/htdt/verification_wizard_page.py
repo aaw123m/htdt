@@ -110,6 +110,37 @@ class _CheckRunWorker(QThread):
         self.all_finished.emit()
 
 
+class _ManifestLoadWorker(QThread):
+    """Seals the manifest gates and builds the store off the GUI
+    thread — the first mount otherwise freezes the shell for tens of
+    seconds while ~300 gate rows write to sqlite."""
+
+    loaded = Signal(object, object, object)  # store, issues, gates
+    failed = Signal(object)
+
+    def __init__(
+        self,
+        db_path: Path,
+        manifest_path: Path,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._db_path = db_path
+        self._manifest_path = manifest_path
+
+    def run(self) -> None:  # pragma: no cover - exercised via GUI
+        try:
+            # Parse first so a missing/bad manifest fails before the
+            # sqlite file is even created.
+            issues = load_wizard_issues(self._manifest_path)
+            store = ManifestGateStore(self._db_path)
+            gates = store.load_gates(self._manifest_path)
+        except Exception as exc:
+            self.failed.emit(exc)
+            return
+        self.loaded.emit(store, issues, gates)
+
+
 class VerificationWizardPage(QWidget):
     """検証ウィザード — issue picker + guided check steps."""
 
@@ -129,9 +160,9 @@ class VerificationWizardPage(QWidget):
             if manifest_path is not None
             else self.repo_root / MANIFEST_RELATIVE_PATH
         )
-        self.store = ManifestGateStore(
-            self.data_dir / 'cad-scenes.sqlite3'
-        )
+        # The store arrives via the load worker — every store touch
+        # below guards on None until _on_manifest_loaded lands.
+        self.store: ManifestGateStore | None = None
         self._issues: tuple[WizardIssue, ...] = ()
         self._gates: dict[tuple[str, str], ManifestGate] = {}
         self._gates_by_issue: dict[str, tuple[ManifestGate, ...]] = {}
@@ -139,6 +170,7 @@ class VerificationWizardPage(QWidget):
         self._issue: WizardIssue | None = None
         self._check: WizardCheck | None = None
         self._worker: _CheckRunWorker | None = None
+        self._load_worker: _ManifestLoadWorker | None = None
         self._pending_files: list[Path] = []
         self._detail_check_id: str | None = None
 
@@ -272,27 +304,37 @@ class VerificationWizardPage(QWidget):
         splitter.setSizes([280, 560])
 
         wire_label_buddies(self)
-        self._load_manifest()
+        self._start_manifest_load()
         self._update_check_panel(None)
 
     # ------------------------------------------------------------------
     # manifest + issue list
 
-    def _load_manifest(self) -> None:
-        try:
-            self._issues = load_wizard_issues(self.manifest_path)
-            gates = self.store.load_gates(self.manifest_path)
-        except Exception as exc:
-            self._issues = ()
-            self._gates = {}
-            self._gates_by_issue = {}
-            self.issue_list.clear()
-            self.issue_title.setText('検証マニフェストを読み込めません')
-            self.verdict_label.setText('')
-            self.verdict_reason.setText(
-                f'{self.manifest_path}: {type(exc).__name__}: {exc}'
-            )
-            return
+    def _start_manifest_load(self) -> None:
+        worker = _ManifestLoadWorker(
+            self.data_dir / 'cad-scenes.sqlite3',
+            self.manifest_path,
+            parent=self,
+        )
+        self._load_worker = worker
+        self.status_label.setText(
+            '検証マニフェストを読み込んでいます…'
+        )
+        worker.loaded.connect(self._on_manifest_loaded)
+        worker.failed.connect(self._on_manifest_failed)
+        worker.finished.connect(
+            lambda w=worker: self._clear_load_worker(w)
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _clear_load_worker(self, worker) -> None:
+        if self._load_worker is worker:
+            self._load_worker = None
+
+    def _on_manifest_loaded(self, store, issues, gates) -> None:
+        self.store = store
+        self._issues = issues
         self._gates = {(g.issue_ref, g.check_id): g for g in gates}
         grouped: dict[str, list[ManifestGate]] = {}
         for gate in gates:
@@ -300,9 +342,24 @@ class VerificationWizardPage(QWidget):
         self._gates_by_issue = {
             ref: tuple(items) for ref, items in grouped.items()
         }
+        self.status_label.setText('')
         self._refresh_issue_list()
 
+    def _on_manifest_failed(self, exc) -> None:
+        self._issues = ()
+        self._gates = {}
+        self._gates_by_issue = {}
+        self.issue_list.clear()
+        self.issue_title.setText('検証マニフェストを読み込めません')
+        self.verdict_label.setText('')
+        self.verdict_reason.setText(
+            f'{self.manifest_path}: {type(exc).__name__}: {exc}'
+        )
+        self.status_label.setText('')
+
     def _refresh_issue_list(self) -> None:
+        if self.store is None:
+            return
         self._latest = self.store.latest_results()
         self.issue_list.blockSignals(True)
         self.issue_list.clear()
@@ -353,6 +410,8 @@ class VerificationWizardPage(QWidget):
             self.verdict_reason.setText('')
             return
         gates = self._gates_by_issue.get(self._issue.issue_ref, ())
+        if self.store is None:
+            return
         self._latest = self.store.latest_results()
         verdict, reason = self.store.issue_verdict(gates, self._latest)
         label = MANIFEST_VERDICT_LABELS.get(verdict, verdict)
@@ -366,7 +425,7 @@ class VerificationWizardPage(QWidget):
             )
 
     def _refresh_checks(self) -> None:
-        if self._issue is None:
+        if self._issue is None or self.store is None:
             return
         self._latest = self.store.latest_results()
         self.check_list.blockSignals(True)
@@ -541,7 +600,7 @@ class VerificationWizardPage(QWidget):
         # Bind the result to the check's own issue — the picker may have
         # moved on while the worker was in flight.
         gate = self._gates.get((check.issue_ref, check.check_id))
-        if gate is None:
+        if gate is None or self.store is None:
             return
         self.store.record_check_outcome(gate, outcome)
         self._latest = self.store.latest_results()
@@ -580,7 +639,7 @@ class VerificationWizardPage(QWidget):
             )
             return
         gate = self._current_gate()
-        if gate is None:
+        if gate is None or self.store is None:
             return
         payloads: list[tuple[str, bytes]] = []
         for path in self._pending_files:
@@ -626,10 +685,26 @@ class VerificationWizardPage(QWidget):
                 pass
             worker.finished.connect(worker.deleteLater)
             worker.setParent(None)
+        loader = self._load_worker
+        if loader is not None and loader.isRunning():
+            self._load_worker = None
+            try:
+                loader.loaded.disconnect()
+                loader.failed.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                loader.finished.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            loader.finished.connect(loader.deleteLater)
+            loader.setParent(None)
         super().closeEvent(event)
 
     def refresh(self) -> None:
         """on_activate hook: re-read the ledger and re-render."""
+        if self.store is None:
+            return
         self._latest = self.store.latest_results()
         self._refresh_issue_list()
         if self._issue is not None:
