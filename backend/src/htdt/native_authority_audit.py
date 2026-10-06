@@ -1390,6 +1390,12 @@ class _RepositoryChain:
             )
 
             return CadCalibrationDeploymentRepository(scene)
+        if name == 'playback_electronics':
+            from .cad_playback_electronics_repository import (
+                CadPlaybackElectronicsRepository,
+            )
+
+            return CadPlaybackElectronicsRepository(scene)
         raise KeyError(name)
 
 
@@ -6998,6 +7004,31 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_deployment_rollbacks',
         ('rollback_id',),
         _get('deployment', 'get_rollback'),
+    ),
+    # #790 playback-electronics / electrical audio-path authority.
+    _ReplayProbe(
+        'electronic_audio_path',
+        'cad_electronic_audio_path_profiles',
+        ('profile_id',),
+        _get('playback_electronics', 'get_path_profile'),
+    ),
+    _ReplayProbe(
+        'electrical_transfer',
+        'cad_electrical_transfer_measurements',
+        ('measurement_id',),
+        _get('playback_electronics', 'get_transfer_measurement'),
+    ),
+    _ReplayProbe(
+        'electronic_linearity',
+        'cad_electronic_linearity_evidence',
+        ('evidence_id',),
+        _get('playback_electronics', 'get_linearity_evidence'),
+    ),
+    _ReplayProbe(
+        'playback_electronics_qualification',
+        'cad_playback_electronics_qualifications',
+        ('qualification_id',),
+        _get('playback_electronics', 'get_qualification'),
     ),
 
 )
