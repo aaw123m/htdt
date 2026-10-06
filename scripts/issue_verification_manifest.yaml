@@ -3063,6 +3063,59 @@ issues:
         description: >
           Safety/EMC separation, symptom-vs-conformance honesty,
           emissions+immunity completeness.
+  - issue: 751
+    title: "AV/ICT product-safety certification evidence"
+    notes: >
+      ProductSafetyProfile (psf-) pins listing kind (NRTL/certified/
+      self-declared/component-recognized/unlisted), standard,
+      certificate ref, market and certified model identity — a claimed
+      listing requires both standard and pinned certificate.
+      evaluate_safety_claim: engineering compatibility never substitutes
+      for a market-valid listing; market mismatch and model-identity
+      mismatch are separate verdicts.
+    checks:
+      - id: product-safety
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_buildenv.py::TestProductSafety::test_compatibility_not_certification
+          - backend/tests/test_rev59_buildenv.py::TestProductSafety::test_market_mismatch
+          - backend/tests/test_rev59_buildenv.py::TestProductSafety::test_certified_for_market
+        description: >
+          Compatibility-vs-certification separation, market scoping,
+          listing-kind ladder.
+  - issue: 740
+    title: "Occupied-room IAQ / thermal-comfort authority"
+    notes: >
+      OccupiedIaqObservation (iaq-) pins occupied-state CO2/temp/RH/
+      ventilation-effectiveness figures; OccupiedIaqQualification
+      (iaqq-) binds verdict + limits profile to pinned observations.
+      evaluate_iaq_claim: a declared airflow target never implies
+      occupied conditions.
+    checks:
+      - id: occupied-iaq
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_buildenv.py::TestOccupiedIaq::test_airflow_not_iaq
+          - backend/tests/test_rev59_buildenv.py::TestOccupiedIaq::test_unoccupied_observation_insufficient
+          - backend/tests/test_rev59_buildenv.py::TestOccupiedIaq::test_qualification_needs_refs_and_limits
+        description: >
+          Design-airflow vs occupied-condition separation, observation
+          pinning.
+  - issue: 750
+    title: "Acoustic-material VOC / chemical-emission evidence"
+    notes: >
+      VocEmissionProfile (voc-) pins emission scheme + certificate/
+      chamber-test refs per material. evaluate_emission_claim: a
+      product cert documents the product — a room-IAQ claim requires
+      occupied-room evidence (#740) and is never extrapolated.
+    checks:
+      - id: voc-evidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_buildenv.py::TestVocEvidence::test_room_iaq_not_proven_by_cert
+          - backend/tests/test_rev59_buildenv.py::TestVocEvidence::test_product_documented
+        description: >
+          Product-cert vs room-IAQ separation, evidence pinning.
   - issue: 729
     title: "REV59-DEPS: authority dependency / staleness graph"
     notes: >

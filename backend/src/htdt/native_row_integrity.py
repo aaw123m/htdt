@@ -6534,6 +6534,46 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('document_id', 'document_id'),
         ),
         (),
+    ),    'cad_product_safety_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('listing_kind', 'listing_kind'),
+        ),
+        (),
+    ),
+    'cad_occupied_iaq_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('room_id', 'room_id'),
+            _b('occupied', 'occupied'),
+        ),
+        (),
+    ),
+    'cad_occupied_iaq_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('room_id', 'room_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_voc_emission_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
     ),
     # REV59-DEPS: #729 authority dependency / staleness graph.
     'cad_dependency_edge_declarations': (

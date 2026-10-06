@@ -1214,6 +1214,12 @@ class _RepositoryChain:
             )
 
             return CadPowerEvidenceRepository(scene)
+        if name == 'building_environment':
+            from .cad_building_environment_repository import (
+                CadBuildingEnvironmentRepository,
+            )
+
+            return CadBuildingEnvironmentRepository(scene)
         # REV59-DEPS authorities.
         if name == 'authority_dependency':
             from .cad_authority_dependency_repository import (
@@ -5740,6 +5746,30 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_emc_symptom_records',
         ('record_id',),
         _get('power_evidence', 'get_emc_symptom'),
+    ),    # REV59-BUILDENV: #751/#740/#750 building-environment authorities
+    _ReplayProbe(
+        'product_safety_profile',
+        'cad_product_safety_profiles',
+        ('profile_id',),
+        _get('building_environment', 'get_safety_profile'),
+    ),
+    _ReplayProbe(
+        'occupied_iaq_observation',
+        'cad_occupied_iaq_observations',
+        ('observation_id',),
+        _get('building_environment', 'get_iaq_observation'),
+    ),
+    _ReplayProbe(
+        'occupied_iaq_qualification',
+        'cad_occupied_iaq_qualifications',
+        ('qualification_id',),
+        _get('building_environment', 'get_iaq_qualification'),
+    ),
+    _ReplayProbe(
+        'voc_emission_profile',
+        'cad_voc_emission_profiles',
+        ('profile_id',),
+        _get('building_environment', 'get_voc_profile'),
     ),
 )
 

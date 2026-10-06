@@ -4202,6 +4202,33 @@ def emc_line(verdict: str) -> str:
     return 'EMC証拠: ' + _EMC_LABELS.get(verdict, verdict)
 
 
+from .cad_product_safety import (  # noqa: E402
+    SAFETY_LABELS as _SAFETY_LABELS,
+)
+from .cad_iaq_occupancy import (  # noqa: E402
+    IAQ_LABELS as _IAQ_LABELS,
+)
+from .cad_voc_evidence import (  # noqa: E402
+    VOC_LABELS as _VOC_LABELS,
+)
+
+
+def product_safety_line(verdict: str) -> str:
+    """One JA line for a product-safety verdict (#751) —
+    工学的適合は認証・リスティングを意味しない。"""
+    return '製品安全: ' + _SAFETY_LABELS.get(verdict, verdict)
+
+
+def iaq_line(verdict: str) -> str:
+    """One JA line for an occupied-IAQ verdict (#740) —
+    風量達成は占有時の空気質を証明しない。"""
+    return '占有時空気質: ' + _IAQ_LABELS.get(verdict, verdict)
+
+
+def voc_line(verdict: str) -> str:
+    """One JA line for a VOC-emission verdict (#750) —
+    製品証明は完成室内の IAQ を証明しない。"""
+    return 'VOC排出: ' + _VOC_LABELS.get(verdict, verdict)
 # REV59-DEPS: 権威依存/陳腐化 (#729)・証拠アテステーション/時刻権威
 # (#725)・プロジェクトアーカイブ/移行権威 (#718)
 
