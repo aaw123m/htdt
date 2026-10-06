@@ -5875,6 +5875,94 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_cenv_doc ON cad_accuracy_cost_envelopes(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_jitter_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spectrum_capable INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_jmp_doc ON cad_jitter_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_jitter_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, jitter_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_job_doc ON cad_jitter_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_jitter_transfer_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_jtf_doc ON cad_jitter_transfer_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_converter_jitter_susceptibility ( seq INTEGER PRIMARY KEY AUTOINCREMENT, susceptibility_id TEXT NOT NULL UNIQUE, susceptibility_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, converter_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cjs_doc ON cad_converter_jitter_susceptibility(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dither_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, dither_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dns_doc ON cad_dither_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_digital_path_transforms ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transform_id TEXT NOT NULL UNIQUE, transform_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, transform_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dpt_doc ON cad_digital_path_transforms(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_src_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, algorithm TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcp_doc ON cad_playback_src_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_src_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, src_profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcq_doc ON cad_src_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_clock_domain_crossings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, crossing_id TEXT NOT NULL UNIQUE, crossing_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, declared_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cdc_doc ON cad_clock_domain_crossings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interchannel_leakage_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage TEXT NOT NULL, method TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_xtk_doc ON cad_interchannel_leakage_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_channel_separation_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_csep_doc ON cad_channel_separation_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6686,6 +6774,17 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_solver_budget_profiles',
     'cad_compute_observations',
     'cad_accuracy_cost_envelopes',
+    'cad_jitter_profiles',
+    'cad_jitter_observations',
+    'cad_jitter_transfer_measurements',
+    'cad_converter_jitter_susceptibility',
+    'cad_dither_profiles',
+    'cad_digital_path_transforms',
+    'cad_playback_src_profiles',
+    'cad_src_qualifications',
+    'cad_clock_domain_crossings',
+    'cad_interchannel_leakage_measurements',
+    'cad_channel_separation_qualifications',
     # REV59-DEPS: #729 / #725 / #718.
     'cad_dependency_edge_declarations',
     'cad_dependency_change_events',

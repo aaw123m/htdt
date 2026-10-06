@@ -1196,6 +1196,12 @@ class _RepositoryChain:
             )
 
             return CadFieldMetricRepository(scene)
+        if name == 'signal_integrity':
+            from .cad_signal_integrity_repository import (
+                CadSignalIntegrityRepository,
+            )
+
+            return CadSignalIntegrityRepository(scene)
         # REV59-DEPS authorities.
         if name == 'authority_dependency':
             from .cad_authority_dependency_repository import (
@@ -5553,6 +5559,73 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_accuracy_cost_envelopes',
         ('envelope_id',),
         _get('field_metric', 'get_cost_envelope'),
+    ),
+    # REV59-DIGCHAIN: #745/#744/#739/#650 signal-integrity authorities
+    _ReplayProbe(
+        'jitter_profile',
+        'cad_jitter_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_jitter_profile'),
+    ),
+    _ReplayProbe(
+        'jitter_observation',
+        'cad_jitter_observations',
+        ('observation_id',),
+        _get('signal_integrity', 'get_jitter_observation'),
+    ),
+    _ReplayProbe(
+        'jitter_transfer',
+        'cad_jitter_transfer_measurements',
+        ('measurement_id',),
+        _get('signal_integrity', 'get_jitter_transfer'),
+    ),
+    _ReplayProbe(
+        'converter_jitter_susceptibility',
+        'cad_converter_jitter_susceptibility',
+        ('susceptibility_id',),
+        _get('signal_integrity', 'get_converter_susceptibility'),
+    ),
+    _ReplayProbe(
+        'dither_profile',
+        'cad_dither_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_dither_profile'),
+    ),
+    _ReplayProbe(
+        'digital_path_transform',
+        'cad_digital_path_transforms',
+        ('transform_id',),
+        _get('signal_integrity', 'get_path_transform'),
+    ),
+    _ReplayProbe(
+        'playback_src_profile',
+        'cad_playback_src_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_src_profile'),
+    ),
+    _ReplayProbe(
+        'src_qualification',
+        'cad_src_qualifications',
+        ('qualification_id',),
+        _get('signal_integrity', 'get_src_qualification'),
+    ),
+    _ReplayProbe(
+        'clock_domain_crossing',
+        'cad_clock_domain_crossings',
+        ('crossing_id',),
+        _get('signal_integrity', 'get_clock_crossing'),
+    ),
+    _ReplayProbe(
+        'interchannel_leakage',
+        'cad_interchannel_leakage_measurements',
+        ('measurement_id',),
+        _get('signal_integrity', 'get_leakage_measurement'),
+    ),
+    _ReplayProbe(
+        'channel_separation',
+        'cad_channel_separation_qualifications',
+        ('qualification_id',),
+        _get('signal_integrity', 'get_separation_qualification'),
     ),
 )
 
