@@ -402,6 +402,23 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_manufacturer_safety_constraints": "メーカー安全制約",
     "cad_projector_placements": "プロジェクタ配置宣言",
     "cad_optical_safety_evaluations": "光放射安全評価",
+    # REV57-DISP: #625 直視ディスプレイ / #626 観察者メタメリズム / #633 視聴環境
+    "cad_dv_display_states": "ディスプレイ状態",
+    "cad_dv_stimulus_contexts": "ディスプレイ刺激コンテキスト",
+    "cad_dv_photometric_measurements": "測光測定",
+    "cad_dv_temporal_observations": "時間調光観測",
+    "cad_dv_spatial_measurements": "パネル均一性測定",
+    "cad_dv_angle_measurements": "視角測定",
+    "cad_dv_qualifications": "直視ディスプレイ適格評価",
+    "cad_om_spectral_states": "分光状態",
+    "cad_om_observer_profiles": "観察者モデルプロファイル",
+    "cad_om_evaluations": "メタメリズム評価",
+    "cad_om_perceptual_matches": "知覚マッチ記録",
+    "cad_om_qualifications": "メタメリズム適格評価",
+    "cad_ve_observations": "視聴環境観測",
+    "cad_ve_geometry_observations": "視聴幾何観測",
+    "cad_ve_lighting_scenes": "照明シーン",
+    "cad_ve_qualifications": "視聴環境適格評価",
 }
 
 

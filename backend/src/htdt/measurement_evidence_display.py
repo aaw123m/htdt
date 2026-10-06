@@ -1816,3 +1816,205 @@ def optical_safety_line(evaluation) -> str:
     if evaluation.reasons:
         parts.append(evaluation.reasons[0])
     return '光放射安全: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV57-DISP (#625/#626/#633): direct-view display, observer metamerism,
+# viewing environment authorities.
+
+from .cad_direct_view_display import (  # noqa: E402
+    CLAIM_KIND_LABELS as _DV_CLAIM_KIND_LABELS,
+    CLAIM_VERDICT_LABELS as _DV_CLAIM_VERDICT_LABELS,
+    DirectViewQualification,
+    LOCAL_DIMMING_LABELS as _DV_LOCAL_DIMMING_LABELS,
+    PANEL_TECHNOLOGY_LABELS as _DV_PANEL_LABELS,
+    QUALIFICATION_STATE_LABELS as _DV_STATE_LABELS,
+    QUANTITY_KIND_LABELS as _DV_QUANTITY_LABELS,
+    REASON_LABELS as _DV_REASON_LABELS,
+    TEMPORAL_DIMMING_LABELS as _DV_TEMPORAL_LABELS,
+)
+from .cad_observer_metamerism import (  # noqa: E402
+    MISMATCH_CLASS_LABELS as _OM_MISMATCH_LABELS,
+    ObserverMetamerismQualification,
+    PROFILE_KIND_LABELS as _OM_PROFILE_LABELS,
+    REASON_LABELS as _OM_REASON_LABELS,
+    SPD_EVIDENCE_LABELS as _OM_SPD_LABELS,
+    VERDICT_LABELS as _OM_VERDICT_LABELS,
+)
+from .cad_viewing_environment import (  # noqa: E402
+    CHANGE_AXIS_LABELS as _VE_AXIS_LABELS,
+    EnvironmentComparability,
+    PROFILE_KIND_LABELS as _VE_PROFILE_LABELS,
+    QUALIFICATION_STATE_LABELS as _VE_STATE_LABELS,
+    REASON_LABELS as _VE_REASON_LABELS,
+    REQUIREMENT_LABELS as _VE_REQUIREMENT_LABELS,
+    REQUIREMENT_STATE_LABELS as _VE_REQ_STATE_LABELS,
+    ViewingEnvironmentQualification,
+)
+
+
+def dv_panel_technology_label(technology: str) -> str:
+    return _DV_PANEL_LABELS.get(technology, technology)
+
+
+def dv_quantity_label(quantity: str) -> str:
+    return _DV_QUANTITY_LABELS.get(quantity, quantity)
+
+
+def dv_claim_kind_label(kind: str) -> str:
+    return _DV_CLAIM_KIND_LABELS.get(kind, kind)
+
+
+def dv_qualification_state_label(state: str) -> str:
+    return _DV_STATE_LABELS.get(state, state)
+
+
+def dv_reason_label(reason: str) -> str:
+    return _DV_REASON_LABELS.get(reason, reason)
+
+
+def dv_temporal_dimming_label(state: str) -> str:
+    return _DV_TEMPORAL_LABELS.get(state, state)
+
+
+def direct_view_qualification_line(
+    qualification: DirectViewQualification,
+) -> str:
+    """One JA line for a direct-view qualification (#625): the rolled-up
+    state, then per-claim failures — `HDR calibrated` バッジが未検証の
+    次元を隠すことはない。"""
+    parts = [dv_qualification_state_label(qualification.state)]
+    weak = [
+        dv_claim_kind_label(v.kind)
+        for v in qualification.claim_verdicts
+        if v.verdict in (
+            'insufficient_evidence', 'unsupported', 'conflicting_evidence'
+        )
+    ]
+    if weak:
+        parts.append('未検証: ' + ' / '.join(weak))
+    limited = [
+        dv_claim_kind_label(v.kind)
+        for v in qualification.claim_verdicts
+        if v.verdict == 'supported_with_limitations'
+    ]
+    if limited:
+        parts.append('制限付き: ' + ' / '.join(limited))
+    return '直視ディスプレイ適格: ' + ' — '.join(parts)
+
+
+def om_profile_kind_label(kind: str) -> str:
+    return _OM_PROFILE_LABELS.get(kind, kind)
+
+
+def om_verdict_label(verdict: str) -> str:
+    return _OM_VERDICT_LABELS.get(verdict, verdict)
+
+
+def om_reason_label(reason: str) -> str:
+    return _OM_REASON_LABELS.get(reason, reason)
+
+
+def om_spd_evidence_label(evidence_class: str) -> str:
+    return _OM_SPD_LABELS.get(evidence_class, evidence_class)
+
+
+def om_mismatch_class_label(mismatch_class: str) -> str:
+    return _OM_MISMATCH_LABELS.get(mismatch_class, mismatch_class)
+
+
+def observer_metamerism_line(
+    qualification: ObserverMetamerismQualification,
+) -> str:
+    """One JA line for an observer-metamerism qualification (#626):
+    verdict plus the class separation — 計器一致は全観察者の一致を
+    意味しない。"""
+    parts = [om_verdict_label(qualification.verdict)]
+    notes = [
+        om_reason_label(r)
+        for r in qualification.reasons
+        if r in (
+            'INSTRUMENT_MISMATCH_SUSPECTED',
+            'METER_CORRECTION_NOT_OBSERVER_PROOF',
+            'SINGLE_OBSERVER_NOT_UNIVERSAL',
+            'TRISTIMULUS_ONLY_EVIDENCE',
+            'PROJECTION_OUT_OF_PROFILE_SCOPE',
+        )
+    ]
+    if notes:
+        parts.append(' / '.join(notes))
+    return '観察者メタメリズム評価: ' + ' — '.join(parts)
+
+
+def ve_profile_kind_label(kind: str) -> str:
+    return _VE_PROFILE_LABELS.get(kind, kind)
+
+
+def ve_state_label(state: str) -> str:
+    return _VE_STATE_LABELS.get(state, state)
+
+
+def ve_reason_label(reason: str) -> str:
+    return _VE_REASON_LABELS.get(reason, reason)
+
+
+def ve_change_axis_label(axis: str) -> str:
+    return _VE_AXIS_LABELS.get(axis, axis)
+
+
+def viewing_environment_line(
+    qualification: ViewingEnvironmentQualification,
+) -> str:
+    """One JA line for a viewing-environment qualification (#633):
+    profile name + state + unmet requirements — `display calibrated`
+    は `reference viewing condition` を意味しない。"""
+    parts = [
+        ve_profile_kind_label(qualification.profile_kind),
+        ve_state_label(qualification.state),
+    ]
+    unmet = [
+        _VE_REQUIREMENT_LABELS.get(v.requirement, v.requirement)
+        for v in qualification.requirement_verdicts
+        if v.state == 'unmet'
+    ]
+    unknown = [
+        _VE_REQUIREMENT_LABELS.get(v.requirement, v.requirement)
+        for v in qualification.requirement_verdicts
+        if v.state == 'unknown'
+    ]
+    if unmet:
+        parts.append('未充足: ' + ' / '.join(unmet))
+    if unknown:
+        parts.append('未測定: ' + ' / '.join(unknown))
+    if qualification.stale_after_change:
+        parts.append(
+            '陳腐化: '
+            + ' / '.join(
+                ve_change_axis_label(a)
+                for a in qualification.stale_after_change
+            )
+        )
+    return '視聴環境評価: ' + ' — '.join(parts)
+
+
+def environment_comparability_line(
+    comparability: EnvironmentComparability,
+) -> str:
+    """One JA line for a before/after comparability result (#633 §14):
+    changed axes reported alongside — 照明変更と校正変更を分離する。"""
+    from .cad_viewing_environment import COMPARABILITY_LABELS
+
+    parts = [
+        COMPARABILITY_LABELS.get(
+            comparability.verdict, comparability.verdict
+        )
+    ]
+    if comparability.changed_axes:
+        parts.append(
+            '変更軸: '
+            + ' / '.join(
+                ve_change_axis_label(a)
+                for a in comparability.changed_axes
+            )
+        )
+    return '視聴環境比較: ' + ' — '.join(parts)

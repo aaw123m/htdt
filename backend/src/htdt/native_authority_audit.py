@@ -896,6 +896,25 @@ class _RepositoryChain:
             )
 
             return CadOpticalSafetyRepository(scene)
+        # REV57-DISP authorities.
+        if name == 'direct_view_display':
+            from .cad_direct_view_display_repository import (
+                CadDirectViewDisplayRepository,
+            )
+
+            return CadDirectViewDisplayRepository(scene)
+        if name == 'observer_metamerism':
+            from .cad_observer_metamerism_repository import (
+                CadObserverMetamerismRepository,
+            )
+
+            return CadObserverMetamerismRepository(scene)
+        if name == 'viewing_environment':
+            from .cad_viewing_environment_repository import (
+                CadViewingEnvironmentRepository,
+            )
+
+            return CadViewingEnvironmentRepository(scene)
         raise KeyError(name)
 
 
@@ -3941,6 +3960,105 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_optical_safety_evaluations',
         ('evaluation_id',),
         _get('optical_safety', 'get_evaluation'),
+    ),
+    # REV57-DISP: #625 direct-view display authority
+    _ReplayProbe(
+        'dv_display_state',
+        'cad_dv_display_states',
+        ('display_state_id',),
+        _get('direct_view_display', 'get_display_state'),
+    ),
+    _ReplayProbe(
+        'dv_stimulus_context',
+        'cad_dv_stimulus_contexts',
+        ('stimulus_context_id',),
+        _get('direct_view_display', 'get_stimulus_context'),
+    ),
+    _ReplayProbe(
+        'dv_photometric_measurement',
+        'cad_dv_photometric_measurements',
+        ('measurement_id',),
+        _get('direct_view_display', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'dv_temporal_observation',
+        'cad_dv_temporal_observations',
+        ('observation_id',),
+        _get('direct_view_display', 'get_temporal_observation'),
+    ),
+    _ReplayProbe(
+        'dv_spatial_measurement',
+        'cad_dv_spatial_measurements',
+        ('spatial_id',),
+        _get('direct_view_display', 'get_spatial_measurement'),
+    ),
+    _ReplayProbe(
+        'dv_angle_measurement',
+        'cad_dv_angle_measurements',
+        ('angle_id',),
+        _get('direct_view_display', 'get_angle_measurement'),
+    ),
+    _ReplayProbe(
+        'dv_qualification',
+        'cad_dv_qualifications',
+        ('qualification_id',),
+        _get('direct_view_display', 'get_qualification'),
+    ),
+    # REV57-DISP: #626 observer-metamerism authority
+    _ReplayProbe(
+        'om_spectral_state',
+        'cad_om_spectral_states',
+        ('spectral_state_id',),
+        _get('observer_metamerism', 'get_spectral_state'),
+    ),
+    _ReplayProbe(
+        'om_observer_profile',
+        'cad_om_observer_profiles',
+        ('profile_id',),
+        _get('observer_metamerism', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'om_evaluation',
+        'cad_om_evaluations',
+        ('evaluation_id',),
+        _get('observer_metamerism', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'om_perceptual_match',
+        'cad_om_perceptual_matches',
+        ('match_id',),
+        _get('observer_metamerism', 'get_perceptual_match'),
+    ),
+    _ReplayProbe(
+        'om_qualification',
+        'cad_om_qualifications',
+        ('qualification_id',),
+        _get('observer_metamerism', 'get_qualification'),
+    ),
+    # REV57-DISP: #633 viewing-environment authority
+    _ReplayProbe(
+        've_observation',
+        'cad_ve_observations',
+        ('observation_id',),
+        _get('viewing_environment', 'get_observation'),
+    ),
+    _ReplayProbe(
+        've_geometry_observation',
+        'cad_ve_geometry_observations',
+        ('geometry_id',),
+        _get('viewing_environment', 'get_geometry'),
+    ),
+    _ReplayProbe(
+        've_lighting_scene',
+        'cad_ve_lighting_scenes',
+        ('scene_id',),
+        _get('viewing_environment', 'get_scene'),
+    ),
+    _ReplayProbe(
+        've_qualification',
+        'cad_ve_qualifications',
+        ('qualification_id',),
+        _get('viewing_environment', 'get_qualification'),
     ),
 )
 
