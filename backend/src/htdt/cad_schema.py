@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 73
+NATIVE_SCHEMA_VERSION = 74
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1823,6 +1823,17 @@ def _migrate_72_to_73(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+
+def _migrate_73_to_74(connection: sqlite3.Connection) -> None:
+    # Install the REV59-LOUDSPK authorities (#754 large-signal mechanics,
+    # #734 source normalization, #731 thermal compression, #732
+    # microphone incidence, #737 same-channel arrays, #735 grille
+    # transfer): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1897,6 +1908,7 @@ _MIGRATIONS = {
     71: _migrate_70_to_71,
     72: _migrate_71_to_72,
     73: _migrate_72_to_73,
+    74: _migrate_73_to_74,
 }
 
 

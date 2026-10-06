@@ -4227,3 +4227,159 @@ issues:
         description: >
           Hypothesis-vs-verification separation, confirmation ladder,
           confounded verdicts, claim gate, sealed roundtrip.
+  - issue: 754
+    title: "Loudspeaker/subwoofer large-signal mechanical authority"
+    notes: >
+      LargeSignalTransducerModel (lstm-) pins evidence class, declared
+      nonlinear-parameter kinds (Bl(x)/Kms(x)/Le(x,i)), enclosure
+      alignment and level applicability — a model_derived_excursion claim
+      requires declared nonlinear parameters and a
+      large_signal_validated_to_level claim requires a measured evidence
+      class plus a pinned validation. ExcursionCapability (excp-) pins
+      convention + definition basis + distortion criterion so Xmax
+      numbers are equated only on identical semantics;
+      compare_excursion_datums returns incomparable on convention/basis/
+      criterion mismatches. evaluate_output_limit keeps a
+      small-signal-only model at small_signal_only — linear
+      extrapolation is never promoted — and protection mechanisms gate
+      at protection_limited.
+    checks:
+      - id: large-signal
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_large_signal_seal
+          - backend/tests/test_rev59_loudspk.py::test_large_signal_validated_level_requires_measured
+          - backend/tests/test_rev59_loudspk.py::test_large_signal_unknown_params_rejected
+          - backend/tests/test_rev59_loudspk.py::test_output_limit_verdicts
+          - backend/tests/test_rev59_loudspk.py::test_excursion_datum_comparison
+          - backend/tests/test_rev59_loudspk.py::test_excursion_standard_classes_require_standard_ref
+          - backend/tests/test_rev59_loudspk.py::test_vent_flow_requires_vented_alignment
+        description: >
+          大信号証拠クラス・非線形パラメータ宣言・レベル適用域の
+          fail-closed 検証；Xmax セマンティクス比較・ポート流動能力・
+          出力限界評価の verdict 梯子。
+  - issue: 734
+    title: "Loudspeaker source-normalization / absolute-output authority"
+    notes: >
+      LoudspeakerSourceNormalization (snrm-) pins capability class and
+      normalization method — an absolute capability cannot be declared
+      under per-frequency or per-polar renormalization.
+      ReferenceDriveCondition (rdrv-) types the drive quantity and
+      requires its value; convert_reference_drive blocks voltage↔power
+      conversion without pinned impedance evidence (equivalence_blocked).
+      AbsoluteAcousticOutputAnchor (aout-) pins drive reference,
+      reference distance and acoustic origin; evaluate_absolute_prediction
+      keeps relative-shape datasets at relative_response_only and
+      requires the full anchor before absolute_spl_prediction_eligible.
+    checks:
+      - id: source-normalization
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_source_normalization_absolute_rejects_per_freq_norm
+          - backend/tests/test_rev59_loudspk.py::test_absolute_prediction_verdicts
+          - backend/tests/test_rev59_loudspk.py::test_drive_conversion_needs_impedance
+          - backend/tests/test_rev59_loudspk.py::test_typed_drive_quantity_requires_value
+        description: >
+          相対応答→絶対出力の fail-closed 昇格、基準ドライブ型付け、
+          2.83V/1W 換算のインピーダンス証拠ゲート。
+  - issue: 731
+    title: "Sustained output / thermal-compression authority"
+    notes: >
+      SustainedOutputTest (sout-) requires the test duration for any
+      sustained/repeated capability class and a pinned standard ref for
+      standard_max_linear_output. ThermalCompressionObservation (tcmp-)
+      keeps band edges paired and forbids DUT-cause attribution while
+      the measurement chain itself overloaded (#695 boundary).
+      claim_output_capability returns burst_only_evidence for sustained
+      claims made from burst/small-signal tests, protection_limited when
+      protection was the observed limiter, and
+      measurement_chain_limited under chain overload.
+    checks:
+      - id: thermal-compression
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_sustained_requires_duration
+          - backend/tests/test_rev59_loudspk.py::test_compression_chain_overload_forbids_dut_cause
+          - backend/tests/test_rev59_loudspk.py::test_claim_output_capability_fail_closed
+          - backend/tests/test_rev59_loudspk.py::test_recovery_full_requires_baseline
+        description: >
+          短時間/持続 capability の区別、claim verdict 梯子
+          （burst_only_evidence・protection_limited・
+          measurement_chain_limited）、回復プロファイルの基線要件。
+  - issue: 732
+    title: "Measurement-microphone angular-response / incidence authority"
+    notes: >
+      MeasurementMicrophoneDirectionalProfile (mdpf-) pins calibration
+      field kind — angular/directional kinds require a dataset ref with
+      declared angle and frequency grids. ReceiverOrientationState
+      (rors-) requires measured yaw under a world-fixed frame.
+      evaluate_incidence is frequency-gated: without declared angular
+      evidence a free-field calibration stays honest (limited) at any
+      frequency; inside a measured grid the verdict is
+      correction_available/measured_grid, outside it
+      limited/derived_extrapolated; >45 deg from the correction
+      reference is incompatible; pressure sensitivity is never promoted
+      to free-field truth and diffuse measurands need diffuse-field
+      quantities.
+    checks:
+      - id: microphone-incidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_directional_profile_dataset_requires_grids
+          - backend/tests/test_rev59_loudspk.py::test_world_fixed_orientation_requires_yaw
+          - backend/tests/test_rev59_loudspk.py::test_incidence_verdict_ladder
+          - backend/tests/test_rev59_loudspk.py::test_incidence_measured_grid_correction
+          - backend/tests/test_rev59_loudspk.py::test_incidence_applicability_correction_ref
+        description: >
+          校正音場種別の区別（圧力/自由音場/拡散）、入射角 verdict
+          梯子（directly_applicable→correction_available→limited→
+          incompatible）、グリッド外推定の限定適用。
+  - issue: 737
+    title: "Same-channel surround-array qualification authority"
+    notes: >
+      SameChannelSpeakerArray (scar-) requires ≥2 members and rejects
+      per-member independent adjustment under a physical shared-output
+      topology; assert_member_adjustment enforces the wiring gate.
+      evaluate_array_qualification requires ≥2 measured seats plus a
+      holdout plus summed-field evidence for any coverage verdict —
+      single-seat evidence stays unqualified, coherent-cancellation
+      seats surface as seat_anomaly, and arrayed object-mode
+      reproduction records localization_tradeoff.
+    checks:
+      - id: surround-array
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_array_requires_two_members
+          - backend/tests/test_rev59_loudspk.py::test_shared_output_rejects_independent_member
+          - backend/tests/test_rev59_loudspk.py::test_array_qualification_verdicts
+          - backend/tests/test_rev59_loudspk.py::test_member_adjustment_guard
+        description: >
+          構成トポロジの個別調整可否、席間均一性の検定要件
+          （≥2測定席+holdout+和音場証拠）、相殺席・定位低下の
+          明示 verdict。
+  - issue: 735
+    title: "Loudspeaker front-layer / grille-transfer authority"
+    notes: >
+      LoudspeakerFrontLayer (lfly-) kinds that declare a frame must
+      record frame_present. GrilleTransferEvidence (gtrf-) pins
+      evidence class, transfer kind and applicability windows;
+      htdt_user_measured requires both layer-on and layer-off captures.
+      evaluate_front_layer is fail-closed: no layer → base directivity
+      applies; unknown or marketing-declared transfer → unknown (the
+      bare response is NOT applied); spacing outside the evidence
+      window → directivity_limited; complex transfer with measured
+      angles → installed_front_layer_directivity_available.
+      FrontLayerApplicability (flap-) rejects grille-on base datasets
+      with correction verdicts as double-counting.
+    checks:
+      - id: grille-transfer
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_loudspk.py::test_frame_kinds_require_frame_flag
+          - backend/tests/test_rev59_loudspk.py::test_user_measured_requires_both_captures
+          - backend/tests/test_rev59_loudspk.py::test_front_layer_fail_closed
+          - backend/tests/test_rev59_loudspk.py::test_front_layer_applicability_double_count_rejected
+        description: >
+          透過証拠の fail-closed 適用（UNKNOWN/宣伝証拠では裸応答を
+          適用しない）、層あり/なし差分測定要件、適用窓外は限定、
+          二重補正の拒否。

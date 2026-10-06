@@ -7515,7 +7515,158 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     
     """
     ,
-
+    """
+    CREATE TABLE IF NOT EXISTS cad_large_signal_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL UNIQUE, model_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_class TEXT NOT NULL, enclosure_alignment TEXT NOT NULL, level_applicability TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lstm_doc ON cad_large_signal_models(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_excursion_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, transducer_ref_id TEXT NOT NULL, evidence_class TEXT NOT NULL, definition_basis TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_excp_doc ON cad_excursion_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_vent_flow_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, system_ref_id TEXT NOT NULL, mechanism TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vflw_doc ON cad_vent_flow_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mechanical_output_limits ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_ref_id TEXT NOT NULL, limiting_mechanism TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_molm_doc ON cad_mechanical_output_limits(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_normalizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, normalization_id TEXT NOT NULL UNIQUE, normalization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, capability TEXT NOT NULL, normalization_method TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_snrm_doc ON cad_source_normalizations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reference_drive_conditions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, condition_id TEXT NOT NULL UNIQUE, condition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, quantity_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rdrv_doc ON cad_reference_drive_conditions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_absolute_output_anchors ( seq INTEGER PRIMARY KEY AUTOINCREMENT, anchor_id TEXT NOT NULL UNIQUE, anchor_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, normalization_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_aout_doc ON cad_absolute_output_anchors(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sustained_output_tests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, test_id TEXT NOT NULL UNIQUE, test_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, capability_class TEXT NOT NULL, initial_thermal_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sout_doc ON cad_sustained_output_tests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_thermal_compression_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, test_ref_id TEXT NOT NULL, suspected_cause TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tcmp_doc ON cad_thermal_compression_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_recovery_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, test_ref_id TEXT NOT NULL, recovery_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rcvp_doc ON cad_recovery_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_microphone_directional_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, calibration_field_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mdpf_doc ON cad_microphone_directional_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_receiver_orientation_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL UNIQUE, state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, orientation_frame TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rors_doc ON cad_receiver_orientation_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_microphone_incidence_applicability ( seq INTEGER PRIMARY KEY AUTOINCREMENT, applicability_id TEXT NOT NULL UNIQUE, applicability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_miap_doc ON cad_microphone_incidence_applicability(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_same_channel_arrays ( seq INTEGER PRIMARY KEY AUTOINCREMENT, array_id TEXT NOT NULL UNIQUE, array_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, logical_channel_ref_id TEXT NOT NULL, topology TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_scar_doc ON cad_same_channel_arrays(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_array_reproduction_modes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mode_id TEXT NOT NULL UNIQUE, mode_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, array_ref_id TEXT NOT NULL, render_mode TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_armd_doc ON cad_array_reproduction_modes(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_array_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, array_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_arqu_doc ON cad_array_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_loudspeaker_front_layers ( seq INTEGER PRIMARY KEY AUTOINCREMENT, layer_id TEXT NOT NULL UNIQUE, layer_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, loudspeaker_ref_id TEXT NOT NULL, kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lfly_doc ON cad_loudspeaker_front_layers(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_grille_transfer_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, layer_ref_id TEXT NOT NULL, evidence_class TEXT NOT NULL, transfer_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gtrf_doc ON cad_grille_transfer_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_front_layer_applicability ( seq INTEGER PRIMARY KEY AUTOINCREMENT, applicability_id TEXT NOT NULL UNIQUE, applicability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, layer_ref_id TEXT, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_flap_doc ON cad_front_layer_applicability(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -8502,5 +8653,23 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_diagnostic_hypotheses',
     'cad_diagnostic_tests',
     'cad_diagnostic_verdicts',
-
+    'cad_large_signal_models',
+    'cad_excursion_capabilities',
+    'cad_vent_flow_capabilities',
+    'cad_mechanical_output_limits',
+    'cad_source_normalizations',
+    'cad_reference_drive_conditions',
+    'cad_absolute_output_anchors',
+    'cad_sustained_output_tests',
+    'cad_thermal_compression_observations',
+    'cad_recovery_profiles',
+    'cad_microphone_directional_profiles',
+    'cad_receiver_orientation_states',
+    'cad_microphone_incidence_applicability',
+    'cad_same_channel_arrays',
+    'cad_array_reproduction_modes',
+    'cad_array_qualifications',
+    'cad_loudspeaker_front_layers',
+    'cad_grille_transfer_evidence',
+    'cad_front_layer_applicability',
 )
