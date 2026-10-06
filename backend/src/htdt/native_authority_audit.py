@@ -1329,6 +1329,31 @@ class _RepositoryChain:
             )
 
             return CadVerAutoRepository(scene)
+                # REV59-UNITS authorities.
+        if name == 'typed_quantity':
+            from .cad_typed_quantity_repository import (
+                CadTypedQuantityRepository,
+            )
+
+            return CadTypedQuantityRepository(scene)
+        if name == 'assumption_ledger':
+            from .cad_assumption_ledger_repository import (
+                CadAssumptionLedgerRepository,
+            )
+
+            return CadAssumptionLedgerRepository(scene)
+        if name == 'audibility':
+            from .cad_audibility_repository import (
+                CadAudibilityRepository,
+            )
+
+            return CadAudibilityRepository(scene)
+        if name == 'diagnostic_hypothesis':
+            from .cad_diagnostic_hypothesis_repository import (
+                CadDiagnosticHypothesisRepository,
+            )
+
+            return CadDiagnosticHypothesisRepository(scene)
         raise KeyError(name)
 
 
@@ -6521,6 +6546,76 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('verauto', 'get_verification_closure'),
     ),
 
+    # REV59-UNITS: #728 typed physical quantity
+    _ReplayProbe(
+        'typed_quantity',
+        'cad_typed_quantities',
+        ('quantity_id',),
+        _get('typed_quantity', 'get_quantity'),
+    ),
+    _ReplayProbe(
+        'quantity_operation',
+        'cad_quantity_operations',
+        ('operation_id',),
+        _get('typed_quantity', 'get_operation'),
+    ),
+    # REV59-UNITS: #730 engineering-assumption ledger
+    _ReplayProbe(
+        'engineering_assumption',
+        'cad_engineering_assumptions',
+        ('assumption_id',),
+        _get('assumption_ledger', 'get_assumption'),
+    ),
+    _ReplayProbe(
+        'assumption_resolution',
+        'cad_assumption_resolutions',
+        ('resolution_id',),
+        _get('assumption_ledger', 'get_resolution'),
+    ),
+    _ReplayProbe(
+        'permissible_use_assessment',
+        'cad_permissible_use_assessments',
+        ('assessment_id',),
+        _get('assumption_ledger', 'get_assessment'),
+    ),
+    # REV59-UNITS: #720 perceptual relevance / audibility
+    _ReplayProbe(
+        'perceptual_model_profile',
+        'cad_perceptual_model_profiles',
+        ('profile_id',),
+        _get('audibility', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'audibility_assessment',
+        'cad_audibility_assessments',
+        ('assessment_id',),
+        _get('audibility', 'get_assessment'),
+    ),
+    # REV59-UNITS: #719 residual diagnostic-hypothesis
+    _ReplayProbe(
+        'diagnostic_case',
+        'cad_diagnostic_cases',
+        ('case_id',),
+        _get('diagnostic_hypothesis', 'get_case'),
+    ),
+    _ReplayProbe(
+        'diagnostic_hypothesis',
+        'cad_diagnostic_hypotheses',
+        ('hypothesis_id',),
+        _get('diagnostic_hypothesis', 'get_hypothesis'),
+    ),
+    _ReplayProbe(
+        'diagnostic_test',
+        'cad_diagnostic_tests',
+        ('test_id',),
+        _get('diagnostic_hypothesis', 'get_test'),
+    ),
+    _ReplayProbe(
+        'diagnostic_verdict',
+        'cad_diagnostic_verdicts',
+        ('verdict_id',),
+        _get('diagnostic_hypothesis', 'get_verdict'),
+    ),
 )
 
 # Managed-asset manifest/evidence tables: every row must resolve to the

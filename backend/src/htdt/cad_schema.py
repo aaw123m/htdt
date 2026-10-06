@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 72
+NATIVE_SCHEMA_VERSION = 73
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1811,6 +1811,18 @@ def _migrate_71_to_72(connection):
         connection.execute(statement)
 
 
+def _migrate_72_to_73(connection: sqlite3.Connection) -> None:
+    # Install the REV59-UNITS authorities (#728 typed physical
+    # quantity: quantities, operations; #730 engineering-assumption /
+    # permissible-use ledger: assumptions, resolutions, assessments;
+    # #720 perceptual relevance / audibility: model profiles,
+    # assessments; #719 residual diagnostic-hypothesis: cases,
+    # hypotheses, tests, verdicts): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1884,6 +1896,7 @@ _MIGRATIONS = {
     70: _migrate_69_to_70,
     71: _migrate_70_to_71,
     72: _migrate_71_to_72,
+    73: _migrate_72_to_73,
 }
 
 

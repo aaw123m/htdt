@@ -4144,3 +4144,86 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_verauto.py::test_verification_ladder]
         description: Closure requires committed evidence + pass.
+  - issue: 728
+    title: "Typed physical-quantity / unit authority"
+    notes: >
+      CadTypedQuantity (tqty-) binds quantity_kind + value_kind +
+      canonical SI value + source observation; UNIT_DEFS registry keeps
+      family-scoped conversion; evaluate_quantity_operation is
+      fail-closed on kind identity, affine absolute/difference pairs,
+      and named derivations only.
+    checks:
+      - id: typed-quantity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_units.py::test_unit10_mm_vs_m_identical_source_retained
+          - backend/tests/test_rev59_units.py::test_unit30_affine_temperature_arithmetic
+          - backend/tests/test_rev59_units.py::test_unit80_undeclared_unit_fails_closed
+          - backend/tests/test_rev59_units.py::test_unit90_pa_vs_db_never_directly_compared
+          - backend/tests/test_rev59_units.py::test_typed_quantity_repository_roundtrip_and_integrity
+        description: >
+          Canonical conversion, affine add/subtract pairing, kind
+          barriers, fail-closed operation states, sealed roundtrip.
+  - issue: 730
+    title: "Engineering assumption / permissible-use ledger"
+    notes: >
+      CadEngineeringAssumption (asm-) seals kind + evidence_state +
+      declared value + permissible_uses (empty rejected);
+      CadAssumptionResolution (asmres-) records measurement/
+      supersession outcomes; evaluate_permissible_use gates claims
+      through a strictness ladder — undeclared or over-grade use is
+      use_blocked.
+    checks:
+      - id: assumption-ledger
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_units.py::test_asm10_generic_material_permits_concept_blocks_validation
+          - backend/tests/test_rev59_units.py::test_asm20_scenario_branches_stay_separate
+          - backend/tests/test_rev59_units.py::test_asm50_unknown_stays_unknown
+          - backend/tests/test_rev59_units.py::test_asm60_measurement_replaces_assumption_lineage_kept
+          - backend/tests/test_rev59_units.py::test_asm80_preference_target_never_physical
+          - backend/tests/test_rev59_units.py::test_assumption_ledger_repository_roundtrip_and_integrity
+        description: >
+          Evidence-state/value rules, non-physical kinds, strictness
+          ladder, lineage issues, sealed roundtrip.
+  - issue: 720
+    title: "Perceptual relevance / audibility authority"
+    notes: >
+      CadPerceptualModelProfile (pprof-) pins literature thresholds per
+      observable with declared scope (ISO 226 pure-tone/free-field/
+      normal-hearing enforced at seal); evaluate_audibility never ranks
+      sub-threshold differences — verdict is
+      not_distinguishable_under_profile.
+    checks:
+      - id: audibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_units.py::test_per10_peak_dip_asymmetry_through_declared_profile
+          - backend/tests/test_rev59_units.py::test_per50_iso226_scope_gate
+          - backend/tests/test_rev59_units.py::test_per60_loudness_needs_level_calibration
+          - backend/tests/test_rev59_units.py::test_per80_project_threshold_floor
+          - backend/tests/test_rev59_units.py::test_audibility_repository_roundtrip_and_integrity
+        description: >
+          Model-scope enforcement, threshold verdicts, level-reference
+          gate, sealed roundtrip.
+  - issue: 719
+    title: "Residual diagnostic-hypothesis authority"
+    notes: >
+      CadDiagnosticCase/Hypothesis/Test/Verdict keep hypothesis
+      (cause_family + required_evidence + discriminating_symptoms)
+      sealed separately from confirmation; only controlled
+      intervention/independent remeasurement/loopback/isolation with
+      predeclared predictions promote to confirmed;
+      diagnostic_claim_allowed blocks all other cause claims.
+    checks:
+      - id: diagnostic-hypothesis
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_units.py::test_dia10_confound_discriminated_by_second_test
+          - backend/tests/test_rev59_units.py::test_dia30_polarity_confirmed_by_intervention
+          - backend/tests/test_rev59_units.py::test_dia50_measurement_chain_fault_blocks_calibration
+          - backend/tests/test_rev59_units.py::test_dia80_confounded_not_arbitrary
+          - backend/tests/test_rev59_units.py::test_diagnostic_repository_roundtrip_and_integrity
+        description: >
+          Hypothesis-vs-verification separation, confirmation ladder,
+          confounded verdicts, claim gate, sealed roundtrip.
