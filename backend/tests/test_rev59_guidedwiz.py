@@ -325,6 +325,21 @@ def test_latest_results_picks_newest(tmp_path):
 # page smoke (offscreen)
 
 
+def _wait_for_load(page) -> None:
+    """Manifest load + gate seal run on a worker thread; pump the app
+    loop until the loaded/failed signal lands."""
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    for _ in range(600):  # ~30s worst case on a cold sqlite file
+        app.processEvents()
+        worker = page._load_worker
+        if worker is None or not worker.isRunning():
+            break
+        worker.wait(50)
+    app.processEvents()
+
+
 def test_page_lists_issues_and_commits_evidence(tmp_path):
     from PySide6.QtWidgets import QApplication
 
@@ -335,6 +350,7 @@ def test_page_lists_issues_and_commits_evidence(tmp_path):
     page = VerificationWizardPage(
         tmp_path / 'data', repo_root=REPO_ROOT, manifest_path=manifest
     )
+    _wait_for_load(page)
     assert page.issue_list.count() == 1
     item = page.issue_list.item(0)
     assert '未評価' in item.text()
@@ -373,6 +389,7 @@ def test_page_surfaces_missing_manifest(tmp_path):
         repo_root=tmp_path,
         manifest_path=tmp_path / 'absent.yaml',
     )
+    _wait_for_load(page)
     assert page.issue_list.count() == 0
     assert '読み込めません' in page.issue_title.text()
     page.close()
