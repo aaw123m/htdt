@@ -3174,3 +3174,60 @@ issues:
         description: >
           Scoped supersession, no automatic newest-wins, explicit
           reconciliation.
+  - issue: 761
+    title: "Sound-strength G authority"
+    notes: >
+      SoundStrengthObservation (gobs-) pins method + band + source-
+      power ref — reference-source and source-power methods require the
+      pinned reference. SoundStrengthQualification (gqual-) binds a
+      verdict to pinned observations. evaluate_g_claim: installed SPL,
+      room gain and normalized FR are never G; no absolute source
+      reference → g_relative_only.
+    checks:
+      - id: sound-strength-g
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestSoundStrength::test_spl_not_g
+          - backend/tests/test_rev59_roomq.py::TestSoundStrength::test_relative_only_without_reference
+          - backend/tests/test_rev59_roomq.py::TestSoundStrength::test_g_established
+        description: >
+          G-vs-SPL separation, source-power pinning, relative-only
+          honesty.
+  - issue: 704
+    title: "Resonant acoustic-treatment physical-model authority"
+    notes: >
+      ResonantAbsorberProfile (res-) declares absorber kind +
+      physical parameters (cavity depth, perforation geometry, panel
+      mass) — 'porous' is rejected here (belongs to #615) and resonant
+      kinds require physical parameters. ResonantPerformanceRecord
+      (rpr-) binds measured/computed derivation — 'declared_only'
+      cannot carry figures. evaluate_resonance_claim: single
+      octave-band alpha and porous-equivalent claims are refused.
+    checks:
+      - id: resonant-treatment
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestResonantTreatment::test_single_alpha_inadequate
+          - backend/tests/test_rev59_roomq.py::TestResonantTreatment::test_porous_model_misapplied
+          - backend/tests/test_rev59_roomq.py::TestResonantTreatment::test_model_declared
+        description: >
+          Resonant-vs-porous separation, physical-parameter gating.
+  - issue: 707
+    title: "AV serviceability / maintenance-envelope authority"
+    notes: >
+      ServiceEnvelopeProfile (svc-) pins required access items
+      (filter/connectors/lamp/loop/fasteners/replacement) per device;
+      ServiceAccessObservation (svo-) binds installed reachable/blocked
+      states — an item cannot be both. evaluate_serviceability_claim:
+      CAD fit never implies serviceable; blocked or unverified required
+      items degrade the verdict.
+    checks:
+      - id: serviceability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_not_serviceable
+          - backend/tests/test_rev59_roomq.py::TestServiceability::test_blocked
+          - backend/tests/test_rev59_roomq.py::TestServiceability::test_verified
+        description: >
+          Fit-vs-serviceable separation, blocked/unverified item
+          gating.

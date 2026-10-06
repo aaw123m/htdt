@@ -667,6 +667,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_spectral_resolution_claims": "スペクトル分解能クレーム",
     "cad_external_evidence_sources": "外部証拠ソース",
     "cad_evidence_supersession_records": "証拠継承判定レコード",
+    "cad_sound_strength_observations": "サウンドストレングスG観測レコード",
+    "cad_sound_strength_qualifications": "サウンドストレングスG適格レコード",
+    "cad_resonant_absorber_profiles": "共振吸音体プロファイル",
+    "cad_resonant_performance_records": "共振吸音性能レコード",
+    "cad_service_envelope_profiles": "保守エンベローププロファイル",
+    "cad_service_access_observations": "保守アクセス観測レコード",
 }
 
 

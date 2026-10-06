@@ -6607,6 +6607,66 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('resolution', 'resolution'),
         ),
         (),
+    ),    'cad_sound_strength_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+            _b('band', 'band'),
+        ),
+        (),
+    ),
+    'cad_sound_strength_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_resonant_absorber_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('absorber_kind', 'absorber_kind'),
+        ),
+        (),
+    ),
+    'cad_resonant_performance_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('derivation', 'derivation'),
+        ),
+        (),
+    ),
+    'cad_service_envelope_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_service_access_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('envelope_ref_id', 'envelope_ref', 'ref_id'),
+        ),
+        (),
     ),
 }
 
