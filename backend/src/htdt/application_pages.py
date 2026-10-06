@@ -688,6 +688,15 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_resonant_performance_records": "共振吸音性能レコード",
     "cad_service_envelope_profiles": "保守エンベローププロファイル",
     "cad_service_access_observations": "保守アクセス観測レコード",
+    "cad_numerical_repro_profiles": "数値再現性プロファイル",
+    "cad_stochastic_realizations": "確率実現レコード",
+    "cad_numerical_comparisons": "数値比較レコード",
+    "cad_imaging_measurement_chains": "撮像計測チェーン",
+    "cad_camera_calibrations": "カメラ校正プロファイル",
+    "cad_camera_derived_observations": "カメラ導出観測レコード",
+    "cad_wireless_av_links": "無線AVリンク",
+    "cad_wireless_transport_observations": "無線伝送観測レコード",
+    "cad_wireless_sync_evidence": "無線同期証拠レコード",
 }
 
 

@@ -1251,6 +1251,12 @@ class _RepositoryChain:
             )
 
             return CadRoomQualificationRepository(scene)
+        if name == 'numerical_transport':
+            from .cad_numerical_transport_repository import (
+                CadNumericalTransportRepository,
+            )
+
+            return CadNumericalTransportRepository(scene)
         raise KeyError(name)
 
 
@@ -5855,6 +5861,61 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_service_access_observations',
         ('observation_id',),
         _get('room_qualification', 'get_service_observation'),
+    ),
+    # REV59-QUALNUM: #703/#716/#717
+    _ReplayProbe(
+        'numerical_repro_profile',
+        'cad_numerical_repro_profiles',
+        ('profile_id',),
+        _get('numerical_transport', 'get_repro_profile'),
+    ),
+    _ReplayProbe(
+        'stochastic_realization',
+        'cad_stochastic_realizations',
+        ('record_id',),
+        _get('numerical_transport', 'get_realization'),
+    ),
+    _ReplayProbe(
+        'numerical_comparison',
+        'cad_numerical_comparisons',
+        ('comparison_id',),
+        _get('numerical_transport', 'get_comparison'),
+    ),
+    _ReplayProbe(
+        'imaging_measurement_chain',
+        'cad_imaging_measurement_chains',
+        ('chain_id',),
+        _get('numerical_transport', 'get_imaging_chain'),
+    ),
+    _ReplayProbe(
+        'camera_calibration',
+        'cad_camera_calibrations',
+        ('calibration_id',),
+        _get('numerical_transport', 'get_camera_calibration'),
+    ),
+    _ReplayProbe(
+        'camera_derived_observation',
+        'cad_camera_derived_observations',
+        ('observation_id',),
+        _get('numerical_transport', 'get_camera_observation'),
+    ),
+    _ReplayProbe(
+        'wireless_av_link',
+        'cad_wireless_av_links',
+        ('link_id',),
+        _get('numerical_transport', 'get_wireless_link'),
+    ),
+    _ReplayProbe(
+        'wireless_transport_observation',
+        'cad_wireless_transport_observations',
+        ('observation_id',),
+        _get('numerical_transport', 'get_wireless_observation'),
+    ),
+    _ReplayProbe(
+        'wireless_sync_evidence',
+        'cad_wireless_sync_evidence',
+        ('evidence_id',),
+        _get('numerical_transport', 'get_wireless_sync'),
     ),
 )
 
