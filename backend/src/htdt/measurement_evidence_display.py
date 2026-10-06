@@ -4471,3 +4471,90 @@ def migration_verification_line(verification) -> str:
     if failed:
         parts.append('失敗: {0}'.format(', '.join(failed)))
     return '移行検証: ' + ' — '.join(parts)
+
+
+from .cad_sound_strength import (  # noqa: E402
+    G_LABELS as _G_LABELS,
+)
+from .cad_resonant_treatment import (  # noqa: E402
+    RESONANT_LABELS as _RESONANT_LABELS,
+)
+from .cad_serviceability import (  # noqa: E402
+    SERVICE_LABELS as _SERVICE_LABELS,
+)
+
+
+def sound_strength_line(verdict: str) -> str:
+    """One JA line for a sound-strength verdict (#761) —
+    G は通常の SPL やルームゲインではない。"""
+    return 'サウンドストレングスG: ' + _G_LABELS.get(verdict, verdict)
+
+
+def resonant_treatment_line(verdict: str) -> str:
+    """One JA line for a resonant-treatment verdict (#704) —
+    単一オクターブ係数は共振系を表さない。"""
+    return '共振吸音: ' + _RESONANT_LABELS.get(verdict, verdict)
+
+
+def serviceability_line(verdict: str) -> str:
+    """One JA line for a serviceability verdict (#707) —
+    CAD適合は保守性を意味しない。"""
+    return '保守性: ' + _SERVICE_LABELS.get(verdict, verdict)
+
+
+from .cad_solver_reproducibility import (  # noqa: E402
+    NUMERICAL_LABELS as _NUMERICAL_LABELS,
+)
+from .cad_imaging_chain import (  # noqa: E402
+    IMAGING_LABELS as _IMAGING_LABELS,
+)
+from .cad_wireless_av import (  # noqa: E402
+    WIRELESS_LABELS as _WIRELESS_LABELS,
+)
+
+
+def numerical_reproducibility_line(verdict: str) -> str:
+    """One JA line for a numerical-difference verdict (#703) —
+    変動帯域内の差は確定順序として扱わない。"""
+    return '数値再現性: ' + _NUMERICAL_LABELS.get(verdict, verdict)
+
+
+def imaging_evidence_line(verdict: str) -> str:
+    """One JA line for an imaging-chain verdict (#716) —
+    カメラ像は適格チェーンでのみディスプレイ証拠になる。"""
+    return '撮像チェーン: ' + _IMAGING_LABELS.get(verdict, verdict)
+
+
+def wireless_transport_line(verdict: str) -> str:
+    """One JA line for a wireless-transport verdict (#717) —
+    論理ルーティング正しさは無線伝送の検証ではない。"""
+    return '無線AV伝送: ' + _WIRELESS_LABELS.get(verdict, verdict)
+
+
+from .cad_ht_video_profile import (  # noqa: E402
+    CEB23_LABELS as _CEB23_LABELS,
+)
+from .cad_drawing_symbols import (  # noqa: E402
+    SYMBOL_LABELS as _SYMBOL_LABELS,
+)
+from .cad_timed_text import (  # noqa: E402
+    SUBTITLE_LABELS as _SUBTITLE_LABELS,
+)
+
+
+def ceb23_requirement_line(verdict: str) -> str:
+    """One JA line for a CEB23 requirement verdict (#741) —
+    設計予測は竣工実測を名乗らない。"""
+    return 'CEB23-B 要件: ' + _CEB23_LABELS.get(verdict, verdict)
+
+
+def drawing_symbol_line(verdict: str) -> str:
+    """One JA line for a drawing-symbol verdict (#742) —
+    権利未確認の規格シンボルは主張しない。"""
+    return '図面シンボル: ' + _SYMBOL_LABELS.get(verdict, verdict)
+
+
+def subtitle_presentation_line(verdict: str) -> str:
+    """One JA line for a subtitle verdict (#733) —
+    トラック対応は表示品質を意味しない。"""
+    return '字幕表示: ' + _SUBTITLE_LABELS.get(verdict, verdict)

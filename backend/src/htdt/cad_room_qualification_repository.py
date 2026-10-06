@@ -1,13 +1,11 @@
-"""Append-only persistence for REV59-DRAWPROF authorities.
+"""Append-only persistence for REV59-ROOMQ authorities.
 
-Seven tables in one repository — CEB23-B video-design crosswalk
-(#741), J-STD-710 drawing symbols (#742), timed-text presentation
-(#733):
+Six tables in one repository — sound strength G (#761), resonant
+treatment models (#704), serviceability envelope (#707):
 
-* ``cad_ht_video_design_profiles`` / ``cad_ceb23_evaluations``
-* ``cad_drawing_symbol_profiles`` / ``cad_device_symbol_mappings``
-  / ``cad_drawing_export_records``
-* ``cad_timed_text_profiles`` / ``cad_caption_render_observations``
+* ``cad_sound_strength_observations`` / ``cad_sound_strength_qualifications``
+* ``cad_resonant_absorber_profiles`` / ``cad_resonant_performance_records``
+* ``cad_service_envelope_profiles`` / ``cad_service_access_observations``
 """
 
 from __future__ import annotations
@@ -19,39 +17,38 @@ from typing import Any
 from .cad_repository import SceneRepository
 from .cad_schema import connect_sqlite, require_native_tables
 from .canonical_json import canonical_sha256
-from .cad_ht_video_profile import (
-    CEB23Evaluation,
-    HomeTheaterVideoDesignProfile,
+from .cad_sound_strength import (
+    SoundStrengthObservation,
+    SoundStrengthQualification,
 )
-from .cad_drawing_symbols import (
-    ArchitecturalDrawingSymbolProfile,
-    DeviceSymbolMapping,
-    DrawingExportRecord,
+from .cad_resonant_treatment import (
+    ResonantAbsorberProfile,
+    ResonantPerformanceRecord,
 )
-from .cad_timed_text import (
-    CaptionRenderObservation,
-    TimedTextPresentationProfile,
+from .cad_serviceability import (
+    ServiceAccessObservation,
+    ServiceEnvelopeProfile,
 )
 
 
-class PresentationProfileConflictError(ValueError):
-    """A DRAWPROF save violated append-only identity rules."""
+class RoomQualificationConflictError(ValueError):
+    """A room-qualification save violated append-only identity rules."""
 
 
-class PresentationProfileIntegrityError(ValueError):
-    """A stored DRAWPROF row disagreed with its payload."""
+class RoomQualificationIntegrityError(ValueError):
+    """A stored room-qualification row disagreed with its payload."""
 
 
 def _assert_sealed(record: object, sha_field: str, id_field: str) -> None:
     sha = canonical_sha256(record.identity_payload())  # type: ignore[attr-defined]
     if getattr(record, sha_field) != sha:
-        raise PresentationProfileIntegrityError(
+        raise RoomQualificationIntegrityError(
             'record payload does not match its sealed sha256'
         )
     rid = getattr(record, id_field)
     prefix = rid.rsplit('-', 1)[0]
     if rid != f'{prefix}-{sha[:24]}':
-        raise PresentationProfileIntegrityError(
+        raise RoomQualificationIntegrityError(
             'record id does not match its sealed sha256'
         )
 
@@ -92,7 +89,7 @@ class _SealedStore:
                 record, self.sha_field
             ):
                 return
-            raise PresentationProfileConflictError(
+            raise RoomQualificationConflictError(
                 f'{self.table} records are append-only'
             )
         cols = ', '.join(
@@ -127,11 +124,11 @@ class _SealedStore:
             return None
         record = self.model.model_validate_json(row['payload_json'])
         if getattr(record, self.id_field) != row[self.id_field]:
-            raise PresentationProfileIntegrityError(
+            raise RoomQualificationIntegrityError(
                 f'stored {self.table} id disagrees with its payload'
             )
         if getattr(record, self.sha_field) != row[self.sha_field]:
-            raise PresentationProfileIntegrityError(
+            raise RoomQualificationIntegrityError(
                 f'stored {self.table} sha disagrees with its payload'
             )
         for column, path in self.columns:
@@ -141,7 +138,7 @@ class _SealedStore:
             if isinstance(expected, bool):
                 expected = int(expected)
             if row[column] != expected:
-                raise PresentationProfileIntegrityError(
+                raise RoomQualificationIntegrityError(
                     f'stored {self.table}.{column} disagrees '
                     'with its payload'
                 )
@@ -166,8 +163,8 @@ def _ref(column: str, path: str) -> tuple[str, str]:
     return (column, f'{path}.ref_id')
 
 
-class CadPresentationProfileRepository:
-    """Native storage for the #741/#742/#733 authorities."""
+class CadRoomQualificationRepository:
+    """Native storage for the #761/#704/#707 authorities."""
 
     def __init__(self, scene_repository: SceneRepository) -> None:
         self.scene_repository = scene_repository
@@ -175,147 +172,125 @@ class CadPresentationProfileRepository:
         with closing(self._connect()) as connection, connection:
             require_native_tables(
                 connection,
-                'cad_ht_video_design_profiles',
-                'cad_ceb23_evaluations',
-                'cad_drawing_symbol_profiles',
-                'cad_device_symbol_mappings',
-                'cad_drawing_export_records',
-                'cad_timed_text_profiles',
-                'cad_caption_render_observations',
+                'cad_sound_strength_observations',
+                'cad_sound_strength_qualifications',
+                'cad_resonant_absorber_profiles',
+                'cad_resonant_performance_records',
+                'cad_service_envelope_profiles',
+                'cad_service_access_observations',
             )
-        self.video_profiles = _SealedStore(
-            self._connect, 'cad_ht_video_design_profiles',
-            HomeTheaterVideoDesignProfile, 'profile_id',
-            'profile_sha256',
-            (
-                ('document_id', '__document_id__'),
-                ('edition', 'edition'),
-            ),
-        )
-        self.ceb23_evaluations = _SealedStore(
-            self._connect, 'cad_ceb23_evaluations',
-            CEB23Evaluation, 'evaluation_id', 'evaluation_sha256',
-            (
-                ('document_id', '__document_id__'),
-                _ref('profile_ref_id', 'profile_ref'),
-            ),
-        )
-        self.symbol_profiles = _SealedStore(
-            self._connect, 'cad_drawing_symbol_profiles',
-            ArchitecturalDrawingSymbolProfile, 'profile_id',
-            'profile_sha256',
-            (
-                ('document_id', '__document_id__'),
-                ('edition', 'edition'),
-                ('rights_provenance', 'rights_provenance'),
-            ),
-        )
-        self.symbol_mappings = _SealedStore(
-            self._connect, 'cad_device_symbol_mappings',
-            DeviceSymbolMapping, 'mapping_id', 'mapping_sha256',
-            (
-                ('document_id', '__document_id__'),
-                _ref('profile_ref_id', 'profile_ref'),
-                ('device_kind', 'device_kind'),
-            ),
-        )
-        self.drawing_exports = _SealedStore(
-            self._connect, 'cad_drawing_export_records',
-            DrawingExportRecord, 'export_id', 'export_sha256',
-            (
-                ('document_id', '__document_id__'),
-                _ref('profile_ref_id', 'profile_ref'),
-                ('export_format', 'export_format'),
-            ),
-        )
-        self.text_profiles = _SealedStore(
-            self._connect, 'cad_timed_text_profiles',
-            TimedTextPresentationProfile, 'profile_id',
-            'profile_sha256',
-            (
-                ('document_id', '__document_id__'),
-                ('profile_kind', 'profile_kind'),
-            ),
-        )
-        self.caption_observations = _SealedStore(
-            self._connect, 'cad_caption_render_observations',
-            CaptionRenderObservation, 'observation_id',
+        self.g_observations = _SealedStore(
+            self._connect, 'cad_sound_strength_observations',
+            SoundStrengthObservation, 'observation_id',
             'observation_sha256',
             (
                 ('document_id', '__document_id__'),
+                ('method', 'method'),
+                ('band', 'band'),
+            ),
+        )
+        self.g_qualifications = _SealedStore(
+            self._connect, 'cad_sound_strength_qualifications',
+            SoundStrengthQualification, 'qualification_id',
+            'qualification_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('verdict', 'verdict'),
+            ),
+        )
+        self.resonant_profiles = _SealedStore(
+            self._connect, 'cad_resonant_absorber_profiles',
+            ResonantAbsorberProfile, 'profile_id', 'profile_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('absorber_kind', 'absorber_kind'),
+            ),
+        )
+        self.resonant_records = _SealedStore(
+            self._connect, 'cad_resonant_performance_records',
+            ResonantPerformanceRecord, 'record_id', 'record_sha256',
+            (
+                ('document_id', '__document_id__'),
                 _ref('profile_ref_id', 'profile_ref'),
+                ('derivation', 'derivation'),
+            ),
+        )
+        self.service_envelopes = _SealedStore(
+            self._connect, 'cad_service_envelope_profiles',
+            ServiceEnvelopeProfile, 'profile_id', 'profile_sha256',
+            (
+                ('document_id', '__document_id__'),
+            ),
+        )
+        self.service_observations = _SealedStore(
+            self._connect, 'cad_service_access_observations',
+            ServiceAccessObservation, 'observation_id',
+            'observation_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('envelope_ref_id', 'envelope_ref'),
             ),
         )
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
 
-    def save_video_profile(
-        self, record: HomeTheaterVideoDesignProfile
+    def save_g_observation(
+        self, record: SoundStrengthObservation
     ) -> None:
-        self.video_profiles.save(record)
+        self.g_observations.save(record)
 
-    def get_video_profile(
+    def get_g_observation(
         self, rid: str
-    ) -> HomeTheaterVideoDesignProfile | None:
-        return self.video_profiles.get(rid)
+    ) -> SoundStrengthObservation | None:
+        return self.g_observations.get(rid)
 
-    def save_ceb23_evaluation(
-        self, record: CEB23Evaluation
+    def save_g_qualification(
+        self, record: SoundStrengthQualification
     ) -> None:
-        self.ceb23_evaluations.save(record)
+        self.g_qualifications.save(record)
 
-    def get_ceb23_evaluation(
+    def get_g_qualification(
         self, rid: str
-    ) -> CEB23Evaluation | None:
-        return self.ceb23_evaluations.get(rid)
+    ) -> SoundStrengthQualification | None:
+        return self.g_qualifications.get(rid)
 
-    def save_symbol_profile(
-        self, record: ArchitecturalDrawingSymbolProfile
+    def save_resonant_profile(
+        self, record: ResonantAbsorberProfile
     ) -> None:
-        self.symbol_profiles.save(record)
+        self.resonant_profiles.save(record)
 
-    def get_symbol_profile(
+    def get_resonant_profile(
         self, rid: str
-    ) -> ArchitecturalDrawingSymbolProfile | None:
-        return self.symbol_profiles.get(rid)
+    ) -> ResonantAbsorberProfile | None:
+        return self.resonant_profiles.get(rid)
 
-    def save_symbol_mapping(
-        self, record: DeviceSymbolMapping
+    def save_resonant_record(
+        self, record: ResonantPerformanceRecord
     ) -> None:
-        self.symbol_mappings.save(record)
+        self.resonant_records.save(record)
 
-    def get_symbol_mapping(
+    def get_resonant_record(
         self, rid: str
-    ) -> DeviceSymbolMapping | None:
-        return self.symbol_mappings.get(rid)
+    ) -> ResonantPerformanceRecord | None:
+        return self.resonant_records.get(rid)
 
-    def save_drawing_export(
-        self, record: DrawingExportRecord
+    def save_service_envelope(
+        self, record: ServiceEnvelopeProfile
     ) -> None:
-        self.drawing_exports.save(record)
+        self.service_envelopes.save(record)
 
-    def get_drawing_export(
+    def get_service_envelope(
         self, rid: str
-    ) -> DrawingExportRecord | None:
-        return self.drawing_exports.get(rid)
+    ) -> ServiceEnvelopeProfile | None:
+        return self.service_envelopes.get(rid)
 
-    def save_text_profile(
-        self, record: TimedTextPresentationProfile
+    def save_service_observation(
+        self, record: ServiceAccessObservation
     ) -> None:
-        self.text_profiles.save(record)
+        self.service_observations.save(record)
 
-    def get_text_profile(
+    def get_service_observation(
         self, rid: str
-    ) -> TimedTextPresentationProfile | None:
-        return self.text_profiles.get(rid)
-
-    def save_caption_observation(
-        self, record: CaptionRenderObservation
-    ) -> None:
-        self.caption_observations.save(record)
-
-    def get_caption_observation(
-        self, rid: str
-    ) -> CaptionRenderObservation | None:
-        return self.caption_observations.get(rid)
+    ) -> ServiceAccessObservation | None:
+        return self.service_observations.get(rid)

@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 59
+NATIVE_SCHEMA_VERSION = 62
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1686,6 +1686,30 @@ def _migrate_57_to_58(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_58_to_59(connection: sqlite3.Connection) -> None:
+    # Install the REV59-ROOMQ authorities (#761 sound strength G,
+    # #704 resonant treatment, #707 serviceability): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_59_to_60(connection: sqlite3.Connection) -> None:
+    # Install the REV59-QUALNUM authorities (#703 numerical
+    # reproducibility, #716 imaging chain, #717 wireless AV): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_60_to_61(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DRAWPROF authorities (#741 CEB23-B video
+    # profile, #742 J-STD-710 symbols, #733 timed text): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_61_to_62(connection: sqlite3.Connection) -> None:
     # Install the REV59-UNITS authorities (#728 typed physical
     # quantity: quantities, operations; #730 engineering-assumption /
     # permissible-use ledger: assumptions, resolutions, assessments;
@@ -1757,6 +1781,9 @@ _MIGRATIONS = {
     57: _migrate_56_to_57,
     58: _migrate_57_to_58,
     59: _migrate_58_to_59,
+    60: _migrate_59_to_60,
+    61: _migrate_60_to_61,
+    62: _migrate_61_to_62,
 }
 
 
