@@ -571,7 +571,7 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
-    CREATE TABLE IF NOT EXISTS capture_mission_packages ( package_id TEXT PRIMARY KEY, pairing_id TEXT, descriptor_json TEXT NOT NULL, payload_sha256 TEXT NOT NULL, byte_size INTEGER NOT NULL, status TEXT NOT NULL, status_detail TEXT NOT NULL, created_at_utc TEXT NOT NULL, updated_at_utc TEXT NOT NULL )
+    CREATE TABLE IF NOT EXISTS capture_mission_packages ( package_id TEXT PRIMARY KEY, pairing_id TEXT, descriptor_json TEXT NOT NULL, payload_sha256 TEXT NOT NULL, byte_size INTEGER NOT NULL, status TEXT NOT NULL, status_detail TEXT NOT NULL, native_package_json TEXT, created_at_utc TEXT NOT NULL, updated_at_utc TEXT NOT NULL )
     """
     ,
     """
@@ -5437,6 +5437,7 @@ NATIVE_COLUMN_ENSURES: tuple[tuple[str, str, str], ...] = (
     ('htdt_project_documents', 'archived_at_utc', 'archived_at_utc TEXT'),
     ('cad_evidence_subjects', 'subject_sha256', 'subject_sha256 TEXT'),
     ('cad_evidence_observations', 'observation_sha256', 'observation_sha256 TEXT'),
+    ('capture_mission_packages', 'native_package_json', 'native_package_json TEXT'),
 )
 
 # Every persistent table the migration authority owns. Used by the schema

@@ -1378,11 +1378,15 @@ class CaptureReceiverService:
         *,
         descriptor: dict | None = None,
         pairing_id: str | None = None,
+        native_package_json: str | None = None,
     ) -> MissionPackage:
         """Queue a Mission package for a paired device to pull.
 
         Packages are versioned artifacts; their bytes are content-stored so
-        file-based fallback export keeps the same identity.
+        file-based fallback export keeps the same identity. When the queue
+        carries a native ``htdt.capture.mission-package`` (``queue_mission``),
+        its canonical JSON is persisted alongside so the project-side
+        mission-return reconciliation can replay the issuing baseline later.
         """
         if len(payload) > MISSION_PACKAGE_MAX_BYTES:
             raise CaptureReceiverError(
@@ -1489,6 +1493,30 @@ class CaptureReceiverService:
                     raise CaptureReceiverError(
                         f'receiver_requirement {key} must be a string'
                     )
+        # Listing metadata must agree with the payload it advertises:
+        # a descriptor declaring a different mission_id/project_ref/
+        # room_label would mint a listing that lies about its bytes.
+        # Derive the values from the payload when the descriptor omits
+        # them and refuse on divergence.
+        plan_doc = (
+            decoded.get('plan')
+            if decoded['schema'] == 'htdt.capture-mission'
+            else decoded
+        )
+        payload_fields = {
+            'mission_id': decoded.get('mission_id'),
+            'project_ref': plan_doc.get('project_ref'),
+            'room_label': plan_doc.get('room_name'),
+        }
+        for key, payload_value in payload_fields.items():
+            if payload_value is None:
+                continue
+            declared = descriptor.get(key)
+            if declared is not None and declared != payload_value:
+                raise CaptureReceiverError(
+                    f'descriptor {key} diverges from the package payload'
+                )
+            descriptor[key] = payload_value
         descriptor['package_id'] = package_id
         descriptor.setdefault('byte_size', len(payload))
         descriptor.setdefault('package_sha256', _sha256_text(payload))
@@ -1515,14 +1543,55 @@ class CaptureReceiverService:
                 'declared package size does not match the bytes'
             )
         with closing(self._connect()) as connection, connection:
+            if pairing_id is not None:
+                pairing_row = connection.execute(
+                    'SELECT state FROM capture_receiver_pairings '
+                    'WHERE pairing_id=?',
+                    (pairing_id,),
+                ).fetchone()
+                if pairing_row is None or pairing_row['state'] not in (
+                    'offered',
+                    'active',
+                ):
+                    raise CaptureReceiverError(
+                        'mission package pairing is unknown or no '
+                        'longer deliverable'
+                    )
+            existing = connection.execute(
+                'SELECT payload_sha256, status, pairing_id FROM '
+                'capture_mission_packages WHERE package_id=?',
+                (package_id,),
+            ).fetchone()
+            if (
+                existing is not None
+                and existing['payload_sha256'] == package.package_sha256
+                and existing['pairing_id'] == pairing_id
+            ):
+                # Byte-identical re-queue under the same scope is a
+                # no-op: returning early keeps a settled verdict
+                # instead of resetting the row to 'pending'.
+                return package
+            if (
+                existing is not None
+                and existing['status'] != 'pending'
+                and (
+                    existing['payload_sha256'] != package.package_sha256
+                    or existing['pairing_id'] != pairing_id
+                )
+            ):
+                raise CaptureReceiverError(
+                    'mission package already settled under this '
+                    'identity — re-issue under a new package id instead '
+                    'of rewriting a settled verdict'
+                )
             store_content_blob(connection, payload)
             connection.execute(
                 '''
                 INSERT OR REPLACE INTO capture_mission_packages(
                     package_id, pairing_id, descriptor_json, payload_sha256,
-                    byte_size, status, status_detail, created_at_utc,
-                    updated_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(
+                    byte_size, status, status_detail, native_package_json,
+                    created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
                     (SELECT created_at_utc FROM capture_mission_packages
                      WHERE package_id=?), ?), ?)
                 ''',
@@ -1534,6 +1603,7 @@ class CaptureReceiverService:
                     package.byte_size,
                     'pending',
                     '',
+                    native_package_json,
                     package_id,
                     _utc_now(),
                     _utc_now(),
@@ -1562,6 +1632,27 @@ class CaptureReceiverService:
             mission_package_wire_payload(package),
             descriptor=mission_package_descriptor(package),
             pairing_id=pairing_id,
+            native_package_json=_canonical_json(
+                package.model_dump(mode='json')
+            ),
+        )
+
+    def native_mission_package(
+        self, package_id: str
+    ) -> CaptureMissionPackage | None:
+        """The native ``htdt.capture.mission-package`` queued under this id,
+        when the package was issued through ``queue_mission`` — ``None``
+        for foreign-issued or pre-existing wire-only packages."""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                'SELECT native_package_json FROM capture_mission_packages '
+                'WHERE package_id=?',
+                (package_id,),
+            ).fetchone()
+        if row is None or row['native_package_json'] is None:
+            return None
+        return CaptureMissionPackage.model_validate_json(
+            row['native_package_json']
         )
 
     def mission_package_bytes(self, package_id: str) -> bytes | None:

@@ -812,6 +812,92 @@ class TestMissionPull:
         assert envelope['plan']['schema_version'] == '2.0.0'
         assert envelope['plan']['expected_channel_roles'] == ['L']
 
+    def test_scoped_queue_validates_pairing_deliverability(
+        self, tmp_path
+    ):
+        service, pairing = self._active(tmp_path)
+        # A package scoped to a pairing that can never pull would sit
+        # 'pending' forever — unknown, revoked, or expired ids are
+        # refused at queue time.
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-ghost',
+                self.MISSION_PAYLOAD,
+                pairing_id='no-such-pairing',
+            )
+        service.revoke_pairing(pairing.pairing_id)
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-dead',
+                self.MISSION_PAYLOAD,
+                pairing_id=pairing.pairing_id,
+            )
+        # An active pairing still scopes fine.
+        other, _ = service.begin_pairing()
+        service.queue_mission_package(
+            'pkg-ok2', self.MISSION_PAYLOAD,
+            pairing_id=other.pairing_id,
+        )
+
+    def test_requeue_preserves_settled_verdict(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        package = service.queue_mission_package(
+            'pkg-9', self.MISSION_PAYLOAD
+        )
+        receipt = {
+            'schema': 'htdt.capture.mission-receipt',
+            'schema_version': '1.0.0',
+            'receipt_id': str(uuid.uuid4()),
+            'package_id': 'pkg-9',
+            'package_sha256': package.package_sha256,
+            'capture_instance_id': 'dev-9',
+            'paired_destination_id': pairing.pairing_id,
+            'receiver_instance_id': pairing.receiver_instance_id,
+            'mission_record_id': None,
+            'received_at': '2026-01-01T00:00:00+00:00',
+            'validation_result': 'imported',
+            'detail': None,
+        }
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-9',
+            json.dumps(receipt).encode(), 'dev-9',
+        )
+        assert status == 200
+        # A byte-identical re-queue is a no-op — the settled verdict
+        # is not reset to 'pending'.
+        service.queue_mission_package('pkg-9', self.MISSION_PAYLOAD)
+        assert service.list_mission_packages()[0].status == 'received'
+        # Different bytes under an already-settled identity is a
+        # mid-flight swap — refused; re-issue needs a new mission id.
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-9', self.MISSION_PAYLOAD + b' '
+            )
+        # Re-pairing a settled package would erase the verdict — the
+        # row holds a single pairing, so re-targeting needs a new
+        # package id too.
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-9',
+                self.MISSION_PAYLOAD,
+                pairing_id=pairing.pairing_id,
+            )
+        # A still-pending row may be legitimately replaced.
+        service.queue_mission_package(
+            'pkg-10', self.MISSION_PAYLOAD
+        )
+        updated = json.loads(self.MISSION_PAYLOAD)
+        updated['mission_id'] = 'mission-reissued'
+        service.queue_mission_package(
+            'pkg-10', json.dumps(updated).encode()
+        )
+        reissued = [
+            p for p in service.list_mission_packages()
+            if p.package_id == 'pkg-10'
+        ][0]
+        assert reissued.status == 'pending'
+        assert reissued.mission_id == 'mission-reissued'
+
 
 class TestHttpsEndpoint:
     def test_real_https_roundtrip(self, tmp_path):

@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 49
+NATIVE_SCHEMA_VERSION = 50
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1597,6 +1597,20 @@ def _migrate_48_to_49(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_49_to_50(connection: sqlite3.Connection) -> None:
+    # Persist the native mission package alongside the projected wire
+    # bytes (mission-return reconciliation): the pull lane serves the
+    # app-grammar envelope while the project-side reconciliation path
+    # needs the original CaptureMissionPackage to classify drift
+    # against the issuing baseline.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+    tables = _table_names(connection)
+    for table, column, column_ddl in NATIVE_COLUMN_ENSURES:
+        if table in tables:
+            _ensure_column(connection, table, column, column_ddl)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1647,6 +1661,7 @@ _MIGRATIONS = {
     47: _migrate_46_to_47,
     48: _migrate_47_to_48,
     49: _migrate_48_to_49,
+    50: _migrate_49_to_50,
 }
 
 

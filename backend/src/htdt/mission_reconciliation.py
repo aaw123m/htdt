@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .cad_scene import SceneDocument, scene_content_hash
 from .capture_mission import (
     CaptureMission,
+    CaptureMissionPackage,
     MissionTask,
     MissionTaskDependencyRef,
     _canonical_json,
@@ -309,3 +310,94 @@ def outstanding_mission_drift_summary(
             for item in report.results
         ),
     }
+
+
+def mission_return_reconciliation_lines(
+    contribution: object,
+    scene_repository: object,
+) -> tuple[str, ...]:
+    """Detail-pane summary lines for one staged field-return contribution.
+
+    Classification runs live against the matched project's current head —
+    a staged contribution is evidence, so the drift verdict is a decision
+    surface computed on demand, never a stored rewrite. Returns display
+    lines (empty for contributions carrying no mission identity); every
+    un-reconcilable state surfaces as an honest note instead of silence.
+    """
+    from contextlib import closing
+
+    from .cad_schema import connect_sqlite
+    from .field_return_ingestion import FieldReturnManifest
+
+    mission_id = getattr(contribution, 'mission_id', None)
+    if mission_id is None:
+        return ()
+    path = scene_repository.path
+    with closing(connect_sqlite(path)) as connection:
+        row = connection.execute(
+            'SELECT native_package_json FROM capture_mission_packages '
+            'WHERE package_id=?',
+            (mission_id,),
+        ).fetchone()
+        if row is None or row['native_package_json'] is None:
+            return (
+                '照合: ミッション原本なし'
+                '（このHTDTが発行したミッションではありません）',
+            )
+        try:
+            package = CaptureMissionPackage.model_validate_json(
+                row['native_package_json']
+            )
+        except ValueError:
+            return ('照合: ミッション原本を解読できません',)
+        matched_project_id = getattr(
+            contribution, 'matched_project_id', None
+        )
+        if matched_project_id is None:
+            project_row = None
+        else:
+            project_row = connection.execute(
+                'SELECT document_id FROM htdt_project_documents '
+                'WHERE project_id=?',
+                (matched_project_id,),
+            ).fetchone()
+    if project_row is None:
+        return ('照合: 保存先プロジェクト未確定のため保留',)
+    revision = scene_repository.current_head(project_row['document_id'])
+    if revision is None:
+        return ('照合: プロジェクト文書の現在版がありません',)
+    manifest_json = getattr(contribution, 'manifest_json', None)
+    if manifest_json is None:
+        return ('照合: 返却マニフェストが記録されていません',)
+    try:
+        manifest = FieldReturnManifest.model_validate_json(manifest_json)
+    except ValueError:
+        return ('照合: 返却マニフェストを解読できません',)
+    returned_ids = [
+        outcome.task_id
+        for outcome in manifest.task_outcomes
+        if outcome.outcome == 'fulfilled'
+    ]
+    try:
+        report = reconcile_mission_return(
+            package.mission,
+            revision.document,
+            returned_task_ids=returned_ids,
+        )
+    except MissionReconciliationError as exc:
+        return (f'照合: 照合不能 — {exc}',)
+    removed = sum(
+        item.classification == 'historical_target_removed'
+        for item in report.results
+    )
+    lines = [
+        f'照合: 適用可能 {report.applicable_count}件 / '
+        f'要調整 {report.review_count}件 / 対象消失 {removed}件',
+    ]
+    lines.extend(
+        f'・{result.task_id[:8]}… — {result.reason}'
+        for result in report.results
+        if result.classification
+        in ('needs_reconciliation', 'historical_target_removed')
+    )
+    return tuple(lines)
