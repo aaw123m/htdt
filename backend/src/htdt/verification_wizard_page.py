@@ -37,6 +37,7 @@ from .cad_manifest_verification import (
     evaluate_gate,
 )
 from .ui_theme import TypographyRole, set_typography_role
+from .user_facing_error import operation_error_message
 from .verification_wizard import (
     MANIFEST_RELATIVE_PATH,
     CheckRunOutcome,
@@ -353,7 +354,7 @@ class VerificationWizardPage(QWidget):
         self.issue_title.setText('検証マニフェストを読み込めません')
         self.verdict_label.setText('')
         self.verdict_reason.setText(
-            f'{self.manifest_path}: {type(exc).__name__}: {exc}'
+            f'{self.manifest_path}: {operation_error_message(exc)}'
         )
         self.status_label.setText('')
 
@@ -649,7 +650,7 @@ class VerificationWizardPage(QWidget):
                 QMessageBox.warning(
                     self,
                     'ファイルを読み込めません',
-                    f'{path}: {exc}',
+                    f'{path}: {operation_error_message(exc)}',
                 )
                 return
         self.store.commit_evidence(

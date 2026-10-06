@@ -738,7 +738,7 @@ class InstallationPanel(QFrame):
             )
             self.context_repository.save_context(context)
         except ValueError as exc:
-            self._set_context_error(str(exc))
+            self._set_context_error(operation_error_message(exc))
             return
         self._refresh_context_list()
         self.contextSaved.emit()
@@ -998,7 +998,7 @@ class InstallationPanel(QFrame):
             )
             self.datum_repository.save_datum(datum)
         except ValueError as exc:
-            self._set_datum_error(str(exc))
+            self._set_datum_error(operation_error_message(exc))
             return
         self._refresh_datum_list()
         self.datumSaved.emit()

@@ -61,6 +61,7 @@ from .ui_theme import (
     set_semantic_state,
     set_typography_role,
 )
+from .user_facing_error import operation_error_message
 
 
 _STATUS_LABELS = {
@@ -303,6 +304,7 @@ class ReflectionGuidancePanel(QWidget):
     def refresh(self) -> None:
         """Reload the persisted-artifact projection from the CAD store."""
         path = self._controller.repository.path
+        load_error: str | None = None
         try:
             ensure_native_schema(path)
             with closing(connect_sqlite(path)) as connection:
@@ -310,10 +312,10 @@ class ReflectionGuidancePanel(QWidget):
                     connection, self._controller.document_id
                 )
         except Exception as exc:  # noqa: BLE001 — surface honest failure
-            self.summary_label.setText(
-                f'ガイダンスの読み込みに失敗しました: {exc}'
+            load_error = (
+                'ガイダンスの読み込みに失敗しました: '
+                f'{operation_error_message(exc)}'
             )
-            set_semantic_state(self.summary_label, SemanticState.WARNING)
             self._view = ReflectionGuidanceView(
                 document_id=self._controller.document_id,
                 entries=(),
@@ -321,6 +323,12 @@ class ReflectionGuidancePanel(QWidget):
             )
         self._refresh_revision_combo()
         self._refresh_entries()
+        # _refresh_entries unconditionally rewrites the summary to the
+        # entry count — the failure text must be applied after it or a
+        # broken load reads as an empty-but-healthy view.
+        if load_error is not None:
+            self.summary_label.setText(load_error)
+            set_semantic_state(self.summary_label, SemanticState.WARNING)
         self.guidanceViewChanged.emit()
 
     @property
@@ -600,7 +608,8 @@ class ReflectionGuidancePanel(QWidget):
             )
         except ValueError as exc:
             self.scrub_result_label.setText(
-                f'スクラブを計算できませんでした: {exc}'
+                'スクラブを計算できませんでした: '
+                f'{operation_error_message(exc)}'
             )
             set_semantic_state(
                 self.scrub_result_label, SemanticState.WARNING

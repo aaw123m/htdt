@@ -5660,6 +5660,7 @@ class MeasurementPageWorkspace(QWidget):
         registration_layout.addWidget(self.residual_summary_label)
 
         self.registration_table = QTableWidget(0, 6, registration_card)
+        self.registration_table.setAccessibleName('予測↔実測の登録レコード一覧')
         self.registration_table.setHorizontalHeaderLabels(
             ["測定", "比較可否", "鮮度", "位置差", "時間方式", "パーティション"]
         )

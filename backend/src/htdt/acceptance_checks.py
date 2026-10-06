@@ -30,6 +30,7 @@ from typing import Any, Callable, Literal
 
 from .canonical_json import canonical_json
 from .clock import utc_now_iso
+from .user_facing_error import operation_error_message
 
 CheckVerdict = Literal['pass', 'fail', 'unavailable', 'deferred']
 
@@ -190,7 +191,10 @@ def _preflight_or_unavailable(ctx: CheckContext) -> tuple[dict | None, AutoCheck
     except Exception as exc:
         return None, AutoCheckResult(
             verdict='unavailable',
-            detail_ja=f'REW audioプリフライトを取得できません: {exc}',
+            detail_ja=(
+                'REW audioプリフライトを取得できません: '
+                f'{operation_error_message(exc)}'
+            ),
             evidence={'error': f'{type(exc).__name__}: {exc}'},
         )
     return preflight, None
@@ -709,6 +713,9 @@ def run_auto_check(check_spec: str, ctx: CheckContext) -> AutoCheckResult:
     except Exception as exc:  # fail-closed wrapper
         return AutoCheckResult(
             verdict='unavailable',
-            detail_ja=f'チェック実行中にエラー: {type(exc).__name__}: {exc}',
+            detail_ja=(
+                'チェック実行中にエラー: '
+                f'{operation_error_message(exc)}'
+            ),
             evidence={'error': f'{type(exc).__name__}: {exc}'},
         )

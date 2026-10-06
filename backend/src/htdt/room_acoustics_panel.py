@@ -417,7 +417,8 @@ class TreatmentDefinitionDialog(QDialog):
         except OSError as exc:
             QMessageBox.warning(
                 self, '音響処理の定義',
-                f'出典ファイルを読み込めませんでした: {exc}',
+                '出典ファイルを読み込めませんでした: '
+                f'{operation_error_message(exc)}',
             )
             return
         self._source_bytes = data

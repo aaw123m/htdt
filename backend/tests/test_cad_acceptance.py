@@ -392,7 +392,11 @@ def test_check_exception_fails_closed(ctx: CheckContext, monkeypatch):
     monkeypatch.setitem(AUTO_CHECKS, 'env_snapshot', boom)
     result = run_auto_check('env_snapshot', ctx)
     assert result.verdict == 'unavailable'
-    assert 'kaboom' in result.detail_ja
+    # detail_ja is operator-facing: mapped JA text, never raw exception
+    # internals. The raw exception stays in the evidence diagnostic.
+    assert 'kaboom' not in result.detail_ja
+    assert 'RuntimeError' not in result.detail_ja
+    assert 'kaboom' in result.evidence['error']
 
 
 def test_repo_scripts_resolve_from_repo_root():
