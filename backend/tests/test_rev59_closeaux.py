@@ -225,6 +225,45 @@ def test_store_idempotent_and_conflict(tmp_path):
         repo.get_manifest_gate(g.gate_id)
 
 
+def test_commit_script_turns_report_into_results(tmp_path):
+    import importlib.util
+    import json as _json
+
+    spec = importlib.util.spec_from_file_location(
+        'commit_manifest_verification',
+        Path(__file__).resolve().parents[2]
+        / 'scripts' / 'commit_manifest_verification.py',
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    manifest = _manifest(tmp_path)
+    report = {
+        'issues': [{
+            'issue': 42,
+            'checks': [{
+                'id': 'auto-1', 'kind': 'pytest',
+                'status': 'passed', 'detail': '',
+            }],
+            'manual_required': [{'id': 'phys-1', 'description': 'x'}],
+        }],
+    }
+    rp = tmp_path / 'report.json'
+    rp.write_text(_json.dumps(report), encoding='utf-8')
+    scene = tmp_path / 'scene.htdtscene'
+    rc = mod.main([
+        '--scene', str(scene), '--document-id', DOC,
+        '--manifest', str(manifest), '--report', str(rp),
+    ])
+    assert rc == 0
+    repo = CadManifestGateRepository(SceneRepository(scene))
+    results = repo.list_gate_run_results()
+    assert len(results) == 1
+    assert results[0].outcome == 'passed'
+    gates = repo.list_manifest_gates()
+    assert len(gates) == 2
+
+
 def test_fresh_migrate_creates_tables(tmp_path):
     db = tmp_path / 'fresh.htdtscene'
     version = ensure_native_schema(db)

@@ -192,8 +192,18 @@ class CadManifestGateRepository:
     def get_manifest_gate(self, rid: str) -> ManifestGate | None:
         return self.manifest_gates.get(rid)
 
+    def list_manifest_gates(
+        self, document_id: str | None = None
+    ) -> tuple[ManifestGate, ...]:
+        return self.manifest_gates.list(document_id)
+
     def save_gate_run_result(self, record: GateRunResult) -> None:
         self.gate_run_results.save(record)
 
     def get_gate_run_result(self, rid: str) -> GateRunResult | None:
         return self.gate_run_results.get(rid)
+
+    def list_gate_run_results(
+        self, document_id: str | None = None
+    ) -> tuple[GateRunResult, ...]:
+        return self.gate_run_results.list(document_id)

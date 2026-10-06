@@ -54,3 +54,13 @@ idempotent save, fresh-migrate.
 
 - Guided verification wizard UI consumes this bridge (child track).
 - `evaluate_issue_verdict` drives the zero-knowledge closure display.
+
+## Runner bridge
+
+`scripts/commit_manifest_verification.py` — turns an
+`issue_verification_report.json` run into sealed records: every
+manifest check becomes a `ManifestGate` (file-sha pinned), every
+reported automated-check status becomes a committed `GateRunResult`,
+and per-issue `evaluate_issue_verdict` verdicts print JA status.
+Manual checks stay for the wizard — only committed evidence satisfies
+them. `--dry-run` evaluates without writing.
