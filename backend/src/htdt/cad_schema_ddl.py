@@ -6367,6 +6367,314 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_cro_doc ON cad_caption_render_observations(document_id, seq ASC)
     """
     ,
+    # REV59-CODEPOLICY: #746 egress/accessibility, #748 lighting TLM/TLA,
+    # #722 project data privacy/sharing.
+    """
+    CREATE TABLE IF NOT EXISTS cad_life_safety_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, project_kind TEXT NOT NULL, applicability_decision TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lsp_doc ON cad_life_safety_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_circulation_routes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL UNIQUE, route_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, furniture_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rte_doc ON cad_circulation_routes(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_seating_accessibility_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, requirement_id TEXT NOT NULL UNIQUE, requirement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_acr_doc ON cad_seating_accessibility_requirements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_egress_evidence_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_egx_doc ON cad_egress_evidence_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_professional_approval_refs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE, approval_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_appr_doc ON cad_professional_approval_refs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dimming_temporal_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, luminaire_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dtp_doc ON cad_dimming_temporal_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_temporal_light_waveforms ( seq INTEGER PRIMARY KEY AUTOINCREMENT, waveform_id TEXT NOT NULL UNIQUE, waveform_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, illuminance_lx REAL NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlw_doc ON cad_temporal_light_waveforms(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_tlm_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, waveform_ref_id TEXT NOT NULL, phenomenon TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlmo_doc ON cad_lighting_tlm_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_tla_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, metric_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlaa_doc ON cad_lighting_tla_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_project_data_classifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, classification_id TEXT NOT NULL UNIQUE, classification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, data_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pdc_doc ON cad_project_data_classifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sensitive_artifact_policies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, policy_id TEXT NOT NULL UNIQUE, policy_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sap_doc ON cad_sensitive_artifact_policies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_export_redaction_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, manifest_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_erm_doc ON cad_export_redaction_manifests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_retention_policy_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, retention_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rtn_doc ON cad_retention_policy_records(document_id, seq ASC)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_finite_absorber_geometries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    geometry_id TEXT NOT NULL UNIQUE,
+    geometry_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    edge_state TEXT,
+    mounting_kind TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_finite_treatment_boundary_models (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id TEXT NOT NULL UNIQUE,
+    model_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    geometry_ref_id TEXT NOT NULL,
+    reaction_kind TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_precedence_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_echo_risk_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    profile_ref_id TEXT NOT NULL,
+    risk_verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_reaction_to_fire_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    test_standard TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_finish_assembly_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    assembly_id TEXT NOT NULL UNIQUE,
+    assembly_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    installation_context TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finite_absorber_geometries_document_idx ON cad_finite_absorber_geometries (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finite_treatment_boundary_models_document_idx ON cad_finite_treatment_boundary_models (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_precedence_profiles_document_idx ON cad_precedence_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_echo_risk_observations_document_idx ON cad_echo_risk_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_reaction_to_fire_evidence_document_idx ON cad_reaction_to_fire_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finish_assembly_evidence_document_idx ON cad_finish_assembly_evidence (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_listening_experiment_plans (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT NOT NULL UNIQUE,
+    plan_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method_kind TEXT NOT NULL,
+    impairment_regime TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_listener_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    training_completed INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_subjective_inference_records (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL UNIQUE,
+    record_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    plan_ref_id TEXT NOT NULL,
+    verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_assistive_listening_paths (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id TEXT NOT NULL UNIQUE,
+    path_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    technology TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_als_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    path_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_receiver_compatibility_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    path_ref_id TEXT NOT NULL,
+    compatible INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_dynamic_binaural_sessions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    session_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    hrtf_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_pose_tracking_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    session_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_binaural_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    session_ref_id TEXT NOT NULL,
+    verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_listening_experiment_plans_document_idx ON cad_listening_experiment_plans (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_listener_qualifications_document_idx ON cad_listener_qualifications (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_subjective_inference_records_document_idx ON cad_subjective_inference_records (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_assistive_listening_paths_document_idx ON cad_assistive_listening_paths (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_als_qualifications_document_idx ON cad_als_qualifications (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_receiver_compatibility_evidence_document_idx ON cad_receiver_compatibility_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_dynamic_binaural_sessions_document_idx ON cad_dynamic_binaural_sessions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_pose_tracking_evidence_document_idx ON cad_pose_tracking_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_binaural_qualifications_document_idx ON cad_binaural_qualifications (document_id)
+    """
+    ,
 )
 
 
@@ -7260,4 +7568,34 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_drawing_export_records',
     'cad_timed_text_profiles',
     'cad_caption_render_observations',
+    # REV59-CODEPOLICY: #746 / #748 / #722.
+    'cad_life_safety_profiles',
+    'cad_circulation_routes',
+    'cad_seating_accessibility_requirements',
+    'cad_egress_evidence_records',
+    'cad_professional_approval_refs',
+    'cad_dimming_temporal_profiles',
+    'cad_temporal_light_waveforms',
+    'cad_lighting_tlm_observations',
+    'cad_lighting_tla_assessments',
+    'cad_project_data_classifications',
+    'cad_sensitive_artifact_policies',
+    'cad_export_redaction_manifests',
+    'cad_retention_policy_records',
+    # REV59-ACOUST3: #694 / #646 / #648.
+    'cad_finite_absorber_geometries',
+    'cad_finite_treatment_boundary_models',
+    'cad_precedence_profiles',
+    'cad_echo_risk_observations',
+    'cad_reaction_to_fire_evidence',
+    'cad_finish_assembly_evidence',
+    'cad_listening_experiment_plans',
+    'cad_listener_qualifications',
+    'cad_subjective_inference_records',
+    'cad_assistive_listening_paths',
+    'cad_als_qualifications',
+    'cad_receiver_compatibility_evidence',
+    'cad_dynamic_binaural_sessions',
+    'cad_pose_tracking_evidence',
+    'cad_binaural_qualifications',
 )

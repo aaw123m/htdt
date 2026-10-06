@@ -6697,6 +6697,144 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV59-CODEPOLICY: #746 egress / #748 lighting TLM / #722 privacy.
+    'cad_life_safety_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('project_kind', 'project_kind'),
+            _b('applicability_decision', 'applicability_decision'),
+        ),
+        (),
+    ),
+    'cad_circulation_routes': (
+        'payload_json',
+        (
+            _b('route_id', 'route_id'),
+            _b('route_sha256', 'route_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('furniture_state', 'furniture_state'),
+        ),
+        (),
+    ),
+    'cad_seating_accessibility_requirements': (
+        'payload_json',
+        (
+            _b('requirement_id', 'requirement_id'),
+            _b('requirement_sha256', 'requirement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_egress_evidence_records': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evidence_class', 'evidence_class'),
+        ),
+        (),
+    ),
+    'cad_professional_approval_refs': (
+        'payload_json',
+        (
+            _b('approval_id', 'approval_id'),
+            _b('approval_sha256', 'approval_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_dimming_temporal_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('luminaire_ref_id', 'luminaire_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_temporal_light_waveforms': (
+        'payload_json',
+        (
+            _b('waveform_id', 'waveform_id'),
+            _b('waveform_sha256', 'waveform_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('illuminance_lx', 'illuminance_lx'),
+        ),
+        (),
+    ),
+    'cad_lighting_tlm_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('waveform_ref_id', 'waveform_ref', 'ref_id'),
+            _b('phenomenon', 'phenomenon'),
+        ),
+        (),
+    ),
+    'cad_lighting_tla_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('metric_id', 'metric_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_project_data_classifications': (
+        'payload_json',
+        (
+            _b('classification_id', 'classification_id'),
+            _b('classification_sha256', 'classification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('data_class', 'data_class'),
+        ),
+        (),
+    ),
+    'cad_sensitive_artifact_policies': (
+        'payload_json',
+        (
+            _b('policy_id', 'policy_id'),
+            _b('policy_sha256', 'policy_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_export_redaction_manifests': (
+        'payload_json',
+        (
+            _b('manifest_id', 'manifest_id'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bundle_kind', 'bundle_kind'),
+        ),
+        (),
+    ),
+    'cad_retention_policy_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('retention_class', 'retention_class'),
+        ),
+        (),
+    ),
     # REV59-DEPS: #729 authority dependency / staleness graph.
     'cad_dependency_edge_declarations': (
         'payload_json',
@@ -7031,6 +7169,164 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_finite_absorber_geometries': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('geometry_sha256', 'geometry_sha256'),
+            _b('document_id', 'document_id'),
+            _b('edge_state', 'edge_state'),
+            _b('mounting_kind', 'mounting_kind'),
+        ),
+        (),
+    ),
+    'cad_finite_treatment_boundary_models': (
+        'payload_json',
+        (
+            _b('model_id', 'model_id'),
+            _b('model_sha256', 'model_sha256'),
+            _b('document_id', 'document_id'),
+            _b('geometry_ref_id', 'geometry_ref', 'ref_id'),
+            _b('reaction_kind', 'reaction_kind'),
+        ),
+        (),
+    ),
+    'cad_precedence_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_kind', 'stimulus_kind'),
+        ),
+        (),
+    ),
+    'cad_echo_risk_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('risk_verdict', 'risk_verdict'),
+        ),
+        (),
+    ),
+    'cad_reaction_to_fire_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('test_standard', 'test_standard'),
+        ),
+        (),
+    ),
+    'cad_finish_assembly_evidence': (
+        'payload_json',
+        (
+            _b('assembly_id', 'assembly_id'),
+            _b('assembly_sha256', 'assembly_sha256'),
+            _b('document_id', 'document_id'),
+            _b('installation_context', 'installation_context'),
+        ),
+        (),
+    ),
+    'cad_listening_experiment_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method_kind', 'method_kind'),
+            _b('impairment_regime', 'impairment_regime'),
+        ),
+        (),
+    ),
+    'cad_listener_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('training_completed', 'training_completed'),
+        ),
+        (),
+    ),
+    'cad_subjective_inference_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_assistive_listening_paths': (
+        'payload_json',
+        (
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('document_id', 'document_id'),
+            _b('technology', 'technology'),
+        ),
+        (),
+    ),
+    'cad_als_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_receiver_compatibility_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+            _b('compatible', 'compatible'),
+        ),
+        (),
+    ),
+    'cad_dynamic_binaural_sessions': (
+        'payload_json',
+        (
+            _b('session_id', 'session_id'),
+            _b('session_sha256', 'session_sha256'),
+            _b('document_id', 'document_id'),
+            _b('hrtf_class', 'hrtf_class'),
+        ),
+        (),
+    ),
+    'cad_pose_tracking_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_binaural_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+
 }
 
 

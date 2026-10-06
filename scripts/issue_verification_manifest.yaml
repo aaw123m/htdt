@@ -3496,3 +3496,167 @@ issues:
           - backend/tests/test_rev59_drawprof.py::TestTimedText::test_outside_mask
           - backend/tests/test_rev59_drawprof.py::TestTimedText::test_qualified
         description: Track-vs-presentation separation, legibility gate.
+  - issue: 746
+    title: "Seating circulation / egress / accessibility evidence authority"
+    notes: >
+      ProjectLifeSafetyProfile (lsp-) pins jurisdiction + adopted code
+      editions + applicability decision; CirculationRoute (rte-) pins
+      seat-to-exit path per furniture state; SeatingAccessibilityRequirement
+      (acr-); EgressEvidence (egx-) records evidence class incl. staling;
+      ProfessionalApprovalReference (appr-) requires a pinned supporting
+      document for any decided verdict. evaluate_egress_claim: CAD fit is
+      geometry_only_not_compliance; only a decided professional approval
+      yields compliance_professionally_approved.
+    checks:
+      - id: egress-accessibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_fit_not_compliance
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_reviewed_without_approval
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_approved_path
+        description: Fit-vs-compliance separation, professional-approval gating.
+  - issue: 748
+    title: "Lighting temporal-modulation (TLM/TLA) evidence authority"
+    notes: >
+      DimmingTemporalProfile (dtp-) pins exact lighting state;
+      TemporalLightWaveform (tlw-) retains the raw optical waveform;
+      LightingTLMObservation (tlmo-) keeps phenomenon and modulation
+      source separate; LightingTLAAssessment (tlaa-) binds metric to
+      method/version/domain and refuses superseded CIE 249:2022 and
+      non-historical IEEE 1789-2015. evaluate_tla_claim: correct
+      illuminance never implies temporal-light quality.
+    checks:
+      - id: lighting-tla
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_photometry_is_not_tla
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_low_light_svm_outside_domain
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_cor1_svm_caveat
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_ieee1789_eval_historical
+        description: Illuminance-vs-TLA separation, domain/corrigendum gating.
+  - issue: 722
+    title: "Project data privacy / sharing authority"
+    notes: >
+      ProjectDataClassification (pdc-) pins artifact-level sensitivity
+      (unknown_classification fails closed; credential_or_secret needs a
+      rationale); SensitiveArtifactPolicy (sap-) grants least-privilege
+      roles per class and can never export secret/unknown classes;
+      ExportRedactionManifest (erm-) allowlists included refs with pinned
+      redaction transforms; RetentionPolicyRecord (rtn-) makes raw
+      deletion truthfully downgrade reproducibility.
+      evaluate_export_eligibility fails closed at seven gates.
+    checks:
+      - id: data-privacy
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_export_denied_unclassified
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_secret_never_exportable
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_export_requires_redaction
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_reproducibility_states
+        description: Fail-closed export gates, redaction manifest, retention honesty.
+  - issue: 694
+    title: "Finite acoustic-treatment edge / size-effect authority"
+    notes: >
+      FiniteAbsorberGeometry (fag-) pins finite extents, edge state,
+      mounting and baffle context. FiniteTreatmentBoundaryModel (ftbm-)
+      binds the geometry to the solver boundary model — claiming
+      infinite-plane equivalence requires pinned edge-effect evidence.
+      evaluate_finite_absorber_claim: no geometry → insufficient;
+      finite object with no model → infinite_plane_misapplied; lab
+      sample ≠ installed object → sample_size_unaccounted.
+    checks:
+      - id: finite-absorber
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_finite_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_infinite_plane_equivalence_needs_edge_evidence
+        description: Infinite-plane ≠ finite object; edge/ISO-354 sample honesty.
+  - issue: 646
+    title: "Precedence / discrete-echo perceptual-risk authority"
+    notes: >
+      PrecedenceProfile (prec-) pins stimulus class and listening
+      context — echo threshold is stimulus-dependent, 'unknown'
+      stimulus fails closed. EchoRiskObservation (erk-) binds
+      delay/level/direction to a phenomenon classification (fusion,
+      localization dominance, suppression, segregation, image shift).
+      evaluate_echo_risk_claim: fixed delay rules →
+      fixed_rule_misapplied; no profile → stimulus_unqualified;
+      physical data alone → unresolved_risk.
+    checks:
+      - id: precedence-echo
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_echo_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_profile_rejects_unknown_stimulus
+        description: No fixed 20ms rule; phenomenon-honest classification.
+  - issue: 648
+    title: "Acoustic-finish fire / reaction-to-fire evidence authority"
+    notes: >
+      ReactionToFireEvidence (rtf-) pins test standard (ASTM E84 /
+      NFPA 286 / EN 13501-1 / etc.), the tested assembly descriptor and
+      the report ref. FinishAssemblySafetyEvidence (fas-) binds that
+      evidence to the declared installation assembly parts.
+      evaluate_fire_eligibility_claim: acoustic suitability →
+      acoustic_not_safety; wrong standard for the requirement →
+      test_scope_mismatch; lab result without assembly →
+      lab_result_is_not_installation.
+    checks:
+      - id: fire-evidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust3.py::test_fire_claim_ladder
+          - backend/tests/test_rev59_acoust3.py::test_assembly_requires_parts_and_evidence
+        description: Lab result ≠ installed eligibility; standard-scope honesty.
+  - issue: 696
+    title: "Subjective listening-experiment authority"
+    notes: >
+      ListeningExperimentPlan (lexp-) pins method family (BS.1116-3 /
+      MUSHRA BS.1534-3 / BS.1284-2 / ABX / paired comparison) and
+      impairment regime — 'unknown' method fails closed and MUSHRA
+      under small-impairment regime is rejected. ListenerQualification
+      (lqual-) binds screening/training/test-retest.
+      SubjectiveInferenceRecord (sinf-) requires a pinned plan and a
+      CI for 'significant'. evaluate_experiment_claim: no plan →
+      unverified_result; no randomization → unrandomized_trials;
+      unqualified panel → unqualified_listeners.
+    checks:
+      - id: listening-experiment
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_experiment_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_plan_requires_method_and_regime_sanity
+        description: Method-family + panel + randomization gating.
+  - issue: 726
+    title: "Assistive-listening-system authority"
+    notes: >
+      AssistiveListeningPath (alsp-) declares delivery technology
+      (induction_loop / fm_receiver / ir_receiver / hardwired /
+      auracast). ALSQualification (alsq-) pins field-strength / SNR /
+      frequency-response evidence (IEC 60118-4 class).
+      ReceiverCompatibilityEvidence (rcomp-) binds receiver kind and
+      compatibility. evaluate_als_claim: speaker performance never
+      implies ALS; routing and measured qualification are each gated.
+    checks:
+      - id: assistive-listening
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_als_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_als_requires_technology
+        description: Speaker perf ≠ ALS; routing + measurement gates.
+  - issue: 727
+    title: "Dynamic head-tracked binaural auralization authority"
+    notes: >
+      DynamicBinauralSession (dbin-) declares HRTF class (individual /
+      estimated / generic — 'unknown' fails closed) + pose frame +
+      update cadence. PoseTrackingEvidence (ptrk-) binds measured
+      motion-to-audio latency (a declared latency requires a
+      measurement ref). BinauralQualification (bqual-) pins angular
+      sampling evidence. evaluate_binaural_claim: static render is
+      never a dynamic claim; unmeasured tracker latency fails closed.
+    checks:
+      - id: dynamic-binaural
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_binaural_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_ptrk_declared_latency_needs_measurement
+        description: Static ≠ dynamic; latency/angular-sampling gates.
