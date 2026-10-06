@@ -1305,6 +1305,12 @@ class _RepositoryChain:
             )
 
             return CadAudioPerceptionRepository(scene)
+        if name == 'signal_authority':
+            from .cad_signal_authority_repository import (
+                CadSignalAuthorityRepository,
+            )
+
+            return CadSignalAuthorityRepository(scene)
         raise KeyError(name)
 
 
@@ -6345,6 +6351,42 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_spatial_remapping_evidence',
         ('evidence_id',),
         _get('audio_perception', 'get_remap_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_codec_fidelity_evidence',
+        ('evidence_id',),
+        _get('signal_authority', 'get_codec_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fft_spectral_estimator_profiles',
+        ('profile_id',),
+        _get('signal_authority', 'get_spectral_profile'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_clock_domain_observations',
+        ('observation_id',),
+        _get('signal_authority', 'get_clock_observation'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_external_fact_claims',
+        ('claim_id',),
+        _get('signal_authority', 'get_fact_claim'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fact_conflict_resolutions',
+        ('resolution_id',),
+        _get('signal_authority', 'get_fact_resolution'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_bom_estimates',
+        ('estimate_id',),
+        _get('signal_authority', 'get_bom_estimate'),
     ),
 
 )

@@ -746,6 +746,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_headphone_coupling_evidence": "ヘッドホン結合証拠",
     "cad_structureborne_paths": "固体伝搬パス",
     "cad_spatial_remapping_evidence": "空間リマップ証拠",
+    "cad_codec_fidelity_evidence": "コーデック忠実度証拠",
+    "cad_fft_spectral_estimator_profiles": "スペクトル推定プロファイル",
+    "cad_clock_domain_observations": "クロックドメイン観測",
+    "cad_external_fact_claims": "外部事実クレーム",
+    "cad_fact_conflict_resolutions": "事実矛盾解決",
+    "cad_bom_estimates": "BOM・見積",
 
 }
 
