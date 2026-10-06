@@ -1288,3 +1288,173 @@ issues:
           パス予測生成器 (off-axis/到着計算エンジン) の登録経路、
           聴取エリア UI 入力、実測マイクアレイとの結合、
           評価プロファイル権威 (包絡公差供給元) との結合は残件。
+  - issue: 616
+    title: "REV57-INST: theater HVAC acoustic/airflow co-design authority"
+    notes: >
+      CadVentilationScenario declares the required-airflow intent
+      (occupancy, loads, required supply/return flow, operating
+      state, requirement source — HTDT never invents code
+      requirements). CadHvacPath declares the explicit duct/air path
+      graph: nodes (fan→silencer→terminal→diffuser) and legs
+      (duct_borne_internal / breakout / break_in / structure_borne /
+      cross_talk / unsupported — a broadband scalar is not a
+      quantitative path). CadHvacComponentEvidence keeps silencer
+      insertion loss, regenerated noise and pressure loss separate
+      with method classes (iso_5135_terminal / iso_7235_laboratory /
+      iso_11820_in_situ / manufacturer_application_table /
+      engineering_model / field_measurement) — ISO 7235 lab data is
+      never installed truth, and in-situ flow requires
+      field_measured class. CadHvacFieldObservation is the
+      commissioning reading (measured flows, room noise +
+      weighting/spectrum, tonal, rattle routing → #589, balancing
+      state — rebalance stales qualification).
+      evaluate_hvac_path judges airflow eligibility (under_ventilated
+      → ineligible_airflow even when quiet), acoustic contribution,
+      flanking cross-talk (confirmed → failed) and tonal flags as
+      independent axes.
+    checks:
+      - id: inst-hvac-codesign
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_inst.py
+        description: >
+          HVAC10–HVAC60: quiet-but-underventilated ineligible, ISO
+          7235-only lab evidence demoted to
+          lab_evidence_not_installed_truth, in-situ + measured flow
+          qualifies, confirmed cross-talk flanking fails, tonal
+          flags visible, unbound requirement honest, silencer
+          insertion-loss-only rejection, in-situ flow class rule,
+          flanking target-rooms rule, broadband-scalar leg
+          rejection, repository chain + audit replay.
+      - id: inst-hvac-codesign-remainder
+        kind: manual
+        description: >
+          ASHRAE ダクト減衰/再生ノイズの周波数帯域別モデル係数化、
+          #576 isolation scenario との scenario_ref 結合 UI、
+          balancing 差分による自動 stale 検出、ページ入力フォーム
+          は既存 authority 入力パターンに従う別タスク。
+  - issue: 618
+    title: "REV57-INST: playback reference-calibration authority"
+    notes: >
+      CadReferenceProfile binds the calibration document (kind:
+      smpte_cinema_reference / itu_bs775_lfe / dolby / cedia_rp22 /
+      device_vendor / project_defined / diagnostic_only) with
+      lifecycle — draft/research-only cannot qualify.
+      CadCalibrationStimulus pins the exact test signal
+      (external_registry_asset needs sha-pinned asset_ref,
+      device_internal_test needs device_identity; undocumented
+      internal tones are UNKNOWN by default).
+      CadChannelCalibrationObservation binds per-channel measured
+      SPL to weighting + time weighting + integration quantity +
+      instrument + position; redirected_bass never carries
+      native-LFE gain. evaluate_reference_calibration checks
+      stimulus authority, measurement semantics, LFE semantics
+      (broadband meter delta ≠ +10 dB in-band reproduction gain per
+      BS.775-4; redirected bass isolated) and per-main-channel
+      alignment vs the profile target inside a declared tolerance —
+      HTDT never invents one. Device-internal-undocumented caps at
+      device_profile_only; calibration ≠ max capability ≠ listening
+      level (capability_separation axis).
+    checks:
+      - id: inst-refcal
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_inst.py
+        description: >
+          REFCAL10–80: undocumented internal tone caps
+          device_profile_only, exact stimulus + complete semantics
+          + LFE in-band gain → reference_calibrated, meter delta
+          not in-band proof, redirected-bass gain rejection, SPL
+          semantics requirement, draft profile cannot qualify,
+          misaligned channel fails, no invented tolerance,
+          repository chain + audit replay.
+      - id: inst-refcal-remainder
+        kind: manual
+        description: >
+          #608 stimulus registry との asset_ref 結合、#611 計器・
+          #609 タイムベースとの sha256 pin UI、AVR 自動校正
+          (Audyssey/Dirac) レポート取り込み、SMPTE ドラフト文書の
+          #599 ライフサイクル昇格フローは残件。
+  - issue: 631
+    title: "REV57-INST: as-built acoustic-treatment qualification"
+    notes: >
+      CadTreatmentInstallSpec is the design intent: product/material
+      evidence ref + lab class (iso_354_specimen / iso_11654_rating
+      / iso_20189_single_object — each requires its mounting/
+      specimen condition), acoustic role, surface/scene element,
+      pose, dimensions/area/thickness/air_gap/backing/facing/
+      mounting/coverage; custom built-in assemblies must declare
+      construction layers (a contractor note is not a boundary
+      model). CadTreatmentAsBuiltObservation carries per-parameter
+      evidence states — field_measured / field_observed /
+      installer_documented / manufacturer_build_spec / design_only /
+      inferred_from_geometry / hidden_unverified / unknown — a
+      photo proves presence, never a hidden cavity. CadTreatment
+      Inspection is the immutable field record.
+      evaluate_treatment_asbuilt compares per parameter: deviations
+      mark prediction_validity stale (build-up change never leaves
+      a validated boundary), hidden/unknown never promotes, a
+      declared substitution is a deviation (equal αw ≠ solver
+      equivalence, #596), inconsistent before/after → incompatible.
+    checks:
+      - id: inst-treatment-asbuilt
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_inst.py
+        description: >
+          TAI10–60: full match qualifies, thickness deviation
+          stales prediction, hidden air gap stays UNKNOWN,
+          substitution ≠ equivalence, no observation → insufficient,
+          inconsistent before/after → incompatible, lab mounting
+          requirement, custom-assembly layers, substitution
+          evidence requirement, repository chain + audit replay.
+      - id: inst-treatment-asbuilt-remainder
+        kind: manual
+        description: >
+          #615 porous absorber boundary との predicted_boundary_ref
+          再派生フロー、#620 mounting authority の型照合、写真
+          artifact の managed-asset 化、ページ入力フォームは別
+          タスク。
+  - issue: 612
+    title: "REV57-INST: tactile / seat-vibration authority"
+    notes: >
+      CadTactilePath declares the mechanical chain source→DSP→amp
+      →transducer→seat/contact-surface (transducer + endpoint
+      required; tactile routing stays separate from acoustic LFE
+      even when sharing the bass signal; composes #638 actuator
+      refs). CadTactileVibrationMeasurement binds acceleration/
+      velocity/displacement to sensor + evidence class
+      (traceable_calibrated requires bound #611 calibration; phone
+      readings stay diagnostic_relative), axis, contact point,
+      occupancy state (empty/occupied/recline — part of transfer
+      identity), drive reference, delay vs timebase (#609).
+      CadTactileProfile keeps preference targets separate from
+      exposure/comfort limits — ISO 2631-1:1997+Amd current,
+      ISO/FDIS 2631-1 Ed.3 draft_research_only (no production
+      targets, #599 lifecycle), ISO 2631-2:2026 building domain.
+      evaluate_tactile_vibration: transfer must be measured (never
+      inferred from watts), timing physically measured (a DSP
+      delay setting is not sync), acoustic side effects routed to
+      #589 and building coupling judged independently — a good
+      seat never hides structural coupling; per-seat, no medical
+      claims.
+    checks:
+      - id: inst-tactile-vibration
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_inst.py
+        description: >
+          TAC10–80: measured transfer + occupancy + physical
+          timing qualifies, unmeasured → insufficient, DSP delay
+          not physical sync, flagged acoustic side effect fails,
+          building coupling independent failure, FDIS draft
+          research_only, exposure limit exceeded fails, empty
+          seat not occupied truth, path/measurement/profile
+          validators, repository chain + audit replay.
+      - id: inst-tactile-vibration-remainder
+        kind: manual
+        description: >
+          #638 actuator/#593 電気制限との binding 結合 UI、#608/
+          #609 との stimulus+timebase pin、複数シート集計ビュー
+          (per-seat 保持)、preference 主観評価権威との分離配線、
+          ISO 2631-1 Ed.3 発行時の lifecycle 昇格は残件。

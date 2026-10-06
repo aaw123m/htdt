@@ -4160,6 +4160,142 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_pbqual_doc ON cad_playback_qualifications(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hvac_ventilation_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, operating_state TEXT NOT NULL, required_supply_flow_lps REAL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hvacscn_doc ON cad_hvac_ventilation_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hvac_path_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL UNIQUE, path_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_kind TEXT NOT NULL, serves_room TEXT, flanking_role TEXT NOT NULL, scenario_ref_id TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hvacpath_doc ON cad_hvac_path_declarations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hvac_component_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, component_kind TEXT NOT NULL, method TEXT NOT NULL, airflow_evidence_class TEXT NOT NULL, flow_rate_lps REAL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hvaccomp_doc ON cad_hvac_component_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hvac_field_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, operating_state TEXT NOT NULL, balancing_state TEXT NOT NULL, room_noise_db REAL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hvacobs_doc ON cad_hvac_field_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hvac_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, airflow_eligibility TEXT NOT NULL, acoustic_state TEXT NOT NULL, flanking_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hvacqual_doc ON cad_hvac_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ref_cal_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_kind TEXT NOT NULL, profile_document TEXT NOT NULL, lifecycle_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_refprof_doc ON cad_ref_cal_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ref_cal_stimuli ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stimulus_id TEXT NOT NULL UNIQUE, stimulus_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_kind TEXT NOT NULL, signal_class TEXT NOT NULL, digital_level_dbfs REAL, device_identity TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_refstim_doc ON cad_ref_cal_stimuli(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ref_cal_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, channel_role TEXT NOT NULL, signal_class TEXT NOT NULL, stimulus_ref_id TEXT, quantity TEXT NOT NULL, measured_spl_db REAL, weighting TEXT, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_refobs_doc ON cad_ref_cal_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ref_cal_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, stimulus_state TEXT NOT NULL, measurement_state TEXT NOT NULL, lfe_state TEXT NOT NULL, alignment_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_refqual_doc ON cad_ref_cal_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_treatment_install_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL UNIQUE, spec_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, treatment_class TEXT NOT NULL, acoustic_role TEXT NOT NULL, lab_evidence_class TEXT NOT NULL, product_identity TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_taispec_doc ON cad_treatment_install_specs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_treatment_asbuilt_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spec_ref_id TEXT NOT NULL, substituted INTEGER, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_taiobs_doc ON cad_treatment_asbuilt_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_treatment_inspections ( seq INTEGER PRIMARY KEY AUTOINCREMENT, inspection_id TEXT NOT NULL UNIQUE, inspection_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, operator TEXT, inspected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_taiinsp_doc ON cad_treatment_inspections(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_treatment_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spec_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, prediction_validity TEXT NOT NULL, before_after_result TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_taieval_doc ON cad_treatment_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_vibration_paths ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL UNIQUE, path_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, label TEXT NOT NULL, seat_ref TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tvpath_doc ON cad_tactile_vibration_paths(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_vibration_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, axis TEXT NOT NULL, contact_point TEXT NOT NULL, occupancy_state TEXT NOT NULL, sensor_evidence_class TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tvmeas_doc ON cad_tactile_vibration_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_kind TEXT NOT NULL, label TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tvprof_doc ON cad_tactile_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_tactile_vibration_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, transfer_state TEXT NOT NULL, occupancy_state TEXT NOT NULL, timing_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tvqual_doc ON cad_tactile_vibration_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4802,4 +4938,22 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_playback_capability_records',
     'cad_playback_operation_runs',
     'cad_playback_qualifications',
+    # REV57-INST: #616/#618/#631/#612.
+    'cad_hvac_ventilation_scenarios',
+    'cad_hvac_path_declarations',
+    'cad_hvac_component_evidence',
+    'cad_hvac_field_observations',
+    'cad_hvac_qualifications',
+    'cad_ref_cal_profiles',
+    'cad_ref_cal_stimuli',
+    'cad_ref_cal_observations',
+    'cad_ref_cal_qualifications',
+    'cad_treatment_install_specs',
+    'cad_treatment_asbuilt_observations',
+    'cad_treatment_inspections',
+    'cad_treatment_qualifications',
+    'cad_tactile_vibration_paths',
+    'cad_tactile_vibration_measurements',
+    'cad_tactile_profiles',
+    'cad_tactile_vibration_qualifications',
 )

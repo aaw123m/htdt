@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 40
+NATIVE_SCHEMA_VERSION = 41
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1479,6 +1479,22 @@ def _migrate_39_to_40(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_40_to_41(connection: sqlite3.Connection) -> None:
+    # Install the REV57-INST authorities (#616 theater HVAC
+    # acoustic/airflow co-design: ventilation scenarios, duct/paths,
+    # component evidence, field observations, qualifications; #618
+    # playback reference calibration: reference profiles, calibration
+    # stimuli, channel observations, qualifications; #631 as-built
+    # acoustic-treatment qualification: install specs, as-built
+    # observations, inspections, qualifications; #612 tactile/seat
+    # vibration: tactile paths, vibration measurements, profiles,
+    # qualifications): new append-only authorities the idempotent
+    # baseline creates. REV57-AUD took v40 first, so REV57-INST lands as
+    # v41.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1520,6 +1536,7 @@ _MIGRATIONS = {
     38: _migrate_37_to_38,
     39: _migrate_38_to_39,
     40: _migrate_39_to_40,
+    41: _migrate_40_to_41,
 }
 
 

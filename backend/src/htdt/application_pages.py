@@ -439,6 +439,24 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_playback_capability_records": "再生能力記録",
     "cad_playback_operation_runs": "再生オペレーション実行",
     "cad_playback_qualifications": "再生能力修飾",
+    # REV57-INST: #616 HVAC共同設計 / #618 再生参照校正 / #631 as-builtトリートメント / #612 触覚・シート振動
+    "cad_hvac_ventilation_scenarios": "換気シナリオ",
+    "cad_hvac_path_declarations": "HVACパス宣言",
+    "cad_hvac_component_evidence": "HVACコンポーネント証拠",
+    "cad_hvac_field_observations": "HVAC現場観測",
+    "cad_hvac_qualifications": "HVAC適格評価",
+    "cad_ref_cal_profiles": "参照校正プロファイル",
+    "cad_ref_cal_stimuli": "校正刺激",
+    "cad_ref_cal_observations": "チャネル校正観測",
+    "cad_ref_cal_qualifications": "参照校正適格評価",
+    "cad_treatment_install_specs": "トリートメント設置仕様",
+    "cad_treatment_asbuilt_observations": "as-built観測",
+    "cad_treatment_inspections": "トリートメント検査記録",
+    "cad_treatment_qualifications": "as-built適格評価",
+    "cad_tactile_vibration_paths": "触覚パス",
+    "cad_tactile_vibration_measurements": "振動測定",
+    "cad_tactile_profiles": "触覚プロファイル",
+    "cad_tactile_vibration_qualifications": "触覚振動適格評価",
 }
 
 

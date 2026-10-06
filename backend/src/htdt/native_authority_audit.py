@@ -940,6 +940,31 @@ class _RepositoryChain:
             )
 
             return CadMediaPlaybackRepository(scene)
+        # REV57-INST authorities.
+        if name == 'hvac':
+            from .cad_hvac_repository import (
+                CadHvacRepository,
+            )
+
+            return CadHvacRepository(scene)
+        if name == 'playback_reference':
+            from .cad_playback_reference_repository import (
+                CadPlaybackReferenceRepository,
+            )
+
+            return CadPlaybackReferenceRepository(scene)
+        if name == 'treatment_asbuilt':
+            from .cad_treatment_asbuilt_repository import (
+                CadTreatmentAsBuiltRepository,
+            )
+
+            return CadTreatmentAsBuiltRepository(scene)
+        if name == 'tactile_vibration':
+            from .cad_tactile_vibration_repository import (
+                CadTactileVibrationRepository,
+            )
+
+            return CadTactileVibrationRepository(scene)
         raise KeyError(name)
 
 
@@ -4202,6 +4227,112 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_playback_qualifications',
         ('qualification_id',),
         _get('media_playback', 'get_qualification'),
+    ),
+    # REV57-INST: #616 HVAC acoustic/airflow co-design authority
+    _ReplayProbe(
+        'hvac_scenario',
+        'cad_hvac_ventilation_scenarios',
+        ('scenario_id',),
+        _get('hvac', 'get_scenario'),
+    ),
+    _ReplayProbe(
+        'hvac_path',
+        'cad_hvac_path_declarations',
+        ('path_id',),
+        _get('hvac', 'get_path'),
+    ),
+    _ReplayProbe(
+        'hvac_component_evidence',
+        'cad_hvac_component_evidence',
+        ('evidence_id',),
+        _get('hvac', 'get_component_evidence'),
+    ),
+    _ReplayProbe(
+        'hvac_field_observation',
+        'cad_hvac_field_observations',
+        ('observation_id',),
+        _get('hvac', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'hvac_qualification',
+        'cad_hvac_qualifications',
+        ('qualification_id',),
+        _get('hvac', 'get_qualification'),
+    ),
+    # REV57-INST: #618 playback reference-calibration authority
+    _ReplayProbe(
+        'ref_cal_profile',
+        'cad_ref_cal_profiles',
+        ('profile_id',),
+        _get('playback_reference', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'ref_cal_stimulus',
+        'cad_ref_cal_stimuli',
+        ('stimulus_id',),
+        _get('playback_reference', 'get_stimulus'),
+    ),
+    _ReplayProbe(
+        'ref_cal_observation',
+        'cad_ref_cal_observations',
+        ('observation_id',),
+        _get('playback_reference', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'ref_cal_qualification',
+        'cad_ref_cal_qualifications',
+        ('qualification_id',),
+        _get('playback_reference', 'get_qualification'),
+    ),
+    # REV57-INST: #631 as-built treatment qualification authority
+    _ReplayProbe(
+        'treatment_install_spec',
+        'cad_treatment_install_specs',
+        ('spec_id',),
+        _get('treatment_asbuilt', 'get_spec'),
+    ),
+    _ReplayProbe(
+        'treatment_asbuilt_observation',
+        'cad_treatment_asbuilt_observations',
+        ('observation_id',),
+        _get('treatment_asbuilt', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'treatment_inspection',
+        'cad_treatment_inspections',
+        ('inspection_id',),
+        _get('treatment_asbuilt', 'get_inspection'),
+    ),
+    _ReplayProbe(
+        'treatment_qualification',
+        'cad_treatment_qualifications',
+        ('qualification_id',),
+        _get('treatment_asbuilt', 'get_qualification'),
+    ),
+    # REV57-INST: #612 tactile/seat-vibration authority
+    _ReplayProbe(
+        'tactile_vibration_path',
+        'cad_tactile_vibration_paths',
+        ('path_id',),
+        _get('tactile_vibration', 'get_path'),
+    ),
+    _ReplayProbe(
+        'tactile_vibration_measurement',
+        'cad_tactile_vibration_measurements',
+        ('measurement_id',),
+        _get('tactile_vibration', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'tactile_profile',
+        'cad_tactile_profiles',
+        ('profile_id',),
+        _get('tactile_vibration', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'tactile_vibration_qualification',
+        'cad_tactile_vibration_qualifications',
+        ('qualification_id',),
+        _get('tactile_vibration', 'get_qualification'),
     ),
 )
 

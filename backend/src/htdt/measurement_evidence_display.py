@@ -2018,6 +2018,12 @@ def environment_comparability_line(
             )
         )
     return '視聴環境比較: ' + ' — '.join(parts)
+
+
+# REV57-AUD (#621/#634/#628/#632): channel-identity/polarity,
+# coverage/aim, instance variation, media-playback capability
+# authorities.
+
 _CHANNEL_IDENTITY_VERDICT_LABELS = {
     'verified': '検証済',
     'verified_compensated': '補償付き検証済',
@@ -2171,3 +2177,274 @@ def playback_qualification_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '再生能力修飾: ' + ' — '.join(parts)
+
+
+# REV57-INST (#616/#618/#631/#612): HVAC co-design, playback reference
+# calibration, as-built treatment, tactile/seat-vibration authorities.
+
+_HVAC_VERDICT_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '制限付き適格',
+    'ineligible_airflow': '風量不足で不適格',
+    'failed': '不合格',
+    'insufficient_evidence': '証拠不足',
+}
+_HVAC_AIRFLOW_LABELS = {
+    'eligible': '風量充足',
+    'under_ventilated': '換気不足',
+    'airflow_requirement_unbound': '要求風量未宣言',
+    'insufficient_evidence': '風量証拠不足',
+    'not_evaluated': '未評価',
+}
+_HVAC_ACOUSTIC_LABELS = {
+    'contributions_documented': '寄与量実測済み',
+    'contributions_limited': '寄与量一部実測',
+    'lab_evidence_not_installed_truth': 'ラボ証拠のみ（設置実態不明）',
+    'tonal_content_unresolved': 'トーン成分未解決',
+    'insufficient_evidence': '音響証拠不足',
+    'not_evaluated': '未評価',
+}
+_HVAC_FLANKING_LABELS = {
+    'no_flanking_declared': 'フランキングなし',
+    'flanking_path_open': 'フランキング経路あり',
+    'flanking_path_mitigated': 'フランキング対策済み',
+    'flanking_unverified': 'フランキング未検証',
+    'not_evaluated': '未評価',
+}
+_HVAC_TONAL_LABELS = {
+    'no_tonal_flags': 'トーン成分なし',
+    'tonal_flags_present': 'トーン成分あり',
+    'not_evaluated': 'トーン未評価',
+}
+
+
+def hvac_qualification_line(qualification) -> str:
+    """One JA line for an HVAC co-design qualification (#616): quiet-
+    but-underventilated stays visible — 遮音だけでは適格にならない。"""
+    parts = [
+        _HVAC_VERDICT_LABELS.get(qualification.verdict, qualification.verdict),
+        '風量: ' + _HVAC_AIRFLOW_LABELS.get(
+            qualification.airflow_eligibility, qualification.airflow_eligibility
+        ),
+        '音響: ' + _HVAC_ACOUSTIC_LABELS.get(
+            qualification.acoustic_state, qualification.acoustic_state
+        ),
+    ]
+    if qualification.flanking_state not in (
+        'no_flanking_declared', 'not_evaluated'
+    ):
+        parts.append(
+            'フランキング: '
+            + _HVAC_FLANKING_LABELS.get(
+                qualification.flanking_state, qualification.flanking_state
+            )
+        )
+    if qualification.tonal_state == 'tonal_flags_present':
+        parts.append(_HVAC_TONAL_LABELS['tonal_flags_present'])
+    return 'HVAC共同設計評価: ' + ' — '.join(parts)
+
+
+_REF_CAL_VERDICT_LABELS = {
+    'reference_calibrated': 'リファレンス校正済み',
+    'calibrated_with_limitations': '制限付き校正済み',
+    'device_profile_only': 'デバイスプロファイルのみ',
+    'insufficient_evidence': '証拠不足',
+    'failed': '不合格',
+}
+_REF_CAL_STIMULUS_LABELS = {
+    'exact_stimulus_bound': '標準刺激に紐付け済み',
+    'unbound': '刺激未紐付け',
+    'device_internal_documented': 'デバイス内部信号（文書あり）',
+    'device_internal_undocumented': 'デバイス内部信号（文書なし）',
+}
+_REF_CAL_MEASUREMENT_LABELS = {
+    'semantics_complete': '計測セマンティクス完備',
+    'semantics_incomplete': '計測セマンティクス一部欠落',
+    'no_measurements': '計測なし',
+}
+_REF_CAL_LFE_LABELS = {
+    'in_band_gain_verified': 'LFE帯域内ゲイン検証済み',
+    'in_band_gain_declared': 'LFE帯域内ゲイン宣言のみ',
+    'meter_delta_only_not_proof': 'メータ差分のみ（帯域内証明なし）',
+    'redirected_bass_isolated': 'リダイレクト低音は分離済み',
+    'not_applicable': '対象外',
+}
+_REF_CAL_ALIGNMENT_LABELS = {
+    'aligned': 'ターゲット内',
+    'misaligned': 'ターゲット外',
+    'unverifiable': '検証不能',
+    'not_evaluated': '未評価',
+}
+
+
+def reference_calibration_line(qualification) -> str:
+    """One JA line for a playback reference-calibration qualification
+    (#618): LFEの+10dBは帯域内ゲインであってメータ補正ではない —
+    calibration は最大能力でもリスニングレベルでもない。"""
+    parts = [
+        _REF_CAL_VERDICT_LABELS.get(qualification.verdict, qualification.verdict),
+        '刺激: ' + _REF_CAL_STIMULUS_LABELS.get(
+            qualification.stimulus_state, qualification.stimulus_state
+        ),
+        '計測: ' + _REF_CAL_MEASUREMENT_LABELS.get(
+            qualification.measurement_state, qualification.measurement_state
+        ),
+    ]
+    if qualification.lfe_state != 'not_applicable':
+        parts.append(
+            'LFE: '
+            + _REF_CAL_LFE_LABELS.get(
+                qualification.lfe_state, qualification.lfe_state
+            )
+        )
+    if qualification.alignment_state != 'not_evaluated':
+        parts.append(
+            'アライメント: '
+            + _REF_CAL_ALIGNMENT_LABELS.get(
+                qualification.alignment_state, qualification.alignment_state
+            )
+        )
+    return '再生参照校正評価: ' + ' — '.join(parts)
+
+
+_ASBUILT_VERDICT_LABELS = {
+    'qualified_as_built': 'as-built適格',
+    'qualified_with_limitations': '制限付き適格',
+    'prediction_stale': '予測陳腐化',
+    'incompatible': '不一致',
+    'insufficient_evidence': '証拠不足',
+}
+_ASBUILT_VALIDITY_LABELS = {
+    'remains_eligible': '予測有効',
+    'limited': '予測制限付き',
+    'stale': '予測陳腐',
+    'unknown': '予測有効性不明',
+}
+_ASBUILT_BEFORE_AFTER_LABELS = {
+    'consistent_with_expected': '期待効果と一致',
+    'inconsistent_with_expected': '期待効果と不一致',
+    'inconclusive': '判定不能',
+    'not_performed': '未実施',
+}
+_ASBUILT_PARAMETER_LABELS = {
+    'thickness': '厚さ',
+    'air_gap': '空気層',
+    'area': '面積',
+    'facing': '表面材',
+    'orientation': '向き',
+    'placement': '位置',
+    'backing': '背後構造',
+    'product_identity': '製品同一性',
+}
+
+
+def treatment_asbuilt_line(qualification) -> str:
+    """One JA line for an as-built treatment qualification (#631):
+    per-parameter verdicts surfaced — パネル存在 ≠ 設計通りの境界。"""
+    import json as _json
+
+    parts = [
+        _ASBUILT_VERDICT_LABELS.get(qualification.verdict, qualification.verdict),
+        _ASBUILT_VALIDITY_LABELS.get(
+            qualification.prediction_validity,
+            qualification.prediction_validity,
+        ),
+    ]
+    try:
+        verdicts = _json.loads(qualification.parameter_verdicts_json or '{}')
+    except ValueError:
+        verdicts = {}
+    dev = [
+        _ASBUILT_PARAMETER_LABELS.get(p, p)
+        for p, v in verdicts.items() if v == 'deviation'
+    ]
+    unk = [
+        _ASBUILT_PARAMETER_LABELS.get(p, p)
+        for p, v in verdicts.items() if v == 'unknown'
+    ]
+    if dev:
+        parts.append('乖離: ' + ' / '.join(dev))
+    if unk:
+        parts.append('未確認: ' + ' / '.join(unk))
+    if qualification.before_after_result != 'not_performed':
+        parts.append(
+            '前後測定: '
+            + _ASBUILT_BEFORE_AFTER_LABELS.get(
+                qualification.before_after_result,
+                qualification.before_after_result,
+            )
+        )
+    return 'as-builtトリートメント評価: ' + ' — '.join(parts)
+
+
+_TAC_VERDICT_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '制限付き適格',
+    'research_only': '研究専用',
+    'insufficient_evidence': '証拠不足',
+    'failed': '不合格',
+}
+_TAC_TRANSFER_LABELS = {
+    'measured': '伝達実測済み',
+    'partially_measured': '一部実測',
+    'inferred_only': '推定のみ',
+    'unmeasured': '未計測',
+}
+_TAC_OCCUPANCY_LABELS = {
+    'empty_seat': '無人シート',
+    'occupied_generic': '着座（一般）',
+    'occupied_measured': '着座（実測）',
+    'unknown': '着座状態不明',
+}
+_TAC_TIMING_LABELS = {
+    'physically_measured': '物理計測済み',
+    'dsp_setting_only': 'DSP設定値のみ',
+    'unmeasured': '未計測',
+}
+_TAC_SIDE_EFFECT_LABELS = {
+    'evaluated_clean': '副作用なし',
+    'evaluated_flagged': '副作用あり（#589へ）',
+    'not_evaluated': '副作用未評価',
+}
+_TAC_COUPLING_LABELS = {
+    'evaluated_acceptable': '建物結合許容',
+    'evaluated_excessive': '建物結合過剰',
+    'not_evaluated': '建物結合未評価',
+}
+
+
+def tactile_vibration_line(qualification) -> str:
+    """One JA line for a tactile/seat-vibration qualification (#612):
+    触感 ≠ SPL — 駆動→シート伝達はワット数から推定しない。"""
+    parts = [
+        _TAC_VERDICT_LABELS.get(qualification.verdict, qualification.verdict),
+        '伝達: ' + _TAC_TRANSFER_LABELS.get(
+            qualification.transfer_state, qualification.transfer_state
+        ),
+        '着座: ' + _TAC_OCCUPANCY_LABELS.get(
+            qualification.occupancy_state, qualification.occupancy_state
+        ),
+    ]
+    if qualification.timing_state != 'unmeasured':
+        parts.append(
+            '同期: '
+            + _TAC_TIMING_LABELS.get(
+                qualification.timing_state, qualification.timing_state
+            )
+        )
+    if qualification.acoustic_side_effect_state != 'not_evaluated':
+        parts.append(
+            _TAC_SIDE_EFFECT_LABELS.get(
+                qualification.acoustic_side_effect_state,
+                qualification.acoustic_side_effect_state,
+            )
+        )
+    if qualification.building_coupling_state != 'not_evaluated':
+        parts.append(
+            _TAC_COUPLING_LABELS.get(
+                qualification.building_coupling_state,
+                qualification.building_coupling_state,
+            )
+        )
+    return '触覚振動評価: ' + ' — '.join(parts)
+
