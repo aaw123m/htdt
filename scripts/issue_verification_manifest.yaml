@@ -3116,6 +3116,64 @@ issues:
           - backend/tests/test_rev59_buildenv.py::TestVocEvidence::test_product_documented
         description: >
           Product-cert vs room-IAQ separation, evidence pinning.
+  - issue: 743
+    title: "Measurement-fixture / observer-scattering authority"
+    notes: >
+      MeasurementFixtureProfile (fxp-) pins mic mount/observer distance/
+      nearby objects; FixtureScatteringObservation (fxo-) binds
+      contamination observations to the fixture. evaluate_
+      transparency_claim: a calibrated mic never substitutes for fixture
+      transparency; contamination detection overrides.
+    checks:
+      - id: fixture-scattering
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust2.py::TestFixtureScattering::test_calibration_not_transparency
+          - backend/tests/test_rev59_acoust2.py::TestFixtureScattering::test_contamination_detected
+          - backend/tests/test_rev59_acoust2.py::TestFixtureScattering::test_transparent
+        description: >
+          Calibration-vs-transparency separation, contamination gating.
+  - issue: 749
+    title: "Spectral-estimator / FFT-analysis authority"
+    notes: >
+      SpectralEstimatorProfile (sep-) declares window kind, record
+      length, FFT size, zero-padding factor separately —
+      true_resolution_hz is record-length bound while
+      displayed_bin_spacing_hz is cosmetic. SpectralResolutionClaim
+      (src2-) binds a resolution claim to the pinned estimator.
+      evaluate_resolution_claim: claims finer than the record-length
+      bound are padded_display_not_resolution; unknown window is
+      unresolvable.
+    checks:
+      - id: spectral-estimator
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust2.py::TestSpectralEstimator::test_true_vs_displayed_resolution
+          - backend/tests/test_rev59_acoust2.py::TestSpectralEstimator::test_padding_not_resolution
+          - backend/tests/test_rev59_acoust2.py::TestSpectralEstimator::test_unknown_window_unresolvable
+        description: >
+          True vs cosmetic resolution separation, window declaration
+          gating.
+  - issue: 765
+    title: "External evidence source-conflict / supersession authority"
+    notes: >
+      ExternalEvidenceSource (ees-) pins tier/publisher/date/scope/
+      product family+tier; EvidenceSupersessionRecord (ess-) binds a
+      reconciliation verdict to >=2 sources — 'superseded' requires a
+      winning source + rationale. evaluate_conflict_claim: different
+      product tiers/scopes → scoped_both_valid; same product different
+      capability scope → needs_vendor_clarification; same-scope conflict
+      is never auto-resolved.
+    checks:
+      - id: evidence-supersession
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_acoust2.py::TestEvidenceSupersession::test_different_tiers_scoped
+          - backend/tests/test_rev59_acoust2.py::TestEvidenceSupersession::test_same_product_different_scope
+          - backend/tests/test_rev59_acoust2.py::TestEvidenceSupersession::test_superseded_needs_winner
+        description: >
+          Scoped supersession, no automatic newest-wins, explicit
+          reconciliation.
   - issue: 729
     title: "REV59-DEPS: authority dependency / staleness graph"
     notes: >

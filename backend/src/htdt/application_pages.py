@@ -661,6 +661,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_occupied_iaq_observations": "占有時IAQ観測レコード",
     "cad_occupied_iaq_qualifications": "占有時IAQ適格レコード",
     "cad_voc_emission_profiles": "VOC排出プロファイル",
+    "cad_measurement_fixture_profiles": "測定治具プロファイル",
+    "cad_fixture_scattering_observations": "治具散乱観測レコード",
+    "cad_spectral_estimator_profiles": "スペクトル推定プロファイル",
+    "cad_spectral_resolution_claims": "スペクトル分解能クレーム",
+    "cad_external_evidence_sources": "外部証拠ソース",
+    "cad_evidence_supersession_records": "証拠継承判定レコード",
     # REV59-DEPS: #729 権威依存/陳腐化グラフ
     "cad_dependency_edge_declarations": "権威依存エッジ宣言",
     "cad_dependency_change_events": "意味変更イベント",

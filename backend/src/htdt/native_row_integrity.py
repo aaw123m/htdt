@@ -6574,6 +6574,67 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('document_id', 'document_id'),
         ),
         (),
+    ),    'cad_measurement_fixture_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_fixture_scattering_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('fixture_ref_id', 'fixture_ref', 'ref_id'),
+            _b('contamination_detected', 'contamination_detected'),
+        ),
+        (),
+    ),
+    'cad_spectral_estimator_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('window_kind', 'window_kind'),
+        ),
+        (),
+    ),
+    'cad_spectral_resolution_claims': (
+        'payload_json',
+        (
+            _b('claim_id', 'claim_id'),
+            _b('claim_sha256', 'claim_sha256'),
+            _b('document_id', 'document_id'),
+            _b('estimator_ref_id', 'estimator_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_external_evidence_sources': (
+        'payload_json',
+        (
+            _b('source_id', 'source_id'),
+            _b('source_sha256', 'source_sha256'),
+            _b('document_id', 'document_id'),
+            _b('source_tier', 'source_tier'),
+            _b('scope', 'scope'),
+        ),
+        (),
+    ),
+    'cad_evidence_supersession_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('resolution', 'resolution'),
+        ),
+        (),
     ),
     # REV59-DEPS: #729 authority dependency / staleness graph.
     'cad_dependency_edge_declarations': (
