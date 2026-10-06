@@ -64,6 +64,11 @@ from .capture_inbox import (
     PROMOTION_AUTHORITY_KINDS,
     CaptureInboxRepository,
 )
+from .capture_mission import (
+    CaptureMissionPackage,
+    mission_package_descriptor,
+    mission_package_wire_payload,
+)
 from .field_return_ingestion import (
     FieldReturnConflictError,
     FieldReturnRepository,
@@ -140,6 +145,66 @@ TLS_CREDENTIAL_MAX_BYTES = 1024 * 1024
 
 MISSION_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
 MISSION_LISTING_MAX_BYTES = 256 * 1024
+
+# The iOS app's import contract for queued mission payloads. The queue
+# guard below mirrors `HTDTMissionPackage`'s synthesized-Codable
+# required keys and `HTDTCaptureTaskPlan`'s required decode keys so a
+# payload the app can never import never enters the queue.
+_APP_MISSION_SCHEMA_VERSIONS = ('1.0.0',)
+_APP_PLAN_SCHEMA = 'htdt.capture-task-plan'
+_APP_PLAN_SCHEMA_VERSIONS = ('1.0.0', '2.0.0')
+_APP_MISSION_KINDS = (
+    'initial_survey',
+    'follow_up',
+    'repair',
+    'commissioning',
+    'other',
+)
+_APP_DEPENDENCY_KINDS = (
+    'mission_completed',
+    'capture_finalized',
+    'capture_delivered',
+)
+_APP_PLAN_REQUIRED_TEXT = (
+    'plan_id',
+    'plan_version',
+    'project_ref',
+    'room_name',
+)
+_APP_PLAN_REQUIRED_LISTS = (
+    'entity_checklist',
+    'measurement_requests',
+    'surface_review_tasks',
+)
+
+
+def _app_task_plan_coherent(plan) -> bool:
+    """Whether a bare/embedded plan dict satisfies the app's decode contract."""
+    if (
+        not isinstance(plan, dict)
+        or plan.get('schema') != _APP_PLAN_SCHEMA
+        or plan.get('schema_version') not in _APP_PLAN_SCHEMA_VERSIONS
+    ):
+        return False
+    for key in _APP_PLAN_REQUIRED_TEXT:
+        if not isinstance(plan.get(key), str) or not plan[key]:
+            return False
+    for key in _APP_PLAN_REQUIRED_LISTS:
+        if not isinstance(plan.get(key), list):
+            return False
+    return True
+
+
+def _app_mission_dependency_coherent(dependency) -> bool:
+    """Whether one `HTDTMissionDependency` dict satisfies its required keys."""
+    return (
+        isinstance(dependency, dict)
+        and isinstance(dependency.get('ref'), str)
+        and bool(dependency['ref'])
+        and dependency.get('kind') in _APP_DEPENDENCY_KINDS
+        and isinstance(dependency.get('required'), bool)
+    )
+
 
 DEFAULT_RECEIVER_PORT = 8443
 PAIRING_TTL_MINUTES = 10
@@ -732,6 +797,15 @@ class CaptureReceiverService:
             'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
             'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
             'accepted_payload_schemas': accepted_payload_schemas,
+            # The app's `supported_authority_families` vocabulary is the
+            # family tokens its mission requirements and bundle
+            # inventories can be checked against. Semantic-task families
+            # (authorities.json records) are staged verbatim today — no
+            # promotion executor — so advertising them would lie about
+            # fidelity and fail every semantic requirement honestly.
+            # The honest promotable set is the executable authority
+            # kinds; `staged_authority_families` keeps the rest visible
+            # in the promotion-kind vocabulary.
             'supported_authority_families': sorted(
                 EXECUTABLE_AUTHORITY_KINDS
             ),
@@ -1337,6 +1411,42 @@ class CaptureReceiverService:
                 'mission document (htdt.capture-mission / '
                 'htdt.capture-task-plan)'
             )
+        # Shape coherence: mirror the app's hard-decode contract — a
+        # schema-matching payload missing these still fails import on
+        # every device, so reject it here instead of letting it ride
+        # the pull lane to an `invalid_payload` failure.
+        if decoded['schema'] == 'htdt.capture-mission':
+            if (
+                decoded['schema_version']
+                not in _APP_MISSION_SCHEMA_VERSIONS
+            ):
+                raise CaptureReceiverError(
+                    'mission envelope schema_version is not a version '
+                    'the app decodes (supported: 1.0.0)'
+                )
+            dependencies = decoded.get('dependencies')
+            if (
+                not isinstance(decoded.get('mission_id'), str)
+                or not decoded['mission_id']
+                or decoded.get('mission_kind') not in _APP_MISSION_KINDS
+                or not _app_task_plan_coherent(decoded.get('plan'))
+                or not isinstance(dependencies, list)
+                or any(
+                    not _app_mission_dependency_coherent(dependency)
+                    for dependency in dependencies
+                )
+            ):
+                raise CaptureReceiverError(
+                    'mission envelope is missing a decodable '
+                    'mission_id/mission_kind/plan/dependencies'
+                )
+        elif not _app_task_plan_coherent(decoded):
+            raise CaptureReceiverError(
+                'bare task plan is missing a decodable required field '
+                '(plan_id/plan_version/project_ref/room_name/'
+                'entity_checklist/measurement_requests/'
+                'surface_review_tasks) or a supported schema_version'
+            )
         descriptor = dict(descriptor or {})
         # The app's receiver_requirement struct strictly decodes the
         # fields below — a divergent value used to break the WHOLE
@@ -1430,6 +1540,29 @@ class CaptureReceiverService:
                 ),
             )
         return package
+
+    def queue_mission(
+        self,
+        package: CaptureMissionPackage,
+        *,
+        pairing_id: str | None = None,
+    ) -> MissionPackage:
+        """Queue a native mission package for the pull lane.
+
+        Projects the hash-pinned ``htdt.capture.mission-package`` onto
+        the ``htdt.capture-mission`` envelope the Capture app decodes
+        (see ``capture_mission.mission_package_wire_payload``), then
+        queues it under the mission id so a re-issued mission replaces
+        its pending package and a repair mission's supersession names
+        its parent by the same identity.
+        """
+
+        return self.queue_mission_package(
+            package.mission.mission_id,
+            mission_package_wire_payload(package),
+            descriptor=mission_package_descriptor(package),
+            pairing_id=pairing_id,
+        )
 
     def mission_package_bytes(self, package_id: str) -> bytes | None:
         """Exact package bytes — used by the pull endpoint and file export."""
