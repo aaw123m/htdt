@@ -4740,6 +4740,133 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_hybqual_doc ON cad_hybrid_transition_qualifications(document_id, seq ASC)
     """
     ,
+    # REV58-IDENT: typed logarithmic quantity / dB-reference authority (#691)
+    """
+    CREATE TABLE IF NOT EXISTS cad_log_quantities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, quantity_id TEXT NOT NULL UNIQUE, quantity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, quantity_class TEXT NOT NULL, domain TEXT NOT NULL, quantity TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_logqty_doc ON cad_log_quantities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_log_calibration_bridges ( seq INTEGER PRIMARY KEY AUTOINCREMENT, bridge_id TEXT NOT NULL UNIQUE, bridge_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bridge_label TEXT NOT NULL, from_domain TEXT NOT NULL, to_domain TEXT NOT NULL, status TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_logbrg_doc ON cad_log_calibration_bridges(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_log_operations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, operation_id TEXT NOT NULL UNIQUE, operation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, operation TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_logop_doc ON cad_log_operations(document_id, seq ASC)
+    """
+    ,
+    # REV58-IDENT: calibration-parameter identifiability authority (#689)
+    """
+    CREATE TABLE IF NOT EXISTS cad_calib_parameter_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, parameter_id TEXT NOT NULL UNIQUE, parameter_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, parameter_label TEXT NOT NULL, role TEXT NOT NULL, provenance TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_calprm_doc ON cad_calib_parameter_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ident_sensitivity_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, sensitivity_id TEXT NOT NULL UNIQUE, sensitivity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method TEXT NOT NULL, calibration_run_ref_id TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_idsens_doc ON cad_ident_sensitivity_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_idsens_run ON cad_ident_sensitivity_evidence(calibration_run_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ident_correlation_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, correlation_id TEXT NOT NULL UNIQUE, correlation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_idcorr_doc ON cad_ident_correlation_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ident_equivalent_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL UNIQUE, set_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, member_count INTEGER NOT NULL, multimodal INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ideqset_doc ON cad_ident_equivalent_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_identifiability_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, parameter_ref_id TEXT NOT NULL, identifiability_class TEXT NOT NULL, parameter_claim TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_idassess_doc ON cad_identifiability_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_idassess_param ON cad_identifiability_assessments(parameter_ref_id, seq ASC)
+    """
+    ,
+    # REV58-IDENT: validation sample-dependence / benchmark-leakage authority (#698)
+    """
+    CREATE TABLE IF NOT EXISTS cad_validation_statistical_designs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, design_id TEXT NOT NULL UNIQUE, design_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, design_label TEXT NOT NULL, generalization_claim TEXT NOT NULL, independent_unit TEXT NOT NULL, independent_unit_count INTEGER, raw_observation_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsdes_doc ON cad_validation_statistical_designs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dependence_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, dependence_id TEXT NOT NULL UNIQUE, dependence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, design_ref_id TEXT, spatial_correlation_model TEXT NOT NULL, resampling_unit TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsdep_doc ON cad_dependence_models(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dataset_role_assignments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assignment_id TEXT NOT NULL UNIQUE, assignment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, corpus_ref_id TEXT NOT NULL, role TEXT NOT NULL, context_label TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsrole_doc ON cad_dataset_role_assignments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsrole_corpus ON cad_dataset_role_assignments(corpus_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_benchmark_exposures ( seq INTEGER PRIMARY KEY AUTOINCREMENT, exposure_id TEXT NOT NULL UNIQUE, exposure_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, corpus_ref_id TEXT NOT NULL, decision_class TEXT NOT NULL, solver_version TEXT, exposed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsexp_doc ON cad_benchmark_exposures(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsexp_corpus ON cad_benchmark_exposures(corpus_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_challenge_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, design_ref_id TEXT NOT NULL, state TEXT NOT NULL, independent_unit TEXT NOT NULL, independent_unit_count INTEGER, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsqual_doc ON cad_challenge_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_vsqual_design ON cad_challenge_qualifications(design_ref_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5441,4 +5568,18 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_geometric_fidelity_qualifications',
     'cad_hybrid_composition_profiles',
     'cad_hybrid_transition_qualifications',
+    # REV58-IDENT: #689 / #691 / #698.
+    'cad_log_quantities',
+    'cad_log_calibration_bridges',
+    'cad_log_operations',
+    'cad_calib_parameter_records',
+    'cad_ident_sensitivity_evidence',
+    'cad_ident_correlation_evidence',
+    'cad_ident_equivalent_sets',
+    'cad_identifiability_assessments',
+    'cad_validation_statistical_designs',
+    'cad_dependence_models',
+    'cad_dataset_role_assignments',
+    'cad_benchmark_exposures',
+    'cad_challenge_qualifications',
 )

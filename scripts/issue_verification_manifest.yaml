@@ -1711,155 +1711,318 @@ issues:
           enforcement の実実装）、#683 CFL 権威との組成チェック、
           solver-specific 境界安定条件のデータベース係留、UI 入力
           フォームは残件。
-  - issue: 683
-    title: "REV58-NUMERIC: wave-solver numerical fidelity authority"
-    notes: >
-      WaveNumericalFidelityProfile seals formulation (solver family,
-      equation formulation, element/basis, source discretization,
-      receiver interpolation), discretization (mesh identity sha-pinned,
-      resolutions, geometry approximation, points-per-wavelength rule)
-      and the family-specific numerics block: FDTD time stepping (dt,
-      CFL rule + number, declared stability state), FEM (element order,
-      density descriptor, pollution-mitigation declaration) or BEM
-      (integration/singularity strategy). ArtificialBoundarySpec keeps
-      the computational PML/absorbing layer separate from the physical
-      adjacent-boundary claim and carries optional measured reflection
-      leakage. NumericalConvergenceRecord demands >=2 refinement levels
-      with comparisons bound to declared levels; cross_solver studies
-      must declare their independence limitation. evaluate_wave_fidelity
-      scores each error class separately (numerical_dispersion,
-      fem_pollution, cfl_stability, artificial_boundary,
-      algebraic_tolerance): unresolved classes or zero convergence
-      evidence -> insufficient_evidence; failed fixtures, runs outside
-      declared stability or nonconverged solves -> not_qualified;
-      measured-but-unquantified or two-level-only evidence ->
-      qualified_with_limitations.
-    checks:
-      - id: wave-numerical-fidelity
-        kind: pytest
-        tests:
-          - backend/tests/test_rev58_numeric.py::test_wave_profile_seals_and_roundtrips
-          - backend/tests/test_rev58_numeric.py::test_wave_profile_family_block_consistency
-          - backend/tests/test_rev58_numeric.py::test_wave_profile_requires_pinned_solver_ref
-          - backend/tests/test_rev58_numeric.py::test_wave_profile_pml_is_not_anechoic
-          - backend/tests/test_rev58_numeric.py::test_wave_qualification_qualified_with_full_evidence
-          - backend/tests/test_rev58_numeric.py::test_wave_qualification_no_convergence_is_insufficient
-          - backend/tests/test_rev58_numeric.py::test_wave_qualification_two_level_refinement_is_limited
-          - backend/tests/test_rev58_numeric.py::test_wave_qualification_outside_stability_is_not_qualified
-          - backend/tests/test_rev58_numeric.py::test_wave_qualification_fixture_fail_is_not_qualified
-          - backend/tests/test_rev58_numeric.py::test_wave_convergence_requires_independence_limitation
-          - backend/tests/test_rev58_numeric.py::test_wave_profile_repository_append_only
-          - backend/tests/test_rev58_numeric.py::test_wave_repository_rejects_forged_record
-          - backend/tests/test_rev58_numeric.py::test_wave_repository_integrity_on_mirrored_tamper
-        description: >
-          Error-class separation (dispersion vs pollution vs CFL vs PML
-          leakage), family/block consistency, PML without measured
-          leakage stays unresolved, full evidence qualifies, missing or
-          two-level-only convergence degrades, outside-stability and
-          fixture failure are not_qualified, cross-solver studies need
-          independence limitations, append-only and tamper evidence.
-      - id: wave-numerical-fidelity-remainder
-        kind: manual
-        description: >
-          自動 PPWL 推定器と実メッシュ経由の最小波長導出、fixture
-          ライブラリ自体の整備、UI 入力フォーム、実ソルバー
-          (PFFDTD 等) 実行ハーネスとの自動連携は残件。
-  - issue: 685
-    title: "REV58-NUMERIC: geometrical-solver numerical fidelity authority"
-    notes: >
-      GeometricalNumericalFidelityProfile seals the algorithm family
-      (image source, ray tracing, beam/tree hybrid, acoustic radiance
-      transfer) with path-class declarations (specular/scattered/
-      diffracted/delay-phase handling). Deterministic-capable families
-      must declare truncation rules and a visibility spec with
-      per-case results (tested cases need fixture refs or detail);
-      stochastic-capable families must declare the ray launch (count,
-      scheme, RNG name when seeded) and the receiver estimator
-      (spherical/adaptive require radius_m; exact path intersection
-      forbids it; optional radius-sensitivity study). Ray-count sweeps
-      and distinct-seed spread studies carry convergence status;
-      PathEnumerationQualification is the exact-Ga-path gate
-      (exact_ga_path_eligible requires deterministic_state=qualified).
-      evaluate_geometric_fidelity scores deterministic and stochastic
-      axes separately; any unqualified axis -> insufficient_evidence;
-      radius_unevaluated caps at qualified_with_limitations.
-    checks:
-      - id: geometric-numerical-fidelity
-        kind: pytest
-        tests:
-          - backend/tests/test_rev58_numeric.py::test_ga_profile_seals_and_roundtrips
-          - backend/tests/test_rev58_numeric.py::test_ga_profile_deterministic_family_requires_blocks
-          - backend/tests/test_rev58_numeric.py::test_ga_profile_stochastic_family_requires_launch
-          - backend/tests/test_rev58_numeric.py::test_ga_receiver_radius_required_for_spherical
-          - backend/tests/test_rev58_numeric.py::test_ga_seed_spread_requires_distinct_seeds
-          - backend/tests/test_rev58_numeric.py::test_ga_converged_status_requires_evidence
-          - backend/tests/test_rev58_numeric.py::test_ga_qualification_deterministic_qualified
-          - backend/tests/test_rev58_numeric.py::test_ga_qualification_missing_enumeration_is_insufficient
-          - backend/tests/test_rev58_numeric.py::test_ga_receiver_radius_unevaluated_is_limited
-          - backend/tests/test_rev58_numeric.py::test_ga_stochastic_without_sampling_is_insufficient
-          - backend/tests/test_rev58_numeric.py::test_ga_enumeration_case_overlap_rejected
-          - backend/tests/test_rev58_numeric.py::test_ga_exact_path_requires_qualified_enumeration
-          - backend/tests/test_rev58_numeric.py::test_ga_repository_append_only
-          - backend/tests/test_rev58_numeric.py::test_ga_repository_integrity_on_mirrored_tamper
-        description: >
-          Ray-count/seed convergence evidence, receiver-sphere radius
-          requirement and unevaluated-radius cap, deterministic vs
-          stochastic axis separation, visibility case coverage,
-          exact-path gating, append-only and tamper evidence.
-      - id: geometric-numerical-fidelity-remainder
-        kind: manual
-        description: >
-          レイ発射・受信球検出器の実エンジン連携、受信球半径の自動
-          感度掃引、散乱モデルの回折係数権威 (#647 系) との結合、
-          UI 入力フォームは残件。
-  - issue: 687
-    title: "REV58-NUMERIC: wave-GA hybrid handoff qualification authority"
-    notes: >
-      HybridCompositionProfile sha-pins wave and geometric
-      predictions plus their fidelity-profile refs and per-component
-      qualified bands. TransitionBandSpec enforces low<nominal<high
-      edges with a required selection basis (Schroeder estimate is
-      informational only); filtered/overlap/confidence-blend kinds
-      require a CrossoverFilterSpec. SourceNormalizationSpec records
-      the pressure/energy/power quantity and its normalization
-      authority; TimeAlignmentSpec declares group-delay policy.
-      PhenomenonDeclaration splits each phenomenon to wave|geometric
-      with an optional decomposition note. evaluate_hybrid_handoff
-      derives gap_in_capability from disjoint declared bands, marks
-      shared phenomena without decomposition as double_count_risk,
-      requires ContinuityEvidence (magnitude step, ripple, phase
-      discontinuity, group-delay artifact, each scored) or returns
-      transition_unqualified; validation-holdout tuning, uncompensated
-      group delay or phase-capability mismatch cap at
-      qualified_with_limitations. composition_spec_ref binds the
-      R160 numerical_hybrid_composition_spec.
-    checks:
-      - id: hybrid-handoff-qualification
-        kind: pytest
-        tests:
-          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_seals_and_roundtrips
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_overlap_qualified
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_qualified_with_clean_split
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_decomposition_note_avoids_double_count
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_gap_detection
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_missing_bands_is_insufficient
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_no_continuity_is_unqualified
-          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_holdout_tuning_caps_verdict
-          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_filtered_kind_requires_filter
-          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_pressure_energy_requires_normalization
-          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_requires_both_branches
-          - backend/tests/test_rev58_numeric.py::test_hybrid_transition_edge_order_enforced
-          - backend/tests/test_rev58_numeric.py::test_hybrid_repository_integrity_on_tamper
-          - backend/tests/test_rev58_numeric.py::test_hybrid_qualification_roundtrip
-          - backend/tests/test_rev58_numeric.py::test_hybrid_component_requires_sha_pin
-        description: >
-          Band gap and double-count detection from declared bands and
-          phenomenon declarations, continuity metrics per-axis,
-          normalization/phase/group-delay caps, sha-pinned component
-          refs, append-only and tamper evidence.
-      - id: hybrid-handoff-remainder
-        kind: manual
-        description: >
-          R160 実行パイプラインから composition spec / 連続性
-          メトリクス自動供給、Schroeder 周波数の room-volume+
-          RT60 からの自動推定器、UI 入力フォームは残件。
+  - issue: 683
+    title: "REV58-NUMERIC: wave-solver numerical fidelity authority"
+    notes: >
+      WaveNumericalFidelityProfile seals formulation (solver family,
+      equation formulation, element/basis, source discretization,
+      receiver interpolation), discretization (mesh identity sha-pinned,
+      resolutions, geometry approximation, points-per-wavelength rule)
+      and the family-specific numerics block: FDTD time stepping (dt,
+      CFL rule + number, declared stability state), FEM (element order,
+      density descriptor, pollution-mitigation declaration) or BEM
+      (integration/singularity strategy). ArtificialBoundarySpec keeps
+      the computational PML/absorbing layer separate from the physical
+      adjacent-boundary claim and carries optional measured reflection
+      leakage. NumericalConvergenceRecord demands >=2 refinement levels
+      with comparisons bound to declared levels; cross_solver studies
+      must declare their independence limitation. evaluate_wave_fidelity
+      scores each error class separately (numerical_dispersion,
+      fem_pollution, cfl_stability, artificial_boundary,
+      algebraic_tolerance): unresolved classes or zero convergence
+      evidence -> insufficient_evidence; failed fixtures, runs outside
+      declared stability or nonconverged solves -> not_qualified;
+      measured-but-unquantified or two-level-only evidence ->
+      qualified_with_limitations.
+    checks:
+      - id: wave-numerical-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_numeric.py::test_wave_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_numeric.py::test_wave_profile_family_block_consistency
+          - backend/tests/test_rev58_numeric.py::test_wave_profile_requires_pinned_solver_ref
+          - backend/tests/test_rev58_numeric.py::test_wave_profile_pml_is_not_anechoic
+          - backend/tests/test_rev58_numeric.py::test_wave_qualification_qualified_with_full_evidence
+          - backend/tests/test_rev58_numeric.py::test_wave_qualification_no_convergence_is_insufficient
+          - backend/tests/test_rev58_numeric.py::test_wave_qualification_two_level_refinement_is_limited
+          - backend/tests/test_rev58_numeric.py::test_wave_qualification_outside_stability_is_not_qualified
+          - backend/tests/test_rev58_numeric.py::test_wave_qualification_fixture_fail_is_not_qualified
+          - backend/tests/test_rev58_numeric.py::test_wave_convergence_requires_independence_limitation
+          - backend/tests/test_rev58_numeric.py::test_wave_profile_repository_append_only
+          - backend/tests/test_rev58_numeric.py::test_wave_repository_rejects_forged_record
+          - backend/tests/test_rev58_numeric.py::test_wave_repository_integrity_on_mirrored_tamper
+        description: >
+          Error-class separation (dispersion vs pollution vs CFL vs PML
+          leakage), family/block consistency, PML without measured
+          leakage stays unresolved, full evidence qualifies, missing or
+          two-level-only convergence degrades, outside-stability and
+          fixture failure are not_qualified, cross-solver studies need
+          independence limitations, append-only and tamper evidence.
+      - id: wave-numerical-fidelity-remainder
+        kind: manual
+        description: >
+          自動 PPWL 推定器と実メッシュ経由の最小波長導出、fixture
+          ライブラリ自体の整備、UI 入力フォーム、実ソルバー
+          (PFFDTD 等) 実行ハーネスとの自動連携は残件。
+  - issue: 685
+    title: "REV58-NUMERIC: geometrical-solver numerical fidelity authority"
+    notes: >
+      GeometricalNumericalFidelityProfile seals the algorithm family
+      (image source, ray tracing, beam/tree hybrid, acoustic radiance
+      transfer) with path-class declarations (specular/scattered/
+      diffracted/delay-phase handling). Deterministic-capable families
+      must declare truncation rules and a visibility spec with
+      per-case results (tested cases need fixture refs or detail);
+      stochastic-capable families must declare the ray launch (count,
+      scheme, RNG name when seeded) and the receiver estimator
+      (spherical/adaptive require radius_m; exact path intersection
+      forbids it; optional radius-sensitivity study). Ray-count sweeps
+      and distinct-seed spread studies carry convergence status;
+      PathEnumerationQualification is the exact-Ga-path gate
+      (exact_ga_path_eligible requires deterministic_state=qualified).
+      evaluate_geometric_fidelity scores deterministic and stochastic
+      axes separately; any unqualified axis -> insufficient_evidence;
+      radius_unevaluated caps at qualified_with_limitations.
+    checks:
+      - id: geometric-numerical-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_numeric.py::test_ga_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_numeric.py::test_ga_profile_deterministic_family_requires_blocks
+          - backend/tests/test_rev58_numeric.py::test_ga_profile_stochastic_family_requires_launch
+          - backend/tests/test_rev58_numeric.py::test_ga_receiver_radius_required_for_spherical
+          - backend/tests/test_rev58_numeric.py::test_ga_seed_spread_requires_distinct_seeds
+          - backend/tests/test_rev58_numeric.py::test_ga_converged_status_requires_evidence
+          - backend/tests/test_rev58_numeric.py::test_ga_qualification_deterministic_qualified
+          - backend/tests/test_rev58_numeric.py::test_ga_qualification_missing_enumeration_is_insufficient
+          - backend/tests/test_rev58_numeric.py::test_ga_receiver_radius_unevaluated_is_limited
+          - backend/tests/test_rev58_numeric.py::test_ga_stochastic_without_sampling_is_insufficient
+          - backend/tests/test_rev58_numeric.py::test_ga_enumeration_case_overlap_rejected
+          - backend/tests/test_rev58_numeric.py::test_ga_exact_path_requires_qualified_enumeration
+          - backend/tests/test_rev58_numeric.py::test_ga_repository_append_only
+          - backend/tests/test_rev58_numeric.py::test_ga_repository_integrity_on_mirrored_tamper
+        description: >
+          Ray-count/seed convergence evidence, receiver-sphere radius
+          requirement and unevaluated-radius cap, deterministic vs
+          stochastic axis separation, visibility case coverage,
+          exact-path gating, append-only and tamper evidence.
+      - id: geometric-numerical-fidelity-remainder
+        kind: manual
+        description: >
+          レイ発射・受信球検出器の実エンジン連携、受信球半径の自動
+          感度掃引、散乱モデルの回折係数権威 (#647 系) との結合、
+          UI 入力フォームは残件。
+  - issue: 687
+    title: "REV58-NUMERIC: wave-GA hybrid handoff qualification authority"
+    notes: >
+      HybridCompositionProfile sha-pins wave and geometric
+      predictions plus their fidelity-profile refs and per-component
+      qualified bands. TransitionBandSpec enforces low<nominal<high
+      edges with a required selection basis (Schroeder estimate is
+      informational only); filtered/overlap/confidence-blend kinds
+      require a CrossoverFilterSpec. SourceNormalizationSpec records
+      the pressure/energy/power quantity and its normalization
+      authority; TimeAlignmentSpec declares group-delay policy.
+      PhenomenonDeclaration splits each phenomenon to wave|geometric
+      with an optional decomposition note. evaluate_hybrid_handoff
+      derives gap_in_capability from disjoint declared bands, marks
+      shared phenomena without decomposition as double_count_risk,
+      requires ContinuityEvidence (magnitude step, ripple, phase
+      discontinuity, group-delay artifact, each scored) or returns
+      transition_unqualified; validation-holdout tuning, uncompensated
+      group delay or phase-capability mismatch cap at
+      qualified_with_limitations. composition_spec_ref binds the
+      R160 numerical_hybrid_composition_spec.
+    checks:
+      - id: hybrid-handoff-qualification
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_seals_and_roundtrips
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_overlap_qualified
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_qualified_with_clean_split
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_decomposition_note_avoids_double_count
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_gap_detection
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_missing_bands_is_insufficient
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_no_continuity_is_unqualified
+          - backend/tests/test_rev58_numeric.py::test_hybrid_handoff_holdout_tuning_caps_verdict
+          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_filtered_kind_requires_filter
+          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_pressure_energy_requires_normalization
+          - backend/tests/test_rev58_numeric.py::test_hybrid_profile_requires_both_branches
+          - backend/tests/test_rev58_numeric.py::test_hybrid_transition_edge_order_enforced
+          - backend/tests/test_rev58_numeric.py::test_hybrid_repository_integrity_on_tamper
+          - backend/tests/test_rev58_numeric.py::test_hybrid_qualification_roundtrip
+          - backend/tests/test_rev58_numeric.py::test_hybrid_component_requires_sha_pin
+        description: >
+          Band gap and double-count detection from declared bands and
+          phenomenon declarations, continuity metrics per-axis,
+          normalization/phase/group-delay caps, sha-pinned component
+          refs, append-only and tamper evidence.
+      - id: hybrid-handoff-remainder
+        kind: manual
+        description: >
+          R160 実行パイプラインから composition spec / 連続性
+          メトリクス自動供給、Schroeder 周波数の room-volume+
+          RT60 からの自動推定器、UI 入力フォームは残件。
+  - issue: 689
+    title: "REV58-IDENT: calibration-parameter identifiability authority"
+    notes: >
+      CadCalibrationParameter (calprm-) seals each parameter with the
+      role taxonomy (geometry/source/receiver/boundary/environment/
+      device/nuisance-registration), provenance classes
+      (directly_measured/manufacturer_lab_evidence pin source evidence;
+      calibration_adjusted/inverse_estimated/posterior_profile_estimate
+      pin the calibration run) and declared bounds/prior strength.
+      CadSensitivityEvidence (idsens-) requires method +
+      scaling/normalization/perturbation detail so a sensitivity number
+      is never compared against another method's scale.
+      CadParameterCorrelationEvidence (idcorr-) carries mandatory
+      assumptions with qualitative or numeric pairs.
+      CadEquivalentSolutionSet (ideqset-) retains near-optimal members
+      with physically distinct claims. evaluate_identifiability derives
+      fail-closed verdicts: distinct equivalent solutions ->
+      structurally_non_unique/parameter_not_identifiable; confirmed
+      model-form discrepancy -> model_discrepancy_limited/
+      parameter_model_dependent; prior- or bound-driven estimates are
+      never data-identified; missing evidence ->
+      insufficient_evidence; insensitive entries or strong
+      correlation/collinearity -> weakly_identifiable; an unevaluated
+      model-form question caps the claim at
+      parameter_weakly_identified; clean evidence only ever earns
+      parameter_identified_within_domain with a mandatory domain note.
+      EvidenceNeed outputs name the next experiment.
+    checks:
+      - id: parameter-identifiability
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_ident.py::test_idn10_fitted_parameter_requires_run_ref
+          - backend/tests/test_rev58_ident.py::test_idn20_measured_parameter_requires_evidence_ref
+          - backend/tests/test_rev58_ident.py::test_idn30_equivalent_set_is_structurally_non_unique
+          - backend/tests/test_rev58_ident.py::test_idn40_strong_correlation_is_weakly_identifiable
+          - backend/tests/test_rev58_ident.py::test_idn50_no_evidence_is_insufficient
+          - backend/tests/test_rev58_ident.py::test_idn60_prior_dominated_is_not_data_identified
+          - backend/tests/test_rev58_ident.py::test_idn70_bound_saturated_is_bound_dominated
+          - backend/tests/test_rev58_ident.py::test_idn80_confirmed_model_discrepancy_caps_claim
+          - backend/tests/test_rev58_ident.py::test_idn85_unasked_model_form_question_caps_claim
+          - backend/tests/test_rev58_ident.py::test_idn90_clean_evidence_identifies_within_domain
+          - backend/tests/test_rev58_ident.py::test_idn95_insensitive_entry_is_weak
+          - backend/tests/test_rev58_ident.py::test_ident_correlation_numeric_threshold
+          - backend/tests/test_rev58_ident.py::test_identifiability_repository_roundtrip_and_integrity
+        description: >
+          Provenance pins (run ref for fitted, evidence ref for
+          measured), equivalent-solution structural non-uniqueness,
+          prior/bound domination never data-identified, correlation/
+          collinearity degradation, unasked model-form cap, domain-note
+          requirement, append-only and tamper evidence.
+      - id: identifiability-remainder
+        kind: manual
+        description: >
+          実校正ランからの Jacobian/profile 自動供給、事後分布
+          サンプラ連携 (#675 optimizer との統合評価)、UI の
+          パラメータ同定性表示フォームは残件。
+  - issue: 691
+    title: "REV58-IDENT: typed logarithmic quantity / dB-reference authority"
+    notes: >
+      CadLogQuantity (logqty-) seals every level/ratio as a typed
+      record: quantity_class (absolute_log_level / relative_gain_loss /
+      device_relative_setting / linear_value), domain (acoustic /
+      digital / electrical / dimensionless / other_declared) and a
+      domain-restricted quantity kind — a digital quantity never
+      claims an acoustic domain. Absolute levels require value_db +
+      a CadLogReference carrying reference value+unit, optional
+      standard profile (iso_80000-8:2020 / aes17:2020 / iec61672 /
+      iec61260 / smpte_rp200), weighting, band spec and time
+      integration; acoustic absolute levels additionally require
+      explicit weighting AND time-integration. Over-full-scale dBFS
+      is rejected at validation. RatioBasis (field_amplitude_like /
+      power_energy_like) is derived from the physical quantity, never
+      the display unit. CadCalibrationBridge (logbrg-) seals a
+      versioned, status-bearing relation between two domains —
+      a 0 dBFS = full-scale SPL bridge is evidence, not unit
+      conversion. evaluate_log_operation (logop-) derives fail-closed
+      verdicts: cross-identity differences/compares ->
+      incompatible_quantities; gain application without a declared
+      linear chain -> unverified, on a nonlinear/dynamic chain ->
+      nonlinear_chain; coherent sums without phase data ->
+      coherent_requires_phase_data; conversions without a matching
+      active bridge -> requires_calibration_bridge; bare arithmetic
+      means of dB need a declared method.
+    checks:
+      - id: typed-db-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_ident.py::test_db10_spl_seals_with_reference_identity
+          - backend/tests/test_rev58_ident.py::test_db20_absolute_level_without_reference_rejected
+          - backend/tests/test_rev58_ident.py::test_db30_cross_domain_difference_is_incompatible
+          - backend/tests/test_rev58_ident.py::test_db40_same_identity_difference_is_compatible
+          - backend/tests/test_rev58_ident.py::test_db50_gain_application_requires_linear_chain
+          - backend/tests/test_rev58_ident.py::test_db60_coherent_sum_requires_phase_data
+          - backend/tests/test_rev58_ident.py::test_db70_convert_requires_matching_active_bridge
+          - backend/tests/test_rev58_ident.py::test_db80_over_full_scale_dbfs_rejected
+          - backend/tests/test_rev58_ident.py::test_db90_bridge_status_lifecycle
+          - backend/tests/test_rev58_ident.py::test_log_quantity_repository_roundtrip_and_integrity
+        description: >
+          Reference-identity requirement for absolute levels,
+          domain/quantity consistency, over-full-scale rejection,
+          cross-domain incompatibility, gain/chain linearity gating,
+          coherent-sum phase requirement, bridge-required conversion,
+          append-only and tamper evidence.
+      - id: typed-db-remainder
+        kind: manual
+        description: >
+          既存 SPL/dBFS 計算パス全量の型付き量への移行、不確かさ
+          合成 (#572) との伝搬統合、シリアライズ層・UI 単位表示の
+          型接続は残件。
+  - issue: 698
+    title: "REV58-IDENT: validation sample-dependence / benchmark-leakage authority"
+    notes: >
+      CadValidationStatisticalDesign (vsdes-) seals the generalization
+      claim, the independent sampling unit (rooms / configs / sources /
+      receivers / pairs / sessions / installations — never a
+      frequency bin or repeat), the explicit nesting hierarchy, and
+      the separated raw vs independent vs effective counts (an
+      effective-sample-size estimate requires its method).
+      CadDependenceModel (vsdep-) declares dependence classes, the
+      spatial-correlation model class (Kuster reverberant family /
+      measured covariance / declared / none / unknown), frequency-bin
+      coupling causes and the bootstrap resampling unit.
+      CadDatasetRoleAssignment (vsrole-) pins each corpus's epistemic
+      role (calibration fit / model selection / threshold tuning /
+      development validation / locked challenge / repeatability only).
+      CadBenchmarkExposureRecord (vsexp-) is the append-only exposure
+      ledger: what was revealed, when, to which solver version, and
+      which development decision followed.
+      evaluate_validation_claim derives fail-closed verdicts:
+      independent counts above the hierarchy's defensible cap ->
+      pseudoreplication_detected; split granularity below the claim
+      granularity -> split_mismatch; a claim corpus that drove
+      selection or was exposed -> winner_selection_biased /
+      development_validation_only; spatial/frequency structure
+      without a dependence model -> independence_unestablished; an
+      untouched locked-challenge corpus -> locked_challenge_eligible;
+      undeclared counts -> insufficient_evidence.
+    checks:
+      - id: validation-sample-dependence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_ident.py::test_vsd10_design_seals_counts_and_hierarchy
+          - backend/tests/test_rev58_ident.py::test_vsd20_bins_as_units_is_pseudoreplication
+          - backend/tests/test_rev58_ident.py::test_vsd30_split_granularity_mismatch
+          - backend/tests/test_rev58_ident.py::test_vsd40_no_dependence_model_is_unestablished
+          - backend/tests/test_rev58_ident.py::test_vsd50_clean_design_qualifies
+          - backend/tests/test_rev58_ident.py::test_vsd60_locked_challenge_corpus_is_eligible
+          - backend/tests/test_rev58_ident.py::test_vsd70_exposed_selection_corpus_is_biased
+          - backend/tests/test_rev58_ident.py::test_vsd80_undeclared_independent_count_is_insufficient
+          - backend/tests/test_rev58_ident.py::test_vsd90_effective_size_needs_method
+          - backend/tests/test_rev58_ident.py::test_validation_statistics_repository_roundtrip_and_integrity
+        description: >
+          Independent-unit cap from declared hierarchy, pseudoreplica-
+          tion detection, split granularity vs claim matching,
+          dependence-model requirement, locked-challenge eligibility,
+          exposure-ledger-driven bias states, append-only and tamper
+          evidence.
+      - id: validation-statistics-remainder
+        kind: manual
+        description: >
+          実ベンチマークコーパス (#773/#793) への役割・露出台帳の
+          自動配線、群分割 CV の自動適用、ICC/AR(1) 推定器、
+          UI の検証主張表示は残件。
