@@ -98,20 +98,17 @@ def test_load_wizard_issues_rejects_bad_kind(tmp_path):
     not REAL_MANIFEST.is_file(), reason='repo manifest not present'
 )
 def test_real_manifest_loads_end_to_end(tmp_path):
-    """Regression: the bridge must seal the real manifest — the script
-    check uses ``command:`` (not ``argv:``), which previously made
-    load_manifest_gates raise on the actual file."""
+    """The bridge seals the real manifest: the script check uses
+    ``command:`` (not ``argv:``), and every issue entry is unique."""
     issues = load_wizard_issues(REAL_MANIFEST)
-    # 168 entries → 154 unique issue refs (duplicates merge, matching
-    # the bridge's issue_ref grouping).
-    assert len(issues) == 154
+    assert len(issues) == 188
     kinds = [c.kind for i in issues for c in i.checks]
-    assert kinds.count('pytest') == 169
+    assert kinds.count('pytest') == 204
     assert kinds.count('script') == 1
-    assert kinds.count('manual') == 80
+    assert kinds.count('manual') == 115
 
     gates = load_manifest_gates(DOC, REAL_MANIFEST)
-    assert len(gates) == len(kinds)
+    assert len(gates) == len(kinds) == 320
     script_gate = next(g for g in gates if g.check_kind == 'script')
     assert script_gate.argv[0] == '{python}'
     assert 'golden_path_preflight.py' in script_gate.argv[1]

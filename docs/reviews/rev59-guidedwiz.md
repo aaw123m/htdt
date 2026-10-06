@@ -6,11 +6,10 @@ CLOSEAUX bridge (schema v75) that landed on main.
 ## Scope
 
 - `verification_wizard.py` — Qt-free core:
-  - `load_wizard_issues(path)` — manifest → picker rows. Mirrors the
-    bridge's tolerance: repeated `issue:` keys merge under one
-    `issue_ref` (the manifest currently has 13 duplicate issue entries
-    and one string key, `verification-automation`), which is also how
-    `evaluate_issue_verdict` groups sealed gates.
+  - `load_wizard_issues(path)` — manifest → picker rows. Repeated
+    `issue:` keys merge under one `issue_ref`, matching how
+    `evaluate_issue_verdict` groups sealed gates (defensive — main
+    deduplicated the manifest concurrently at 72d6576d).
   - `resolve_check_argv` — the runner's argv contract lifted headless:
     pytest gets `-q -p no:warnings --tb=short -n <workers>` plus an
     isolated `--basetemp`; script checks substitute
@@ -47,19 +46,18 @@ CLOSEAUX bridge (schema v75) that landed on main.
 - `evidence_committed` without files is an honest attestation record:
   the bundle JSON is the evidence.
 
-## Bridge fix (bug found while consuming)
+## Concurrency note
 
-`load_manifest_gates` read `check.get('argv')` but the real manifest's
-script check uses `command:` — sealing the real file raised
-`a script gate needs an argv list`, which also made
-`scripts/commit_manifest_verification.py` unusable. The loader now
-accepts `command` (preferred) with `argv` fallback for the synthetic
-manifests already in tests.
+The `command:`/`argv:` loader bug (manifest script checks use
+`command:`; the loader read only `argv:`) was found here first —
+then fixed independently upstream at 3e66dc48 with better per-check
+error context, so this branch takes the upstream file wholesale and
+the fix does not appear in this PR's diff.
 
 ## Tests
 
 `test_rev59_guidedwiz.py` — 14 tests: synthetic + REAL manifest load
-(154 unique issue refs / 169 pytest / 1 script / 80 manual), argv
+(188 unique issues / 204 pytest / 1 script / 115 manual), argv
 construction + placeholder substitution + fail-closed cases, bounded
 subprocess outcomes (passed/failed/timeout/error), store round-trip
 with log-digest binding, manual-gate honesty (passed ≠ satisfied),
@@ -69,9 +67,5 @@ manifest error surface).
 
 ## Remainder
 
-- The manifest itself is un-runnable by `verify_open_issues.py`
-  (`load_manifest` rejects the duplicate issue numbers); the wizard
-  tolerates them by merging — flag for a later manifest cleanup or a
-  runner rule change.
 - The single `script` check (`golden-path-preflight`) runs with
   `{work_dir}`/`{report_dir}` bound to the wizard's per-run dirs.
