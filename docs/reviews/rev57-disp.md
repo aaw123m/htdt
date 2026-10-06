@@ -1,7 +1,7 @@
 # REV57-DISP レビュー — 直視ディスプレイ動的/空間資格 + 観察者メタメリズム + 視聴環境権威
 
 対象 issue: #625 (Direct-view display dynamic/spatial qualification — APL、ローカルディミング、ABL/ASBL、視角)、#626 (Display observer-metamerism authority — 計器一致色度は全観察者で一致色を意味しない)、#633 (Video viewing-environment authority — ディスプレイ校正と周辺輝度/環境光を分離)。
-スキーマ: NATIVE_SCHEMA_VERSION 38 (`_migrate_37_to_38` — 16 テーブル + 12 インデックスを baseline DDL から冪等作成)。authority_version は `direct-view-display-1` / `observer-metamerism-1` / `viewing-environment-1`。
+スキーマ: NATIVE_SCHEMA_VERSION 39 (`_migrate_38_to_39` — 16 テーブル + 12 インデックスを baseline DDL から冪等作成)。REV57-PROJ が先に v38 を取得したため、本スライスは v39 に配置。authority_version は `direct-view-display-1` / `observer-metamerism-1` / `viewing-environment-1`。
 
 ## 実装範囲
 
@@ -50,12 +50,12 @@
 ### 統合
 
 - `cad_schema_ddl.py`: 16 `CREATE TABLE` + 12 `CREATE INDEX` を `NATIVE_BASELINE_DDL` 末尾へ; `NATIVE_SCHEMA_TABLES` に 16 登録。
-- `cad_schema.py`: `NATIVE_SCHEMA_VERSION = 38`、`_migrate_37_to_38`、`_MIGRATIONS[38]`。
+- `cad_schema.py`: `NATIVE_SCHEMA_VERSION = 39`、`_migrate_38_to_39`、`_MIGRATIONS[39]`。
 - `native_row_integrity.py`: `_ROW_BINDINGS` に 16 エントリ (`point_count` は派生列のため未バインド — リポジトリが行読み出し時に `len(points)` で検証)。
 - `native_authority_audit.py`: `_RepositoryChain._build` に `direct_view_display`/`observer_metamerism`/`viewing_environment` 遅延ファクトリ + `_ReplayProbe` ×16。
 - `application_pages.py`: `_LIFECYCLE_TABLE_LABELS` JA ラベル ×16。
 - `measurement_evidence_display.py`: JA label 関数 (`dv_*`/`om_*`/`ve_*`) + `direct_view_qualification_line` / `observer_metamerism_line` / `viewing_environment_line` / `environment_comparability_line`。
-- `test_cad_schema.py`: ledger に `(38, 'migrate native schema to v38')`。
+- `test_cad_schema.py`: ledger に `(39, 'migrate native schema to v39')`。
 - `scripts/issue_verification_manifest.yaml`: #625/#626/#633 に pytest + manual 残件登録。
 - 3 append-only repository: seal 検証、冪等再保存、divergent hash 競合拒否、親参照必須 (measurement→state+context、qualification→親 sha 一致)、行読み出し時の payload-vs-mirrored 再検証。
 
