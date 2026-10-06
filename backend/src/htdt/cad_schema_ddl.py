@@ -6780,6 +6780,99 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_drr_measurements_document_idx ON cad_drr_measurements (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_power_sequence_plans (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT NOT NULL UNIQUE,
+    plan_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    amplifier_step TEXT,
+    amplifier_last_on_first_off INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_power_sequence_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    plan_ref_id TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_power_quality_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    instrument_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_indoor_air_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    sensor_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_material_emission_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    emission_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_product_safety_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    safety_standard TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_emc_compliance_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    profile_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_sequence_plans_document_idx ON cad_power_sequence_plans (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_sequence_evidence_document_idx ON cad_power_sequence_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_power_quality_observations_document_idx ON cad_power_quality_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_indoor_air_observations_document_idx ON cad_indoor_air_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_material_emission_evidence_document_idx ON cad_material_emission_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_product_safety_evidence_document_idx ON cad_product_safety_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_emc_compliance_evidence_document_idx ON cad_emc_compliance_evidence (document_id)
+    """
+    ,
 )
 
 
@@ -7711,4 +7804,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_echo_diagnostics',
     'cad_drr_method_profiles',
     'cad_drr_measurements',
+    'cad_power_sequence_plans',
+    'cad_power_sequence_evidence',
+    'cad_power_quality_observations',
+    'cad_indoor_air_observations',
+    'cad_material_emission_evidence',
+    'cad_product_safety_evidence',
+    'cad_emc_compliance_evidence',
 )

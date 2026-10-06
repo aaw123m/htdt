@@ -3728,3 +3728,71 @@ issues:
           - backend/tests/test_rev59_audiomet.py::test_drr_claim_ladder
           - backend/tests/test_rev59_audiomet.py::test_drr_measurement_requires_method_and_evidence
         description: Method-dependent scalar honesty.
+  - issue: 736
+    title: "Power sequencing / operational-state authority"
+    notes: >
+      PowerSequencePlan (pseq-) declares ordered steps with
+      amplifier last-on/first-off + inrush staging + EDID/control
+      dependencies. PowerSequenceEvidence (psev-) records outcome —
+      'clean_sequence' requires observation evidence. AVIXA
+      ELEC-104/105 basis.
+    checks:
+      - id: power-sequence
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_power_claim_ladder]
+        description: Capacity ≠ sequencing; clean run needs observation.
+  - issue: 738
+    title: "AC power-quality observation authority"
+    notes: >
+      PowerQualityObservation (pqo-) requires declared instrument
+      class (IEC 61000-4-30 A/S), observed events, and capture ref
+      for symptom correlation (reboot/clipping/relock/hum).
+    checks:
+      - id: power-quality
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_quality_observation_requires_class_and_events]
+        description: Instrument class + event capture fail-closed.
+  - issue: 740
+    title: "Occupied-room IAQ / thermal authority"
+    notes: >
+      IndoorAirObservation (iao-) binds sensor class + CO2/temp/RH +
+      session duration + capture ref. evaluate_indoor_claim: a
+      ventilating design does not prove occupied outcome.
+    checks:
+      - id: indoor-observation
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_indoor_claim_ladder]
+        description: Design ≠ measured occupied outcome.
+  - issue: 750
+    title: "Material chemical-emission evidence authority"
+    notes: >
+      MaterialEmissionEvidence (mem-) records VOC/formaldehyde/SVOC
+      chamber results bound to exact tested product; a manufacturer
+      program claim alone does not bound room IAQ.
+    checks:
+      - id: material-emission
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_emission_requires_descriptor_and_report]
+        description: Product certificate ≠ room IAQ.
+  - issue: 751
+    title: "Product-safety certification authority"
+    notes: >
+      ProductSafetyEvidence (pse-) records IEC 62368-1/UL/etc +
+      edition + tested variant + certificate + market scope. HTDT
+      records certification identity, not safety testing.
+    checks:
+      - id: product-safety
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_safety_requires_certificate_and_variant]
+        description: Performance compatibility ≠ safety listing.
+  - issue: 752
+    title: "EMC emissions/immunity authority"
+    notes: >
+      EMCComplianceEvidence (emc-) records CISPR 32 class A/B /
+      CISPR 35 immunity bound to tested configuration. Safety
+      approval ≠ EMC; a field symptom alone ≠ non-conformance.
+    checks:
+      - id: emc-compliance
+        kind: pytest
+        tests: [backend/tests/test_rev59_infra2.py::test_compliance_claim_ladder]
+        description: Safety ≠ EMC; field symptom ≠ product fault.

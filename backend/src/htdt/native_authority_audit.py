@@ -1287,6 +1287,12 @@ class _RepositoryChain:
             )
 
             return CadAcousticMetrologyRepository(scene)
+        if name == 'facility':
+            from .cad_facility_repository import (
+                CadFacilityRepository,
+            )
+
+            return CadFacilityRepository(scene)
         raise KeyError(name)
 
 
@@ -6207,6 +6213,48 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_drr_measurements',
         ('measurement_id',),
         _get('acoustic_metrology', 'get_drr_measurement'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_sequence_plans',
+        ('plan_id',),
+        _get('facility', 'get_power_plan'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_sequence_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_power_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_power_quality_observations',
+        ('observation_id',),
+        _get('facility', 'get_quality_observation'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_indoor_air_observations',
+        ('observation_id',),
+        _get('facility', 'get_indoor_observation'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_material_emission_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_emission_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_product_safety_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_safety_evidence'),
+    ),
+    _ReplayProbe(
+        'facility',
+        'cad_emc_compliance_evidence',
+        ('evidence_id',),
+        _get('facility', 'get_emc_evidence'),
     ),
 
 )
