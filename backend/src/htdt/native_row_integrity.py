@@ -4800,6 +4800,127 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV58-NUMERIC: #683 wave-solver numerical fidelity
+    'cad_wave_fidelity_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('solver_family', 'formulation', 'solver_family'),
+            _b('solver_result_ref_id', 'solver_result_ref', 'ref_id',
+               optional=True),
+            _b('mesh_identity', 'discretization', 'mesh_identity'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_wave_convergence_records': (
+        'payload_json',
+        (
+            _b('convergence_id', 'convergence_id'),
+            _b('convergence_sha256', 'convergence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('study_kind', 'study_kind'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_wave_fidelity_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('fidelity_state', 'fidelity_state'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV58-NUMERIC: #685 geometrical-acoustics numerical fidelity
+    'cad_geometric_fidelity_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('algorithm_family', 'algorithm', 'family'),
+            _b('solver_result_ref_id', 'solver_result_ref', 'ref_id',
+               optional=True),
+            _b('receiver_model', 'receiver', 'model'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_ray_sampling_convergences': (
+        'payload_json',
+        (
+            _b('convergence_id', 'convergence_id'),
+            _b('convergence_sha256', 'convergence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_path_enumeration_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('deterministic_state', 'deterministic_state'),
+            _b('named_path_evidence_class', 'named_path_evidence_class'),
+            _b('max_qualified_order', 'max_qualified_order',
+               optional=True),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_geometric_fidelity_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('fidelity_state', 'fidelity_state'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV58-NUMERIC: #687 wave↔geometrical hybrid handoff
+    'cad_hybrid_composition_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('wave_prediction_ref_id', 'wave_component',
+               'prediction_ref', 'ref_id'),
+            _b('ga_prediction_ref_id', 'ga_component',
+               'prediction_ref', 'ref_id'),
+            _b('transition_kind', 'transition', 'kind'),
+            _b('output_capability', 'output_capability'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_hybrid_transition_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('handoff_state', 'handoff_state'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

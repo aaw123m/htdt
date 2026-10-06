@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 44
+NATIVE_SCHEMA_VERSION = 45
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1524,6 +1524,18 @@ def _migrate_43_to_44(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_44_to_45(connection: sqlite3.Connection) -> None:
+    # Install the REV58-NUMERIC authorities (#683 wave-solver
+    # numerical fidelity: profiles, convergence records,
+    # qualifications; #685 geometrical-acoustics numerical fidelity:
+    # profiles, ray-sampling convergences, path-enumeration
+    # qualifications, qualifications; #687 wave↔geometrical hybrid
+    # handoff: composition profiles, transition qualifications): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1569,6 +1581,7 @@ _MIGRATIONS = {
     42: _migrate_41_to_42,
     43: _migrate_42_to_43,
     44: _migrate_43_to_44,
+    45: _migrate_44_to_45,
 }
 
 

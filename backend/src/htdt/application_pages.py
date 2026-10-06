@@ -494,6 +494,16 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_boundary_rational_fits": "境界有理フィット",
     "cad_td_impedance_realizations": "時間領域インピーダンス実現",
     "cad_boundary_realizability_assessments": "境界実現性評価",
+    # REV58-NUMERIC: #683/#685/#687 ソルバー数値忠実度
+    "cad_wave_fidelity_profiles": "波動忠実度プロファイル",
+    "cad_wave_convergence_records": "波動収束記録",
+    "cad_wave_fidelity_qualifications": "波動忠実度適格評価",
+    "cad_geometric_fidelity_profiles": "幾何忠実度プロファイル",
+    "cad_ray_sampling_convergences": "レイサンプリング収束記録",
+    "cad_path_enumeration_qualifications": "経路列挙適格評価",
+    "cad_geometric_fidelity_qualifications": "幾何忠実度適格評価",
+    "cad_hybrid_composition_profiles": "ハイブリッド合成プロファイル",
+    "cad_hybrid_transition_qualifications": "ハイブリッド引継適格評価",
 }
 
 

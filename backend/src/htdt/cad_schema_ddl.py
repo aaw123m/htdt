@@ -4625,6 +4625,121 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_bdass_doc ON cad_boundary_realizability_assessments(document_id, seq ASC)
     """
     ,
+    # REV58-NUMERIC: wave-solver numerical-fidelity authority (#683)
+    """
+    CREATE TABLE IF NOT EXISTS cad_wave_fidelity_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, solver_family TEXT NOT NULL, solver_result_ref_id TEXT, mesh_identity TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnfprof_doc ON cad_wave_fidelity_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnfprof_result ON cad_wave_fidelity_profiles(solver_result_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wave_convergence_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, convergence_id TEXT NOT NULL UNIQUE, convergence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, study_kind TEXT NOT NULL, level_count INTEGER NOT NULL, fixture_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnvconv_prof ON cad_wave_convergence_records(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnvconv_doc ON cad_wave_convergence_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wave_fidelity_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, fidelity_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnfqual_prof ON cad_wave_fidelity_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wnfqual_doc ON cad_wave_fidelity_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV58-NUMERIC: geometrical-acoustics numerical-fidelity authority (#685)
+    """
+    CREATE TABLE IF NOT EXISTS cad_geometric_fidelity_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, algorithm_family TEXT NOT NULL, solver_result_ref_id TEXT, receiver_model TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnfprof_doc ON cad_geometric_fidelity_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnfprof_result ON cad_geometric_fidelity_profiles(solver_result_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ray_sampling_convergences ( seq INTEGER PRIMARY KEY AUTOINCREMENT, convergence_id TEXT NOT NULL UNIQUE, convergence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, evidence_count INTEGER NOT NULL, fixture_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_raysconv_prof ON cad_ray_sampling_convergences(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_raysconv_doc ON cad_ray_sampling_convergences(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_path_enumeration_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, deterministic_state TEXT NOT NULL, named_path_evidence_class TEXT NOT NULL, max_qualified_order INTEGER, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pathqual_prof ON cad_path_enumeration_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pathqual_doc ON cad_path_enumeration_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geometric_fidelity_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, fidelity_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnfqual_prof ON cad_geometric_fidelity_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnfqual_doc ON cad_geometric_fidelity_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV58-NUMERIC: wave↔geometrical hybrid-handoff authority (#687)
+    """
+    CREATE TABLE IF NOT EXISTS cad_hybrid_composition_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, wave_prediction_ref_id TEXT NOT NULL, ga_prediction_ref_id TEXT NOT NULL, transition_kind TEXT NOT NULL, output_capability TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hybprof_doc ON cad_hybrid_composition_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hybprof_wave ON cad_hybrid_composition_profiles(wave_prediction_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hybprof_ga ON cad_hybrid_composition_profiles(ga_prediction_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_hybrid_transition_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, handoff_state TEXT NOT NULL, gap_low_hz REAL, gap_high_hz REAL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hybqual_prof ON cad_hybrid_transition_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hybqual_doc ON cad_hybrid_transition_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5316,4 +5431,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_boundary_rational_fits',
     'cad_td_impedance_realizations',
     'cad_boundary_realizability_assessments',
+    # REV58-NUMERIC: #683 / #685 / #687.
+    'cad_wave_fidelity_profiles',
+    'cad_wave_convergence_records',
+    'cad_wave_fidelity_qualifications',
+    'cad_geometric_fidelity_profiles',
+    'cad_ray_sampling_convergences',
+    'cad_path_enumeration_qualifications',
+    'cad_geometric_fidelity_qualifications',
+    'cad_hybrid_composition_profiles',
+    'cad_hybrid_transition_qualifications',
 )

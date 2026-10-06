@@ -2867,3 +2867,117 @@ def boundary_realizability_line(assessment) -> str:
     if assessment.reasons:
         parts.append(assessment.reasons[0])
     return '境界実現性: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# REV58-NUMERIC: ソルバー数値忠実度 (#683/#685/#687)
+
+_FIDELITY_STATE_LABELS = {
+    'qualified_for_declared_domain': '宣言領域で適格',
+    'qualified_with_limitations': '限定付き適格',
+    'insufficient_evidence': '証拠不足',
+    'not_qualified': '不適格',
+}
+
+_ERROR_CLASS_LABELS = {
+    'qualified': '適格',
+    'limited': '限定',
+    'unresolved': '未評価',
+    'not_applicable': '対象外',
+}
+
+_DETERMINISTIC_STATE_LABELS = {
+    'qualified': '適格',
+    'limited': '限定',
+    'unqualified': '不適格',
+    'not_applicable': '対象外',
+}
+
+_HANDOFF_STATE_LABELS = {
+    'overlap_qualified': 'オーバーラップ適格',
+    'qualified_with_limitations': '限定付き適格',
+    'gap_in_capability': '能力ギャップ',
+    'double_count_risk': '二重計上リスク',
+    'transition_unqualified': '引継不適格',
+    'insufficient_evidence': '証拠不足',
+}
+
+
+def fidelity_state_label(state: str) -> str:
+    return _FIDELITY_STATE_LABELS.get(state, state)
+
+
+def handoff_state_label(state: str) -> str:
+    return _HANDOFF_STATE_LABELS.get(state, state)
+
+
+def wave_fidelity_line(qualification) -> str:
+    """One JA line for a wave-fidelity qualification (#683): overall
+    verdict plus the unresolved/limited error classes — 設定宣言のない
+    「正確さ」は読まない。"""
+    parts = [fidelity_state_label(qualification.fidelity_state)]
+    flagged = [
+        '{0}={1}'.format(
+            entry.error_class,
+            _ERROR_CLASS_LABELS.get(entry.state, entry.state),
+        )
+        for entry in qualification.error_class_states
+        if entry.state in ('limited', 'unresolved')
+    ]
+    if flagged:
+        parts.append('誤差クラス: ' + ' / '.join(flagged[:4]))
+    qualified_bands = sum(
+        1
+        for band in qualification.band_qualifications
+        if band.state == 'qualified'
+    )
+    if qualified_bands:
+        parts.append('適格帯域×{0}'.format(qualified_bands))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '波動忠実度適格: ' + ' — '.join(parts)
+
+
+def geometric_fidelity_line(qualification) -> str:
+    """One JA line for a geometric-fidelity qualification (#685):
+    overall verdict plus deterministic/stochastic axis states and
+    receiver/energy accounting — レイ数だけで収束とは読まない。"""
+    parts = [fidelity_state_label(qualification.fidelity_state)]
+    parts.append(
+        '確定的軸='
+        + _DETERMINISTIC_STATE_LABELS.get(
+            qualification.deterministic_state,
+            qualification.deterministic_state,
+        )
+        + ' / 確率的軸='
+        + _DETERMINISTIC_STATE_LABELS.get(
+            qualification.stochastic_state,
+            qualification.stochastic_state,
+        )
+    )
+    if qualification.receiver_domain_state == 'radius_unevaluated':
+        parts.append('受信半径未掃引')
+    if qualification.energy_accounting_state == 'declared_limitation':
+        parts.append('エネルギ計上は限定宣言')
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '幾何忠実度適格: ' + ' — '.join(parts)
+
+
+def hybrid_handoff_line(qualification) -> str:
+    """One JA line for a hybrid transition qualification (#687):
+    handoff verdict plus gap band or double-count findings — 帯域を
+    比較してから読む。"""
+    parts = [handoff_state_label(qualification.handoff_state)]
+    if qualification.gap_band_hz is not None:
+        low, high = qualification.gap_band_hz
+        parts.append('ギャップ帯域: {0:.0f}–{1:.0f} Hz'.format(low, high))
+    if qualification.double_count_findings:
+        parts.append(
+            '二重計上: '
+            + ' / '.join(qualification.double_count_findings[:3])
+        )
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'ハイブリッド引継適格: ' + ' — '.join(parts)

@@ -1010,6 +1010,25 @@ class _RepositoryChain:
             )
 
             return CadBoundaryRealizabilityRepository(scene)
+        # REV58-NUMERIC authorities.
+        if name == 'wave_fidelity':
+            from .cad_wave_fidelity_repository import (
+                CadWaveFidelityRepository,
+            )
+
+            return CadWaveFidelityRepository(scene)
+        if name == 'geometric_fidelity':
+            from .cad_geometric_fidelity_repository import (
+                CadGeometricFidelityRepository,
+            )
+
+            return CadGeometricFidelityRepository(scene)
+        if name == 'hybrid_handoff':
+            from .cad_hybrid_handoff_repository import (
+                CadHybridHandoffRepository,
+            )
+
+            return CadHybridHandoffRepository(scene)
         raise KeyError(name)
 
 
@@ -4565,6 +4584,63 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_boundary_realizability_assessments',
         ('assessment_id',),
         _get('boundary_realizability', 'get_assessment'),
+    ),
+    # REV58-NUMERIC: #683 wave-solver numerical fidelity
+    _ReplayProbe(
+        'wave_fidelity_profile',
+        'cad_wave_fidelity_profiles',
+        ('profile_id',),
+        _get('wave_fidelity', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'wave_convergence_record',
+        'cad_wave_convergence_records',
+        ('convergence_id',),
+        _get('wave_fidelity', 'get_convergence'),
+    ),
+    _ReplayProbe(
+        'wave_fidelity_qualification',
+        'cad_wave_fidelity_qualifications',
+        ('qualification_id',),
+        _get('wave_fidelity', 'get_qualification'),
+    ),
+    # REV58-NUMERIC: #685 geometrical-acoustics numerical fidelity
+    _ReplayProbe(
+        'geometric_fidelity_profile',
+        'cad_geometric_fidelity_profiles',
+        ('profile_id',),
+        _get('geometric_fidelity', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'ray_sampling_convergence',
+        'cad_ray_sampling_convergences',
+        ('convergence_id',),
+        _get('geometric_fidelity', 'get_convergence'),
+    ),
+    _ReplayProbe(
+        'path_enumeration_qualification',
+        'cad_path_enumeration_qualifications',
+        ('qualification_id',),
+        _get('geometric_fidelity', 'get_enumeration'),
+    ),
+    _ReplayProbe(
+        'geometric_fidelity_qualification',
+        'cad_geometric_fidelity_qualifications',
+        ('qualification_id',),
+        _get('geometric_fidelity', 'get_qualification'),
+    ),
+    # REV58-NUMERIC: #687 wave↔geometrical hybrid handoff
+    _ReplayProbe(
+        'hybrid_composition_profile',
+        'cad_hybrid_composition_profiles',
+        ('profile_id',),
+        _get('hybrid_handoff', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'hybrid_transition_qualification',
+        'cad_hybrid_transition_qualifications',
+        ('qualification_id',),
+        _get('hybrid_handoff', 'get_qualification'),
     ),
 )
 
