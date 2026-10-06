@@ -7734,6 +7734,158 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_gate_run_results_document_idx ON cad_gate_run_results (document_id)
     """
     ,
+
+    """
+        CREATE TABLE IF NOT EXISTS cad_collaboration_actors ( seq INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT NOT NULL UNIQUE, actor_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, identity_basis TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cact_doc ON cad_collaboration_actors(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_revision_authorship ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorship_id TEXT NOT NULL UNIQUE, authorship_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, author_ref_id TEXT NOT NULL, parent_revision_id TEXT, result_revision_id TEXT NOT NULL, change_scope TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_raut_doc ON cad_revision_authorship(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_information_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL UNIQUE, state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, state TEXT NOT NULL, actor_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ist_doc ON cad_information_states(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_approval_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE, approval_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, scope_kind TEXT NOT NULL, approver_ref_id TEXT NOT NULL, decision TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_appr_doc ON cad_approval_records(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_review_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, decision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, author_ref_id TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rdec_doc ON cad_review_decisions(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_sibling_divergences ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verdict TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sdiv_doc ON cad_sibling_divergences(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_conflict_resolutions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, resolution_id TEXT NOT NULL UNIQUE, resolution_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assessment_ref_id TEXT NOT NULL, resolution_kind TEXT NOT NULL, resolver_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cres_doc ON cad_conflict_resolutions(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_branch_proposals ( seq INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL UNIQUE, proposal_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_kind TEXT NOT NULL, author_ref_id TEXT NOT NULL, status TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_bprp_doc ON cad_branch_proposals(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_proposal_promotions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, promotion_id TEXT NOT NULL UNIQUE, promotion_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_ref_id TEXT NOT NULL, promoted_by_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_pprm_doc ON cad_proposal_promotions(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_client_acceptances ( seq INTEGER PRIMARY KEY AUTOINCREMENT, acceptance_id TEXT NOT NULL UNIQUE, acceptance_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, client_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cacc_doc ON cad_client_acceptances(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_collaboration_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, actor_ref_id TEXT, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cevt_doc ON cad_collaboration_events(document_id, seq ASC)
+    
+    """
+    ,
+
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_condition_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, condition_id TEXT NOT NULL UNIQUE, condition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, material_ref_id TEXT NOT NULL, context TEXT NOT NULL, condition_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_amcs_doc ON cad_material_condition_states(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_durability_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, material_family_ref_id TEXT NOT NULL, evidence_class TEXT NOT NULL, change_direction TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mdev_doc ON cad_material_durability_evidence(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_evidence_applicability ( seq INTEGER PRIMARY KEY AUTOINCREMENT, applicability_id TEXT NOT NULL UNIQUE, applicability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, material_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mapa_doc ON cad_material_evidence_applicability(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_reinspections ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, installed_state_ref_id TEXT NOT NULL, trigger TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_risp_doc ON cad_material_reinspections(document_id, seq ASC)
+    
+    """
+    ,
 )
 
 
@@ -8742,4 +8894,20 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
 
     'cad_manifest_gates',
     'cad_gate_run_results',
+
+    'cad_collaboration_actors',
+    'cad_revision_authorship',
+    'cad_information_states',
+    'cad_approval_records',
+    'cad_review_decisions',
+    'cad_sibling_divergences',
+    'cad_conflict_resolutions',
+    'cad_branch_proposals',
+    'cad_proposal_promotions',
+    'cad_client_acceptances',
+    'cad_collaboration_events',
+    'cad_material_condition_states',
+    'cad_material_durability_evidence',
+    'cad_material_evidence_applicability',
+    'cad_material_reinspections',
 )

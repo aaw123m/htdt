@@ -4779,3 +4779,114 @@ def front_layer_line(
     if applicability.layer_ref is None:
         parts.append('前面層なし')
     return '前面層: ' + ' — '.join(parts)
+
+
+# REV60-COLLABENV: collaboration/approval authority (#721) and
+# material environmental/aging applicability (#776)
+from .cad_collaboration import (  # noqa: E402
+    ApprovalRecord,
+    CURRENCY_LABELS,
+    DECISION_LABELS,
+    DIVERGENCE_LABELS,
+    MERGE_OUTCOME_LABELS,
+    PERMITTED_USE_LABELS,
+    SiblingDivergence,
+)
+from .cad_material_condition import (  # noqa: E402
+    CONDITION_LABELS,
+    EVIDENCE_CLASS_LABELS,
+    VERDICT_LABELS,
+    REINSPECTION_LABELS,
+    TRIGGER_LABELS,
+    AcousticMaterialConditionState,
+    MaterialEvidenceApplicability,
+    ReinspectionAssessment,
+)
+
+
+def divergence_line(divergence: SiblingDivergence) -> str:
+    """One JA line for a sibling-divergence verdict (#721) —
+    テキストマージ成功はセマンティック衝突なしを意味しない。"""
+    parts = [DIVERGENCE_LABELS.get(
+        divergence.verdict, divergence.verdict)]
+    parts.append(MERGE_OUTCOME_LABELS.get(
+        divergence.outcome, divergence.outcome))
+    if divergence.overlap_refs:
+        parts.append('競合権威×{0}'.format(len(divergence.overlap_refs)))
+    if divergence.stale_dependency_refs:
+        parts.append(
+            '陳腐化依存×{0}'.format(len(divergence.stale_dependency_refs))
+        )
+    return '分岐評価: ' + ' — '.join(parts)
+
+
+def approval_line(approval: ApprovalRecord) -> str:
+    """One JA line for an approval record (#721) —
+    承認は宣言された許可用途の範囲でのみ有効。"""
+    parts = [DECISION_LABELS.get(approval.decision, approval.decision)]
+    if approval.permitted_uses:
+        parts.append(
+            '許可用途: ' + '・'.join(
+                PERMITTED_USE_LABELS.get(use, use)
+                for use in approval.permitted_uses
+            )
+        )
+    if approval.exception_refs:
+        parts.append('例外×{0}'.format(len(approval.exception_refs)))
+    return '承認: ' + ' — '.join(parts)
+
+
+def approval_currency_line(currency: str) -> str:
+    """One JA line for approval currency (#721) —
+    陳腐化した承認も記録として残る。"""
+    return '承認の有効性: ' + CURRENCY_LABELS.get(currency, currency)
+
+
+def material_condition_line(
+    state: AcousticMaterialConditionState,
+) -> str:
+    """One JA line for a material condition state (#776) —
+    状態は観測記述であり自動補正ではない。"""
+    parts = [CONDITION_LABELS.get(
+        state.condition_state, state.condition_state)]
+    if state.context == 'source_specimen':
+        if state.moisture_content_percent is not None:
+            parts.append(
+                '含水率 {0}%'.format(state.moisture_content_percent)
+            )
+        elif state.conditioning_rh_percent is not None:
+            parts.append('調湿RH {0}%'.format(state.conditioning_rh_percent))
+    elif state.moisture_event_refs:
+        parts.append('水分イベント×{0}'.format(len(state.moisture_event_refs)))
+    return '材質状態: ' + ' — '.join(parts)
+
+
+def material_applicability_line(
+    applicability: MaterialEvidenceApplicability,
+) -> str:
+    """One JA line for material evidence applicability (#776) —
+    普遍補正係数は存在しない。"""
+    parts = [VERDICT_LABELS.get(
+        applicability.verdict, applicability.verdict)]
+    if applicability.matched_evidence_refs:
+        parts.append(
+            '適合証拠×{0}'.format(len(applicability.matched_evidence_refs))
+        )
+    return '材質証拠適用性: ' + ' — '.join(parts)
+
+
+def durability_evidence_class_line(evidence_class: str) -> str:
+    """One JA line for a durability evidence class (#776) —
+    加速・現場・メーカー・現場再測定は別クラスのまま。"""
+    return '耐久性証拠: ' + EVIDENCE_CLASS_LABELS.get(
+        evidence_class, evidence_class)
+
+
+def reinspection_line(assessment: ReinspectionAssessment) -> str:
+    """One JA line for a reinspection verdict (#776) —
+    イベント後の再点検要否、暦の一律期限ではない。"""
+    parts = [TRIGGER_LABELS.get(
+        assessment.trigger, assessment.trigger)]
+    parts.append(REINSPECTION_LABELS.get(
+        assessment.verdict, assessment.verdict))
+    return '材質再点検: ' + ' — '.join(parts)
