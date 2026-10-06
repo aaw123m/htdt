@@ -271,6 +271,10 @@ _LAZY_IMPORTS = {
         '.field_return_ingestion',
         'FieldReturnRepository',
     ),
+    'mission_return_reconciliation_lines': (
+        '.mission_reconciliation',
+        'mission_return_reconciliation_lines',
+    ),
     'CaptureSemanticPromotionRepository': (
         '.capture_semantic_promotion',
         'CaptureSemanticPromotionRepository',
@@ -2462,6 +2466,11 @@ class WorkflowApplicationComposition:
             list_contributions=lambda: _self.FieldReturnRepository(
                 self.repository.path
             ).list_staged(),
+            reconcile_contribution=lambda contribution: (
+                _self.mission_return_reconciliation_lines(
+                    contribution, self.repository
+                )
+            ),
         )
         return WorkspaceMount.from_widget(
             page,

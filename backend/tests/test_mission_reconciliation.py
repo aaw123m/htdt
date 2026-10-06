@@ -146,3 +146,140 @@ def test_drift_summary_matches_reconciliation() -> None:
     assert summary['has_drift'] is True
     assert summary['needs_reconciliation'] == report.review_count
     assert summary['applicable'] == report.applicable_count
+
+
+def test_mission_return_reconciliation_lines_e2e(tmp_path) -> None:
+    import json
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        mission_return_reconciliation_lines,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    saved = repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    # The native package survives alongside the projected wire bytes.
+    stored = service.native_mission_package(mission.mission_id)
+    assert stored is not None
+    assert stored.mission.mission_id == mission.mission_id
+
+    record_id = str(uuid.uuid4())
+    task_id = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': record_id, 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {
+                'task_id': task_id,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': record_id,
+            },
+        ),
+    )
+    contribution = SimpleNamespace(
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+    )
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert '適用可能 1件' in lines[0]
+    assert len(lines) == 1
+
+    # A contribution for a mission this HTDT never issued surfaces an
+    # honest note instead of silence.
+    foreign = SimpleNamespace(
+        mission_id=str(uuid.uuid4()),
+        matched_project_id=project.project_id,
+        manifest_json='{}',
+    )
+    assert 'ミッション原本なし' in mission_return_reconciliation_lines(
+        foreign, repository
+    )[0]
+
+    # Once the project drifts, the same evidence needs reconciliation.
+    drifted = _document((_speaker('spk-fl', 'FL', 2.5),))
+    repository.save(
+        drifted, parent_revision_id=saved.revision.revision_id
+    )
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert '要調整 1件' in lines[0]
+    assert any('… — ' in line for line in lines[1:])
+
+    # A mission-less contribution reconciles to nothing.
+    assert (
+        mission_return_reconciliation_lines(
+            SimpleNamespace(mission_id=None), repository
+        )
+        == ()
+    )
+
+    # The .htdtfieldreturn container the app actually ships resolves
+    # through its task_fulfillment_ledger — task_item:<id> refs decode
+    # to the mission's task ids.
+    container_doc = {
+        'schema': 'htdt.field_return',
+        'schema_version': '2.0.0',
+        'authority_binding_scope': 'contribution_id',
+        'contribution_id': str(uuid.uuid4()),
+        'mission_id': mission.mission_id,
+        'created_at': '2026-01-01T00:00:00+00:00',
+        'finalized_at': '2026-01-01T00:00:00+00:00',
+        'provenance': {},
+        'task_fulfillment_ledger': [
+            {
+                'item_ref': f'task_item:{task_id}',
+                'title': 'verify',
+                'requirement': 'required',
+                'outcome': 'fulfilled',
+                'fulfilled_by_refs': ['field_evidence:abc'],
+            },
+        ],
+        'content_digest': '0' * 64,
+    }
+    container = SimpleNamespace(
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=json.dumps(container_doc),
+    )
+    lines = mission_return_reconciliation_lines(
+        container, repository
+    )
+    assert '要調整 1件' in lines[0]

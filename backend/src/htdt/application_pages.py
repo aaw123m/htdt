@@ -1346,6 +1346,7 @@ class CaptureInboxPage(QWidget):
         list_projects: Callable[[], tuple] | None = None,
         assign_scope: Callable[[str, str], object] | None = None,
         list_contributions: Callable[[], tuple] | None = None,
+        reconcile_contribution: Callable[[object], tuple] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1359,6 +1360,7 @@ class CaptureInboxPage(QWidget):
         self._list_projects = list_projects
         self._assign_scope = assign_scope
         self._list_contributions = list_contributions
+        self._reconcile_contribution = reconcile_contribution
         self._contributions: tuple = ()
         self._last_inspection = None
         layout = _page_layout(
@@ -1864,6 +1866,8 @@ class CaptureInboxPage(QWidget):
             lines.append(f"ミッション: {contribution.mission_id}")
         if contribution.plan_sha256:
             lines.append(f"計画: {contribution.plan_sha256[:16]}…")
+        if self._reconcile_contribution is not None:
+            lines.extend(self._reconcile_contribution(contribution))
         lines.append(f"アーティファクト: {contribution.artifact_sha256[:16]}…")
         if contribution.detail:
             lines.append(f"詳細: {contribution.detail}")
