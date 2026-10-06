@@ -197,7 +197,13 @@ def load_manifest_gates(
                         'manifest_sha256': digest,
                         'description': check.get('description') or '',
                         'tests': tuple(check.get('tests') or ()),
-                        'argv': tuple(check.get('argv') or ()),
+                        # The manifest's script field is ``command``
+                        # (verify_open_issues.py); ``argv`` stays
+                        # accepted for the synthetic manifests used by
+                        # callers/tests that predate the real file.
+                        'argv': tuple(
+                            check.get('command') or check.get('argv') or ()
+                        ),
                         'cells': cells,
                     }
                 )

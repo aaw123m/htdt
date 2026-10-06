@@ -37,6 +37,10 @@ class ApplicationDestinationId(StrEnum):
     LIBRARY = "library"
     SUPPORT = "support"
     ACCEPTANCE = "acceptance"
+    # REV59-GUIDEDWIZ: zero-knowledge issue-verification wizard — runs
+    # manifest automated checks and guides evidence commits for manual
+    # gates, all sealed into the manifest-gate ledger.
+    VERIFICATION = "verification"
 
 
 DestinationId: TypeAlias = WorkspaceId | ApplicationDestinationId
@@ -193,6 +197,7 @@ APPLICATION_DESTINATION_HINTS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.LIBRARY: "機材・素材などの参照データ（マスタ情報）を管理します",
     ApplicationDestinationId.SUPPORT: "診断情報の出力や、権威グラフなどの内部確認を行います",
     ApplicationDestinationId.ACCEPTANCE: "実機での受入ゲートを手順どおりに実行し、証跡を記録します",
+    ApplicationDestinationId.VERIFICATION: "未解決課題の検証チェックを順番に案内します。自動チェックの実行と実機確認の証跡を記録します",
 }
 
 
@@ -203,6 +208,7 @@ APPLICATION_DESTINATION_LABELS: dict[ApplicationDestinationId, str] = {
     ApplicationDestinationId.LIBRARY: "ライブラリ",
     ApplicationDestinationId.SUPPORT: "サポート",
     ApplicationDestinationId.ACCEPTANCE: "受入検証",
+    ApplicationDestinationId.VERIFICATION: "検証ウィザード",
 }
 
 

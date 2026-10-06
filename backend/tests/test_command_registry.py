@@ -224,6 +224,8 @@ def test_mutation_classification_is_fail_closed_for_data_commands() -> None:
         'navigation.presentation',
         'navigation.video',
         'navigation.acceptance',
+        # REV59-GUIDEDWIZ verification wizard destination.
+        'navigation.verification',
         'room.view.fit_selection',
         'room.view.fit_all',
         'room.select.all',
