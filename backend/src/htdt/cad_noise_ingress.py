@@ -91,9 +91,9 @@ EnvelopeState = Literal[
 OpeningState = Literal['open', 'partial', 'closed', 'unknown']
 
 INGRESS_LABELS: dict[str, str] = {
-    'ingress_qualified': '外部騒音侵入: 適合（実測裏付け）',
-    'ingress_qualified_limited': '外部騒音侵入: 限定条件付き適合',
-    'ingress_fails_criterion': '外部騒音侵入: プロジェクト基準不適合',
+    'ingress_qualified': '適合（実測裏付け）',
+    'ingress_qualified_limited': '限定条件付き適合',
+    'ingress_fails_criterion': 'プロジェクト基準不適合',
     'design_model_only': '設計モデルのみ（実測なし）',
     'below_validated_domain': '検証域を下回る帯域の主張',
     'stale_after_envelope_change': '包絡変更により陳腐化',
