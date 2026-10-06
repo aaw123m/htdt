@@ -33,7 +33,10 @@ from htdt.cad_receiver_reference import (
     evaluate_receiver_origin_claim,
 )
 from htdt.cad_repository import SceneRepository
-from htdt.cad_schema import ensure_native_schema
+from htdt.cad_schema import (
+    NATIVE_SCHEMA_VERSION,
+    ensure_native_schema,
+)
 
 
 def _ref(rid: str = 'doc-1') -> AuthorityRef:
@@ -300,7 +303,7 @@ def test_tamper_detected(tmp_path):
 def test_fresh_migrate(tmp_path):
     db = tmp_path / 'fresh.htdtscene'
     version = ensure_native_schema(db)
-    assert version == 64
+    assert version == NATIVE_SCHEMA_VERSION
     repo = CadAcousticMetrologyRepository(SceneRepository(db))
     r = _rref()
     repo.save_receiver_reference(r)
