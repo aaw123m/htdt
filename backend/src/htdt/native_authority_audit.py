@@ -1257,6 +1257,12 @@ class _RepositoryChain:
             )
 
             return CadNumericalTransportRepository(scene)
+        if name == 'presentation_profile':
+            from .cad_presentation_profile_repository import (
+                CadPresentationProfileRepository,
+            )
+
+            return CadPresentationProfileRepository(scene)
         raise KeyError(name)
 
 
@@ -5916,6 +5922,49 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_wireless_sync_evidence',
         ('evidence_id',),
         _get('numerical_transport', 'get_wireless_sync'),
+    ),
+    # REV59-DRAWPROF: #741/#742/#733
+    _ReplayProbe(
+        'ht_video_design_profile',
+        'cad_ht_video_design_profiles',
+        ('profile_id',),
+        _get('presentation_profile', 'get_video_profile'),
+    ),
+    _ReplayProbe(
+        'ceb23_evaluation',
+        'cad_ceb23_evaluations',
+        ('evaluation_id',),
+        _get('presentation_profile', 'get_ceb23_evaluation'),
+    ),
+    _ReplayProbe(
+        'drawing_symbol_profile',
+        'cad_drawing_symbol_profiles',
+        ('profile_id',),
+        _get('presentation_profile', 'get_symbol_profile'),
+    ),
+    _ReplayProbe(
+        'device_symbol_mapping',
+        'cad_device_symbol_mappings',
+        ('mapping_id',),
+        _get('presentation_profile', 'get_symbol_mapping'),
+    ),
+    _ReplayProbe(
+        'drawing_export_record',
+        'cad_drawing_export_records',
+        ('export_id',),
+        _get('presentation_profile', 'get_drawing_export'),
+    ),
+    _ReplayProbe(
+        'timed_text_profile',
+        'cad_timed_text_profiles',
+        ('profile_id',),
+        _get('presentation_profile', 'get_text_profile'),
+    ),
+    _ReplayProbe(
+        'caption_render_observation',
+        'cad_caption_render_observations',
+        ('observation_id',),
+        _get('presentation_profile', 'get_caption_observation'),
     ),
 )
 

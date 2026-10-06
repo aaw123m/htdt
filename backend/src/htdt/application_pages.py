@@ -697,6 +697,13 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_wireless_av_links": "無線AVリンク",
     "cad_wireless_transport_observations": "無線伝送観測レコード",
     "cad_wireless_sync_evidence": "無線同期証拠レコード",
+    "cad_ht_video_design_profiles": "HT映像設計プロファイル",
+    "cad_ceb23_evaluations": "CEB23評価レコード",
+    "cad_drawing_symbol_profiles": "図面シンボルプロファイル",
+    "cad_device_symbol_mappings": "機器シンボル割当レコード",
+    "cad_drawing_export_records": "図面エクスポートレコード",
+    "cad_timed_text_profiles": "字幕プロファイル",
+    "cad_caption_render_observations": "字幕表示観測レコード",
 }
 
 

@@ -6957,6 +6957,79 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('link_ref_id', 'link_ref', 'ref_id'),
         ),
         (),
+    ),    # REV59-DRAWPROF: #741/#742/#733.
+    'cad_ht_video_design_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('edition', 'edition'),
+        ),
+        (),
+    ),
+    'cad_ceb23_evaluations': (
+        'payload_json',
+        (
+            _b('evaluation_id', 'evaluation_id'),
+            _b('evaluation_sha256', 'evaluation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_drawing_symbol_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('edition', 'edition'),
+            _b('rights_provenance', 'rights_provenance'),
+        ),
+        (),
+    ),
+    'cad_device_symbol_mappings': (
+        'payload_json',
+        (
+            _b('mapping_id', 'mapping_id'),
+            _b('mapping_sha256', 'mapping_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('device_kind', 'device_kind'),
+        ),
+        (),
+    ),
+    'cad_drawing_export_records': (
+        'payload_json',
+        (
+            _b('export_id', 'export_id'),
+            _b('export_sha256', 'export_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('export_format', 'export_format'),
+        ),
+        (),
+    ),
+    'cad_timed_text_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_kind', 'profile_kind'),
+        ),
+        (),
+    ),
+    'cad_caption_render_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
     ),
 }
 

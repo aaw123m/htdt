@@ -6309,7 +6309,66 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_wsync_doc ON cad_wireless_sync_evidence(document_id, seq ASC)
     """
     ,
+    # REV59-DRAWPROF: #741 CEB23-B video profile, #742 J-STD-710
+    # drawing symbols, #733 timed-text presentation.
+    """
+    CREATE TABLE IF NOT EXISTS cad_ht_video_design_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, edition TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_htvdp_doc ON cad_ht_video_design_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_ceb23_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ceb23_doc ON cad_ceb23_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drawing_symbol_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, edition TEXT NOT NULL, rights_provenance TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ads_doc ON cad_drawing_symbol_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_device_symbol_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, device_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dsm_doc ON cad_device_symbol_mappings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_drawing_export_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, export_id TEXT NOT NULL UNIQUE, export_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, export_format TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dexp_doc ON cad_drawing_export_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_timed_text_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ttp_doc ON cad_timed_text_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_caption_render_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cro_doc ON cad_caption_render_observations(document_id, seq ASC)
+    """
+    ,
 )
+
 
 
 
@@ -7193,4 +7252,12 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_wireless_av_links',
     'cad_wireless_transport_observations',
     'cad_wireless_sync_evidence',
+    # REV59-DRAWPROF: #741 / #742 / #733.
+    'cad_ht_video_design_profiles',
+    'cad_ceb23_evaluations',
+    'cad_drawing_symbol_profiles',
+    'cad_device_symbol_mappings',
+    'cad_drawing_export_records',
+    'cad_timed_text_profiles',
+    'cad_caption_render_observations',
 )
