@@ -4918,3 +4918,96 @@ issues:
     kind: manual
     description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 779
+  title: 'P1: Sub-20 Hz / infrasonic acoustic authority — sub-woofer extension must
+    not imply subsonic measurement capability'
+  notes: 'UltraLowFrequencyAcousticProfile (ulfap-) pins the requested sub-20 Hz
+    band, room-boundary state, solver validity floor and source inventory;
+    InfrasonicMeasurementCapability (imc-) records the chain calibrated floor,
+    interface states (hidden HPF/AC coupling/AGC) and noise/overload limits —
+    ulf_calibrated requires a pinned calibration file + standard (IEC TR
+    61094-10); ULFAcousticObservation (ulfo-) binds quantity kind + covered band +
+    uncertainty, G-weighted levels require ISO 7196@<edition>; ULFSystemQualification
+    (ulfq-) claims only the actually-measured band and delegates exposure
+    interpretation to #602. evaluate_ulf_claim fails closed at solver floor,
+    chain capability and band coverage.
+    '
+  checks:
+  - id: rev60-edge-ulf
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_edge.py::TestUltraLowFrequency
+    description: Solver-domain, chain-capability and band-coverage gating.
+  - id: rev60-edge-ulf-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 781
+  title: 'P1: External noise ingress / façade isolation authority — interior quiet
+    must not imply measured façade performance'
+  notes: 'ExternalNoiseIngressScenario (enis-) pins source kind + banded spectrum +
+    time statistic + incidence; FacadeTransmissionModel (ftm-) enumerates façade
+    elements/paths with per-element banded transmission, method and envelope
+    lifecycle state — field_observed/qualified states require an as-built ref;
+    ExternalNoiseIngressMeasurement (enim-) binds ISO 16283-3 class + domain —
+    sub-50 Hz bands can never claim standard_method_domain and ISO/CD drafts are
+    research-only; IndoorNoiseIngressQualification (iniq-) binds predicted vs
+    measured bands, limiting path, uncertainty and the project criterion.
+    evaluate_ingress_claim: a design-time envelope alone is design_model_only.
+    '
+  checks:
+  - id: rev60-edge-ingress
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_edge.py::TestNoiseIngress
+    description: Domain-state gating, draft-method rejection, design≠measured.
+  - id: rev60-edge-ingress-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 782
+  title: 'P1: Acoustic/interior material fire-safety evidence authority — acoustic
+    and geometric fit must not imply installation safety'
+  notes: 'FireSafetyEvidenceProfile (fsep-) pins jurisdiction + adopted code
+    editions + decided approval status (requires reviewer_ref); MaterialReactionToFireEvidence
+    (mrfe-) binds installed vs specimen build-up, pinned standard edition and its
+    lifecycle status, evidence maturity and applicability — declarations/datasheets
+    and draft standards can never be directly applicable; InstalledMaterialSafetyRequirement
+    (imsr-) records required evidence kinds + satisfying refs + substitution
+    staling; FireSafetyApprovalReference (fsar-) stores AHJ/professional verdicts —
+    decided verdicts pin a supporting document. evaluate_material_deployability
+    fails closed at evidence-missing, assembly-mismatch, stale and pending gates.
+    '
+  checks:
+  - id: rev60-edge-fire
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_edge.py::TestMaterialFireSafety
+    description: Specimen-vs-installed applicability, maturity and staling gates.
+  - id: rev60-edge-fire-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 783
+  title: 'P1: Accessible media playback authority — component presence must not
+    imply verified presentation'
+  notes: 'AccessibleMediaProfile (amp-) declares component tracks + user
+    preference state (private_user_state by default); CaptionPresentationObservation
+    (cpo-) pins the highest reached stage — presentation_verified requires a bound
+    display profile + fully_visible readability + observed on/offset times;
+    AudioDescriptionPlaybackObservation (adpo-) pins mix semantics and requires
+    output_path + method for verified_at_output; AccessiblePlaybackQualification
+    (apq-) binds observations + stack identity + fallback persistence results.
+    evaluate_accessible_playback climbs only as far as evidence proves;
+    preferences never leak into verdict text.
+    '
+  checks:
+  - id: rev60-edge-accessible
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_edge.py::TestAccessibleMedia
+    description: Stage-by-stage gating, presence≠presentation, routing failures.
+  - id: rev60-edge-accessible-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

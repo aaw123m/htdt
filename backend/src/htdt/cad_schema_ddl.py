@@ -7734,6 +7734,135 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_gate_run_results_document_idx ON cad_gate_run_results (document_id)
     """
     ,
+
+    """
+        CREATE TABLE IF NOT EXISTS cad_ulf_acoustic_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, request_low_hz REAL NOT NULL, request_high_hz REAL NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ulfap_doc ON cad_ulf_acoustic_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_infrasonic_measurement_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, capability_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_imc_doc ON cad_infrasonic_measurement_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_ulf_acoustic_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT, capability_ref_id TEXT, quantity_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ulfo_doc ON cad_ulf_acoustic_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_ulf_system_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT, qualification_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ulfq_doc ON cad_ulf_system_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_external_noise_ingress_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_enis_doc ON cad_external_noise_ingress_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_facade_transmission_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL UNIQUE, model_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, envelope_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ftm_doc ON cad_facade_transmission_models(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_external_noise_ingress_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT, model_ref_id TEXT, measurement_class TEXT NOT NULL, domain_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_enim_doc ON cad_external_noise_ingress_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_indoor_noise_ingress_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_iniq_doc ON cad_indoor_noise_ingress_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_fire_safety_evidence_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, project_class TEXT NOT NULL, approval_status TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_fsep_doc ON cad_fire_safety_evidence_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_reaction_to_fire_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_kind TEXT NOT NULL, specimen_applicability TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mrfe_doc ON cad_material_reaction_to_fire_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_installed_material_safety_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, requirement_id TEXT NOT NULL UNIQUE, requirement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT, state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_imsr_doc ON cad_installed_material_safety_requirements(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_fire_safety_approval_refs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE, approval_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, requirement_ref_id TEXT, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_fsar_doc ON cad_fire_safety_approval_refs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_accessible_media_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_source TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_amp_doc ON cad_accessible_media_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_caption_presentation_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, component_kind TEXT NOT NULL, reached_stage TEXT NOT NULL, readability_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cpo_doc ON cad_caption_presentation_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_audio_description_playback_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mix_semantics TEXT NOT NULL, output_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_adpo_doc ON cad_audio_description_playback_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_accessible_playback_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_apq_doc ON cad_accessible_playback_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -8742,4 +8871,21 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
 
     'cad_manifest_gates',
     'cad_gate_run_results',
+
+    'cad_ulf_acoustic_profiles',
+    'cad_infrasonic_measurement_capabilities',
+    'cad_ulf_acoustic_observations',
+    'cad_ulf_system_qualifications',
+    'cad_external_noise_ingress_scenarios',
+    'cad_facade_transmission_models',
+    'cad_external_noise_ingress_measurements',
+    'cad_indoor_noise_ingress_qualifications',
+    'cad_fire_safety_evidence_profiles',
+    'cad_material_reaction_to_fire_evidence',
+    'cad_installed_material_safety_requirements',
+    'cad_fire_safety_approval_refs',
+    'cad_accessible_media_profiles',
+    'cad_caption_presentation_observations',
+    'cad_audio_description_playback_observations',
+    'cad_accessible_playback_qualifications',
 )

@@ -1366,6 +1366,12 @@ class _RepositoryChain:
             )
 
             return CadLoudspeakerEvidenceRepository(scene)
+        if name == 'edge':
+            from .cad_edge_repository import (
+                CadEdgeAuthorityRepository,
+            )
+
+            return CadEdgeAuthorityRepository(scene)
         raise KeyError(name)
 
 
@@ -6756,6 +6762,106 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_gate_run_results',
         ('result_id',),
         _get('manifest_gates', 'get_gate_run_result'),
+    ),
+    # REV60-EDGE: #779 sub-20 Hz / infrasonic acoustics.
+    _ReplayProbe(
+        'ulf_profile',
+        'cad_ulf_acoustic_profiles',
+        ('profile_id',),
+        _get('edge', 'get_ulf_profile'),
+    ),
+    _ReplayProbe(
+        'infrasonic_capability',
+        'cad_infrasonic_measurement_capabilities',
+        ('capability_id',),
+        _get('edge', 'get_infrasonic_capability'),
+    ),
+    _ReplayProbe(
+        'ulf_observation',
+        'cad_ulf_acoustic_observations',
+        ('observation_id',),
+        _get('edge', 'get_ulf_observation'),
+    ),
+    _ReplayProbe(
+        'ulf_qualification',
+        'cad_ulf_system_qualifications',
+        ('qualification_id',),
+        _get('edge', 'get_ulf_qualification'),
+    ),
+    # REV60-EDGE: #781 external noise ingress / façade isolation.
+    _ReplayProbe(
+        'ingress_scenario',
+        'cad_external_noise_ingress_scenarios',
+        ('scenario_id',),
+        _get('edge', 'get_ingress_scenario'),
+    ),
+    _ReplayProbe(
+        'facade_model',
+        'cad_facade_transmission_models',
+        ('model_id',),
+        _get('edge', 'get_facade_model'),
+    ),
+    _ReplayProbe(
+        'ingress_measurement',
+        'cad_external_noise_ingress_measurements',
+        ('measurement_id',),
+        _get('edge', 'get_ingress_measurement'),
+    ),
+    _ReplayProbe(
+        'ingress_qualification',
+        'cad_indoor_noise_ingress_qualifications',
+        ('qualification_id',),
+        _get('edge', 'get_ingress_qualification'),
+    ),
+    # REV60-EDGE: #782 material fire-safety evidence.
+    _ReplayProbe(
+        'fire_safety_profile',
+        'cad_fire_safety_evidence_profiles',
+        ('profile_id',),
+        _get('edge', 'get_fire_safety_profile'),
+    ),
+    _ReplayProbe(
+        'fire_evidence',
+        'cad_material_reaction_to_fire_evidence',
+        ('evidence_id',),
+        _get('edge', 'get_fire_evidence'),
+    ),
+    _ReplayProbe(
+        'material_requirement',
+        'cad_installed_material_safety_requirements',
+        ('requirement_id',),
+        _get('edge', 'get_material_requirement'),
+    ),
+    _ReplayProbe(
+        'fire_safety_approval',
+        'cad_fire_safety_approval_refs',
+        ('approval_id',),
+        _get('edge', 'get_fire_safety_approval'),
+    ),
+    # REV60-EDGE: #783 accessible media playback.
+    _ReplayProbe(
+        'accessible_media_profile',
+        'cad_accessible_media_profiles',
+        ('profile_id',),
+        _get('edge', 'get_accessible_media_profile'),
+    ),
+    _ReplayProbe(
+        'caption_observation',
+        'cad_caption_presentation_observations',
+        ('observation_id',),
+        _get('edge', 'get_caption_observation'),
+    ),
+    _ReplayProbe(
+        'ad_observation',
+        'cad_audio_description_playback_observations',
+        ('observation_id',),
+        _get('edge', 'get_ad_observation'),
+    ),
+    _ReplayProbe(
+        'accessible_qualification',
+        'cad_accessible_playback_qualifications',
+        ('qualification_id',),
+        _get('edge', 'get_accessible_qualification'),
     ),
 
 )

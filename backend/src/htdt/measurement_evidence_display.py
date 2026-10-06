@@ -4779,3 +4779,42 @@ def front_layer_line(
     if applicability.layer_ref is None:
         parts.append('前面層なし')
     return '前面層: ' + ' — '.join(parts)
+
+
+from .cad_ulf_acoustics import (  # noqa: E402
+    ULF_LABELS as _ULF_LABELS,
+)
+from .cad_noise_ingress import (  # noqa: E402
+    INGRESS_LABELS as _INGRESS_LABELS,
+)
+from .cad_material_fire_safety import (  # noqa: E402
+    FIRE_MATERIAL_LABELS as _FIRE_MATERIAL_LABELS,
+)
+from .cad_accessible_media import (  # noqa: E402
+    ACCESSIBLE_MEDIA_LABELS as _ACCESSIBLE_MEDIA_LABELS,
+)
+
+
+def ulf_capability_line(verdict: str) -> str:
+    """One JA line for a sub-20 Hz capability verdict (#779) —
+    可聴帯域の確認は超低域能力を意味しない。"""
+    return '超低域: ' + _ULF_LABELS.get(verdict, verdict)
+
+
+def noise_ingress_line(verdict: str) -> str:
+    """One JA line for an external-noise-ingress verdict (#781) —
+    設計包絡は実測遮断性能を意味しない。"""
+    return '外部騒音侵入: ' + _INGRESS_LABELS.get(verdict, verdict)
+
+
+def material_fire_safety_line(verdict: str) -> str:
+    """One JA line for a material deployability verdict (#782) —
+    音響・幾何適合は防火適合を意味しない。"""
+    return '材料防火: ' + _FIRE_MATERIAL_LABELS.get(verdict, verdict)
+
+
+def accessible_playback_line(verdict: str) -> str:
+    """One JA line for an accessible-playback verdict (#783) —
+    コンポーネント存在は提示確認を意味しない。"""
+    return 'アクセシブル再生: ' + _ACCESSIBLE_MEDIA_LABELS.get(
+        verdict, verdict)

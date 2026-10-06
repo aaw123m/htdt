@@ -8253,6 +8253,185 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV60-EDGE: #779 sub-20 Hz / infrasonic acoustics.
+    'cad_ulf_acoustic_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('request_low_hz', 'request_low_hz'),
+            _b('request_high_hz', 'request_high_hz'),
+        ),
+        (),
+    ),
+    'cad_infrasonic_measurement_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('capability_state', 'capability_state'),
+        ),
+        (),
+    ),
+    'cad_ulf_acoustic_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('capability_ref_id', 'capability_ref', 'ref_id'),
+            _b('quantity_kind', 'quantity_kind'),
+        ),
+        (),
+    ),
+    'cad_ulf_system_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('qualification_state', 'qualification_state'),
+        ),
+        (),
+    ),
+    # REV60-EDGE: #781 external noise ingress / façade isolation.
+    'cad_external_noise_ingress_scenarios': (
+        'payload_json',
+        (
+            _b('scenario_id', 'scenario_id'),
+            _b('scenario_sha256', 'scenario_sha256'),
+            _b('document_id', 'document_id'),
+            _b('source_kind', 'source_kind'),
+        ),
+        (),
+    ),
+    'cad_facade_transmission_models': (
+        'payload_json',
+        (
+            _b('model_id', 'model_id'),
+            _b('model_sha256', 'model_sha256'),
+            _b('document_id', 'document_id'),
+            _b('envelope_state', 'envelope_state'),
+        ),
+        (),
+    ),
+    'cad_external_noise_ingress_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_ref_id', 'scenario_ref', 'ref_id'),
+            _b('model_ref_id', 'model_ref', 'ref_id'),
+            _b('measurement_class', 'measurement_class'),
+            _b('domain_state', 'domain_state'),
+        ),
+        (),
+    ),
+    'cad_indoor_noise_ingress_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_ref_id', 'scenario_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    # REV60-EDGE: #782 material fire-safety evidence.
+    'cad_fire_safety_evidence_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('project_class', 'project_class'),
+            _b('approval_status', 'approval_status'),
+        ),
+        (),
+    ),
+    'cad_material_reaction_to_fire_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evidence_kind', 'evidence_kind'),
+            _b('specimen_applicability', 'specimen_applicability'),
+        ),
+        (),
+    ),
+    'cad_installed_material_safety_requirements': (
+        'payload_json',
+        (
+            _b('requirement_id', 'requirement_id'),
+            _b('requirement_sha256', 'requirement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('state', 'state'),
+        ),
+        (),
+    ),
+    'cad_fire_safety_approval_refs': (
+        'payload_json',
+        (
+            _b('approval_id', 'approval_id'),
+            _b('approval_sha256', 'approval_sha256'),
+            _b('document_id', 'document_id'),
+            _b('requirement_ref_id', 'requirement_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    # REV60-EDGE: #783 accessible media playback.
+    'cad_accessible_media_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_source', 'profile_source'),
+        ),
+        (),
+    ),
+    'cad_caption_presentation_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('component_kind', 'component_kind'),
+            _b('reached_stage', 'reached_stage'),
+            _b('readability_state', 'readability_state'),
+        ),
+        (),
+    ),
+    'cad_audio_description_playback_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('mix_semantics', 'mix_semantics'),
+            _b('output_state', 'output_state'),
+        ),
+        (),
+    ),
+    'cad_accessible_playback_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
 }
 
 
