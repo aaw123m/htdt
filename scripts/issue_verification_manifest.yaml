@@ -3006,3 +3006,60 @@ issues:
         description: >
           Audio codec chain declarations, hidden-processing contradiction
           detection.
+  - issue: 736
+    title: "AV power-sequencing / outage-recovery authority"
+    notes: >
+      PowerSequencingProfile (psq-) pins stage order, amplifier devices,
+      always-on devices and inrush staging — power_off must declare
+      amps. PowerSequenceEvent (psev-) pins the observed transition;
+      UpsTransitionRecord (upst-) pins UPS transfer + recovery.
+      evaluate_sequence_claim: capacity or a working scene never proves
+      deterministic order; amp last-on/first-off and always-on survival
+      are gated separately.
+    checks:
+      - id: power-sequencing
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_amp_violation_on
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_always_on_violation
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_verified
+        description: >
+          Declared vs observed stage order, amplifier timing gating,
+          always-on survival.
+  - issue: 738
+    title: "AC power-quality measurement authority"
+    notes: >
+      PowerQualityMeasurement (pqm-) pins in-situ RMS V/f, THD and
+      declared PQ events (dip/swell/interruption/RVC/transient);
+      PowerQualityQualification (pqq-) binds a verdict + limits profile
+      to pinned evidence. evaluate_supply_claim: circuit capacity never
+      implies a stable supply; interruptions/transients degrade.
+    checks:
+      - id: power-quality
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_capacity_not_stability
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_interruption_degrades
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_qualified_needs_limits_profile
+        description: >
+          Capacity-vs-stability separation, event taxonomy, limits
+          profile requirement.
+  - issue: 752
+    title: "AV/ICT product EMC evidence authority"
+    notes: >
+      EmcProductProfile (emc-) pins emissions and immunity test refs
+      separately per standard, bound to product identity and tested
+      configuration; EmcSymptomRecord (emcs-) binds field symptoms to a
+      diagnosis path. evaluate_emc_claim: safety approval never
+      substitutes for EMC evidence; a field symptom alone never proves
+      non-conformance.
+    checks:
+      - id: emc-evidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_safety_not_emc
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_symptom_not_nonconformance
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_partial_evidence
+        description: >
+          Safety/EMC separation, symptom-vs-conformance honesty,
+          emissions+immunity completeness.

@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 54
+NATIVE_SCHEMA_VERSION = 55
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1648,6 +1648,14 @@ def _migrate_53_to_54(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_54_to_55(connection: sqlite3.Connection) -> None:
+    # Install the REV59-POWEREV authorities (#736 power sequencing,
+    # #738 AC power quality, #752 EMC evidence): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1703,6 +1711,7 @@ _MIGRATIONS = {
     52: _migrate_51_to_52,
     53: _migrate_52_to_53,
     54: _migrate_53_to_54,
+    55: _migrate_54_to_55,
 }
 
 

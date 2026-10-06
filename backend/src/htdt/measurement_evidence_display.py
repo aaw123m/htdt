@@ -4171,3 +4171,32 @@ def codec_fidelity_line(
     if chain.hidden_processing_detected:
         parts.append('隠れ処理を検出')
     return 'コーデック忠実度: ' + ' — '.join(parts)
+
+
+from .cad_power_sequencing import (  # noqa: E402
+    SEQUENCE_LABELS as _SEQ_LABELS,
+)
+from .cad_power_quality import (  # noqa: E402
+    PQ_LABELS as _PQ_LABELS,
+)
+from .cad_emc_evidence import (  # noqa: E402
+    EMC_LABELS as _EMC_LABELS,
+)
+
+
+def power_sequence_line(verdict: str) -> str:
+    """One JA line for a power-sequence verdict (#736) —
+    容量とシーンだけでは安全な順序を証明しない。"""
+    return '電源シーケンス: ' + _SEQ_LABELS.get(verdict, verdict)
+
+
+def power_quality_line(verdict: str) -> str:
+    """One JA line for a supply-quality verdict (#738) —
+    回路容量は電圧安定性を意味しない。"""
+    return '電源品質: ' + _PQ_LABELS.get(verdict, verdict)
+
+
+def emc_line(verdict: str) -> str:
+    """One JA line for an EMC-evidence verdict (#752) —
+    安全性承認はEMC証拠ではなく、症状は不適合の証明ではない。"""
+    return 'EMC証拠: ' + _EMC_LABELS.get(verdict, verdict)

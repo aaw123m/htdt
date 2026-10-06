@@ -1208,6 +1208,12 @@ class _RepositoryChain:
             )
 
             return CadMediaFidelityRepository(scene)
+        if name == 'power_evidence':
+            from .cad_power_evidence_repository import (
+                CadPowerEvidenceRepository,
+            )
+
+            return CadPowerEvidenceRepository(scene)
         raise KeyError(name)
 
 
@@ -5598,6 +5604,48 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_codec_fidelity_observations',
         ('observation_id',),
         _get('media_fidelity', 'get_fidelity_observation'),
+    ),    # REV59-POWEREV: #736/#738/#752 power/EMC authorities
+    _ReplayProbe(
+        'power_sequencing_profile',
+        'cad_power_sequencing_profiles',
+        ('profile_id',),
+        _get('power_evidence', 'get_sequencing_profile'),
+    ),
+    _ReplayProbe(
+        'power_sequence_event',
+        'cad_power_sequence_events',
+        ('event_id',),
+        _get('power_evidence', 'get_sequence_event'),
+    ),
+    _ReplayProbe(
+        'ups_transition',
+        'cad_ups_transition_records',
+        ('record_id',),
+        _get('power_evidence', 'get_ups_transition'),
+    ),
+    _ReplayProbe(
+        'power_quality_measure',
+        'cad_power_quality_measurements',
+        ('measurement_id',),
+        _get('power_evidence', 'get_pq_measurement'),
+    ),
+    _ReplayProbe(
+        'power_quality_qualification',
+        'cad_power_quality_qualifications',
+        ('qualification_id',),
+        _get('power_evidence', 'get_pq_qualification'),
+    ),
+    _ReplayProbe(
+        'emc_product_profile',
+        'cad_emc_product_profiles',
+        ('profile_id',),
+        _get('power_evidence', 'get_emc_profile'),
+    ),
+    _ReplayProbe(
+        'emc_symptom',
+        'cad_emc_symptom_records',
+        ('record_id',),
+        _get('power_evidence', 'get_emc_symptom'),
     ),
 )
 
