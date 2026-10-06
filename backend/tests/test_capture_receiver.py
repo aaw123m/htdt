@@ -476,6 +476,14 @@ class TestDeliveries:
 
 
 class TestMissionPull:
+    MISSION_PAYLOAD = json.dumps(
+        {
+            'schema': 'htdt.capture-mission',
+            'schema_version': '1.0.0',
+            'mission_id': 'mission-1',
+        }
+    ).encode()
+
     def _active(self, tmp_path):
         ingestion, inbox, reader, service = _rig(tmp_path)
         pairing, _payload = service.begin_pairing()
@@ -486,7 +494,7 @@ class TestMissionPull:
         service, pairing = self._active(tmp_path)
         package = service.queue_mission_package(
             'pkg-1',
-            b'mission-package-bytes',
+            self.MISSION_PAYLOAD,
             descriptor={'mission_id': 'mission-1', 'purpose': 'recapture'},
         )
         status, listing = service.handle_mission_listing(
@@ -501,7 +509,7 @@ class TestMissionPull:
             == f"sha256:{package.package_sha256}"
         )
         assert listing['packages'][0]['byte_size'] == len(
-            b'mission-package-bytes'
+            self.MISSION_PAYLOAD
         )
         # the same device identity now binds the pairing
         status, _ = service.handle_mission_listing(
@@ -513,7 +521,7 @@ class TestMissionPull:
             pairing.pairing_token, 'pkg-1', 'capture-instance-9'
         )
         assert status == 200
-        assert body == b'mission-package-bytes'
+        assert body == self.MISSION_PAYLOAD
 
         receipt = {
             'schema': 'htdt.capture.mission-receipt',
@@ -541,7 +549,9 @@ class TestMissionPull:
 
     def test_failed_validation_marks_failed(self, tmp_path):
         service, pairing = self._active(tmp_path)
-        package = service.queue_mission_package('pkg-2', b'bytes')
+        package = service.queue_mission_package(
+            'pkg-2', self.MISSION_PAYLOAD
+        )
         receipt = {
             'schema': 'htdt.capture.mission-receipt',
             'schema_version': '1.0.0',
@@ -563,11 +573,64 @@ class TestMissionPull:
 
     def test_export_fallback_keeps_identity(self, tmp_path):
         service, _pairing = self._active(tmp_path)
-        package = service.queue_mission_package('pkg-3', b'payload')
+        package = service.queue_mission_package(
+            'pkg-3', self.MISSION_PAYLOAD
+        )
         out = service.export_mission_package(
             'pkg-3', tmp_path / 'export.pkg'
         )
         assert sha256(out.read_bytes()).hexdigest() == package.package_sha256
+
+    def test_queue_rejects_unreadable_payload_grammar(self, tmp_path):
+        service, _pairing = self._active(tmp_path)
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package('pkg-bad', b'not-json')
+        with pytest.raises(CaptureReceiverError):
+            # The HTDT-internal mission-package grammar cannot be
+            # decoded by the app's mission importer.
+            service.queue_mission_package(
+                'pkg-bad2',
+                json.dumps(
+                    {
+                        'schema': 'htdt.capture.mission-package',
+                        'schema_version': '1.0.0',
+                    }
+                ).encode(),
+            )
+
+    def test_queue_rejects_malformed_receiver_requirement(self, tmp_path):
+        service, _pairing = self._active(tmp_path)
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-bad3',
+                self.MISSION_PAYLOAD,
+                descriptor={'receiver_requirement': 'not-a-dict'},
+            )
+        with pytest.raises(CaptureReceiverError):
+            service.queue_mission_package(
+                'pkg-bad4',
+                self.MISSION_PAYLOAD,
+                descriptor={
+                    'receiver_requirement': {
+                        'required_authority_families': [],
+                        'required_payload_schemas': [],
+                        # require_mission_receipts missing
+                    }
+                },
+            )
+        package = service.queue_mission_package(
+            'pkg-ok',
+            self.MISSION_PAYLOAD,
+            descriptor={
+                'receiver_requirement': {
+                    'required_authority_families': ['annotations'],
+                    'required_payload_schemas': [],
+                    'require_mission_receipts': True,
+                    'min_handoff_protocol': '1.0.0',
+                }
+            },
+        )
+        assert package.package_id == 'pkg-ok'
 
 
 class TestHttpsEndpoint:
