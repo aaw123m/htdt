@@ -704,6 +704,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_drawing_export_records": "図面エクスポートレコード",
     "cad_timed_text_profiles": "字幕プロファイル",
     "cad_caption_render_observations": "字幕表示観測レコード",
+    "cad_finite_absorber_geometries": "有限吸音体幾何",
+    "cad_finite_treatment_boundary_models": "有限吸音体境界モデル",
+    "cad_precedence_profiles": "優先効果プロファイル",
+    "cad_echo_risk_observations": "エコーリスク観測",
+    "cad_reaction_to_fire_evidence": "防火試験証拠",
+    "cad_finish_assembly_evidence": "仕上げ組立体安全証拠",
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",
     "cad_quantity_operations": "物理量演算評価",
