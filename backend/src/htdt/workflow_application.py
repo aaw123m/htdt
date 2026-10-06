@@ -276,6 +276,10 @@ _LAZY_IMPORTS = {
         'CaptureSemanticPromotionRepository',
     ),
     'AcceptancePage': ('.acceptance_page', 'AcceptancePage'),
+    'VerificationWizardPage': (
+        '.verification_wizard_page',
+        'VerificationWizardPage',
+    ),
     'ProjectLibraryPage': ('.application_pages', 'ProjectLibraryPage'),
     'ProjectLibraryService': ('.application_pages', 'ProjectLibraryService'),
     'ReferenceLibraryPage': ('.application_pages', 'ReferenceLibraryPage'),
@@ -1976,6 +1980,12 @@ class WorkflowApplicationComposition:
                 hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.ACCEPTANCE],
                 factory=self._make_acceptance,
             ),
+            WorkspaceRegistration(
+                workspace_id=ApplicationDestinationId.VERIFICATION,
+                label=APPLICATION_DESTINATION_LABELS[ApplicationDestinationId.VERIFICATION],
+                hint=APPLICATION_DESTINATION_HINTS[ApplicationDestinationId.VERIFICATION],
+                factory=self._make_verification_wizard,
+            ),
         )
 
     def _build_palette_service(self) -> PaletteSearchService:
@@ -2610,6 +2620,13 @@ class WorkflowApplicationComposition:
         page = sys.modules[__name__].AcceptancePage(
             self.data_dir,
             rew_base_url=self.preferences.rew_api_base_url,
+        )
+        return WorkspaceMount.from_widget(page, on_activate=page.refresh)
+
+    def _make_verification_wizard(self) -> WorkspaceMount:
+        """REV59-GUIDEDWIZ — zero-knowledge issue verification wizard."""
+        page = sys.modules[__name__].VerificationWizardPage(
+            self.data_dir,
         )
         return WorkspaceMount.from_widget(page, on_activate=page.refresh)
 

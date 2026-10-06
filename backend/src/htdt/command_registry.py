@@ -497,6 +497,20 @@ def default_command_definitions() -> tuple[CommandDefinition, ...]:
             mutates_managed_data=False,
         ),
         CommandDefinition(
+            command_id='navigation.verification',
+            display_name=APPLICATION_DESTINATION_LABELS[
+                ApplicationDestinationId.VERIFICATION
+            ],
+            contexts=frozenset({CommandContext.GLOBAL}),
+            keywords=(
+                'verification', '検証', '課題', 'issue', 'wizard',
+                'ウィザード',
+            ),
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.VERIFICATION),
+            shortcut_behavior=ShortcutBehavior.GLOBAL,
+            mutates_managed_data=False,
+        ),
+        CommandDefinition(
             command_id='project.save',
             display_name='保存',
             contexts=frozenset({CommandContext.GLOBAL}),
