@@ -381,6 +381,27 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_pam_buildups": "多孔材構成",
     "cad_pam_predictions": "多孔材予測",
     "cad_pam_fit_comparisons": "多孔材フィット比較",
+    # REV57-PROJ: #619 空間投影画質適格性
+    "cad_spatial_measurement_plans": "空間測定プラン",
+    "cad_spatial_measurement_sets": "空間測定セット",
+    "cad_spatial_derived_maps": "空間補間マップ",
+    "cad_spatial_uniformity_evaluations": "空間均一性評価",
+    # REV57-PROJ: #622 投影幾何/マスキング
+    "cad_presentation_geometry_bindings": "プレゼンテーション幾何バインディング",
+    "cad_image_geometry_measurements": "画像幾何測定",
+    "cad_lens_memory_recalls": "レンズメモリ呼出記録",
+    "cad_geometry_evaluations": "幾何評価",
+    # REV57-PROJ: #624 ハッシュボックス/エンクロージャ共同設計
+    "cad_projector_install_constraints": "プロジェクタ設置制約",
+    "cad_projector_enclosure_plans": "エンクロージャ計画",
+    "cad_enclosure_operating_observations": "エンクロージャ動作観測",
+    "cad_enclosure_acoustic_observations": "エンクロージャ音響観測",
+    "cad_enclosure_qualifications": "エンクロージャ適格性評価",
+    # REV57-PROJ: #627 光放射安全
+    "cad_projector_safety_identities": "プロジェクタ安全識別",
+    "cad_manufacturer_safety_constraints": "メーカー安全制約",
+    "cad_projector_placements": "プロジェクタ配置宣言",
+    "cad_optical_safety_evaluations": "光放射安全評価",
 }
 
 

@@ -875,3 +875,149 @@ issues:
           データ取込 (#615 後続)、material build-up 側 (#570/#631) への
           prediction 差し込み配線、斜め入射/散乱入射拡張、Biot/
           poroelastic 実装は残件。
+  - issue: 619
+    title: "REV57-PROJ: spatial projection-image qualification authority"
+    notes: >
+      CadSpatialMeasurementPlan (layout + sealed point grid: center /
+      edge / corner / auxiliary roles; ansi_9_point enforces exactly 9)
+      pins quantity axes, viewpoints, screen + projector optical state
+      and stabilization requirements. CadSpatialMeasurementSet keeps
+      raw per-point observations (units mandatory, chromaticity x/y
+      paired, instrument sha-pinned) bound to the plan sha; predicted
+      vs field_measured stay distinct. CadSpatialDerivedMap declares
+      interpolation algorithm/version/grid and extrapolation against
+      its source set. evaluate_spatial_uniformity is fail-closed:
+      criteria come from the bound evaluation profile (no invented
+      HTDT thresholds), center-only coverage never upgrades to a
+      uniformity claim, partial coverage names missing_roles,
+      unstabilized states read insufficient_evidence, verdicts
+      aggregate worst-of-viewpoint.
+    checks:
+      - id: proj-spatial-uniformity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_proj.py
+        description: >
+          Grid layout validation (9-point exactness, center-only),
+          observation identity/units/chromaticity-pair rules, plan-sha
+          binding, criterion-unbound + insufficient-coverage +
+          insufficient-evidence paths, worst-of-viewpoint aggregation,
+          predicted-vs-measured separation, derived-map provenance,
+          repository chain + tamper rejection, audit replay.
+      - id: proj-spatial-remainder
+        kind: manual
+        description: >
+          評価プロファイル (DCI/SMPTE 基準セット) 権威との結合、
+          ヒートマップ生成器 (補間アルゴリズム実体)、9点測定の
+          UI フォーム配線は残件。
+  - issue: 622
+    title: "REV57-PROJ: projection image-geometry / masking authority"
+    notes: >
+      CadPresentationGeometryBinding seals the presentation profile:
+      content/projected aspect, lens memory id, zoom/shift, keystone /
+      warp / anamorphic state, processor scaling mode, masking state.
+      CadImageGeometryMeasurement requires test_pattern_identity and
+      reads all 11 declared GeometryQuantity axes (aspect, scales,
+      center offset, rotation, corner error, keystone trapezoid,
+      barrel/pincushion, edge bow, per-edge crop with CropAttribution
+      source, masking overlap/gap) as PASS/FAIL/UNKNOWN/
+      NOT_APPLICABLE. CadLensMemoryRecallRecord seals per-cycle recall
+      repeatability. evaluate_presentation_geometry never infers
+      geometry from throw math alone (no measurement →
+      insufficient_evidence), fails on anamorphic/equal-aspect
+      conflicts and any FAIL, and reports raster-consuming digital
+      correction as verified_with_digital_correction with
+      correction_costs — physical_alignment stays a separate axis.
+    checks:
+      - id: proj-geometry-masking
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_proj.py
+        description: >
+          Empty test-pattern rejection, no-measurement fail-closed,
+          PASS→verified paths, digital keystone/warp correction-cost
+          declaration, masking FAIL → failed, anamorphic conflict →
+          failed, binding mismatch, lens-recall cycle/error-units
+          checks, repository chain + tamper rejection, audit replay.
+      - id: proj-geometry-remainder
+        kind: manual
+        description: >
+          テストパターン自動判別 (camera capture 系) との接続、
+          masking actuator 実機フィードバック経路、シーン幾何からの
+          aspect/throw 自動導出は残件。
+  - issue: 624
+    title: "REV57-PROJ: projector hush-box / enclosure co-design authority"
+    notes: >
+      CadProjectorInstallConstraints seals the manufacturer operating
+      domain (temperature/humidity/altitude/clearances + source
+      document pin — no invented universal delta-T). The plan binds
+      CadEnclosureAirPath (intake source / exhaust destination /
+      recirculation), fans whose cfm requires an AirflowBasis
+      (installed_measured vs free_air_rating vs estimated — free-air
+      never reads as installed), filters and the optical port
+      (transmission loss, chromaticity shift, ghosting/contrast/focus
+      impact; characterized() gate). Operating observations are
+      sustained scenarios (duration_s>0) with inlet/exhaust/
+      enclosure temperatures, projector fan escalation and
+      protection events. evaluate_enclosure keeps thermal, acoustic,
+      optical and serviceability axes independent: protection events /
+      documented-max inlet violations fail, fan escalation or
+      recirculation limits, acoustics without same-state comparability
+      are not_comparable, post>=pre or fan escalation negates the
+      'quieter' claim outright.
+    checks:
+      - id: proj-hushbox-codesign
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_proj.py
+        description: >
+          Remote-projection requires optical port, airflow basis
+          mandatory, no-constraints → insufficient_evidence /
+          ventilation_requirement_unknown, protection event →
+          over_temperature_event → failed, documented-max violation →
+          manufacturer_constraint_violated, non-comparable acoustics,
+          fan-escalation negation, uncharacterized port limitation,
+          repository chain + tamper rejection, audit replay.
+      - id: proj-hushbox-remainder
+        kind: manual
+        description: >
+          メーカー設置制約の実文書取込 (PDF 仕様 → constraints
+          登録)、SPL/温度の実測インポート配線、熱流体予測モデル
+          側との capability 問い合わせは残件。
+  - issue: 627
+    title: "REV57-PROJ: projector optical-radiation safety authority"
+    notes: >
+      CadProjectorSafetyIdentity keeps IEC 62471-5 risk_group and
+      IEC 60825-1 laser_class as separate sourced classifications.
+      CadManufacturerSafetyConstraints seals documented hazard-
+      distance rules (applies_to accessory scope, hazard_distance_m,
+      restricted_below_m). CadProjectorPlacementDeclaration pins the
+      identity sha + operating state (service_interlock_defeat /
+      service_open_housing are never user-safe) + throw + accessible
+      positions; remote_power_capable is recorded but never credited
+      as a safety control. evaluate_optical_safety fails closed: no
+      identity/classification → insufficient_evidence, no documented
+      rules → local_review_required (never an improvised safe
+      distance), unmatched lens accessory → applicability_unknown,
+      in-path position inside the hazard zone → safety_zone_conflict,
+      placement changed since a prior verdict → stale_after_change.
+      HTDT never issues regulatory certification.
+    checks:
+      - id: proj-optical-safety
+        kind: pytest
+        tests:
+          - backend/tests/test_rev57_proj.py
+        description: >
+          Sourced-classification requirement, service-state verdict,
+          missing-constraints → local_review_required, clear/conflict
+          zone results vs documented hazard distance and restricted
+          height, unmatched accessory applicability, unknown
+          classification fail-closed, stale-after-change on geometry
+          drift, remote-power never credited, repository chain +
+          tamper rejection, audit replay.
+      - id: proj-optical-safety-remainder
+        kind: manual
+        description: >
+          メーカー安全文書 (RG/HD 表) の実登録経路、シーン座席/
+          通路からの accessible-position 自動候補生成、規制認証
+          ワークフロー自体は HTDT スコープ外 (残件)。

@@ -3654,6 +3654,182 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_pamfit_doc ON cad_pam_fit_comparisons(document_id, seq ASC)
     """
     ,
+    # REV57-PROJ: spatial projection-image qualification (#619)
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_measurement_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, layout TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spplan_doc ON cad_spatial_measurement_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_measurement_sets ( seq INTEGER PRIMARY KEY AUTOINCREMENT, set_id TEXT NOT NULL UNIQUE, set_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, evidence_kind TEXT NOT NULL, stimulus_profile TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spset_plan ON cad_spatial_measurement_sets(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spset_doc ON cad_spatial_measurement_sets(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_derived_maps ( seq INTEGER PRIMARY KEY AUTOINCREMENT, map_id TEXT NOT NULL UNIQUE, map_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_set_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, interpolation_algorithm TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_spmap_set ON cad_spatial_derived_maps(source_set_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spatial_uniformity_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, set_ref_id TEXT NOT NULL, coverage_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_speval_set ON cad_spatial_uniformity_evaluations(set_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_speval_doc ON cad_spatial_uniformity_evaluations(document_id, seq ASC)
+    """
+    ,
+    # REV57-PROJ: projection image-geometry / masking (#622)
+    """
+    CREATE TABLE IF NOT EXISTS cad_presentation_geometry_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_id TEXT NOT NULL UNIQUE, binding_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, projected_aspect REAL, content_aspect REAL, keystone_state TEXT NOT NULL, anamorphic_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geobind_doc ON cad_presentation_geometry_bindings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_image_geometry_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, binding_ref_id TEXT NOT NULL, method TEXT NOT NULL, test_pattern_identity TEXT NOT NULL, physical_alignment TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geomeas_bind ON cad_image_geometry_measurements(binding_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geomeas_doc ON cad_image_geometry_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lens_memory_recalls ( seq INTEGER PRIMARY KEY AUTOINCREMENT, recall_id TEXT NOT NULL UNIQUE, recall_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, memory_id TEXT NOT NULL, cycle_index INTEGER NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lensrec_doc ON cad_lens_memory_recalls(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_geometry_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, binding_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, physical_alignment TEXT NOT NULL, digital_correction_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geoeval_bind ON cad_geometry_evaluations(binding_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_geoeval_doc ON cad_geometry_evaluations(document_id, seq ASC)
+    """
+    ,
+    # REV57-PROJ: projector hush-box / enclosure co-design (#624)
+    """
+    CREATE TABLE IF NOT EXISTS cad_projector_install_constraints ( seq INTEGER PRIMARY KEY AUTOINCREMENT, constraint_id TEXT NOT NULL UNIQUE, constraint_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manufacturer TEXT, model TEXT, source_document TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjcons_doc ON cad_projector_install_constraints(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_projector_enclosure_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, constraint_ref_id TEXT, remote_projection INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushplan_doc ON cad_projector_enclosure_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_enclosure_operating_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, scenario TEXT NOT NULL, duration_s REAL NOT NULL, projector_fan_state TEXT NOT NULL, protection_event TEXT NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushobs_plan ON cad_enclosure_operating_observations(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushobs_doc ON cad_enclosure_operating_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_enclosure_acoustic_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, acoustic_id TEXT NOT NULL UNIQUE, acoustic_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, comparability TEXT NOT NULL, pre_spl_db REAL, post_spl_db REAL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushac_plan ON cad_enclosure_acoustic_observations(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_enclosure_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, thermal_state TEXT NOT NULL, acoustic_state TEXT NOT NULL, optical_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushqual_plan ON cad_enclosure_qualifications(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_hushqual_doc ON cad_enclosure_qualifications(document_id, seq ASC)
+    """
+    ,
+    # REV57-PROJ: projector optical-radiation safety (#627)
+    """
+    CREATE TABLE IF NOT EXISTS cad_projector_safety_identities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, identity_id TEXT NOT NULL UNIQUE, identity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, illumination_source TEXT NOT NULL, risk_group TEXT NOT NULL, laser_class TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjsafe_doc ON cad_projector_safety_identities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_manufacturer_safety_constraints ( seq INTEGER PRIMARY KEY AUTOINCREMENT, constraint_id TEXT NOT NULL UNIQUE, constraint_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, safety_identity_ref_id TEXT, source_document TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjscons_ident ON cad_manufacturer_safety_constraints(safety_identity_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjscons_doc ON cad_manufacturer_safety_constraints(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_projector_placements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, placement_id TEXT NOT NULL UNIQUE, placement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, safety_identity_ref_id TEXT NOT NULL, operating_state TEXT NOT NULL, throw_distance_m REAL, viewer_position TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjplace_ident ON cad_projector_placements(safety_identity_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjplace_doc ON cad_projector_placements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_optical_safety_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, placement_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjseval_place ON cad_optical_safety_evaluations(placement_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pjseval_doc ON cad_optical_safety_evaluations(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -4241,4 +4417,22 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_pam_buildups',
     'cad_pam_predictions',
     'cad_pam_fit_comparisons',
+    # REV57-PROJ: #619/#622/#624/#627.
+    'cad_spatial_measurement_plans',
+    'cad_spatial_measurement_sets',
+    'cad_spatial_derived_maps',
+    'cad_spatial_uniformity_evaluations',
+    'cad_presentation_geometry_bindings',
+    'cad_image_geometry_measurements',
+    'cad_lens_memory_recalls',
+    'cad_geometry_evaluations',
+    'cad_projector_install_constraints',
+    'cad_projector_enclosure_plans',
+    'cad_enclosure_operating_observations',
+    'cad_enclosure_acoustic_observations',
+    'cad_enclosure_qualifications',
+    'cad_projector_safety_identities',
+    'cad_manufacturer_safety_constraints',
+    'cad_projector_placements',
+    'cad_optical_safety_evaluations',
 )

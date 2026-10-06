@@ -1613,3 +1613,206 @@ def porous_fit_line(comparison: PorousFitComparison) -> str:
     if residuals:
         parts.append(f'最大α残差 {max(residuals):.3f}')
     return '多孔材フィット評価: ' + ' — '.join(parts)
+# REV57-PROJ: #619 空間均一性, #622 幾何/マスキング, #624 ハッシュボックス,
+# #627 光放射安全
+#
+
+_SPATIAL_COVERAGE_LABELS = {
+    'full_spatial_coverage': '全域カバー',
+    'partial_spatial_coverage': '一部カバー',
+    'center_only': '中心点のみ',
+    'empty': '観測なし',
+}
+
+_SPATIAL_QUANTITY_STATE_LABELS = {
+    'within_profile': 'プロファイル内',
+    'outside_profile': 'プロファイル外',
+    'criterion_unbound': '判定基準未設定',
+    'insufficient_coverage': 'カバレッジ不足',
+    'insufficient_evidence': '証拠不足',
+    'not_evaluable': '評価不可',
+}
+
+_GEOMETRY_VERDICT_LABELS = {
+    'verified': '検証済',
+    'verified_with_limitations': '限定付き検証',
+    'verified_with_digital_correction': 'デジタル補正あり検証',
+    'failed': '不合格',
+    'insufficient_evidence': '証拠不足',
+}
+
+_PHYSICAL_ALIGNMENT_LABELS = {
+    'physically_aligned': '物理アライメント済',
+    'physically_misaligned': '物理未アライメント',
+    'unknown': '不明',
+}
+
+_DIGITAL_CORRECTION_LABELS = {
+    'none': 'なし',
+    'active': '有効',
+    'unknown': '不明',
+}
+
+_ENCLOSURE_VERDICT_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '限定付き適格',
+    'failed': '不合格',
+    'insufficient_evidence': '証拠不足',
+}
+
+_THERMAL_STATE_LABELS = {
+    'within_documented_environment': '記載環境内',
+    'thermally_measured_stable': '熱安定確認済',
+    'thermally_limited': '熱的制限あり',
+    'ventilation_requirement_unknown': '換気要件不明',
+    'manufacturer_constraint_violated': 'メーカー制約違反',
+    'over_temperature_event': '過温イベント',
+    'insufficient_evidence': '証拠不足',
+    'not_evaluated': '未評価',
+}
+
+_ENCLOSURE_ACOUSTIC_LABELS = {
+    'net_reduction_documented': '正味減音確認',
+    'net_reduction_limited': '限定的減音',
+    'fan_escalation_negates': 'ファン増速で相殺',
+    'not_comparable': '比較不能',
+    'insufficient_evidence': '証拠不足',
+    'not_evaluated': '未評価',
+}
+
+_ENCLOSURE_OPTICAL_LABELS = {
+    'no_optical_port': '光学ポートなし',
+    'port_within_limits': 'ポート許容内',
+    'port_degrades_image': 'ポートが画像劣化',
+    'port_uncharacterized': 'ポート未特性化',
+    'not_evaluated': '未評価',
+}
+
+_SERVICEABILITY_LABELS = {
+    'service_access_documented': 'サービスアクセス記録済',
+    'service_access_limited': 'サービスアクセス限定',
+    'service_access_blocked': 'サービスアクセス遮断',
+    'unknown': '不明',
+}
+
+_SAFETY_VERDICT_LABELS = {
+    'installation_within_documented_constraints': '記載制約内で設置',
+    'qualified_with_limitations': '限定付き適格',
+    'safety_zone_conflict': '安全ゾーン抵触',
+    'lens_accessory_applicability_unknown': 'レンズアクセサリ適用不明',
+    'service_state_not_user_safe': 'サービス状態(ユーザ安全外)',
+    'local_review_required': '現地審査要',
+    'insufficient_evidence': '証拠不足',
+    'stale_after_change': '変更後の陳腐化',
+}
+
+
+def spatial_coverage_label(state: str) -> str:
+    return _SPATIAL_COVERAGE_LABELS.get(state, state)
+
+
+def spatial_quantity_state_label(state: str) -> str:
+    return _SPATIAL_QUANTITY_STATE_LABELS.get(state, state)
+
+
+def geometry_verdict_label(verdict: str) -> str:
+    return _GEOMETRY_VERDICT_LABELS.get(verdict, verdict)
+
+
+def physical_alignment_label(state: str) -> str:
+    return _PHYSICAL_ALIGNMENT_LABELS.get(state, state)
+
+
+def digital_correction_state_label(state: str) -> str:
+    return _DIGITAL_CORRECTION_LABELS.get(state, state)
+
+
+def enclosure_verdict_label(verdict: str) -> str:
+    return _ENCLOSURE_VERDICT_LABELS.get(verdict, verdict)
+
+
+def thermal_state_label(state: str) -> str:
+    return _THERMAL_STATE_LABELS.get(state, state)
+
+
+def enclosure_acoustic_state_label(state: str) -> str:
+    return _ENCLOSURE_ACOUSTIC_LABELS.get(state, state)
+
+
+def enclosure_optical_state_label(state: str) -> str:
+    return _ENCLOSURE_OPTICAL_LABELS.get(state, state)
+
+
+def serviceability_state_label(state: str) -> str:
+    return _SERVICEABILITY_LABELS.get(state, state)
+
+
+def safety_verdict_label(verdict: str) -> str:
+    return _SAFETY_VERDICT_LABELS.get(verdict, verdict)
+
+
+def spatial_uniformity_line(evaluation) -> str:
+    """One JA line for a spatial uniformity evaluation (#619): coverage
+    plus each quantity's state — 中心点だけで均一性とは読まない。"""
+    parts = [spatial_coverage_label(evaluation.coverage_state)]
+    for quantity_verdict in evaluation.quantity_verdicts:
+        parts.append(
+            f'{quantity_verdict.quantity}: '
+            f'{spatial_quantity_state_label(quantity_verdict.state)}'
+        )
+    if evaluation.unbound_observations:
+        parts.append(f'未束縛観測 {evaluation.unbound_observations} 点')
+    return '空間均一性評価: ' + ' — '.join(parts)
+
+
+def geometry_evaluation_line(evaluation) -> str:
+    """One JA line for a presentation-geometry verdict (#622): verdict,
+    physical alignment and digital correction stay separate — デジタル
+    warp で傾いたプロジェクタを「検証済」とは読まない。"""
+    parts = [
+        geometry_verdict_label(evaluation.verdict),
+        f'物理: {physical_alignment_label(evaluation.physical_alignment)}',
+        'デジタル補正: '
+        + digital_correction_state_label(evaluation.digital_correction_state),
+    ]
+    failed = [
+        quantity
+        for quantity, state in evaluation.quantity_states
+        if state == 'FAIL'
+    ]
+    if failed:
+        parts.append('不合格: ' + ' / '.join(failed))
+    if evaluation.correction_costs:
+        parts.append('補正コスト: ' + ' / '.join(evaluation.correction_costs))
+    return '幾何/マスキング評価: ' + ' — '.join(parts)
+
+
+def enclosure_qualification_line(qualification) -> str:
+    """One JA line for an enclosure qualification (#624): thermal,
+    acoustic, optical and serviceability axes — 減音だけで「適格」とは
+    読まない。"""
+    parts = [
+        enclosure_verdict_label(qualification.verdict),
+        f'熱: {thermal_state_label(qualification.thermal_state)}',
+        f'音: {enclosure_acoustic_state_label(qualification.acoustic_state)}',
+        f'光学: {enclosure_optical_state_label(qualification.optical_state)}',
+        'サービス: '
+        + serviceability_state_label(qualification.serviceability_state),
+    ]
+    return 'ハッシュボックス適格性: ' + ' — '.join(parts)
+
+
+def optical_safety_line(evaluation) -> str:
+    """One JA line for an optical-radiation safety verdict (#627): the
+    fail-closed state — IP 電源断だけでは安全とは読まない。"""
+    parts = [safety_verdict_label(evaluation.verdict)]
+    conflicts = [
+        result.get('position_id', '?')
+        for result in evaluation.zone_results
+        if isinstance(result, dict) and result.get('result') == 'conflict'
+    ]
+    if conflicts:
+        parts.append('抵触位置: ' + ' / '.join(dict.fromkeys(conflicts)))
+    if evaluation.reasons:
+        parts.append(evaluation.reasons[0])
+    return '光放射安全: ' + ' — '.join(parts)

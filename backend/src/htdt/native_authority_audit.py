@@ -871,6 +871,31 @@ class _RepositoryChain:
             )
 
             return CadPorousAbsorberRepository(scene)
+        # REV57-PROJ authorities.
+        if name == 'spatial_image':
+            from .cad_spatial_image_repository import (
+                CadSpatialImageRepository,
+            )
+
+            return CadSpatialImageRepository(scene)
+        if name == 'projection_geometry':
+            from .cad_projection_geometry_repository import (
+                CadProjectionGeometryRepository,
+            )
+
+            return CadProjectionGeometryRepository(scene)
+        if name == 'hushbox':
+            from .cad_hushbox_repository import (
+                CadHushboxRepository,
+            )
+
+            return CadHushboxRepository(scene)
+        if name == 'optical_safety':
+            from .cad_optical_safety_repository import (
+                CadOpticalSafetyRepository,
+            )
+
+            return CadOpticalSafetyRepository(scene)
         raise KeyError(name)
 
 
@@ -3810,6 +3835,112 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_pam_fit_comparisons',
         ('comparison_id',),
         _get('porous_absorber', 'get_comparison'),
+    ),
+    # REV57-PROJ: #619 spatial projection-image qualification
+    _ReplayProbe(
+        'spatial_measurement_plan',
+        'cad_spatial_measurement_plans',
+        ('plan_id',),
+        _get('spatial_image', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'spatial_measurement_set',
+        'cad_spatial_measurement_sets',
+        ('set_id',),
+        _get('spatial_image', 'get_measurement_set'),
+    ),
+    _ReplayProbe(
+        'spatial_derived_map',
+        'cad_spatial_derived_maps',
+        ('map_id',),
+        _get('spatial_image', 'get_derived_map'),
+    ),
+    _ReplayProbe(
+        'spatial_uniformity_evaluation',
+        'cad_spatial_uniformity_evaluations',
+        ('evaluation_id',),
+        _get('spatial_image', 'get_evaluation'),
+    ),
+    # REV57-PROJ: #622 projection image-geometry / masking
+    _ReplayProbe(
+        'presentation_geometry_binding',
+        'cad_presentation_geometry_bindings',
+        ('binding_id',),
+        _get('projection_geometry', 'get_binding'),
+    ),
+    _ReplayProbe(
+        'image_geometry_measurement',
+        'cad_image_geometry_measurements',
+        ('measurement_id',),
+        _get('projection_geometry', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'lens_memory_recall',
+        'cad_lens_memory_recalls',
+        ('recall_id',),
+        _get('projection_geometry', 'get_lens_recall'),
+    ),
+    _ReplayProbe(
+        'geometry_evaluation',
+        'cad_geometry_evaluations',
+        ('evaluation_id',),
+        _get('projection_geometry', 'get_evaluation'),
+    ),
+    # REV57-PROJ: #624 hush-box / enclosure co-design
+    _ReplayProbe(
+        'projector_install_constraints',
+        'cad_projector_install_constraints',
+        ('constraint_id',),
+        _get('hushbox', 'get_constraints'),
+    ),
+    _ReplayProbe(
+        'projector_enclosure_plan',
+        'cad_projector_enclosure_plans',
+        ('plan_id',),
+        _get('hushbox', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'enclosure_operating_observation',
+        'cad_enclosure_operating_observations',
+        ('observation_id',),
+        _get('hushbox', 'get_operating_observation'),
+    ),
+    _ReplayProbe(
+        'enclosure_acoustic_observation',
+        'cad_enclosure_acoustic_observations',
+        ('acoustic_id',),
+        _get('hushbox', 'get_acoustic_observation'),
+    ),
+    _ReplayProbe(
+        'enclosure_qualification',
+        'cad_enclosure_qualifications',
+        ('qualification_id',),
+        _get('hushbox', 'get_qualification'),
+    ),
+    # REV57-PROJ: #627 optical-radiation safety
+    _ReplayProbe(
+        'projector_safety_identity',
+        'cad_projector_safety_identities',
+        ('identity_id',),
+        _get('optical_safety', 'get_safety_identity'),
+    ),
+    _ReplayProbe(
+        'manufacturer_safety_constraints',
+        'cad_manufacturer_safety_constraints',
+        ('constraint_id',),
+        _get('optical_safety', 'get_safety_constraints'),
+    ),
+    _ReplayProbe(
+        'projector_placement',
+        'cad_projector_placements',
+        ('placement_id',),
+        _get('optical_safety', 'get_placement'),
+    ),
+    _ReplayProbe(
+        'optical_safety_evaluation',
+        'cad_optical_safety_evaluations',
+        ('evaluation_id',),
+        _get('optical_safety', 'get_evaluation'),
     ),
 )
 

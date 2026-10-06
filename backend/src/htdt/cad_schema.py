@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 37
+NATIVE_SCHEMA_VERSION = 38
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1431,6 +1431,22 @@ def _migrate_36_to_37(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_37_to_38(connection: sqlite3.Connection) -> None:
+    # Install the REV57-PROJ projector-domain authorities (#619 spatial
+    # projection-image qualification: spatial measurement plans, sealed
+    # measurement sets, derived maps, uniformity evaluations; #622
+    # projection image-geometry / masking: presentation geometry
+    # bindings, geometry measurements, lens-memory recall records,
+    # geometry evaluations; #624 hush-box / enclosure co-design:
+    # install constraints, enclosure plans, operating observations,
+    # acoustic observations, qualifications; #627 optical-radiation
+    # safety: safety identities, manufacturer safety constraints,
+    # placements, safety evaluations): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1469,6 +1485,7 @@ _MIGRATIONS = {
     35: _migrate_34_to_35,
     36: _migrate_35_to_36,
     37: _migrate_36_to_37,
+    38: _migrate_37_to_38,
 }
 
 
