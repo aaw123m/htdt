@@ -1269,7 +1269,7 @@ class _RepositoryChain:
             )
 
             return CadTreatmentSafetyRepository(scene)
-    raise KeyError(name)
+        raise KeyError(name)
 
 
 @dataclass(frozen=True)
