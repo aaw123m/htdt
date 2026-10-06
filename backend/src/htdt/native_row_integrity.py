@@ -8610,6 +8610,51 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #806 calibration deployment/verification loop.
+    'cad_deployment_capability_declarations': (
+        'payload_json',
+        (
+            _b('declaration_id', 'declaration_id'),
+            _b('declaration_sha256', 'declaration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('adapter_id', 'adapter_id'),
+            _b('adapter_kind', 'adapter_kind'),
+        ),
+        (),
+    ),
+    'cad_calibration_deployments': (
+        'payload_json',
+        (
+            _b('deployment_id', 'deployment_id'),
+            _b('deployment_sha256', 'deployment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_state', 'deployment_state'),
+            _b('evidence_mode', 'evidence_mode'),
+            _b('target_class', 'target_class'),
+        ),
+        (),
+    ),
+    'cad_deployment_effectiveness_reports': (
+        'payload_json',
+        (
+            _b('report_id', 'report_id'),
+            _b('report_sha256', 'report_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_deployment_rollbacks': (
+        'payload_json',
+        (
+            _b('rollback_id', 'rollback_id'),
+            _b('rollback_sha256', 'rollback_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id'),
+        ),
+        (),
+    ),
 }
 
 

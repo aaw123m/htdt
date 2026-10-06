@@ -840,6 +840,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_caption_presentation_observations": "字幕提示観測",
     "cad_audio_description_playback_observations": "音声解説再生観測",
     "cad_accessible_playback_qualifications": "アクセシブル再生検定",
+    "cad_deployment_capability_declarations": "デプロイ機能宣言",
+    "cad_calibration_deployments": "校正デプロイ",
+    "cad_deployment_effectiveness_reports": "デプロイ効果レポート",
+    "cad_deployment_rollbacks": "デプロイロールバック",
 }
 
 
