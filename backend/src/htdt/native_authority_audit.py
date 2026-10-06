@@ -1366,6 +1366,18 @@ class _RepositoryChain:
             )
 
             return CadLoudspeakerEvidenceRepository(scene)
+        if name == 'collaboration':
+            from .cad_collaboration_repository import (
+                CadCollaborationRepository,
+            )
+
+            return CadCollaborationRepository(scene)
+        if name == 'material_condition':
+            from .cad_material_condition_repository import (
+                CadMaterialConditionRepository,
+            )
+
+            return CadMaterialConditionRepository(scene)
         raise KeyError(name)
 
 
@@ -6756,6 +6768,99 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_gate_run_results',
         ('result_id',),
         _get('manifest_gates', 'get_gate_run_result'),
+    ),
+
+    # REV60-COLLABENV: #721 collaboration/approval authority
+    _ReplayProbe(
+        'collaboration_actor',
+        'cad_collaboration_actors',
+        ('actor_id',),
+        _get('collaboration', 'get_actor'),
+    ),
+    _ReplayProbe(
+        'revision_authorship',
+        'cad_revision_authorship',
+        ('authorship_id',),
+        _get('collaboration', 'get_authorship'),
+    ),
+    _ReplayProbe(
+        'information_state',
+        'cad_information_states',
+        ('state_id',),
+        _get('collaboration', 'get_information_state'),
+    ),
+    _ReplayProbe(
+        'approval_record',
+        'cad_approval_records',
+        ('approval_id',),
+        _get('collaboration', 'get_approval'),
+    ),
+    _ReplayProbe(
+        'review_decision',
+        'cad_review_decisions',
+        ('decision_id',),
+        _get('collaboration', 'get_review_decision'),
+    ),
+    _ReplayProbe(
+        'sibling_divergence',
+        'cad_sibling_divergences',
+        ('assessment_id',),
+        _get('collaboration', 'get_sibling_divergence'),
+    ),
+    _ReplayProbe(
+        'conflict_resolution',
+        'cad_conflict_resolutions',
+        ('resolution_id',),
+        _get('collaboration', 'get_conflict_resolution'),
+    ),
+    _ReplayProbe(
+        'branch_proposal',
+        'cad_branch_proposals',
+        ('proposal_id',),
+        _get('collaboration', 'get_branch_proposal'),
+    ),
+    _ReplayProbe(
+        'proposal_promotion',
+        'cad_proposal_promotions',
+        ('promotion_id',),
+        _get('collaboration', 'get_proposal_promotion'),
+    ),
+    _ReplayProbe(
+        'client_acceptance',
+        'cad_client_acceptances',
+        ('acceptance_id',),
+        _get('collaboration', 'get_client_acceptance'),
+    ),
+    _ReplayProbe(
+        'collaboration_event',
+        'cad_collaboration_events',
+        ('event_id',),
+        _get('collaboration', 'get_event'),
+    ),
+    # REV60-COLLABENV: #776 material environmental/aging applicability
+    _ReplayProbe(
+        'material_condition_state',
+        'cad_material_condition_states',
+        ('condition_id',),
+        _get('material_condition', 'get_condition_state'),
+    ),
+    _ReplayProbe(
+        'material_durability_evidence',
+        'cad_material_durability_evidence',
+        ('evidence_id',),
+        _get('material_condition', 'get_durability_evidence'),
+    ),
+    _ReplayProbe(
+        'material_evidence_applicability',
+        'cad_material_evidence_applicability',
+        ('applicability_id',),
+        _get('material_condition', 'get_applicability'),
+    ),
+    _ReplayProbe(
+        'material_reinspection',
+        'cad_material_reinspections',
+        ('assessment_id',),
+        _get('material_condition', 'get_reinspection'),
     ),
 
 )

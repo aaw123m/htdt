@@ -4918,3 +4918,48 @@ issues:
     kind: manual
     description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 721
+  title: 'P1: Multi-user collaboration / approval authority — concurrent edits, review
+    states and merges must preserve digital-twin lineage'
+  notes: 'REV60-COLLABENV: 権威記録層（参加者・作成者・情報状態・承認・分岐/競合・提案昇格・
+    クライアント受け入れ・監査イベント）を実装（docs/reviews/rev60-collabenv.md 参照）。
+    残件は実機・実利用検証のみ。
+
+    '
+  checks:
+  - id: rev60-collabenv-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_collabenv.py
+    - backend/tests/test_cad_schema.py
+    description: 'コラボレーション権威（役割/作成者/状態梯子/承認/分岐評価/昇格/監査イベント）の
+      fail-closed・封印・リポジトリ回帰証拠。
+
+      '
+  - id: rev60-collabenv-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・実利用検証（複数ユーザー編集・承認・マージの実運用）。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 776
+  title: 'P2: Acoustic-material environmental / aging applicability — humidity, moisture
+    and durability must not silently rewrite absorption truth'
+  notes: 'REV60-COLLABENV: 材質状態（試料/設置）・耐久性証拠クラス・証拠適用性評価・
+    再点検評価を実装（docs/reviews/rev60-collabenv.md 参照）。残件は実機・フィールド検証のみ。
+
+    '
+  checks:
+  - id: rev60-matenv-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_rev60_collabenv.py
+    - backend/tests/test_cad_schema.py
+    description: '材質状態記録・耐久性証拠クラス・適用性 verdict 梯子（制限/再測定/証拠不足）・
+      再点検トリガの fail-closed・封印・リポジトリ回帰証拠。
+
+      '
+  - id: rev60-matenv-physical-acceptance
+    kind: manual
+    description: 'issue 受入基準の実機・フィールド検証（実素材の湿度/劣化応答の現場測定）。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
