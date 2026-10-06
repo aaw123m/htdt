@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 67
+NATIVE_SCHEMA_VERSION = 68
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1755,7 +1755,18 @@ def _migrate_65_to_66(connection):
 
 
 
-def _migrate_66_to_67(connection: sqlite3.Connection) -> None:
+
+def _migrate_66_to_67(connection):
+    # REV59-DISPLAY3 (#660 gradation, #688 colour volume,
+    # #672 spatial resolution, #756 low-luminance, #759
+    # dynamic contrast, #760 wall boundary): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+def _migrate_67_to_68(connection: sqlite3.Connection) -> None:
     # Install the REV59-UNITS authorities (#728 typed physical
     # quantity: quantities, operations; #730 engineering-assumption /
     # permissible-use ledger: assumptions, resolutions, assessments;
@@ -1835,6 +1846,7 @@ _MIGRATIONS = {
     65: _migrate_64_to_65,
     66: _migrate_65_to_66,
     67: _migrate_66_to_67,
+    68: _migrate_67_to_68,
 }
 
 

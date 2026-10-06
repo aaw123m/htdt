@@ -7479,6 +7479,79 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_displayed_gradation_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('range_semantics', 'range_semantics'),
+            _b('banding_observed', 'banding_observed'),
+        ),
+        (),
+    ),
+    'cad_colour_volume_measurements': (
+        'payload_json',
+        (
+            _b('volume_id', 'volume_id'),
+            _b('volume_sha256', 'volume_sha256'),
+            _b('document_id', 'document_id'),
+            _b('colour_space', 'colour_space'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_spatial_resolution_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_low_luminance_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stray_light_control', 'stray_light_control'),
+        ),
+        (),
+    ),
+    'cad_dynamic_contrast_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('contrast_kind', 'contrast_kind'),
+        ),
+        (),
+    ),
+    'cad_display_wall_boundaries': (
+        'payload_json',
+        (
+            _b('boundary_id', 'boundary_id'),
+            _b('boundary_sha256', 'boundary_sha256'),
+            _b('document_id', 'document_id'),
+            _b('wall_kind', 'wall_kind'),
+            _b('acoustic_transparency_claim', 'acoustic_transparency_claim'),
+        ),
+        (),
+    ),
+    'cad_wall_acoustic_impacts': (
+        'payload_json',
+        (
+            _b('impact_id', 'impact_id'),
+            _b('impact_sha256', 'impact_sha256'),
+            _b('document_id', 'document_id'),
+            _b('boundary_ref_id', 'boundary_ref', 'ref_id'),
+        ),
+        (),
+    ),
 
     # REV59-UNITS: #728 typed physical quantity.
     'cad_typed_quantities': (

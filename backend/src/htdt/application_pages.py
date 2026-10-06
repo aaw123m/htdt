@@ -733,6 +733,13 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_material_emission_evidence": "材料放出席証拠",
     "cad_product_safety_evidence": "製品安全証拠",
     "cad_emc_compliance_evidence": "EMC適合証拠",
+    "cad_displayed_gradation_observations": "表示グラデーション観測",
+    "cad_colour_volume_measurements": "色立体積測定",
+    "cad_spatial_resolution_evidence": "空間解像証拠",
+    "cad_low_luminance_capabilities": "低輝度計測能力",
+    "cad_dynamic_contrast_measurements": "ダイナミックコントラスト測定",
+    "cad_display_wall_boundaries": "表示壁境界",
+    "cad_wall_acoustic_impacts": "壁音響影響",
 
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",
