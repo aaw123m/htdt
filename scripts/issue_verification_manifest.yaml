@@ -3357,7 +3357,7 @@ issues:
   - id: serviceability
     kind: pytest
     tests:
-    - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_is_not_serviceable
+    - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_not_serviceable
     - backend/tests/test_rev59_roomq.py::TestServiceability::test_verified
     description: Fit-vs-serviceable separation, item gating.
 - issue: 703
@@ -4161,9 +4161,9 @@ issues:
       二重補正の拒否。
 
       '
-
 - issue: 541
-  title: 'Guided video commissioning: unify measurement import, SDR/HDR diagnosis, corrective actions and before/after evidence'
+  title: 'Guided video commissioning: unify measurement import, SDR/HDR diagnosis,
+    corrective actions and before/after evidence'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4172,10 +4172,11 @@ issues:
     kind: pytest
     tests:
     - backend/tests/test_rev49_fullsweep.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: rev49-fullsweep-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 564
   title: 'P0: Prediction ↔ measurement registration and model-calibration pipeline'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
@@ -4206,17 +4207,18 @@ issues:
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev59_deps.py
     - backend/tests/test_rev59_units.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: application-pages-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 566
   title: 'P0: Quantitative acoustic validation benchmark suite and accuracy envelope'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i566
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4235,17 +4237,19 @@ issues:
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev58_measelec.py
     - backend/tests/test_rev59_bench2.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i566
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 568
-  title: 'P0: Room-correction qualification gate — regularization, headroom, spatial holdout and measured closed-loop verification'
+  title: 'P0: Room-correction qualification gate — regularization, headroom, spatial
+    holdout and measured closed-loop verification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i568
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4255,12 +4259,14 @@ issues:
     - backend/tests/test_rev55_multisub.py
     - backend/tests/test_rev55_regcal.py
     - backend/tests/test_rev59_loudspk.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i568
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 569
-  title: 'P1: Conventional multi-sub / multi-seat optimization baseline and holdout qualification'
+  title: 'P1: Conventional multi-sub / multi-seat optimization baseline and holdout
+    qualification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4272,17 +4278,19 @@ issues:
     - backend/tests/test_rev55_multisub.py
     - backend/tests/test_rev55_regcal.py
     - backend/tests/test_rev56_bassstim.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: measurement-workspace-composition-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 570
-  title: 'P0: Acoustic material evidence compatibility gate — measurement method, incidence, phase and conversion uncertainty'
+  title: 'P0: Acoustic material evidence compatibility gate — measurement method,
+    incidence, phase and conversion uncertainty'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i570
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4298,12 +4306,14 @@ issues:
     - backend/tests/test_rev55_regcal.py
     - backend/tests/test_rev57_phys.py
     - backend/tests/test_rev58_audiomodel.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i570
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 571
-  title: 'P0: Small-room acoustic metric applicability gate — modal decay vs RT/EDT below the diffuse-field region'
+  title: 'P0: Small-room acoustic metric applicability gate — modal decay vs RT/EDT
+    below the diffuse-field region'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4316,12 +4326,14 @@ issues:
     - backend/tests/test_rev55_corrqual.py
     - backend/tests/test_rev55_multisub.py
     - backend/tests/test_rev55_regcal.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: cad-schema-ddl-contract-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 574
-  title: 'P0: Bass-management and crossover qualification — main/sub phase summation, LFE routing and headroom must be first-class'
+  title: 'P0: Bass-management and crossover qualification — main/sub phase summation,
+    LFE routing and headroom must be first-class'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4332,17 +4344,19 @@ issues:
     - backend/tests/test_cad_schema.py
     - backend/tests/test_rev56_bassstim.py
     - backend/tests/test_rev56_infra.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: cad-schema-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 577
-  title: 'P0: Evidence-aware decision rule — do not rank or recommend candidates when uncertainty can reverse the conclusion'
+  title: 'P0: Evidence-aware decision rule — do not rank or recommend candidates when
+    uncertainty can reverse the conclusion'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i577
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4356,32 +4370,36 @@ issues:
     - backend/tests/test_rev56_decision.py
     - backend/tests/test_rev58_measelec.py
     - backend/tests/test_rev59_units.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i577
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 579
-  title: 'P1: CEDIA/CTA-RP22 StandardsProfile — map 21 immersive-audio performance parameters to design and commissioning evidence'
+  title: 'P1: CEDIA/CTA-RP22 StandardsProfile — map 21 immersive-audio performance
+    parameters to design and commissioning evidence'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i579
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
     - backend/tests/test_rev56_campprofile.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i579
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 581
-  title: 'P1: Spatial measurement campaign design — listening-area coverage, acoustic diversity and holdout sampling must be explicit'
+  title: 'P1: Spatial measurement campaign design — listening-area coverage, acoustic
+    diversity and holdout sampling must be explicit'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i581
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4396,12 +4414,14 @@ issues:
     - backend/tests/test_rev57_metro.py
     - backend/tests/test_rev57_mount.py
     - backend/tests/test_rev58_measchain.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i581
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 582
-  title: 'P1: End-to-end A/V latency authority — DSP filter delay, display processing and HDMI 2.2 LIP/lip-sync verification'
+  title: 'P1: End-to-end A/V latency authority — DSP filter delay, display processing
+    and HDMI 2.2 LIP/lip-sync verification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4410,123 +4430,139 @@ issues:
     kind: pytest
     tests:
     - backend/tests/test_rev56_transport.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: rev56-transport-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 583
-  title: 'P1: HDMI system design & verification — RP28 profile, EDID/HDCP/link capability and mode-by-mode field qualification'
+  title: 'P1: HDMI system design & verification — RP28 profile, EDID/HDCP/link capability
+    and mode-by-mode field qualification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: cad-schema-authority
+  - id: cad-schema-authority-i583
     kind: pytest
     tests:
     - backend/tests/test_cad_schema.py
     - backend/tests/test_rev56_infra.py
     - backend/tests/test_room_view_consistency.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: cad-schema-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: cad-schema-physical-acceptance-i583
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 585
-  title: 'P1: CEDIA RP32 commissioning profile — repeatable audio measurement and verification against RP22 design targets'
+  title: 'P1: CEDIA RP32 commissioning profile — repeatable audio measurement and
+    verification against RP22 design targets'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i585
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
     - backend/tests/test_rev56_campprofile.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i585
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 588
-  title: 'P1: Spectral-balance / target-profile authority — separate response target, listening-area uniformity and measured classification'
+  title: 'P1: Spectral-balance / target-profile authority — separate response target,
+    listening-area uniformity and measured classification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i588
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i588
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 591
-  title: 'P1: Networked AV transport qualification — bandwidth, PTP/QoS/multicast and packet-quality evidence for AoIP/AV-over-IP systems'
+  title: 'P1: Networked AV transport qualification — bandwidth, PTP/QoS/multicast
+    and packet-quality evidence for AoIP/AV-over-IP systems'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: rev56-transport-authority
+  - id: rev56-transport-authority-i591
     kind: pytest
     tests:
     - backend/tests/test_rev56_transport.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: rev56-transport-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: rev56-transport-physical-acceptance-i591
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 592
-  title: 'P0: Device configuration snapshot / restore authority — firmware, presets and backups must make commissioned state reproducible'
+  title: 'P0: Device configuration snapshot / restore authority — firmware, presets
+    and backups must make commissioned state reproducible'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i592
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
     - backend/tests/test_cad_schema.py
     - backend/tests/test_rev57_aud.py
     - backend/tests/test_rev58_dspdecay.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i592
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 593
-  title: 'P1: Amplifier–loudspeaker electrical compatibility — impedance/current, multichannel power, clipping and cable loss must bound SPL capability'
+  title: 'P1: Amplifier–loudspeaker electrical compatibility — impedance/current,
+    multichannel power, clipping and cable loss must bound SPL capability'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i593
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i593
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 595
-  title: 'P1: Post-commissioning health / drift monitoring — compare live system state against the known-good digital-twin baseline'
+  title: 'P1: Post-commissioning health / drift monitoring — compare live system state
+    against the known-good digital-twin baseline'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i595
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
     - backend/tests/test_cad_schema.py
     - backend/tests/test_rev57_mount.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i595
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 596
-  title: 'P1: Equipment substitution / change-impact authority — an “equivalent” product must requalify affected geometry, performance and interoperability'
+  title: 'P1: Equipment substitution / change-impact authority — an “equivalent” product
+    must requalify affected geometry, performance and interoperability'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i596
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4534,29 +4570,33 @@ issues:
     - backend/tests/test_rev57_aud.py
     - backend/tests/test_rev57_inst.py
     - backend/tests/test_rev57_mount.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i596
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 597
-  title: 'P1: As-built cable / port traceability — bind logical signal paths to labeled physical wiring and field verification'
+  title: 'P1: As-built cable / port traceability — bind logical signal paths to labeled
+    physical wiring and field verification'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i597
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
     - backend/tests/test_cad_schema.py
     - backend/tests/test_rev57_aud.py
     - backend/tests/test_rev57_mount.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i597
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 598
-  title: 'P1: Networked AV security authority — credentials, access, patch state and remote-service risk must be versioned separately from transport performance'
+  title: 'P1: Networked AV security authority — credentials, access, patch state and
+    remote-service risk must be versioned separately from transport performance'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4567,17 +4607,19 @@ issues:
     - backend/tests/test_rev56_ops.py
     - backend/tests/test_review_round7_docapi.py
     - backend/tests/test_round16_network.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: rev56-ops-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 599
-  title: 'P0: External standards registry / revision authority — pin exact editions, lifecycle state and profile mappings without rewriting historical evaluations'
+  title: 'P0: External standards registry / revision authority — pin exact editions,
+    lifecycle state and profile mappings without rewriting historical evaluations'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i599
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4594,45 +4636,51 @@ issues:
     - backend/tests/test_rev57_phys.py
     - backend/tests/test_rev59_codepolicy.py
     - backend/tests/test_rev59_listenexp.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i599
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 601
-  title: 'P1: Control / automation scenario qualification — verify end-to-end startup, routing, feedback, recovery and integrated-system behavior'
+  title: 'P1: Control / automation scenario qualification — verify end-to-end startup,
+    routing, feedback, recovery and integrated-system behavior'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: rev56-ops-authority
+  - id: rev56-ops-authority-i601
     kind: pytest
     tests:
     - backend/tests/test_rev56_ops.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: rev56-ops-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: rev56-ops-physical-acceptance-i601
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 602
-  title: 'P1: Safe-listening / test-exposure authority — separate system SPL capability from human exposure during playback and commissioning'
+  title: 'P1: Safe-listening / test-exposure authority — separate system SPL capability
+    from human exposure during playback and commissioning'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: rev56-ops-authority
+  - id: rev56-ops-authority-i602
     kind: pytest
     tests:
     - backend/tests/test_rev56_ops.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: rev56-ops-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: rev56-ops-physical-acceptance-i602
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 604
-  title: 'P0: Uncertainty propagation / robust design — optimize for performance that survives material, geometry, source and measurement uncertainty'
+  title: 'P0: Uncertainty propagation / robust design — optimize for performance that
+    survives material, geometry, source and measurement uncertainty'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i604
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4648,12 +4696,14 @@ issues:
     - backend/tests/test_rev59_loudspk.py
     - backend/tests/test_rev59_units.py
     - backend/tests/test_review_round6_features.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i604
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 608
-  title: 'P0: Test-stimulus / calibration-asset registry — exact sweeps, noise, speech, Music-Noise and video patterns must be immutable measurement inputs'
+  title: 'P0: Test-stimulus / calibration-asset registry — exact sweeps, noise, speech,
+    Music-Noise and video patterns must be immutable measurement inputs'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4676,17 +4726,19 @@ issues:
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev58_measelec.py
     - backend/tests/test_rev59_loudspk.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: authority-audit-coverage-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 609
-  title: 'P0: Measurement timebase / clock authority — sample-rate drift, timing reference and multi-input synchronization must be explicit'
+  title: 'P0: Measurement timebase / clock authority — sample-rate drift, timing reference
+    and multi-input synchronization must be explicit'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i609
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4706,17 +4758,19 @@ issues:
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev58_measelec.py
     - backend/tests/test_rev59_signal.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i609
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 610
-  title: 'P0: Reproducible evidence bundle / integrity manifest — bind reports to exact measurements, configs, stimuli, standards and derivation provenance'
+  title: 'P0: Reproducible evidence bundle / integrity manifest — bind reports to
+    exact measurements, configs, stimuli, standards and derivation provenance'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i610
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4730,17 +4784,19 @@ issues:
     - backend/tests/test_rev57_metro.py
     - backend/tests/test_rev57_phys.py
     - backend/tests/test_rev59_deps.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i610
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 611
-  title: 'P0: Measurement-instrument calibration lifecycle — validity interval, check history, drift and before/after verification must gate evidence'
+  title: 'P0: Measurement-instrument calibration lifecycle — validity interval, check
+    history, drift and before/after verification must gate evidence'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: application-pages-authority
+  - id: application-pages-authority-i611
     kind: pytest
     tests:
     - backend/tests/test_application_pages.py
@@ -4759,17 +4815,19 @@ issues:
     - backend/tests/test_rev58_displaymeas.py
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev59_loudspk.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: application-pages-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: application-pages-physical-acceptance-i611
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 649
-  title: 'P1: Playback dynamics / limiter authority — DRC, dialnorm, loudness compensation and protection processing must be observable measurement state'
+  title: 'P1: Playback dynamics / limiter authority — DRC, dialnorm, loudness compensation
+    and protection processing must be observable measurement state'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: authority-audit-coverage-authority
+  - id: authority-audit-coverage-authority-i649
     kind: pytest
     tests:
     - backend/tests/test_authority_audit_coverage.py
@@ -4781,17 +4839,19 @@ issues:
     - backend/tests/test_rev56_measev.py
     - backend/tests/test_rev58_ident.py
     - backend/tests/test_rev58_measelec.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: authority-audit-coverage-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: authority-audit-coverage-physical-acceptance-i649
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 651
-  title: 'P1: Gain-structure / noise-floor authority — reference levels, self-noise and clipping margin must be qualified end-to-end'
+  title: 'P1: Gain-structure / noise-floor authority — reference levels, self-noise
+    and clipping margin must be qualified end-to-end'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: authority-audit-coverage-authority
+  - id: authority-audit-coverage-authority-i651
     kind: pytest
     tests:
     - backend/tests/test_authority_audit_coverage.py
@@ -4804,12 +4864,14 @@ issues:
     - backend/tests/test_rev57_mount.py
     - backend/tests/test_rev58_measchain.py
     - backend/tests/test_rev58_measelec.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: authority-audit-coverage-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: authority-audit-coverage-physical-acceptance-i651
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 665
-  title: 'P1: Active multi-way loudspeaker crossover calibration authority — driver-way routing, filters, delay, level and polarity must be qualified before room correction'
+  title: 'P1: Active multi-way loudspeaker crossover calibration authority — driver-way
+    routing, filters, delay, level and polarity must be qualified before room correction'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
@@ -4818,36 +4880,41 @@ issues:
     kind: pytest
     tests:
     - backend/tests/test_rev58_measelec.py
-    description: '着地した権威実装の回帰証拠。'
+    description: 着地した権威実装の回帰証拠。
   - id: rev58-measelec-physical-acceptance
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 693
-  title: 'P1: Measurement-method reproducibility / inter-operator precision — repeatable sweeps must not imply a reproducible commissioning method'
+  title: 'P1: Measurement-method reproducibility / inter-operator precision — repeatable
+    sweeps must not imply a reproducible commissioning method'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: rev58-measelec-authority
+  - id: rev58-measelec-authority-i693
     kind: pytest
     tests:
     - backend/tests/test_rev58_measelec.py
     - backend/tests/test_rev59_loudspk.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: rev58-measelec-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: rev58-measelec-physical-acceptance-i693
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
 - issue: 699
-  title: 'P1: Audio-interface transfer / loopback calibration authority — mic correction must not absorb DAC/ADC path response'
+  title: 'P1: Audio-interface transfer / loopback calibration authority — mic correction
+    must not absorb DAC/ADC path response'
   notes: 'REV59-CLOSETRIAGE: 実装は main に着地済み（レビュードキュメント/コミット履歴参照）。残件は実機・フィールド検証のみ。
 
     '
   checks:
-  - id: rev58-measelec-authority
+  - id: rev58-measelec-authority-i699
     kind: pytest
     tests:
     - backend/tests/test_rev58_measelec.py
-    description: '着地した権威実装の回帰証拠。'
-  - id: rev58-measelec-physical-acceptance
+    description: 着地した権威実装の回帰証拠。
+  - id: rev58-measelec-physical-acceptance-i699
     kind: manual
-    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed, evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+    description: 'issue 受入基準の実機・フィールド検証。VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
