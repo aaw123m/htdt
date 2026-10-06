@@ -41,7 +41,12 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .managed_assets import MANAGED_ASSETS_DIRNAME, sha256_file
+from .managed_assets import (
+    MANAGED_ASSETS_DIRNAME,
+    ManagedAssetError,
+    managed_asset_path,
+    sha256_file,
+)
 from .cad_schema import connect_sqlite
 from .native_backup import DATABASE_NAME, recover_interrupted_restore
 from .persisted_data import component_for_path, relocation_carried_components
@@ -553,11 +558,16 @@ def _verify_staged_root(staged: Path) -> None:
             raise DataRelocationError(
                 f'staged database integrity check failed: {integrity!r}'
             )
-        # Re-assert the source asset contract on the staged copy: every
-        # asset row must have a copied file with the recorded digest.
-        for table, sha_column in (
-            ('cad_measurement_assets', 'sha256'),
-            ('cad_quality_calibration_files', 'sha256'),
+        # Re-assert the managed-byte contract on the staged copy: every
+        # row the authority audit binds to bytes (``_ASSET_TABLES``) must
+        # have a copied file under the staged root with the recorded
+        # digest — not only the two byte-store tables. Digest-only rows
+        # resolve to their content address; registry rows declare a
+        # ``relative_path`` resolved through the shared containment check.
+        from .native_authority_audit import _ASSET_TABLES
+
+        for table, sha_column, size_column, path_column, where in (
+            _ASSET_TABLES
         ):
             exists = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -565,23 +575,69 @@ def _verify_staged_root(staged: Path) -> None:
             ).fetchone()
             if exists is None:
                 continue
-            rows = connection.execute(
-                f'SELECT {sha_column}, relative_path, size_bytes FROM {table}'
-            ).fetchall()
-            for sha, relative_path, size_bytes in rows:
-                candidate = staged / str(relative_path)
+            for row in connection.execute(f'SELECT * FROM {table}'):
+                record = dict(row)
+                if not _staged_row_matches_asset_where(record, where):
+                    continue
+                digest = str(record[sha_column])
+                if not _SHA256_ROW_RE.match(digest):
+                    raise DataRelocationError(
+                        f'staged asset digest malformed: '
+                        f'{table}.{sha_column}={digest}'
+                    )
+                if path_column is not None and record.get(path_column):
+                    relative = str(record[path_column])
+                else:
+                    relative = f'{MANAGED_ASSETS_DIRNAME}/{digest}'
+                try:
+                    candidate = managed_asset_path(staged, relative)
+                except ManagedAssetError as exc:
+                    raise DataRelocationError(str(exc)) from exc
                 if not candidate.is_file():
                     raise DataRelocationError(
-                        f'staged asset missing: {relative_path}'
+                        f'staged asset missing: {relative}'
                     )
-                if candidate.stat().st_size != int(size_bytes):
+                if (
+                    size_column is not None
+                    and record.get(size_column) is not None
+                    and candidate.stat().st_size
+                    != int(record[size_column])
+                ):
                     raise DataRelocationError(
-                        f'staged asset size mismatch: {relative_path}'
+                        f'staged asset size mismatch: {relative}'
                     )
-                if sha256_file(candidate) != str(sha):
+                if sha256_file(candidate) != digest:
                     raise DataRelocationError(
-                        f'staged asset digest mismatch: {relative_path}'
+                        f'staged asset digest mismatch: {relative}'
                     )
+
+
+_SHA256_ROW_RE = re.compile(r'^[0-9a-f]{64}$')
+
+
+def _staged_row_matches_asset_where(
+    record: dict, where: str | None
+) -> bool:
+    """Evaluate the audit registry's row predicates on one staged row.
+
+    Supported forms mirror ``project_bundle._row_matches_asset_where``:
+    ``column='literal'`` and ``column IS NOT NULL``. Anything else fails
+    closed — an unknown predicate shape cannot silently skip coverage.
+    """
+
+    if where is None:
+        return True
+    if where.endswith(' IS NOT NULL'):
+        column = where[: -len(' IS NOT NULL')].strip()
+        return record.get(column) is not None
+    column, _eq, literal = where.partition('=')
+    column = column.strip()
+    literal = literal.strip()
+    if literal.startswith("'") and literal.endswith("'") and column:
+        return str(record.get(column)) == literal[1:-1]
+    raise DataRelocationError(
+        f'staged asset coverage predicate is not understood: {where}'
+    )
 
 
 # --------------------------------------------------------------------------
