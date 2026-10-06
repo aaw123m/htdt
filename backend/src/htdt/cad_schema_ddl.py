@@ -8062,6 +8062,38 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_electronic_audio_path_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_eapp_doc ON cad_electronic_audio_path_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_electrical_transfer_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, channel_label TEXT NOT NULL, measurement_class TEXT NOT NULL, deembedding_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_etm_doc ON cad_electrical_transfer_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_electronic_linearity_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, domain TEXT NOT NULL, observed_regime TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ele_doc ON cad_electronic_linearity_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_playback_electronics_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, qualification_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_peq_doc ON cad_playback_electronics_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9111,4 +9143,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_calibration_deployments',
     'cad_deployment_effectiveness_reports',
     'cad_deployment_rollbacks',
+    'cad_electronic_audio_path_profiles',
+    'cad_electrical_transfer_measurements',
+    'cad_electronic_linearity_evidence',
+    'cad_playback_electronics_qualifications',
 )

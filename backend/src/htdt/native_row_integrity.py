@@ -8655,6 +8655,53 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #790 playback-electronics / electrical audio-path authority.
+    'cad_electronic_audio_path_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_class', 'path_class'),
+        ),
+        (),
+    ),
+    'cad_electrical_transfer_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('channel_label', 'channel_label'),
+            _b('measurement_class', 'measurement_class'),
+            _b('deembedding_state', 'deembedding_state'),
+        ),
+        (),
+    ),
+    'cad_electronic_linearity_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('domain', 'domain'),
+            _b('observed_regime', 'observed_regime'),
+        ),
+        (),
+    ),
+    'cad_playback_electronics_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('qualification_state', 'qualification_state'),
+        ),
+        (),
+    ),
 }
 
 
