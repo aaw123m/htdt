@@ -1923,6 +1923,13 @@ class CaptureInboxPage(QWidget):
             return
         task_id = undecided[task_labels.index(choice)].task_id
         entities = context.revision.document.entities
+        if not entities:
+            warn_user(
+                self,
+                "再基準決定を記録できませんでした",
+                ValueError("対応付け先のエンティティが現在版にありません"),
+            )
+            return
         entity_labels = [
             f'{entity.entity_id} — {entity.name}（{entity.kind}）'
             for entity in entities
