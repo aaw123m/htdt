@@ -1153,6 +1153,12 @@ class _RepositoryChain:
             )
 
             return CadLutClosedLoopRepository(scene)
+        if name == 'apply_transaction':
+            from .cad_apply_transaction_repository import (
+                CadApplyTransactionRepository,
+            )
+
+            return CadApplyTransactionRepository(scene)
         raise KeyError(name)
 
 
@@ -5199,6 +5205,49 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_lut_qualifications',
         ('qualification_id',),
         _get('lut_closed_loop', 'get_qualification'),
+    ),
+    # REV59-APPLY: #723 device apply transaction / rollback
+    _ReplayProbe(
+        'apply_capability_profile',
+        'cad_apply_capability_profiles',
+        ('profile_id',),
+        _get('apply_transaction', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'apply_plan',
+        'cad_apply_plans',
+        ('plan_id',),
+        _get('apply_transaction', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'apply_write_record',
+        'cad_apply_write_records',
+        ('write_id',),
+        _get('apply_transaction', 'get_write'),
+    ),
+    _ReplayProbe(
+        'apply_verification',
+        'cad_apply_verifications',
+        ('verification_id',),
+        _get('apply_transaction', 'get_verification'),
+    ),
+    _ReplayProbe(
+        'apply_rollback_plan',
+        'cad_apply_rollback_plans',
+        ('rollback_plan_id',),
+        _get('apply_transaction', 'get_rollback_plan'),
+    ),
+    _ReplayProbe(
+        'apply_rollback_execution',
+        'cad_apply_rollback_executions',
+        ('execution_id',),
+        _get('apply_transaction', 'get_rollback_execution'),
+    ),
+    _ReplayProbe(
+        'apply_transaction',
+        'cad_apply_transactions',
+        ('transaction_id',),
+        _get('apply_transaction', 'get_transaction'),
     ),
 )
 

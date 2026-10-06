@@ -588,6 +588,13 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_lut_deployments": "LUTデプロイ記録",
     "cad_lut_post_verifications": "LUT転送後検証",
     "cad_lut_qualifications": "LUTループ適格評価",
+    "cad_apply_capability_profiles": "デバイス適用能力プロファイル",
+    "cad_apply_plans": "デバイス適用計画",
+    "cad_apply_write_records": "適用書込み記録",
+    "cad_apply_verifications": "適用後検証記録",
+    "cad_apply_rollback_plans": "ロールバック計画",
+    "cad_apply_rollback_executions": "ロールバック実行記録",
+    "cad_apply_transactions": "デバイス適用トランザクション",
 }
 
 

@@ -5806,6 +5806,90 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV59-APPLY: #723 device apply transaction / rollback
+    'cad_apply_capability_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b('capability_evidence', 'capability_evidence'),
+        ),
+        (),
+    ),
+    'cad_apply_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b('capability_ref_id', 'capability_ref', 'ref_id'),
+            _b('pre_state_evidence', 'pre_state_evidence'),
+            _b('rollback_strategy', 'rollback_strategy'),
+        ),
+        (),
+    ),
+    'cad_apply_write_records': (
+        'payload_json',
+        (
+            _b('write_id', 'write_id'),
+            _b('write_sha256', 'write_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('sequence_index', 'sequence_index'),
+            _b('write_kind', 'write_kind'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_apply_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('readback_means', 'readback_means'),
+        ),
+        (),
+    ),
+    'cad_apply_rollback_plans': (
+        'payload_json',
+        (
+            _b('rollback_plan_id', 'rollback_plan_id'),
+            _b('rollback_plan_sha256', 'rollback_plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('pre_state_evidence', 'pre_state_evidence'),
+            _b('claim', 'claim'),
+        ),
+        (),
+    ),
+    'cad_apply_rollback_executions': (
+        'payload_json',
+        (
+            _b('execution_id', 'execution_id'),
+            _b('execution_sha256', 'execution_sha256'),
+            _b('document_id', 'document_id'),
+            _b('rollback_plan_ref_id', 'rollback_plan_ref', 'ref_id'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_apply_transactions': (
+        'payload_json',
+        (
+            _b('transaction_id', 'transaction_id'),
+            _b('transaction_sha256', 'transaction_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('capability_ref_id', 'capability_ref', 'ref_id'),
+            _b('state_verdict', 'state_verdict'),
+        ),
+        (),
+    ),
 }
 
 

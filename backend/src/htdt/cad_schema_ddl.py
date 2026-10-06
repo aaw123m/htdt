@@ -5418,6 +5418,62 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_lutq_doc ON cad_lut_qualifications(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_capability_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, capability_evidence TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_apcap_doc ON cad_apply_capability_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, capability_ref_id TEXT NOT NULL, pre_state_evidence TEXT NOT NULL, rollback_strategy TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_applan_doc ON cad_apply_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_write_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, write_id TEXT NOT NULL UNIQUE, write_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, sequence_index INTEGER NOT NULL, write_kind TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_apwrite_doc ON cad_apply_write_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, readback_means TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_apver_doc ON cad_apply_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_rollback_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rollback_plan_id TEXT NOT NULL UNIQUE, rollback_plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, pre_state_evidence TEXT NOT NULL, claim TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rbplan_doc ON cad_apply_rollback_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_rollback_executions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, execution_id TEXT NOT NULL UNIQUE, execution_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rollback_plan_ref_id TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rbexec_doc ON cad_apply_rollback_executions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_apply_transactions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transaction_id TEXT NOT NULL UNIQUE, transaction_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, capability_ref_id TEXT NOT NULL, state_verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_aptxn_doc ON cad_apply_transactions(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6192,4 +6248,12 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_lut_deployments',
     'cad_lut_post_verifications',
     'cad_lut_qualifications',
+    # REV59-APPLY: #723 device apply transaction / rollback.
+    'cad_apply_capability_profiles',
+    'cad_apply_plans',
+    'cad_apply_write_records',
+    'cad_apply_verifications',
+    'cad_apply_rollback_plans',
+    'cad_apply_rollback_executions',
+    'cad_apply_transactions',
 )
