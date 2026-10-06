@@ -650,6 +650,13 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_codec_chain_profiles": "コーデックチェーンプロファイル",
     "cad_quality_method_profiles": "品質評価方式プロファイル",
     "cad_codec_fidelity_observations": "コーデック忠実度観測レコード",
+    "cad_power_sequencing_profiles": "電源シーケンスプロファイル",
+    "cad_power_sequence_events": "電源シーケンスイベント",
+    "cad_ups_transition_records": "UPS遷移記録",
+    "cad_power_quality_measurements": "電源品質測定レコード",
+    "cad_power_quality_qualifications": "電源品質適格レコード",
+    "cad_emc_product_profiles": "EMC製品プロファイル",
+    "cad_emc_symptom_records": "EMC症状記録",
 }
 
 

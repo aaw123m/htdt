@@ -6437,6 +6437,75 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('method_ref_id', 'method_ref', 'ref_id'),
         ),
         (),
+    ),    'cad_power_sequencing_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('direction', 'direction'),
+        ),
+        (),
+    ),
+    'cad_power_sequence_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_ups_transition_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('ups_device_id', 'ups_device_id'),
+            _b('transfer_observed', 'transfer_observed'),
+        ),
+        (),
+    ),
+    'cad_power_quality_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('circuit_id', 'circuit_id'),
+        ),
+        (),
+    ),
+    'cad_power_quality_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('circuit_id', 'circuit_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_emc_product_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_emc_symptom_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
     ),
 }
 
