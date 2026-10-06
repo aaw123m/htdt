@@ -3870,3 +3870,75 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_display3.py::test_wall_claim_ladder]
         description: Video device = several-m2 acoustic boundary.
+  - issue: 652
+    title: "Inter-channel panning continuity authority"
+    notes: >
+      PanningContinuityEvidence (pce-) binds timbre/level/time
+      deltas across a specific channel pair to measurement —
+      per-channel calibration does not prove inter-channel
+      continuity (per_channel_is_not_interchannel).
+    checks:
+      - id: panning-continuity
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: Per-channel ≠ inter-channel.
+  - issue: 669
+    title: "Subwoofer localization context authority"
+    notes: >
+      SubwooferLocalizationProfile (slp-) requires crossover +
+      separation + count + stimulus + distortion-leakage bound +
+      delay-alignment ref. Frequency-only thresholds rejected
+      (fixed_rule_misapplied).
+    checks:
+      - id: subwoofer-localization
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: '80 Hz rule' is not universal.
+  - issue: 657
+    title: "Group-delay audibility authority"
+    notes: >
+      GroupDelayAudibility (gda-) requires peak value AND frequency
+      AND stimulus AND threshold ref — a peak alone is not an
+      audibility verdict (peak_is_not_audibility); lower is not
+      automatically better (lower_is_not_better).
+    checks:
+      - id: groupdelay-audibility
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: Frequency/stimulus-dependent thresholds.
+  - issue: 702
+    title: "Headphone coupling qualification authority"
+    notes: >
+      HeadphoneCouplingEvidence (hpc-) requires headphone model +
+      compensation kind + fit state + filter ref. Exact BRIR render
+      ≠ eardrum signal (brir_is_not_eardrum); individualized
+      compensation needs verified placement.
+    checks:
+      - id: headphone-coupling
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: HpTF varies by listener and repeated placement.
+  - issue: 653
+    title: "Structure-borne vibration path authority"
+    notes: >
+      StructurebornePath (sbp-) declares source + mount/coupling +
+      receiving room. Airborne isolation does not cover mechanical
+      injection (airborne_is_not_structureborne). ISO 10848-1
+      flanking basis.
+    checks:
+      - id: structureborne-path
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Airborne ≠ structure-borne.
+  - issue: 664
+    title: "Actual-position spatial remapping authority"
+    notes: >
+      SpatialRemappingEvidence (srm-) declares remap mode
+      (2d/3d/automatic) + measured actual positions + reference
+      layout + phantom-landing verification. Remapping from ideal
+      layout alone fails (measured_positions_required).
+    checks:
+      - id: spatial-remapping
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Measured actual positions required.

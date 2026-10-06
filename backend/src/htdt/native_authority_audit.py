@@ -1299,6 +1299,12 @@ class _RepositoryChain:
             )
 
             return CadDisplayAuthorityRepository(scene)
+        if name == 'audio_perception':
+            from .cad_audio_perception_repository import (
+                CadAudioPerceptionRepository,
+            )
+
+            return CadAudioPerceptionRepository(scene)
         raise KeyError(name)
 
 
@@ -6303,6 +6309,42 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_wall_acoustic_impacts',
         ('impact_id',),
         _get('display_authority', 'get_wall_impact'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_panning_continuity_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_continuity_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_subwoofer_localization_profiles',
+        ('profile_id',),
+        _get('audio_perception', 'get_localization_profile'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_groupdelay_audibility',
+        ('verdict_id',),
+        _get('audio_perception', 'get_groupdelay_verdict'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_headphone_coupling_evidence',
+        ('coupling_id',),
+        _get('audio_perception', 'get_coupling_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_structureborne_paths',
+        ('path_id',),
+        _get('audio_perception', 'get_structureborne_path'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_spatial_remapping_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_remap_evidence'),
     ),
 
 )
