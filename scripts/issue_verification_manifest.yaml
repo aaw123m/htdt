@@ -3942,3 +3942,72 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
         description: Measured actual positions required.
+  - issue: 747
+    title: "Audio codec/playback fidelity authority"
+    notes: >
+      CodecFidelityEvidence (cfx-) declares media kind + codec
+      family + detected impairments + source/master ref. Decode
+      success is not fidelity (playback_is_not_fidelity);
+      lossy codec without transparency evidence fails.
+    checks:
+      - id: codec-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Playback ≠ transparency.
+  - issue: 753
+    title: "Video codec/source fidelity authority"
+    notes: >
+      Same cfx- evidence for video — negotiated format and
+      calibrated display do not prove delivered fidelity
+      (blocking/texture-loss/chroma/temporal impairments flagged).
+    checks:
+      - id: video-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Correct playback ≠ source fidelity.
+  - issue: 749
+    title: "Spectral estimator semantics authority"
+    notes: >
+      SpectralEstimatorProfile (sep-) declares record duration,
+      FFT size, window, ENBW, coherent-gain correction, leakage —
+      a dense bin grid alone is not resolving power
+      (density_is_not_resolution).
+    checks:
+      - id: spectral-estimator
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Aperture/window/ENBW pinned.
+  - issue: 670
+    title: "Playback digital clock domain authority"
+    notes: >
+      ClockDomainObservation (cdo-) declares domain kind + lock
+      state + ASRC presence — correct routing does not prove a
+      synchronized clock tree (lock_unverified / asrc_undeclared).
+    checks:
+      - id: clock-domains
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Lock and ASRC gated.
+  - issue: 765
+    title: "Conflicting external fact preservation"
+    notes: >
+      ExternalFactClaim (efc-) keeps each source claim immutable
+      with provenance + applicability; FactConflictResolution
+      (fcr-) resolves by recency/scope/hierarchy preserving both
+      sides — never silent overwrite.
+    checks:
+      - id: fact-preservation
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: Contradictions preserved, not overwritten.
+  - issue: 667
+    title: "BOM / commercial estimate authority"
+    notes: >
+      BomEstimate (bom-) derives versioned line items from the
+      engineered-system ref; priced lines require a supplier
+      source — commercial data stays separate from technical truth.
+    checks:
+      - id: bom-estimate
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: BOM bound to engineering; pricing separate.

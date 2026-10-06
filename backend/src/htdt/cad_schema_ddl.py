@@ -7050,6 +7050,88 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_spatial_remapping_evidence_document_idx ON cad_spatial_remapping_evidence (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_codec_fidelity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    media_kind TEXT NOT NULL,
+    codec_family TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fft_spectral_estimator_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    window_kind TEXT NOT NULL,
+    enbw_bins REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_clock_domain_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    domain_kind TEXT NOT NULL,
+    lock_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_external_fact_claims (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_id TEXT NOT NULL UNIQUE,
+    claim_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    published_on TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fact_conflict_resolutions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    resolution_id TEXT NOT NULL UNIQUE,
+    resolution_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    resolution_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_bom_estimates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id TEXT NOT NULL UNIQUE,
+    estimate_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    bom_version TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_codec_fidelity_evidence_document_idx ON cad_codec_fidelity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fft_spectral_estimator_profiles_document_idx ON cad_fft_spectral_estimator_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_clock_domain_observations_document_idx ON cad_clock_domain_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_external_fact_claims_document_idx ON cad_external_fact_claims (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fact_conflict_resolutions_document_idx ON cad_fact_conflict_resolutions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_bom_estimates_document_idx ON cad_bom_estimates (document_id)
+    """
+    ,
 )
 
 
@@ -8001,4 +8083,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_headphone_coupling_evidence',
     'cad_structureborne_paths',
     'cad_spatial_remapping_evidence',
+    'cad_codec_fidelity_evidence',
+    'cad_fft_spectral_estimator_profiles',
+    'cad_clock_domain_observations',
+    'cad_external_fact_claims',
+    'cad_fact_conflict_resolutions',
+    'cad_bom_estimates',
 )

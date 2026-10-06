@@ -7617,6 +7617,70 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_codec_fidelity_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('media_kind', 'media_kind'),
+            _b('codec_family', 'codec_family'),
+        ),
+        (),
+    ),
+    'cad_fft_spectral_estimator_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('window_kind', 'window_kind'),
+            _b('enbw_bins', 'enbw_bins'),
+        ),
+        (),
+    ),
+    'cad_clock_domain_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('domain_kind', 'domain_kind'),
+            _b('lock_state', 'lock_state'),
+        ),
+        (),
+    ),
+    'cad_external_fact_claims': (
+        'payload_json',
+        (
+            _b('claim_id', 'claim_id'),
+            _b('claim_sha256', 'claim_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject', 'subject'),
+            _b('published_on', 'published_on'),
+        ),
+        (),
+    ),
+    'cad_fact_conflict_resolutions': (
+        'payload_json',
+        (
+            _b('resolution_id', 'resolution_id'),
+            _b('resolution_sha256', 'resolution_sha256'),
+            _b('document_id', 'document_id'),
+            _b('resolution_kind', 'resolution_kind'),
+        ),
+        (),
+    ),
+    'cad_bom_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bom_version', 'bom_version'),
+        ),
+        (),
+    ),
 
 }
 

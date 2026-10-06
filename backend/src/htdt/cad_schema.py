@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 68
+NATIVE_SCHEMA_VERSION = 69
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1777,6 +1777,17 @@ def _migrate_67_to_68(connection):
         connection.execute(statement)
 
 
+
+
+def _migrate_68_to_69(connection):
+    # REV59-SIGNAL (#747/#753 codec fidelity, #749 spectral
+    # estimator, #670 clock domains, #765 fact claims,
+    # #667 BOM): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1846,6 +1857,7 @@ _MIGRATIONS = {
     66: _migrate_65_to_66,
     67: _migrate_66_to_67,
     68: _migrate_67_to_68,
+    69: _migrate_68_to_69,
 }
 
 
