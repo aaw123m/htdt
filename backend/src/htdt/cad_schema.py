@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 47
+NATIVE_SCHEMA_VERSION = 48
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1564,6 +1564,21 @@ def _migrate_46_to_47(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_47_to_48(connection: sqlite3.Connection) -> None:
+    # Install the REV58-VALIDMETH authorities (#675 optimizer
+    # algorithm qualification: problems, run profiles,
+    # qualifications, Pareto assessments; #674 acoustic eigenmode
+    # validation: mode pairings, verdicts; #673 sound-field
+    # diffuseness applicability: assessments, declarations; #671
+    # coupled-room multi-slope decay: fits, adequacy gates,
+    # qualifications; #677 predicted↔measured early-reflection
+    # correspondence: pairings, sets, verdicts; #706 time-frequency
+    # modal decay: observations, qualifications): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1612,6 +1627,7 @@ _MIGRATIONS = {
     45: _migrate_44_to_45,
     46: _migrate_45_to_46,
     47: _migrate_46_to_47,
+    48: _migrate_47_to_48,
 }
 
 

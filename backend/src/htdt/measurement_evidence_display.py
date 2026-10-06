@@ -3247,3 +3247,367 @@ def validation_claim_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '検証主張適格: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV58-VALIDMETH: 最適化適格 (#675)・固有モード検証 (#674)・拡散場適用性
+# (#673)・結合室マルチスロープ (#671)・初期反射対応 (#677)・時周波モーダル
+# 減衰 (#706)
+
+_OPT_QUAL_STATE_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '限定付き適格',
+    'insufficient_evidence': '証拠不足',
+    'not_qualified': '不適格',
+}
+
+_OPTIMALITY_CLAIM_LABELS = {
+    'best_found_under_budget': '予算内最良候補',
+    'global_optimum_proven': '大域最適証明',
+}
+
+_PARETO_ASSESS_STATE_LABELS = {
+    'assessed_against_reference': '参照フロント比較評価',
+    'assessed_empirical_only': '経験的評価のみ',
+    'assessed_with_limitations': '限定付き評価',
+    'insufficient_evidence': '証拠不足',
+}
+
+_EIGENMODE_STATE_LABELS = {
+    'eigenmode_validated': '固有モード検証済',
+    'eigenmode_validated_with_limitations': '限定付き検証',
+    'frequency_only_match_insufficient': '周波数一致のみ・不十分',
+    'frequency_mismatch': '周波数不一致',
+    'shape_mismatch': '形状不一致',
+    'damping_mismatch': '減衰不一致',
+    'pairing_ambiguous': '対応付け曖昧',
+    'insufficient_evidence': '証拠不足',
+}
+
+_AGREEMENT_LABELS = {
+    'agree': '一致',
+    'disagree': '不一致',
+    'not_evaluated': '未評価',
+    'subspace_evaluated': '部分空間評価',
+}
+
+_DIFFUSENESS_ELIGIBILITY_LABELS = {
+    'eligible_within_declared_domain': '宣言領域内で適格',
+    'eligible_with_limitations': '限定付き適格',
+    'non_diffuse_field': '非拡散場',
+    'spatially_nonuniform': '空間的不均一',
+    'directionally_biased': '方向性偏り',
+    'transition_region': '遷移領域',
+    'insufficient_evidence': '証拠不足',
+    'estimator_incompatible': '推定器不適合',
+}
+
+_APPLICABILITY_STATE_LABELS = {
+    'applicable_within_domain': '領域内で適用可',
+    'applicable_with_limitations': '限定付き適用可',
+    'not_applicable': '適用不可',
+    'insufficient_evidence': '証拠不足',
+}
+
+_APPLICABILITY_BASIS_LABELS = {
+    'direct_measured_diffuseness_evaluation': '実測拡散場評価',
+    'model_derived_diffuseness_estimate': 'モデル由来推定',
+    'theory_assumption_and_limits': '理論仮定+限界',
+    'partial_evidence_heuristic': '部分証拠ヒューリスティック',
+    'unsupported': '支持なし',
+}
+
+_DECAY_BEHAVIOR_LABELS = {
+    'single_exponential_decay': '単一指数減衰',
+    'coupled_volume_double_slope': '結合室二重スロープ',
+    'coupled_volume_multi_slope': '結合室マルチスロープ',
+    'low_frequency_modal_multi_slope': '低域モーダルマルチスロープ',
+    'mixed_ambiguous': '混在・曖昧',
+    'noise_floor_artifact': 'ノイズフロア artifact',
+    'insufficient_evidence': '証拠不足',
+}
+
+_SINGLE_SLOPE_ADEQUACY_LABELS = {
+    'single_slope_adequate': '単一スロープ適切',
+    'multi_slope_supported': 'マルチスロープ支持',
+    'multi_slope_suspected': 'マルチスロープ疑い',
+    'insufficient_range': 'レンジ不足',
+    'noise_limited': '雑音制限',
+    'indeterminate': '判定不能',
+}
+
+_CPL_QUAL_STATE_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '限定付き適格',
+    'single_slope_collapse_rejected': '単一RT潰し却下',
+    'insufficient_evidence': '証拠不足',
+    'not_evaluated': '未評価',
+}
+
+_CORRESPONDENCE_STATE_LABELS = {
+    'one_to_one': '一対一',
+    'many_to_one': '多対一',
+    'one_to_many': '一対多',
+    'unresolved_cluster': '未解決クラスタ',
+    'unmatched_predicted': '未対応・予測側',
+    'unmatched_observed': '未対応・観測側',
+    'ambiguous': '曖昧',
+    'outside_observation_capability': '観測能力外',
+}
+
+_RFX_VERDICT_STATE_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '限定付き適格',
+    'insufficient_evidence': '証拠不足',
+    'registration_prerequisite_missing': '位置合わせ前提不足',
+    'ambiguous_unresolved': '曖昧未解決',
+    'calibration_only_no_independent_validation': '校正専用・独立検証なし',
+}
+
+_OVERLAP_STATE_LABELS = {
+    'isolated_mode': '孤立モード',
+    'partially_overlapped': '部分重畳',
+    'unresolved_multiple_modes': '複数モード未分離',
+    'ridge_crossing_ambiguous': 'リッジ交叉曖昧',
+    'insufficient_frequency_resolution': '周波数分解能不足',
+}
+
+_MDT_QUAL_STATE_LABELS = {
+    'qualified': '適格',
+    'qualified_with_limitations': '限定付き適格',
+    'insufficient_evidence': '証拠不足',
+    'transform_incompatible': '変換不適合',
+    'overlap_unresolved': '重畳未解決',
+    'noise_or_truncation_limited': '雑音/切断制限',
+}
+
+
+def optimizer_qualification_state_label(state: str) -> str:
+    return _OPT_QUAL_STATE_LABELS.get(state, state)
+
+
+def eigenmode_validation_state_label(state: str) -> str:
+    return _EIGENMODE_STATE_LABELS.get(state, state)
+
+
+def diffuseness_eligibility_label(state: str) -> str:
+    return _DIFFUSENESS_ELIGIBILITY_LABELS.get(state, state)
+
+
+def applicability_state_label(state: str) -> str:
+    return _APPLICABILITY_STATE_LABELS.get(state, state)
+
+
+def decay_behavior_label(state: str) -> str:
+    return _DECAY_BEHAVIOR_LABELS.get(state, state)
+
+
+def single_slope_adequacy_label(state: str) -> str:
+    return _SINGLE_SLOPE_ADEQUACY_LABELS.get(state, state)
+
+
+def correspondence_state_label(state: str) -> str:
+    return _CORRESPONDENCE_STATE_LABELS.get(state, state)
+
+
+def modal_decay_state_label(state: str) -> str:
+    return _MDT_QUAL_STATE_LABELS.get(state, state)
+
+
+def optimizer_qualification_line(qualification) -> str:
+    """One JA line for an optimizer-run qualification (#675): verdict
+    plus optimality claim, run count and budget honesty — 未ベンチの
+    「最適」は読まない。"""
+    parts = [
+        optimizer_qualification_state_label(qualification.state)
+    ]
+    parts.append(
+        '主張: '
+        + _OPTIMALITY_CLAIM_LABELS.get(
+            qualification.optimality_claim,
+            qualification.optimality_claim,
+        )
+    )
+    parts.append('独立実行×{0}'.format(qualification.run_count))
+    if qualification.baselines_compared is False:
+        parts.append('ベースライン比較なし')
+    if qualification.known_optimum_recovered is False:
+        parts.append('既知最適未回収')
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '最適化適格: ' + ' — '.join(parts)
+
+
+def pareto_assessment_line(assessment) -> str:
+    """One JA line for a Pareto-approximation assessment (#675): state
+    plus reference-front status and indicator coverage — 参照フロント
+    なしの「収束」は絶対評価ではない。"""
+    parts = [
+        _PARETO_ASSESS_STATE_LABELS.get(
+            assessment.state, assessment.state
+        )
+    ]
+    parts.append(
+        '参照: '
+        + {
+            'exact_reference_front': '厳密フロント',
+            'exhaustive_discrete_front': '列挙離散フロント',
+            'best_known_aggregate_front': '最良合成フロント',
+            'no_reference_front': '参照フロントなし',
+        }.get(assessment.reference_status, assessment.reference_status)
+    )
+    if assessment.convergence_indicators:
+        parts.append(
+            '収束指標×{0}'.format(len(assessment.convergence_indicators))
+        )
+    if assessment.diversity_indicators:
+        parts.append(
+            '多様性指標×{0}'.format(len(assessment.diversity_indicators))
+        )
+    if assessment.reasons:
+        parts.append(assessment.reasons[0])
+    return 'Pareto近似評価: ' + ' — '.join(parts)
+
+
+def eigenmode_verdict_line(verdict) -> str:
+    """One JA line for an eigenmode-validation verdict (#674): state
+    plus the three separate modal observables — 周波数一致だけでは
+    モード検証と読まない。"""
+    parts = [eigenmode_validation_state_label(verdict.state)]
+    parts.append(
+        '周波数='
+        + _AGREEMENT_LABELS.get(
+            verdict.frequency_agreement, verdict.frequency_agreement
+        )
+        + ' / 形状='
+        + _AGREEMENT_LABELS.get(
+            verdict.shape_agreement, verdict.shape_agreement
+        )
+        + ' / 減衰='
+        + _AGREEMENT_LABELS.get(
+            verdict.damping_agreement, verdict.damping_agreement
+        )
+    )
+    if verdict.calibration_contaminated:
+        parts.append('校正混入')
+    if verdict.reasons:
+        parts.append(verdict.reasons[0])
+    return '固有モード検証: ' + ' — '.join(parts)
+
+
+def diffuseness_assessment_line(assessment) -> str:
+    """One JA line for a diffuseness assessment (#673): eligibility
+    state plus estimator/property coverage — RT や表面散乱から拡散場を
+    推測しない。"""
+    parts = [
+        diffuseness_eligibility_label(assessment.eligibility_state)
+    ]
+    if assessment.estimator_profiles:
+        parts.append(
+            '推定器×{0}'.format(len(assessment.estimator_profiles))
+        )
+    if assessment.covered_properties:
+        parts.append(
+            '対象性質×{0}'.format(len(assessment.covered_properties))
+        )
+    if assessment.known_conflicts:
+        parts.append('推定器間競合あり')
+    if assessment.limitations:
+        parts.append(assessment.limitations[0])
+    return '拡散場評価: ' + ' — '.join(parts)
+
+
+def statistical_applicability_line(declaration) -> str:
+    """One JA line for a statistical-model applicability declaration
+    (#673): applicability plus its basis — 理論仮定は場の証拠ではない。"""
+    parts = [
+        applicability_state_label(declaration.state),
+        '根拠: '
+        + _APPLICABILITY_BASIS_LABELS.get(
+            declaration.basis, declaration.basis
+        ),
+    ]
+    if declaration.needed_properties:
+        parts.append(
+            '要性質×{0}'.format(len(declaration.needed_properties))
+        )
+    if declaration.reasons:
+        parts.append(declaration.reasons[0])
+    return '統計モデル適用性: ' + ' — '.join(parts)
+
+
+def single_slope_adequacy_line(assessment) -> str:
+    """One JA line for a single-slope adequacy gate (#671): gate state
+    plus dynamic range — 潰していい減衰と潰してはいけない減衰を分ける。"""
+    parts = [
+        single_slope_adequacy_label(assessment.adequacy_state)
+    ]
+    if assessment.dynamic_range_db is not None:
+        parts.append('レンジ {0:.0f} dB'.format(
+            assessment.dynamic_range_db
+        ))
+    if assessment.noise_floor_limited:
+        parts.append('雑音フロア制限')
+    if assessment.reasons:
+        parts.append(assessment.reasons[0])
+    return '単一スロープ適性: ' + ' — '.join(parts)
+
+
+def coupled_decay_line(qualification) -> str:
+    """One JA line for a coupled-decay qualification (#671): behavior
+    plus qualification state — 結合室を一つの RT に潰さない。"""
+    parts = [
+        _CPL_QUAL_STATE_LABELS.get(
+            qualification.state, qualification.state
+        ),
+        '挙動: '
+        + decay_behavior_label(qualification.behavior_state),
+    ]
+    if qualification.multi_slope_fit_refs:
+        parts.append(
+            'マルチスロープフィット×{0}'.format(
+                len(qualification.multi_slope_fit_refs)
+            )
+        )
+    if qualification.limitations:
+        parts.append(qualification.limitations[0])
+    return '結合室減衰適格: ' + ' — '.join(parts)
+
+
+def reflection_correspondence_verdict_line(verdict) -> str:
+    """One JA line for a reflection-correspondence verdict (#677):
+    state plus match/ambiguity counts — 最近傍 ETC ピークで壁を校正
+    しない。"""
+    parts = [
+        _RFX_VERDICT_STATE_LABELS.get(verdict.state, verdict.state)
+    ]
+    parts.append('対応×{0}'.format(verdict.matched_pair_count))
+    if verdict.ambiguous_pair_count:
+        parts.append('曖昧×{0}'.format(verdict.ambiguous_pair_count))
+    if verdict.unmatched_predicted_count:
+        parts.append(
+            '未対応予測×{0}'.format(verdict.unmatched_predicted_count)
+        )
+    if verdict.unmatched_observed_count:
+        parts.append(
+            '未対応観測×{0}'.format(verdict.unmatched_observed_count)
+        )
+    if verdict.reasons:
+        parts.append(verdict.reasons[0])
+    return '初期反射対応: ' + ' — '.join(parts)
+
+
+def modal_decay_qualification_line(qualification) -> str:
+    """One JA line for a modal-decay qualification (#706): state plus
+    trustworthiness — waterfall の見えは真理ではない。"""
+    parts = [
+        modal_decay_state_label(qualification.state),
+        (
+            '減衰値は信頼可'
+            if qualification.decay_trustworthy
+            else '減衰値は信頼不可'
+        ),
+    ]
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '時周波モーダル減衰: ' + ' — '.join(parts)

@@ -1085,6 +1085,43 @@ class _RepositoryChain:
             )
 
             return CadValidationStatisticsRepository(scene)
+        # REV58-VALIDMETH authorities.
+        if name == 'optimizer_qualification':
+            from .cad_optimizer_qualification_repository import (
+                CadOptimizerQualificationRepository,
+            )
+
+            return CadOptimizerQualificationRepository(scene)
+        if name == 'eigenmode_validation':
+            from .cad_eigenmode_validation_repository import (
+                CadEigenmodeValidationRepository,
+            )
+
+            return CadEigenmodeValidationRepository(scene)
+        if name == 'diffuseness_applicability':
+            from .cad_diffuseness_applicability_repository import (
+                CadDiffusenessApplicabilityRepository,
+            )
+
+            return CadDiffusenessApplicabilityRepository(scene)
+        if name == 'coupled_decay':
+            from .cad_coupled_decay_repository import (
+                CadCoupledDecayRepository,
+            )
+
+            return CadCoupledDecayRepository(scene)
+        if name == 'reflection_correspondence':
+            from .cad_reflection_correspondence_repository import (
+                CadReflectionCorrespondenceRepository,
+            )
+
+            return CadReflectionCorrespondenceRepository(scene)
+        if name == 'modal_decay_view':
+            from .cad_modal_decay_view_repository import (
+                CadModalDecayViewRepository,
+            )
+
+            return CadModalDecayViewRepository(scene)
         raise KeyError(name)
 
 
@@ -4868,6 +4905,108 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_challenge_qualifications',
         ('qualification_id',),
         _get('validation_statistics', 'get_qualification'),
+    ),
+    # REV58-VALIDMETH: #675 optimizer algorithm qualification
+    _ReplayProbe(
+        'optimization_problem',
+        'cad_optimization_problems',
+        ('problem_id',),
+        _get('optimizer_qualification', 'get_problem'),
+    ),
+    _ReplayProbe(
+        'optimizer_run_profile',
+        'cad_optimizer_run_profiles',
+        ('profile_id',),
+        _get('optimizer_qualification', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'optimizer_qualification',
+        'cad_optimizer_qualifications',
+        ('qualification_id',),
+        _get('optimizer_qualification', 'get_qualification'),
+    ),
+    _ReplayProbe(
+        'pareto_assessment',
+        'cad_pareto_assessments',
+        ('assessment_id',),
+        _get('optimizer_qualification', 'get_pareto_assessment'),
+    ),
+    # REV58-VALIDMETH: #674 acoustic eigenmode validation
+    _ReplayProbe(
+        'mode_pairing',
+        'cad_mode_pairings',
+        ('pairing_id',),
+        _get('eigenmode_validation', 'get_pairing'),
+    ),
+    _ReplayProbe(
+        'eigenmode_verdict',
+        'cad_eigenmode_verdicts',
+        ('verdict_id',),
+        _get('eigenmode_validation', 'get_verdict'),
+    ),
+    # REV58-VALIDMETH: #673 sound-field diffuseness applicability
+    _ReplayProbe(
+        'diffuseness_assessment',
+        'cad_diffuseness_assessments',
+        ('assessment_id',),
+        _get('diffuseness_applicability', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'statistical_applicability_declaration',
+        'cad_statistical_applicability_declarations',
+        ('declaration_id',),
+        _get('diffuseness_applicability', 'get_declaration'),
+    ),
+    # REV58-VALIDMETH: #671 coupled-room multi-slope decay
+    _ReplayProbe(
+        'multi_slope_fit',
+        'cad_multi_slope_fits',
+        ('fit_id',),
+        _get('coupled_decay', 'get_fit'),
+    ),
+    _ReplayProbe(
+        'single_slope_assessment',
+        'cad_single_slope_assessments',
+        ('assessment_id',),
+        _get('coupled_decay', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'coupled_decay_qualification',
+        'cad_coupled_decay_qualifications',
+        ('qualification_id',),
+        _get('coupled_decay', 'get_qualification'),
+    ),
+    # REV58-VALIDMETH: #677 early-reflection correspondence
+    _ReplayProbe(
+        'reflection_pairing',
+        'cad_reflection_pairings',
+        ('pairing_id',),
+        _get('reflection_correspondence', 'get_pairing'),
+    ),
+    _ReplayProbe(
+        'reflection_correspondence_set',
+        'cad_reflection_correspondence_sets',
+        ('set_id',),
+        _get('reflection_correspondence', 'get_set'),
+    ),
+    _ReplayProbe(
+        'reflection_correspondence_verdict',
+        'cad_reflection_correspondence_verdicts',
+        ('verdict_id',),
+        _get('reflection_correspondence', 'get_verdict'),
+    ),
+    # REV58-VALIDMETH: #706 time-frequency modal decay
+    _ReplayProbe(
+        'modal_decay_observation',
+        'cad_modal_decay_observations',
+        ('observation_id',),
+        _get('modal_decay_view', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'modal_decay_qualification',
+        'cad_modal_decay_qualifications',
+        ('qualification_id',),
+        _get('modal_decay_view', 'get_qualification'),
     ),
 )
 
