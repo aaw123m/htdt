@@ -3611,3 +3611,466 @@ def modal_decay_qualification_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '時周波モーダル減衰: ' + ' — '.join(parts)
+# REV58-DISPLAYMEAS (#682/#680/#686/#647/#666): pattern-generator fidelity,
+# probe matching, display additivity, temporal behaviour, LUT closed loop.
+
+from .cad_pattern_generator_fidelity import (  # noqa: E402
+    REASON_LABELS as _PG_REASON_LABELS,
+    GeneratorFidelityQualification,
+    PatchQualification,
+    PATCH_VERDICT_LABELS as _PG_PATCH_LABELS,
+    VERDICT_LABELS as _PG_VERDICT_LABELS,
+)
+from .cad_meter_match import (  # noqa: E402
+    APPLICABILITY_LABELS as _MM_VERDICT_LABELS,
+    MeterCorrectionApplicability,
+    REASON_LABELS as _MM_REASON_LABELS,
+)
+from .cad_display_additivity import (  # noqa: E402
+    CalibrationModelEligibility,
+    MODEL_FAMILY_LABELS as _DA_MODEL_LABELS,
+    REASON_LABELS as _DA_REASON_LABELS,
+    VERDICT_LABELS as _DA_VERDICT_LABELS,
+)
+from .cad_temporal_display import (  # noqa: E402
+    CLAIM_KIND_LABELS as _TD_CLAIM_KIND_LABELS,
+    TemporalDisplayQualification,
+    VERDICT_LABELS as _TD_VERDICT_LABELS,
+)
+from .cad_lut_closed_loop import (  # noqa: E402
+    REASON_LABELS as _LUT_REASON_LABELS,
+    LUTLoopQualification,
+    VERDICT_LABELS as _LUT_VERDICT_LABELS,
+)
+from .cad_apply_transaction import (  # noqa: E402
+    CLAIM_LABELS as _APPLY_CLAIM_LABELS,
+    DeviceApplyTransaction,
+    STATE_VERDICT_LABELS as _APPLY_STATE_LABELS,
+)
+from .cad_fractional_octave import (  # noqa: E402
+    BAND_VERDICT_LABELS as _BAND_VERDICT_LABELS,
+    FractionalOctaveProfile,
+)
+from .cad_mixing_time import (  # noqa: E402
+    HANDOFF_LABELS as _HANDOFF_LABELS,
+)
+from .cad_field_interpolation import (  # noqa: E402
+    FIELD_VERDICT_LABELS as _FIELD_VERDICT_LABELS,
+    FieldSurfaceRecord,
+)
+from .cad_compute_budget import (  # noqa: E402
+    FIDELITY_CLAIM_LABELS as _FCLAIM_LABELS,
+    SolverBudgetProfile,
+)
+
+
+def generator_fidelity_line(qualification: GeneratorFidelityQualification) -> str:
+    """One JA line for a generator-fidelity qualification (#682):
+    verdict plus patch coverage — 未観測パッチは届いたとは読まない。"""
+    parts = [_PG_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    parts.append(
+        '検証済パッチ {0}/{1}'.format(
+            qualification.observed_patch_count,
+            qualification.requested_patch_count,
+        )
+    )
+    if qualification.reasons:
+        parts.append(
+            _PG_REASON_LABELS.get(
+                qualification.reasons[0], qualification.reasons[0])
+        )
+    return 'ジェネレータ忠実度適格: ' + ' — '.join(parts)
+
+
+def patch_delivery_line(qualification: PatchQualification) -> str:
+    """One JA line for a single patch delivery (#682)."""
+    parts = [_PG_PATCH_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    if qualification.mismatches:
+        parts.append(qualification.mismatches[0].kind)
+    return 'パッチ送出: ' + ' — '.join(parts)
+
+
+def meter_correction_line(
+    applicability: MeterCorrectionApplicability,
+) -> str:
+    """One JA line for meter-correction applicability (#680) —
+    ユニット/表示状態が違えば補正は適用不可。"""
+    parts = [_MM_VERDICT_LABELS.get(
+        applicability.verdict, applicability.verdict)]
+    if applicability.reasons:
+        parts.append(
+            _MM_REASON_LABELS.get(
+                applicability.reasons[0], applicability.reasons[0])
+        )
+    return '計測器補正適用可否: ' + ' — '.join(parts)
+
+
+def calibration_model_line(
+    eligibility: CalibrationModelEligibility,
+) -> str:
+    """One JA line for calibration-model eligibility (#686) —
+    加法性・分離・立体特性・ホールドアウトのゲート結果。"""
+    parts = [_DA_VERDICT_LABELS.get(
+        eligibility.verdict, eligibility.verdict)]
+    parts.append('モデル: {0}'.format(
+            _DA_MODEL_LABELS.get(
+                eligibility.model_family,
+                eligibility.model_family,
+            )
+        ))
+    if eligibility.reasons:
+        parts.append(
+            _DA_REASON_LABELS.get(
+                eligibility.reasons[0], eligibility.reasons[0])
+        )
+    return '校正モデル適格: ' + ' — '.join(parts)
+
+
+def temporal_display_line(
+    qualification: TemporalDisplayQualification,
+) -> str:
+    """One JA line for temporal qualification (#647) — クレーム毎の
+    判定のみ、リフレッシュレート表示は応答速度を意味しない。"""
+    verified = sum(
+        1
+        for v in qualification.claim_verdicts
+        if v.verdict == 'verified'
+    )
+    failed = sum(
+        1
+        for v in qualification.claim_verdicts
+        if v.verdict == 'contradicted'
+    )
+    parts = [
+        '検証 {0} / 反証 {1} / 要求 {2}'.format(
+            verified, failed, len(qualification.claim_verdicts))
+    ]
+    first = next(
+        (
+            v for v in qualification.claim_verdicts
+            if v.verdict != 'verified'
+        ),
+        None,
+    )
+    if first is not None:
+        parts.append(
+            '{0}: {1}'.format(
+                _TD_CLAIM_KIND_LABELS.get(first.kind, first.kind),
+                _TD_VERDICT_LABELS.get(first.verdict, first.verdict),
+            )
+        )
+    return '時間応答適格: ' + ' — '.join(parts)
+
+
+def lut_loop_line(qualification: LUTLoopQualification) -> str:
+    """One JA line for a LUT closed-loop qualification (#666) —
+    生成→転送前→書込→読戻→転送後の各段を個別に扱う。"""
+    parts = [_LUT_VERDICT_LABELS.get(
+        qualification.verdict, qualification.verdict)]
+    if qualification.reasons:
+        parts.append(
+            _LUT_REASON_LABELS.get(
+                qualification.reasons[0], qualification.reasons[0])
+        )
+    return 'LUTループ適格: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV58-MEASELEC (#699 / #651 / #649 / #665 / #693)
+# ---------------------------------------------------------------------------
+
+_IFC_CORRECTION_STATE_LABELS = {
+    'correction_applied': '補正適用可',
+    'correction_applied_with_limitations': '限定付補正適用可',
+    'correction_not_required': '補正不要',
+    'correction_missing': '補正欠如',
+    'correction_ineligible': '補正不適格',
+}
+
+_IFC_CAPABILITY_LABELS = {
+    'magnitude_correction_valid': '振幅補正',
+    'phase_correction_valid': '位相補正',
+    'absolute_gain_valid': '絶対ゲイン',
+    'latency_correction_valid': '遅延補正',
+    'component_truth_valid': '単側真値',
+    'calibration_linearity_evidenced': '校正線形性',
+}
+
+
+def interface_correction_state_label(state: str) -> str:
+    return _IFC_CORRECTION_STATE_LABELS.get(state, state)
+
+
+def interface_correction_line(qualification) -> str:
+    """One JA line for an interface-correction qualification (#699):
+    verdict plus path mismatches — 結合ループバックをDAC/ADC片側真値
+    とは読まない。"""
+    parts = [
+        interface_correction_state_label(qualification.state),
+        'SR: ' + str(qualification.sample_rate_applicability),
+    ]
+    if qualification.path_mismatches:
+        parts.append(
+            '経路不一致×{0}'.format(len(qualification.path_mismatches))
+        )
+    degraded = [
+        _IFC_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'I/F補正適格: ' + ' — '.join(parts)
+
+
+_GNS_STATE_LABELS = {
+    'gain_structure_qualified': '適格',
+    'qualified_with_limitations': '限定付適格',
+    'noise_floor_unattributed': 'ノイズ床未帰属',
+    'clip_stage_unresolved': 'クリップ段未同定',
+    'measurement_floor_limited': '測定器床支配',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_GNS_CAPABILITY_LABELS = {
+    'level_mapping_valid': 'レベル写像',
+    'noise_floor_attributed': 'ノイズ床帰属',
+    'snr_semantics_valid': 'SNR意味論',
+    'clip_stage_localized': 'クリップ段特定',
+    'headroom_chain_valid': 'ヘッドルーム連鎖',
+    'measurement_floor_not_exceeded': '測定器床未支配',
+    'multi_channel_stress_valid': '多ch負荷',
+}
+
+
+def gain_structure_state_label(state: str) -> str:
+    return _GNS_STATE_LABELS.get(state, state)
+
+
+def gain_structure_line(qualification) -> str:
+    """One JA line for a gain-structure qualification (#651):
+    verdict plus limiting stage — SNR を無前提の一数字とは読まない。"""
+    parts = [gain_structure_state_label(qualification.state)]
+    if qualification.limiting_stage_label:
+        parts.append('律速段: ' + qualification.limiting_stage_label)
+    degraded = [
+        _GNS_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'ゲイン構造適格: ' + ' — '.join(parts)
+
+
+_DYN_STATE_LABELS = {
+    'dynamics_state_controlled': 'ダイナミクス管理済',
+    'controlled_with_limitations': '限定付管理',
+    'hidden_processing_uncharacterized': '隠れ処理未特性化',
+    'state_mismatch': '状態不一致',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_DYN_CAPABILITY_LABELS = {
+    'fr_transfer_valid': 'FR伝達',
+    'absolute_level_valid': '絶対レベル',
+    'max_output_valid': '最大出力',
+    'comparison_eligible': '比較適格',
+    'causal_attribution_valid': '因果帰属',
+    'dynamics_state_pinned': 'DSP状態pin',
+}
+
+
+def playback_dynamics_state_label(state: str) -> str:
+    return _DYN_STATE_LABELS.get(state, state)
+
+
+def playback_dynamics_line(qualification) -> str:
+    """One JA line for a playback-dynamics qualification (#649):
+    verdict plus mechanism context — SPL飽和だけでリミッタ段を
+    名指ししない。"""
+    parts = [
+        playback_dynamics_state_label(qualification.state),
+        str(qualification.purpose),
+    ]
+    if qualification.state_mismatches:
+        parts.append(
+            '状態不一致×{0}'.format(len(qualification.state_mismatches))
+        )
+    degraded = [
+        _DYN_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '再生ダイナミクス適格: ' + ' — '.join(parts)
+
+
+_AXO_STATE_LABELS = {
+    'crossover_qualified': 'XO適格',
+    'qualified_with_limitations': '限定付XO適格',
+    'routing_unproven': '経路未証明',
+    'splice_incoherent': 'スプライス不整合',
+    'protection_compromised': '保護欠落',
+    'deployed_state_mismatch': '実機状態不一致',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_AXO_CAPABILITY_LABELS = {
+    'routing_verified': '経路証明',
+    'protection_intact': '保護フィルタ',
+    'per_way_measured': 'ウェイ別測定',
+    'splice_coherent': 'スプライス整合',
+    'recombined_response_valid': '再合成応答',
+    'high_level_valid': '高レベル',
+    'off_axis_valid': '軸外',
+    'room_correction_eligible': '室補正許可',
+}
+
+
+def active_crossover_state_label(state: str) -> str:
+    return _AXO_STATE_LABELS.get(state, state)
+
+
+def active_crossover_line(qualification) -> str:
+    """One JA line for an active-crossover qualification (#665):
+    verdict plus room-correction gate — XO未較正の室補正 claim は
+    出さない。"""
+    parts = [active_crossover_state_label(qualification.state)]
+    gate = dict(qualification.capabilities).get(
+        'room_correction_eligible'
+    )
+    parts.append('室補正: ' + str(gate))
+    degraded = [
+        _AXO_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'アクティブXO適格: ' + ' — '.join(parts)
+
+
+_REP_STATE_LABELS = {
+    'precision_model_established': '精度モデル確立',
+    'limited_scope_precision': '限定精度',
+    'repeatability_only_established': '繰返し精度のみ',
+    'confounded_design': '因子交絡設計',
+    'insufficient_runs': 'ラン不足',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_REP_TIER_LABELS = {
+    'repeatability_only': '繰返し条件のみ',
+    'intermediate_precision': '中間精度',
+    'internal_reproducibility': '社内再現性',
+    'interlaboratory_formal': '公式室間再現性',
+    'unknown': '不明',
+}
+
+_REP_CAPABILITY_LABELS = {
+    'repeatability_known': '繰返し精度',
+    'between_operator_known': 'オペレータ間',
+    'between_instrument_known': '機器間',
+    'between_position_known': '位置間',
+    'between_session_known': 'セッション間',
+    'prediction_gate_eligible': '予測検証ゲート',
+    'decision_gate_eligible': '判定ゲート',
+}
+
+
+def reproducibility_state_label(state: str) -> str:
+    return _REP_STATE_LABELS.get(state, state)
+
+
+def reproducibility_line(qualification) -> str:
+    """One JA line for a reproducibility qualification (#693):
+    verdict plus evidence tier — 繰返し可能を再現可能とは読まない。"""
+    parts = [
+        reproducibility_state_label(qualification.state),
+        '階層: ' + _REP_TIER_LABELS.get(
+            qualification.evidence_tier, qualification.evidence_tier
+        ),
+    ]
+    if qualification.confounded_factors:
+        parts.append(
+            '交絡因子×{0}'.format(len(qualification.confounded_factors))
+        )
+    degraded = [
+        _REP_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '再現性適格: ' + ' — '.join(parts)
+
+
+def apply_transaction_line(transaction: DeviceApplyTransaction) -> str:
+    """One JA line for a device-apply transaction (#723) —
+    書込成功だけでは適用完了とは読まない。"""
+    parts = [_APPLY_STATE_LABELS.get(
+        transaction.state_verdict, transaction.state_verdict)]
+    parts.append('記録済書込み {0}件'.format(len(transaction.write_refs)))
+    if transaction.verification_ref is None:
+        parts.append('適用後検証なし')
+    if (
+        transaction.external_lock_obtained is not None
+        and not transaction.external_lock_obtained
+    ):
+        parts.append('外部ロック未取得')
+    return 'デバイス適用: ' + ' — '.join(parts)
+
+
+def rollback_claim_line(claim: str) -> str:
+    """One JA line for a rollback claim (#723) —
+    部分スナップショットから完全復元は約束しない。"""
+    return 'ロールバック可否: ' + _APPLY_CLAIM_LABELS.get(claim, claim)
+
+
+def band_semantics_line(profile: FractionalOctaveProfile, verdict: str) -> str:
+    """One JA line for a band profile verdict (#763) —
+    「63Hz・1/3オクターブ」表示は帯域定義が確定して初めて再現可能。"""
+    parts = [_BAND_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(profile.band_kind)
+    if profile.filter_class in ('non_iec_filter', 'no_filter'):
+        parts.append('IEC 非適合フィルタ')
+    return '帯域定義: ' + ' — '.join(parts)
+
+
+def late_handoff_line(verdict: str) -> str:
+    """One JA line for a late-field handoff gate (#764) —
+    RT だけでは後期遷移は推定できない。"""
+    return '後期遷移: ' + _HANDOFF_LABELS.get(verdict, verdict)
+
+
+def field_claim_line(record: FieldSurfaceRecord, verdict: str) -> str:
+    """One JA line for an interpolated-surface claim (#755) —
+    補間された連続面は「実測面」ではない。"""
+    parts = [_FIELD_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(
+        '測定点 {0} / セル {1}'.format(
+            len(record.measured_point_refs), len(record.cells)))
+    return '音場面: ' + ' — '.join(parts)
+
+
+def fidelity_cost_line(profile: SolverBudgetProfile, claim: str) -> str:
+    """One JA line for a fidelity→cost gate (#770) —
+    忠実度の選択は実行コストを伴って初めて検証可能。"""
+    parts = [_FCLAIM_LABELS.get(claim, claim)]
+    if not profile.predicted_costs:
+        parts.append('予測コスト未登録')
+    return '計算予算: ' + ' — '.join(parts)

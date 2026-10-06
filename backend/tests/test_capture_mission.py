@@ -424,8 +424,14 @@ def test_wire_payload_emits_app_envelope_and_plan() -> None:
     assert plan['evidence_tasks'] == []
 
     requirement = payload['receiver_requirement']
-    assert requirement['required_authority_families'] == ['measurements']
+    # Semantic tasks produce 'annotations'-family records (entities +
+    # authorities payloads); measurement tasks produce 'measurements'.
+    assert requirement['required_authority_families'] == [
+        'annotations',
+        'measurements',
+    ]
     assert set(requirement['required_payload_schemas']) == {
+        'htdt.capture.entities',
         'htdt.capture.authorities',
         'htdt.capture.measurements',
     }

@@ -1829,7 +1829,7 @@ def test_rev59_tables_registered_and_created(tmp_path) -> None:
     assert new_tables <= set(NATIVE_SCHEMA_TABLES)
     path = tmp_path / 'cad.sqlite3'
     version = ensure_native_schema(path)
-    assert version >= 49
+    assert version >= 53
     with connect_sqlite(path) as conn:
         names = {
             r[0]

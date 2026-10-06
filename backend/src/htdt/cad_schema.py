@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 49
+NATIVE_SCHEMA_VERSION = 53
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1580,6 +1580,58 @@ def _migrate_47_to_48(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_48_to_49(connection: sqlite3.Connection) -> None:
+    # Install the REV58-DISPLAYMEAS authorities (#682 pattern-generator
+    # stimulus fidelity: generator instances, requested patches,
+    # delivered observations, fidelity qualifications; #680 colorimeter
+    # spectral mismatch / probe-matching: match profiles, match
+    # observations, verifications, applicability verdicts; #686 display
+    # additivity / RGB separation: additivity observations, separation
+    # assessments, volumetric characterisations, holdout verifications,
+    # model eligibility, characterisation plans; #647 temporal display
+    # fidelity: temporal states, step responses, motion/flicker/retention
+    # measurements, qualifications; #666 LUT closed-loop calibration:
+    # artifacts, generation records, preflight verifications,
+    # deployments, post-verifications, loop qualifications): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_49_to_50(connection: sqlite3.Connection) -> None:
+    # Install the REV58-MEASELEC authorities (#699 audio-interface
+    # transfer/loopback calibration: loopback observations, transfer
+    # calibrations, correction qualifications; #651 gain structure /
+    # noise floor / clipping margins: signal level references, noise
+    # observations, clipping margins, gain-structure qualifications;
+    # #649 playback dynamics / limiter: dynamics states, level-sweep
+    # observations, dynamics qualifications; #665 active multi-way
+    # crossover: speaker definitions, crossover plans, driver
+    # alignment measurements, crossover qualifications; #693
+    # measurement-method reproducibility: method procedures,
+    # campaigns, precision models, qualifications): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_50_to_51(connection: sqlite3.Connection) -> None:
+    # Install the REV59-APPLY authority (#723 device apply transaction /
+    # rollback: capability profiles, apply plans, write records,
+    # verifications, rollback plans, rollback executions, transactions):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_51_to_52(connection: sqlite3.Connection) -> None:
+    # Install the REV59-BENCH2 authorities (#763 band semantics, #764
+    # mixing time, #755 field interpolation, #770 compute budget):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_52_to_53(connection: sqlite3.Connection) -> None:
     # Install the REV59-UNITS authorities (#728 typed physical
     # quantity: quantities, operations; #730 engineering-assumption /
     # permissible-use ledger: assumptions, resolutions, assessments;
@@ -1641,6 +1693,10 @@ _MIGRATIONS = {
     47: _migrate_46_to_47,
     48: _migrate_47_to_48,
     49: _migrate_48_to_49,
+    50: _migrate_49_to_50,
+    51: _migrate_50_to_51,
+    52: _migrate_51_to_52,
+    53: _migrate_52_to_53,
 }
 
 

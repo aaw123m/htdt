@@ -1122,6 +1122,80 @@ class _RepositoryChain:
             )
 
             return CadModalDecayViewRepository(scene)
+        # REV58-DISPLAYMEAS authorities.
+        if name == 'pattern_generator_fidelity':
+            from .cad_display_metrology_repository import (
+                CadPatternGeneratorFidelityRepository,
+            )
+
+            return CadPatternGeneratorFidelityRepository(scene)
+        if name == 'meter_match':
+            from .cad_display_metrology_repository import (
+                CadMeterMatchRepository,
+            )
+
+            return CadMeterMatchRepository(scene)
+        if name == 'display_additivity':
+            from .cad_display_metrology_repository import (
+                CadDisplayAdditivityRepository,
+            )
+
+            return CadDisplayAdditivityRepository(scene)
+        if name == 'temporal_display':
+            from .cad_display_metrology_repository import (
+                CadTemporalDisplayRepository,
+            )
+
+            return CadTemporalDisplayRepository(scene)
+        if name == 'lut_closed_loop':
+            from .cad_display_metrology_repository import (
+                CadLutClosedLoopRepository,
+            )
+
+            return CadLutClosedLoopRepository(scene)
+        # REV58-MEASELEC authorities.
+        if name == 'interface_loopback':
+            from .cad_interface_loopback_repository import (
+                CadInterfaceLoopbackRepository,
+            )
+
+            return CadInterfaceLoopbackRepository(scene)
+        if name == 'gain_structure':
+            from .cad_gain_noise_structure_repository import (
+                CadGainStructureRepository,
+            )
+
+            return CadGainStructureRepository(scene)
+        if name == 'playback_dynamics':
+            from .cad_playback_dynamics_repository import (
+                CadPlaybackDynamicsRepository,
+            )
+
+            return CadPlaybackDynamicsRepository(scene)
+        if name == 'active_crossover':
+            from .cad_active_crossover_repository import (
+                CadActiveCrossoverRepository,
+            )
+
+            return CadActiveCrossoverRepository(scene)
+        if name == 'method_reproducibility':
+            from .cad_method_reproducibility_repository import (
+                CadMethodReproducibilityRepository,
+            )
+
+            return CadMethodReproducibilityRepository(scene)
+        if name == 'apply_transaction':
+            from .cad_apply_transaction_repository import (
+                CadApplyTransactionRepository,
+            )
+
+            return CadApplyTransactionRepository(scene)
+        if name == 'field_metric':
+            from .cad_field_metric_repository import (
+                CadFieldMetricRepository,
+            )
+
+            return CadFieldMetricRepository(scene)
         # REV59-UNITS authorities.
         if name == 'typed_quantity':
             from .cad_typed_quantity_repository import (
@@ -5032,6 +5106,384 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_modal_decay_qualifications',
         ('qualification_id',),
         _get('modal_decay_view', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #682 pattern-generator fidelity
+    _ReplayProbe(
+        'pg_generator_instance',
+        'cad_pg_generator_instances',
+        ('generator_id',),
+        _get('pattern_generator_fidelity', 'get_generator'),
+    ),
+    _ReplayProbe(
+        'pg_requested_patch',
+        'cad_pg_requested_patches',
+        ('patch_id',),
+        _get('pattern_generator_fidelity', 'get_patch'),
+    ),
+    _ReplayProbe(
+        'pg_delivered_observation',
+        'cad_pg_delivered_observations',
+        ('observation_id',),
+        _get('pattern_generator_fidelity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'pg_fidelity_qualification',
+        'cad_pg_fidelity_qualifications',
+        ('qualification_id',),
+        _get('pattern_generator_fidelity', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #680 probe matching / spectral mismatch
+    _ReplayProbe(
+        'mm_match_profile',
+        'cad_mm_match_profiles',
+        ('match_id',),
+        _get('meter_match', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'mm_match_observation',
+        'cad_mm_match_observations',
+        ('observation_id',),
+        _get('meter_match', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'mm_verification',
+        'cad_mm_verifications',
+        ('verification_id',),
+        _get('meter_match', 'get_verification'),
+    ),
+    _ReplayProbe(
+        'mm_applicability',
+        'cad_mm_applicability',
+        ('applicability_id',),
+        _get('meter_match', 'get_applicability'),
+    ),
+    # REV58-DISPLAYMEAS: #686 additivity / separation / volumetric
+    _ReplayProbe(
+        'da_additivity_observation',
+        'cad_da_additivity_observations',
+        ('observation_id',),
+        _get('display_additivity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'da_separation_assessment',
+        'cad_da_separation_assessments',
+        ('assessment_id',),
+        _get('display_additivity', 'get_separation'),
+    ),
+    _ReplayProbe(
+        'da_volumetric_characterisation',
+        'cad_da_volumetric_characterisations',
+        ('characterisation_id',),
+        _get('display_additivity', 'get_characterisation'),
+    ),
+    _ReplayProbe(
+        'da_holdout_verification',
+        'cad_da_holdout_verifications',
+        ('verification_id',),
+        _get('display_additivity', 'get_holdout'),
+    ),
+    _ReplayProbe(
+        'da_model_eligibility',
+        'cad_da_model_eligibility',
+        ('eligibility_id',),
+        _get('display_additivity', 'get_eligibility'),
+    ),
+    _ReplayProbe(
+        'da_characterisation_plan',
+        'cad_da_characterisation_plans',
+        ('plan_id',),
+        _get('display_additivity', 'get_plan'),
+    ),
+    # REV58-DISPLAYMEAS: #647 temporal display fidelity
+    _ReplayProbe(
+        'td_state',
+        'cad_td_states',
+        ('state_id',),
+        _get('temporal_display', 'get_state'),
+    ),
+    _ReplayProbe(
+        'td_step_response',
+        'cad_td_step_responses',
+        ('measurement_id',),
+        _get('temporal_display', 'get_step_response'),
+    ),
+    _ReplayProbe(
+        'td_motion_measurement',
+        'cad_td_motion_measurements',
+        ('measurement_id',),
+        _get('temporal_display', 'get_motion_measurement'),
+    ),
+    _ReplayProbe(
+        'td_flicker_measurement',
+        'cad_td_flicker_measurements',
+        ('measurement_id',),
+        _get('temporal_display', 'get_flicker_measurement'),
+    ),
+    _ReplayProbe(
+        'td_retention_observation',
+        'cad_td_retention_observations',
+        ('observation_id',),
+        _get('temporal_display', 'get_retention_observation'),
+    ),
+    _ReplayProbe(
+        'td_qualification',
+        'cad_td_qualifications',
+        ('qualification_id',),
+        _get('temporal_display', 'get_qualification'),
+    ),
+    # REV58-DISPLAYMEAS: #666 LUT closed-loop calibration
+    _ReplayProbe(
+        'lut_artifact',
+        'cad_lut_artifacts',
+        ('artifact_id',),
+        _get('lut_closed_loop', 'get_artifact'),
+    ),
+    _ReplayProbe(
+        'lut_generation_record',
+        'cad_lut_generation_records',
+        ('generation_id',),
+        _get('lut_closed_loop', 'get_generation'),
+    ),
+    _ReplayProbe(
+        'lut_preflight_verification',
+        'cad_lut_preflight_verifications',
+        ('preflight_id',),
+        _get('lut_closed_loop', 'get_preflight'),
+    ),
+    _ReplayProbe(
+        'lut_deployment',
+        'cad_lut_deployments',
+        ('deployment_id',),
+        _get('lut_closed_loop', 'get_deployment'),
+    ),
+    _ReplayProbe(
+        'lut_post_verification',
+        'cad_lut_post_verifications',
+        ('post_verification_id',),
+        _get('lut_closed_loop', 'get_post_verification'),
+    ),
+    _ReplayProbe(
+        'lut_qualification',
+        'cad_lut_qualifications',
+        ('qualification_id',),
+        _get('lut_closed_loop', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #699 interface transfer/loopback calibration
+    _ReplayProbe(
+        'interface_loopback_observation',
+        'cad_interface_loopback_observations',
+        ('observation_id',),
+        _get('interface_loopback', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'interface_transfer_calibration',
+        'cad_interface_transfer_calibrations',
+        ('calibration_id',),
+        _get('interface_loopback', 'get_calibration'),
+    ),
+    _ReplayProbe(
+        'interface_correction_qualification',
+        'cad_interface_correction_qualifications',
+        ('qualification_id',),
+        _get('interface_loopback', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #651 gain structure / noise floor
+    _ReplayProbe(
+        'signal_level_reference',
+        'cad_signal_level_references',
+        ('reference_id',),
+        _get('gain_structure', 'get_level_reference'),
+    ),
+    _ReplayProbe(
+        'noise_floor_observation',
+        'cad_noise_floor_observations',
+        ('observation_id',),
+        _get('gain_structure', 'get_noise_observation'),
+    ),
+    _ReplayProbe(
+        'clipping_margin',
+        'cad_clipping_margins',
+        ('margin_id',),
+        _get('gain_structure', 'get_clipping_margin'),
+    ),
+    _ReplayProbe(
+        'gain_structure_qualification',
+        'cad_gain_structure_qualifications',
+        ('qualification_id',),
+        _get('gain_structure', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #649 playback dynamics / limiter
+    _ReplayProbe(
+        'playback_dynamics_state',
+        'cad_playback_dynamics_states',
+        ('state_id',),
+        _get('playback_dynamics', 'get_state'),
+    ),
+    _ReplayProbe(
+        'level_sweep_observation',
+        'cad_level_sweep_observations',
+        ('observation_id',),
+        _get('playback_dynamics', 'get_level_sweep'),
+    ),
+    _ReplayProbe(
+        'playback_dynamics_qualification',
+        'cad_playback_dynamics_qualifications',
+        ('qualification_id',),
+        _get('playback_dynamics', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #665 active multi-way crossover
+    _ReplayProbe(
+        'multiway_speaker_definition',
+        'cad_multiway_speaker_definitions',
+        ('definition_id',),
+        _get('active_crossover', 'get_definition'),
+    ),
+    _ReplayProbe(
+        'active_crossover_plan',
+        'cad_active_crossover_plans',
+        ('plan_id',),
+        _get('active_crossover', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'driver_alignment_measurement',
+        'cad_driver_alignment_measurements',
+        ('measurement_id',),
+        _get('active_crossover', 'get_alignment_measurement'),
+    ),
+    _ReplayProbe(
+        'active_crossover_qualification',
+        'cad_active_crossover_qualifications',
+        ('qualification_id',),
+        _get('active_crossover', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #693 measurement-method reproducibility
+    _ReplayProbe(
+        'method_procedure',
+        'cad_method_procedures',
+        ('procedure_id',),
+        _get('method_reproducibility', 'get_procedure'),
+    ),
+    _ReplayProbe(
+        'reproducibility_campaign',
+        'cad_reproducibility_campaigns',
+        ('campaign_id',),
+        _get('method_reproducibility', 'get_campaign'),
+    ),
+    _ReplayProbe(
+        'method_precision_model',
+        'cad_method_precision_models',
+        ('model_id',),
+        _get('method_reproducibility', 'get_precision_model'),
+    ),
+    _ReplayProbe(
+        'reproducibility_qualification',
+        'cad_reproducibility_qualifications',
+        ('qualification_id',),
+        _get('method_reproducibility', 'get_qualification'),
+    ),
+    # REV59-APPLY: #723 device apply transaction / rollback
+    _ReplayProbe(
+        'apply_capability_profile',
+        'cad_apply_capability_profiles',
+        ('profile_id',),
+        _get('apply_transaction', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'apply_plan',
+        'cad_apply_plans',
+        ('plan_id',),
+        _get('apply_transaction', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'apply_write_record',
+        'cad_apply_write_records',
+        ('write_id',),
+        _get('apply_transaction', 'get_write'),
+    ),
+    _ReplayProbe(
+        'apply_verification',
+        'cad_apply_verifications',
+        ('verification_id',),
+        _get('apply_transaction', 'get_verification'),
+    ),
+    _ReplayProbe(
+        'apply_rollback_plan',
+        'cad_apply_rollback_plans',
+        ('rollback_plan_id',),
+        _get('apply_transaction', 'get_rollback_plan'),
+    ),
+    _ReplayProbe(
+        'apply_rollback_execution',
+        'cad_apply_rollback_executions',
+        ('execution_id',),
+        _get('apply_transaction', 'get_rollback_execution'),
+    ),
+    _ReplayProbe(
+        'apply_transaction',
+        'cad_apply_transactions',
+        ('transaction_id',),
+        _get('apply_transaction', 'get_transaction'),
+    ),
+    # REV59-BENCH2: #763/#764/#755/#770 field/metric/budget authorities
+    _ReplayProbe(
+        'fractional_octave_profile',
+        'cad_fractional_octave_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_band_profile'),
+    ),
+    _ReplayProbe(
+        'band_integration',
+        'cad_band_integrations',
+        ('record_id',),
+        _get('field_metric', 'get_band_integration'),
+    ),
+    _ReplayProbe(
+        'echo_density_profile',
+        'cad_echo_density_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_echo_profile'),
+    ),
+    _ReplayProbe(
+        'mixing_time_estimate',
+        'cad_mixing_time_estimates',
+        ('estimate_id',),
+        _get('field_metric', 'get_mixing_estimate'),
+    ),
+    _ReplayProbe(
+        'late_field_assessment',
+        'cad_late_field_assessments',
+        ('assessment_id',),
+        _get('field_metric', 'get_late_assessment'),
+    ),
+    _ReplayProbe(
+        'interpolation_profile',
+        'cad_interpolation_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_interp_profile'),
+    ),
+    _ReplayProbe(
+        'field_surface_record',
+        'cad_field_surface_records',
+        ('record_id',),
+        _get('field_metric', 'get_field_surface'),
+    ),
+    _ReplayProbe(
+        'solver_budget_profile',
+        'cad_solver_budget_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_budget_profile'),
+    ),
+    _ReplayProbe(
+        'compute_observation',
+        'cad_compute_observations',
+        ('observation_id',),
+        _get('field_metric', 'get_compute_observation'),
+    ),
+    _ReplayProbe(
+        'accuracy_cost_envelope',
+        'cad_accuracy_cost_envelopes',
+        ('envelope_id',),
+        _get('field_metric', 'get_cost_envelope'),
     ),
     # REV59-UNITS: #728 typed physical quantity
     _ReplayProbe(
