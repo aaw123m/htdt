@@ -158,7 +158,7 @@ class _SealedStore:
         return record
 
     def list(self, document_id: str | None = None) -> tuple[Any, ...]:
-        query = f'SELECT payload_json FROM {self.table}'
+        query = f'SELECT * FROM {self.table}'
         params: tuple[str, ...] = ()
         if document_id is not None:
             query += ' WHERE document_id=?'
@@ -166,10 +166,16 @@ class _SealedStore:
         query += ' ORDER BY seq ASC'
         with closing(self._connect()) as connection:
             rows = connection.execute(query, params).fetchall()
-        return tuple(
-            self.model.model_validate_json(r['payload_json'])
-            for r in rows
-        )
+        records = []
+        for row in rows:
+            record = self.model.model_validate_json(row['payload_json'])
+            if record.document_id != row['document_id']:
+                raise SignalIntegrityIntegrityError(
+                    f'stored {self.table}.document_id disagrees '
+                    'with its payload'
+                )
+            records.append(record)
+        return tuple(records)
 
 
 def _ref(column: str, path: str) -> tuple[str, str]:

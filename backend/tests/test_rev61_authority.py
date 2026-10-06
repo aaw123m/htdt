@@ -609,6 +609,26 @@ class TestSealedStoreColumnVerification:
         with pytest.raises(EdgeIntegrityError):
             repo.get_ingress_scenario(s.scenario_id)
 
+    def test_list_path_document_id_tamper_detected(
+            self, tmp_path: Path) -> None:
+        # list() filters on the document_id column — the sibling query
+        # path verifies it too, or a tampered row silently rescopes.
+        repo = _collab_repo(tmp_path)
+        a = _authorship()
+        repo.save_authorship(a)
+        assert repo.authorship.list(DOC) == (a,)
+        with connect_sqlite(repo.path) as conn:
+            conn.execute(
+                "UPDATE cad_revision_authorship "
+                "SET document_id='other-doc' WHERE authorship_id=?",
+                (a.authorship_id,))
+            conn.commit()
+        with pytest.raises(CollaborationIntegrityError):
+            repo.authorship.list()
+        with pytest.raises(CollaborationIntegrityError):
+            repo.authorship.list('other-doc')
+        assert repo.authorship.list(DOC) == ()
+
     def test_null_bound_columns_still_read_back(
             self, tmp_path: Path) -> None:
         # Removing the skip must not break legitimate NULL columns.
