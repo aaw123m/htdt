@@ -2723,3 +2723,110 @@ issues:
         description: >
           実機デバイスへの適用実行・ロック取得・readback 自動化は残件
           （測定ウィザード/デバイスアダプタ経由）。
+  - issue: 763
+    title: "Fractional-octave filter / band-integration authority (IEC 61260)"
+    notes: >
+      FractionalOctaveProfile (foct-) pins band kind, frequency standard,
+      filter class, processing domain and integration semantics; an IEC
+      claim requires class 0/1/2 + a filtered domain — bin-integration
+      (e.g. REW third-octave from FFT bins) is partially_pinned, never an
+      IEC filter bank. compare_band_semantics is fail-closed across kind /
+      standard / semantics / filtered-vs-binned paths.
+    checks:
+      - id: band-semantics
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_iec_standard_requires_iec_class
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_iec_standard_requires_filtered_domain
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_verdict_pinned
+          - backend/tests/test_rev59_bench2.py::TestBandProfile::test_compare_incomparable_domain
+        description: >
+          IEC 61260 class/domain fail-closed validation; bin-integration
+          honestly pinned as non-IEC; cross-semantics comparison rejects.
+  - issue: 764
+    title: "RIR mixing-time / echo-density authority"
+    notes: >
+      EchoDensityProfile (edp-) pins the estimator + parameters;
+      MixingTimeEstimate (mixt-) is position/basis-bound with uncertainty;
+      evaluate_transition never establishes sufficiently_mixed from a
+      user-declared or threshold-less profile; late_handoff_gate makes RT
+      alone insufficient evidence for early→late handoff.
+    checks:
+      - id: mixing-time
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_rt_alone_not_evidence
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_no_estimate_is_insufficient
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_user_declared_not_mixed
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_threshold_mixed
+          - backend/tests/test_rev59_bench2.py::TestMixingTime::test_handoff_supported
+        description: >
+          RT-alone rejection, estimator pinning, position-bound estimates,
+          transition verdict ladder.
+  - issue: 755
+    title: "Measured acoustic-field interpolation authority"
+    notes: >
+      InterpolationProfile (fint-) pins method/quantity — method unknown
+      cannot anchor a profile, model_assisted restricted to
+      reconstruction-capable methods. FieldSurfaceRecord (fsurf-) binds
+      measured support points + per-cell support kind;
+      evaluate_field_claim gates measured_surface (all cells measured),
+      reconstructed/model_aided (model_dependent, never looks measured),
+      complex quantities via plain interpolators (overclaimed).
+    checks:
+      - id: field-interpolation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_measured_surface_requires_all_measured
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_complex_quantity_via_linear_overclaimed
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_model_aided_is_model_dependent
+          - backend/tests/test_rev59_bench2.py::TestFieldInterpolation::test_no_measured_points_insufficient
+        description: >
+          Measured vs interpolated cell honesty; complex-quantity method
+          gate; model-assisted surfaces flagged model_dependent.
+  - issue: 770
+    title: "Acoustic-solver compute-budget / scaling authority"
+    notes: >
+      SolverBudgetProfile (cbp-) binds fidelity axes to predicted costs
+      with evidence tiers (observed_run requires run ref);
+      ComputeObservation (cobs-) keeps actual runtime/memory separate so
+      extrapolation cannot launder as measured; AccuracyCostEnvelope
+      (cenv-) binds fidelity+cost to #566 accuracy evidence;
+      fidelity_cost_gate flags fidelity declared without cost evidence.
+    checks:
+      - id: compute-budget
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_predicted_cost_observed_run_requires_ref
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_budget_over
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_fidelity_gate_missing
+          - backend/tests/test_rev59_bench2.py::TestComputeBudget::test_budget_unknown_unobserved
+        description: >
+          Predicted-vs-observed separation, budget verdicts, fidelity cost
+          evidence gate.
+  - issue: 766
+    title: "Open spatial-RIR benchmark admission — dEchorate + MeshRIR"
+    notes: >
+      Admission/research-plan issue. Plan recorded in
+      docs/validation/spatial-rir-benchmark-admission.md (dEchorate
+      calibrated early-echo + MeshRIR dense grids; roles, partitions,
+      leakage controls per #698).
+    checks:
+      - id: spatial-rir-admission
+        kind: manual
+        description: >
+          計画書を docs/validation/spatial-rir-benchmark-admission.md に
+          記録。実取込・fixture 化は後続（データDL・ライセンス処理を含む）。
+  - issue: 768
+    title: "Measured room-state sensitivity benchmark admission — Motus + Arni"
+    notes: >
+      Admission/research-plan issue. Plan recorded in
+      docs/validation/room-state-benchmark-admission.md (Motus 3320
+      furniture-state RIRs + Arni 132k panel-state IRs; change-sensitivity
+      metrics, holdout partitions, calibration-boundary rules).
+    checks:
+      - id: room-state-admission
+        kind: manual
+        description: >
+          計画書を docs/validation/room-state-benchmark-admission.md に
+          記録。実取込・fixture 化は後続。
