@@ -408,6 +408,13 @@ def evaluate_material_deployability(
     if requirement.state == 'test_assembly_mismatch':
         return ('test_assembly_mismatch',
                 'requirement_state:test_assembly_mismatch')
+    if requirement.state in (
+            'required_evidence_present',
+            'required_evidence_present_with_limitations') \
+            and not set(requirement.required_evidence_kinds) \
+            <= {item.evidence_kind for item in evidence_items}:
+        return ('fire_safety_evidence_required',
+                'required_evidence_kinds_unresolved')
     for item in evidence_items:
         if item.specimen_applicability in (
                 'assembly_differs', 'test_method_incompatible'):
@@ -429,7 +436,10 @@ def evaluate_material_deployability(
     if requirement.state \
             == 'required_evidence_present_with_limitations' \
             or (approval is not None
-                and approval.verdict == 'approved_with_limitations'):
+                and approval.verdict == 'approved_with_limitations') \
+            or any(item.specimen_applicability
+                   == 'applicable_with_limitations'
+                   for item in evidence_items):
         return ('deployable_with_limitations',
                 'limitations_recorded')
     return ('deployable', 'requirement:' + requirement.requirement_id)

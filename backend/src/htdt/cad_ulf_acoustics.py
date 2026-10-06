@@ -444,6 +444,7 @@ def evaluate_ulf_claim(
     covering = [
         obs for obs in observations
         if obs.band_low_hz <= profile.request_low_hz
+        and obs.band_high_hz >= profile.request_high_hz
         and obs.quantity_kind != 'unknown'
     ]
     if not covering:
@@ -463,5 +464,10 @@ def evaluate_ulf_claim(
             == 'measured_with_limitations':
         return ('ulf_capability_verified_limited',
                 'limitations:' + ','.join(qualification.limitation_reasons))
+    if capability.capability_state \
+            == 'ulf_characterized_with_limitations':
+        return ('ulf_capability_verified_limited',
+                'capability_limitations:'
+                + ','.join(capability.limitation_notes))
     return ('ulf_capability_verified',
             'measured_coverage:' + str(qualification.measured_low_hz))

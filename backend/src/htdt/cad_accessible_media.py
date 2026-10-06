@@ -465,6 +465,10 @@ def evaluate_accessible_playback(
         if obs.output_state in ('lost_in_routing', 'downmix_lost'):
             return ('routing_failed',
                     'ad_output:' + obs.output_state)
+    if ad_observations and not any(
+            obs.output_state == 'verified_at_output'
+            for obs in ad_observations):
+        return ('routing_failed', 'ad_output_unverified')
     best_stage = 0
     for obs in caption_observations:
         stage = PRESENTATION_STAGE_ORDER.index(obs.reached_stage)

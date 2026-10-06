@@ -438,10 +438,11 @@ def evaluate_ingress_claim(
     if qualification.verdict == 'insufficient_evidence':
         return ('insufficient_evidence',
                 'qualification:insufficient_evidence')
-    if model.envelope_state == 'design_envelope' \
+    if model.envelope_state not in (
+            'field_observed_state', 'qualified_state') \
             and not qualification.measurement_refs:
         return ('design_model_only',
-                'design envelope without field measurements')
+                'envelope model without field measurements')
     if qualification.verdict == 'fails_project_criterion':
         return ('ingress_fails_criterion',
                 'project_criterion_not_met')
