@@ -248,7 +248,10 @@ def test_evidence_file_failure_maps_exception(
     from htdt.verification_wizard_page import VerificationWizardPage
 
     page = VerificationWizardPage(tmp_path, manifest_path=tmp_path / "m.yaml")
+    page._issue = SimpleNamespace(issue_ref="i-1", checks=())
     page._check = SimpleNamespace(kind="manual", check_id="chk-1")
+    page._gates = {("i-1", "chk-1"): SimpleNamespace()}
+    page.store = SimpleNamespace(commit_evidence=lambda *a, **k: None)
     page.attest_edit.setPlainText("確認済み")
     page._pending_files = [tmp_path / "missing.bin"]
 
