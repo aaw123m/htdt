@@ -6448,6 +6448,127 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_finish_assembly_evidence_document_idx ON cad_finish_assembly_evidence (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_listening_experiment_plans (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id TEXT NOT NULL UNIQUE,
+    plan_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method_kind TEXT NOT NULL,
+    impairment_regime TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_listener_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    training_completed INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_subjective_inference_records (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    record_id TEXT NOT NULL UNIQUE,
+    record_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    plan_ref_id TEXT NOT NULL,
+    verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_assistive_listening_paths (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id TEXT NOT NULL UNIQUE,
+    path_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    technology TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_als_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    path_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_receiver_compatibility_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    path_ref_id TEXT NOT NULL,
+    compatible INTEGER,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_dynamic_binaural_sessions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL UNIQUE,
+    session_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    hrtf_class TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_pose_tracking_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    session_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_binaural_qualifications (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    qualification_id TEXT NOT NULL UNIQUE,
+    qualification_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    session_ref_id TEXT NOT NULL,
+    verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_listening_experiment_plans_document_idx ON cad_listening_experiment_plans (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_listener_qualifications_document_idx ON cad_listener_qualifications (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_subjective_inference_records_document_idx ON cad_subjective_inference_records (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_assistive_listening_paths_document_idx ON cad_assistive_listening_paths (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_als_qualifications_document_idx ON cad_als_qualifications (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_receiver_compatibility_evidence_document_idx ON cad_receiver_compatibility_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_dynamic_binaural_sessions_document_idx ON cad_dynamic_binaural_sessions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_pose_tracking_evidence_document_idx ON cad_pose_tracking_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_binaural_qualifications_document_idx ON cad_binaural_qualifications (document_id)
+    """
+    ,
 )
 
 
@@ -7347,4 +7468,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_echo_risk_observations',
     'cad_reaction_to_fire_evidence',
     'cad_finish_assembly_evidence',
+    'cad_listening_experiment_plans',
+    'cad_listener_qualifications',
+    'cad_subjective_inference_records',
+    'cad_assistive_listening_paths',
+    'cad_als_qualifications',
+    'cad_receiver_compatibility_evidence',
+    'cad_dynamic_binaural_sessions',
+    'cad_pose_tracking_evidence',
+    'cad_binaural_qualifications',
 )

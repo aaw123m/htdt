@@ -3549,3 +3549,56 @@ issues:
           - backend/tests/test_rev59_acoust3.py::test_fire_claim_ladder
           - backend/tests/test_rev59_acoust3.py::test_assembly_requires_parts_and_evidence
         description: Lab result ≠ installed eligibility; standard-scope honesty.
+  - issue: 696
+    title: "Subjective listening-experiment authority"
+    notes: >
+      ListeningExperimentPlan (lexp-) pins method family (BS.1116-3 /
+      MUSHRA BS.1534-3 / BS.1284-2 / ABX / paired comparison) and
+      impairment regime — 'unknown' method fails closed and MUSHRA
+      under small-impairment regime is rejected. ListenerQualification
+      (lqual-) binds screening/training/test-retest.
+      SubjectiveInferenceRecord (sinf-) requires a pinned plan and a
+      CI for 'significant'. evaluate_experiment_claim: no plan →
+      unverified_result; no randomization → unrandomized_trials;
+      unqualified panel → unqualified_listeners.
+    checks:
+      - id: listening-experiment
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_experiment_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_plan_requires_method_and_regime_sanity
+        description: Method-family + panel + randomization gating.
+  - issue: 726
+    title: "Assistive-listening-system authority"
+    notes: >
+      AssistiveListeningPath (alsp-) declares delivery technology
+      (induction_loop / fm_receiver / ir_receiver / hardwired /
+      auracast). ALSQualification (alsq-) pins field-strength / SNR /
+      frequency-response evidence (IEC 60118-4 class).
+      ReceiverCompatibilityEvidence (rcomp-) binds receiver kind and
+      compatibility. evaluate_als_claim: speaker performance never
+      implies ALS; routing and measured qualification are each gated.
+    checks:
+      - id: assistive-listening
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_als_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_als_requires_technology
+        description: Speaker perf ≠ ALS; routing + measurement gates.
+  - issue: 727
+    title: "Dynamic head-tracked binaural auralization authority"
+    notes: >
+      DynamicBinauralSession (dbin-) declares HRTF class (individual /
+      estimated / generic — 'unknown' fails closed) + pose frame +
+      update cadence. PoseTrackingEvidence (ptrk-) binds measured
+      motion-to-audio latency (a declared latency requires a
+      measurement ref). BinauralQualification (bqual-) pins angular
+      sampling evidence. evaluate_binaural_claim: static render is
+      never a dynamic claim; unmeasured tracker latency fails closed.
+    checks:
+      - id: dynamic-binaural
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_listenexp.py::test_binaural_claim_ladder
+          - backend/tests/test_rev59_listenexp.py::test_ptrk_declared_latency_needs_measurement
+        description: Static ≠ dynamic; latency/angular-sampling gates.
