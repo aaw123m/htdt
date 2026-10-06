@@ -3870,6 +3870,147 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_display3.py::test_wall_claim_ladder]
         description: Video device = several-m2 acoustic boundary.
+  - issue: 652
+    title: "Inter-channel panning continuity authority"
+    notes: >
+      PanningContinuityEvidence (pce-) binds timbre/level/time
+      deltas across a specific channel pair to measurement —
+      per-channel calibration does not prove inter-channel
+      continuity (per_channel_is_not_interchannel).
+    checks:
+      - id: panning-continuity
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: Per-channel ≠ inter-channel.
+  - issue: 669
+    title: "Subwoofer localization context authority"
+    notes: >
+      SubwooferLocalizationProfile (slp-) requires crossover +
+      separation + count + stimulus + distortion-leakage bound +
+      delay-alignment ref. Frequency-only thresholds rejected
+      (fixed_rule_misapplied).
+    checks:
+      - id: subwoofer-localization
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_panning_claim_ladder]
+        description: '80 Hz rule' is not universal.
+  - issue: 657
+    title: "Group-delay audibility authority"
+    notes: >
+      GroupDelayAudibility (gda-) requires peak value AND frequency
+      AND stimulus AND threshold ref — a peak alone is not an
+      audibility verdict (peak_is_not_audibility); lower is not
+      automatically better (lower_is_not_better).
+    checks:
+      - id: groupdelay-audibility
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: Frequency/stimulus-dependent thresholds.
+  - issue: 702
+    title: "Headphone coupling qualification authority"
+    notes: >
+      HeadphoneCouplingEvidence (hpc-) requires headphone model +
+      compensation kind + fit state + filter ref. Exact BRIR render
+      ≠ eardrum signal (brir_is_not_eardrum); individualized
+      compensation needs verified placement.
+    checks:
+      - id: headphone-coupling
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_perceptual_claim_ladder]
+        description: HpTF varies by listener and repeated placement.
+  - issue: 653
+    title: "Structure-borne vibration path authority"
+    notes: >
+      StructurebornePath (sbp-) declares source + mount/coupling +
+      receiving room. Airborne isolation does not cover mechanical
+      injection (airborne_is_not_structureborne). ISO 10848-1
+      flanking basis.
+    checks:
+      - id: structureborne-path
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Airborne ≠ structure-borne.
+  - issue: 664
+    title: "Actual-position spatial remapping authority"
+    notes: >
+      SpatialRemappingEvidence (srm-) declares remap mode
+      (2d/3d/automatic) + measured actual positions + reference
+      layout + phantom-landing verification. Remapping from ideal
+      layout alone fails (measured_positions_required).
+    checks:
+      - id: spatial-remapping
+        kind: pytest
+        tests: [backend/tests/test_rev59_audio2.py::test_structureborne_claim_ladder]
+        description: Measured actual positions required.
+  - issue: 747
+    title: "Audio codec/playback fidelity authority"
+    notes: >
+      CodecFidelityEvidence (cfx-) declares media kind + codec
+      family + detected impairments + source/master ref. Decode
+      success is not fidelity (playback_is_not_fidelity);
+      lossy codec without transparency evidence fails.
+    checks:
+      - id: codec-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Playback ≠ transparency.
+  - issue: 753
+    title: "Video codec/source fidelity authority"
+    notes: >
+      Same cfx- evidence for video — negotiated format and
+      calibrated display do not prove delivered fidelity
+      (blocking/texture-loss/chroma/temporal impairments flagged).
+    checks:
+      - id: video-fidelity
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_codec_ladder]
+        description: Correct playback ≠ source fidelity.
+  - issue: 749
+    title: "Spectral estimator semantics authority"
+    notes: >
+      SpectralEstimatorProfile (sep-) declares record duration,
+      FFT size, window, ENBW, coherent-gain correction, leakage —
+      a dense bin grid alone is not resolving power
+      (density_is_not_resolution).
+    checks:
+      - id: spectral-estimator
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Aperture/window/ENBW pinned.
+  - issue: 670
+    title: "Playback digital clock domain authority"
+    notes: >
+      ClockDomainObservation (cdo-) declares domain kind + lock
+      state + ASRC presence — correct routing does not prove a
+      synchronized clock tree (lock_unverified / asrc_undeclared).
+    checks:
+      - id: clock-domains
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_spectral_ladder]
+        description: Lock and ASRC gated.
+  - issue: 765
+    title: "Conflicting external fact preservation"
+    notes: >
+      ExternalFactClaim (efc-) keeps each source claim immutable
+      with provenance + applicability; FactConflictResolution
+      (fcr-) resolves by recency/scope/hierarchy preserving both
+      sides — never silent overwrite.
+    checks:
+      - id: fact-preservation
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: Contradictions preserved, not overwritten.
+  - issue: 667
+    title: "BOM / commercial estimate authority"
+    notes: >
+      BomEstimate (bom-) derives versioned line items from the
+      engineered-system ref; priced lines require a supplier
+      source — commercial data stays separate from technical truth.
+    checks:
+      - id: bom-estimate
+        kind: pytest
+        tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
+        description: BOM bound to engineering; pricing separate.
   - issue: 728
     title: "Typed physical-quantity / unit authority"
     notes: >

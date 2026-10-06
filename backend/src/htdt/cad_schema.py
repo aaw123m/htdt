@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 68
+NATIVE_SCHEMA_VERSION = 70
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1766,7 +1766,30 @@ def _migrate_66_to_67(connection):
 
 
 
-def _migrate_67_to_68(connection: sqlite3.Connection) -> None:
+
+def _migrate_67_to_68(connection):
+    # REV59-AUDIO2 (#652 panning continuity, #669 subwoofer
+    # localization, #657 group-delay audibility, #702
+    # headphone coupling, #653 structure-borne, #664
+    # remapping): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+
+def _migrate_68_to_69(connection):
+    # REV59-SIGNAL (#747/#753 codec fidelity, #749 spectral
+    # estimator, #670 clock domains, #765 fact claims,
+    # #667 BOM): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+
+def _migrate_69_to_70(connection: sqlite3.Connection) -> None:
     # Install the REV59-UNITS authorities (#728 typed physical
     # quantity: quantities, operations; #730 engineering-assumption /
     # permissible-use ledger: assumptions, resolutions, assessments;
@@ -1847,6 +1870,8 @@ _MIGRATIONS = {
     66: _migrate_65_to_66,
     67: _migrate_66_to_67,
     68: _migrate_67_to_68,
+    69: _migrate_68_to_69,
+    70: _migrate_69_to_70,
 }
 
 

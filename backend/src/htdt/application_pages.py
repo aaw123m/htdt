@@ -740,6 +740,18 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_dynamic_contrast_measurements": "ダイナミックコントラスト測定",
     "cad_display_wall_boundaries": "表示壁境界",
     "cad_wall_acoustic_impacts": "壁音響影響",
+    "cad_panning_continuity_evidence": "パンニング連続性証拠",
+    "cad_subwoofer_localization_profiles": "サブウーファー定位プロファイル",
+    "cad_groupdelay_audibility": "群遅延可聴性",
+    "cad_headphone_coupling_evidence": "ヘッドホン結合証拠",
+    "cad_structureborne_paths": "固体伝搬パス",
+    "cad_spatial_remapping_evidence": "空間リマップ証拠",
+    "cad_codec_fidelity_evidence": "コーデック忠実度証拠",
+    "cad_fft_spectral_estimator_profiles": "スペクトル推定プロファイル",
+    "cad_clock_domain_observations": "クロックドメイン観測",
+    "cad_external_fact_claims": "外部事実クレーム",
+    "cad_fact_conflict_resolutions": "事実矛盾解決",
+    "cad_bom_estimates": "BOM・見積",
 
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",

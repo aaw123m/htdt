@@ -1299,6 +1299,18 @@ class _RepositoryChain:
             )
 
             return CadDisplayAuthorityRepository(scene)
+        if name == 'audio_perception':
+            from .cad_audio_perception_repository import (
+                CadAudioPerceptionRepository,
+            )
+
+            return CadAudioPerceptionRepository(scene)
+        if name == 'signal_authority':
+            from .cad_signal_authority_repository import (
+                CadSignalAuthorityRepository,
+            )
+
+            return CadSignalAuthorityRepository(scene)
                 # REV59-UNITS authorities.
         if name == 'typed_quantity':
             from .cad_typed_quantity_repository import (
@@ -6328,6 +6340,78 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_wall_acoustic_impacts',
         ('impact_id',),
         _get('display_authority', 'get_wall_impact'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_panning_continuity_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_continuity_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_subwoofer_localization_profiles',
+        ('profile_id',),
+        _get('audio_perception', 'get_localization_profile'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_groupdelay_audibility',
+        ('verdict_id',),
+        _get('audio_perception', 'get_groupdelay_verdict'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_headphone_coupling_evidence',
+        ('coupling_id',),
+        _get('audio_perception', 'get_coupling_evidence'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_structureborne_paths',
+        ('path_id',),
+        _get('audio_perception', 'get_structureborne_path'),
+    ),
+    _ReplayProbe(
+        'audio_perception',
+        'cad_spatial_remapping_evidence',
+        ('evidence_id',),
+        _get('audio_perception', 'get_remap_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_codec_fidelity_evidence',
+        ('evidence_id',),
+        _get('signal_authority', 'get_codec_evidence'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fft_spectral_estimator_profiles',
+        ('profile_id',),
+        _get('signal_authority', 'get_spectral_profile'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_clock_domain_observations',
+        ('observation_id',),
+        _get('signal_authority', 'get_clock_observation'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_external_fact_claims',
+        ('claim_id',),
+        _get('signal_authority', 'get_fact_claim'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_fact_conflict_resolutions',
+        ('resolution_id',),
+        _get('signal_authority', 'get_fact_resolution'),
+    ),
+    _ReplayProbe(
+        'signal_authority',
+        'cad_bom_estimates',
+        ('estimate_id',),
+        _get('signal_authority', 'get_bom_estimate'),
     ),
 
     # REV59-UNITS: #728 typed physical quantity

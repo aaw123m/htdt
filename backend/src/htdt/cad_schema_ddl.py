@@ -6967,6 +6967,171 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_wall_acoustic_impacts_document_idx ON cad_wall_acoustic_impacts (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_panning_continuity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_subwoofer_localization_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    crossover_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_groupdelay_audibility (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    verdict_id TEXT NOT NULL UNIQUE,
+    verdict_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    peak_delay_ms REAL,
+    frequency_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_headphone_coupling_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    coupling_id TEXT NOT NULL UNIQUE,
+    coupling_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    compensation_kind TEXT NOT NULL,
+    fit_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_structureborne_paths (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id TEXT NOT NULL UNIQUE,
+    path_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    mount_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_remapping_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    remap_mode TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_panning_continuity_evidence_document_idx ON cad_panning_continuity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_subwoofer_localization_profiles_document_idx ON cad_subwoofer_localization_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_groupdelay_audibility_document_idx ON cad_groupdelay_audibility (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_headphone_coupling_evidence_document_idx ON cad_headphone_coupling_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_structureborne_paths_document_idx ON cad_structureborne_paths (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_remapping_evidence_document_idx ON cad_spatial_remapping_evidence (document_id)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_codec_fidelity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    media_kind TEXT NOT NULL,
+    codec_family TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fft_spectral_estimator_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    window_kind TEXT NOT NULL,
+    enbw_bins REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_clock_domain_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    domain_kind TEXT NOT NULL,
+    lock_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_external_fact_claims (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    claim_id TEXT NOT NULL UNIQUE,
+    claim_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    published_on TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fact_conflict_resolutions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    resolution_id TEXT NOT NULL UNIQUE,
+    resolution_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    resolution_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_bom_estimates (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    estimate_id TEXT NOT NULL UNIQUE,
+    estimate_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    bom_version TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_codec_fidelity_evidence_document_idx ON cad_codec_fidelity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fft_spectral_estimator_profiles_document_idx ON cad_fft_spectral_estimator_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_clock_domain_observations_document_idx ON cad_clock_domain_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_external_fact_claims_document_idx ON cad_external_fact_claims (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fact_conflict_resolutions_document_idx ON cad_fact_conflict_resolutions (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_bom_estimates_document_idx ON cad_bom_estimates (document_id)
+    """
+    ,
     # REV59-UNITS: #728 typed physical-quantity authority — quantities,
     # operations.
     """
@@ -8028,6 +8193,18 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_dynamic_contrast_measurements',
     'cad_display_wall_boundaries',
     'cad_wall_acoustic_impacts',
+    'cad_panning_continuity_evidence',
+    'cad_subwoofer_localization_profiles',
+    'cad_groupdelay_audibility',
+    'cad_headphone_coupling_evidence',
+    'cad_structureborne_paths',
+    'cad_spatial_remapping_evidence',
+    'cad_codec_fidelity_evidence',
+    'cad_fft_spectral_estimator_profiles',
+    'cad_clock_domain_observations',
+    'cad_external_fact_claims',
+    'cad_fact_conflict_resolutions',
+    'cad_bom_estimates',
     # REV59-UNITS: #728 / #730 / #720 / #719.
     'cad_typed_quantities',
     'cad_quantity_operations',
