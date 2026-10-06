@@ -881,3 +881,344 @@ def mission_equipment_definition_ids(
             if dependency.kind == 'equipment_slot':
                 ids.append(dependency.target_id)
     return tuple(sorted(set(ids)))
+
+
+# --- Capture-app wire projection (#round-trip convergence) -------------------
+#
+# The pull lane serves Capture iOS builds, which import exactly two grammars:
+# a ``htdt.capture-mission`` v1.0.0 envelope wrapping a
+# ``htdt.capture-task-plan`` v2.0.0 plan, or the bare plan alone. The native
+# ``htdt.capture.mission-package`` schema above stays the hash-pinned
+# authority for HTDT bookkeeping; these helpers project it onto the app's
+# envelope so queued packages are actually importable on-device — the
+# earlier dot-grammar payload was served verbatim and rejected by every
+# device at import.
+
+APP_MISSION_SCHEMA = 'htdt.capture-mission'
+APP_MISSION_SCHEMA_VERSION = '1.0.0'
+APP_PLAN_SCHEMA = 'htdt.capture-task-plan'
+APP_PLAN_SCHEMA_VERSION = '2.0.0'
+
+# The app's task-plan semantic kinds it can fulfill with authority records.
+# Mapped from HTDT task kinds below; unmapped kinds fail closed at
+# projection time rather than emitting a plan the app cannot act on.
+_APP_MEASUREMENT_UNITS = frozenset({'m', 'rad', 's', 'degC', '%', '1'})
+
+_APP_ACQUISITION_REQUIREMENTS = {
+    'spatial_required': 'spatial_point_required',
+    'supplied_endpoint': 'imported_endpoint_reference_sufficient',
+    'non_spatial': 'non_spatial',
+}
+
+# The app's ChannelRole grammar: uppercase ``[A-Z0-9_]+`` — a standard set
+# member or an ``X_`` custom token. Non-standard assigned roles are
+# preserved as ``X_`` custom tokens (never rewritten to a lookalike
+# standard role); unassigned and non-encodable roles drop the typed slot
+# only — the task label still names the entity.
+_APP_STANDARD_CHANNEL_ROLES = frozenset(
+    {
+        'L', 'C', 'R', 'SL', 'SR', 'SBL', 'SBR', 'LFE',
+        'TFL', 'TFR', 'TML', 'TMR', 'TRL', 'TRR',
+        'LFE1', 'LFE2', 'LFE3', 'LFE4',
+    }
+)
+
+
+def _app_channel_role(role: str | None) -> str | None:
+    """Channel-role token the app decodes, or None when unassigned.
+
+    Standard-set members pass through verbatim; every other assigned
+    role is preserved losslessly as an ``X_<ROLE>`` custom token (the
+    app grammar's own escape hatch) rather than dropped or rewritten to
+    a lookalike standard role. Unassigned roles carry no channel
+    expectation at all.
+    """
+
+    if not role or is_unassigned_speaker_role(role):
+        return None
+    normalized = role.upper()
+    if not all(
+        char.isascii() and (char.isalnum() or char == '_')
+        for char in normalized
+    ):
+        return None
+    if normalized in _APP_STANDARD_CHANNEL_ROLES:
+        return normalized
+    if normalized.startswith('X_') and len(normalized) > 2:
+        return normalized
+    return f'X_{normalized}'
+
+
+def _project_ref_text(
+    project: HTDTProjectReference | HTDTLegacyProjectRef,
+) -> str:
+    """Plain-string project identity the app plan/requirement carries."""
+
+    if isinstance(project, HTDTProjectReference):
+        return project.project_id
+    return project.legacy_project_ref
+
+
+def _app_mission_kind(mission: CaptureMission) -> str:
+    """Map the mission's issuance/purpose onto the app's mission kinds."""
+
+    if mission.issued_from == 'repair_request':
+        return 'repair'
+    return {
+        'initial_capture': 'initial_survey',
+        'recapture': 'follow_up',
+        'commissioning': 'commissioning',
+    }.get(mission.plan.purpose, 'other')
+
+
+def _app_semantic_item(
+    task: MissionTask,
+    semantic_kind: str,
+) -> dict:
+    item: dict = {
+        'item_id': task.task_id,
+        'requirement': task.requirement,
+        'semantic_kind': semantic_kind,
+        'label': task.title,
+    }
+    if task.target_entity_id is not None:
+        item['planned_ref'] = task.target_entity_id
+    return item
+
+
+def _app_task_items(
+    task: MissionTask,
+    expected_roles: list[str],
+) -> tuple[dict | None, dict | None, dict | None, dict | None]:
+    """Project one task onto (measurement, surface, semantic, evidence).
+
+    A task with no faithful app-plan expression raises — the mission must
+    not reach the device silently narrowed.
+    """
+
+    if task.kind == 'acquire_room_scan':
+        return (
+            None,
+            None,
+            _app_semantic_item(task, 'room_state_snapshot'),
+            None,
+        )
+    if task.kind == 'verify_placement':
+        role = _app_channel_role(task.expected_speaker_role)
+        if role is not None:
+            expected_roles.append(role)
+        return (
+            None,
+            None,
+            _app_semantic_item(task, 'speaker_installation'),
+            None,
+        )
+    if task.kind == 'capture_equipment_identity':
+        return (
+            None,
+            None,
+            _app_semantic_item(task, 'inventory_item'),
+            None,
+        )
+    if task.kind in ('measure_dimension', 'measurement'):
+        if task.measurement is None:
+            raise CaptureMissionError(
+                f'task {task.task_id} is {task.kind} but carries no '
+                'measurement request'
+            )
+        request = task.measurement
+        if (
+            request.expected_unit is not None
+            and request.expected_unit not in _APP_MEASUREMENT_UNITS
+        ):
+            raise CaptureMissionError(
+                f'task {task.task_id} expects unit '
+                f'{request.expected_unit!r} the app cannot decode'
+            )
+        item = {
+            'item_id': task.task_id,
+            'requirement': task.requirement,
+            'quantity_type': request.quantity_type,
+            'acquisition_requirement': (
+                _APP_ACQUISITION_REQUIREMENTS[request.acquisition]
+            ),
+        }
+        if request.endpoint_semantics is not None:
+            item['endpoint_semantics'] = request.endpoint_semantics
+        if request.expected_unit is not None:
+            item['expected_unit'] = request.expected_unit
+        return item, None, None, None
+    if task.kind == 'inspect_opening':
+        return (
+            None,
+            {
+                'item_id': task.task_id,
+                'requirement': task.requirement,
+                'surface_kind': 'opening',
+                'note': task.title,
+            },
+            None,
+            None,
+        )
+    raise CaptureMissionError(
+        f'task {task.task_id} kind {task.kind!r} has no app-plan '
+        'expression — refusing to narrow the mission'
+    )
+
+
+def _app_equipment_catalog(
+    package: CaptureMissionPackage,
+) -> dict | None:
+    """The plan's pinned equipment catalog, when the package carries one."""
+
+    catalog: dict | None = None
+    for dependency in package.dependencies:
+        if dependency.kind == 'task_plan':
+            # The embedded native plan is authoritative for HTDT
+            # bookkeeping; the app envelope carries the projected plan
+            # instead — it is never re-embedded.
+            continue
+        if dependency.kind != 'equipment_catalog_snapshot':
+            raise CaptureMissionError(
+                f'mission dependency kind {dependency.kind!r} has no '
+                'app-envelope expression — underlay/datum payloads '
+                'cannot be smuggled as plan content'
+            )
+        if catalog is not None:
+            raise CaptureMissionError(
+                'mission carries more than one equipment catalog — the '
+                'app plan pins at most one'
+            )
+        snapshot = EquipmentCatalogSnapshot.model_validate(
+            package.dependency_payload(dependency.dependency_id).decode(
+                'utf-8'
+            )
+        )
+        catalog = snapshot.model_dump(mode='json')
+    return catalog
+
+
+def _app_projection(
+    package: CaptureMissionPackage,
+) -> tuple[dict, dict]:
+    """Shared (plan, receiver_requirement) projection for payload+listing."""
+
+    mission = package.mission
+    plan = mission.plan
+    room_name = plan.room_name
+    if room_name is None and isinstance(
+        plan.project, HTDTProjectReference
+    ):
+        room_name = plan.project.room_name
+    if not room_name:
+        raise CaptureMissionError(
+            'mission plan carries no room name — the app plan requires '
+            'a non-empty room_name'
+        )
+    project_ref = _project_ref_text(plan.project)
+    measurement_items: list[dict] = []
+    surface_items: list[dict] = []
+    semantic_items: list[dict] = []
+    evidence_items: list[dict] = []
+    expected_roles: list[str] = []
+    for task in plan.tasks:
+        measurement, surface, semantic, evidence = _app_task_items(
+            task, expected_roles
+        )
+        if measurement is not None:
+            measurement_items.append(measurement)
+        if surface is not None:
+            surface_items.append(surface)
+        if semantic is not None:
+            semantic_items.append(semantic)
+        if evidence is not None:
+            evidence_items.append(evidence)
+    app_plan = {
+        'schema': APP_PLAN_SCHEMA,
+        'schema_version': APP_PLAN_SCHEMA_VERSION,
+        'plan_id': plan.plan_id,
+        'plan_version': f'{plan.plan_version}.0.0',
+        'project_ref': project_ref,
+        'room_name': room_name,
+        'entity_checklist': [],
+        'measurement_requests': measurement_items,
+        'surface_review_tasks': surface_items,
+        'evidence_targets': [],
+        'expected_channel_roles': sorted(set(expected_roles)),
+        'semantic_tasks': semantic_items,
+        'evidence_tasks': evidence_items,
+    }
+    catalog = _app_equipment_catalog(package)
+    if catalog is not None:
+        app_plan['equipment_catalog'] = catalog
+    # Authority families are minted only in the receiver's promotable
+    # vocabulary: semantic-task records are staged verbatim today, so
+    # requiring their families would hard-fail every mission honestly —
+    # only measurement promotion is executable end-to-end.
+    families = ['measurements'] if measurement_items else []
+    schemas: list[str] = []
+    if semantic_items:
+        schemas.append('htdt.capture.authorities')
+    if measurement_items:
+        schemas.append('htdt.capture.measurements')
+    if surface_items:
+        schemas.append('htdt.capture.opening-review')
+    requirement = {
+        'destination_project_ref': project_ref,
+        'min_handoff_protocol': '1',
+        'required_authority_families': families,
+        'required_payload_schemas': schemas,
+        'require_mission_receipts': True,
+    }
+    return app_plan, requirement
+
+
+def mission_package_wire_payload(package: CaptureMissionPackage) -> bytes:
+    """The ``htdt.capture-mission`` envelope bytes a Capture app imports.
+
+    Deterministic projection of the native package: envelope fields carry
+    mission identity/kind/supersession and the embedded plan; payload-only
+    dependencies (underlay, field datum, repair request, planned targets)
+    have no app-envelope slot and fail closed rather than being dropped.
+    """
+
+    mission = package.mission
+    app_plan, requirement = _app_projection(package)
+    envelope: dict = {
+        'schema': APP_MISSION_SCHEMA,
+        'schema_version': APP_MISSION_SCHEMA_VERSION,
+        'mission_id': mission.mission_id,
+        'mission_kind': _app_mission_kind(mission),
+        'plan': app_plan,
+        'purpose': mission.plan.purpose,
+        'dependencies': [],
+        'receiver_requirement': requirement,
+    }
+    if mission.supersedes_mission_id is not None:
+        envelope['supersedes_mission_id'] = mission.supersedes_mission_id
+    return _canonical_json(envelope).encode('utf-8')
+
+
+def mission_package_descriptor(package: CaptureMissionPackage) -> dict:
+    """Listing descriptor fields for ``queue_mission_package``.
+
+    The queue key is the mission id, so re-issuing a mission replaces its
+    pending package and a repair mission's ``supersedes_package_id`` names
+    its parent by the same identity.
+    """
+
+    mission = package.mission
+    app_plan, requirement = _app_projection(package)
+    descriptor: dict = {
+        'mission_id': mission.mission_id,
+        'purpose': mission.plan.purpose,
+        'project_ref': _project_ref_text(mission.plan.project),
+        # Same resolved room name the payload carries — the project
+        # fallback applied there must not vanish from the listing.
+        'room_label': app_plan['room_name'],
+        'required_schema_version': APP_MISSION_SCHEMA_VERSION,
+        'receiver_requirement': requirement,
+    }
+    if mission.supersedes_mission_id is not None:
+        descriptor['supersedes_package_id'] = mission.supersedes_mission_id
+    return descriptor

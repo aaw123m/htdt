@@ -64,6 +64,11 @@ from .capture_inbox import (
     PROMOTION_AUTHORITY_KINDS,
     CaptureInboxRepository,
 )
+from .capture_mission import (
+    CaptureMissionPackage,
+    mission_package_descriptor,
+    mission_package_wire_payload,
+)
 from .field_return_ingestion import (
     FieldReturnConflictError,
     FieldReturnRepository,
@@ -732,6 +737,15 @@ class CaptureReceiverService:
             'handoff_protocol_versions': [HANDOFF_PROTOCOL_VERSION],
             'accepted_bundle_schema_versions': [BUNDLE_SCHEMA_VERSION],
             'accepted_payload_schemas': accepted_payload_schemas,
+            # The app's `supported_authority_families` vocabulary is the
+            # family tokens its mission requirements and bundle
+            # inventories can be checked against. Semantic-task families
+            # (authorities.json records) are staged verbatim today — no
+            # promotion executor — so advertising them would lie about
+            # fidelity and fail every semantic requirement honestly.
+            # The honest promotable set is the executable authority
+            # kinds; `staged_authority_families` keeps the rest visible
+            # in the promotion-kind vocabulary.
             'supported_authority_families': sorted(
                 EXECUTABLE_AUTHORITY_KINDS
             ),
@@ -1337,6 +1351,34 @@ class CaptureReceiverService:
                 'mission document (htdt.capture-mission / '
                 'htdt.capture-task-plan)'
             )
+        # Shape coherence: the app hard-decodes these fields — a
+        # schema-matching payload missing them still fails import on
+        # every device, so reject it here instead.
+        if decoded['schema'] == 'htdt.capture-mission':
+            plan = decoded.get('plan')
+            if (
+                not isinstance(decoded.get('mission_id'), str)
+                or not decoded['mission_id']
+                or not isinstance(decoded.get('mission_kind'), str)
+                or not decoded['mission_kind']
+                or not isinstance(plan, dict)
+                or plan.get('schema') != 'htdt.capture-task-plan'
+                or not isinstance(plan.get('schema_version'), str)
+                or not plan['schema_version']
+            ):
+                raise CaptureReceiverError(
+                    'mission envelope is missing a decodable '
+                    'mission_id/mission_kind/plan'
+                )
+        else:
+            for key in ('plan_id', 'project_ref', 'room_name'):
+                if (
+                    not isinstance(decoded.get(key), str)
+                    or not decoded[key]
+                ):
+                    raise CaptureReceiverError(
+                        f'bare task plan is missing a decodable {key}'
+                    )
         descriptor = dict(descriptor or {})
         # The app's receiver_requirement struct strictly decodes the
         # fields below — a divergent value used to break the WHOLE
@@ -1430,6 +1472,29 @@ class CaptureReceiverService:
                 ),
             )
         return package
+
+    def queue_mission(
+        self,
+        package: CaptureMissionPackage,
+        *,
+        pairing_id: str | None = None,
+    ) -> MissionPackage:
+        """Queue a native mission package for the pull lane.
+
+        Projects the hash-pinned ``htdt.capture.mission-package`` onto
+        the ``htdt.capture-mission`` envelope the Capture app decodes
+        (see ``capture_mission.mission_package_wire_payload``), then
+        queues it under the mission id so a re-issued mission replaces
+        its pending package and a repair mission's supersession names
+        its parent by the same identity.
+        """
+
+        return self.queue_mission_package(
+            package.mission.mission_id,
+            mission_package_wire_payload(package),
+            descriptor=mission_package_descriptor(package),
+            pairing_id=pairing_id,
+        )
 
     def mission_package_bytes(self, package_id: str) -> bytes | None:
         """Exact package bytes — used by the pull endpoint and file export."""

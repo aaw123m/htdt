@@ -25,6 +25,8 @@ from htdt.capture_mission import (
     decode_mission_package,
     entity_pose_fingerprint,
     mission_equipment_definition_ids,
+    mission_package_descriptor,
+    mission_package_wire_payload,
 )
 from htdt.project_identity import new_project_reference
 
@@ -343,3 +345,196 @@ def test_mission_equipment_definition_ids_collects_slot_refs() -> None:
     mission = build_mission(document, project=project, purpose='initial_capture')
     # No equipment_slot deps derived from bare document state.
     assert mission_equipment_definition_ids(mission) == ()
+
+
+def _wire_package(**mission_kwargs):
+    document = _document(
+        room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+        entities=(
+            _speaker('spk-fl', 'FL', 1.0),
+            _measurement_point('mp-1', 2.0),
+            SceneEntity(
+                entity_id='av-1',
+                kind='av_equipment',
+                name='AVR',
+                position=Position3(x_m=0.5, y_m=0.5, z_m=0.5),
+                size_m=Size3(x_m=0.4, y_m=0.2, z_m=0.35),
+            ),
+        ),
+    )
+    project = new_project_reference(document_id='mission-doc-1')
+    mission = build_mission(
+        document,
+        project=project,
+        purpose='initial_capture',
+        room_name='Theater A',
+        **mission_kwargs,
+    )
+    return build_mission_package(mission)
+
+
+def test_wire_payload_emits_app_envelope_and_plan() -> None:
+    package = _wire_package()
+    payload = json.loads(mission_package_wire_payload(package))
+    assert payload['schema'] == 'htdt.capture-mission'
+    assert payload['schema_version'] == '1.0.0'
+    assert payload['mission_id'] == package.mission.mission_id
+    assert payload['mission_kind'] == 'initial_survey'
+    assert payload['purpose'] == 'initial_capture'
+    assert 'supersedes_mission_id' not in payload
+
+    plan = payload['plan']
+    assert plan['schema'] == 'htdt.capture-task-plan'
+    assert plan['schema_version'] == '2.0.0'
+    assert plan['plan_id'] == package.mission.plan.plan_id
+    assert plan['plan_version'] == '1.0.0'
+    assert plan['project_ref'] == package.mission.plan.project.project_id
+    assert plan['room_name'] == 'Theater A'
+
+    semantic_kinds = {
+        item['semantic_kind'] for item in plan['semantic_tasks']
+    }
+    assert 'speaker_installation' in semantic_kinds
+    assert 'inventory_item' in semantic_kinds
+    # Task ids stay the app-side item ids; target refs land on
+    # planned_ref, never target_ref (the app-side annotation identity
+    # does not exist until the capture is made).
+    placement = next(
+        item for item in plan['semantic_tasks']
+        if item['semantic_kind'] == 'speaker_installation'
+    )
+    assert placement['planned_ref'] == 'spk-fl'
+    assert 'target_ref' not in placement
+    # 'FL' is not an app-standard channel role — preserved losslessly
+    # as a custom token rather than rewritten to a lookalike.
+    assert plan['expected_channel_roles'] == ['X_FL']
+
+    measurement = next(
+        item for item in plan['measurement_requests']
+        if item['quantity_type'] == 'spatial_location'
+    )
+    assert measurement['acquisition_requirement'] == (
+        'spatial_point_required'
+    )
+    assert plan['entity_checklist'] == []
+    assert plan['evidence_tasks'] == []
+
+    requirement = payload['receiver_requirement']
+    assert requirement['required_authority_families'] == ['measurements']
+    assert set(requirement['required_payload_schemas']) == {
+        'htdt.capture.authorities',
+        'htdt.capture.measurements',
+    }
+    assert requirement['require_mission_receipts'] is True
+    assert requirement['destination_project_ref'] == plan['project_ref']
+
+    # The listing descriptor mirrors the same projection.
+    descriptor = mission_package_descriptor(package)
+    assert descriptor['mission_id'] == package.mission.mission_id
+    assert descriptor['project_ref'] == plan['project_ref']
+    assert descriptor['room_label'] == 'Theater A'
+    assert descriptor['required_schema_version'] == '1.0.0'
+    assert descriptor['receiver_requirement'] == requirement
+
+
+def test_wire_payload_repair_mission_links_supersession() -> None:
+    package = _wire_package()
+    repair = build_repair_mission(
+        package.mission,
+        [package.mission.plan.tasks[0].task_id],
+        document=_document(
+            room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+            entities=(_speaker('spk-fl', 'FL', 1.0),),
+        ),
+        project=package.mission.plan.project,
+    )
+    repair_package = build_mission_package(repair)
+    payload = json.loads(mission_package_wire_payload(repair_package))
+    assert payload['mission_kind'] == 'repair'
+    assert payload['supersedes_mission_id'] == package.mission.mission_id
+    descriptor = mission_package_descriptor(repair_package)
+    assert descriptor['supersedes_package_id'] == (
+        package.mission.mission_id
+    )
+
+
+def test_wire_payload_fails_closed_on_unexpressible_content() -> None:
+    # 'custom' tasks have no faithful app-plan expression.
+    package = _wire_package()
+    from htdt.capture_mission import MissionTask
+
+    custom = MissionTask(
+        task_id=str(uuid.uuid4()),
+        kind='custom',
+        title='Do the unusual thing',
+    )
+    tweaked = package.mission.model_copy(
+        update={
+            'plan': package.mission.plan.model_copy(
+                update={
+                    'tasks': package.mission.plan.tasks + (custom,)
+                }
+            )
+        }
+    )
+    tampered = package.model_copy(update={'mission': tweaked})
+    with pytest.raises(CaptureMissionError, match='custom'):
+        mission_package_wire_payload(tampered)
+
+    # Payload-only dependencies (underlay/datum/repair-request) cannot
+    # be smuggled into the app envelope.
+    with_datum = _wire_package()
+    from htdt.capture_mission import MissionPackageDependency
+
+    dep = MissionPackageDependency(
+        dependency_id=str(uuid.uuid4()),
+        kind='underlay',
+        role='optional',
+        schema='htdt.capture.underlay',
+        schema_version=1,
+        payload_sha256='0' * 64,
+        payload_base64='e30=',
+    )
+    tampered2 = with_datum.model_copy(
+        update={'dependencies': with_datum.dependencies + (dep,)}
+    )
+    with pytest.raises(CaptureMissionError, match='underlay'):
+        mission_package_wire_payload(tampered2)
+
+
+def test_wire_payload_requires_a_room_name() -> None:
+    document = _document(
+        room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+    )
+    project = new_project_reference(document_id='mission-doc-1')
+    mission = build_mission(
+        document, project=project, purpose='initial_capture'
+    )
+    package = build_mission_package(mission)
+    with pytest.raises(CaptureMissionError, match='room'):
+        mission_package_wire_payload(package)
+
+
+def test_wire_payload_rejects_unknown_measurement_unit() -> None:
+    package = _wire_package()
+    tasks = []
+    for task in package.mission.plan.tasks:
+        if task.measurement is not None:
+            task = task.model_copy(
+                update={
+                    'measurement': task.measurement.model_copy(
+                        update={'expected_unit': 'fathoms'}
+                    )
+                }
+            )
+        tasks.append(task)
+    tweaked = package.mission.model_copy(
+        update={
+            'plan': package.mission.plan.model_copy(
+                update={'tasks': tuple(tasks)}
+            )
+        }
+    )
+    tampered = package.model_copy(update={'mission': tweaked})
+    with pytest.raises(CaptureMissionError, match='fathoms'):
+        mission_package_wire_payload(tampered)
