@@ -991,6 +991,25 @@ class _RepositoryChain:
             )
 
             return CadExcitationSourceRepository(scene)
+        # REV58-DSPDECAY authorities.
+        if name == 'dsp_realization':
+            from .cad_dsp_realization_repository import (
+                CadDspRealizationRepository,
+            )
+
+            return CadDspRealizationRepository(scene)
+        if name == 'decay_processing':
+            from .cad_decay_processing_repository import (
+                CadDecayProcessingRepository,
+            )
+
+            return CadDecayProcessingRepository(scene)
+        if name == 'boundary_realizability':
+            from .cad_boundary_realizability_repository import (
+                CadBoundaryRealizabilityRepository,
+            )
+
+            return CadBoundaryRealizabilityRepository(scene)
         raise KeyError(name)
 
 
@@ -4465,6 +4484,87 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_measurement_source_qualifications',
         ('qualification_id',),
         _get('excitation_source', 'get_qualification'),
+    ),
+    # REV58-DSPDECAY: #679 DSP filter realization
+    _ReplayProbe(
+        'dsp_realization_profile',
+        'cad_dsp_realization_profiles',
+        ('profile_id',),
+        _get('dsp_realization', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'dsp_stage_record',
+        'cad_dsp_stage_records',
+        ('stage_id',),
+        _get('dsp_realization', 'get_stage'),
+    ),
+    _ReplayProbe(
+        'dsp_parameter_mapping',
+        'cad_dsp_parameter_mappings',
+        ('mapping_id',),
+        _get('dsp_realization', 'get_mapping'),
+    ),
+    _ReplayProbe(
+        'dsp_realization_qualification',
+        'cad_dsp_realization_qualifications',
+        ('qualification_id',),
+        _get('dsp_realization', 'get_qualification'),
+    ),
+    # REV58-DSPDECAY: #676 decay-curve noise/truncation processing
+    _ReplayProbe(
+        'decay_processing_profile',
+        'cad_decay_processing_profiles',
+        ('profile_id',),
+        _get('decay_processing', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'decay_noise_estimate',
+        'cad_decay_noise_estimates',
+        ('estimate_id',),
+        _get('decay_processing', 'get_noise_estimate'),
+    ),
+    _ReplayProbe(
+        'rir_truncation_decision',
+        'cad_decay_truncation_decisions',
+        ('decision_id',),
+        _get('decay_processing', 'get_truncation_decision'),
+    ),
+    _ReplayProbe(
+        'decay_edc_artifact',
+        'cad_decay_edc_artifacts',
+        ('artifact_id',),
+        _get('decay_processing', 'get_edc_artifact'),
+    ),
+    _ReplayProbe(
+        'decay_fit_record',
+        'cad_decay_fit_records',
+        ('record_id',),
+        _get('decay_processing', 'get_fit_record'),
+    ),
+    # REV58-DSPDECAY: #705 acoustic impedance physical realizability
+    _ReplayProbe(
+        'boundary_evidence_record',
+        'cad_boundary_evidence_records',
+        ('record_id',),
+        _get('boundary_realizability', 'get_evidence'),
+    ),
+    _ReplayProbe(
+        'boundary_rational_fit',
+        'cad_boundary_rational_fits',
+        ('fit_id',),
+        _get('boundary_realizability', 'get_rational_fit'),
+    ),
+    _ReplayProbe(
+        'td_impedance_realization',
+        'cad_td_impedance_realizations',
+        ('realization_id',),
+        _get('boundary_realizability', 'get_td_realization'),
+    ),
+    _ReplayProbe(
+        'boundary_realizability_assessment',
+        'cad_boundary_realizability_assessments',
+        ('assessment_id',),
+        _get('boundary_realizability', 'get_assessment'),
     ),
 )
 

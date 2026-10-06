@@ -1604,3 +1604,110 @@ issues:
           レシーバー権威との source+receiver ペア解決、#135 G リファレンス
           転送の実測パイプライン、#581 キャンペーン設計からの自動ソース
           要件生成は残件。
+  - issue: 679
+    title: "REV58-DSPDECAY: DSP filter-realization qualification authority"
+    notes: >
+      CadDspRealizationProfile seals the device realization model (declared
+      sample rates, filter banks with deterministic parameter grids,
+      coefficient format/exposure, processing order, hidden resampling,
+      provenance, #592 snapshot pin). CadDspStageRecord keeps the seven
+      realization stages distinct (ideal design / target parameterization /
+      encoded artifact / requested state / observed readback / predicted /
+      measured realized transfer); observed readback requires snapshot or
+      content-hash evidence. CadDspParameterMapping records every
+      parameter's deployed value and delta — out-of-range is rejected for
+      reoptimization, never silently clamped. evaluate_dsp_realization
+      derives a fail-closed verdict: wrong-rate reuse is incompatible,
+      undocumented internals bound the verdict at realization_model_limited,
+      and device_readback_match never becomes
+      transfer_realization_verified without a measured/predicted stage.
+    checks:
+      - id: dsp-realization-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_dspdecay.py
+        description: >
+          DSR10/20/40/60/70/80 fixtures: exact-grid zero-delta mapping,
+          coarse-grid declared deltas, unsupported rejection vs silent
+          clamp, wrong-rate incompatibility, readback-vs-transfer
+          separation, measured loopback verification; sealed-record
+          tamper evidence and repository round-trip.
+      - id: dsp-realization-remainder
+        kind: manual
+        description: >
+          実デバイス係数読み戻しパイプライン（minidsp/AVR ベンダー固有
+          バイナリのデコード）、フィルタバンク容量への具体的デバイス
+          データベース係留、DSP 再最適化エンジン実装、UI 入力フォームは
+          残件。
+  - issue: 676
+    title: "REV58-DSPDECAY: decay-curve noise / truncation processing authority"
+    notes: >
+      CadDecayProcessingProfile seals the processing identity (band spec,
+      Schroeder backward integration variant, noise-floor method, tail
+      compensation, per-metric fit windows, stationarity assumption,
+      measured/simulated provenance). CadDecayNoiseEstimate /
+      CadRirTruncationDecision / CadDecayEdcArtifact keep the noise floor,
+      the truncation cause (capture-truncated vs noise-limit vs solver
+      truncation kept separate) and the raw-vs-corrected EDC lineage as
+      retained evidence. evaluate_decay_fit emits a fail-closed eligibility
+      (insufficient_decay_range / noise_floor_too_high /
+      non_stationary_noise / multi_slope_model_mismatch /
+      modal_method_required / indeterminate / eligible_with_limitations) —
+      a fitted scalar never hides its eligibility, and an eligible state
+      requires the retained value.
+    checks:
+      - id: decay-processing-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_dspdecay.py
+        description: >
+          DEC10/30/40/50/60/70/80/90 fixtures: clean-decay eligibility,
+          insufficient dynamic range, capture-truncated cause,
+          nonstationary-noise blocking, multi-slope and modal routes,
+          two-method spread retention, simulated-tail truncation;
+          EDC raw/corrected lineage; sealed-record tamper evidence and
+          repository round-trip.
+      - id: decay-processing-remainder
+        kind: manual
+        description: >
+          Lundeby 自動交点推定器・非線形残響+雑音床同時フィットの実装、
+          計測位置ごとの sensitivity propagation、分散型雑音推定への
+          複数 HEM 法、IEC 61672 等級不確かさ予算、UI 入力フォームは残件。
+  - issue: 705
+    title: "REV58-DSPDECAY: acoustic-impedance physical-realizability gate"
+    notes: >
+      CadBoundaryEvidenceRecord seals the boundary-evidence class,
+      quantity convention, declared passivity class, observed band,
+      minimum resistive value and reflection bound — a negative resistive
+      part is never clipped on entry. CadRationalPole /
+      CadBoundaryRationalFit carry per-domain stability (continuous re<0 /
+      discrete |z|<1 with solver margin); CadTdImpedanceRealization keeps
+      the solver family, boundary stability criterion/margin, FD↔TD
+      residual vs declared tolerance, energy growth and symmetry.
+      evaluate_boundary_realizability emits the §19 states verbatim:
+      active_control_boundary never enters through the passive path,
+      resistive violations beyond uncertainty are nonpassive_input,
+      in-band causality evidence stays causality_unresolved_finite_band,
+      unstable poles / TD mismatch / symmetry violations fail closed, and
+      solver-band-beyond-evidence degrades to passive_with_limitations.
+    checks:
+      - id: boundary-realizability-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_dspdecay.py
+        description: >
+          ABI10/30/40/50/60/70/80/90/100 fixtures: stable TD realization,
+          uncertainty-unresolved vs hard passivity rejection, explicit
+          active boundary, unstable pole despite good FD residual,
+          derived passivity-enforced refit, finite-band causality,
+          spline-artifact rejection, solver timestep instability,
+          FD↔TD residual tolerance; sealed-record tamper evidence and
+          repository round-trip.
+      - id: boundary-realizability-remainder
+        kind: manual
+        description: >
+          実実測インピーダンス管データからの evidence record 自動生成、
+          vector-fitting ライブラリ統合（pole extraction / passivity
+          enforcement の実実装）、#683 CFL 権威との組成チェック、
+          solver-specific 境界安定条件のデータベース係留、UI 入力
+          フォームは残件。

@@ -478,6 +478,22 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_excitation_source_profiles": "励起源プロファイル",
     "cad_source_orientation_captures": "音源指向キャプチャ",
     "cad_measurement_source_qualifications": "測定ソース適格評価",
+    # REV58-DSPDECAY: #679 DSPフィルタ実現
+    "cad_dsp_realization_profiles": "DSP実現プロファイル",
+    "cad_dsp_stage_records": "DSP段階レコード",
+    "cad_dsp_parameter_mappings": "DSPパラメータ写像",
+    "cad_dsp_realization_qualifications": "DSP実現適格評価",
+    # REV58-DSPDECAY: #676 減衰曲線ノイズ/切断処理
+    "cad_decay_processing_profiles": "減衰処理プロファイル",
+    "cad_decay_noise_estimates": "雑音床推定",
+    "cad_decay_truncation_decisions": "RIR切断判定",
+    "cad_decay_edc_artifacts": "EDCアーティファクト",
+    "cad_decay_fit_records": "減衰フィット記録",
+    # REV58-DSPDECAY: #705 音響インピーダンス物理実現性
+    "cad_boundary_evidence_records": "境界証拠レコード",
+    "cad_boundary_rational_fits": "境界有理フィット",
+    "cad_td_impedance_realizations": "時間領域インピーダンス実現",
+    "cad_boundary_realizability_assessments": "境界実現性評価",
 }
 
 

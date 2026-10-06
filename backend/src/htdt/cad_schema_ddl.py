@@ -4485,6 +4485,146 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_srcqual_doc ON cad_measurement_source_qualifications(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dsp_realization_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_identity TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dsppro_doc ON cad_dsp_realization_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dsp_stage_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stage_id TEXT NOT NULL UNIQUE, stage_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage_kind TEXT NOT NULL, bank_label TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dspstg_doc ON cad_dsp_stage_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dsp_parameter_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, bank_label TEXT NOT NULL, state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dspmap_profile ON cad_dsp_parameter_mappings(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dspmap_doc ON cad_dsp_parameter_mappings(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dsp_realization_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, state TEXT NOT NULL, transfer_verification TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dspqual_profile ON cad_dsp_realization_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dspqual_doc ON cad_dsp_realization_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decay_processing_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_label TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decpro_doc ON cad_decay_processing_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decay_noise_estimates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, estimate_id TEXT NOT NULL UNIQUE, estimate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rir_ref_id TEXT NOT NULL, method TEXT NOT NULL, stationarity TEXT NOT NULL, level_db REAL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decnse_rir ON cad_decay_noise_estimates(rir_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decnse_doc ON cad_decay_noise_estimates(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decay_truncation_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, decision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rir_ref_id TEXT NOT NULL, truncation_time_s REAL NOT NULL, reason TEXT NOT NULL, capture_truncated INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dectrn_rir ON cad_decay_truncation_decisions(rir_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dectrn_doc ON cad_decay_truncation_decisions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decay_edc_artifacts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_id TEXT NOT NULL UNIQUE, artifact_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rir_ref_id TEXT NOT NULL, edc_kind TEXT NOT NULL, content_sha256 TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decedc_rir ON cad_decay_edc_artifacts(rir_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decedc_doc ON cad_decay_edc_artifacts(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_decay_fit_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, rir_ref_id TEXT NOT NULL, metric TEXT NOT NULL, value_s REAL, eligibility TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decfit_rir ON cad_decay_fit_records(rir_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_decfit_doc ON cad_decay_fit_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_boundary_evidence_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_label TEXT NOT NULL, boundary_class TEXT NOT NULL, passivity_class TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdevi_doc ON cad_boundary_evidence_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_boundary_rational_fits ( seq INTEGER PRIMARY KEY AUTOINCREMENT, fit_id TEXT NOT NULL UNIQUE, fit_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, input_evidence_ref_id TEXT NOT NULL, fit_variable TEXT NOT NULL, pole_count INTEGER NOT NULL, algorithm TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdrat_evi ON cad_boundary_rational_fits(input_evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdrat_doc ON cad_boundary_rational_fits(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_td_impedance_realizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, realization_id TEXT NOT NULL UNIQUE, realization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_ref_id TEXT NOT NULL, solver_family TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdtim_evi ON cad_td_impedance_realizations(evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdtim_doc ON cad_td_impedance_realizations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_boundary_realizability_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_ref_id TEXT NOT NULL, state TEXT NOT NULL, passivity_class TEXT NOT NULL, causality_state TEXT NOT NULL, stability_state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdass_evi ON cad_boundary_realizability_assessments(evidence_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bdass_doc ON cad_boundary_realizability_assessments(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5163,4 +5303,17 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_excitation_source_profiles',
     'cad_source_orientation_captures',
     'cad_measurement_source_qualifications',
+    'cad_dsp_realization_profiles',
+    'cad_dsp_stage_records',
+    'cad_dsp_parameter_mappings',
+    'cad_dsp_realization_qualifications',
+    'cad_decay_processing_profiles',
+    'cad_decay_noise_estimates',
+    'cad_decay_truncation_decisions',
+    'cad_decay_edc_artifacts',
+    'cad_decay_fit_records',
+    'cad_boundary_evidence_records',
+    'cad_boundary_rational_fits',
+    'cad_td_impedance_realizations',
+    'cad_boundary_realizability_assessments',
 )

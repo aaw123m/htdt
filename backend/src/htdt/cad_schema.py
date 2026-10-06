@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 43
+NATIVE_SCHEMA_VERSION = 44
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1515,6 +1515,15 @@ def _migrate_42_to_43(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_43_to_44(connection: sqlite3.Connection) -> None:
+    # Install the REV58-DSPDECAY authorities (#679 DSP filter
+    # realization, #676 decay-curve noise/truncation processing, #705
+    # acoustic-impedance physical realizability): append-only sealed
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1559,6 +1568,7 @@ _MIGRATIONS = {
     41: _migrate_40_to_41,
     42: _migrate_41_to_42,
     43: _migrate_42_to_43,
+    44: _migrate_43_to_44,
 }
 
 

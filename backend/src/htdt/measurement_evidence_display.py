@@ -2702,3 +2702,168 @@ def source_qualification_line(qualification) -> str:
             )
         )
     return '測定ソース適格: ' + ' — '.join(parts)
+
+
+# REV58-DSPDECAY: DSP filter realization (#679), decay-curve
+# noise/truncation processing (#676), acoustic-impedance physical
+# realizability (#705).
+
+_DSP_REALIZATION_STATE_LABELS = {
+    'realized_within_declared_model': '宣言モデル内で実現',
+    'realized_with_declared_approximation': '宣言近似込みで実現',
+    'nominal_state_match_only': '名目状態一致のみ',
+    'realization_model_limited': '実現モデル限定',
+    'incompatible': 'デプロイ不能',
+    'reoptimization_required': '再最適化要',
+    'unqualified': '未適格',
+}
+
+_DSP_READBACK_LABELS = {
+    'device_readback_match': 'デバイス読み戻し一致',
+    'device_readback_mismatch': 'デバイス読み戻し不一致',
+    'readback_unavailable': '読み戻し未取得',
+    'unassessed': '未評価',
+}
+
+_DSP_TRANSFER_LABELS = {
+    'transfer_realization_verified': '伝達関数実現検証済',
+    'nominal_state_match_only': '名目状態一致のみ',
+    'transfer_mismatch_detected': '伝達関数不一致検出',
+    'transfer_unverified': '伝達関数未検証',
+}
+
+
+def dsp_realization_line(qualification) -> str:
+    """One JA line for a DSP realization qualification (#679): the
+    verdict plus readback status and transfer verification kept as
+    separate layers — 読み戻し一致は伝達関数の実現証明ではない。"""
+    parts = [
+        _DSP_REALIZATION_STATE_LABELS.get(
+            qualification.state, qualification.state
+        ),
+        '読み戻し: '
+        + _DSP_READBACK_LABELS.get(
+            qualification.readback_status, qualification.readback_status
+        ),
+        '伝達関数: '
+        + _DSP_TRANSFER_LABELS.get(
+            qualification.transfer_verification,
+            qualification.transfer_verification,
+        ),
+    ]
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'DSP 実現適格: ' + ' — '.join(parts)
+
+
+_DECAY_ELIGIBILITY_LABELS = {
+    'eligible': '適格',
+    'eligible_with_limitations': '制限付き適格',
+    'insufficient_decay_range': '減衰レンジ不足',
+    'noise_floor_too_high': '雑音床過高',
+    'capture_truncated': 'キャプチャ切断',
+    'non_stationary_noise': '非定常ノイズ',
+    'multi_slope_model_mismatch': 'マルチスロープ不一致',
+    'modal_method_required': 'モーダル法必須',
+    'indeterminate': '判定不能',
+}
+
+_DECAY_METRIC_LABELS = {
+    'edt': 'EDT',
+    't10': 'T10',
+    't20': 'T20',
+    't30': 'T30',
+    'custom': 'カスタム',
+}
+
+
+def decay_fit_line(record) -> str:
+    """One JA line for a decay fit record (#676): metric, value,
+    eligibility and usable range — 仕上がった一つの数値の背後に品質
+    警告を隠さない。"""
+    metric_label = (
+        record.custom_metric_label
+        if record.metric == 'custom' and record.custom_metric_label
+        else _DECAY_METRIC_LABELS.get(record.metric, record.metric)
+    )
+    parts = [
+        metric_label,
+        (
+            f'{record.value_s:.3f} s'
+            if record.value_s is not None
+            else '値なし'
+        ),
+        _DECAY_ELIGIBILITY_LABELS.get(
+            record.eligibility, record.eligibility
+        ),
+    ]
+    if record.dynamic_range_db is not None:
+        parts.append(f'使用可能レンジ {record.dynamic_range_db:.0f} dB')
+    if record.noise_margin_db is not None:
+        parts.append(f'雑音マージン {record.noise_margin_db:.0f} dB')
+    if record.reasons:
+        parts.append(record.reasons[0])
+    return '減衰フィット: ' + ' — '.join(parts)
+
+
+_BOUNDARY_STATE_LABELS = {
+    'passive_causal_validated': '受動・因果検証済',
+    'passive_with_limitations': '制限付き受動',
+    'passivity_unresolved_with_uncertainty': '不確かさ内受動未決',
+    'causality_unresolved_finite_band': '有限帯域で因果未決',
+    'stable_numerical_realization': '安定数値実現',
+    'nonpassive_input': '非受動入力',
+    'unstable_fit': '不安定フィット',
+    'time_domain_realization_mismatch': 'TD実現不一致',
+    'active_boundary_explicit': '明示アクティブ境界',
+    'insufficient_evidence': '証拠不足',
+}
+
+_BOUNDARY_PASSIVITY_LABELS = {
+    'passive_boundary': '受動境界',
+    'active_boundary_explicit': '明示アクティブ',
+    'nonpassive_unexpected': '非受動',
+    'unknown': '不明',
+}
+
+_BOUNDARY_CAUSALITY_LABELS = {
+    'causal_by_physical_parametric_model': '物理モデルにより因果',
+    'causal_by_stable_rational_realization': '安定有理実現により因果',
+    'causality_supported_with_limitations': '制限付き因果支持',
+    'causality_unresolved_finite_band': '有限帯域で未決',
+    'causality_violation_detected': '因果違反検出',
+    'unknown': '不明',
+}
+
+_BOUNDARY_STABILITY_LABELS = {
+    'stable_realization': '安定実現',
+    'marginally_stable_review': '限界安定・要レビュー',
+    'unstable_realization': '不安定実現',
+    'stability_unknown': '安定性不明',
+}
+
+
+def boundary_realizability_line(assessment) -> str:
+    """One JA line for a boundary realizability assessment (#705): the
+    verdict plus the passivity/causality/stability components — 極の
+    不安定・非受動・非因果を一つのバッジに潰さない。"""
+    parts = [
+        _BOUNDARY_STATE_LABELS.get(assessment.state, assessment.state),
+        '受動: '
+        + _BOUNDARY_PASSIVITY_LABELS.get(
+            assessment.passivity_class, assessment.passivity_class
+        ),
+        '因果: '
+        + _BOUNDARY_CAUSALITY_LABELS.get(
+            assessment.causality_state, assessment.causality_state
+        ),
+        '安定: '
+        + _BOUNDARY_STABILITY_LABELS.get(
+            assessment.stability_state, assessment.stability_state
+        ),
+    ]
+    if assessment.solver_band_within_evidence is False:
+        parts.append('求解帯域が証拠外')
+    if assessment.reasons:
+        parts.append(assessment.reasons[0])
+    return '境界実現性: ' + ' — '.join(parts)
