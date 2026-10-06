@@ -6569,6 +6569,111 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_binaural_qualifications_document_idx ON cad_binaural_qualifications (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_receiver_reference_points (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    reference_id TEXT NOT NULL UNIQUE,
+    reference_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    point_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_microphone_capsule_poses (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    pose_id TEXT NOT NULL UNIQUE,
+    pose_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    reference_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_measurement_fixtures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    fixture_id TEXT NOT NULL UNIQUE,
+    fixture_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    fixture_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_fixture_scattering_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    bound_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_discrete_reflection_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL UNIQUE,
+    event_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    periodicity TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_echo_diagnostics (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    diagnostic_id TEXT NOT NULL UNIQUE,
+    diagnostic_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    signal_class TEXT NOT NULL,
+    verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_drr_method_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    receiver_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_drr_measurements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    measurement_id TEXT NOT NULL UNIQUE,
+    measurement_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    method_ref_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_receiver_reference_points_document_idx ON cad_receiver_reference_points (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_microphone_capsule_poses_document_idx ON cad_microphone_capsule_poses (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_measurement_fixtures_document_idx ON cad_measurement_fixtures (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_fixture_scattering_evidence_document_idx ON cad_fixture_scattering_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_discrete_reflection_events_document_idx ON cad_discrete_reflection_events (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_echo_diagnostics_document_idx ON cad_echo_diagnostics (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_drr_method_profiles_document_idx ON cad_drr_method_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_drr_measurements_document_idx ON cad_drr_measurements (document_id)
+    """
+    ,
 )
 
 
@@ -7477,4 +7582,12 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_dynamic_binaural_sessions',
     'cad_pose_tracking_evidence',
     'cad_binaural_qualifications',
+    'cad_receiver_reference_points',
+    'cad_microphone_capsule_poses',
+    'cad_measurement_fixtures',
+    'cad_fixture_scattering_evidence',
+    'cad_discrete_reflection_events',
+    'cad_echo_diagnostics',
+    'cad_drr_method_profiles',
+    'cad_drr_measurements',
 )

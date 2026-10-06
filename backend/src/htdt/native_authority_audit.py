@@ -1275,6 +1275,12 @@ class _RepositoryChain:
             )
 
             return CadListeningEvidenceRepository(scene)
+        if name == 'acoustic_metrology':
+            from .cad_acoustic_metrology_repository import (
+                CadAcousticMetrologyRepository,
+            )
+
+            return CadAcousticMetrologyRepository(scene)
         raise KeyError(name)
 
 
@@ -6067,6 +6073,54 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_binaural_qualifications',
         ('qualification_id',),
         _get('listening_evidence', 'get_binaural_qualification'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_receiver_reference_points',
+        ('reference_id',),
+        _get('acoustic_metrology', 'get_receiver_reference'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_microphone_capsule_poses',
+        ('pose_id',),
+        _get('acoustic_metrology', 'get_capsule_pose'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_measurement_fixtures',
+        ('fixture_id',),
+        _get('acoustic_metrology', 'get_fixture'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_fixture_scattering_evidence',
+        ('evidence_id',),
+        _get('acoustic_metrology', 'get_scattering_evidence'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_discrete_reflection_events',
+        ('event_id',),
+        _get('acoustic_metrology', 'get_reflection_event'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_echo_diagnostics',
+        ('diagnostic_id',),
+        _get('acoustic_metrology', 'get_echo_diagnostic'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_drr_method_profiles',
+        ('profile_id',),
+        _get('acoustic_metrology', 'get_drr_method'),
+    ),
+    _ReplayProbe(
+        'acoustic_metrology',
+        'cad_drr_measurements',
+        ('measurement_id',),
+        _get('acoustic_metrology', 'get_drr_measurement'),
     ),
 
 )
