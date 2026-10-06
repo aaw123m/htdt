@@ -1317,6 +1317,12 @@ class _RepositoryChain:
             )
 
             return CadSignalAuthorityRepository(scene)
+        if name == 'cadref':
+            from .cad_cadref_repository import (
+                CadCadRefRepository,
+            )
+
+            return CadCadRefRepository(scene)
         raise KeyError(name)
 
 
@@ -6483,6 +6489,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_bom_estimates',
         ('estimate_id',),
         _get('signal_authority', 'get_bom_estimate'),
+    ),
+    _ReplayProbe(
+        'cadref',
+        'cad_cadence_delivery_evidence',
+        ('evidence_id',),
+        _get('cadref', 'get_cadence_evidence'),
+    ),
+    _ReplayProbe(
+        'cadref',
+        'cad_reference_room_profiles',
+        ('profile_id',),
+        _get('cadref', 'get_reference_profile'),
     ),
 
 )

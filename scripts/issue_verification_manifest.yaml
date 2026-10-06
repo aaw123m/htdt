@@ -4106,3 +4106,27 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_signal.py::test_fact_ladder]
         description: BOM bound to engineering; pricing separate.
+  - issue: 777
+    title: "Video cadence / motion-delivery authority"
+    notes: >
+      CadenceDeliveryEvidence (cax-) declares content cadence +
+      output refresh relationship + motion processing + timing
+      evidence — negotiated resolution/HDR is not motion fidelity
+      (negotiated_is_not_motion).
+    checks:
+      - id: cadence-delivery
+        kind: pytest
+        tests: [backend/tests/test_rev59_cadref.py::test_cadence_ladder]
+        description: Cadence preservation gated.
+  - issue: 778
+    title: "ITU-R BS.1116 / EBU 3276 reference-room profile"
+    notes: >
+      ReferenceRoomProfile (rrx-) pins the controlled-listening
+      framework + room/loudspeaker/listener-position criteria —
+      a benchmark, not a universal design target
+      (reference_is_not_design_target).
+    checks:
+      - id: reference-room
+        kind: pytest
+        tests: [backend/tests/test_rev59_cadref.py::test_reference_ladder]
+        description: Reference ≠ design target.
