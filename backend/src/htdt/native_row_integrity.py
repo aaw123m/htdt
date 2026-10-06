@@ -221,6 +221,34 @@ def _b(column: str, *path: str, optional: bool = False, row_json: bool = False) 
     return RowBinding(column, path, optional=optional, row_json=row_json)
 
 
+def _list_count(
+    table: str,
+    column: str,
+    list_key: str,
+) -> ExtraCheck:
+    """Verify a denormalized count column equals len(payload[list_key]).
+
+    The count is row-mirrored payload state — tampering with it without
+    touching the tuple drifts just like a renamed column would.
+    """
+
+    def check(
+        row: RowMapping, payload_text: str, payload: Mapping[str, Any],
+    ):
+        entries = payload.get(list_key)
+        expected = len(entries) if isinstance(entries, (list, tuple)) else None
+        if expected is not None and row.get(column) != expected:
+            yield RowPayloadDrift(
+                table,
+                str(row.get('seq')),
+                column,
+                row.get(column),
+                expected,
+            )
+
+    return check
+
+
 # table -> (payload column, bindings, extra checks). Only columns that are
 # genuine duplicates of payload state are bound; row-only result columns
 # (a promotion's produced scene_revision_id, run identity digests not
@@ -6607,6 +6635,170 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('resolution', 'resolution'),
         ),
         (),
+    ),
+    # REV59-DEPS: #729 authority dependency / staleness graph.
+    'cad_dependency_edge_declarations': (
+        'payload_json',
+        (
+            _b('edge_id', 'edge_id'),
+            _b('edge_sha256', 'edge_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('kind', 'kind'),
+            _b('target_ref_id', 'target_ref', 'ref_id'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_dependency_change_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('changed_ref_id', 'changed_ref', 'ref_id'),
+            _b('change_class', 'change_class'),
+            _b('occurred_at_utc', 'occurred_at_utc'),
+        ),
+        (),
+    ),
+    'cad_dependency_rule_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('ruleset_version', 'ruleset_version'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (_list_count(
+            'cad_dependency_rule_profiles', 'entry_count', 'entries',
+        ),),
+    ),
+    'cad_staleness_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('change_event_ref_id', 'change_event_ref', 'ref_id'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (_list_count(
+            'cad_staleness_assessments', 'entry_count', 'entries',
+        ),),
+    ),
+    'cad_revalidation_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('assessment_ref_id', 'assessment_ref', 'ref_id'),
+            _b('planned_at_utc', 'planned_at_utc'),
+        ),
+        (_list_count(
+            'cad_revalidation_plans', 'action_count', 'actions',
+        ),),
+    ),
+    # REV59-DEPS: #725 evidence attestation / trusted timestamp.
+    'cad_signed_manifests': (
+        'payload_json',
+        (
+            _b('manifest_id', 'manifest_id'),
+            _b('manifest_record_sha256', 'manifest_record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('manifest_label', 'manifest_label'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('approval_scope', 'approval_scope'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_manifest_attestations': (
+        'payload_json',
+        (
+            _b('attestation_id', 'attestation_id'),
+            _b('attestation_sha256', 'attestation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('manifest_ref_id', 'manifest_ref', 'ref_id'),
+            _b('kind', 'kind'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_attestation_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('attestation_ref_id', 'attestation_ref', 'ref_id'),
+            _b('manifest_ref_id', 'manifest_ref', 'ref_id'),
+            _b('state', 'state'),
+            _b('time_authority', 'time_authority'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    # REV59-DEPS: #718 project archival / schema-migration authority.
+    'cad_archive_snapshots': (
+        'payload_json',
+        (
+            _b('archive_id', 'archive_id'),
+            _b('archive_sha256', 'archive_sha256'),
+            _b('document_id', 'document_id'),
+            _b('archive_label', 'archive_label'),
+            _b('schema_version', 'schema_version'),
+            _b('content_hash', 'content_hash'),
+            _b('preservation_scope', 'preservation_scope'),
+            _b('captured_at_utc', 'captured_at_utc'),
+        ),
+        (),
+    ),
+    'cad_archive_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('archive_ref_id', 'archive_ref', 'ref_id'),
+            _b('status', 'status'),
+            _b('verified_at_utc', 'verified_at_utc'),
+        ),
+        (_list_count(
+            'cad_archive_verifications', 'check_count', 'checks',
+        ),),
+    ),
+    'cad_migration_records': (
+        'payload_json',
+        (
+            _b('migration_id', 'migration_id'),
+            _b('migration_sha256', 'migration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('kind', 'kind'),
+            _b('source_archive_ref_id', 'source_archive_ref', 'ref_id'),
+            _b('target_archive_ref_id', 'target_archive_ref', 'ref_id'),
+            _b('from_schema_version', 'from_schema_version'),
+            _b('to_schema_version', 'to_schema_version'),
+            _b('migration_status_at_write', 'migration_status_at_write'),
+            _b('migrated_at_utc', 'migrated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_migration_verifications': (
+        'payload_json',
+        (
+            _b('verification_id', 'verification_id'),
+            _b('verification_sha256', 'verification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('migration_ref_id', 'migration_ref', 'ref_id'),
+            _b('status', 'status'),
+            _b('verified_at_utc', 'verified_at_utc'),
+        ),
+        (_list_count(
+            'cad_migration_verifications', 'check_count', 'checks',
+        ),),
     ),
 }
 
