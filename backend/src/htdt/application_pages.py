@@ -726,6 +726,13 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_echo_diagnostics": "エコー診断",
     "cad_drr_method_profiles": "DRR手法プロファイル",
     "cad_drr_measurements": "DRR測定値",
+    "cad_power_sequence_plans": "電源シーケンス計画",
+    "cad_power_sequence_evidence": "電源シーケンス証拠",
+    "cad_power_quality_observations": "電源品質観測",
+    "cad_indoor_air_observations": "室内空気質観測",
+    "cad_material_emission_evidence": "材料放出席証拠",
+    "cad_product_safety_evidence": "製品安全証拠",
+    "cad_emc_compliance_evidence": "EMC適合証拠",
 
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",
