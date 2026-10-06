@@ -759,7 +759,7 @@ class FieldReturnRepository:
         with closing(self._connect()) as connection, connection:
             existing = connection.execute(
                 '''
-                SELECT contribution_id, artifact_sha256
+                SELECT contribution_id, artifact_sha256, validation_state
                 FROM field_return_contributions
                 WHERE contribution_id=?
                 ''',
@@ -773,6 +773,36 @@ class FieldReturnRepository:
                     incoming_artifact_sha256=staged.artifact_sha256,
                 )
                 if duplicate == 'exact_duplicate':
+                    # Self-heal a malformed row: the malformation may be
+                    # declaration-driven (e.g. a wrong declared digest
+                    # header), not byte-driven — identical bytes that now
+                    # pass validation upgrade the parked row instead of
+                    # reporting already_staged over a dead record.
+                    if (
+                        existing['validation_state'] == 'malformed'
+                        and staged.validation_state != 'malformed'
+                    ):
+                        connection.execute(
+                            '''
+                            UPDATE field_return_contributions
+                            SET validation_state=?, routing=?,
+                                matched_project_id=?, mission_id=?,
+                                plan_sha256=?, manifest_json=?,
+                                detail=?
+                            WHERE contribution_id=?
+                            ''',
+                            (
+                                staged.validation_state,
+                                staged.routing,
+                                staged.matched_project_id,
+                                staged.mission_id,
+                                staged.plan_sha256,
+                                staged.manifest_json,
+                                staged.detail,
+                                staged.contribution_id,
+                            ),
+                        )
+                        return staged, True
                     return staged, False
                 raise FieldReturnConflictError(
                     'field return contribution '

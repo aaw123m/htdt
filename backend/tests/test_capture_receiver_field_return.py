@@ -319,6 +319,47 @@ class TestFieldReturnDelivery:
         assert receipt['ingestion_outcome'] == 'rejected'
         assert 'digest' in (receipt['detail'] or '')
 
+    def test_declared_digest_repair_heals_malformed_row(self, tmp_path):
+        # An emitter whose first delivery carried a wrong digest header
+        # parks a `malformed` row. Re-delivering the SAME bytes with the
+        # corrected header must heal the row — otherwise the artifact is
+        # dead on the receiver while the wire claims already_staged.
+        service = _rig(tmp_path)
+        pairing = _active_pairing(service)
+        archive, document = _field_return_archive()
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=document['contribution_id'],
+                artifact_digest='0' * 64,
+            ),
+            archive,
+        )
+        assert status == 400
+        staged = FieldReturnRepository(service.path).get(
+            document['contribution_id']
+        )
+        assert staged is not None
+        assert staged.validation_state == 'malformed'
+
+        status, receipt = service.handle_delivery(
+            pairing.pairing_token,
+            _headers(
+                archive,
+                contribution_id=document['contribution_id'],
+                artifact_digest=document['content_digest'],
+            ),
+            archive,
+        )
+        assert status == 200
+        assert receipt['ingestion_outcome'] == 'accepted'
+        staged = FieldReturnRepository(service.path).get(
+            document['contribution_id']
+        )
+        assert staged is not None
+        assert staged.validation_state != 'malformed'
+
     def test_empty_schema_evidence_asset_stages(self, tmp_path):
         # Containers written before the media-type token landed carry
         # `schema: ""` on evidence refs — they must still stage.
