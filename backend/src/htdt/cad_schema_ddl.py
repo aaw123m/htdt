@@ -5991,6 +5991,56 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_voc_doc ON cad_voc_emission_profiles(document_id, seq ASC)
     """
     ,
+    # REV59-ACOUST2: #743 fixture scattering, #749 spectral estimator,
+    # #765 evidence supersession — six append-only authorities.
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_fixture_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fxp_doc ON cad_measurement_fixture_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_fixture_scattering_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, fixture_ref_id TEXT NOT NULL, contamination_detected INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fxo_doc ON cad_fixture_scattering_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spectral_estimator_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, window_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sep_doc ON cad_spectral_estimator_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_spectral_resolution_claims ( seq INTEGER PRIMARY KEY AUTOINCREMENT, claim_id TEXT NOT NULL UNIQUE, claim_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, estimator_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_src2_doc ON cad_spectral_resolution_claims(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_external_evidence_sources ( seq INTEGER PRIMARY KEY AUTOINCREMENT, source_id TEXT NOT NULL UNIQUE, source_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_tier TEXT NOT NULL, scope TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ees_doc ON cad_external_evidence_sources(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_evidence_supersession_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, resolution TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ess_doc ON cad_evidence_supersession_records(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6836,4 +6886,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_occupied_iaq_observations',
     'cad_occupied_iaq_qualifications',
     'cad_voc_emission_profiles',
+    # REV59-ACOUST2: #743 / #749 / #765.
+    'cad_measurement_fixture_profiles',
+    'cad_fixture_scattering_observations',
+    'cad_spectral_estimator_profiles',
+    'cad_spectral_resolution_claims',
+    'cad_external_evidence_sources',
+    'cad_evidence_supersession_records',
 )

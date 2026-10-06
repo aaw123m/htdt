@@ -1220,6 +1220,12 @@ class _RepositoryChain:
             )
 
             return CadBuildingEnvironmentRepository(scene)
+        if name == 'measurement_setup':
+            from .cad_measurement_setup_repository import (
+                CadMeasurementSetupRepository,
+            )
+
+            return CadMeasurementSetupRepository(scene)
         raise KeyError(name)
 
 
@@ -5676,6 +5682,42 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_voc_emission_profiles',
         ('profile_id',),
         _get('building_environment', 'get_voc_profile'),
+    ),    # REV59-ACOUST2: #743/#749/#765 measurement-setup authorities
+    _ReplayProbe(
+        'measurement_fixture_profile',
+        'cad_measurement_fixture_profiles',
+        ('profile_id',),
+        _get('measurement_setup', 'get_fixture_profile'),
+    ),
+    _ReplayProbe(
+        'fixture_scattering_observation',
+        'cad_fixture_scattering_observations',
+        ('observation_id',),
+        _get('measurement_setup', 'get_scattering_observation'),
+    ),
+    _ReplayProbe(
+        'spectral_estimator_profile',
+        'cad_spectral_estimator_profiles',
+        ('profile_id',),
+        _get('measurement_setup', 'get_estimator_profile'),
+    ),
+    _ReplayProbe(
+        'spectral_resolution_claim',
+        'cad_spectral_resolution_claims',
+        ('claim_id',),
+        _get('measurement_setup', 'get_resolution_claim'),
+    ),
+    _ReplayProbe(
+        'external_evidence_source',
+        'cad_external_evidence_sources',
+        ('source_id',),
+        _get('measurement_setup', 'get_evidence_source'),
+    ),
+    _ReplayProbe(
+        'evidence_supersession_record',
+        'cad_evidence_supersession_records',
+        ('record_id',),
+        _get('measurement_setup', 'get_supersession_record'),
     ),
 )
 

@@ -4229,3 +4229,32 @@ def voc_line(verdict: str) -> str:
     """One JA line for a VOC-emission verdict (#750) —
     製品証明は完成室内の IAQ を証明しない。"""
     return 'VOC排出: ' + _VOC_LABELS.get(verdict, verdict)
+
+
+from .cad_observer_scattering import (  # noqa: E402
+    FIXTURE_LABELS as _FIXTURE_LABELS,
+)
+from .cad_spectral_estimator import (  # noqa: E402
+    RESOLUTION_LABELS as _RESOLUTION_LABELS,
+)
+from .cad_evidence_supersession import (  # noqa: E402
+    CONFLICT_LABELS as _CONFLICT_LABELS,
+)
+
+
+def fixture_transparency_line(verdict: str) -> str:
+    """One JA line for a fixture-transparency verdict (#743) —
+    校正済みマイクは治具の透明性を証明しない。"""
+    return '測定治具: ' + _FIXTURE_LABELS.get(verdict, verdict)
+
+
+def spectral_resolution_line(verdict: str) -> str:
+    """One JA line for a spectral-resolution verdict (#749) —
+    密なビンやゼロ詰めは分解能を上げない。"""
+    return 'スペクトル分解能: ' + _RESOLUTION_LABELS.get(verdict, verdict)
+
+
+def evidence_conflict_line(verdict: str) -> str:
+    """One JA line for an evidence-supersession verdict (#765) —
+    新しい文書はスコープ一致でのみ旧版を置き換える。"""
+    return '証拠継承: ' + _CONFLICT_LABELS.get(verdict, verdict)
