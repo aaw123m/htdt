@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 76
+NATIVE_SCHEMA_VERSION = 77
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1845,6 +1845,14 @@ def _migrate_74_to_75(connection):
 
 
 def _migrate_75_to_76(connection):
+    # REV60-COLLABENV (collaboration/approval authority #721 and
+    # material environmental/aging applicability #776): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_76_to_77(connection):
     # REV60-EDGE (ULF + noise ingress + fire-safety evidence +
     # accessible playback): new append-only authorities the idempotent
     # baseline creates.
@@ -1929,6 +1937,7 @@ _MIGRATIONS = {
     74: _migrate_73_to_74,
     75: _migrate_74_to_75,
     76: _migrate_75_to_76,
+    77: _migrate_76_to_77,
 }
 
 
