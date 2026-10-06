@@ -629,6 +629,17 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_solver_budget_profiles": "ソルバー計算予算プロファイル",
     "cad_compute_observations": "計算資源観測レコード",
     "cad_accuracy_cost_envelopes": "精度-コストエンベロープ",
+    "cad_jitter_profiles": "ジッタ測定プロファイル",
+    "cad_jitter_observations": "ジッタ観測レコード",
+    "cad_jitter_transfer_measurements": "ジッタ伝達測定",
+    "cad_converter_jitter_susceptibility": "コンバータジッタ感受性",
+    "cad_dither_profiles": "ディザ/ノイズシェイププロファイル",
+    "cad_digital_path_transforms": "デジタルパス変換レコード",
+    "cad_playback_src_profiles": "再生 SRC プロファイル",
+    "cad_src_qualifications": "SRC 適格レコード",
+    "cad_clock_domain_crossings": "クロックドメイン横断レコード",
+    "cad_interchannel_leakage_measurements": "チャネル間漏洩測定",
+    "cad_channel_separation_qualifications": "チャネル分離適格レコード",
 }
 
 

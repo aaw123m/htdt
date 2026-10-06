@@ -4074,3 +4074,51 @@ def fidelity_cost_line(profile: SolverBudgetProfile, claim: str) -> str:
     if not profile.predicted_costs:
         parts.append('予測コスト未登録')
     return '計算予算: ' + ' — '.join(parts)
+
+
+from .cad_clock_jitter import (  # noqa: E402
+    CLAIM_VERDICT_LABELS as _JITTER_VERDICT_LABELS,
+)
+from .cad_wordlength_path import (  # noqa: E402
+    LOW_LEVEL_LABELS as _LOW_LEVEL_LABELS,
+)
+from .cad_playback_src import (  # noqa: E402
+    SRC_VERDICT_LABELS as _SRC_VERDICT_LABELS,
+)
+from .cad_interchannel_crosstalk import (  # noqa: E402
+    SEPARATION_LABELS as _SEPARATION_LABELS,
+    ChannelSeparationQualification,
+)
+
+
+def jitter_claim_line(verdict: str) -> str:
+    """One JA line for a jitter claim gate (#745) —
+    ロック状態とジッタ性能は別の測定量。"""
+    return 'ジッタ: ' + _JITTER_VERDICT_LABELS.get(verdict, verdict)
+
+
+def wordlength_claim_line(verdict: str) -> str:
+    """One JA line for a low-level path verdict (#744) —
+    フォーマット表示は再量子化を隠せない。"""
+    return '低レベル処理: ' + _LOW_LEVEL_LABELS.get(verdict, verdict)
+
+
+def src_claim_line(verdict: str) -> str:
+    """One JA line for a playback SRC gate (#739) —
+    同期ロック済みでも SRC は音を変え得る。"""
+    return 'SRC: ' + _SRC_VERDICT_LABELS.get(verdict, verdict)
+
+
+def separation_claim_line(
+    qualification: ChannelSeparationQualification | None,
+    verdict: str,
+) -> str:
+    """One JA line for a channel-separation verdict (#650) —
+    正しい配線は分離の証明にならない。"""
+    parts = [_SEPARATION_LABELS.get(verdict, verdict)]
+    if qualification is not None and qualification.required_pairs:
+        parts.append(
+            '測定ペア {0}/{1}'.format(
+                qualification.measured_pairs,
+                qualification.required_pairs))
+    return 'チャネル分離: ' + ' — '.join(parts)

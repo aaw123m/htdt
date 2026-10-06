@@ -6222,6 +6222,119 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_jitter_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('spectrum_capable', 'spectrum_capable'),
+        ),
+        (),
+    ),
+    'cad_jitter_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('jitter_kind', 'jitter_kind'),
+        ),
+        (),
+    ),
+    'cad_jitter_transfer_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_converter_jitter_susceptibility': (
+        'payload_json',
+        (
+            _b('susceptibility_id', 'susceptibility_id'),
+            _b('susceptibility_sha256', 'susceptibility_sha256'),
+            _b('document_id', 'document_id'),
+            _b('converter_ref_id', 'converter_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_dither_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('dither_kind', 'dither_kind'),
+        ),
+        (),
+    ),
+    'cad_digital_path_transforms': (
+        'payload_json',
+        (
+            _b('transform_id', 'transform_id'),
+            _b('transform_sha256', 'transform_sha256'),
+            _b('document_id', 'document_id'),
+            _b('transform_kind', 'transform_kind'),
+        ),
+        (),
+    ),
+    'cad_playback_src_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('algorithm', 'algorithm'),
+        ),
+        (),
+    ),
+    'cad_src_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('src_profile_ref_id', 'src_profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_clock_domain_crossings': (
+        'payload_json',
+        (
+            _b('crossing_id', 'crossing_id'),
+            _b('crossing_sha256', 'crossing_sha256'),
+            _b('document_id', 'document_id'),
+            _b('declared_kind', 'declared_kind'),
+        ),
+        (),
+    ),
+    'cad_interchannel_leakage_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stage', 'stage'),
+            _b('method', 'method'),
+        ),
+        (),
+    ),
+    'cad_channel_separation_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stage', 'stage'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
 }
 
 
