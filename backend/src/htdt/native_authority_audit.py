@@ -1226,6 +1226,25 @@ class _RepositoryChain:
             )
 
             return CadMeasurementSetupRepository(scene)
+        # REV59-DEPS authorities.
+        if name == 'authority_dependency':
+            from .cad_authority_dependency_repository import (
+                CadAuthorityDependencyRepository,
+            )
+
+            return CadAuthorityDependencyRepository(scene)
+        if name == 'evidence_attestation':
+            from .cad_evidence_attestation_repository import (
+                CadEvidenceAttestationRepository,
+            )
+
+            return CadEvidenceAttestationRepository(scene)
+        if name == 'archive_migration':
+            from .cad_archive_migration_repository import (
+                CadArchiveMigrationRepository,
+            )
+
+            return CadArchiveMigrationRepository(scene)
         # REV59-UNITS authorities.
         if name == 'typed_quantity':
             from .cad_typed_quantity_repository import (
@@ -5136,6 +5155,81 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_modal_decay_qualifications',
         ('qualification_id',),
         _get('modal_decay_view', 'get_qualification'),
+    ),
+    # REV59-DEPS: #729 authority dependency / staleness graph
+    _ReplayProbe(
+        'dependency_edge_declaration',
+        'cad_dependency_edge_declarations',
+        ('edge_id',),
+        _get('authority_dependency', 'get_edge'),
+    ),
+    _ReplayProbe(
+        'dependency_change_event',
+        'cad_dependency_change_events',
+        ('event_id',),
+        _get('authority_dependency', 'get_change_event'),
+    ),
+    _ReplayProbe(
+        'dependency_rule_profile',
+        'cad_dependency_rule_profiles',
+        ('profile_id',),
+        _get('authority_dependency', 'get_rule_profile'),
+    ),
+    _ReplayProbe(
+        'staleness_assessment',
+        'cad_staleness_assessments',
+        ('assessment_id',),
+        _get('authority_dependency', 'get_assessment'),
+    ),
+    _ReplayProbe(
+        'revalidation_plan',
+        'cad_revalidation_plans',
+        ('plan_id',),
+        _get('authority_dependency', 'get_plan'),
+    ),
+    # REV59-DEPS: #725 evidence attestation / trusted timestamp
+    _ReplayProbe(
+        'signed_manifest',
+        'cad_signed_manifests',
+        ('manifest_id',),
+        _get('evidence_attestation', 'get_manifest'),
+    ),
+    _ReplayProbe(
+        'manifest_attestation',
+        'cad_manifest_attestations',
+        ('attestation_id',),
+        _get('evidence_attestation', 'get_attestation'),
+    ),
+    _ReplayProbe(
+        'attestation_verification',
+        'cad_attestation_verifications',
+        ('verification_id',),
+        _get('evidence_attestation', 'get_verification'),
+    ),
+    # REV59-DEPS: #718 project archival / schema-migration
+    _ReplayProbe(
+        'archive_snapshot',
+        'cad_archive_snapshots',
+        ('archive_id',),
+        _get('archive_migration', 'get_snapshot'),
+    ),
+    _ReplayProbe(
+        'archive_verification',
+        'cad_archive_verifications',
+        ('verification_id',),
+        _get('archive_migration', 'get_archive_verification'),
+    ),
+    _ReplayProbe(
+        'migration_record',
+        'cad_migration_records',
+        ('migration_id',),
+        _get('archive_migration', 'get_migration'),
+    ),
+    _ReplayProbe(
+        'migration_verification',
+        'cad_migration_verifications',
+        ('verification_id',),
+        _get('archive_migration', 'get_migration_verification'),
     ),
     # REV58-DISPLAYMEAS: #682 pattern-generator fidelity
     _ReplayProbe(

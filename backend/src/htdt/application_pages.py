@@ -667,6 +667,21 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_spectral_resolution_claims": "スペクトル分解能クレーム",
     "cad_external_evidence_sources": "外部証拠ソース",
     "cad_evidence_supersession_records": "証拠継承判定レコード",
+    # REV59-DEPS: #729 権威依存/陳腐化グラフ
+    "cad_dependency_edge_declarations": "権威依存エッジ宣言",
+    "cad_dependency_change_events": "意味変更イベント",
+    "cad_dependency_rule_profiles": "失効ルールプロファイル",
+    "cad_staleness_assessments": "陳腐化評価",
+    "cad_revalidation_plans": "再検証計画",
+    # REV59-DEPS: #725 証拠アテステーション/時刻権威
+    "cad_signed_manifests": "署名マニフェスト",
+    "cad_manifest_attestations": "マニフェストアテステーション",
+    "cad_attestation_verifications": "アテステーション検証",
+    # REV59-DEPS: #718 プロジェクトアーカイブ/移行権威
+    "cad_archive_snapshots": "アーカイブスナップショット",
+    "cad_archive_verifications": "アーカイブ再読出し検証",
+    "cad_migration_records": "移行レコード",
+    "cad_migration_verifications": "移行検証",
     # REV59-UNITS: #728 型付き物理量
     "cad_typed_quantities": "型付き物理量",
     "cad_quantity_operations": "物理量演算評価",

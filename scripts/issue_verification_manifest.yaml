@@ -3174,6 +3174,161 @@ issues:
         description: >
           Scoped supersession, no automatic newest-wins, explicit
           reconciliation.
+  - issue: 729
+    title: "REV59-DEPS: authority dependency / staleness graph"
+    notes: >
+      DependencyEdgeDeclaration (depedge-) seals typed dependency edges
+      (used_as_input / derived_from / calibrated_from /
+      validated_against / measured_under_state /
+      applicable_under_profile / assumes / requires_capability /
+      approved_for_use_by / supersedes / references_only — the last is
+      non-influencing) with an optional DependencyScope footprint
+      (target_fields / observables / retained_observables /
+      residual_independence). SemanticChangeEvent (depevt-) pins the
+      changed authority + change class + changed fields;
+      DependencyRuleProfile (deprule-) is the versioned ruleset mapping
+      (edge kind, change class) -> invalidation effect; the verdict
+      pins the exact profile it was evaluated under so a rule change
+      never silently reinterprets history. evaluate_staleness computes
+      the transitive closure with per-path severity accumulation —
+      descendants inherit the strongest limitation on their dependency
+      path (#729 §11) — and emits StalenessAssessment (stale-) with
+      current / stale_recompute / stale_remeasure /
+      stale_readback_required / stale_review_required /
+      valid_with_limitations / incompatible / superseded /
+      unknown_dependency states; no matching rule -> review_required,
+      conservative; subjects with no declared dependency coverage ->
+      unknown_dependency. build_revalidation_plan derives the minimal
+      work set (revplan-): recompute / regenerate_derived /
+      remeasure_channel / readback_device / requalify_profile /
+      review_evidence / full_recommission (never a default).
+    checks:
+      - id: authority-dependency-graph
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_deps.py::test_dep10_precise_invalidation_scope
+          - backend/tests/test_rev59_deps.py::test_dep20_transitive_closure_path_reported
+          - backend/tests/test_rev59_deps.py::test_dep30_references_only_never_propagates
+          - backend/tests/test_rev59_deps.py::test_dep40_scope_gated_edge_does_not_fire
+          - backend/tests/test_rev59_deps.py::test_dep50_undeclared_subjects_fail_closed
+          - backend/tests/test_rev59_deps.py::test_dep60_no_matching_rule_is_conservative_review
+          - backend/tests/test_rev59_deps.py::test_dep70_revalidation_plan_minimal_scope
+          - backend/tests/test_rev59_deps.py::test_dep80_repository_round_trip_and_tamper
+          - backend/tests/test_rev59_deps.py::test_dep85_append_only_conflict
+          - backend/tests/test_rev59_deps.py::test_dep90_label_metadata_change_stays_quiet
+          - backend/tests/test_rev59_deps.py::test_dep95_sealed_record_rejects_tampered_payload
+        description: >
+          Typed-edge invalidation scope, transitive closure + path
+          witnesses, references_only non-propagation, scope-gated
+          edges, undeclared-dependency fail-close, no-rule conservative
+          review, minimal revalidation plan, sealed round-trip and
+          tamper/append-only evidence.
+      - id: dependency-graph-remainder
+        kind: manual
+        description: >
+          既存 verdict/evidence 書き出し経路へのエッジ宣言の自動 emit
+          (#590 authority_graph は read 投影のまま)、staleness verdict
+          を derive/evaluate ゲートへ実配線、DEP fixture の実運用
+          シナリオ再現は残件。
+  - issue: 725
+    title: "REV59-DEPS: evidence attestation / trusted timestamp authority"
+    notes: >
+      SignedManifestRecord (sigman-) seals the canonical manifest
+      identity — the exact signed bytes' digest, canonicalization
+      procedure + version, subject pins, exact approval scope.
+      EvidenceAttestation (attest-) binds manifest + signer under a
+      distinct kind taxonomy (hash_only / mac_authenticated /
+      digitally_signed / digitally_signed_with_certificate_chain /
+      trusted_timestamp_only / signed_and_trusted_timestamped /
+      external_signature_reference) — never a generic signed flag; key
+      material is never persisted (signature_sha256 + key_id only).
+      evaluate_attestation consumes declared check results under a
+      pinned policy: manifest/attestation binding mismatch or
+      unsupported digest policy -> verification_failed; hash_only ->
+      integrity_confirmed; trusted_timestamp_only ->
+      timestamp_confirmed; unchecked signature ->
+      attested_unprovened; verified signature without token ->
+      attested_verified_declared_time; verified + trusted timestamp ->
+      attested_verified; expired/revoked key anchored by trusted time
+      -> attested_verified_historical; external references ->
+      unverifiable. Attestation chains supported via
+      attests_attestation_ref.
+    checks:
+      - id: evidence-attestation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_deps.py::test_att10_signed_and_timestamped_verifies
+          - backend/tests/test_rev59_deps.py::test_att20_hash_only_confirms_integrity_only
+          - backend/tests/test_rev59_deps.py::test_att30_unchecked_signature_is_unprovened
+          - backend/tests/test_rev59_deps.py::test_att40_declared_time_only
+          - backend/tests/test_rev59_deps.py::test_att50_historical_signature_under_trusted_time
+          - backend/tests/test_rev59_deps.py::test_att60_manifest_mismatch_fails
+          - backend/tests/test_rev59_deps.py::test_att70_trusted_timestamp_only
+          - backend/tests/test_rev59_deps.py::test_att75_external_reference_unverifiable
+          - backend/tests/test_rev59_deps.py::test_att80_attestation_chain
+          - backend/tests/test_rev59_deps.py::test_att85_repository_round_trip_and_tamper
+          - backend/tests/test_rev59_deps.py::test_att90_unsupported_digest_policy_fails_closed
+        description: >
+          Time-authority ladder (trusted > declared > unknown),
+          hash-only vs MAC vs signed taxonomy, unchecked-signature
+          unprovened, historical verification under trusted time,
+          manifest-mismatch fail, external reference unverifiable,
+          attestation chaining, sealed round-trip and tamper evidence.
+      - id: evidence-attestation-remainder
+        kind: manual
+        description: >
+          実 TSA/CA 連携 (RFC 3161 トークン取得・証明書連鎖検証) 、
+          #610 evidence bundle への attestation emit、
+          attested_unprovened の derive/evaluate ゲート連携、外部
+          attestor import エンドポイントは残件。
+  - issue: 718
+    title: "REV59-DEPS: project archival / schema-migration authority"
+    notes: >
+      ArchiveSnapshot (arc-) seals the archival unit — schema version
+      at capture, content hash, snapshot semantic checksum,
+      preservation scope (full_semantics_and_provenance /
+      evidence_provenance_only / measurement_data_only /
+      project_structure_only / other_declared), write procedure pin
+      and declared readback procedure pin (OAIS fixity +
+      representation information). ArchiveVerification (arcver-) is
+      the sealed re-read verdict: any failed check ->
+      verification_failed; a required check not run ->
+      partially_verified; no checks -> unverified. MigrationRecord
+      (mig-) pins source/target archive, from/to schema versions,
+      migration procedure + version, declared field-level change
+      intents and comparison policy — always written 'declared'.
+      evaluate_migration: any unexplained fail -> verification_failed;
+      a required check not run -> unverified; checksum match ->
+      verified_equivalent; checksum drift explained by declared,
+      accepted differences -> verified_with_declared_differences.
+    checks:
+      - id: archive-migration-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_deps.py::test_arc10_legible_archive_verifies
+          - backend/tests/test_rev59_deps.py::test_arc20_unchecked_required_is_partial
+          - backend/tests/test_rev59_deps.py::test_arc30_failed_check_fails
+          - backend/tests/test_rev59_deps.py::test_arc40_empty_checks_unverified
+          - backend/tests/test_rev59_deps.py::test_arc50_equivalent_migration_verifies
+      
+          - backend/tests/test_rev59_deps.py::test_arc60_declared_differences_verify
+          - backend/tests/test_rev59_deps.py::test_arc70_missing_required_check_unverified
+          - backend/tests/test_rev59_deps.py::test_arc75_migration_record_is_declared_at_write
+          - backend/tests/test_rev59_deps.py::test_arc80_repository_round_trip_and_tamper
+          - backend/tests/test_rev59_deps.py::test_arc85_append_only_conflict
+        description: >
+          Archive re-read gating (legible / partial / failed /
+          unverified), migration equivalence vs declared-difference
+          verification, unexplained-drift fail, required-check
+          gating, declared-at-write status, sealed round-trip and
+          tamper/append-only evidence.
+      - id: archive-migration-remainder
+        kind: manual
+        description: >
+          実 schema 移行経路からの MigrationRecord 自動 emit、
+          project export (#710 系) からの ArchiveSnapshot 生成、
+          意味チェックサムの実 semantic-comparator 実装、ARC
+          fixture の実アーカイブ再現は残件。
   - issue: 728
     title: "Typed physical-quantity / unit authority"
     notes: >
