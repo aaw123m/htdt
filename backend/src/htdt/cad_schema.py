@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 78
+NATIVE_SCHEMA_VERSION = 79
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1874,6 +1874,15 @@ def _migrate_77_to_78(connection: sqlite3.Connection) -> None:
             _ensure_column(connection, table, column, column_ddl)
 
 
+def _migrate_78_to_79(connection: sqlite3.Connection) -> None:
+    # Install the mission-rebase decision ledger (mission-return
+    # reconciliation): explicit operator decisions mapping a drifted
+    # task's pinned target onto a current entity, one per
+    # (mission_id, task_id) — the '要調整' verdict becomes actionable.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1953,6 +1962,7 @@ _MIGRATIONS = {
     76: _migrate_75_to_76,
     77: _migrate_76_to_77,
     78: _migrate_77_to_78,
+    79: _migrate_78_to_79,
 }
 
 

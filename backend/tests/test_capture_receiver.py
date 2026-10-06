@@ -898,6 +898,110 @@ class TestMissionPull:
         assert reissued.status == 'pending'
         assert reissued.mission_id == 'mission-reissued'
 
+    def test_repair_queue_settles_superseded_parent(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
+        # A repair mission names the package it replaces — the parent
+        # leaves the pending listing immediately, without waiting for
+        # the device's verdict.
+        service.queue_mission_package(
+            'pkg-repair',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        statuses = {
+            p.package_id: p.status
+            for p in service.list_mission_packages()
+        }
+        assert statuses == {
+            'pkg-parent': 'superseded',
+            'pkg-repair': 'pending',
+        }
+        status, listing = service.handle_mission_listing(
+            pairing.pairing_token, 'dev-1'
+        )
+        assert status == 200
+        assert [
+            entry['package_id'] for entry in listing['packages']
+        ] == ['pkg-repair']
+
+    def test_superseding_receipt_settles_late_parent(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        # The repair was queued before its parent arrived — the
+        # queue-time sweep found nothing to settle; the device's
+        # 'superseding' verdict heals the stale pending row.
+        child = service.queue_mission_package(
+            'pkg-repair2',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
+        receipt = {
+            'schema': 'htdt.capture.mission-receipt',
+            'schema_version': '1.0.0',
+            'receipt_id': str(uuid.uuid4()),
+            'package_id': 'pkg-repair2',
+            'package_sha256': child.package_sha256,
+            'capture_instance_id': 'dev-2',
+            'paired_destination_id': pairing.pairing_id,
+            'receiver_instance_id': pairing.receiver_instance_id,
+            'mission_record_id': None,
+            'received_at': '2026-01-01T00:00:00+00:00',
+            'validation_result': 'superseding',
+            'detail': 'superseded pkg-parent',
+        }
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-repair2',
+            json.dumps(receipt).encode(), 'dev-2',
+        )
+        assert status == 200
+        statuses = {
+            p.package_id: p.status
+            for p in service.list_mission_packages()
+        }
+        assert statuses['pkg-repair2'] == 'received'
+        assert statuses['pkg-parent'] == 'superseded'
+
+    def test_supersession_preserves_settled_parent_verdict(
+        self, tmp_path
+    ):
+        service, pairing = self._active(tmp_path)
+        parent = service.queue_mission_package(
+            'pkg-parent', self.MISSION_PAYLOAD
+        )
+        receipt = {
+            'schema': 'htdt.capture.mission-receipt',
+            'schema_version': '1.0.0',
+            'receipt_id': str(uuid.uuid4()),
+            'package_id': 'pkg-parent',
+            'package_sha256': parent.package_sha256,
+            'capture_instance_id': 'dev-3',
+            'paired_destination_id': pairing.pairing_id,
+            'receiver_instance_id': pairing.receiver_instance_id,
+            'mission_record_id': None,
+            'received_at': '2026-01-01T00:00:00+00:00',
+            'validation_result': 'imported',
+            'detail': None,
+        }
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-parent',
+            json.dumps(receipt).encode(), 'dev-3',
+        )
+        assert status == 200
+        # A verdict the device already reported is never rewritten —
+        # the repair only clears rows still sitting on the listing.
+        service.queue_mission_package(
+            'pkg-repair3',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        statuses = {
+            p.package_id: p.status
+            for p in service.list_mission_packages()
+        }
+        assert statuses['pkg-parent'] == 'received'
+        assert statuses['pkg-repair3'] == 'pending'
+
 
 class TestHttpsEndpoint:
     def test_real_https_roundtrip(self, tmp_path):

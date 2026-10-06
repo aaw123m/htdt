@@ -275,6 +275,14 @@ _LAZY_IMPORTS = {
         '.mission_reconciliation',
         'mission_return_reconciliation_lines',
     ),
+    'mission_return_reconciliation_context': (
+        '.mission_reconciliation',
+        'mission_return_reconciliation_context',
+    ),
+    'record_return_rebase_decision': (
+        '.mission_reconciliation',
+        'record_return_rebase_decision',
+    ),
     'CaptureSemanticPromotionRepository': (
         '.capture_semantic_promotion',
         'CaptureSemanticPromotionRepository',
@@ -2469,6 +2477,21 @@ class WorkflowApplicationComposition:
             reconcile_contribution=lambda contribution: (
                 _self.mission_return_reconciliation_lines(
                     contribution, self.repository
+                )
+            ),
+            rebase_context=lambda contribution: (
+                _self.mission_return_reconciliation_context(
+                    contribution, self.repository
+                )
+            ),
+            rebase_record=lambda contribution, task_id, current, reason, by: (
+                _self.record_return_rebase_decision(
+                    contribution,
+                    self.repository,
+                    task_id=task_id,
+                    current_target_id=current,
+                    mapping_reason=reason,
+                    decided_by=by,
                 )
             ),
         )
