@@ -6967,6 +6967,89 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """CREATE INDEX IF NOT EXISTS cad_wall_acoustic_impacts_document_idx ON cad_wall_acoustic_impacts (document_id)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_panning_continuity_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_subwoofer_localization_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    crossover_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_groupdelay_audibility (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    verdict_id TEXT NOT NULL UNIQUE,
+    verdict_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    peak_delay_ms REAL,
+    frequency_hz REAL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_headphone_coupling_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    coupling_id TEXT NOT NULL UNIQUE,
+    coupling_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    compensation_kind TEXT NOT NULL,
+    fit_state TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_structureborne_paths (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    path_id TEXT NOT NULL UNIQUE,
+    path_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    mount_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_spatial_remapping_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    remap_mode TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_panning_continuity_evidence_document_idx ON cad_panning_continuity_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_subwoofer_localization_profiles_document_idx ON cad_subwoofer_localization_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_groupdelay_audibility_document_idx ON cad_groupdelay_audibility (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_headphone_coupling_evidence_document_idx ON cad_headphone_coupling_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_structureborne_paths_document_idx ON cad_structureborne_paths (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_spatial_remapping_evidence_document_idx ON cad_spatial_remapping_evidence (document_id)
+    """
+    ,
 )
 
 
@@ -7912,4 +7995,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_dynamic_contrast_measurements',
     'cad_display_wall_boundaries',
     'cad_wall_acoustic_impacts',
+    'cad_panning_continuity_evidence',
+    'cad_subwoofer_localization_profiles',
+    'cad_groupdelay_audibility',
+    'cad_headphone_coupling_evidence',
+    'cad_structureborne_paths',
+    'cad_spatial_remapping_evidence',
 )

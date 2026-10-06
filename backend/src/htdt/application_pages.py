@@ -740,6 +740,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_dynamic_contrast_measurements": "ダイナミックコントラスト測定",
     "cad_display_wall_boundaries": "表示壁境界",
     "cad_wall_acoustic_impacts": "壁音響影響",
+    "cad_panning_continuity_evidence": "パンニング連続性証拠",
+    "cad_subwoofer_localization_profiles": "サブウーファー定位プロファイル",
+    "cad_groupdelay_audibility": "群遅延可聴性",
+    "cad_headphone_coupling_evidence": "ヘッドホン結合証拠",
+    "cad_structureborne_paths": "固体伝搬パス",
+    "cad_spatial_remapping_evidence": "空間リマップ証拠",
 
 }
 
