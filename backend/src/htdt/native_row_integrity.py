@@ -7169,6 +7169,69 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_finite_absorber_geometries': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('geometry_sha256', 'geometry_sha256'),
+            _b('document_id', 'document_id'),
+            _b('edge_state', 'edge_state'),
+            _b('mounting_kind', 'mounting_kind'),
+        ),
+        (),
+    ),
+    'cad_finite_treatment_boundary_models': (
+        'payload_json',
+        (
+            _b('model_id', 'model_id'),
+            _b('model_sha256', 'model_sha256'),
+            _b('document_id', 'document_id'),
+            _b('geometry_ref_id', 'geometry_ref', 'ref_id'),
+            _b('reaction_kind', 'reaction_kind'),
+        ),
+        (),
+    ),
+    'cad_precedence_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stimulus_kind', 'stimulus_kind'),
+        ),
+        (),
+    ),
+    'cad_echo_risk_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('risk_verdict', 'risk_verdict'),
+        ),
+        (),
+    ),
+    'cad_reaction_to_fire_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('test_standard', 'test_standard'),
+        ),
+        (),
+    ),
+    'cad_finish_assembly_evidence': (
+        'payload_json',
+        (
+            _b('assembly_id', 'assembly_id'),
+            _b('assembly_sha256', 'assembly_sha256'),
+            _b('document_id', 'document_id'),
+            _b('installation_context', 'installation_context'),
+        ),
+        (),
+    ),
 }
 
 

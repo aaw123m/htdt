@@ -6473,6 +6473,87 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_rtn_doc ON cad_retention_policy_records(document_id, seq ASC)
     """
     ,
+    """CREATE TABLE IF NOT EXISTS cad_finite_absorber_geometries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    geometry_id TEXT NOT NULL UNIQUE,
+    geometry_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    edge_state TEXT,
+    mounting_kind TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_finite_treatment_boundary_models (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id TEXT NOT NULL UNIQUE,
+    model_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    geometry_ref_id TEXT NOT NULL,
+    reaction_kind TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_precedence_profiles (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    profile_id TEXT NOT NULL UNIQUE,
+    profile_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    stimulus_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_echo_risk_observations (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id TEXT NOT NULL UNIQUE,
+    observation_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    profile_ref_id TEXT NOT NULL,
+    risk_verdict TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_reaction_to_fire_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    evidence_id TEXT NOT NULL UNIQUE,
+    evidence_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    test_standard TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_finish_assembly_evidence (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    assembly_id TEXT NOT NULL UNIQUE,
+    assembly_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    installation_context TEXT,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finite_absorber_geometries_document_idx ON cad_finite_absorber_geometries (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finite_treatment_boundary_models_document_idx ON cad_finite_treatment_boundary_models (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_precedence_profiles_document_idx ON cad_precedence_profiles (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_echo_risk_observations_document_idx ON cad_echo_risk_observations (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_reaction_to_fire_evidence_document_idx ON cad_reaction_to_fire_evidence (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_finish_assembly_evidence_document_idx ON cad_finish_assembly_evidence (document_id)
+    """
+    ,
 )
 
 
@@ -7380,4 +7461,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_sensitive_artifact_policies',
     'cad_export_redaction_manifests',
     'cad_retention_policy_records',
+    # REV59-ACOUST3: #694 / #646 / #648.
+    'cad_finite_absorber_geometries',
+    'cad_finite_treatment_boundary_models',
+    'cad_precedence_profiles',
+    'cad_echo_risk_observations',
+    'cad_reaction_to_fire_evidence',
+    'cad_finish_assembly_evidence',
 )

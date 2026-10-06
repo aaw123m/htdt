@@ -1269,6 +1269,12 @@ class _RepositoryChain:
             )
 
             return CadCodePolicyRepository(scene)
+        if name == 'treatment_safety':
+            from .cad_treatment_safety_repository import (
+                CadTreatmentSafetyRepository,
+            )
+
+            return CadTreatmentSafetyRepository(scene)
         raise KeyError(name)
 
 
@@ -6050,6 +6056,43 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_retention_policy_records',
         ('record_id',),
         _get('code_policy', 'get_retention_record'),
+    ),
+    # REV59-ACOUST3: #694/#646/#648 treatment-safety authorities
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finite_absorber_geometries',
+        ('geometry_id',),
+        _get('treatment_safety', 'get_finite_geometry'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finite_treatment_boundary_models',
+        ('model_id',),
+        _get('treatment_safety', 'get_boundary_model'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_precedence_profiles',
+        ('profile_id',),
+        _get('treatment_safety', 'get_precedence_profile'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_echo_risk_observations',
+        ('observation_id',),
+        _get('treatment_safety', 'get_echo_observation'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_reaction_to_fire_evidence',
+        ('evidence_id',),
+        _get('treatment_safety', 'get_fire_evidence'),
+    ),
+    _ReplayProbe(
+        'treatment_safety',
+        'cad_finish_assembly_evidence',
+        ('assembly_id',),
+        _get('treatment_safety', 'get_assembly_evidence'),
     ),
 )
 
