@@ -4500,3 +4500,32 @@ def serviceability_line(verdict: str) -> str:
     """One JA line for a serviceability verdict (#707) —
     CAD適合は保守性を意味しない。"""
     return '保守性: ' + _SERVICE_LABELS.get(verdict, verdict)
+
+
+from .cad_solver_reproducibility import (  # noqa: E402
+    NUMERICAL_LABELS as _NUMERICAL_LABELS,
+)
+from .cad_imaging_chain import (  # noqa: E402
+    IMAGING_LABELS as _IMAGING_LABELS,
+)
+from .cad_wireless_av import (  # noqa: E402
+    WIRELESS_LABELS as _WIRELESS_LABELS,
+)
+
+
+def numerical_reproducibility_line(verdict: str) -> str:
+    """One JA line for a numerical-difference verdict (#703) —
+    変動帯域内の差は確定順序として扱わない。"""
+    return '数値再現性: ' + _NUMERICAL_LABELS.get(verdict, verdict)
+
+
+def imaging_evidence_line(verdict: str) -> str:
+    """One JA line for an imaging-chain verdict (#716) —
+    カメラ像は適格チェーンでのみディスプレイ証拠になる。"""
+    return '撮像チェーン: ' + _IMAGING_LABELS.get(verdict, verdict)
+
+
+def wireless_transport_line(verdict: str) -> str:
+    """One JA line for a wireless-transport verdict (#717) —
+    論理ルーティング正しさは無線伝送の検証ではない。"""
+    return '無線AV伝送: ' + _WIRELESS_LABELS.get(verdict, verdict)

@@ -6235,7 +6235,82 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_svo_doc ON cad_service_access_observations(document_id, seq ASC)
     """
     ,
+    # REV59-QUALNUM: #703 numerical reproducibility, #716 imaging
+    # measurement chain, #717 wireless AV transport.
+    """
+    CREATE TABLE IF NOT EXISTS cad_numerical_repro_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, precision_kind TEXT NOT NULL, parallelism_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nrep_doc ON cad_numerical_repro_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_stochastic_realizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, realization_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srez_doc ON cad_stochastic_realizations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_numerical_comparisons ( seq INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL UNIQUE, comparison_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, domain TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_nxcmp_doc ON cad_numerical_comparisons(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_imaging_measurement_chains ( seq INTEGER PRIMARY KEY AUTOINCREMENT, chain_id TEXT NOT NULL UNIQUE, chain_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_state TEXT NOT NULL, shutter_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_imc_doc ON cad_imaging_measurement_chains(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_camera_calibrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, calibration_id TEXT NOT NULL UNIQUE, calibration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_camcal_doc ON cad_camera_calibrations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_camera_derived_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, measurand TEXT NOT NULL, processing_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cdo_doc ON cad_camera_derived_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_av_links ( seq INTEGER PRIMARY KEY AUTOINCREMENT, link_id TEXT NOT NULL UNIQUE, link_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, transport_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wav_doc ON cad_wireless_av_links(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_transport_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, link_ref_id TEXT NOT NULL, dropout_events INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wto_doc ON cad_wireless_transport_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_wireless_sync_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, link_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_wsync_doc ON cad_wireless_sync_evidence(document_id, seq ASC)
+    """
+    ,
 )
+
 
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -7108,4 +7183,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_resonant_performance_records',
     'cad_service_envelope_profiles',
     'cad_service_access_observations',
+    # REV59-QUALNUM: #703 / #716 / #717.
+    'cad_numerical_repro_profiles',
+    'cad_stochastic_realizations',
+    'cad_numerical_comparisons',
+    'cad_imaging_measurement_chains',
+    'cad_camera_calibrations',
+    'cad_camera_derived_observations',
+    'cad_wireless_av_links',
+    'cad_wireless_transport_observations',
+    'cad_wireless_sync_evidence',
 )

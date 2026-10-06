@@ -6861,6 +6861,103 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             'cad_migration_verifications', 'check_count', 'checks',
         ),),
     ),
+    # REV59-QUALNUM: #703/#716/#717.
+    'cad_numerical_repro_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('precision_kind', 'precision_kind'),
+            _b('parallelism_kind', 'parallelism_kind'),
+        ),
+        (),
+    ),
+    'cad_stochastic_realizations': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('realization_kind', 'realization_kind'),
+        ),
+        (),
+    ),
+    'cad_numerical_comparisons': (
+        'payload_json',
+        (
+            _b('comparison_id', 'comparison_id'),
+            _b('comparison_sha256', 'comparison_sha256'),
+            _b('document_id', 'document_id'),
+            _b('domain', 'domain'),
+        ),
+        (),
+    ),
+    'cad_imaging_measurement_chains': (
+        'payload_json',
+        (
+            _b('chain_id', 'chain_id'),
+            _b('chain_sha256', 'chain_sha256'),
+            _b('document_id', 'document_id'),
+            _b('chain_state', 'chain_state'),
+            _b('shutter_kind', 'shutter_kind'),
+        ),
+        (),
+    ),
+    'cad_camera_calibrations': (
+        'payload_json',
+        (
+            _b('calibration_id', 'calibration_id'),
+            _b('calibration_sha256', 'calibration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('chain_ref_id', 'chain_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_camera_derived_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('chain_ref_id', 'chain_ref', 'ref_id'),
+            _b('measurand', 'measurand'),
+            _b('processing_state', 'processing_state'),
+        ),
+        (),
+    ),
+    'cad_wireless_av_links': (
+        'payload_json',
+        (
+            _b('link_id', 'link_id'),
+            _b('link_sha256', 'link_sha256'),
+            _b('document_id', 'document_id'),
+            _b('transport_kind', 'transport_kind'),
+        ),
+        (),
+    ),
+    'cad_wireless_transport_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('link_ref_id', 'link_ref', 'ref_id'),
+            _b('dropout_events', 'dropout_events'),
+        ),
+        (),
+    ),
+    'cad_wireless_sync_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('link_ref_id', 'link_ref', 'ref_id'),
+        ),
+        (),
+    ),
 }
 
 
