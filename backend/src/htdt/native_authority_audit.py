@@ -6744,6 +6744,20 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('verdict_id',),
         _get('diagnostic_hypothesis', 'get_verdict'),
     ),
+    # REV59-CLOSEAUX: manifest-gate bridge.
+    _ReplayProbe(
+        'manifest_gate',
+        'cad_manifest_gates',
+        ('gate_id',),
+        _get('manifest_gates', 'get_manifest_gate'),
+    ),
+    _ReplayProbe(
+        'gate_run_result',
+        'cad_gate_run_results',
+        ('result_id',),
+        _get('manifest_gates', 'get_gate_run_result'),
+    ),
+
 )
 
 # Managed-asset manifest/evidence tables: every row must resolve to the
@@ -6796,19 +6810,6 @@ _ASSET_TABLES: tuple[
     # REV48: acceptance-evidence rows are digest-bound managed-asset
     # manifests — each must resolve to its retained file.
     ('htdt_acceptance_evidence', 'sha256', 'size_bytes', 'relative_path', None),
-    # REV59-CLOSEAUX: manifest-gate bridge.
-    _ReplayProbe(
-        'manifest_gate',
-        'cad_manifest_gates',
-        ('gate_id',),
-        _get('manifest_gates', 'get_manifest_gate'),
-    ),
-    _ReplayProbe(
-        'gate_run_result',
-        'cad_gate_run_results',
-        ('result_id',),
-        _get('manifest_gates', 'get_gate_run_result'),
-    ),
 
 )
 
