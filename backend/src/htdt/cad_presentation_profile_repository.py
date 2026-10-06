@@ -1,286 +1,321 @@
-"""Append-only persistence for the video presentation-profile authority (#818).
+"""Append-only persistence for REV59-DRAWPROF authorities.
 
-Two authorities live here:
+Seven tables in one repository — CEB23-B video-design crosswalk
+(#741), J-STD-710 drawing symbols (#742), timed-text presentation
+(#733):
 
-* ``cad_video_presentation_profiles`` — immutable versioned profiles, keyed by
-  ``(document_id, profile_id, version)`` with the semantic hash carried as an
-  indexed column. One physical screen may retain several immutable profiles;
-  saves are append-only (identical re-save is a no-op, divergent hash is a
-  conflict).
-* ``cad_video_presentation_selections`` — an append-only log of the project's
-  explicit current-profile selections, each bound to a screen entity.
-  ``current_selection`` returns the newest recorded selection: "current" is an
-  explicit persisted record, never a latest-created inference, and switching
-  profiles leaves prior selections (and their evaluations) untouched.
+* ``cad_ht_video_design_profiles`` / ``cad_ceb23_evaluations``
+* ``cad_drawing_symbol_profiles`` / ``cad_device_symbol_mappings``
+  / ``cad_drawing_export_records``
+* ``cad_timed_text_profiles`` / ``cad_caption_render_observations``
 """
 
 from __future__ import annotations
 
 from contextlib import closing
 import sqlite3
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from .cad_presentation_profile import VideoPresentationProfile
 from .cad_repository import SceneRepository
-from .cad_schema import require_native_tables, connect_sqlite
-from .clock import utc_now_iso as _utc_now
+from .cad_schema import connect_sqlite, require_native_tables
+from .canonical_json import canonical_sha256
+from .cad_ht_video_profile import (
+    CEB23Evaluation,
+    HomeTheaterVideoDesignProfile,
+)
+from .cad_drawing_symbols import (
+    ArchitecturalDrawingSymbolProfile,
+    DeviceSymbolMapping,
+    DrawingExportRecord,
+)
+from .cad_timed_text import (
+    CaptionRenderObservation,
+    TimedTextPresentationProfile,
+)
 
 
 class PresentationProfileConflictError(ValueError):
-    """A presentation-profile save violated append-only identity rules."""
+    """A DRAWPROF save violated append-only identity rules."""
 
 
 class PresentationProfileIntegrityError(ValueError):
-    """A stored row disagreed with its payload or resolution contract."""
+    """A stored DRAWPROF row disagreed with its payload."""
 
 
-class PresentationProfileSelection(BaseModel):
-    """One recorded current-profile selection for a screen in a document."""
+def _assert_sealed(record: object, sha_field: str, id_field: str) -> None:
+    sha = canonical_sha256(record.identity_payload())  # type: ignore[attr-defined]
+    if getattr(record, sha_field) != sha:
+        raise PresentationProfileIntegrityError(
+            'record payload does not match its sealed sha256'
+        )
+    rid = getattr(record, id_field)
+    prefix = rid.rsplit('-', 1)[0]
+    if rid != f'{prefix}-{sha[:24]}':
+        raise PresentationProfileIntegrityError(
+            'record id does not match its sealed sha256'
+        )
 
-    model_config = ConfigDict(frozen=True)
 
-    document_id: str = Field(min_length=1)
-    screen_entity_id: str = Field(min_length=1)
-    profile_id: str = Field(min_length=1)
-    version: str = Field(min_length=1)
-    profile_sha256: str = Field(min_length=16)
-    selected_at_utc: str = Field(min_length=1)
+class _SealedStore:
+    """Generic append-only store for one sealed record type."""
+
+    def __init__(
+        self,
+        connection_factory: Any,
+        table: str,
+        model: type,
+        id_field: str,
+        sha_field: str,
+        columns: tuple[tuple[str, str], ...],
+    ) -> None:
+        self._connect = connection_factory
+        self.table = table
+        self.model = model
+        self.id_field = id_field
+        self.sha_field = sha_field
+        self.columns = columns
+
+    def _column_value(self, record: Any, path: str) -> Any:
+        if path == '__document_id__':
+            return record.document_id
+        value: Any = record
+        for part in path.split('.'):
+            value = getattr(value, part)
+        return value
+
+    def save(self, record: Any) -> None:
+        _assert_sealed(record, self.sha_field, self.id_field)
+        rid = getattr(record, self.id_field)
+        existing = self.get(rid)
+        if existing is not None:
+            if getattr(existing, self.sha_field) == getattr(
+                record, self.sha_field
+            ):
+                return
+            raise PresentationProfileConflictError(
+                f'{self.table} records are append-only'
+            )
+        cols = ', '.join(
+            [self.id_field, self.sha_field]
+            + [c[0] for c in self.columns]
+            + ['payload_json']
+        )
+        placeholders = ', '.join(['?'] * (2 + len(self.columns) + 1))
+        values = (
+            rid,
+            getattr(record, self.sha_field),
+            *(
+                self._column_value(record, path)
+                for _, path in self.columns
+            ),
+            record.model_dump_json(),
+        )
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                f'INSERT INTO {self.table} ({cols}) '
+                f'VALUES ({placeholders})',
+                values,
+            )
+
+    def get(self, rid: str) -> Any | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f'SELECT * FROM {self.table} WHERE {self.id_field}=?',
+                (rid,),
+            ).fetchone()
+        if row is None:
+            return None
+        record = self.model.model_validate_json(row['payload_json'])
+        if getattr(record, self.id_field) != row[self.id_field]:
+            raise PresentationProfileIntegrityError(
+                f'stored {self.table} id disagrees with its payload'
+            )
+        if getattr(record, self.sha_field) != row[self.sha_field]:
+            raise PresentationProfileIntegrityError(
+                f'stored {self.table} sha disagrees with its payload'
+            )
+        for column, path in self.columns:
+            if record.__dict__.get(path.split('.')[0]) is None:
+                continue
+            expected = self._column_value(record, path)
+            if isinstance(expected, bool):
+                expected = int(expected)
+            if row[column] != expected:
+                raise PresentationProfileIntegrityError(
+                    f'stored {self.table}.{column} disagrees '
+                    'with its payload'
+                )
+        return record
+
+    def list(self, document_id: str | None = None) -> tuple[Any, ...]:
+        query = f'SELECT payload_json FROM {self.table}'
+        params: tuple[str, ...] = ()
+        if document_id is not None:
+            query += ' WHERE document_id=?'
+            params = (document_id,)
+        query += ' ORDER BY seq ASC'
+        with closing(self._connect()) as connection:
+            rows = connection.execute(query, params).fetchall()
+        return tuple(
+            self.model.model_validate_json(r['payload_json'])
+            for r in rows
+        )
+
+
+def _ref(column: str, path: str) -> tuple[str, str]:
+    return (column, f'{path}.ref_id')
 
 
 class CadPresentationProfileRepository:
-    """Native storage for presentation profiles and current selections."""
+    """Native storage for the #741/#742/#733 authorities."""
 
     def __init__(self, scene_repository: SceneRepository) -> None:
         self.scene_repository = scene_repository
         self.path = scene_repository.path
-        self._initialize()
+        with closing(self._connect()) as connection, connection:
+            require_native_tables(
+                connection,
+                'cad_ht_video_design_profiles',
+                'cad_ceb23_evaluations',
+                'cad_drawing_symbol_profiles',
+                'cad_device_symbol_mappings',
+                'cad_drawing_export_records',
+                'cad_timed_text_profiles',
+                'cad_caption_render_observations',
+            )
+        self.video_profiles = _SealedStore(
+            self._connect, 'cad_ht_video_design_profiles',
+            HomeTheaterVideoDesignProfile, 'profile_id',
+            'profile_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('edition', 'edition'),
+            ),
+        )
+        self.ceb23_evaluations = _SealedStore(
+            self._connect, 'cad_ceb23_evaluations',
+            CEB23Evaluation, 'evaluation_id', 'evaluation_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('profile_ref_id', 'profile_ref'),
+            ),
+        )
+        self.symbol_profiles = _SealedStore(
+            self._connect, 'cad_drawing_symbol_profiles',
+            ArchitecturalDrawingSymbolProfile, 'profile_id',
+            'profile_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('edition', 'edition'),
+                ('rights_provenance', 'rights_provenance'),
+            ),
+        )
+        self.symbol_mappings = _SealedStore(
+            self._connect, 'cad_device_symbol_mappings',
+            DeviceSymbolMapping, 'mapping_id', 'mapping_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('profile_ref_id', 'profile_ref'),
+                ('device_kind', 'device_kind'),
+            ),
+        )
+        self.drawing_exports = _SealedStore(
+            self._connect, 'cad_drawing_export_records',
+            DrawingExportRecord, 'export_id', 'export_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('profile_ref_id', 'profile_ref'),
+                ('export_format', 'export_format'),
+            ),
+        )
+        self.text_profiles = _SealedStore(
+            self._connect, 'cad_timed_text_profiles',
+            TimedTextPresentationProfile, 'profile_id',
+            'profile_sha256',
+            (
+                ('document_id', '__document_id__'),
+                ('profile_kind', 'profile_kind'),
+            ),
+        )
+        self.caption_observations = _SealedStore(
+            self._connect, 'cad_caption_render_observations',
+            CaptionRenderObservation, 'observation_id',
+            'observation_sha256',
+            (
+                ('document_id', '__document_id__'),
+                _ref('profile_ref_id', 'profile_ref'),
+            ),
+        )
 
     def _connect(self) -> sqlite3.Connection:
         return connect_sqlite(self.path)
 
-    def _initialize(self) -> None:
-        with closing(self._connect()) as connection, connection:
-            require_native_tables(
-                connection,
-                'cad_video_presentation_profiles',
-                'cad_video_presentation_selections',
-            )
-
-    # ------------------------------------------------------------------
-    # Profiles
-
-    def save_profile(
-        self,
-        profile: VideoPresentationProfile,
-        document_id: str,
+    def save_video_profile(
+        self, record: HomeTheaterVideoDesignProfile
     ) -> None:
-        existing = self.get_profile(
-            document_id, profile.profile_id, profile.version
-        )
-        if existing is not None:
-            if existing.profile_sha256 == profile.profile_sha256:
-                return
-            raise PresentationProfileConflictError(
-                'presentation profile (document_id, profile_id, version) is append-only'
-            )
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO cad_video_presentation_profiles (
-                    document_id, profile_id, version, profile_sha256,
-                    created_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    document_id,
-                    profile.profile_id,
-                    profile.version,
-                    profile.profile_sha256,
-                    _utc_now(),
-                    profile.model_dump_json(),
-                ),
-            )
+        self.video_profiles.save(record)
 
-    def get_profile(
-        self,
-        document_id: str,
-        profile_id: str,
-        version: str,
-    ) -> VideoPresentationProfile | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT profile_id, version, profile_sha256, payload_json
-                FROM cad_video_presentation_profiles
-                WHERE document_id=? AND profile_id=? AND version=?
-                """,
-                (document_id, profile_id, version),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._profile_from_row(row)
+    def get_video_profile(
+        self, rid: str
+    ) -> HomeTheaterVideoDesignProfile | None:
+        return self.video_profiles.get(rid)
 
-    def get_profile_by_hash(
-        self,
-        profile_sha256: str,
-    ) -> VideoPresentationProfile | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT profile_id, version, profile_sha256, payload_json
-                FROM cad_video_presentation_profiles
-                WHERE profile_sha256=?
-                """,
-                (profile_sha256,),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._profile_from_row(row)
+    def save_ceb23_evaluation(
+        self, record: CEB23Evaluation
+    ) -> None:
+        self.ceb23_evaluations.save(record)
 
-    def list_profiles(
-        self,
-        document_id: str,
-    ) -> tuple[VideoPresentationProfile, ...]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT profile_id, version, profile_sha256, payload_json
-                FROM cad_video_presentation_profiles
-                WHERE document_id=?
-                ORDER BY created_at_utc, profile_id, version
-                """,
-                (document_id,),
-            ).fetchall()
-        return tuple(self._profile_from_row(row) for row in rows)
+    def get_ceb23_evaluation(
+        self, rid: str
+    ) -> CEB23Evaluation | None:
+        return self.ceb23_evaluations.get(rid)
 
-    def _profile_from_row(self, row: sqlite3.Row) -> VideoPresentationProfile:
-        profile = VideoPresentationProfile.model_validate_json(
-            row['payload_json']
-        )
-        if (
-            profile.profile_id != row['profile_id']
-            or profile.version != row['version']
-            or profile.profile_sha256 != row['profile_sha256']
-        ):
-            raise PresentationProfileIntegrityError(
-                'presentation profile row disagrees with its payload'
-            )
-        return profile
+    def save_symbol_profile(
+        self, record: ArchitecturalDrawingSymbolProfile
+    ) -> None:
+        self.symbol_profiles.save(record)
 
-    # ------------------------------------------------------------------
-    # Current selections
+    def get_symbol_profile(
+        self, rid: str
+    ) -> ArchitecturalDrawingSymbolProfile | None:
+        return self.symbol_profiles.get(rid)
 
-    def select_profile(
-        self,
-        document_id: str,
-        screen_entity_id: str,
-        profile: VideoPresentationProfile,
-        selected_at_utc: str | None = None,
-    ) -> PresentationProfileSelection:
-        persisted = self.get_profile(
-            document_id, profile.profile_id, profile.version
-        )
-        if persisted is None or persisted.profile_sha256 != profile.profile_sha256:
-            raise PresentationProfileIntegrityError(
-                'selection must reference a persisted presentation profile'
-            )
-        selection = PresentationProfileSelection(
-            document_id=document_id,
-            screen_entity_id=screen_entity_id,
-            profile_id=profile.profile_id,
-            version=profile.version,
-            profile_sha256=profile.profile_sha256,
-            selected_at_utc=selected_at_utc or _utc_now(),
-        )
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                INSERT INTO cad_video_presentation_selections (
-                    document_id, screen_entity_id, profile_id, version,
-                    profile_sha256, selected_at_utc, payload_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    selection.document_id,
-                    selection.screen_entity_id,
-                    selection.profile_id,
-                    selection.version,
-                    selection.profile_sha256,
-                    selection.selected_at_utc,
-                    selection.model_dump_json(),
-                ),
-            )
-        return selection
+    def save_symbol_mapping(
+        self, record: DeviceSymbolMapping
+    ) -> None:
+        self.symbol_mappings.save(record)
 
-    def current_selection(
-        self,
-        document_id: str,
-    ) -> PresentationProfileSelection | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT document_id, screen_entity_id, profile_id, version,
-                       profile_sha256, selected_at_utc, payload_json
-                FROM cad_video_presentation_selections
-                WHERE document_id=?
-                ORDER BY selection_seq DESC
-                LIMIT 1
-                """,
-                (document_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._selection_from_row(row)
+    def get_symbol_mapping(
+        self, rid: str
+    ) -> DeviceSymbolMapping | None:
+        return self.symbol_mappings.get(rid)
 
-    def list_selections(
-        self,
-        document_id: str,
-    ) -> tuple[PresentationProfileSelection, ...]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT document_id, screen_entity_id, profile_id, version,
-                       profile_sha256, selected_at_utc, payload_json
-                FROM cad_video_presentation_selections
-                WHERE document_id=?
-                ORDER BY selection_seq
-                """,
-                (document_id,),
-            ).fetchall()
-        return tuple(self._selection_from_row(row) for row in rows)
+    def save_drawing_export(
+        self, record: DrawingExportRecord
+    ) -> None:
+        self.drawing_exports.save(record)
 
-    def current_profile(
-        self,
-        document_id: str,
-    ) -> VideoPresentationProfile | None:
-        selection = self.current_selection(document_id)
-        if selection is None:
-            return None
-        profile = self.get_profile(
-            document_id, selection.profile_id, selection.version
-        )
-        if profile is None or profile.profile_sha256 != selection.profile_sha256:
-            raise PresentationProfileIntegrityError(
-                'current selection does not resolve to its persisted profile'
-            )
-        return profile
+    def get_drawing_export(
+        self, rid: str
+    ) -> DrawingExportRecord | None:
+        return self.drawing_exports.get(rid)
 
-    def _selection_from_row(
-        self, row: sqlite3.Row
-    ) -> PresentationProfileSelection:
-        selection = PresentationProfileSelection.model_validate_json(
-            row['payload_json']
-        )
-        if (
-            selection.document_id != row['document_id']
-            or selection.screen_entity_id != row['screen_entity_id']
-            or selection.profile_id != row['profile_id']
-            or selection.version != row['version']
-            or selection.profile_sha256 != row['profile_sha256']
-            or selection.selected_at_utc != row['selected_at_utc']
-        ):
-            raise PresentationProfileIntegrityError(
-                'presentation profile selection row disagrees with its payload'
-            )
-        return selection
+    def save_text_profile(
+        self, record: TimedTextPresentationProfile
+    ) -> None:
+        self.text_profiles.save(record)
+
+    def get_text_profile(
+        self, rid: str
+    ) -> TimedTextPresentationProfile | None:
+        return self.text_profiles.get(rid)
+
+    def save_caption_observation(
+        self, record: CaptionRenderObservation
+    ) -> None:
+        self.caption_observations.save(record)
+
+    def get_caption_observation(
+        self, rid: str
+    ) -> CaptionRenderObservation | None:
+        return self.caption_observations.get(rid)

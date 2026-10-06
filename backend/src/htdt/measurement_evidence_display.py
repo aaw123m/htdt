@@ -4529,3 +4529,32 @@ def wireless_transport_line(verdict: str) -> str:
     """One JA line for a wireless-transport verdict (#717) —
     論理ルーティング正しさは無線伝送の検証ではない。"""
     return '無線AV伝送: ' + _WIRELESS_LABELS.get(verdict, verdict)
+
+
+from .cad_ht_video_profile import (  # noqa: E402
+    CEB23_LABELS as _CEB23_LABELS,
+)
+from .cad_drawing_symbols import (  # noqa: E402
+    SYMBOL_LABELS as _SYMBOL_LABELS,
+)
+from .cad_timed_text import (  # noqa: E402
+    SUBTITLE_LABELS as _SUBTITLE_LABELS,
+)
+
+
+def ceb23_requirement_line(verdict: str) -> str:
+    """One JA line for a CEB23 requirement verdict (#741) —
+    設計予測は竣工実測を名乗らない。"""
+    return 'CEB23-B 要件: ' + _CEB23_LABELS.get(verdict, verdict)
+
+
+def drawing_symbol_line(verdict: str) -> str:
+    """One JA line for a drawing-symbol verdict (#742) —
+    権利未確認の規格シンボルは主張しない。"""
+    return '図面シンボル: ' + _SYMBOL_LABELS.get(verdict, verdict)
+
+
+def subtitle_presentation_line(verdict: str) -> str:
+    """One JA line for a subtitle verdict (#733) —
+    トラック対応は表示品質を意味しない。"""
+    return '字幕表示: ' + _SUBTITLE_LABELS.get(verdict, verdict)

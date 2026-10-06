@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 60
+NATIVE_SCHEMA_VERSION = 61
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1700,6 +1700,14 @@ def _migrate_59_to_60(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_60_to_61(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DRAWPROF authorities (#741 CEB23-B video
+    # profile, #742 J-STD-710 symbols, #733 timed text): new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1761,6 +1769,7 @@ _MIGRATIONS = {
     58: _migrate_57_to_58,
     59: _migrate_58_to_59,
     60: _migrate_59_to_60,
+    61: _migrate_60_to_61,
 }
 
 
