@@ -2913,3 +2913,96 @@ issues:
         description: >
           Routing-vs-isolation separation, pair-coverage gate, threshold
           verdicts.
+  - issue: 759
+    title: "Projector dynamic-light / temporal-contrast authority"
+    notes: >
+      ProjectorDynamicLightProfile (pdl-) pins the device's dynamic
+      control modes; TemporalContrastMeasurement (tcnt-) pins measurand
+      kind (native_static / sequential_dynamic / simultaneous_intraframe /
+      adl_conditioned / installed_system), stimulus and light mode —
+      sequential_dynamic requires a declared dynamic mode. compare_
+      contrast_claims: measurand or light-mode mismatch → incomparable.
+    checks:
+      - id: temporal-contrast
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_measurand_mismatch_incomparable
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_sequential_needs_dynamic_mode
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_same_measurand_comparable
+        description: >
+          Measurand separation, dynamic-mode pinning, fail-closed
+          comparison.
+  - issue: 756
+    title: "Display low-luminance / stray-light metrology authority"
+    notes: >
+      DisplayLightMeasurementCapability (lmc-) pins the measurement
+      floor + stray-light control (IDMS A2/A3); LowLuminanceObservation
+      (llo-) binds reading + FOV/visible-luminance context.
+      evaluate_black_claim: below floor → below_capability (never 0,
+      never infinite contrast); uncontrolled stray light → contaminated.
+      evaluate_contrast_claim: below-floor black → lower_bound_only.
+    checks:
+      - id: low-luminance
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_below_floor_not_zero
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_uncontrolled_stray_contaminated
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_contrast_lower_bound_only
+        description: >
+          Capability-floor gating, zero/infinite rejection, contamination
+          detection.
+  - issue: 760
+    title: "Direct-view / LED-wall acoustic-boundary authority"
+    notes: >
+      DisplayAcousticBoundaryProfile (dab-) declares transmission —
+      acoustically transparent/micro-perforated requires pinned
+      transmission evidence (marketing copy is not evidence).
+      FrontStageVariantRecord (fsv-) binds strategy + speakers +
+      verdict. evaluate_frontstage_claim: behind_screen_lcr on opaque →
+      placement_blocked; unknown/partial → transmission_evidence_required.
+    checks:
+      - id: display-boundary
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_transparent_needs_evidence
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_opaque_blocks_behind_lcr
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_unknown_transmission_needs_evidence
+        description: >
+          Transmission-evidence gating, behind-screen placement verdicts.
+  - issue: 753
+    title: "Video codec / transcode fidelity authority"
+    notes: >
+      CodecChainProfile (cfp-) declares codec steps + hidden processing;
+      QualityMethodProfile (qmp-) pins the assessment method family
+      (P.910/P.1204/J.247 — full-reference requires the reference);
+      CodecFidelityObservation (cfo-) binds chain+method+outcome.
+      evaluate_fidelity_claim: bit_transparent needs a lossless/
+      passthrough chain; perceptually_transparent needs method evidence;
+      impairment flag downgrades to impaired. Playback success is never
+      fidelity evidence.
+    checks:
+      - id: codec-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_bit_transparent_fails_on_lossy
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_perceptual_needs_evidence
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_impairment_downgrades
+        description: >
+          Bit-transparent vs perceptual claims, method pinning,
+          impairment downgrade.
+  - issue: 747
+    title: "Media codec / transcode fidelity authority (audio)"
+    notes: >
+      Same authority as #753 — CodecChainProfile/QualityMethodProfile/
+      CodecFidelityObservation cover the audio path (BS.1387-2 PEAQ
+      method kind). Hidden SRC/word-length/gain/normalization steps and
+      layout reductions must be declared chain state.
+    checks:
+      - id: codec-fidelity-audio
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_lossless_chain_no_hidden
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_bit_transparent_lossless
+        description: >
+          Audio codec chain declarations, hidden-processing contradiction
+          detection.

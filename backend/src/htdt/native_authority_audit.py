@@ -1202,6 +1202,12 @@ class _RepositoryChain:
             )
 
             return CadSignalIntegrityRepository(scene)
+        if name == 'media_fidelity':
+            from .cad_media_fidelity_repository import (
+                CadMediaFidelityRepository,
+            )
+
+            return CadMediaFidelityRepository(scene)
         raise KeyError(name)
 
 
@@ -5532,6 +5538,66 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_channel_separation_qualifications',
         ('qualification_id',),
         _get('signal_integrity', 'get_separation_qualification'),
+    ),    # REV59-VIDMETA: #759/#756/#760/#753/#747 media fidelity authorities
+    _ReplayProbe(
+        'projector_light_profile',
+        'cad_projector_light_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_light_profile'),
+    ),
+    _ReplayProbe(
+        'temporal_contrast_measure',
+        'cad_temporal_contrast_measures',
+        ('measurement_id',),
+        _get('media_fidelity', 'get_contrast_measure'),
+    ),
+    _ReplayProbe(
+        'dynamic_contrast_qualification',
+        'cad_dynamic_contrast_qualifications',
+        ('qualification_id',),
+        _get('media_fidelity', 'get_contrast_qualification'),
+    ),
+    _ReplayProbe(
+        'light_capability',
+        'cad_light_measurement_capabilities',
+        ('capability_id',),
+        _get('media_fidelity', 'get_light_capability'),
+    ),
+    _ReplayProbe(
+        'luminance_observation',
+        'cad_low_luminance_observations',
+        ('observation_id',),
+        _get('media_fidelity', 'get_luminance_observation'),
+    ),
+    _ReplayProbe(
+        'display_boundary_profile',
+        'cad_display_boundary_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_boundary_profile'),
+    ),
+    _ReplayProbe(
+        'front_stage_variant',
+        'cad_front_stage_variants',
+        ('variant_id',),
+        _get('media_fidelity', 'get_front_stage_variant'),
+    ),
+    _ReplayProbe(
+        'codec_chain_profile',
+        'cad_codec_chain_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_codec_chain'),
+    ),
+    _ReplayProbe(
+        'quality_method_profile',
+        'cad_quality_method_profiles',
+        ('method_id',),
+        _get('media_fidelity', 'get_quality_method'),
+    ),
+    _ReplayProbe(
+        'codec_fidelity_observation',
+        'cad_codec_fidelity_observations',
+        ('observation_id',),
+        _get('media_fidelity', 'get_fidelity_observation'),
     ),
 )
 

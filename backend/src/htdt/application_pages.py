@@ -640,6 +640,16 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_clock_domain_crossings": "クロックドメイン横断レコード",
     "cad_interchannel_leakage_measurements": "チャネル間漏洩測定",
     "cad_channel_separation_qualifications": "チャネル分離適格レコード",
+    "cad_projector_light_profiles": "プロジェクター光源プロファイル",
+    "cad_temporal_contrast_measures": "時間領域コントラスト測定",
+    "cad_dynamic_contrast_qualifications": "動的コントラスト適格レコード",
+    "cad_light_measurement_capabilities": "輝度計測定能力レコード",
+    "cad_low_luminance_observations": "低輝度観測レコード",
+    "cad_display_boundary_profiles": "表示面音響境界プロファイル",
+    "cad_front_stage_variants": "フロントステージ配置バリアント",
+    "cad_codec_chain_profiles": "コーデックチェーンプロファイル",
+    "cad_quality_method_profiles": "品質評価方式プロファイル",
+    "cad_codec_fidelity_observations": "コーデック忠実度観測レコード",
 }
 
 

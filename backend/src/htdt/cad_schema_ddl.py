@@ -5819,6 +5819,86 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_csep_doc ON cad_channel_separation_qualifications(document_id, seq ASC)
     """
     ,
+"""
+    CREATE TABLE IF NOT EXISTS cad_projector_light_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pdl_doc ON cad_projector_light_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_temporal_contrast_measures ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurand TEXT NOT NULL, light_mode TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tcnt_doc ON cad_temporal_contrast_measures(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dynamic_contrast_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, measurement_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dcq_doc ON cad_dynamic_contrast_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_light_measurement_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stray_light_control TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lmc_doc ON cad_light_measurement_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_low_luminance_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, capability_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_llo_doc ON cad_low_luminance_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_display_boundary_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, transmission TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dab_doc ON cad_display_boundary_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_front_stage_variants ( seq INTEGER PRIMARY KEY AUTOINCREMENT, variant_id TEXT NOT NULL UNIQUE, variant_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, boundary_ref_id TEXT NOT NULL, strategy TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fsv_doc ON cad_front_stage_variants(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_codec_chain_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, media_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cfp_doc ON cad_codec_chain_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_quality_method_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, method_id TEXT NOT NULL UNIQUE, method_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_qmp_doc ON cad_quality_method_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_codec_fidelity_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, method_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cfo_doc ON cad_codec_fidelity_observations(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6641,4 +6721,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_clock_domain_crossings',
     'cad_interchannel_leakage_measurements',
     'cad_channel_separation_qualifications',
+    'cad_projector_light_profiles',
+    'cad_temporal_contrast_measures',
+    'cad_dynamic_contrast_qualifications',
+    'cad_light_measurement_capabilities',
+    'cad_low_luminance_observations',
+    'cad_display_boundary_profiles',
+    'cad_front_stage_variants',
+    'cad_codec_chain_profiles',
+    'cad_quality_method_profiles',
+    'cad_codec_fidelity_observations',
 )

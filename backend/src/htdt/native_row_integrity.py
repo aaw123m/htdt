@@ -6334,6 +6334,109 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('verdict', 'verdict'),
         ),
         (),
+    ),    'cad_projector_light_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_temporal_contrast_measures': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('measurand', 'measurand'),
+            _b('light_mode', 'light_mode'),
+        ),
+        (),
+    ),
+    'cad_dynamic_contrast_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('measurement_ref_id', 'measurement_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_light_measurement_capabilities': (
+        'payload_json',
+        (
+            _b('capability_id', 'capability_id'),
+            _b('capability_sha256', 'capability_sha256'),
+            _b('document_id', 'document_id'),
+            _b('stray_light_control', 'stray_light_control'),
+        ),
+        (),
+    ),
+    'cad_low_luminance_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('capability_ref_id', 'capability_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_display_boundary_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('transmission', 'transmission'),
+        ),
+        (),
+    ),
+    'cad_front_stage_variants': (
+        'payload_json',
+        (
+            _b('variant_id', 'variant_id'),
+            _b('variant_sha256', 'variant_sha256'),
+            _b('document_id', 'document_id'),
+            _b('boundary_ref_id', 'boundary_ref', 'ref_id'),
+            _b('strategy', 'strategy'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_codec_chain_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('media_kind', 'media_kind'),
+        ),
+        (),
+    ),
+    'cad_quality_method_profiles': (
+        'payload_json',
+        (
+            _b('method_id', 'method_id'),
+            _b('method_sha256', 'method_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method_kind', 'method_kind'),
+        ),
+        (),
+    ),
+    'cad_codec_fidelity_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('chain_ref_id', 'chain_ref', 'ref_id'),
+            _b('method_ref_id', 'method_ref', 'ref_id'),
+        ),
+        (),
     ),
 }
 
