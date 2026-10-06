@@ -3611,3 +3611,217 @@ def modal_decay_qualification_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '時周波モーダル減衰: ' + ' — '.join(parts)
+
+
+# REV59-DEPS: 権威依存/陳腐化 (#729)・証拠アテステーション/時刻権威
+# (#725)・プロジェクトアーカイブ/移行権威 (#718)
+
+_DEP_EDGE_KIND_LABELS = {
+    'verdict_depends_on_evidence': 'verdict→証拠',
+    'derived_from_authority': '権威から導出',
+    'measured_under_profile': 'プロファイル下で測定',
+    'qualified_by_qualification': '適格レコードで修飾',
+    'binds_profile_to_evidence': 'プロファイル→証拠束縛',
+    'supersedes_declaration': '宣言を置換',
+    'supports_reference': '参照支持',
+    'calibrates': '校正',
+    'transforms': '変換',
+    'validates': '検証',
+    'requalifies': '再適格',
+    'references_only': '参照のみ（影響なし）',
+    'other_declared': 'その他宣言',
+}
+
+_DEP_CHANGE_CLASS_LABELS = {
+    'content_hash_changed': '内容ハッシュ変更',
+    'new_revision': '新リビジョン',
+    'profile_revised': 'プロファイル改版',
+    'standard_revised': '規格改版',
+    'device_replaced': '機器交換',
+    'lineage_superseded': 'lineage置換',
+    'retraction': '撤回',
+    'label_metadata': 'ラベル/メタデータのみ',
+    'uncertainty_budget_revised': '不確かさ予算改版',
+    'asset_reencoded': 'アセット再符号化',
+    'declaration_added': '宣言追加',
+    'other_declared': 'その他宣言',
+}
+
+_STALENESS_STATE_LABELS = {
+    'current': '現行',
+    'superseded': '置換済',
+    'stale_recompute': '陳腐・再計算',
+    'stale_remeasure': '陳腐・再測定',
+    'stale_readback': '陳腐・再読出し',
+    'stale_review': '陳腐・レビュー',
+    'invalidated_incompatible': '失効・非互換',
+    'valid_with_limitations': '限定付き有効',
+    'unknown_dependency': '依存不明',
+}
+
+_REVPLAN_ACTION_LABELS = {
+    'recompute': '再計算',
+    'remeasure': '再測定',
+    'reverify_readback': '再読出し検証',
+    'requalify_profile': 'プロファイル再適格',
+    'review_evidence': '証拠レビュー',
+    'retire': '退役',
+    'none': '作業なし',
+}
+
+
+def staleness_state_label(state: str) -> str:
+    return _STALENESS_STATE_LABELS.get(state, state)
+
+
+def staleness_assessment_line(assessment) -> str:
+    """One JA line for a staleness assessment (#729): per-state entry
+    counts — 失効範囲は過不足なく。"""
+    counts: dict[str, int] = {}
+    conservative = False
+    for entry in assessment.entries:
+        counts[entry.state] = counts.get(entry.state, 0) + 1
+        conservative = conservative or entry.conservative
+    parts = [
+        '{0}×{1}'.format(
+            _STALENESS_STATE_LABELS.get(state, state), counts[state]
+        )
+        for state in sorted(counts, key=lambda s: -counts[s])
+    ] or ['影響なし']
+    if conservative:
+        parts.append('保守判定あり')
+    if assessment.unknown_lineage_refs:
+        parts.append(
+            'lineage不明×{0}'.format(
+                len(assessment.unknown_lineage_refs)
+            )
+        )
+    return '陳腐化評価: ' + ' — '.join(parts)
+
+
+def revalidation_plan_line(plan) -> str:
+    """One JA line for a revalidation plan (#729 §15): action counts —
+    最小の再検証作業集合。"""
+    parts = [
+        '{0}×{1}'.format(
+            _REVPLAN_ACTION_LABELS.get(action.kind, action.kind),
+            len(action.subject_refs),
+        )
+        for action in plan.actions
+    ] or ['作業なし']
+    return '再検証計画: ' + ' — '.join(parts)
+
+
+_ATT_KIND_LABELS = {
+    'hash_only': 'ハッシュのみ',
+    'mac_authenticated': 'MAC認証',
+    'digitally_signed': '電子署名',
+    'digitally_signed_with_certificate_chain': '証明書連鎖付き電子署名',
+    'trusted_timestamp_only': '信頼タイムスタンプのみ',
+    'signed_and_trusted_timestamped': '署名+信頼タイムスタンプ',
+    'external_signature_reference': '外部署名参照',
+    'unknown': '不明',
+}
+
+_ATT_STATE_LABELS = {
+    'integrity_confirmed': '完全性確認',
+    'timestamp_confirmed': '時刻確認',
+    'attested_verified': 'アテステーション検証済',
+    'attested_verified_declared_time': '検証済・宣言時刻のみ',
+    'attested_verified_historical': '検証済・履歴的',
+    'attested_unprovened': 'アテステーション未証明',
+    'unverifiable': '検証不能',
+    'verification_failed': '検証失敗',
+}
+
+_TIME_AUTHORITY_LABELS = {
+    'trusted_timestamp': '信頼タイムスタンプ',
+    'declared_time': '宣言時刻',
+    'unknown_time': '時刻不明',
+}
+
+
+def attestation_kind_label(kind: str) -> str:
+    return _ATT_KIND_LABELS.get(kind, kind)
+
+
+def attestation_state_label(state: str) -> str:
+    return _ATT_STATE_LABELS.get(state, state)
+
+
+def time_authority_label(authority: str) -> str:
+    return _TIME_AUTHORITY_LABELS.get(authority, authority)
+
+
+def attestation_verification_line(verification) -> str:
+    """One JA line for an attestation verification (#725): state plus
+    time-authority ladder — ハッシュは誰がいつを証明しない。"""
+    parts = [
+        _ATT_STATE_LABELS.get(verification.state, verification.state),
+        '時刻権威: {0}'.format(
+            _TIME_AUTHORITY_LABELS.get(
+                verification.time_authority, verification.time_authority
+            )
+        ),
+    ]
+    if verification.reasons:
+        parts.append(verification.reasons[0])
+    return 'アテステーション検証: ' + ' — '.join(parts)
+
+
+_ARC_STATUS_LABELS = {
+    'verified_legible': '再読出し検証済',
+    'partially_verified': '部分検証',
+    'verification_failed': '検証失敗',
+    'unverified': '未検証',
+}
+
+_MIG_STATUS_LABELS = {
+    'declared': '宣言済',
+    'verified_equivalent': '等価検証済',
+    'verified_with_declared_differences': '宣言差分付き検証済',
+    'verification_failed': '検証失敗',
+    'unverified': '未検証',
+}
+
+_PRESERVATION_SCOPE_LABELS = {
+    'full_semantics_and_provenance': '全意味+来歴',
+    'evidence_provenance_only': '証拠来歴のみ',
+    'measurement_data_only': '測定データのみ',
+    'project_structure_only': 'プロジェクト構造のみ',
+    'other_declared': 'その他宣言',
+}
+
+
+def archive_status_label(status: str) -> str:
+    return _ARC_STATUS_LABELS.get(status, status)
+
+
+def migration_status_label(status: str) -> str:
+    return _MIG_STATUS_LABELS.get(status, status)
+
+
+def archive_verification_line(verification) -> str:
+    """One JA line for an archive re-read verdict (#718 §11): status —
+    アーカイブは読めてこそ。"""
+    parts = [
+        _ARC_STATUS_LABELS.get(verification.status, verification.status),
+        'チェック×{0}'.format(len(verification.checks)),
+    ]
+    failed = [c.check for c in verification.checks if c.outcome == 'fail']
+    if failed:
+        parts.append('失敗: {0}'.format(', '.join(failed)))
+    return 'アーカイブ検証: ' + ' — '.join(parts)
+
+
+def migration_verification_line(verification) -> str:
+    """One JA line for a migration verdict (#718 §13): status — 未検証
+    移行は保存を主張しない。"""
+    parts = [
+        _MIG_STATUS_LABELS.get(verification.status, verification.status),
+        'チェック×{0}'.format(len(verification.checks)),
+    ]
+    failed = [c.check for c in verification.checks if c.outcome == 'fail']
+    if failed:
+        parts.append('失敗: {0}'.format(', '.join(failed)))
+    return '移行検証: ' + ' — '.join(parts)

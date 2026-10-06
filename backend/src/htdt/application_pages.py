@@ -557,6 +557,21 @@ _LIFECYCLE_TABLE_LABELS = {
     # REV58-VALIDMETH: #706 時周波モーダル減衰
     "cad_modal_decay_observations": "時周波減衰観測",
     "cad_modal_decay_qualifications": "時周波減衰適格",
+    # REV59-DEPS: #729 権威依存/陳腐化グラフ
+    "cad_dependency_edge_declarations": "権威依存エッジ宣言",
+    "cad_dependency_change_events": "意味変更イベント",
+    "cad_dependency_rule_profiles": "失効ルールプロファイル",
+    "cad_staleness_assessments": "陳腐化評価",
+    "cad_revalidation_plans": "再検証計画",
+    # REV59-DEPS: #725 証拠アテステーション/時刻権威
+    "cad_signed_manifests": "署名マニフェスト",
+    "cad_manifest_attestations": "マニフェストアテステーション",
+    "cad_attestation_verifications": "アテステーション検証",
+    # REV59-DEPS: #718 プロジェクトアーカイブ/移行権威
+    "cad_archive_snapshots": "アーカイブスナップショット",
+    "cad_archive_verifications": "アーカイブ再読出し検証",
+    "cad_migration_records": "移行レコード",
+    "cad_migration_verifications": "移行検証",
 }
 
 

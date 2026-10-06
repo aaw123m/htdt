@@ -5205,6 +5205,150 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_mdtqual_obs ON cad_modal_decay_qualifications(observation_ref_id, seq ASC)
     """
     ,
+    # REV59-DEPS: #729 authority dependency / staleness graph —
+    # typed edge declarations, semantic change events, invalidation
+    # rulesets, staleness assessments, revalidation plans.
+    """
+    CREATE TABLE IF NOT EXISTS cad_dependency_edge_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, edge_id TEXT NOT NULL UNIQUE, edge_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, kind TEXT NOT NULL, target_ref_id TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dependency_change_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, changed_ref_id TEXT NOT NULL, change_class TEXT NOT NULL, occurred_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dependency_rule_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, ruleset_version TEXT NOT NULL, entry_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_staleness_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, change_event_ref_id TEXT NOT NULL, entry_count INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_revalidation_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, assessment_ref_id TEXT NOT NULL, action_count INTEGER NOT NULL, planned_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_depedge_doc ON cad_dependency_edge_declarations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_depedge_subject ON cad_dependency_edge_declarations(subject_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_depedge_target ON cad_dependency_edge_declarations(target_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_depevt_doc ON cad_dependency_change_events(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_depevt_changed ON cad_dependency_change_events(changed_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_deprule_doc ON cad_dependency_rule_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_staleassess_doc ON cad_staleness_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_staleassess_event ON cad_staleness_assessments(change_event_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_revplan_doc ON cad_revalidation_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_revplan_assess ON cad_revalidation_plans(assessment_ref_id, seq ASC)
+    """
+    ,
+    # REV59-DEPS: #725 evidence attestation / trusted timestamp
+    # authority — signed manifests, attestations, verifications.
+    """
+    CREATE TABLE IF NOT EXISTS cad_signed_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, manifest_record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manifest_label TEXT NOT NULL, manifest_sha256 TEXT NOT NULL, approval_scope TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_manifest_attestations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, attestation_id TEXT NOT NULL UNIQUE, attestation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manifest_ref_id TEXT NOT NULL, kind TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_attestation_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, attestation_ref_id TEXT NOT NULL, manifest_ref_id TEXT NOT NULL, state TEXT NOT NULL, time_authority TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sigman_doc ON cad_signed_manifests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evatt_doc ON cad_manifest_attestations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_evatt_manifest ON cad_manifest_attestations(manifest_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_attver_doc ON cad_attestation_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_attver_att ON cad_attestation_verifications(attestation_ref_id, seq ASC)
+    """
+    ,
+    # REV59-DEPS: #718 project archival / schema-migration authority —
+    # archive snapshots, archive verifications, migration records,
+    # migration verifications.
+    """
+    CREATE TABLE IF NOT EXISTS cad_archive_snapshots ( seq INTEGER PRIMARY KEY AUTOINCREMENT, archive_id TEXT NOT NULL UNIQUE, archive_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, archive_label TEXT NOT NULL, schema_version TEXT NOT NULL, content_hash TEXT NOT NULL, preservation_scope TEXT NOT NULL, captured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_archive_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, archive_ref_id TEXT NOT NULL, status TEXT NOT NULL, check_count INTEGER NOT NULL, verified_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_migration_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, migration_id TEXT NOT NULL UNIQUE, migration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, kind TEXT NOT NULL, source_archive_ref_id TEXT NOT NULL, target_archive_ref_id TEXT NOT NULL, from_schema_version TEXT NOT NULL, to_schema_version TEXT NOT NULL, migration_status_at_write TEXT NOT NULL, migrated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_migration_verifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verification_id TEXT NOT NULL UNIQUE, verification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, migration_ref_id TEXT NOT NULL, status TEXT NOT NULL, check_count INTEGER NOT NULL, verified_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_arcsnap_doc ON cad_archive_snapshots(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_arcver_doc ON cad_archive_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_arcver_archive ON cad_archive_verifications(archive_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_migrec_doc ON cad_migration_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_migrec_target ON cad_migration_records(target_archive_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_migver_doc ON cad_migration_verifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_migver_mig ON cad_migration_verifications(migration_ref_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5952,4 +6096,17 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_reflection_correspondence_verdicts',
     'cad_modal_decay_observations',
     'cad_modal_decay_qualifications',
+    # REV59-DEPS: #729 / #725 / #718.
+    'cad_dependency_edge_declarations',
+    'cad_dependency_change_events',
+    'cad_dependency_rule_profiles',
+    'cad_staleness_assessments',
+    'cad_revalidation_plans',
+    'cad_signed_manifests',
+    'cad_manifest_attestations',
+    'cad_attestation_verifications',
+    'cad_archive_snapshots',
+    'cad_archive_verifications',
+    'cad_migration_records',
+    'cad_migration_verifications',
 )

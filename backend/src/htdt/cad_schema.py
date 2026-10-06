@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 48
+NATIVE_SCHEMA_VERSION = 49
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1579,6 +1579,19 @@ def _migrate_47_to_48(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_48_to_49(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DEPS authorities (#729 authority dependency /
+    # staleness graph: edge declarations, change events, rule profiles,
+    # staleness assessments, revalidation plans; #725 evidence
+    # attestation / trusted timestamp: signed manifests, manifest
+    # attestations, verification verdicts; #718 project archival /
+    # schema-migration: archive snapshots, archive verifications,
+    # migration records, migration verifications): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1628,6 +1641,7 @@ _MIGRATIONS = {
     46: _migrate_45_to_46,
     47: _migrate_46_to_47,
     48: _migrate_47_to_48,
+    49: _migrate_48_to_49,
 }
 
 
