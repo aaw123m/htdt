@@ -6235,6 +6235,112 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_svo_doc ON cad_service_access_observations(document_id, seq ASC)
     """
     ,
+    # REV59-CODEPOLICY: #746 egress/accessibility, #748 lighting TLM/TLA,
+    # #722 project data privacy/sharing.
+    """
+    CREATE TABLE IF NOT EXISTS cad_life_safety_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, project_kind TEXT NOT NULL, applicability_decision TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lsp_doc ON cad_life_safety_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_circulation_routes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL UNIQUE, route_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, furniture_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rte_doc ON cad_circulation_routes(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_seating_accessibility_requirements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, requirement_id TEXT NOT NULL UNIQUE, requirement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_acr_doc ON cad_seating_accessibility_requirements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_egress_evidence_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, evidence_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_egx_doc ON cad_egress_evidence_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_professional_approval_refs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, approval_id TEXT NOT NULL UNIQUE, approval_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_appr_doc ON cad_professional_approval_refs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_dimming_temporal_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, luminaire_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dtp_doc ON cad_dimming_temporal_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_temporal_light_waveforms ( seq INTEGER PRIMARY KEY AUTOINCREMENT, waveform_id TEXT NOT NULL UNIQUE, waveform_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, illuminance_lx REAL NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlw_doc ON cad_temporal_light_waveforms(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_tlm_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, waveform_ref_id TEXT NOT NULL, phenomenon TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlmo_doc ON cad_lighting_tlm_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_lighting_tla_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, metric_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tlaa_doc ON cad_lighting_tla_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_project_data_classifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, classification_id TEXT NOT NULL UNIQUE, classification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, data_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_pdc_doc ON cad_project_data_classifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sensitive_artifact_policies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, policy_id TEXT NOT NULL UNIQUE, policy_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sap_doc ON cad_sensitive_artifact_policies(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_export_redaction_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, manifest_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, bundle_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_erm_doc ON cad_export_redaction_manifests(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_retention_policy_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, artifact_ref_id TEXT NOT NULL, retention_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_rtn_doc ON cad_retention_policy_records(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -7108,4 +7214,18 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_resonant_performance_records',
     'cad_service_envelope_profiles',
     'cad_service_access_observations',
+    # REV59-CODEPOLICY: #746 / #748 / #722.
+    'cad_life_safety_profiles',
+    'cad_circulation_routes',
+    'cad_seating_accessibility_requirements',
+    'cad_egress_evidence_records',
+    'cad_professional_approval_refs',
+    'cad_dimming_temporal_profiles',
+    'cad_temporal_light_waveforms',
+    'cad_lighting_tlm_observations',
+    'cad_lighting_tla_assessments',
+    'cad_project_data_classifications',
+    'cad_sensitive_artifact_policies',
+    'cad_export_redaction_manifests',
+    'cad_retention_policy_records',
 )

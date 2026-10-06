@@ -4500,3 +4500,32 @@ def serviceability_line(verdict: str) -> str:
     """One JA line for a serviceability verdict (#707) —
     CAD適合は保守性を意味しない。"""
     return '保守性: ' + _SERVICE_LABELS.get(verdict, verdict)
+
+
+from .cad_life_safety import (  # noqa: E402
+    EGRESS_LABELS as _EGRESS_LABELS,
+)
+from .cad_lighting_tlm import (  # noqa: E402
+    TLA_LABELS as _TLA_LABELS,
+)
+from .cad_project_data_privacy import (  # noqa: E402
+    PRIVACY_LABELS as _PRIVACY_LABELS,
+)
+
+
+def egress_evidence_line(verdict: str) -> str:
+    """One JA line for an egress/accessibility verdict (#746) —
+    幾何適合は規範・ライフセーフティ適合を意味しない。"""
+    return '避難・出入路: ' + _EGRESS_LABELS.get(verdict, verdict)
+
+
+def lighting_tla_line(verdict: str) -> str:
+    """One JA line for a lighting TLA verdict (#748) —
+    照度・調光制御は時間変調品質を意味しない。"""
+    return '照明時間変調: ' + _TLA_LABELS.get(verdict, verdict)
+
+
+def data_privacy_line(verdict: str) -> str:
+    """One JA line for a data-sharing verdict (#722) —
+    未分類・秘密情報は外部出力不可。"""
+    return 'データプライバシー: ' + _PRIVACY_LABELS.get(verdict, verdict)

@@ -1251,6 +1251,12 @@ class _RepositoryChain:
             )
 
             return CadRoomQualificationRepository(scene)
+        if name == 'code_policy':
+            from .cad_code_policy_repository import (
+                CadCodePolicyRepository,
+            )
+
+            return CadCodePolicyRepository(scene)
         raise KeyError(name)
 
 
@@ -5855,6 +5861,85 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_service_access_observations',
         ('observation_id',),
         _get('room_qualification', 'get_service_observation'),
+    ),
+    # REV59-CODEPOLICY: #746/#748/#722 code-policy authorities
+    _ReplayProbe(
+        'life_safety_profile',
+        'cad_life_safety_profiles',
+        ('profile_id',),
+        _get('code_policy', 'get_life_safety_profile'),
+    ),
+    _ReplayProbe(
+        'circulation_route',
+        'cad_circulation_routes',
+        ('route_id',),
+        _get('code_policy', 'get_circulation_route'),
+    ),
+    _ReplayProbe(
+        'seating_accessibility_requirement',
+        'cad_seating_accessibility_requirements',
+        ('requirement_id',),
+        _get('code_policy', 'get_accessibility_requirement'),
+    ),
+    _ReplayProbe(
+        'egress_evidence',
+        'cad_egress_evidence_records',
+        ('evidence_id',),
+        _get('code_policy', 'get_egress_evidence'),
+    ),
+    _ReplayProbe(
+        'professional_approval_ref',
+        'cad_professional_approval_refs',
+        ('approval_id',),
+        _get('code_policy', 'get_professional_approval'),
+    ),
+    _ReplayProbe(
+        'dimming_temporal_profile',
+        'cad_dimming_temporal_profiles',
+        ('profile_id',),
+        _get('code_policy', 'get_dimming_profile'),
+    ),
+    _ReplayProbe(
+        'temporal_light_waveform',
+        'cad_temporal_light_waveforms',
+        ('waveform_id',),
+        _get('code_policy', 'get_light_waveform'),
+    ),
+    _ReplayProbe(
+        'lighting_tlm_observation',
+        'cad_lighting_tlm_observations',
+        ('observation_id',),
+        _get('code_policy', 'get_tlm_observation'),
+    ),
+    _ReplayProbe(
+        'lighting_tla_assessment',
+        'cad_lighting_tla_assessments',
+        ('assessment_id',),
+        _get('code_policy', 'get_tla_assessment'),
+    ),
+    _ReplayProbe(
+        'project_data_classification',
+        'cad_project_data_classifications',
+        ('classification_id',),
+        _get('code_policy', 'get_data_classification'),
+    ),
+    _ReplayProbe(
+        'sensitive_artifact_policy',
+        'cad_sensitive_artifact_policies',
+        ('policy_id',),
+        _get('code_policy', 'get_artifact_policy'),
+    ),
+    _ReplayProbe(
+        'export_redaction_manifest',
+        'cad_export_redaction_manifests',
+        ('manifest_id',),
+        _get('code_policy', 'get_export_manifest'),
+    ),
+    _ReplayProbe(
+        'retention_policy_record',
+        'cad_retention_policy_records',
+        ('record_id',),
+        _get('code_policy', 'get_retention_record'),
     ),
 )
 

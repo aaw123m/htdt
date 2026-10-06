@@ -3374,3 +3374,61 @@ issues:
           - backend/tests/test_rev59_roomq.py::TestServiceability::test_fit_is_not_serviceable
           - backend/tests/test_rev59_roomq.py::TestServiceability::test_verified
         description: Fit-vs-serviceable separation, item gating.
+  - issue: 746
+    title: "Seating circulation / egress / accessibility evidence authority"
+    notes: >
+      ProjectLifeSafetyProfile (lsp-) pins jurisdiction + adopted code
+      editions + applicability decision; CirculationRoute (rte-) pins
+      seat-to-exit path per furniture state; SeatingAccessibilityRequirement
+      (acr-); EgressEvidence (egx-) records evidence class incl. staling;
+      ProfessionalApprovalReference (appr-) requires a pinned supporting
+      document for any decided verdict. evaluate_egress_claim: CAD fit is
+      geometry_only_not_compliance; only a decided professional approval
+      yields compliance_professionally_approved.
+    checks:
+      - id: egress-accessibility
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_fit_not_compliance
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_reviewed_without_approval
+          - backend/tests/test_rev59_codepolicy.py::TestLifeSafety::test_approved_path
+        description: Fit-vs-compliance separation, professional-approval gating.
+  - issue: 748
+    title: "Lighting temporal-modulation (TLM/TLA) evidence authority"
+    notes: >
+      DimmingTemporalProfile (dtp-) pins exact lighting state;
+      TemporalLightWaveform (tlw-) retains the raw optical waveform;
+      LightingTLMObservation (tlmo-) keeps phenomenon and modulation
+      source separate; LightingTLAAssessment (tlaa-) binds metric to
+      method/version/domain and refuses superseded CIE 249:2022 and
+      non-historical IEEE 1789-2015. evaluate_tla_claim: correct
+      illuminance never implies temporal-light quality.
+    checks:
+      - id: lighting-tla
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_photometry_is_not_tla
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_low_light_svm_outside_domain
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_cor1_svm_caveat
+          - backend/tests/test_rev59_codepolicy.py::TestLightingTLM::test_ieee1789_eval_historical
+        description: Illuminance-vs-TLA separation, domain/corrigendum gating.
+  - issue: 722
+    title: "Project data privacy / sharing authority"
+    notes: >
+      ProjectDataClassification (pdc-) pins artifact-level sensitivity
+      (unknown_classification fails closed; credential_or_secret needs a
+      rationale); SensitiveArtifactPolicy (sap-) grants least-privilege
+      roles per class and can never export secret/unknown classes;
+      ExportRedactionManifest (erm-) allowlists included refs with pinned
+      redaction transforms; RetentionPolicyRecord (rtn-) makes raw
+      deletion truthfully downgrade reproducibility.
+      evaluate_export_eligibility fails closed at seven gates.
+    checks:
+      - id: data-privacy
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_export_denied_unclassified
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_secret_never_exportable
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_export_requires_redaction
+          - backend/tests/test_rev59_codepolicy.py::TestDataPrivacy::test_reproducibility_states
+        description: Fail-closed export gates, redaction manifest, retention honesty.

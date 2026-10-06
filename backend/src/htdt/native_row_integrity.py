@@ -6697,6 +6697,144 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV59-CODEPOLICY: #746 egress / #748 lighting TLM / #722 privacy.
+    'cad_life_safety_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('project_kind', 'project_kind'),
+            _b('applicability_decision', 'applicability_decision'),
+        ),
+        (),
+    ),
+    'cad_circulation_routes': (
+        'payload_json',
+        (
+            _b('route_id', 'route_id'),
+            _b('route_sha256', 'route_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('furniture_state', 'furniture_state'),
+        ),
+        (),
+    ),
+    'cad_seating_accessibility_requirements': (
+        'payload_json',
+        (
+            _b('requirement_id', 'requirement_id'),
+            _b('requirement_sha256', 'requirement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_egress_evidence_records': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('evidence_class', 'evidence_class'),
+        ),
+        (),
+    ),
+    'cad_professional_approval_refs': (
+        'payload_json',
+        (
+            _b('approval_id', 'approval_id'),
+            _b('approval_sha256', 'approval_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_dimming_temporal_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('luminaire_ref_id', 'luminaire_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_temporal_light_waveforms': (
+        'payload_json',
+        (
+            _b('waveform_id', 'waveform_id'),
+            _b('waveform_sha256', 'waveform_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('illuminance_lx', 'illuminance_lx'),
+        ),
+        (),
+    ),
+    'cad_lighting_tlm_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('waveform_ref_id', 'waveform_ref', 'ref_id'),
+            _b('phenomenon', 'phenomenon'),
+        ),
+        (),
+    ),
+    'cad_lighting_tla_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('metric_id', 'metric_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_project_data_classifications': (
+        'payload_json',
+        (
+            _b('classification_id', 'classification_id'),
+            _b('classification_sha256', 'classification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('data_class', 'data_class'),
+        ),
+        (),
+    ),
+    'cad_sensitive_artifact_policies': (
+        'payload_json',
+        (
+            _b('policy_id', 'policy_id'),
+            _b('policy_sha256', 'policy_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_export_redaction_manifests': (
+        'payload_json',
+        (
+            _b('manifest_id', 'manifest_id'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('document_id', 'document_id'),
+            _b('bundle_kind', 'bundle_kind'),
+        ),
+        (),
+    ),
+    'cad_retention_policy_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('artifact_ref_id', 'artifact_ref', 'ref_id'),
+            _b('retention_class', 'retention_class'),
+        ),
+        (),
+    ),
     # REV59-DEPS: #729 authority dependency / staleness graph.
     'cad_dependency_edge_declarations': (
         'payload_json',

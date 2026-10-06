@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 59
+NATIVE_SCHEMA_VERSION = 60
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1692,6 +1692,17 @@ def _migrate_58_to_59(connection: sqlite3.Connection) -> None:
     for statement in NATIVE_BASELINE_DDL:
         connection.execute(statement)
 
+
+def _migrate_59_to_60(connection: sqlite3.Connection) -> None:
+    # Install the REV59-CODEPOLICY authorities (#746 seating
+    # circulation / egress / accessibility evidence, #748 lighting
+    # temporal modulation (TLM/TLA), #722 project data privacy &
+    # sharing): new append-only authorities the idempotent baseline
+    # creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1752,6 +1763,7 @@ _MIGRATIONS = {
     57: _migrate_56_to_57,
     58: _migrate_57_to_58,
     59: _migrate_58_to_59,
+    60: _migrate_59_to_60,
 }
 
 
