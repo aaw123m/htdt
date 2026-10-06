@@ -619,6 +619,16 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_apply_rollback_plans": "ロールバック計画",
     "cad_apply_rollback_executions": "ロールバック実行記録",
     "cad_apply_transactions": "デバイス適用トランザクション",
+    "cad_fractional_octave_profiles": "分数オクターブ帯域定義",
+    "cad_band_integrations": "帯域統合レコード",
+    "cad_echo_density_profiles": "エコー密度推定プロファイル",
+    "cad_mixing_time_estimates": "ミキシングタイム推定",
+    "cad_late_field_assessments": "後期音場遷移評価",
+    "cad_interpolation_profiles": "音場補間プロファイル",
+    "cad_field_surface_records": "音場面レコード",
+    "cad_solver_budget_profiles": "ソルバー計算予算プロファイル",
+    "cad_compute_observations": "計算資源観測レコード",
+    "cad_accuracy_cost_envelopes": "精度-コストエンベロープ",
 }
 
 

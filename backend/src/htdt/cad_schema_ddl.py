@@ -5651,6 +5651,86 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_aptxn_doc ON cad_apply_transactions(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_fractional_octave_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, band_kind TEXT NOT NULL, frequency_standard TEXT NOT NULL, filter_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_foctp_doc ON cad_fractional_octave_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_band_integrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_bandi_doc ON cad_band_integrations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_echo_density_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, estimator_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_edp_doc ON cad_echo_density_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_mixing_time_estimates ( seq INTEGER PRIMARY KEY AUTOINCREMENT, estimate_id TEXT NOT NULL UNIQUE, estimate_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, basis TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mixt_doc ON cad_mixing_time_estimates(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_late_field_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lft_doc ON cad_late_field_assessments(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interpolation_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method TEXT NOT NULL, quantity TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fint_doc ON cad_interpolation_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_field_surface_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fsurf_doc ON cad_field_surface_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_solver_budget_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cbp_doc ON cad_solver_budget_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_compute_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cobs_doc ON cad_compute_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_accuracy_cost_envelopes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, envelope_id TEXT NOT NULL UNIQUE, envelope_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_cenv_doc ON cad_accuracy_cost_envelopes(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6452,4 +6532,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_apply_rollback_plans',
     'cad_apply_rollback_executions',
     'cad_apply_transactions',
+    'cad_fractional_octave_profiles',
+    'cad_band_integrations',
+    'cad_echo_density_profiles',
+    'cad_mixing_time_estimates',
+    'cad_late_field_assessments',
+    'cad_interpolation_profiles',
+    'cad_field_surface_records',
+    'cad_solver_budget_profiles',
+    'cad_compute_observations',
+    'cad_accuracy_cost_envelopes',
 )

@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 51
+NATIVE_SCHEMA_VERSION = 52
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1623,6 +1623,14 @@ def _migrate_50_to_51(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_51_to_52(connection: sqlite3.Connection) -> None:
+    # Install the REV59-BENCH2 authorities (#763 band semantics, #764
+    # mixing time, #755 field interpolation, #770 compute budget):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1675,6 +1683,7 @@ _MIGRATIONS = {
     49: _migrate_48_to_49,
     50: _migrate_49_to_50,
     51: _migrate_50_to_51,
+    52: _migrate_51_to_52,
 }
 
 

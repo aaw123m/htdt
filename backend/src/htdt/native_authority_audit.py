@@ -1190,6 +1190,12 @@ class _RepositoryChain:
             )
 
             return CadApplyTransactionRepository(scene)
+        if name == 'field_metric':
+            from .cad_field_metric_repository import (
+                CadFieldMetricRepository,
+            )
+
+            return CadFieldMetricRepository(scene)
         raise KeyError(name)
 
 
@@ -5392,6 +5398,67 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_apply_transactions',
         ('transaction_id',),
         _get('apply_transaction', 'get_transaction'),
+    ),
+    # REV59-BENCH2: #763/#764/#755/#770 field/metric/budget authorities
+    _ReplayProbe(
+        'fractional_octave_profile',
+        'cad_fractional_octave_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_band_profile'),
+    ),
+    _ReplayProbe(
+        'band_integration',
+        'cad_band_integrations',
+        ('record_id',),
+        _get('field_metric', 'get_band_integration'),
+    ),
+    _ReplayProbe(
+        'echo_density_profile',
+        'cad_echo_density_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_echo_profile'),
+    ),
+    _ReplayProbe(
+        'mixing_time_estimate',
+        'cad_mixing_time_estimates',
+        ('estimate_id',),
+        _get('field_metric', 'get_mixing_estimate'),
+    ),
+    _ReplayProbe(
+        'late_field_assessment',
+        'cad_late_field_assessments',
+        ('assessment_id',),
+        _get('field_metric', 'get_late_assessment'),
+    ),
+    _ReplayProbe(
+        'interpolation_profile',
+        'cad_interpolation_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_interp_profile'),
+    ),
+    _ReplayProbe(
+        'field_surface_record',
+        'cad_field_surface_records',
+        ('record_id',),
+        _get('field_metric', 'get_field_surface'),
+    ),
+    _ReplayProbe(
+        'solver_budget_profile',
+        'cad_solver_budget_profiles',
+        ('profile_id',),
+        _get('field_metric', 'get_budget_profile'),
+    ),
+    _ReplayProbe(
+        'compute_observation',
+        'cad_compute_observations',
+        ('observation_id',),
+        _get('field_metric', 'get_compute_observation'),
+    ),
+    _ReplayProbe(
+        'accuracy_cost_envelope',
+        'cad_accuracy_cost_envelopes',
+        ('envelope_id',),
+        _get('field_metric', 'get_cost_envelope'),
     ),
 )
 

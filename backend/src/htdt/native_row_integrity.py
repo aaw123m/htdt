@@ -6119,6 +6119,109 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_fractional_octave_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('band_kind', 'band_kind'),
+            _b('frequency_standard', 'frequency_standard'),
+            _b('filter_class', 'filter_class'),
+        ),
+        (),
+    ),
+    'cad_band_integrations': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_echo_density_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('estimator_kind', 'estimator_kind'),
+        ),
+        (),
+    ),
+    'cad_mixing_time_estimates': (
+        'payload_json',
+        (
+            _b('estimate_id', 'estimate_id'),
+            _b('estimate_sha256', 'estimate_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('basis', 'basis'),
+        ),
+        (),
+    ),
+    'cad_late_field_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_interpolation_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('method', 'method'),
+            _b('quantity', 'quantity'),
+        ),
+        (),
+    ),
+    'cad_field_surface_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_solver_budget_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_compute_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
+    'cad_accuracy_cost_envelopes': (
+        'payload_json',
+        (
+            _b('envelope_id', 'envelope_id'),
+            _b('envelope_sha256', 'envelope_sha256'),
+            _b('document_id', 'document_id'),
+        ),
+        (),
+    ),
 }
 
 

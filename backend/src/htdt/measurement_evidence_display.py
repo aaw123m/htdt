@@ -3647,6 +3647,21 @@ from .cad_apply_transaction import (  # noqa: E402
     DeviceApplyTransaction,
     STATE_VERDICT_LABELS as _APPLY_STATE_LABELS,
 )
+from .cad_fractional_octave import (  # noqa: E402
+    BAND_VERDICT_LABELS as _BAND_VERDICT_LABELS,
+    FractionalOctaveProfile,
+)
+from .cad_mixing_time import (  # noqa: E402
+    HANDOFF_LABELS as _HANDOFF_LABELS,
+)
+from .cad_field_interpolation import (  # noqa: E402
+    FIELD_VERDICT_LABELS as _FIELD_VERDICT_LABELS,
+    FieldSurfaceRecord,
+)
+from .cad_compute_budget import (  # noqa: E402
+    FIDELITY_CLAIM_LABELS as _FCLAIM_LABELS,
+    SolverBudgetProfile,
+)
 
 
 def generator_fidelity_line(qualification: GeneratorFidelityQualification) -> str:
@@ -4024,3 +4039,38 @@ def rollback_claim_line(claim: str) -> str:
     """One JA line for a rollback claim (#723) —
     部分スナップショットから完全復元は約束しない。"""
     return 'ロールバック可否: ' + _APPLY_CLAIM_LABELS.get(claim, claim)
+
+
+def band_semantics_line(profile: FractionalOctaveProfile, verdict: str) -> str:
+    """One JA line for a band profile verdict (#763) —
+    「63Hz・1/3オクターブ」表示は帯域定義が確定して初めて再現可能。"""
+    parts = [_BAND_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(profile.band_kind)
+    if profile.filter_class in ('non_iec_filter', 'no_filter'):
+        parts.append('IEC 非適合フィルタ')
+    return '帯域定義: ' + ' — '.join(parts)
+
+
+def late_handoff_line(verdict: str) -> str:
+    """One JA line for a late-field handoff gate (#764) —
+    RT だけでは後期遷移は推定できない。"""
+    return '後期遷移: ' + _HANDOFF_LABELS.get(verdict, verdict)
+
+
+def field_claim_line(record: FieldSurfaceRecord, verdict: str) -> str:
+    """One JA line for an interpolated-surface claim (#755) —
+    補間された連続面は「実測面」ではない。"""
+    parts = [_FIELD_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(
+        '測定点 {0} / セル {1}'.format(
+            len(record.measured_point_refs), len(record.cells)))
+    return '音場面: ' + ' — '.join(parts)
+
+
+def fidelity_cost_line(profile: SolverBudgetProfile, claim: str) -> str:
+    """One JA line for a fidelity→cost gate (#770) —
+    忠実度の選択は実行コストを伴って初めて検証可能。"""
+    parts = [_FCLAIM_LABELS.get(claim, claim)]
+    if not profile.predicted_costs:
+        parts.append('予測コスト未登録')
+    return '計算予算: ' + ' — '.join(parts)
