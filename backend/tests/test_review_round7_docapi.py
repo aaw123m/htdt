@@ -189,7 +189,24 @@ def _receipt_body(package, pairing, device: str = 'dev-1') -> bytes:
 
 
 _MISSION_PAYLOAD = json.dumps(
-    {'schema': 'htdt.capture-mission', 'schema_version': '1.0.0'}
+    {
+        'schema': 'htdt.capture-mission',
+        'schema_version': '1.0.0',
+        'mission_id': 'mission-1',
+        'mission_kind': 'initial_survey',
+        'dependencies': [],
+        'plan': {
+            'schema': 'htdt.capture-task-plan',
+            'schema_version': '2.0.0',
+            'plan_id': 'plan-1',
+            'plan_version': '1.0.0',
+            'project_ref': 'proj-1',
+            'room_name': 'Theater',
+            'entity_checklist': [],
+            'measurement_requests': [],
+            'surface_review_tasks': [],
+        },
+    }
 ).encode()
 
 

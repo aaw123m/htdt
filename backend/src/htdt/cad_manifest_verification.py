@@ -184,11 +184,11 @@ def load_manifest_gates(
                 raise ValueError(
                     f'issue {number}: check is not a mapping'
                 )
-            cells = tuple(
-                RequiredCell(**c) for c in check.get('cells') or ()
-            )
-            gates.append(
-                ManifestGate.create(
+            try:
+                cells = tuple(
+                    RequiredCell(**c) for c in check.get('cells') or ()
+                )
+                gate = ManifestGate.create(
                     {
                         'document_id': document_id,
                         'issue_ref': f'issue-{number}',
@@ -197,17 +197,18 @@ def load_manifest_gates(
                         'manifest_sha256': digest,
                         'description': check.get('description') or '',
                         'tests': tuple(check.get('tests') or ()),
-                        # The manifest's script field is ``command``
-                        # (verify_open_issues.py); ``argv`` stays
-                        # accepted for the synthetic manifests used by
-                        # callers/tests that predate the real file.
                         'argv': tuple(
-                            check.get('command') or check.get('argv') or ()
+                            check.get('command')
+                            or check.get('argv') or ()
                         ),
                         'cells': cells,
                     }
                 )
-            )
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f'issue {number} check {check.get("id")!r}: {exc}'
+                ) from exc
+            gates.append(gate)
     return tuple(gates)
 
 
