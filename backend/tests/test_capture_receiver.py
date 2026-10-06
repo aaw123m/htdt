@@ -782,7 +782,8 @@ class TestMissionPull:
         assert stored.required_schema_version == '1.0.0'
         requirement = stored.receiver_requirement
         assert requirement['required_authority_families'] == [
-            'measurements'
+            'annotations',
+            'measurements',
         ]
         assert requirement['require_mission_receipts'] is True
 
