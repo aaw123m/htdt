@@ -4381,6 +4381,110 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_mntqual_doc ON cad_mount_qualifications(document_id, seq ASC)
     """
     ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measchain_linearity_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_label TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mclpro_doc ON cad_measchain_linearity_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measchain_overload_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, overload_mechanism TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mclobs_chain ON cad_measchain_overload_observations(chain_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mclobs_doc ON cad_measchain_overload_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measchain_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, chain_ref_id TEXT NOT NULL, state TEXT NOT NULL, requested_class TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mclqual_chain ON cad_measchain_qualifications(chain_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mclqual_doc ON cad_measchain_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_sweep_deconvolution_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL UNIQUE, spec_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stimulus_ref_id TEXT NOT NULL, sweep_law TEXT NOT NULL, algorithm TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_swspec_doc ON cad_sweep_deconvolution_specs(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_harmonic_impulse_components ( seq INTEGER PRIMARY KEY AUTOINCREMENT, component_id TEXT NOT NULL UNIQUE, component_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spec_ref_id TEXT NOT NULL, harmonic_order INTEGER NOT NULL, expected_offset_s REAL, overlap_state TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_harmn_spec ON cad_harmonic_impulse_components(spec_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_harmn_doc ON cad_harmonic_impulse_components(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_recovered_impulse_responses ( seq INTEGER PRIMARY KEY AUTOINCREMENT, ir_id TEXT NOT NULL UNIQUE, ir_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, provenance_class TEXT NOT NULL, spec_ref_id TEXT, raw_capture_ref_id TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_recir_doc ON cad_recovered_impulse_responses(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_linear_ir_capabilities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capability_id TEXT NOT NULL UNIQUE, capability_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, ir_ref_id TEXT NOT NULL, contamination_state TEXT NOT NULL, clock_gate TEXT NOT NULL, chain_gate TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lircap_ir ON cad_linear_ir_capabilities(ir_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lircap_doc ON cad_linear_ir_capabilities(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_excitation_source_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_label TEXT NOT NULL, source_type TEXT NOT NULL, measurand_class TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcpro_doc ON cad_excitation_source_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_orientation_captures ( seq INTEGER PRIMARY KEY AUTOINCREMENT, capture_id TEXT NOT NULL UNIQUE, capture_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_ref_id TEXT NOT NULL, aggregation_role TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcori_source ON cad_source_orientation_captures(source_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcori_doc ON cad_source_orientation_captures(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_measurement_source_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_ref_id TEXT NOT NULL, strength_g_gate TEXT NOT NULL, level_gate TEXT NOT NULL, sim_comparison TEXT, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcqual_source ON cad_measurement_source_qualifications(source_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_srcqual_doc ON cad_measurement_source_qualifications(document_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -5049,4 +5153,14 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_mount_structural_approvals',
     'cad_mount_inspection_records',
     'cad_mount_qualifications',
+    'cad_measchain_linearity_profiles',
+    'cad_measchain_overload_observations',
+    'cad_measchain_qualifications',
+    'cad_sweep_deconvolution_specs',
+    'cad_harmonic_impulse_components',
+    'cad_recovered_impulse_responses',
+    'cad_linear_ir_capabilities',
+    'cad_excitation_source_profiles',
+    'cad_source_orientation_captures',
+    'cad_measurement_source_qualifications',
 )

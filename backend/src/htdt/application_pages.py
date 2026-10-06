@@ -465,6 +465,19 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_mount_structural_approvals": "構造承認記録",
     "cad_mount_inspection_records": "取付検査記録",
     "cad_mount_qualifications": "取付支持修飾",
+    # REV58-MEASCHAIN: #695 測定チェーン線形性/過負荷
+    "cad_measchain_linearity_profiles": "測定チェーン線形性プロファイル",
+    "cad_measchain_overload_observations": "取得過負荷観測",
+    "cad_measchain_qualifications": "測定チェーン適格評価",
+    # REV58-MEASCHAIN: #697 swept-sine畳込分離
+    "cad_sweep_deconvolution_specs": "畳込分離仕様",
+    "cad_harmonic_impulse_components": "高調波インパルス成分",
+    "cad_recovered_impulse_responses": "復元インパルス応答",
+    "cad_linear_ir_capabilities": "線形IR能力評価",
+    # REV58-MEASCHAIN: #668 室音響励起源
+    "cad_excitation_source_profiles": "励起源プロファイル",
+    "cad_source_orientation_captures": "音源指向キャプチャ",
+    "cad_measurement_source_qualifications": "測定ソース適格評価",
 }
 
 

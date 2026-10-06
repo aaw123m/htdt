@@ -2513,3 +2513,192 @@ def mounting_qualification_line(qualification) -> str:
     if qualification.reasons:
         parts.append(qualification.reasons[0])
     return '取付支持修飾: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV58-MEASCHAIN (#695/#697/#668): measurement-chain linearity/overload,
+# swept-sine deconvolution, room-acoustic excitation source.
+
+_CHAIN_QUALIFICATION_STATE_LABELS = {
+    'chain_qualified_within_declared_range': '宣言範囲内で適格',
+    'chain_qualified_with_limitations': '制限付き適格',
+    'unqualified_insufficient_evidence': '証拠不足で不適格',
+    'nonlinear_measurement_ineligible': '非線形測定不適',
+    'overload_suspected': '過負荷の疑い',
+    'overload_observed': '過負荷を観測',
+    'chain_state_unknown': 'チェーン状態不明',
+}
+
+_DISTORTION_ATTRIBUTION_LABELS = {
+    'dut_attributable': 'DUT 起因と帰属可能',
+    'measurement_chain_contaminated': '測定チェーン混入',
+    'attribution_indeterminate': '帰属不能',
+}
+
+_MEASCHAIN_CAPABILITY_LABELS = {
+    'absolute_spl_valid': '絶対 SPL',
+    'linear_magnitude_valid': '線形振幅',
+    'phase_valid': '位相',
+    'high_level_spl_valid': '高 SPL',
+    'dut_thd_valid': 'DUT THD',
+    'dut_compression_valid': 'DUT 圧縮',
+    'peak_transient_valid': 'ピーク過渡',
+    'chain_overload_not_excluded': 'チェーン過負荷排除不能',
+}
+
+
+def measchain_qualification_state_label(state: str) -> str:
+    return _CHAIN_QUALIFICATION_STATE_LABELS.get(state, state)
+
+
+def measchain_distortion_attribution_label(value: str) -> str:
+    return _DISTORTION_ATTRIBUTION_LABELS.get(value, value)
+
+
+def measchain_capability_label(capability: str) -> str:
+    return _MEASCHAIN_CAPABILITY_LABELS.get(capability, capability)
+
+
+def measchain_qualification_line(qualification) -> str:
+    """One JA line for a measurement-chain qualification (#695): the
+    verdict plus the distortion attribution — 過負荷インジケータ未発火は
+    線形性の証拠とは読まない。"""
+    parts = [
+        measchain_qualification_state_label(qualification.state),
+        '歪帰属: '
+        + measchain_distortion_attribution_label(
+            qualification.distortion_attribution
+        ),
+    ]
+    degraded = [
+        measchain_capability_label(capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '測定チェーン適格: ' + ' — '.join(parts)
+
+
+_IR_CONTAMINATION_LABELS = {
+    'linear_ir_clean_within_declared_window': '宣言窓内で線形 IR クリーン',
+    'nonlinear_components_separated': '非線形成分分離済',
+    'partial_overlap': '部分重畳',
+    'causal_nonlinear_contamination_risk': '因果部混入リスク',
+    'inseparable': '分離不能',
+    'insufficient_evidence': '証拠不足',
+}
+
+_IR_METRIC_LABELS = {
+    'fr_valid': '周波数応答',
+    'direct_arrival_valid': '直接波音',
+    'early_reflection_valid': '初期反射',
+    'decay_metric_valid': '減衰指標',
+    'clarity_valid': '明瞭度',
+    'absolute_phase_valid': '絶対位相',
+}
+
+_IR_GATE_LABELS = {
+    'synchronized': '同期済',
+    'unsynchronized_declared': '非同期宣言',
+    'unassessed': '未評価',
+    'unknown': '不明',
+    'qualified': '適格',
+    'overload_suspected': '過負荷の疑い',
+    'overload_observed': '過負荷観測',
+}
+
+
+def linear_ir_contamination_label(state: str) -> str:
+    return _IR_CONTAMINATION_LABELS.get(state, state)
+
+
+def linear_ir_capability_line(capability) -> str:
+    """One JA line for a linear-IR capability verdict (#697):
+    contamination state plus clock/chain gates — 「高調波は常に t<0
+    に安全」とは読まない。"""
+    parts = [
+        linear_ir_contamination_label(capability.contamination_state),
+        'クロック: ' + _IR_GATE_LABELS.get(
+            capability.clock_gate, capability.clock_gate
+        ),
+        'チェーン: ' + _IR_GATE_LABELS.get(
+            capability.chain_gate, capability.chain_gate
+        ),
+    ]
+    degraded = [
+        _IR_METRIC_LABELS.get(metric, metric)
+        for metric, state in capability.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    return '線形 IR 能力: ' + ' — '.join(parts)
+
+
+_SRC_ELIGIBILITY_LABELS = {
+    'eligible': '適格',
+    'eligible_with_source_limitation': 'ソース制限付き適格',
+    'directivity_out_of_profile': '指向性プロファイル外',
+    'insufficient_source_level': 'ソースレベル不足',
+    'wrong_source_class': 'ソースクラス不一致',
+    'source_state_unknown': 'ソース状態不明',
+}
+
+_SRC_PURPOSE_LABELS = {
+    'standardized_room_characterization': '標準室特性測定',
+    'installed_system_diagnostics': '設置系診断',
+    'spatial_impression_measurement': '空間印象測定',
+    'strength_g_measurement': '強度 G 測定',
+    'simulation_validation_comparison': 'シミュレーション検証',
+}
+
+_SRC_SIM_LABELS = {
+    'comparable': '比較可能',
+    'comparable_within_validated_band': '検証帯域内で比較可能',
+    'wrong_source_model': 'ソースモデル不一致',
+    'insufficient_evidence': '証拠不足',
+}
+
+_SRC_LEVEL_GATE_LABELS = {
+    'sufficient': '十分',
+    'insufficient': '不足',
+    'unknown': '不明',
+}
+
+
+def source_qualification_line(qualification) -> str:
+    """One JA line for a measurement-source qualification (#668): the
+    per-purpose eligibility plus Strength-G gate — 設置チャンネル IR を
+    標準室応答と読み違えない。"""
+    parts = [
+        _SRC_PURPOSE_LABELS.get(purpose, purpose)
+        + ': '
+        + _SRC_ELIGIBILITY_LABELS.get(state, state)
+        for purpose, state in qualification.eligibilities
+    ]
+    parts.append(
+        '強度G: '
+        + {
+            'eligible': '適格',
+            'ineligible': '不適格',
+            'unknown': '不明',
+        }.get(qualification.strength_g_gate, qualification.strength_g_gate)
+    )
+    parts.append(
+        'レベル: '
+        + _SRC_LEVEL_GATE_LABELS.get(
+            qualification.level_gate, qualification.level_gate
+        )
+    )
+    if qualification.sim_comparison is not None:
+        parts.append(
+            'シミュレーション比較: '
+            + _SRC_SIM_LABELS.get(
+                qualification.sim_comparison,
+                qualification.sim_comparison,
+            )
+        )
+    return '測定ソース適格: ' + ' — '.join(parts)

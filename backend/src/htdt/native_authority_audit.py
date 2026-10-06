@@ -972,6 +972,25 @@ class _RepositoryChain:
             )
 
             return CadMountingSupportRepository(scene)
+        # REV58-MEASCHAIN authorities.
+        if name == 'measchain_linearity':
+            from .cad_measchain_linearity_repository import (
+                CadMeasChainLinearityRepository,
+            )
+
+            return CadMeasChainLinearityRepository(scene)
+        if name == 'sweep_deconvolution':
+            from .cad_sweep_deconvolution_repository import (
+                CadSweepDeconvolutionRepository,
+            )
+
+            return CadSweepDeconvolutionRepository(scene)
+        if name == 'excitation_source':
+            from .cad_excitation_source_repository import (
+                CadExcitationSourceRepository,
+            )
+
+            return CadExcitationSourceRepository(scene)
         raise KeyError(name)
 
 
@@ -4383,6 +4402,69 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_mount_qualifications',
         ('qualification_id',),
         _get('mounting_support', 'get_qualification'),
+    ),
+    # REV58-MEASCHAIN: #695 measurement-chain linearity/overload
+    _ReplayProbe(
+        'measchain_linearity_profile',
+        'cad_measchain_linearity_profiles',
+        ('profile_id',),
+        _get('measchain_linearity', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'measchain_overload_observation',
+        'cad_measchain_overload_observations',
+        ('observation_id',),
+        _get('measchain_linearity', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'measchain_qualification',
+        'cad_measchain_qualifications',
+        ('qualification_id',),
+        _get('measchain_linearity', 'get_qualification'),
+    ),
+    # REV58-MEASCHAIN: #697 swept-sine deconvolution/harmonic separation
+    _ReplayProbe(
+        'sweep_deconvolution_spec',
+        'cad_sweep_deconvolution_specs',
+        ('spec_id',),
+        _get('sweep_deconvolution', 'get_spec'),
+    ),
+    _ReplayProbe(
+        'harmonic_impulse_component',
+        'cad_harmonic_impulse_components',
+        ('component_id',),
+        _get('sweep_deconvolution', 'get_component'),
+    ),
+    _ReplayProbe(
+        'recovered_impulse_response',
+        'cad_recovered_impulse_responses',
+        ('ir_id',),
+        _get('sweep_deconvolution', 'get_recovered_ir'),
+    ),
+    _ReplayProbe(
+        'linear_ir_capability',
+        'cad_linear_ir_capabilities',
+        ('capability_id',),
+        _get('sweep_deconvolution', 'get_capability'),
+    ),
+    # REV58-MEASCHAIN: #668 room-acoustic excitation source
+    _ReplayProbe(
+        'excitation_source_profile',
+        'cad_excitation_source_profiles',
+        ('profile_id',),
+        _get('excitation_source', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'source_orientation_capture',
+        'cad_source_orientation_captures',
+        ('capture_id',),
+        _get('excitation_source', 'get_capture'),
+    ),
+    _ReplayProbe(
+        'measurement_source_qualification',
+        'cad_measurement_source_qualifications',
+        ('qualification_id',),
+        _get('excitation_source', 'get_qualification'),
     ),
 )
 

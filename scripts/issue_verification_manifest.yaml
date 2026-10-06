@@ -1504,3 +1504,103 @@ issues:
           #595 スケジューラ連携の検査期限管理 (next_due_at_utc は保持済)、
           #597 ケーブル経路との干渉幾何計算 (cable_route_refs は pin のみ)、
           UI 入力フォーム、地域法規プロファイルの体系化は残件。
+  - issue: 695
+    title: "REV58-MEASCHAIN: measurement-chain linearity / overload authority"
+    notes: >
+      CadMeasChainLinearityProfile seals the mic→preamp→pad→interface→
+      ADC→driver stage graph with typed upper-level specs (exact max-SPL
+      semantics: 3% THD etc.), per-band linearity evidence, dynamic
+      processing blocks and two-level checks. CadAcquisitionOverloadObservation
+      records typed per-capture overload mechanisms (analog front-end clip /
+      ADC numeric full-scale / ADC internal-spurious / software-DSP limiting)
+      — a quiet overload indicator is never linearity proof, and a bare
+      mechanism label requires localization evidence. evaluate_measchain_
+      qualification derives a fail-closed verdict + distortion attribution:
+      hidden AGC/limiter makes nonlinear measurement ineligible, an
+      unevidenced band never extrapolates a 1 kHz qualification to 30 Hz,
+      and a measured SPL plateau is never auto-attributed to loudspeaker
+      compression.
+    checks:
+      - id: measchain-linearity-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_measchain.py
+        description: >
+          Stage ordering/index bounds, sha-pinned calibration ref,
+          no-evidence overload rejection, confirmed-overload all-invalid,
+          AGC ineligibility, band/level envelope fail-closed, two-level
+          verdicts, sealed-record tamper evidence and repository
+          round-trip.
+      - id: measchain-linearity-remainder
+        kind: manual
+        description: >
+          実機 two-level/alternate-gain チェックの測定キャンペーン、#651
+          ゲイン構造権威との双方向解決、#611 校正レコードから upper-level
+          spec への自動参照、UI 入力フォームは残件。
+  - issue: 697
+    title: "REV58-MEASCHAIN: swept-sine deconvolution / harmonic-separation authority"
+    notes: >
+      CadSweepDeconvolutionSpec seals the exact #608 sweep pin + law/band/
+      duration/rate + algorithm identity, inverse construction,
+      normalization, time origin and output scale — harmonic order offsets
+      derive from the declared law (Δt_n = −T·ln(n)/ln(f₂/f₁)), never from
+      hand-drawn windows. CadHarmonicImpulseComponent keeps per-order
+      time offsets, extraction windows, valid fundamental bands and
+      overlap states. CadRecoveredImpulseResponse keeps raw capture /
+      full response / linear extract distinct; imported final-only IRs
+      record unknown provenance honestly. evaluate_linear_ir_capability
+      emits the contamination state plus clock/chain gates and a
+      per-metric capability matrix — causal contamination degrades
+      early-reflection/clarity/decay claims, asynchronous clocks never
+      carry absolute phase.
+    checks:
+      - id: sweep-deconvolution-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_measchain.py
+        description: >
+          Farina offset derivation from the exact sweep law, per-order
+          valid fundamental band, provenance-class validation (derived vs
+          imported_final_only), contamination/gate matrices, tamper
+          evidence and repository round-trip.
+      - id: sweep-deconvolution-remainder
+        kind: manual
+        description: >
+          実 deconvolution エンジン (逆フィルタ生成/適用) 本体、#609
+          タイムベース評価からの自動 gate 供給、REW インポートからの
+          provenance 推定、多次元/マルチチャネル同時掃引の独立オフセット
+          検証は残件。
+  - issue: 668
+    title: "REV58-MEASCHAIN: room-acoustic measurement-source authority"
+    notes: >
+      CadExcitationSourceProfile seals the excitation source (device/
+      model/instance/geometry/directivity dataset/pose/drive/DSP/level/
+      stimulus) with per-band omnidirectionality bound to evidence — a
+      dodecahedron shape alone never proves omnidirectionality. The
+      measurand class participates in measurement identity: installed
+      loudspeaker transfer is first-class evidence but can never claim
+      standardized omni-source room response. CadSourceOrientationCapture
+      keeps every rotation immutable with a pinned #575 aggregation
+      transform. evaluate_source_qualification reports per-purpose
+      eligibility (standardized characterization / installed diagnostics /
+      spatial impression / Strength G / simulation comparison), the level/
+      limiter gate and the sim source-model compatibility verdict —
+      measured dodeca↔ideal omni only inside the evidenced band.
+    checks:
+      - id: excitation-source-authority
+        kind: pytest
+        tests:
+          - backend/tests/test_rev58_measchain.py
+        description: >
+          Omni-state evidence enforcement (assumed_from_geometry rejected),
+          measurand/source coherence, per-purpose eligibility incl.
+          wrong_source_class for installed channels, Strength-G and level
+          gates, sim-comparison verdicts, aggregate transform pin,
+          tamper evidence and repository round-trip.
+      - id: excitation-source-remainder
+        kind: manual
+        description: >
+          実ドデカ面体の directivity balloon 測定データセット作成、#213
+          レシーバー権威との source+receiver ペア解決、#135 G リファレンス
+          転送の実測パイプライン、#581 キャンペーン設計からの自動ソース
+          要件生成は残件。
