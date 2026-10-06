@@ -4,7 +4,14 @@ from base64 import b64decode, b64encode
 from hashlib import sha256
 from typing import Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from .cad_equipment_catalog import (
     EquipmentCatalogEntry,
@@ -1089,11 +1096,17 @@ def _app_equipment_catalog(
                 'mission carries more than one equipment catalog — the '
                 'app plan pins at most one'
             )
-        snapshot = EquipmentCatalogSnapshot.model_validate(
-            package.dependency_payload(dependency.dependency_id).decode(
-                'utf-8'
+        try:
+            snapshot = EquipmentCatalogSnapshot.model_validate(
+                package.dependency_payload(dependency.dependency_id).decode(
+                    'utf-8'
+                )
             )
-        )
+        except ValidationError as exc:
+            raise CaptureMissionError(
+                'mission equipment catalog fails snapshot validation: '
+                f'{exc.error_count()} error(s)'
+            ) from exc
         catalog = snapshot.model_dump(mode='json')
     return catalog
 
