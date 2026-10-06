@@ -4740,6 +4740,164 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_hybqual_doc ON cad_hybrid_transition_qualifications(document_id, seq ASC)
     """
     ,
+    # REV58-AUDIOMODEL: acoustic-model authority tables
+    # (#654/#655/#656/#690/#684/#681)
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_origin_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_ref_id TEXT NOT NULL, capability TEXT NOT NULL, boundary_state TEXT NOT NULL, estimate_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sorprof_doc ON cad_source_origin_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sorprof_src ON cad_source_origin_profiles(source_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_origin_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, requested_capability TEXT NOT NULL, effective_origin_kind TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sorqual_prof ON cad_source_origin_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sorqual_doc ON cad_source_origin_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_field_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, source_ref_id TEXT NOT NULL, mic_distance_m REAL NOT NULL, environment TEXT NOT NULL, default_source_model TEXT NOT NULL, band_count INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sfldprof_doc ON cad_source_field_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sfldprof_src ON cad_source_field_profiles(source_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_field_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, requested_distance_m REAL, effective_regime TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sfldqual_prof ON cad_source_field_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sfldqual_doc ON cad_source_field_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_directivity_sampling_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, dataset_ref_id TEXT NOT NULL, coverage_class TEXT NOT NULL, measured_direction_count INTEGER NOT NULL, dataset_kind TEXT NOT NULL, has_interpolation INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_drsprof_doc ON cad_directivity_sampling_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_drsprof_ds ON cad_directivity_sampling_profiles(dataset_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_directivity_interpolation_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, method TEXT NOT NULL, domain TEXT NOT NULL, output_step_deg REAL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dinterp_prof ON cad_directivity_interpolation_records(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dinterp_doc ON cad_directivity_interpolation_records(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_directivity_direction_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, azimuth_deg REAL NOT NULL, elevation_deg REAL NOT NULL, frequency_hz REAL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_drqual_prof ON cad_directivity_direction_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_drqual_doc ON cad_directivity_direction_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_coherence_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, group_label TEXT NOT NULL, member_count INTEGER NOT NULL, relation_count INTEGER NOT NULL, default_relation TEXT NOT NULL, declared_combination_mode TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mscprof_doc ON cad_source_coherence_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_source_combination_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, requested_mode TEXT NOT NULL, effective_mode TEXT, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mscqual_prof ON cad_source_combination_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_mscqual_doc ON cad_source_combination_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_scattering_model_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, solver_model TEXT NOT NULL, implementation TEXT NOT NULL, directional_redirection INTEGER NOT NULL, incidence_domain TEXT NOT NULL, early_late_applicability TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_scatprof_doc ON cad_scattering_model_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_scattering_model_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, effective_model TEXT, requires_redirection INTEGER NOT NULL, reflection_order TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_scatqual_prof ON cad_scattering_model_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_scatqual_doc ON cad_scattering_model_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diffraction_model_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_family TEXT NOT NULL, implementation TEXT NOT NULL, domain TEXT NOT NULL, edge_kind TEXT NOT NULL, wedge_boundary TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_edfprof_doc ON cad_diffraction_model_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diffraction_benchmark_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, result_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, fixture_id TEXT NOT NULL, fixture_kind TEXT NOT NULL, reference_class TEXT NOT NULL, result TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_difbench_prof ON cad_diffraction_benchmark_results(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_difbench_doc ON cad_diffraction_benchmark_results(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_diffraction_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT NOT NULL, capability TEXT NOT NULL, boundary_limited INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_difqual_prof ON cad_diffraction_qualifications(profile_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_difqual_doc ON cad_diffraction_qualifications(document_id, seq ASC)
+    """
+    ,
     # REV58-IDENT: typed logarithmic quantity / dB-reference authority (#691)
     """
     CREATE TABLE IF NOT EXISTS cad_log_quantities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, quantity_id TEXT NOT NULL UNIQUE, quantity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, quantity_class TEXT NOT NULL, domain TEXT NOT NULL, quantity TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
@@ -5568,6 +5726,21 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_geometric_fidelity_qualifications',
     'cad_hybrid_composition_profiles',
     'cad_hybrid_transition_qualifications',
+    # REV58-AUDIOMODEL: #654 / #655 / #656 / #690 / #684 / #681.
+    'cad_source_origin_profiles',
+    'cad_source_origin_qualifications',
+    'cad_source_field_profiles',
+    'cad_source_field_qualifications',
+    'cad_directivity_sampling_profiles',
+    'cad_directivity_interpolation_records',
+    'cad_directivity_direction_qualifications',
+    'cad_source_coherence_profiles',
+    'cad_source_combination_qualifications',
+    'cad_scattering_model_profiles',
+    'cad_scattering_model_qualifications',
+    'cad_diffraction_model_profiles',
+    'cad_diffraction_benchmark_results',
+    'cad_diffraction_qualifications',
     # REV58-IDENT: #689 / #691 / #698.
     'cad_log_quantities',
     'cad_log_calibration_bridges',

@@ -1029,6 +1029,43 @@ class _RepositoryChain:
             )
 
             return CadHybridHandoffRepository(scene)
+        # REV58-AUDIOMODEL authorities.
+        if name == 'source_origin':
+            from .cad_source_origin_repository import (
+                CadSourceOriginRepository,
+            )
+
+            return CadSourceOriginRepository(scene)
+        if name == 'source_field_applicability':
+            from .cad_source_field_applicability_repository import (
+                CadSourceFieldApplicabilityRepository,
+            )
+
+            return CadSourceFieldApplicabilityRepository(scene)
+        if name == 'directivity_resolution':
+            from .cad_directivity_resolution_repository import (
+                CadDirectivityResolutionRepository,
+            )
+
+            return CadDirectivityResolutionRepository(scene)
+        if name == 'source_coherence':
+            from .cad_source_coherence_repository import (
+                CadSourceCoherenceRepository,
+            )
+
+            return CadSourceCoherenceRepository(scene)
+        if name == 'scattering_model':
+            from .cad_scattering_model_repository import (
+                CadScatteringModelRepository,
+            )
+
+            return CadScatteringModelRepository(scene)
+        if name == 'edge_diffraction':
+            from .cad_edge_diffraction_repository import (
+                CadEdgeDiffractionRepository,
+            )
+
+            return CadEdgeDiffractionRepository(scene)
         # REV58-IDENT authorities.
         if name == 'logarithmic_quantity':
             from .cad_logarithmic_quantity_repository import (
@@ -4660,6 +4697,96 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_hybrid_transition_qualifications',
         ('qualification_id',),
         _get('hybrid_handoff', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #654 acoustic-reference origin / phase center
+    _ReplayProbe(
+        'source_origin_profile',
+        'cad_source_origin_profiles',
+        ('profile_id',),
+        _get('source_origin', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'source_origin_qualification',
+        'cad_source_origin_qualifications',
+        ('qualification_id',),
+        _get('source_origin', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #655 source near/far-field applicability
+    _ReplayProbe(
+        'source_field_profile',
+        'cad_source_field_profiles',
+        ('profile_id',),
+        _get('source_field_applicability', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'source_field_qualification',
+        'cad_source_field_qualifications',
+        ('qualification_id',),
+        _get('source_field_applicability', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #656 directivity angular resolution
+    _ReplayProbe(
+        'directivity_sampling_profile',
+        'cad_directivity_sampling_profiles',
+        ('profile_id',),
+        _get('directivity_resolution', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'directivity_interpolation_record',
+        'cad_directivity_interpolation_records',
+        ('record_id',),
+        _get('directivity_resolution', 'get_interpolation_record'),
+    ),
+    _ReplayProbe(
+        'directivity_direction_qualification',
+        'cad_directivity_direction_qualifications',
+        ('qualification_id',),
+        _get('directivity_resolution', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #690 multi-source correlation / coherence
+    _ReplayProbe(
+        'source_coherence_profile',
+        'cad_source_coherence_profiles',
+        ('profile_id',),
+        _get('source_coherence', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'source_combination_qualification',
+        'cad_source_combination_qualifications',
+        ('qualification_id',),
+        _get('source_coherence', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #684 geometric surface-scattering model
+    _ReplayProbe(
+        'scattering_model_profile',
+        'cad_scattering_model_profiles',
+        ('profile_id',),
+        _get('scattering_model', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'scattering_model_qualification',
+        'cad_scattering_model_qualifications',
+        ('qualification_id',),
+        _get('scattering_model', 'get_qualification'),
+    ),
+    # REV58-AUDIOMODEL: #681 edge diffraction model
+    _ReplayProbe(
+        'diffraction_model_profile',
+        'cad_diffraction_model_profiles',
+        ('profile_id',),
+        _get('edge_diffraction', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'diffraction_benchmark_result',
+        'cad_diffraction_benchmark_results',
+        ('result_id',),
+        _get('edge_diffraction', 'get_benchmark_result'),
+    ),
+    _ReplayProbe(
+        'diffraction_qualification',
+        'cad_diffraction_qualifications',
+        ('qualification_id',),
+        _get('edge_diffraction', 'get_qualification'),
     ),
     # REV58-IDENT: #691 typed logarithmic quantity / dB reference
     _ReplayProbe(
