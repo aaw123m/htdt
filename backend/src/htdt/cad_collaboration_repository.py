@@ -139,8 +139,6 @@ class _SealedStore:
                 f'stored {self.table} sha disagrees with its payload'
             )
         for column, path in self.columns:
-            if record.__dict__.get(path.split('.')[0]) is None:
-                continue
             expected = self._column_value(record, path)
             if isinstance(expected, bool):
                 expected = int(expected)
