@@ -194,12 +194,16 @@ def test_cfg14_repository_round_trip_and_append_only(tmp_path):
     assert got == snapshot
     # a divergent row under the same snapshot_id is a conflict, never an
     # update — model_construct bypasses the seal check on purpose to
-    # prove the repository (not just the model) enforces append-only
+    # prove the repository (not just the model) enforces append-only.
+    # REV61: the save path re-verifies the seal first, so the forged sha
+    # is rejected as an integrity violation before the conflict check —
+    # a same-id/different-sha ConflictError is unreachable by
+    # construction (the id derives from the sha it would diverge from).
     divergent = DeviceConfigurationSnapshot.model_construct(
         **{**snapshot.model_dump(mode='python'),
            'snapshot_sha256': SHA_B}
     )
-    with pytest.raises(DeviceSnapshotConflictError):
+    with pytest.raises(DeviceSnapshotIntegrityError):
         repository.save_snapshot(divergent)
 
 

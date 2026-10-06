@@ -33,6 +33,7 @@ from .cad_device_snapshot import (
 )
 from .cad_schema import require_native_tables, connect_sqlite
 from .cad_repository import SceneRepository
+from .canonical_json import canonical_sha256
 
 
 class DeviceSnapshotConflictError(ValueError):
@@ -41,6 +42,33 @@ class DeviceSnapshotConflictError(ValueError):
 
 class DeviceSnapshotIntegrityError(ValueError):
     """A stored row disagreed with its payload or references."""
+
+
+def _assert_sealed(
+    record: object, sha_field: str, id_field: str | None
+) -> None:
+    """Re-verify the seal fields a save path persists (REV61).
+
+    A ``model_copy(update=...)`` record keeps digest fields its payload
+    never earned — the mismatch only surfaces when a read re-validates,
+    so the write boundary is the last place that can still refuse. The
+    stored sha must be the canonical digest of the semantic payload, and
+    a digest-derived id must equal ``<prefix>-<sha[:24]>``.
+    """
+
+    sha = canonical_sha256(record.semantic_payload())  # type: ignore[attr-defined]
+    if getattr(record, sha_field) != sha:
+        raise DeviceSnapshotIntegrityError(
+            'record payload does not match its sealed sha256'
+        )
+    if id_field is None:
+        return
+    rid = getattr(record, id_field)
+    prefix = rid.rsplit('-', 1)[0]
+    if rid != f'{prefix}-{sha[:24]}':
+        raise DeviceSnapshotIntegrityError(
+            'record id does not match its sealed sha256'
+        )
 
 
 class CadDeviceSnapshotRepository:
@@ -72,6 +100,7 @@ class CadDeviceSnapshotRepository:
     # Snapshots
 
     def save_snapshot(self, snapshot: DeviceConfigurationSnapshot) -> None:
+        _assert_sealed(snapshot, 'snapshot_sha256', 'snapshot_id')
         existing = self.get_snapshot(snapshot.snapshot_id)
         if existing is not None:
             if existing.snapshot_sha256 == snapshot.snapshot_sha256:
@@ -217,6 +246,7 @@ class CadDeviceSnapshotRepository:
     # Known-good baselines
 
     def save_baseline(self, baseline: DeviceKnownGoodBaseline) -> None:
+        _assert_sealed(baseline, 'baseline_sha256', 'baseline_id')
         existing = self.get_baseline(baseline.baseline_id)
         if existing is not None:
             if existing.baseline_sha256 == baseline.baseline_sha256:
@@ -307,6 +337,7 @@ class CadDeviceSnapshotRepository:
     def save_firmware_transition(
         self, transition: DeviceFirmwareTransition
     ) -> None:
+        _assert_sealed(transition, 'transition_sha256', 'transition_id')
         existing = self.get_firmware_transition(transition.transition_id)
         if existing is not None:
             if existing.transition_sha256 == transition.transition_sha256:
@@ -406,6 +437,7 @@ class CadDeviceSnapshotRepository:
     def save_restore_record(
         self, record: ConfigurationRestoreRecord
     ) -> None:
+        _assert_sealed(record, 'record_sha256', 'restore_id')
         existing = self.get_restore_record(record.restore_id)
         if existing is not None:
             if existing.record_sha256 == record.record_sha256:
@@ -512,6 +544,7 @@ class CadDeviceSnapshotRepository:
     def save_backup_artifact(
         self, artifact: DeviceConfigurationBackupArtifact
     ) -> None:
+        _assert_sealed(artifact, 'artifact_sha256', None)
         existing = self.get_backup_artifact(artifact.content_sha256)
         if existing is not None:
             if existing.artifact_sha256 == artifact.artifact_sha256:
@@ -618,6 +651,7 @@ class CadDeviceSnapshotRepository:
     def save_replacement_assessment(
         self, assessment: ReplacementDeviceAssessment
     ) -> None:
+        _assert_sealed(assessment, 'assessment_sha256', 'assessment_id')
         existing = self.get_replacement_assessment(
             assessment.assessment_id
         )

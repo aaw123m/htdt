@@ -11,7 +11,7 @@ import sqlite3
 from contextlib import closing
 from pathlib import Path
 
-from .cad_project_activity import ProjectActivityNote
+from .cad_project_activity import ProjectActivityNote, _hash
 from .cad_repository import SceneRepository
 from .cad_schema import connect_sqlite, require_native_tables
 
@@ -36,6 +36,10 @@ class CadProjectActivityNoteRepository:
 
 
     def save_note(self, note: ProjectActivityNote) -> ProjectActivityNote:
+        if note.note_sha256 != _hash(note.semantic_payload()):
+            raise ValueError(
+                'activity note payload does not match its sealed sha256'
+            )
         self._validate(note)
         with closing(self._connect()) as connection, connection:
             connection.execute(

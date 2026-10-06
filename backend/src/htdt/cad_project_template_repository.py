@@ -46,6 +46,12 @@ class CadProjectTemplateRepository:
     def save_template(self, template: ProjectTemplate) -> ProjectTemplate:
         if template.kind == 'builtin':
             raise ValueError('built-in templates are read-only')
+        # A forged ``model_copy`` keeps a template_sha256 its payload never
+        # earned — re-verify the seal here or the row only fails reads.
+        if template.template_sha256 != _hash(template.semantic_payload()):
+            raise ValueError(
+                'template payload does not match its sealed sha256'
+            )
         with closing(self._connect()) as connection:
             existing = connection.execute(
                 """

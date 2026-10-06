@@ -12,6 +12,7 @@ carry and validate them (``native_backup._ASSET_MANIFEST_TABLES``).
 from __future__ import annotations
 
 import json
+import re
 from contextlib import closing
 from pathlib import Path
 from typing import Any, Iterable
@@ -29,10 +30,17 @@ from .cad_schema import (
     require_native_tables,
 )
 from .clock import utc_now_iso
-from .managed_assets import MANAGED_ASSETS_DIRNAME, ManagedAssetStore
+from .managed_assets import (
+    MANAGED_ASSETS_DIRNAME,
+    ManagedAssetError,
+    ManagedAssetStore,
+    safe_managed_relative_path,
+)
 
 _RUN_TABLE = 'htdt_acceptance_runs'
 _EVIDENCE_TABLE = 'htdt_acceptance_evidence'
+
+_SHA256_RE = re.compile(r'^[0-9a-f]{64}$')
 
 
 class AcceptanceRunRepository:
@@ -119,7 +127,27 @@ class AcceptanceRunRepository:
         step_id: str,
         ref: AcceptanceEvidenceRef,
     ) -> None:
-        connection.execute(
+        # The row lands in the audit's managed-byte registry: digest,
+        # path and size must be a claim bytes can actually satisfy, and
+        # INSERT OR IGNORE may only hide the identical re-save — a
+        # same-id row asserting different bytes is a conflict, not a
+        # no-op (REV61).
+        if not _SHA256_RE.match(ref.sha256):
+            raise NativeSchemaError(
+                f'evidence ref {ref.evidence_id} carries a malformed digest'
+            )
+        if ref.size_bytes < 0:
+            raise NativeSchemaError(
+                f'evidence ref {ref.evidence_id} declares a negative size'
+            )
+        try:
+            safe_managed_relative_path(ref.relative_path)
+        except ManagedAssetError as exc:
+            raise NativeSchemaError(
+                f'evidence ref {ref.evidence_id} carries an unsafe path: '
+                f'{ref.relative_path}'
+            ) from exc
+        cursor = connection.execute(
             f'INSERT OR IGNORE INTO {_EVIDENCE_TABLE}('
             'evidence_id, run_id, step_id, kind, filename, sha256, '
             'relative_path, size_bytes, recorded_at_utc'
@@ -136,6 +164,30 @@ class AcceptanceRunRepository:
                 ref.recorded_at_utc,
             ),
         )
+        if cursor.rowcount:
+            return
+        existing = connection.execute(
+            f'SELECT run_id, step_id, kind, filename, sha256, '
+            f'relative_path, size_bytes, recorded_at_utc '
+            f'FROM {_EVIDENCE_TABLE} WHERE evidence_id=?',
+            (ref.evidence_id,),
+        ).fetchone()
+        stored = tuple(existing)
+        claimed = (
+            run_id,
+            step_id,
+            ref.kind,
+            ref.filename,
+            ref.sha256,
+            ref.relative_path,
+            ref.size_bytes,
+            ref.recorded_at_utc,
+        )
+        if stored != claimed:
+            raise NativeSchemaError(
+                f'evidence id {ref.evidence_id} already persists '
+                'different bytes'
+            )
 
     # ------------------------------------------------------------------
     # reads
