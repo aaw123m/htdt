@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from base64 import b64encode
+from hashlib import sha256
 import json
 import uuid
 
 import pytest
 
+from htdt.cad_equipment_catalog import EquipmentCatalogSnapshot
 from htdt.cad_scene import (
     Offset3,
     Position3,
@@ -16,6 +19,7 @@ from htdt.cad_scene import (
 from htdt.capture_mission import (
     CaptureMissionError,
     HTDTCaptureTaskPlan,
+    MissionPackageDependency,
     MissionTaskDependencyRef,
     build_bounded_equipment_snapshot,
     build_capture_task_plan,
@@ -500,6 +504,67 @@ def test_wire_payload_fails_closed_on_unexpressible_content() -> None:
     )
     with pytest.raises(CaptureMissionError, match='underlay'):
         mission_package_wire_payload(tampered2)
+
+
+def test_wire_payload_embeds_equipment_catalog() -> None:
+    document = _document(
+        room=RoomPrism(width_m=5.0, depth_m=4.0, height_m=2.4),
+        entities=(_speaker('spk-fl', 'FL', 1.0),),
+    )
+    project = new_project_reference(document_id='mission-doc-1')
+    mission = build_mission(
+        document,
+        project=project,
+        purpose='initial_capture',
+        room_name='Theater A',
+    )
+    snapshot = EquipmentCatalogSnapshot(definitions=())
+    package = build_mission_package(
+        mission, equipment_snapshot=snapshot
+    )
+    payload = json.loads(mission_package_wire_payload(package))
+    # The app's snapshot decoder reads camelCase header keys over
+    # snake_case entries — verify the emitted shape decodes.
+    catalog = payload['plan']['equipment_catalog']
+    assert catalog == {
+        'schema': 'htdt.equipment.catalog-snapshot',
+        'schemaVersion': 1,
+        'authorityVersion': 'o100c-equipment-definition-1',
+        'definitions': [],
+    }
+
+    # An undecodable catalog payload fails closed, not with a raw
+    # pydantic/codec exception.
+    dep = MissionPackageDependency(
+        dependency_id='d06c693e-7d70-4d6c-b641-34d2e27e6c29',
+        kind='equipment_catalog_snapshot',
+        role='optional',
+        schema='htdt.equipment.catalog-snapshot',
+        schema_version=1,
+        payload_sha256=sha256(b'{"schema":').hexdigest(),
+        payload_base64=b64encode(b'{"schema":').decode('ascii'),
+    )
+    tampered = package.model_copy(
+        update={'dependencies': package.dependencies + (dep,)}
+    )
+    with pytest.raises(CaptureMissionError, match='catalog'):
+        mission_package_wire_payload(tampered)
+
+
+def test_wire_payload_rejects_duplicate_task_identity() -> None:
+    package = _wire_package()
+    tasks = package.mission.plan.tasks
+    assert len(tasks) > 1
+    tweaked = package.mission.model_copy(
+        update={
+            'plan': package.mission.plan.model_copy(
+                update={'tasks': (tasks[0], tasks[0], *tasks[2:])}
+            )
+        }
+    )
+    tampered = package.model_copy(update={'mission': tweaked})
+    with pytest.raises(CaptureMissionError, match='duplicate task'):
+        mission_package_wire_payload(tampered)
 
 
 def test_wire_payload_requires_a_room_name() -> None:

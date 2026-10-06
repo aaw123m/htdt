@@ -180,6 +180,15 @@
               "%",
               null
             ]
+          },
+          "acquisition_requirement": {
+            "enum": [
+              "spatial_point_required",
+              "imported_endpoint_reference_sufficient",
+              "non_spatial",
+              "external_instrument_only",
+              null
+            ]
           }
         }
       }

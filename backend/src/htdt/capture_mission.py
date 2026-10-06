@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import binascii
 from base64 import b64decode, b64encode
 from hashlib import sha256
 from typing import Literal, Sequence
@@ -731,6 +732,13 @@ def build_mission_package(
     ``extra_dependencies`` carries (kind, schema, schema_version, payload,
     role) tuples for bounded references such as a field datum or underlay —
     every entry is hash-pinned and embedded so field use needs no network.
+
+    Payload-carrying extras are HTDT-authority content only: the app's
+    mission envelope has no payload carrier for them, so packages that
+    include any dependency kind other than ``task_plan`` or
+    ``equipment_catalog_snapshot`` cannot be queued to the app lane —
+    ``mission_package_wire_payload`` refuses them fail-closed rather
+    than silently narrowing the mission.
     """
 
     dependencies: list[MissionPackageDependency] = []
@@ -1097,17 +1105,30 @@ def _app_equipment_catalog(
                 'app plan pins at most one'
             )
         try:
-            snapshot = EquipmentCatalogSnapshot.model_validate(
-                package.dependency_payload(dependency.dependency_id).decode(
-                    'utf-8'
-                )
-            )
+            payload = package.dependency_payload(dependency.dependency_id)
+        except (KeyError, binascii.Error, UnicodeDecodeError) as exc:
+            raise CaptureMissionError(
+                'mission equipment catalog payload is undecodable'
+            ) from exc
+        try:
+            snapshot = EquipmentCatalogSnapshot.model_validate_json(payload)
         except ValidationError as exc:
             raise CaptureMissionError(
                 'mission equipment catalog fails snapshot validation: '
                 f'{exc.error_count()} error(s)'
             ) from exc
-        catalog = snapshot.model_dump(mode='json')
+        dumped = snapshot.model_dump(mode='json')
+        # The app's snapshot decoder reads camelCase top-level keys
+        # (schemaVersion / authorityVersion) while its entries are
+        # snake_case — the native dump is snake_case throughout, so
+        # remap the two header keys instead of embedding undecodable
+        # bytes.
+        catalog = {
+            'schema': dumped['schema'],
+            'schemaVersion': dumped['schema_version'],
+            'authorityVersion': dumped['authority_version'],
+            'definitions': dumped['definitions'],
+        }
     return catalog
 
 
@@ -1129,6 +1150,15 @@ def _app_projection(
             'a non-empty room_name'
         )
     project_ref = _project_ref_text(plan.project)
+    # Item ids land verbatim across four app lists whose combined
+    # uniqueness the app enforces — a hand-edited package could bypass
+    # the producer's own uniqueness check, so re-check here.
+    task_ids = [task.task_id for task in plan.tasks]
+    if len(set(task_ids)) != len(task_ids):
+        raise CaptureMissionError(
+            'mission plan carries duplicate task identity — the app '
+            'rejects duplicate item ids at import'
+        )
     measurement_items: list[dict] = []
     surface_items: list[dict] = []
     semantic_items: list[dict] = []

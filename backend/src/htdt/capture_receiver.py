@@ -146,6 +146,66 @@ TLS_CREDENTIAL_MAX_BYTES = 1024 * 1024
 MISSION_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
 MISSION_LISTING_MAX_BYTES = 256 * 1024
 
+# The iOS app's import contract for queued mission payloads. The queue
+# guard below mirrors `HTDTMissionPackage`'s synthesized-Codable
+# required keys and `HTDTCaptureTaskPlan`'s required decode keys so a
+# payload the app can never import never enters the queue.
+_APP_MISSION_SCHEMA_VERSIONS = ('1.0.0',)
+_APP_PLAN_SCHEMA = 'htdt.capture-task-plan'
+_APP_PLAN_SCHEMA_VERSIONS = ('1.0.0', '2.0.0')
+_APP_MISSION_KINDS = (
+    'initial_survey',
+    'follow_up',
+    'repair',
+    'commissioning',
+    'other',
+)
+_APP_DEPENDENCY_KINDS = (
+    'mission_completed',
+    'capture_finalized',
+    'capture_delivered',
+)
+_APP_PLAN_REQUIRED_TEXT = (
+    'plan_id',
+    'plan_version',
+    'project_ref',
+    'room_name',
+)
+_APP_PLAN_REQUIRED_LISTS = (
+    'entity_checklist',
+    'measurement_requests',
+    'surface_review_tasks',
+)
+
+
+def _app_task_plan_coherent(plan) -> bool:
+    """Whether a bare/embedded plan dict satisfies the app's decode contract."""
+    if (
+        not isinstance(plan, dict)
+        or plan.get('schema') != _APP_PLAN_SCHEMA
+        or plan.get('schema_version') not in _APP_PLAN_SCHEMA_VERSIONS
+    ):
+        return False
+    for key in _APP_PLAN_REQUIRED_TEXT:
+        if not isinstance(plan.get(key), str) or not plan[key]:
+            return False
+    for key in _APP_PLAN_REQUIRED_LISTS:
+        if not isinstance(plan.get(key), list):
+            return False
+    return True
+
+
+def _app_mission_dependency_coherent(dependency) -> bool:
+    """Whether one `HTDTMissionDependency` dict satisfies its required keys."""
+    return (
+        isinstance(dependency, dict)
+        and isinstance(dependency.get('ref'), str)
+        and bool(dependency['ref'])
+        and dependency.get('kind') in _APP_DEPENDENCY_KINDS
+        and isinstance(dependency.get('required'), bool)
+    )
+
+
 DEFAULT_RECEIVER_PORT = 8443
 PAIRING_TTL_MINUTES = 10
 
@@ -1351,34 +1411,42 @@ class CaptureReceiverService:
                 'mission document (htdt.capture-mission / '
                 'htdt.capture-task-plan)'
             )
-        # Shape coherence: the app hard-decodes these fields — a
-        # schema-matching payload missing them still fails import on
-        # every device, so reject it here instead.
+        # Shape coherence: mirror the app's hard-decode contract — a
+        # schema-matching payload missing these still fails import on
+        # every device, so reject it here instead of letting it ride
+        # the pull lane to an `invalid_payload` failure.
         if decoded['schema'] == 'htdt.capture-mission':
-            plan = decoded.get('plan')
+            if (
+                decoded['schema_version']
+                not in _APP_MISSION_SCHEMA_VERSIONS
+            ):
+                raise CaptureReceiverError(
+                    'mission envelope schema_version is not a version '
+                    'the app decodes (supported: 1.0.0)'
+                )
+            dependencies = decoded.get('dependencies')
             if (
                 not isinstance(decoded.get('mission_id'), str)
                 or not decoded['mission_id']
-                or not isinstance(decoded.get('mission_kind'), str)
-                or not decoded['mission_kind']
-                or not isinstance(plan, dict)
-                or plan.get('schema') != 'htdt.capture-task-plan'
-                or not isinstance(plan.get('schema_version'), str)
-                or not plan['schema_version']
+                or decoded.get('mission_kind') not in _APP_MISSION_KINDS
+                or not _app_task_plan_coherent(decoded.get('plan'))
+                or not isinstance(dependencies, list)
+                or any(
+                    not _app_mission_dependency_coherent(dependency)
+                    for dependency in dependencies
+                )
             ):
                 raise CaptureReceiverError(
                     'mission envelope is missing a decodable '
-                    'mission_id/mission_kind/plan'
+                    'mission_id/mission_kind/plan/dependencies'
                 )
-        else:
-            for key in ('plan_id', 'project_ref', 'room_name'):
-                if (
-                    not isinstance(decoded.get(key), str)
-                    or not decoded[key]
-                ):
-                    raise CaptureReceiverError(
-                        f'bare task plan is missing a decodable {key}'
-                    )
+        elif not _app_task_plan_coherent(decoded):
+            raise CaptureReceiverError(
+                'bare task plan is missing a decodable required field '
+                '(plan_id/plan_version/project_ref/room_name/'
+                'entity_checklist/measurement_requests/'
+                'surface_review_tasks) or a supported schema_version'
+            )
         descriptor = dict(descriptor or {})
         # The app's receiver_requirement struct strictly decodes the
         # fields below — a divergent value used to break the WHOLE
