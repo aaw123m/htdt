@@ -5418,6 +5418,183 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_lutq_doc ON cad_lut_qualifications(document_id, seq ASC)
     """
     ,
+    # REV58-MEASELEC: #699 / #651 / #649 / #665 / #693.
+    """
+    CREATE TABLE IF NOT EXISTS cad_interface_loopback_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, loopback_path_kind TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifcobs_doc ON cad_interface_loopback_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interface_transfer_calibrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, calibration_id TEXT NOT NULL UNIQUE, calibration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, calibration_kind TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifccal_doc ON cad_interface_transfer_calibrations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_interface_correction_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, calibration_ref_id TEXT, state TEXT NOT NULL, sample_rate_applicability TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifcqual_doc ON cad_interface_correction_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_ifcqual_cal ON cad_interface_correction_qualifications(calibration_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_signal_level_references ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reference_id TEXT NOT NULL UNIQUE, reference_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage_label TEXT NOT NULL, analog_unit TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_lvlref_doc ON cad_signal_level_references(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_noise_floor_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage_label TEXT, noise_class TEXT NOT NULL, noise_level REAL NOT NULL, noise_unit TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnobs_doc ON cad_noise_floor_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_clipping_margins ( seq INTEGER PRIMARY KEY AUTOINCREMENT, margin_id TEXT NOT NULL UNIQUE, margin_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stage_label TEXT NOT NULL, clip_mechanism TEXT NOT NULL, load_stress TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_clipm_doc ON cad_clipping_margins(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_gain_structure_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, use_case TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_gnqual_doc ON cad_gain_structure_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_dynamics_states ( seq INTEGER PRIMARY KEY AUTOINCREMENT, state_id TEXT NOT NULL UNIQUE, state_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device TEXT, output_mode TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dynstate_doc ON cad_playback_dynamics_states(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_level_sweep_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, stimulus_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dynobs_doc ON cad_level_sweep_observations(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_playback_dynamics_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, dynamics_state_ref_id TEXT, purpose TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dynqual_doc ON cad_playback_dynamics_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_dynqual_state ON cad_playback_dynamics_qualifications(dynamics_state_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_multiway_speaker_definitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, definition_id TEXT NOT NULL UNIQUE, definition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, speaker_instance TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axospk_doc ON cad_multiway_speaker_definitions(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_crossover_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, speaker_ref_id TEXT NOT NULL, dsp_device TEXT, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axoplan_doc ON cad_active_crossover_plans(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axoplan_spk ON cad_active_crossover_plans(speaker_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_driver_alignment_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, speaker_ref_id TEXT NOT NULL, way_label TEXT NOT NULL, acoustic_polarity TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axomeas_doc ON cad_driver_alignment_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axomeas_spk ON cad_driver_alignment_measurements(speaker_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_active_crossover_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, speaker_ref_id TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axoqual_doc ON cad_active_crossover_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_axoqual_spk ON cad_active_crossover_qualifications(speaker_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_method_procedures ( seq INTEGER PRIMARY KEY AUTOINCREMENT, procedure_id TEXT NOT NULL UNIQUE, procedure_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, method_name TEXT NOT NULL, procedure_version TEXT NOT NULL, documented INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repproc_doc ON cad_method_procedures(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reproducibility_campaigns ( seq INTEGER PRIMARY KEY AUTOINCREMENT, campaign_id TEXT NOT NULL UNIQUE, campaign_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, procedure_ref_id TEXT NOT NULL, design_class TEXT NOT NULL, evidence_tier TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repcamp_doc ON cad_reproducibility_campaigns(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repcamp_proc ON cad_reproducibility_campaigns(procedure_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_method_precision_models ( seq INTEGER PRIMARY KEY AUTOINCREMENT, model_id TEXT NOT NULL UNIQUE, model_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, campaign_ref_id TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repmod_doc ON cad_method_precision_models(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repmod_camp ON cad_method_precision_models(campaign_ref_id, seq ASC)
+    """
+    ,
+    """
+    CREATE TABLE IF NOT EXISTS cad_reproducibility_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, procedure_ref_id TEXT NOT NULL, evidence_tier TEXT NOT NULL, state TEXT NOT NULL, evaluation_version TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repqual_doc ON cad_reproducibility_qualifications(document_id, seq ASC)
+    """
+    ,
+    """
+    CREATE INDEX IF NOT EXISTS idx_repqual_proc ON cad_reproducibility_qualifications(procedure_ref_id, seq ASC)
+    """
+    ,
 )
 
 # Columns historically appended by lazy repository-local ALTER TABLE.
@@ -6192,4 +6369,23 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_lut_deployments',
     'cad_lut_post_verifications',
     'cad_lut_qualifications',
+    # REV58-MEASELEC: #699 / #651 / #649 / #665 / #693.
+    'cad_interface_loopback_observations',
+    'cad_interface_transfer_calibrations',
+    'cad_interface_correction_qualifications',
+    'cad_signal_level_references',
+    'cad_noise_floor_observations',
+    'cad_clipping_margins',
+    'cad_gain_structure_qualifications',
+    'cad_playback_dynamics_states',
+    'cad_level_sweep_observations',
+    'cad_playback_dynamics_qualifications',
+    'cad_multiway_speaker_definitions',
+    'cad_active_crossover_plans',
+    'cad_driver_alignment_measurements',
+    'cad_active_crossover_qualifications',
+    'cad_method_procedures',
+    'cad_reproducibility_campaigns',
+    'cad_method_precision_models',
+    'cad_reproducibility_qualifications',
 )

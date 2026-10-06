@@ -1153,6 +1153,37 @@ class _RepositoryChain:
             )
 
             return CadLutClosedLoopRepository(scene)
+        # REV58-MEASELEC authorities.
+        if name == 'interface_loopback':
+            from .cad_interface_loopback_repository import (
+                CadInterfaceLoopbackRepository,
+            )
+
+            return CadInterfaceLoopbackRepository(scene)
+        if name == 'gain_structure':
+            from .cad_gain_noise_structure_repository import (
+                CadGainStructureRepository,
+            )
+
+            return CadGainStructureRepository(scene)
+        if name == 'playback_dynamics':
+            from .cad_playback_dynamics_repository import (
+                CadPlaybackDynamicsRepository,
+            )
+
+            return CadPlaybackDynamicsRepository(scene)
+        if name == 'active_crossover':
+            from .cad_active_crossover_repository import (
+                CadActiveCrossoverRepository,
+            )
+
+            return CadActiveCrossoverRepository(scene)
+        if name == 'method_reproducibility':
+            from .cad_method_reproducibility_repository import (
+                CadMethodReproducibilityRepository,
+            )
+
+            return CadMethodReproducibilityRepository(scene)
         raise KeyError(name)
 
 
@@ -5199,6 +5230,119 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_lut_qualifications',
         ('qualification_id',),
         _get('lut_closed_loop', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #699 interface transfer/loopback calibration
+    _ReplayProbe(
+        'interface_loopback_observation',
+        'cad_interface_loopback_observations',
+        ('observation_id',),
+        _get('interface_loopback', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'interface_transfer_calibration',
+        'cad_interface_transfer_calibrations',
+        ('calibration_id',),
+        _get('interface_loopback', 'get_calibration'),
+    ),
+    _ReplayProbe(
+        'interface_correction_qualification',
+        'cad_interface_correction_qualifications',
+        ('qualification_id',),
+        _get('interface_loopback', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #651 gain structure / noise floor
+    _ReplayProbe(
+        'signal_level_reference',
+        'cad_signal_level_references',
+        ('reference_id',),
+        _get('gain_structure', 'get_level_reference'),
+    ),
+    _ReplayProbe(
+        'noise_floor_observation',
+        'cad_noise_floor_observations',
+        ('observation_id',),
+        _get('gain_structure', 'get_noise_observation'),
+    ),
+    _ReplayProbe(
+        'clipping_margin',
+        'cad_clipping_margins',
+        ('margin_id',),
+        _get('gain_structure', 'get_clipping_margin'),
+    ),
+    _ReplayProbe(
+        'gain_structure_qualification',
+        'cad_gain_structure_qualifications',
+        ('qualification_id',),
+        _get('gain_structure', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #649 playback dynamics / limiter
+    _ReplayProbe(
+        'playback_dynamics_state',
+        'cad_playback_dynamics_states',
+        ('state_id',),
+        _get('playback_dynamics', 'get_state'),
+    ),
+    _ReplayProbe(
+        'level_sweep_observation',
+        'cad_level_sweep_observations',
+        ('observation_id',),
+        _get('playback_dynamics', 'get_level_sweep'),
+    ),
+    _ReplayProbe(
+        'playback_dynamics_qualification',
+        'cad_playback_dynamics_qualifications',
+        ('qualification_id',),
+        _get('playback_dynamics', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #665 active multi-way crossover
+    _ReplayProbe(
+        'multiway_speaker_definition',
+        'cad_multiway_speaker_definitions',
+        ('definition_id',),
+        _get('active_crossover', 'get_definition'),
+    ),
+    _ReplayProbe(
+        'active_crossover_plan',
+        'cad_active_crossover_plans',
+        ('plan_id',),
+        _get('active_crossover', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'driver_alignment_measurement',
+        'cad_driver_alignment_measurements',
+        ('measurement_id',),
+        _get('active_crossover', 'get_alignment_measurement'),
+    ),
+    _ReplayProbe(
+        'active_crossover_qualification',
+        'cad_active_crossover_qualifications',
+        ('qualification_id',),
+        _get('active_crossover', 'get_qualification'),
+    ),
+    # REV58-MEASELEC: #693 measurement-method reproducibility
+    _ReplayProbe(
+        'method_procedure',
+        'cad_method_procedures',
+        ('procedure_id',),
+        _get('method_reproducibility', 'get_procedure'),
+    ),
+    _ReplayProbe(
+        'reproducibility_campaign',
+        'cad_reproducibility_campaigns',
+        ('campaign_id',),
+        _get('method_reproducibility', 'get_campaign'),
+    ),
+    _ReplayProbe(
+        'method_precision_model',
+        'cad_method_precision_models',
+        ('model_id',),
+        _get('method_reproducibility', 'get_precision_model'),
+    ),
+    _ReplayProbe(
+        'reproducibility_qualification',
+        'cad_reproducibility_qualifications',
+        ('qualification_id',),
+        _get('method_reproducibility', 'get_qualification'),
     ),
 )
 

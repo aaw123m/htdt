@@ -588,6 +588,29 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_lut_deployments": "LUTデプロイ記録",
     "cad_lut_post_verifications": "LUT転送後検証",
     "cad_lut_qualifications": "LUTループ適格評価",
+    # REV58-MEASELEC: #699 オーディオI/F ループバック校正
+    "cad_interface_loopback_observations": "I/Fループバック観測",
+    "cad_interface_transfer_calibrations": "I/F伝達校正",
+    "cad_interface_correction_qualifications": "I/F補正適格評価",
+    # REV58-MEASELEC: #651 ゲイン構造/ノイズ床
+    "cad_signal_level_references": "基準レベル参照",
+    "cad_noise_floor_observations": "ノイズ床観測",
+    "cad_clipping_margins": "クリッピング余裕",
+    "cad_gain_structure_qualifications": "ゲイン構造適格評価",
+    # REV58-MEASELEC: #649 再生ダイナミクス/リミッタ
+    "cad_playback_dynamics_states": "再生ダイナミクス状態",
+    "cad_level_sweep_observations": "レベル掃引観測",
+    "cad_playback_dynamics_qualifications": "再生ダイナミクス適格評価",
+    # REV58-MEASELEC: #665 アクティブクロスオーバー
+    "cad_multiway_speaker_definitions": "マルチウェイスピーカー定義",
+    "cad_active_crossover_plans": "アクティブXO計画",
+    "cad_driver_alignment_measurements": "ドライバアライメント測定",
+    "cad_active_crossover_qualifications": "アクティブXO適格評価",
+    # REV58-MEASELEC: #693 測定法再現性
+    "cad_method_procedures": "測定手順定義",
+    "cad_reproducibility_campaigns": "再現性キャンペーン",
+    "cad_method_precision_models": "測定法精度モデル",
+    "cad_reproducibility_qualifications": "再現性適格評価",
 }
 
 

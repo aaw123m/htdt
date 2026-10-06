@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 49
+NATIVE_SCHEMA_VERSION = 50
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1597,6 +1597,23 @@ def _migrate_48_to_49(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_49_to_50(connection: sqlite3.Connection) -> None:
+    # Install the REV58-MEASELEC authorities (#699 audio-interface
+    # transfer/loopback calibration: loopback observations, transfer
+    # calibrations, correction qualifications; #651 gain structure /
+    # noise floor / clipping margins: signal level references, noise
+    # observations, clipping margins, gain-structure qualifications;
+    # #649 playback dynamics / limiter: dynamics states, level-sweep
+    # observations, dynamics qualifications; #665 active multi-way
+    # crossover: speaker definitions, crossover plans, driver
+    # alignment measurements, crossover qualifications; #693
+    # measurement-method reproducibility: method procedures,
+    # campaigns, precision models, qualifications): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1647,6 +1664,7 @@ _MIGRATIONS = {
     47: _migrate_46_to_47,
     48: _migrate_47_to_48,
     49: _migrate_48_to_49,
+    50: _migrate_49_to_50,
 }
 
 

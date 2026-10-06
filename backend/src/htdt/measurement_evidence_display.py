@@ -3755,3 +3755,245 @@ def lut_loop_line(qualification: LUTLoopQualification) -> str:
                 qualification.reasons[0], qualification.reasons[0])
         )
     return 'LUTループ適格: ' + ' — '.join(parts)
+
+
+# ---------------------------------------------------------------------------
+# REV58-MEASELEC (#699 / #651 / #649 / #665 / #693)
+# ---------------------------------------------------------------------------
+
+_IFC_CORRECTION_STATE_LABELS = {
+    'correction_applied': '補正適用可',
+    'correction_applied_with_limitations': '限定付補正適用可',
+    'correction_not_required': '補正不要',
+    'correction_missing': '補正欠如',
+    'correction_ineligible': '補正不適格',
+}
+
+_IFC_CAPABILITY_LABELS = {
+    'magnitude_correction_valid': '振幅補正',
+    'phase_correction_valid': '位相補正',
+    'absolute_gain_valid': '絶対ゲイン',
+    'latency_correction_valid': '遅延補正',
+    'component_truth_valid': '単側真値',
+    'calibration_linearity_evidenced': '校正線形性',
+}
+
+
+def interface_correction_state_label(state: str) -> str:
+    return _IFC_CORRECTION_STATE_LABELS.get(state, state)
+
+
+def interface_correction_line(qualification) -> str:
+    """One JA line for an interface-correction qualification (#699):
+    verdict plus path mismatches — 結合ループバックをDAC/ADC片側真値
+    とは読まない。"""
+    parts = [
+        interface_correction_state_label(qualification.state),
+        'SR: ' + str(qualification.sample_rate_applicability),
+    ]
+    if qualification.path_mismatches:
+        parts.append(
+            '経路不一致×{0}'.format(len(qualification.path_mismatches))
+        )
+    degraded = [
+        _IFC_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'I/F補正適格: ' + ' — '.join(parts)
+
+
+_GNS_STATE_LABELS = {
+    'gain_structure_qualified': '適格',
+    'qualified_with_limitations': '限定付適格',
+    'noise_floor_unattributed': 'ノイズ床未帰属',
+    'clip_stage_unresolved': 'クリップ段未同定',
+    'measurement_floor_limited': '測定器床支配',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_GNS_CAPABILITY_LABELS = {
+    'level_mapping_valid': 'レベル写像',
+    'noise_floor_attributed': 'ノイズ床帰属',
+    'snr_semantics_valid': 'SNR意味論',
+    'clip_stage_localized': 'クリップ段特定',
+    'headroom_chain_valid': 'ヘッドルーム連鎖',
+    'measurement_floor_not_exceeded': '測定器床未支配',
+    'multi_channel_stress_valid': '多ch負荷',
+}
+
+
+def gain_structure_state_label(state: str) -> str:
+    return _GNS_STATE_LABELS.get(state, state)
+
+
+def gain_structure_line(qualification) -> str:
+    """One JA line for a gain-structure qualification (#651):
+    verdict plus limiting stage — SNR を無前提の一数字とは読まない。"""
+    parts = [gain_structure_state_label(qualification.state)]
+    if qualification.limiting_stage_label:
+        parts.append('律速段: ' + qualification.limiting_stage_label)
+    degraded = [
+        _GNS_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'ゲイン構造適格: ' + ' — '.join(parts)
+
+
+_DYN_STATE_LABELS = {
+    'dynamics_state_controlled': 'ダイナミクス管理済',
+    'controlled_with_limitations': '限定付管理',
+    'hidden_processing_uncharacterized': '隠れ処理未特性化',
+    'state_mismatch': '状態不一致',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_DYN_CAPABILITY_LABELS = {
+    'fr_transfer_valid': 'FR伝達',
+    'absolute_level_valid': '絶対レベル',
+    'max_output_valid': '最大出力',
+    'comparison_eligible': '比較適格',
+    'causal_attribution_valid': '因果帰属',
+    'dynamics_state_pinned': 'DSP状態pin',
+}
+
+
+def playback_dynamics_state_label(state: str) -> str:
+    return _DYN_STATE_LABELS.get(state, state)
+
+
+def playback_dynamics_line(qualification) -> str:
+    """One JA line for a playback-dynamics qualification (#649):
+    verdict plus mechanism context — SPL飽和だけでリミッタ段を
+    名指ししない。"""
+    parts = [
+        playback_dynamics_state_label(qualification.state),
+        str(qualification.purpose),
+    ]
+    if qualification.state_mismatches:
+        parts.append(
+            '状態不一致×{0}'.format(len(qualification.state_mismatches))
+        )
+    degraded = [
+        _DYN_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '再生ダイナミクス適格: ' + ' — '.join(parts)
+
+
+_AXO_STATE_LABELS = {
+    'crossover_qualified': 'XO適格',
+    'qualified_with_limitations': '限定付XO適格',
+    'routing_unproven': '経路未証明',
+    'splice_incoherent': 'スプライス不整合',
+    'protection_compromised': '保護欠落',
+    'deployed_state_mismatch': '実機状態不一致',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_AXO_CAPABILITY_LABELS = {
+    'routing_verified': '経路証明',
+    'protection_intact': '保護フィルタ',
+    'per_way_measured': 'ウェイ別測定',
+    'splice_coherent': 'スプライス整合',
+    'recombined_response_valid': '再合成応答',
+    'high_level_valid': '高レベル',
+    'off_axis_valid': '軸外',
+    'room_correction_eligible': '室補正許可',
+}
+
+
+def active_crossover_state_label(state: str) -> str:
+    return _AXO_STATE_LABELS.get(state, state)
+
+
+def active_crossover_line(qualification) -> str:
+    """One JA line for an active-crossover qualification (#665):
+    verdict plus room-correction gate — XO未較正の室補正 claim は
+    出さない。"""
+    parts = [active_crossover_state_label(qualification.state)]
+    gate = dict(qualification.capabilities).get(
+        'room_correction_eligible'
+    )
+    parts.append('室補正: ' + str(gate))
+    degraded = [
+        _AXO_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return 'アクティブXO適格: ' + ' — '.join(parts)
+
+
+_REP_STATE_LABELS = {
+    'precision_model_established': '精度モデル確立',
+    'limited_scope_precision': '限定精度',
+    'repeatability_only_established': '繰返し精度のみ',
+    'confounded_design': '因子交絡設計',
+    'insufficient_runs': 'ラン不足',
+    'unqualified_insufficient_evidence': '証拠不足',
+}
+
+_REP_TIER_LABELS = {
+    'repeatability_only': '繰返し条件のみ',
+    'intermediate_precision': '中間精度',
+    'internal_reproducibility': '社内再現性',
+    'interlaboratory_formal': '公式室間再現性',
+    'unknown': '不明',
+}
+
+_REP_CAPABILITY_LABELS = {
+    'repeatability_known': '繰返し精度',
+    'between_operator_known': 'オペレータ間',
+    'between_instrument_known': '機器間',
+    'between_position_known': '位置間',
+    'between_session_known': 'セッション間',
+    'prediction_gate_eligible': '予測検証ゲート',
+    'decision_gate_eligible': '判定ゲート',
+}
+
+
+def reproducibility_state_label(state: str) -> str:
+    return _REP_STATE_LABELS.get(state, state)
+
+
+def reproducibility_line(qualification) -> str:
+    """One JA line for a reproducibility qualification (#693):
+    verdict plus evidence tier — 繰返し可能を再現可能とは読まない。"""
+    parts = [
+        reproducibility_state_label(qualification.state),
+        '階層: ' + _REP_TIER_LABELS.get(
+            qualification.evidence_tier, qualification.evidence_tier
+        ),
+    ]
+    if qualification.confounded_factors:
+        parts.append(
+            '交絡因子×{0}'.format(len(qualification.confounded_factors))
+        )
+    degraded = [
+        _REP_CAPABILITY_LABELS.get(capability, capability)
+        for capability, state in qualification.capabilities
+        if state in ('invalid', 'limited')
+    ]
+    if degraded:
+        parts.append('限定/不可: ' + ' / '.join(degraded))
+    if qualification.reasons:
+        parts.append(qualification.reasons[0])
+    return '再現性適格: ' + ' — '.join(parts)
