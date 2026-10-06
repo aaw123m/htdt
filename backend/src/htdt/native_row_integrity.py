@@ -7407,6 +7407,78 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_power_sequence_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('amplifier_step', 'amplifier_step'),
+            _b('amplifier_last_on_first_off', 'amplifier_last_on_first_off'),
+        ),
+        (),
+    ),
+    'cad_power_sequence_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_power_quality_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('instrument_class', 'instrument_class'),
+        ),
+        (),
+    ),
+    'cad_indoor_air_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('sensor_class', 'sensor_class'),
+        ),
+        (),
+    ),
+    'cad_material_emission_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('emission_class', 'emission_class'),
+        ),
+        (),
+    ),
+    'cad_product_safety_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('safety_standard', 'safety_standard'),
+        ),
+        (),
+    ),
+    'cad_emc_compliance_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_kind', 'profile_kind'),
+        ),
+        (),
+    ),
 
 }
 
