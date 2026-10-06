@@ -1323,6 +1323,12 @@ class _RepositoryChain:
             )
 
             return CadCadRefRepository(scene)
+        if name == 'verauto':
+            from .cad_verification_repository import (
+                CadVerAutoRepository,
+            )
+
+            return CadVerAutoRepository(scene)
         raise KeyError(name)
 
 
@@ -6501,6 +6507,18 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_reference_room_profiles',
         ('profile_id',),
         _get('cadref', 'get_reference_profile'),
+    ),
+    _ReplayProbe(
+        'verauto',
+        'cad_verification_requirements',
+        ('requirement_id',),
+        _get('verauto', 'get_verification_requirement'),
+    ),
+    _ReplayProbe(
+        'verauto',
+        'cad_verification_closures',
+        ('closure_id',),
+        _get('verauto', 'get_verification_closure'),
     ),
 
 )

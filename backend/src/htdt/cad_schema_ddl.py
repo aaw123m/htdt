@@ -7353,6 +7353,34 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     ,
     """CREATE INDEX IF NOT EXISTS cad_reference_room_profiles_document_idx ON cad_reference_room_profiles (document_id)
     """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_verification_requirements (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    requirement_id TEXT NOT NULL UNIQUE,
+    requirement_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    issue_ref TEXT NOT NULL,
+    evaluator_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE TABLE IF NOT EXISTS cad_verification_closures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    closure_id TEXT NOT NULL UNIQUE,
+    closure_sha256 TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    evaluator_verdict TEXT NOT NULL,
+    payload_json TEXT NOT NULL
+)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_verification_requirements_document_idx ON cad_verification_requirements (document_id)
+    """
+    ,
+    """CREATE INDEX IF NOT EXISTS cad_verification_closures_document_idx ON cad_verification_closures (document_id)
+    """
+    ,
 )
 
 
@@ -8327,4 +8355,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_bom_estimates',
     'cad_cadence_delivery_evidence',
     'cad_reference_room_profiles',
+    'cad_verification_requirements',
+    'cad_verification_closures',
 )

@@ -4130,3 +4130,17 @@ issues:
         kind: pytest
         tests: [backend/tests/test_rev59_cadref.py::test_reference_ladder]
         description: Reference ≠ design target.
+  - issue: verification-automation
+    title: "Device-verification requirement/closure authority"
+    notes: >
+      VerificationRequirement (vrq-) declares which acquisition
+      cells a device-gated issue needs plus the deciding
+      evaluator; VerificationClosure (vcl-) binds the derived
+      runner plan, committed cells, evidence refs and verdict —
+      a gate only closes when required evidence is committed and
+      the evaluator passed.
+    checks:
+      - id: verification-closure
+        kind: pytest
+        tests: [backend/tests/test_rev59_verauto.py::test_verification_ladder]
+        description: Closure requires committed evidence + pass.
