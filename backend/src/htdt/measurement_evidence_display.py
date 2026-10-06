@@ -4074,3 +4074,129 @@ def fidelity_cost_line(profile: SolverBudgetProfile, claim: str) -> str:
     if not profile.predicted_costs:
         parts.append('予測コスト未登録')
     return '計算予算: ' + ' — '.join(parts)
+
+
+from .cad_clock_jitter import (  # noqa: E402
+    CLAIM_VERDICT_LABELS as _JITTER_VERDICT_LABELS,
+)
+from .cad_wordlength_path import (  # noqa: E402
+    LOW_LEVEL_LABELS as _LOW_LEVEL_LABELS,
+)
+from .cad_playback_src import (  # noqa: E402
+    SRC_VERDICT_LABELS as _SRC_VERDICT_LABELS,
+)
+from .cad_interchannel_crosstalk import (  # noqa: E402
+    SEPARATION_LABELS as _SEPARATION_LABELS,
+    ChannelSeparationQualification,
+)
+
+
+def jitter_claim_line(verdict: str) -> str:
+    """One JA line for a jitter claim gate (#745) —
+    ロック状態とジッタ性能は別の測定量。"""
+    return 'ジッタ: ' + _JITTER_VERDICT_LABELS.get(verdict, verdict)
+
+
+def wordlength_claim_line(verdict: str) -> str:
+    """One JA line for a low-level path verdict (#744) —
+    フォーマット表示は再量子化を隠せない。"""
+    return '低レベル処理: ' + _LOW_LEVEL_LABELS.get(verdict, verdict)
+
+
+def src_claim_line(verdict: str) -> str:
+    """One JA line for a playback SRC gate (#739) —
+    同期ロック済みでも SRC は音を変え得る。"""
+    return 'SRC: ' + _SRC_VERDICT_LABELS.get(verdict, verdict)
+
+
+def separation_claim_line(
+    qualification: ChannelSeparationQualification | None,
+    verdict: str,
+) -> str:
+    """One JA line for a channel-separation verdict (#650) —
+    正しい配線は分離の証明にならない。"""
+    parts = [_SEPARATION_LABELS.get(verdict, verdict)]
+    if qualification is not None and qualification.required_pairs:
+        parts.append(
+            '測定ペア {0}/{1}'.format(
+                qualification.measured_pairs,
+                qualification.required_pairs))
+    return 'チャネル分離: ' + ' — '.join(parts)
+
+
+from .cad_projector_dynamic_light import (  # noqa: E402
+    VERDICT_LABELS as _CONTRAST_VERDICT_LABELS,
+    TemporalContrastMeasurement,
+)
+from .cad_low_luminance import (  # noqa: E402
+    BLACK_LABELS as _BLACK_LABELS,
+)
+from .cad_display_acoustic_boundary import (  # noqa: E402
+    VERDICT_LABELS as _FRONTSTAGE_LABELS,
+)
+from .cad_codec_fidelity import (  # noqa: E402
+    FIDELITY_LABELS as _FIDELITY_LABELS,
+    CodecChainProfile,
+)
+
+
+def temporal_contrast_line(
+    measurement: TemporalContrastMeasurement, verdict: str
+) -> str:
+    """One JA line for a contrast measurand comparison (#759) —
+    シーケンシャル動的値とネイティブ値は同じ量ではない。"""
+    parts = [_CONTRAST_VERDICT_LABELS.get(verdict, verdict)]
+    parts.append(measurement.measurand)
+    return 'コントラスト: ' + ' — '.join(parts)
+
+
+def black_level_line(verdict: str) -> str:
+    """One JA line for a black-level verdict (#756) —
+    「測定不能に低い」は「0 cd/m²」ではない。"""
+    return '黒レベル: ' + _BLACK_LABELS.get(verdict, verdict)
+
+
+def frontstage_line(verdict: str) -> str:
+    """One JA line for a front-stage placement verdict (#760) —
+    大きな表示壁は音響境界でもある。"""
+    return 'フロントステージ: ' + _FRONTSTAGE_LABELS.get(verdict, verdict)
+
+
+def codec_fidelity_line(
+    chain: CodecChainProfile, verdict: str
+) -> str:
+    """One JA line for a codec-fidelity verdict (#753/#747) —
+    再生成功と正しいモードは忠実度の証明にならない。"""
+    parts = [_FIDELITY_LABELS.get(verdict, verdict)]
+    if chain.hidden_processing_detected:
+        parts.append('隠れ処理を検出')
+    return 'コーデック忠実度: ' + ' — '.join(parts)
+
+
+from .cad_power_sequencing import (  # noqa: E402
+    SEQUENCE_LABELS as _SEQ_LABELS,
+)
+from .cad_power_quality import (  # noqa: E402
+    PQ_LABELS as _PQ_LABELS,
+)
+from .cad_emc_evidence import (  # noqa: E402
+    EMC_LABELS as _EMC_LABELS,
+)
+
+
+def power_sequence_line(verdict: str) -> str:
+    """One JA line for a power-sequence verdict (#736) —
+    容量とシーンだけでは安全な順序を証明しない。"""
+    return '電源シーケンス: ' + _SEQ_LABELS.get(verdict, verdict)
+
+
+def power_quality_line(verdict: str) -> str:
+    """One JA line for a supply-quality verdict (#738) —
+    回路容量は電圧安定性を意味しない。"""
+    return '電源品質: ' + _PQ_LABELS.get(verdict, verdict)
+
+
+def emc_line(verdict: str) -> str:
+    """One JA line for an EMC-evidence verdict (#752) —
+    安全性承認はEMC証拠ではなく、症状は不適合の証明ではない。"""
+    return 'EMC証拠: ' + _EMC_LABELS.get(verdict, verdict)

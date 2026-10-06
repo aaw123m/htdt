@@ -2830,6 +2830,239 @@ issues:
         description: >
           計画書を docs/validation/room-state-benchmark-admission.md に
           記録。実取込・fixture 化は後続。
+  - issue: 745
+    title: "Digital sample-clock jitter metrology — lock is not low jitter"
+    notes: >
+      SampleClockJitterProfile (jmp-) pins the measurands an instrument
+      actually covers; SampleClockJitterObservation (job-), JitterTransfer-
+      Measurement (jtf-) and ConverterJitterSusceptibility (cjs-) carry the
+      evidence. evaluate_jitter_claim: lock alone is supported_with_limitations
+      (lock_only_not_jitter); low_jitter needs observations (spectrum for full
+      support); converter_immune needs dedicated susceptibility evidence —
+      ordinary audio measurements are insufficient (Dunn). AES-12id-2020
+      basis; AES-12id-R stays RESEARCH_ONLY until published.
+    checks:
+      - id: jitter-metrology
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_lock_only_not_low_jitter
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_low_jitter_needs_observation
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_immunity_needs_susceptibility
+          - backend/tests/test_rev59_digchain.py::TestClockJitter::test_susceptibility_verdict_needs_data
+        description: >
+          Lock-vs-jitter separation, susceptibility evidence requirement,
+          spectrum vs scalar verdicts.
+  - issue: 744
+    title: "Digital-audio word-length / dither / gain authority"
+    notes: >
+      DitherNoiseShapeProfile (dns-) pins dither kind (undithered /
+      subtractive / non-subtractive TPDF / shaped — Lipshitz 1992 taxonomy)
+      and shape order; DigitalPathTransformRecord (dpt-) seals each
+      requantization/gain stage with declared rounding mode or pinned dither.
+      evaluate_low_level_claim: undithered truncation anywhere in the path
+      makes low-level claims uncontrolled — the format label cannot hide
+      requantization (Vanderkooy & Lipshitz 1989). AES17-2020 FS semantics.
+    checks:
+      - id: wordlength-path
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_undithered_truncation_uncontrolled
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_dithered_path_controlled
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_requantization_needs_rounding_or_dither
+          - backend/tests/test_rev59_digchain.py::TestWordlengthPath::test_noise_shaped_requires_order
+        description: >
+          Undithered-requantization detection, dither profile pinning,
+          low-level verdict ladder.
+  - issue: 739
+    title: "Playback sample-rate-conversion authority — hidden SRC state"
+    notes: >
+      PlaybackSrcProfile (srcp-) declares rates + algorithm (asynchronous
+      SRC is a clock-domain crossing, not file conversion — Midya et al.);
+      SrcQualificationRecord (srcq-) pins measured alias/image rejection;
+      ClockDomainCrossingRecord (cdc-) keeps declared vs observed crossing.
+      evaluate_src_claim: declared same_domain + observed crossing →
+      hidden_conversion; unqualified stage → converted_unqualified;
+      exact-sample claim impossible while conversions exist.
+    checks:
+      - id: playback-src
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_hidden_conversion
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_unqualified_stage
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_exact_claim_not_sample_exact_with_src
+          - backend/tests/test_rev59_digchain.py::TestPlaybackSrc::test_crossing_observed_needs_evidence
+        description: >
+          Hidden-SRC detection, qualification gate, sample-identity claim
+          fail-closed.
+  - issue: 650
+    title: "Interchannel crosstalk / separation qualification"
+    notes: >
+      InterchannelLeakageMeasurement (xtk-) binds driven/observed pair +
+      stage + method (IEC 60268-3 / AES17 / swept sine / stimulus-specific)
+      + stimulus pin; ChannelSeparationQualification (csep-) seals
+      threshold + worst-case + pair coverage verdict. evaluate_separation-
+      claim: routing verified alone is insufficient_evidence; intended
+      matrix mixing stays a separate declarand from unintended leakage.
+    checks:
+      - id: channel-separation
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_routing_alone_insufficient
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_qualified_requires_full_pairs
+          - backend/tests/test_rev59_digchain.py::TestInterchannelCrosstalk::test_qualified_verdict
+        description: >
+          Routing-vs-isolation separation, pair-coverage gate, threshold
+          verdicts.
+  - issue: 759
+    title: "Projector dynamic-light / temporal-contrast authority"
+    notes: >
+      ProjectorDynamicLightProfile (pdl-) pins the device's dynamic
+      control modes; TemporalContrastMeasurement (tcnt-) pins measurand
+      kind (native_static / sequential_dynamic / simultaneous_intraframe /
+      adl_conditioned / installed_system), stimulus and light mode —
+      sequential_dynamic requires a declared dynamic mode. compare_
+      contrast_claims: measurand or light-mode mismatch → incomparable.
+    checks:
+      - id: temporal-contrast
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_measurand_mismatch_incomparable
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_sequential_needs_dynamic_mode
+          - backend/tests/test_rev59_vidmeta.py::TestDynamicLight::test_same_measurand_comparable
+        description: >
+          Measurand separation, dynamic-mode pinning, fail-closed
+          comparison.
+  - issue: 756
+    title: "Display low-luminance / stray-light metrology authority"
+    notes: >
+      DisplayLightMeasurementCapability (lmc-) pins the measurement
+      floor + stray-light control (IDMS A2/A3); LowLuminanceObservation
+      (llo-) binds reading + FOV/visible-luminance context.
+      evaluate_black_claim: below floor → below_capability (never 0,
+      never infinite contrast); uncontrolled stray light → contaminated.
+      evaluate_contrast_claim: below-floor black → lower_bound_only.
+    checks:
+      - id: low-luminance
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_below_floor_not_zero
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_uncontrolled_stray_contaminated
+          - backend/tests/test_rev59_vidmeta.py::TestLowLuminance::test_contrast_lower_bound_only
+        description: >
+          Capability-floor gating, zero/infinite rejection, contamination
+          detection.
+  - issue: 760
+    title: "Direct-view / LED-wall acoustic-boundary authority"
+    notes: >
+      DisplayAcousticBoundaryProfile (dab-) declares transmission —
+      acoustically transparent/micro-perforated requires pinned
+      transmission evidence (marketing copy is not evidence).
+      FrontStageVariantRecord (fsv-) binds strategy + speakers +
+      verdict. evaluate_frontstage_claim: behind_screen_lcr on opaque →
+      placement_blocked; unknown/partial → transmission_evidence_required.
+    checks:
+      - id: display-boundary
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_transparent_needs_evidence
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_opaque_blocks_behind_lcr
+          - backend/tests/test_rev59_vidmeta.py::TestDisplayBoundary::test_unknown_transmission_needs_evidence
+        description: >
+          Transmission-evidence gating, behind-screen placement verdicts.
+  - issue: 753
+    title: "Video codec / transcode fidelity authority"
+    notes: >
+      CodecChainProfile (cfp-) declares codec steps + hidden processing;
+      QualityMethodProfile (qmp-) pins the assessment method family
+      (P.910/P.1204/J.247 — full-reference requires the reference);
+      CodecFidelityObservation (cfo-) binds chain+method+outcome.
+      evaluate_fidelity_claim: bit_transparent needs a lossless/
+      passthrough chain; perceptually_transparent needs method evidence;
+      impairment flag downgrades to impaired. Playback success is never
+      fidelity evidence.
+    checks:
+      - id: codec-fidelity
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_bit_transparent_fails_on_lossy
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_perceptual_needs_evidence
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_impairment_downgrades
+        description: >
+          Bit-transparent vs perceptual claims, method pinning,
+          impairment downgrade.
+  - issue: 747
+    title: "Media codec / transcode fidelity authority (audio)"
+    notes: >
+      Same authority as #753 — CodecChainProfile/QualityMethodProfile/
+      CodecFidelityObservation cover the audio path (BS.1387-2 PEAQ
+      method kind). Hidden SRC/word-length/gain/normalization steps and
+      layout reductions must be declared chain state.
+    checks:
+      - id: codec-fidelity-audio
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_lossless_chain_no_hidden
+          - backend/tests/test_rev59_vidmeta.py::TestCodecFidelity::test_bit_transparent_lossless
+        description: >
+          Audio codec chain declarations, hidden-processing contradiction
+          detection.
+  - issue: 736
+    title: "AV power-sequencing / outage-recovery authority"
+    notes: >
+      PowerSequencingProfile (psq-) pins stage order, amplifier devices,
+      always-on devices and inrush staging — power_off must declare
+      amps. PowerSequenceEvent (psev-) pins the observed transition;
+      UpsTransitionRecord (upst-) pins UPS transfer + recovery.
+      evaluate_sequence_claim: capacity or a working scene never proves
+      deterministic order; amp last-on/first-off and always-on survival
+      are gated separately.
+    checks:
+      - id: power-sequencing
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_amp_violation_on
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_always_on_violation
+          - backend/tests/test_rev59_powerev.py::TestPowerSequencing::test_verified
+        description: >
+          Declared vs observed stage order, amplifier timing gating,
+          always-on survival.
+  - issue: 738
+    title: "AC power-quality measurement authority"
+    notes: >
+      PowerQualityMeasurement (pqm-) pins in-situ RMS V/f, THD and
+      declared PQ events (dip/swell/interruption/RVC/transient);
+      PowerQualityQualification (pqq-) binds a verdict + limits profile
+      to pinned evidence. evaluate_supply_claim: circuit capacity never
+      implies a stable supply; interruptions/transients degrade.
+    checks:
+      - id: power-quality
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_capacity_not_stability
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_interruption_degrades
+          - backend/tests/test_rev59_powerev.py::TestPowerQuality::test_qualified_needs_limits_profile
+        description: >
+          Capacity-vs-stability separation, event taxonomy, limits
+          profile requirement.
+  - issue: 752
+    title: "AV/ICT product EMC evidence authority"
+    notes: >
+      EmcProductProfile (emc-) pins emissions and immunity test refs
+      separately per standard, bound to product identity and tested
+      configuration; EmcSymptomRecord (emcs-) binds field symptoms to a
+      diagnosis path. evaluate_emc_claim: safety approval never
+      substitutes for EMC evidence; a field symptom alone never proves
+      non-conformance.
+    checks:
+      - id: emc-evidence
+        kind: pytest
+        tests:
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_safety_not_emc
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_symptom_not_nonconformance
+          - backend/tests/test_rev59_powerev.py::TestEmcEvidence::test_partial_evidence
+        description: >
+          Safety/EMC separation, symptom-vs-conformance honesty,
+          emissions+immunity completeness.
   - issue: 728
     title: "Typed physical-quantity / unit authority"
     notes: >

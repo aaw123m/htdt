@@ -2,8 +2,9 @@
 
 スコープ: issue #728 (P0) / #730 (P1) / #720 (P1) / #719 (P1)
 ブランチ: `devin/1791279230-rev59-units`（merge-test 経由マージ）
-スキーマ: native schema v52 → v53（11 テーブル + インデックス追加 —
-REV59-BENCH2 が v52 まで先取したため連番で v53 に着地）
+スキーマ: native schema v55 → v56（11 テーブル + インデックス追加 —
+REV59-BENCH2/DIGCHAIN/VIDMETA/POWEREV が v55 まで先取したため連番で
+v56 に着地）
 
 ## 実装範囲
 
@@ -221,10 +222,10 @@ REV59-BENCH2 が v52 まで先取したため連番で v53 に着地）
 
 ## 統合
 
-- スキーマ v53: `NATIVE_BASELINE_DDL` に 11 CREATE TABLE + INDEX、
-  `NATIVE_SCHEMA_TABLES` 登録、`_migrate_52_to_53`、
-  `_MIGRATIONS[53]`、`test_cad_schema.py` 台帳に
-  `(53, 'migrate native schema to v53')`。
+- スキーマ v56: `NATIVE_BASELINE_DDL` に 11 CREATE TABLE + INDEX、
+  `NATIVE_SCHEMA_TABLES` 登録、`_migrate_55_to_56`、
+  `_MIGRATIONS[56]`、`test_cad_schema.py` 台帳に
+  `(56, 'migrate native schema to v56')`。
 - `native_row_integrity.py` `_ROW_BINDINGS` に 11 テーブル分の
   列↔payload バインド。
 - `native_authority_audit.py` に `_RepositoryChain` ファクトリ
@@ -252,7 +253,7 @@ REV59-BENCH2 が v52 まで先取したため連番で v53 に着地）
 - DIA 系: 原因 family 多様性・intervention 宣言必須・事前宣言
   予測必須・確認ラダー・交絡・多重故障・全矛盾→unresolved・
   claim 許可ゲート・往復+改竄
-- 横断: v53 スキーマ台帳・`NATIVE_SCHEMA_TABLES` 登録・
+- 横断: v56 スキーマ台帳・`NATIVE_SCHEMA_TABLES` 登録・
   row-integrity binding 完全性・audit probe 網羅
 
 scoped pytest: `test_rev59_units.py` 40 本 +

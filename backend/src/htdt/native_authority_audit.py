@@ -1196,6 +1196,24 @@ class _RepositoryChain:
             )
 
             return CadFieldMetricRepository(scene)
+        if name == 'signal_integrity':
+            from .cad_signal_integrity_repository import (
+                CadSignalIntegrityRepository,
+            )
+
+            return CadSignalIntegrityRepository(scene)
+        if name == 'media_fidelity':
+            from .cad_media_fidelity_repository import (
+                CadMediaFidelityRepository,
+            )
+
+            return CadMediaFidelityRepository(scene)
+        if name == 'power_evidence':
+            from .cad_power_evidence_repository import (
+                CadPowerEvidenceRepository,
+            )
+
+            return CadPowerEvidenceRepository(scene)
         # REV59-UNITS authorities.
         if name == 'typed_quantity':
             from .cad_typed_quantity_repository import (
@@ -5484,6 +5502,175 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_accuracy_cost_envelopes',
         ('envelope_id',),
         _get('field_metric', 'get_cost_envelope'),
+    ),
+    # REV59-DIGCHAIN: #745/#744/#739/#650 signal-integrity authorities
+    _ReplayProbe(
+        'jitter_profile',
+        'cad_jitter_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_jitter_profile'),
+    ),
+    _ReplayProbe(
+        'jitter_observation',
+        'cad_jitter_observations',
+        ('observation_id',),
+        _get('signal_integrity', 'get_jitter_observation'),
+    ),
+    _ReplayProbe(
+        'jitter_transfer',
+        'cad_jitter_transfer_measurements',
+        ('measurement_id',),
+        _get('signal_integrity', 'get_jitter_transfer'),
+    ),
+    _ReplayProbe(
+        'converter_jitter_susceptibility',
+        'cad_converter_jitter_susceptibility',
+        ('susceptibility_id',),
+        _get('signal_integrity', 'get_converter_susceptibility'),
+    ),
+    _ReplayProbe(
+        'dither_profile',
+        'cad_dither_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_dither_profile'),
+    ),
+    _ReplayProbe(
+        'digital_path_transform',
+        'cad_digital_path_transforms',
+        ('transform_id',),
+        _get('signal_integrity', 'get_path_transform'),
+    ),
+    _ReplayProbe(
+        'playback_src_profile',
+        'cad_playback_src_profiles',
+        ('profile_id',),
+        _get('signal_integrity', 'get_src_profile'),
+    ),
+    _ReplayProbe(
+        'src_qualification',
+        'cad_src_qualifications',
+        ('qualification_id',),
+        _get('signal_integrity', 'get_src_qualification'),
+    ),
+    _ReplayProbe(
+        'clock_domain_crossing',
+        'cad_clock_domain_crossings',
+        ('crossing_id',),
+        _get('signal_integrity', 'get_clock_crossing'),
+    ),
+    _ReplayProbe(
+        'interchannel_leakage',
+        'cad_interchannel_leakage_measurements',
+        ('measurement_id',),
+        _get('signal_integrity', 'get_leakage_measurement'),
+    ),
+    _ReplayProbe(
+        'channel_separation',
+        'cad_channel_separation_qualifications',
+        ('qualification_id',),
+        _get('signal_integrity', 'get_separation_qualification'),
+    ),    # REV59-VIDMETA: #759/#756/#760/#753/#747 media fidelity authorities
+    _ReplayProbe(
+        'projector_light_profile',
+        'cad_projector_light_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_light_profile'),
+    ),
+    _ReplayProbe(
+        'temporal_contrast_measure',
+        'cad_temporal_contrast_measures',
+        ('measurement_id',),
+        _get('media_fidelity', 'get_contrast_measure'),
+    ),
+    _ReplayProbe(
+        'dynamic_contrast_qualification',
+        'cad_dynamic_contrast_qualifications',
+        ('qualification_id',),
+        _get('media_fidelity', 'get_contrast_qualification'),
+    ),
+    _ReplayProbe(
+        'light_capability',
+        'cad_light_measurement_capabilities',
+        ('capability_id',),
+        _get('media_fidelity', 'get_light_capability'),
+    ),
+    _ReplayProbe(
+        'luminance_observation',
+        'cad_low_luminance_observations',
+        ('observation_id',),
+        _get('media_fidelity', 'get_luminance_observation'),
+    ),
+    _ReplayProbe(
+        'display_boundary_profile',
+        'cad_display_boundary_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_boundary_profile'),
+    ),
+    _ReplayProbe(
+        'front_stage_variant',
+        'cad_front_stage_variants',
+        ('variant_id',),
+        _get('media_fidelity', 'get_front_stage_variant'),
+    ),
+    _ReplayProbe(
+        'codec_chain_profile',
+        'cad_codec_chain_profiles',
+        ('profile_id',),
+        _get('media_fidelity', 'get_codec_chain'),
+    ),
+    _ReplayProbe(
+        'quality_method_profile',
+        'cad_quality_method_profiles',
+        ('method_id',),
+        _get('media_fidelity', 'get_quality_method'),
+    ),
+    _ReplayProbe(
+        'codec_fidelity_observation',
+        'cad_codec_fidelity_observations',
+        ('observation_id',),
+        _get('media_fidelity', 'get_fidelity_observation'),
+    ),    # REV59-POWEREV: #736/#738/#752 power/EMC authorities
+    _ReplayProbe(
+        'power_sequencing_profile',
+        'cad_power_sequencing_profiles',
+        ('profile_id',),
+        _get('power_evidence', 'get_sequencing_profile'),
+    ),
+    _ReplayProbe(
+        'power_sequence_event',
+        'cad_power_sequence_events',
+        ('event_id',),
+        _get('power_evidence', 'get_sequence_event'),
+    ),
+    _ReplayProbe(
+        'ups_transition',
+        'cad_ups_transition_records',
+        ('record_id',),
+        _get('power_evidence', 'get_ups_transition'),
+    ),
+    _ReplayProbe(
+        'power_quality_measure',
+        'cad_power_quality_measurements',
+        ('measurement_id',),
+        _get('power_evidence', 'get_pq_measurement'),
+    ),
+    _ReplayProbe(
+        'power_quality_qualification',
+        'cad_power_quality_qualifications',
+        ('qualification_id',),
+        _get('power_evidence', 'get_pq_qualification'),
+    ),
+    _ReplayProbe(
+        'emc_product_profile',
+        'cad_emc_product_profiles',
+        ('profile_id',),
+        _get('power_evidence', 'get_emc_profile'),
+    ),
+    _ReplayProbe(
+        'emc_symptom',
+        'cad_emc_symptom_records',
+        ('record_id',),
+        _get('power_evidence', 'get_emc_symptom'),
     ),
     # REV59-UNITS: #728 typed physical quantity
     _ReplayProbe(

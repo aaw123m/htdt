@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 53
+NATIVE_SCHEMA_VERSION = 56
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1632,6 +1632,31 @@ def _migrate_51_to_52(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_52_to_53(connection: sqlite3.Connection) -> None:
+    # Install the REV59-DIGCHAIN authorities (#745 clock jitter, #744
+    # word-length/dither path, #739 playback SRC, #650 crosstalk):
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_53_to_54(connection: sqlite3.Connection) -> None:
+    # Install the REV59-VIDMETA authorities (#759 dynamic light, #756
+    # low-luminance metrology, #760 display acoustic boundary,
+    # #753/#747 codec fidelity): new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_54_to_55(connection: sqlite3.Connection) -> None:
+    # Install the REV59-POWEREV authorities (#736 power sequencing,
+    # #738 AC power quality, #752 EMC evidence): new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_55_to_56(connection: sqlite3.Connection) -> None:
     # Install the REV59-UNITS authorities (#728 typed physical
     # quantity: quantities, operations; #730 engineering-assumption /
     # permissible-use ledger: assumptions, resolutions, assessments;
@@ -1697,6 +1722,9 @@ _MIGRATIONS = {
     51: _migrate_50_to_51,
     52: _migrate_51_to_52,
     53: _migrate_52_to_53,
+    54: _migrate_53_to_54,
+    55: _migrate_54_to_55,
+    56: _migrate_55_to_56,
 }
 
 
