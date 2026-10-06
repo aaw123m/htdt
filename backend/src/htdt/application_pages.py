@@ -769,7 +769,25 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_bom_estimates": "BOM・見積",
     "cad_cadence_delivery_evidence": "コーデンス配信証拠",
     "cad_reference_room_profiles": "参照室プロファイル",
-
+    "cad_service_access_observations": "保守アクセス観測レコード",    "cad_large_signal_models": "大信号トランスデューサモデル",
+    "cad_excursion_capabilities": "振幅能力証拠",
+    "cad_vent_flow_capabilities": "ポート・通気流動能力",
+    "cad_mechanical_output_limits": "機械的出力限界評価",
+    "cad_source_normalizations": "ソース規格化宣言",
+    "cad_reference_drive_conditions": "基準ドライブ条件",
+    "cad_absolute_output_anchors": "絶対出力アンカー",
+    "cad_sustained_output_tests": "持続出力試験",
+    "cad_thermal_compression_observations": "熱圧縮観測",
+    "cad_recovery_profiles": "回復プロファイル",
+    "cad_microphone_directional_profiles": "測定マイク指向性プロファイル",
+    "cad_receiver_orientation_states": "受信器姿勢状態",
+    "cad_microphone_incidence_applicability": "マイク入射角適用範囲",
+    "cad_same_channel_arrays": "同チャネルスピーカーアレイ",
+    "cad_array_reproduction_modes": "アレイ再生モード",
+    "cad_array_qualifications": "アレイ音響検定",
+    "cad_loudspeaker_front_layers": "ラウドスピーカ前面層",
+    "cad_grille_transfer_evidence": "グリル透過証拠",
+    "cad_front_layer_applicability": "前面層適用範囲",
 }
 
 

@@ -1323,6 +1323,12 @@ class _RepositoryChain:
             )
 
             return CadCadRefRepository(scene)
+        if name == 'loudspeaker_evidence':
+            from .cad_loudspeaker_evidence_repository import (
+                CadLoudspeakerEvidenceRepository,
+            )
+
+            return CadLoudspeakerEvidenceRepository(scene)
         raise KeyError(name)
 
 
@@ -6501,6 +6507,122 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_reference_room_profiles',
         ('profile_id',),
         _get('cadref', 'get_reference_profile'),
+    ),
+    # REV59-LOUDSPK: #754/#734/#731/#732/#737/#735 loudspeaker-output,
+    # receiver and install authorities
+    _ReplayProbe(
+        'large_signal_model',
+        'cad_large_signal_models',
+        ('model_id',),
+        _get('loudspeaker_evidence', 'get_large_signal_model'),
+    ),
+    _ReplayProbe(
+        'excursion_capability',
+        'cad_excursion_capabilities',
+        ('capability_id',),
+        _get('loudspeaker_evidence', 'get_excursion_capability'),
+    ),
+    _ReplayProbe(
+        'vent_flow_capability',
+        'cad_vent_flow_capabilities',
+        ('capability_id',),
+        _get('loudspeaker_evidence', 'get_vent_flow_capability'),
+    ),
+    _ReplayProbe(
+        'mechanical_output_limit',
+        'cad_mechanical_output_limits',
+        ('assessment_id',),
+        _get('loudspeaker_evidence', 'get_output_limit'),
+    ),
+    _ReplayProbe(
+        'source_normalization',
+        'cad_source_normalizations',
+        ('normalization_id',),
+        _get('loudspeaker_evidence', 'get_source_normalization'),
+    ),
+    _ReplayProbe(
+        'reference_drive_condition',
+        'cad_reference_drive_conditions',
+        ('condition_id',),
+        _get('loudspeaker_evidence', 'get_drive_condition'),
+    ),
+    _ReplayProbe(
+        'absolute_output_anchor',
+        'cad_absolute_output_anchors',
+        ('anchor_id',),
+        _get('loudspeaker_evidence', 'get_output_anchor'),
+    ),
+    _ReplayProbe(
+        'sustained_output_test',
+        'cad_sustained_output_tests',
+        ('test_id',),
+        _get('loudspeaker_evidence', 'get_sustained_test'),
+    ),
+    _ReplayProbe(
+        'thermal_compression_observation',
+        'cad_thermal_compression_observations',
+        ('observation_id',),
+        _get('loudspeaker_evidence', 'get_compression_observation'),
+    ),
+    _ReplayProbe(
+        'recovery_profile',
+        'cad_recovery_profiles',
+        ('profile_id',),
+        _get('loudspeaker_evidence', 'get_recovery_profile'),
+    ),
+    _ReplayProbe(
+        'microphone_directional_profile',
+        'cad_microphone_directional_profiles',
+        ('profile_id',),
+        _get('loudspeaker_evidence', 'get_mic_profile'),
+    ),
+    _ReplayProbe(
+        'receiver_orientation_state',
+        'cad_receiver_orientation_states',
+        ('state_id',),
+        _get('loudspeaker_evidence', 'get_orientation_state'),
+    ),
+    _ReplayProbe(
+        'microphone_incidence_applicability',
+        'cad_microphone_incidence_applicability',
+        ('applicability_id',),
+        _get('loudspeaker_evidence', 'get_incidence_applicability'),
+    ),
+    _ReplayProbe(
+        'same_channel_array',
+        'cad_same_channel_arrays',
+        ('array_id',),
+        _get('loudspeaker_evidence', 'get_channel_array'),
+    ),
+    _ReplayProbe(
+        'array_reproduction_mode',
+        'cad_array_reproduction_modes',
+        ('mode_id',),
+        _get('loudspeaker_evidence', 'get_reproduction_mode'),
+    ),
+    _ReplayProbe(
+        'array_acoustic_qualification',
+        'cad_array_qualifications',
+        ('qualification_id',),
+        _get('loudspeaker_evidence', 'get_array_qualification'),
+    ),
+    _ReplayProbe(
+        'loudspeaker_front_layer',
+        'cad_loudspeaker_front_layers',
+        ('layer_id',),
+        _get('loudspeaker_evidence', 'get_front_layer'),
+    ),
+    _ReplayProbe(
+        'grille_transfer_evidence',
+        'cad_grille_transfer_evidence',
+        ('evidence_id',),
+        _get('loudspeaker_evidence', 'get_grille_transfer'),
+    ),
+    _ReplayProbe(
+        'front_layer_applicability',
+        'cad_front_layer_applicability',
+        ('applicability_id',),
+        _get('loudspeaker_evidence', 'get_front_layer_applicability'),
     ),
 
 )
