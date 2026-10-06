@@ -1,7 +1,7 @@
 # REV59-CODEPOLICY レビュー記録 — 避難/出入権威 + 照明時間変調 + データプライバシー
 
 対象 issue: #746 (P1), #748 (P1), #722 (P1)
-着地: schema v60、新規 13 テーブル、リポジトリ `cad_code_policy_repository`、回帰テスト `test_rev59_codepolicy.py` 44 件
+着地: schema v63、新規 13 テーブル、リポジトリ `cad_code_policy_repository`、回帰テスト `test_rev59_codepolicy.py` 44 件
 
 ## 実装権威
 
@@ -34,7 +34,7 @@
 
 ## 検証
 - `test_rev59_codepolicy.py` 44 テスト + fresh-migrate・roundtrip・tamper + 隣接 suite（roomq/deps 56 件）リグレッション確認
-- 登録面: `NATIVE_SCHEMA_TABLES` + DDL 13 + `_migrate_59_to_60` + `_ROW_BINDINGS` 13 + `code_policy` ブランチ + `_ReplayProbe`×13 + labels + JA 行 3 + manifest 3 issue
+- 登録面: `NATIVE_SCHEMA_TABLES` + DDL 13 + `_migrate_62_to_63` + `_ROW_BINDINGS` 13 + `code_policy` ブランチ + `_ReplayProbe`×13 + labels + JA 行 3 + manifest 3 issue
 
 ## 残件
 - 法域別の実規範条文マッピング・AHJ/専門家ワークフロー UI・実機での波形取得パイプライン・エクスポート生成器への manifest 適用は残件。HTDT が規範適合や ISO 認証を自ら宣言することはない（専門家承認レコードへの参照に留まる）
