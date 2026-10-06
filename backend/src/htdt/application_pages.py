@@ -824,6 +824,22 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_material_durability_evidence": "材質耐久性証拠",
     "cad_material_evidence_applicability": "材質証拠適用性",
     "cad_material_reinspections": "材質再点検評価",
+    "cad_ulf_acoustic_profiles": "超低域音響プロファイル",
+    "cad_infrasonic_measurement_capabilities": "超低音測定チェーン能力",
+    "cad_ulf_acoustic_observations": "超低域音響観測",
+    "cad_ulf_system_qualifications": "超低域システム検定",
+    "cad_external_noise_ingress_scenarios": "外部騒音侵入シナリオ",
+    "cad_facade_transmission_models": "外装透過モデル",
+    "cad_external_noise_ingress_measurements": "外部騒音侵入測定",
+    "cad_indoor_noise_ingress_qualifications": "室内騒音侵入検定",
+    "cad_fire_safety_evidence_profiles": "防火証拠プロファイル",
+    "cad_material_reaction_to_fire_evidence": "材料燃焼反応証拠",
+    "cad_installed_material_safety_requirements": "設置材料安全要求",
+    "cad_fire_safety_approval_refs": "防火承認参照",
+    "cad_accessible_media_profiles": "アクセシブルメディアプロファイル",
+    "cad_caption_presentation_observations": "字幕提示観測",
+    "cad_audio_description_playback_observations": "音声解説再生観測",
+    "cad_accessible_playback_qualifications": "アクセシブル再生検定",
 }
 
 
