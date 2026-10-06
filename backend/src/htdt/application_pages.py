@@ -752,6 +752,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_external_fact_claims": "外部事実クレーム",
     "cad_fact_conflict_resolutions": "事実矛盾解決",
     "cad_bom_estimates": "BOM・見積",
+    "cad_cadence_delivery_evidence": "コーデンス配信証拠",
+    "cad_reference_room_profiles": "参照室プロファイル",
 
 }
 

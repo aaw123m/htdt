@@ -7681,6 +7681,27 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_cadence_delivery_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('content_cadence_kind', 'content_cadence_kind'),
+            _b('refresh_relationship', 'refresh_relationship'),
+        ),
+        (),
+    ),
+    'cad_reference_room_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('framework', 'framework'),
+        ),
+        (),
+    ),
 
 }
 
