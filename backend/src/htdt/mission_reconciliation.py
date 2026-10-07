@@ -465,6 +465,15 @@ def mission_return_reconciliation_context(
     mission_id = getattr(contribution, 'mission_id', None)
     if mission_id is None:
         return None
+    validation_state = getattr(contribution, 'validation_state', None)
+    if (
+        validation_state is not None
+        and validation_state != 'validated'
+    ):
+        return (
+            '照合: 検証未通過の返却のため適用不可'
+            f'（{validation_state}）'
+        )
     path = scene_repository.path
     with closing(connect_sqlite(path)) as connection:
         row = connection.execute(
@@ -646,6 +655,14 @@ def record_return_rebase_decision(
         raise MissionReconciliationError(
             'task does not belong to the issuing mission plan'
         )
+    applied_task_ids = _mission_applied_task_ids(
+        scene_repository.path, resolved.package.mission.mission_id
+    )
+    if task_id in applied_task_ids:
+        raise MissionReconciliationError(
+            'task already has applied evidence — the binding is '
+            'ledgered; rebinding requires a separate correction path'
+        )
     try:
         resolved.revision.document.entity(current_target_id)
     except KeyError:
@@ -662,6 +679,28 @@ def record_return_rebase_decision(
     )
     repository = MissionReconciliationRepository(scene_repository.path)
     return repository.record(decision)
+
+
+def _mission_applied_task_ids(
+    path: object, mission_id: str
+) -> frozenset[str]:
+    """Task ids of a mission with at least one applied-evidence row.
+
+    Applications are per-contribution, but decisions are per-mission —
+    a re-decision that replaced a consumed decision would orphan the
+    application's decision_id and rewrite the provenance it recorded.
+    """
+    from contextlib import closing
+
+    from .cad_schema import connect_sqlite
+
+    with closing(connect_sqlite(path)) as connection:
+        rows = connection.execute(
+            'SELECT DISTINCT task_id FROM field_return_applications '
+            'WHERE mission_id=?',
+            (mission_id,),
+        ).fetchall()
+    return frozenset(row['task_id'] for row in rows)
 
 
 _CONTAINER_FULFILLED_OUTCOMES = frozenset({
