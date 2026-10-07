@@ -2528,6 +2528,12 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         _get('standards', 'get_evaluation'),
     ),
     _ReplayProbe(
+        'standards_gap_matrix',
+        'cad_standards_gap_matrices',
+        ('matrix_id',),
+        _get('standards', 'get_gap_matrix'),
+    ),
+    _ReplayProbe(
         'measurement',
         'cad_measurements',
         ('measurement_id',),

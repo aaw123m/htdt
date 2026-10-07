@@ -86,6 +86,12 @@ _DOLBY_ROLE_BY_CRITERION = {
     'dolby.5.1.2.surround-right-azimuth': 'SR',
 }
 
+# REV63 #805 — elevation criteria measure per-speaker elevation from the
+# listener reference over the roles each criterion names.
+_DOLBY_ELEVATION_ROLES_BY_CRITERION = {
+    'dolby.5.1.2.top-middle-overhead-elevation': frozenset({'TML', 'TMR'}),
+}
+
 # Quantity/unit each published criterion id names and this lane measures.
 # A criterion reusing one of these ids while declaring a different quantity
 # or unit is never served: the lane would otherwise mint an observation
@@ -99,6 +105,10 @@ _DERIVED_QUANTITY_UNIT = {
     'dolby.5.1.2.front-right-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
     'dolby.5.1.2.surround-left-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
     'dolby.5.1.2.surround-right-azimuth': ('speaker_azimuth_from_mlp', 'deg'),
+    'dolby.5.1.2.top-middle-overhead-elevation': (
+        'overhead_speaker_elevation_from_mlp',
+        'deg',
+    ),
     'rp22.p05.max-adjacent-surround-horizontal-angle': (
         'adjacent_surround_speaker_horizontal_angle',
         'deg',
@@ -356,6 +366,25 @@ def _criterion_candidates(
                 ),
             )
             if azimuth is not None
+        ]
+        return tuple(candidates) if candidates else None
+
+    elevation_roles = _DOLBY_ELEVATION_ROLES_BY_CRITERION.get(criterion_id)
+    if elevation_roles is not None:
+        speakers = _assigned_speakers(document, elevation_roles)
+        if not speakers:
+            return None
+        candidates = [
+            _Candidate(
+                value=_elevation_deg(
+                    listener, _speaker_reference_position(speaker)
+                ),
+                entity_ids=tuple(
+                    sorted((listener.entity_id, speaker.entity_id))
+                ),
+            )
+            for listener in listeners
+            for speaker in speakers
         ]
         return tuple(candidates) if candidates else None
 

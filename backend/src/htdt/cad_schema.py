@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 91
+NATIVE_SCHEMA_VERSION = 92
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1989,6 +1989,15 @@ def _migrate_90_to_91(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_91_to_92(connection: sqlite3.Connection) -> None:
+    # REV63: #805 standards gap-matrix authority — a sealed, versioned
+    # record enumerating every intended built-in standard/profile and
+    # the per-criterion coverage state: a new append-only authority the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2081,6 +2090,7 @@ _MIGRATIONS = {
     89: _migrate_88_to_89,
     90: _migrate_89_to_90,
     91: _migrate_90_to_91,
+    92: _migrate_91_to_92,
 }
 
 

@@ -8418,6 +8418,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_rsd_doc ON cad_recommendation_surface_decisions(document_id, seq ASC)
     """
     ,
+    # REV63: #805 standards gap-matrix authority — a sealed, versioned
+    # record enumerating every intended built-in standard/profile and the
+    # per-criterion coverage state (implemented / evidence_missing /
+    # unsupported) with mandatory source+revision+applicability.
+    """
+        CREATE TABLE IF NOT EXISTS cad_standards_gap_matrices ( seq INTEGER PRIMARY KEY AUTOINCREMENT, matrix_id TEXT NOT NULL UNIQUE, matrix_version TEXT NOT NULL UNIQUE, matrix_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sgm_version ON cad_standards_gap_matrices(matrix_version, seq ASC)
+    """
+    ,
 )
 
 
@@ -8759,6 +8771,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_standard_profile_mappings',
     'cad_standard_revision_diffs',
     'cad_standards_evaluations',
+    'cad_standards_gap_matrices',
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',

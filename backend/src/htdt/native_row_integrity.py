@@ -9506,6 +9506,7 @@ _UNBOUND_PAYLOAD_TABLES: tuple[str, ...] = (
     'cad_speaker_electrical_loads',
     'cad_speaker_impedances',
     'cad_standards_evaluations',
+    'cad_standards_gap_matrices',
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',

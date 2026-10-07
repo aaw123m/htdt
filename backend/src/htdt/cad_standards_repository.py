@@ -27,6 +27,7 @@ from .cad_standards_evidence import (
     resolve_criterion_observation_evidence,
     validate_observation_evidence,
 )
+from .cad_standards_gap_matrix import StandardsGapMatrix
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -82,7 +83,7 @@ class CadStandardsRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_standards_source_authorities', 'cad_standards_profiles', 'cad_standards_observation_authorities', 'cad_standards_evaluations')
+            require_native_tables(connection, 'cad_standards_source_authorities', 'cad_standards_profiles', 'cad_standards_observation_authorities', 'cad_standards_evaluations', 'cad_standards_gap_matrices')
 
     def save_source_authority(
         self,
@@ -444,6 +445,87 @@ class CadStandardsRepository:
             ).fetchall()
         return tuple(
             StandardsProfile.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def save_gap_matrix(
+        self,
+        matrix: StandardsGapMatrix,
+    ) -> StandardsGapMatrix:
+        """Retain a sealed gap-matrix authority.
+
+        A matrix id is content-addressed: re-saving the identical record
+        is a no-op, and a different record under the same id is a sealed
+        conflict.
+        """
+
+        matrix = StandardsGapMatrix.model_validate(
+            matrix.model_dump(mode='python')
+        )
+        existing = self.get_gap_matrix(matrix.matrix_id)
+        if existing is not None:
+            if existing.matrix_sha256 != matrix.matrix_sha256:
+                raise ValueError(
+                    'StandardsGapMatrix id exists with different semantics'
+                )
+            return existing
+        if self.get_gap_matrix_version(matrix.matrix_version) is not None:
+            raise ValueError('StandardsGapMatrix version is immutable')
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO cad_standards_gap_matrices(
+                    matrix_id, matrix_version,
+                    matrix_sha256, payload_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    matrix.matrix_id,
+                    matrix.matrix_version,
+                    matrix.matrix_sha256,
+                    matrix.model_dump_json(),
+                ),
+            )
+        return matrix
+
+    def get_gap_matrix(
+        self,
+        matrix_id: str,
+    ) -> StandardsGapMatrix | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_standards_gap_matrices '
+                'WHERE matrix_id=?',
+                (matrix_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StandardsGapMatrix.model_validate_json(row['payload_json'])
+
+    def get_gap_matrix_version(
+        self,
+        matrix_version: str,
+    ) -> StandardsGapMatrix | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_standards_gap_matrices '
+                'WHERE matrix_version=?',
+                (matrix_version,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StandardsGapMatrix.model_validate_json(row['payload_json'])
+
+    def list_gap_matrices(self) -> tuple[StandardsGapMatrix, ...]:
+        """Return every retained gap matrix in insertion order."""
+
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_standards_gap_matrices '
+                'ORDER BY seq ASC'
+            ).fetchall()
+        return tuple(
+            StandardsGapMatrix.model_validate_json(row['payload_json'])
             for row in rows
         )
 

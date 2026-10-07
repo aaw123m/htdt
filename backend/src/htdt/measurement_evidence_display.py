@@ -28,6 +28,7 @@ from .cad_stimulus_registry import StimulusMeasurementPin
 from .cad_health_drift import DriftAssessment
 from .cad_substitution_impact import ChangeImpactAssessment
 from .cad_security_authority import SecurityReview
+from .cad_standards_gap_matrix import GapMatrixCriterion
 from .cad_control_scenario import ControlScenarioQualification
 from .cad_safe_listening import ExposureAssessment
 from .cad_large_signal import (
@@ -308,6 +309,13 @@ _STANDARD_RIGHTS_LABELS = {
     'unknown_rights': '権利不明',
 }
 
+# REV63 #805 — gap-matrix criterion coverage states.
+_GAP_STATE_LABELS = {
+    'implemented': '実装済み',
+    'evidence_missing': '判定材料不足（証拠未整備）',
+    'unsupported': '非対応（公開基準なし）',
+}
+
 _DEVICE_EVIDENCE_CLASS_LABELS = {
     'device_readback': '機器から読み出し',
     'device_export_backup': '機器バックアップ出力',
@@ -382,6 +390,31 @@ def restore_verdict_label(verdict: str) -> str:
 def portability_class_label(portability_class: str) -> str:
     return _PORTABILITY_CLASS_LABELS.get(
         portability_class, portability_class
+    )
+
+
+def gap_state_label(state: str) -> str:
+    """JA label for a gap-matrix criterion coverage state (#805)."""
+
+    return _GAP_STATE_LABELS.get(state, state)
+
+
+def gap_entry_line(criterion: 'GapMatrixCriterion') -> str:
+    """One JA line for a gap-matrix criterion: state + citation + why.
+
+    ``evidence_missing`` entries name the missing evidence class;
+    ``unsupported`` entries say the source publishes no usable boundary.
+    """
+
+    label = gap_state_label(criterion.state)
+    citation = (
+        f'{criterion.source.document_title} '
+        f'{criterion.source.document_version} — '
+        f'{criterion.source.reference}'
+    )
+    return (
+        f'{criterion.criterion_id}: {label}（{citation}）'
+        f'— {criterion.state_reason}'
     )
 
 
