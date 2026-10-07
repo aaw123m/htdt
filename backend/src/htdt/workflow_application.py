@@ -292,6 +292,19 @@ _LAZY_IMPORTS = {
         '.mission_reconciliation',
         'apply_returned_tasks',
     ),
+    'build_mission': ('.capture_mission', 'build_mission'),
+    'build_mission_package': (
+        '.capture_mission',
+        'build_mission_package',
+    ),
+    'HTDTProjectReference': (
+        '.project_identity',
+        'HTDTProjectReference',
+    ),
+    'CaptureReceiverError': (
+        '.capture_receiver',
+        'CaptureReceiverError',
+    ),
     'CaptureSemanticPromotionRepository': (
         '.capture_semantic_promotion',
         'CaptureSemanticPromotionRepository',
@@ -2531,11 +2544,82 @@ class WorkflowApplicationComposition:
                     applied_by=applied_by,
                 )
             ),
+            list_missions=(
+                (
+                    lambda: self.capture_receiver.service.list_mission_packages()
+                )
+                if self.capture_receiver is not None
+                else None
+            ),
+            list_mission_pairings=(
+                (lambda: self.capture_receiver.service.list_pairings())
+                if self.capture_receiver is not None
+                else None
+            ),
+            issue_mission=(
+                (
+                    lambda entry, purpose, room_name, pairing_id: (
+                        self._issue_capture_mission(
+                            entry, purpose, room_name, pairing_id
+                        )
+                    )
+                )
+                if self.capture_receiver is not None
+                else None
+            ),
+            export_mission=(
+                (
+                    lambda package_id, destination: (
+                        self.capture_receiver.service.export_mission_package(
+                            package_id, Path(destination)
+                        )
+                    )
+                )
+                if self.capture_receiver is not None
+                else None
+            ),
         )
         return WorkspaceMount.from_widget(
             page,
             on_activate=page.refresh,
             focus_target=lambda target: _self.inbox_focus(page, target),
+        )
+
+    def _issue_capture_mission(
+        self,
+        entry,
+        purpose: str,
+        room_name: str,
+        pairing_id: str | None,
+    ):
+        """Build + queue a mission for a library project (pull lane)."""
+        _self = sys.modules[__name__]
+        if self.capture_receiver is None:
+            raise _self.CaptureReceiverError(
+                'capture receiver is not configured'
+            )
+        revision = self.repository.latest(entry.document_id)
+        if revision is None:
+            raise _self.CaptureReceiverError(
+                f'プロジェクト「{entry.display_name}」'
+                'に保存済みのシーンがありません'
+            )
+        project = _self.HTDTProjectReference(
+            project_id=entry.project_id,
+            document_id=entry.document_id,
+            project_name=entry.display_name,
+            room_name=room_name,
+        )
+        mission = _self.build_mission(
+            revision.document,
+            project=project,
+            purpose=purpose,
+            room_name=room_name,
+            scene_revision_id=revision.revision_id,
+        )
+        package = _self.build_mission_package(mission)
+        return self.capture_receiver.service.queue_mission(
+            package, pairing_id=pairing_id
         )
 
     def _make_activity(self) -> WorkspaceMount:

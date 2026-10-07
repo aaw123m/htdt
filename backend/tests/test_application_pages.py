@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QInputDialog
+from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import capture_fixture_support as support  # noqa: E402
@@ -292,6 +292,112 @@ def test_inbox_detail_renders_gate_detail_fields(tmp_path) -> None:
         assert "先行リビジョンが欠落" in text
         assert "座標系が未整列" in text
         assert "同一性ダイジェスト衝突" in text
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()
+
+
+def test_inbox_missions_tab_lists_and_details(tmp_path) -> None:
+    """Missions tab renders the issued-mission ledger + per-row detail."""
+
+    app = _app()
+    package = SimpleNamespace(
+        package_id="pkg-abc123",
+        mission_id="mission-xyz",
+        purpose="design_verification",
+        room_label="Theater",
+        project_ref="proj-alpha",
+        status="completed",
+        status_detail="全タスク適用済み",
+        package_sha256="ab" * 32,
+        byte_size=2048,
+        pairing_id="pair-1",
+        supersedes_package_id="pkg-old",
+        required_schema_version="2.0.0",
+        issued_at_utc="2026-10-01T00:00:00Z",
+    )
+    page = CaptureInboxPage(
+        lambda: (),
+        on_navigate=lambda link: True,
+        list_missions=lambda: (package,),
+        export_mission=lambda pid, dest: Path(dest),
+    )
+    try:
+        assert page.mission_table.rowCount() == 1
+        assert "発行" not in page.mission_table.item(0, 3).text()
+        assert page.mission_table.item(0, 3).text() == "完了"
+        assert page.mission_table.item(0, 1).text() == "設計検証"
+        page.mission_table.selectRow(0)
+        app.processEvents()
+        text = page.mission_detail.text()
+        assert "mission-xyz" in text
+        assert "pkg-old" in text
+        assert "pair-1" in text
+        assert page.export_mission_button.isEnabled()
+        # No issue callable wired → the affordance stays off.
+        assert not page.issue_button.isEnabled()
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()
+
+
+def test_inbox_missions_issue_flow_invokes_lambda(
+    tmp_path, monkeypatch
+) -> None:
+    """The 発行 dialog threads entry/purpose/room/pairing into the callable."""
+
+    app = _app()
+    entry = SimpleNamespace(
+        project_id="proj-a",
+        document_id="doc-a",
+        display_name="Alpha",
+        archived=False,
+    )
+    calls = []
+    result_pkg = SimpleNamespace(
+        package_id="pkg-new", mission_id="mission-new"
+    )
+
+    def _issue(e, purpose, room_name, pairing_id):
+        calls.append((e, purpose, room_name, pairing_id))
+        return result_pkg
+
+    page = CaptureInboxPage(
+        lambda: (),
+        on_navigate=lambda link: True,
+        list_missions=lambda: (),
+        list_projects=lambda: (entry,),
+        list_mission_pairings=lambda: (),
+        issue_mission=_issue,
+    )
+    try:
+        assert page.issue_button.isEnabled()
+        answers = iter(
+            [
+                ("Alpha", True),
+                ("設計検証", True),
+                ("Theater", True),
+            ]
+        )
+        monkeypatch.setattr(
+            QInputDialog,
+            "getItem",
+            staticmethod(lambda *args, **kwargs: next(answers)),
+        )
+        monkeypatch.setattr(
+            QInputDialog,
+            "getText",
+            staticmethod(lambda *args, **kwargs: next(answers)),
+        )
+        monkeypatch.setattr(
+            QMessageBox,
+            "information",
+            staticmethod(lambda *args, **kwargs: None),
+        )
+        page._issue_mission_dialog()
+        assert calls == [(entry, "design_verification", "Theater", None)]
     finally:
         page.close()
         page.deleteLater()
