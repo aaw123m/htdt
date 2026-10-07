@@ -756,3 +756,226 @@ def test_mission_completes_when_every_plan_task_is_applied(
         contribution, repository
     )
     assert lines[0].startswith('ミッション完了')
+
+
+def test_apply_flags_refs_the_container_cannot_resolve(
+    tmp_path,
+) -> None:
+    """Applied refs the retained artifact can't resolve are reported,
+    never silenced; retained-but-absent bytes stay honest too."""
+    import io
+    import json
+    import sqlite3
+    import uuid
+    import zipfile
+    import zlib
+    from hashlib import sha256
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnRepository
+    from htdt.mission_reconciliation import apply_returned_tasks
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_id = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+
+    evidence_id = str(uuid.uuid4())
+    missing_item = str(uuid.uuid4())
+    external_entity = str(uuid.uuid4())
+    asset_payload = b'room-photo'
+    evidence_payload = json.dumps(
+        {
+            'schema': 'htdt.field_return.field-evidence',
+            'contribution_ref': {
+                'kind': 'field_return',
+                'id': 'placeholder',
+            },
+            'records': [
+                {'evidence_id': evidence_id, 'channel_role': 'FL'}
+            ],
+        }
+    ).encode('utf-8')
+    contribution_id = str(uuid.uuid4())
+    root = {
+        'schema': 'htdt.field_return',
+        'schema_version': '2.0.0',
+        'authority_binding_scope': 'contribution_ref',
+        'contribution_id': contribution_id,
+        'contribution_ref': {
+            'kind': 'field_return',
+            'id': contribution_id,
+        },
+        'mission_id': mission.mission_id,
+        'created_at': '2026-10-07T00:00:00Z',
+        'finalized_at': '2026-10-07T00:01:00Z',
+        'provenance': {},
+        'task_fulfillment_ledger': [
+            {
+                'item_ref': f'task_item:{task_id}',
+                'title': 'verify speaker placement',
+                'requirement': 'required',
+                'outcome': 'fulfilled',
+                'fulfilled_by_refs': [
+                    f'field_evidence:{evidence_id}',
+                    f'inventory_item:{missing_item}',
+                    f'sha256:{sha256(asset_payload).hexdigest()}',
+                    f'entity:{external_entity}',
+                ],
+            }
+        ],
+        'authority_documents': [
+            {
+                'path': 'authority/field-evidence.json',
+                'schema': 'htdt.field_return.field-evidence',
+                'sha256': sha256(evidence_payload).hexdigest(),
+                'bytes': len(evidence_payload),
+            }
+        ],
+        'evidence_assets': [
+            {
+                'path': 'evidence/room-photo.bin',
+                'schema': 'application/octet-stream',
+                'sha256': sha256(asset_payload).hexdigest(),
+                'bytes': len(asset_payload),
+            }
+        ],
+        'content_digest': '0' * 64,
+    }
+    entries = {
+        'field-return.json': json.dumps(root).encode('utf-8'),
+        'authority/field-evidence.json': evidence_payload,
+        'evidence/room-photo.bin': asset_payload,
+    }
+    manifest = {
+        'entries': [
+            {
+                'path': name,
+                'bytes': len(data),
+                'crc32': zlib.crc32(data) & 0xFFFFFFFF,
+                'sha256': sha256(data).hexdigest(),
+            }
+            for name, data in entries.items()
+        ]
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_STORED) as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+        archive.writestr(
+            'container-manifest.json',
+            json.dumps(manifest).encode('utf-8'),
+        )
+    field_returns = FieldReturnRepository(path)
+    field_returns.stage_artifact(
+        buffer.getvalue(),
+        (project,),
+        channel_project_ref=project.project_id,
+    )
+    contribution = field_returns.get(contribution_id)
+    assert contribution.matched_project_id == project.project_id
+
+    outcome = apply_returned_tasks(
+        contribution, repository, applied_by='ops'
+    )
+    # One container-bound ref names a record the container does not
+    # carry — reported, not silenced; resolvable/external refs are not.
+    assert outcome.unresolved_refs == (
+        f'inventory_item:{missing_item}',
+    )
+    assert outcome.refs_unverifiable is False
+
+    # A second contribution whose retained bytes are absent applies its
+    # refs honestly as unverifiable.
+    contribution_id_2 = str(uuid.uuid4())
+    root2 = dict(root)
+    root2.update(
+        {
+            'contribution_id': contribution_id_2,
+            'contribution_ref': {
+                'kind': 'field_return',
+                'id': contribution_id_2,
+            },
+            # entries2 drops room-photo.bin — the declaration must go
+            # too or the container fails integrity verification.
+            'evidence_assets': [],
+            'task_fulfillment_ledger': [
+                {
+                    'item_ref': f'task_item:{task_id}',
+                    'title': 'verify',
+                    'requirement': 'required',
+                    'outcome': 'fulfilled',
+                    'fulfilled_by_refs': [
+                        f'field_evidence:{evidence_id}'
+                    ],
+                }
+            ],
+        }
+    )
+    entries2 = {
+        'field-return.json': json.dumps(root2).encode('utf-8'),
+        'authority/field-evidence.json': evidence_payload,
+    }
+    manifest2 = {
+        'entries': [
+            {
+                'path': name,
+                'bytes': len(data),
+                'crc32': zlib.crc32(data) & 0xFFFFFFFF,
+                'sha256': sha256(data).hexdigest(),
+            }
+            for name, data in entries2.items()
+        ]
+    }
+    buffer2 = io.BytesIO()
+    with zipfile.ZipFile(buffer2, 'w', zipfile.ZIP_STORED) as archive:
+        for name, data in entries2.items():
+            archive.writestr(name, data)
+        archive.writestr(
+            'container-manifest.json',
+            json.dumps(manifest2).encode('utf-8'),
+        )
+    field_returns.stage_artifact(
+        buffer2.getvalue(),
+        (project,),
+        channel_project_ref=project.project_id,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'DELETE FROM htdt_content_blobs WHERE payload_sha256=('
+            'SELECT artifact_sha256 FROM field_return_contributions '
+            'WHERE contribution_id=?)',
+            (contribution_id_2,),
+        )
+    contribution2 = field_returns.get(contribution_id_2)
+    outcome2 = apply_returned_tasks(
+        contribution2, repository, applied_by='ops'
+    )
+    assert outcome2.unresolved_refs == ()
+    assert outcome2.refs_unverifiable is True
