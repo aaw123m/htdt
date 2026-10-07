@@ -103,7 +103,7 @@ entries:
   remaining_gates:
   - kind: structural
     description: 標準カバレッジ拡張の残件（#839 ソースマトリクスで追跡）
-  evidence_refs: [docs/issues/issue-805-standards.md]
+  evidence_refs: [docs/issues/issue-805-standards-coverage.md]
   close_when_gates_clear: true
 
 - issue: 806
@@ -121,7 +121,7 @@ entries:
   remaining_gates:
   - kind: structural
     description: 監査済みパッケージ境界への実リファクタ（継続作業）
-  evidence_refs: [docs/issues/issue-807-boundaries.md]
+  evidence_refs: [docs/issues/issue-807-package-boundaries.md]
   close_when_gates_clear: true
 
 - issue: 809
@@ -130,7 +130,7 @@ entries:
   remaining_gates:
   - kind: structural
     description: BRAS v3/RS8 データセット取込 + 修飾実行（#836 Action 2–6 で追跡）
-  evidence_refs: [docs/issues/issue-809-qualification.md]
+  evidence_refs: [docs/issues/issue-809-benchmark-qualification.md]
   close_when_gates_clear: true
 
 - issue: 810
@@ -157,7 +157,7 @@ entries:
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — R160 ハイブリッド独立検証権威の維持者レビュー
-  evidence_refs: [docs/issues/issue-812-hybrid-composition-validation.md]
+  evidence_refs: [docs/issues/issue-812-hybrid-composition.md]
   close_when_gates_clear: true
 
 - issue: 813
@@ -175,7 +175,7 @@ entries:
   remaining_gates:
   - kind: manual
     description: ドメイン受理 — 信頼度/適用性エンベロープ面の維持者レビュー
-  evidence_refs: [docs/issues/issue-814-envelope.md]
+  evidence_refs: [docs/issues/issue-814-confidence-envelope.md]
   close_when_gates_clear: true
 
 - issue: 815
@@ -200,7 +200,7 @@ entries:
   lifecycle: complete
   landed: {prs: [842], commits: []}
   remaining_gates: []
-  evidence_refs: [docs/issues/issue-833-verification-gate.md]
+  evidence_refs: [docs/issues/issue-833-release-verification-gate.md]
   close_when_gates_clear: true
 
 - issue: 836
@@ -245,12 +245,14 @@ entries:
   remaining_gates:
   - kind: manual
     description: HTDT_CODESIGN_* org secret 設定 + 実署名リリース実施
-  evidence_refs: []
+  evidence_refs: [docs/issues/issue-849-release-signing.md]
   close_when_gates_clear: true
 
 - issue: 808
   lifecycle: complete
   landed: {prs: [], commits: []}
   remaining_gates: []
-  evidence_refs: []
+  # Research synthesis issue — its evidence is the confidence-model
+  # authority stack the research produced (landed via #811/#814).
+  evidence_refs: [docs/issues/issue-811-confidence-bound.md, docs/issues/issue-814-confidence-envelope.md]
   close_when_gates_clear: true

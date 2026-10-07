@@ -149,6 +149,98 @@ def load_lifecycle_manifest(path: Path) -> dict[int, LifecycleEntry]:
     return entries
 
 
+def _repo_root_for(manifest_path: Path, override: Path | None) -> Path:
+    """Repository root that repo-local ``evidence_refs`` resolve against.
+
+    The manifest lives at ``<root>/scripts/``; resolve refs from the
+    manifest's own location (or an explicit ``--repo-root`` override), never
+    from the caller's cwd, so the check is identical from any directory.
+    """
+    if override is not None:
+        return override.resolve()
+    return manifest_path.resolve().parent.parent
+
+
+def _resolve_evidence_ref(
+    ref: str, repo_root: Path,
+) -> tuple[Path | None, str | None]:
+    """Resolve one repo-local evidence ref.
+
+    Returns ``(path, None)`` when the ref resolves to an existing file under
+    the repo root, or ``(None, reason_code)`` describing why it does not.
+    Only repository-relative POSIX paths are authoritative — absolute paths
+    and ``..`` escapes can never be evidence: they would let a manifest
+    assert proof that lives outside the audited tree.
+    """
+    pure = ref.replace('\\', '/').strip()
+    parts = [p for p in pure.split('/') if p not in ('', '.')]
+    if (
+        not parts
+        or pure.startswith(('/', '~'))
+        or (len(pure) >= 2 and pure[1] == ':')
+        or pure.startswith('//')
+        or '..' in parts
+    ):
+        return None, 'evidence_ref_not_repo_local'
+    path = repo_root.joinpath(*parts)
+    try:
+        path.relative_to(repo_root)
+    except ValueError:
+        return None, 'evidence_ref_not_repo_local'
+    if not path.is_file():
+        return None, 'evidence_ref_unresolvable'
+    return path, None
+
+
+def evidence_findings(
+    entries: dict[int, LifecycleEntry], repo_root: Path,
+) -> list[Finding]:
+    """Issue #865 — every repo-local ``evidence_ref`` must resolve, and a
+    landed/accepted lifecycle state must retain at least one resolvable
+    evidence artifact. Missing, renamed, deleted, duplicated or escaping
+    references are integrity failures, not documentation nits.
+    """
+    findings: list[Finding] = []
+    for entry in entries.values():
+        where = (
+            f'issue #{entry.issue} lifecycle={entry.lifecycle}'
+        )
+        if entry.lifecycle in LANDED_STATES and not entry.evidence_refs:
+            findings.append(Finding(
+                'error', entry.issue, 'landed_without_evidence',
+                f'{where}: landed/accepted states require at least one '
+                'resolvable evidence_refs entry',
+            ))
+        seen: set[str] = set()
+        for ref in entry.evidence_refs:
+            normalized = ref.replace('\\', '/').strip()
+            if normalized in seen:
+                findings.append(Finding(
+                    'error', entry.issue, 'evidence_ref_duplicate',
+                    f'{where}: duplicate evidence ref {normalized!r}',
+                ))
+                continue
+            seen.add(normalized)
+            _, reason = _resolve_evidence_ref(normalized, repo_root)
+            if reason is None:
+                continue
+            if reason == 'evidence_ref_not_repo_local':
+                findings.append(Finding(
+                    'error', entry.issue, reason,
+                    f'{where}: {normalized!r} is not a repository-relative '
+                    'path (absolute, ~, drive, // or .. are never '
+                    'authoritative evidence)',
+                ))
+            else:
+                findings.append(Finding(
+                    'error', entry.issue, reason,
+                    f'{where}: {normalized!r} does not resolve to an '
+                    'existing repository file (missing/renamed/deleted '
+                    'or wrong path)',
+                ))
+    return findings
+
+
 def load_verification_issues(path: Path) -> dict[int, dict]:
     """Issue numbers declared in the open-issue verification manifest."""
     raw = _load_yaml(path)
@@ -352,6 +444,10 @@ def main(argv: list[str] | None = None) -> int:
                         'verify_open_issues.py — supplies per-issue '
                         'automated check statuses for the checks-red '
                         'bucket')
+    parser.add_argument('--repo-root', type=Path, default=None,
+                        help='repository root that repo-local evidence_refs '
+                        'resolve against (default: derived from the '
+                        'lifecycle manifest location, <root>/scripts/)')
     parser.add_argument('--report', type=Path, default=None)
     parser.add_argument('--json', dest='json_out', type=Path, default=None)
     args = parser.parse_args(argv)
@@ -371,7 +467,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.verification_report is not None:
         check_statuses = load_verification_report(args.verification_report)
 
+    repo_root = _repo_root_for(
+        args.lifecycle_manifest, args.repo_root,
+    )
     findings = drift_findings(entries, verification, github_states)
+    findings += evidence_findings(entries, repo_root)
     classifications = []
     for issue in sorted(set(entries) | set(verification)):
         entry = entries.get(issue)

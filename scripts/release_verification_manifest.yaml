@@ -90,6 +90,34 @@ classes:
           - '{repo_root}'
         description: 'Owner/repo#N + merge-sha reference validation over canonical docs.'
 
+  - id: issue-lifecycle-integrity
+    title: 'Issue lifecycle evidence integrity'
+    description: >-
+      issue_lifecycle_manifest.yaml の全 repo-local evidence_ref が既存
+      ファイルに解決されること (rename/delete ドリフト検出)、および
+      landed/accepted 状態が少なくとも1つの解決可能な証跡を保持する
+      こと (#865)。欠落・改名・重複・リポ外参照は error finding →
+      非0終了で fail closed。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: lifecycle-evidence-resolution
+        kind: script
+        command:
+          - '{python}'
+          - scripts/issue_lifecycle.py
+          - '--json'
+          - '{work_dir}/lifecycle_report.json'
+        description: >-
+          Lifecycle drift + evidence-ref resolution check; exits 1 on any
+          error finding (unresolvable, non-repo-local, duplicate refs or a
+          landed state with no resolvable evidence).
+      - id: lifecycle-evidence-regression
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_865_lifecycle_evidence.py
+        description: '#865 evidence-integrity regression suite.'
+
   - id: package-boundary
     title: 'Package boundary / layering audit'
     description: >-
