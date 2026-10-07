@@ -305,3 +305,11 @@ entries:
     description: 参照マシンでの viewport_3d_interaction owned-machine プロトコル実行 + 各所有マシンのベースライン採取 — 決定的ベンチマーク自体はゲート統合済み
   evidence_refs: [docs/issues/issue-867-performance-budget.md, scripts/perf_budgets.yaml]
   close_when_gates_clear: true
+- issue: 877
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [904], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機オーディオ (WASAPI) + 実校正器でのガイド実行検証 — 現状バックエンドは fail-closed スタブ
+  evidence_refs: [docs/issues/issue-877-guided-calibration.md]
+  close_when_gates_clear: true
