@@ -24,6 +24,8 @@
     "geometric-direct-first-reflection-v1",
     "geometric-reflecting-counter-v1",
     "geometric-seed-repeatability-v1",
+    "geometric-occlusion-edge-v1",
+    "geometric-scattering-redistribution-v1",
     "hybrid-overlap-continuity-v1"
   ],
   "notes": [
