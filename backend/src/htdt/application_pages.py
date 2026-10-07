@@ -2107,16 +2107,26 @@ class CaptureInboxPage(QWidget):
             return
         applied_count = len(getattr(outcome, 'applied', ()))
         skipped_count = len(getattr(outcome, 'skipped_task_ids', ()))
-        QMessageBox.information(
-            self,
-            "適用完了",
-            f"{applied_count} 件を適用しました"
-            + (
-                f"（未決定のため {skipped_count} 件を見送り）"
-                if skipped_count
-                else ""
-            ),
+        message = f"{applied_count} 件を適用しました" + (
+            f"（未決定のため {skipped_count} 件を見送り）"
+            if skipped_count
+            else ""
         )
+        unresolved = tuple(
+            getattr(outcome, 'unresolved_refs', ()) or ()
+        )
+        if unresolved:
+            preview = '、'.join(unresolved[:3])
+            message += (
+                f"\n証跡参照の未解決: {len(unresolved)} 件"
+                f"（{preview}…）"
+            )
+        if getattr(outcome, 'refs_unverifiable', False):
+            message += (
+                "\nアーティファクト未保持のため"
+                "証跡参照を検証できませんでした"
+            )
+        QMessageBox.information(self, "適用完了", message)
         self._sync_contribution_detail()
 
     # -- mission ledger ---------------------------------------------------
@@ -2239,7 +2249,9 @@ class CaptureInboxPage(QWidget):
                     self._MISSION_STATUS_LABELS.get(
                         package.status, package.status
                     ),
-                    package.issued_at_utc or '',
+                    getattr(package, 'updated_at_utc', None)
+                    or package.issued_at_utc
+                    or '',
                 )
             ):
                 cell = QTableWidgetItem(str(value))
@@ -2297,6 +2309,9 @@ class CaptureInboxPage(QWidget):
             )
         if package.issued_at_utc:
             lines.append(f"発行: {package.issued_at_utc}")
+        updated_at = getattr(package, 'updated_at_utc', None)
+        if updated_at:
+            lines.append(f"更新: {updated_at}")
         self.mission_detail.setText("\n".join(lines))
 
     def _issue_mission_dialog(self) -> None:
@@ -2318,18 +2333,35 @@ class CaptureInboxPage(QWidget):
                 "発行先となるプロジェクトがありません。",
             )
             return
-        names = [entry.display_name for entry in entries]
+        # Labels must be unique — two projects may share a display
+        # name, and matching by text would silently issue the mission
+        # against whichever sorts first.
+        labels = [
+            (
+                entry.display_name
+                if sum(
+                    other.display_name == entry.display_name
+                    for other in entries
+                )
+                == 1
+                else (
+                    f'{entry.display_name} '
+                    f'[{entry.project_id[:8]}]'
+                )
+            )
+            for entry in entries
+        ]
         name, ok = QInputDialog.getItem(
             self,
             "ミッション発行",
             "発行対象のプロジェクトを選んでください。",
-            names,
+            labels,
             0,
             False,
         )
         if not ok:
             return
-        entry = entries[names.index(name)]
+        entry = entries[labels.index(name)]
         purposes = list(self._MISSION_PURPOSE_LABELS)
         purpose_label, ok = QInputDialog.getItem(
             self,

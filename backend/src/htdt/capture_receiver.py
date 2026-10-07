@@ -383,6 +383,7 @@ class MissionPackage(BaseModel):
         'pending', 'received', 'failed', 'superseded', 'completed'
     ] = ('pending')
     status_detail: str = ''
+    updated_at_utc: str | None = None
 
     def descriptor(self) -> dict:
         """The ``htdt.mission-listing`` descriptor fields Capture reads."""
@@ -1701,6 +1702,7 @@ class CaptureReceiverService:
             pairing_id=row['pairing_id'],
             status=row['status'],
             status_detail=row['status_detail'],
+            updated_at_utc=row['updated_at_utc'],
         )
 
     def handle_mission_listing(
@@ -1719,9 +1721,14 @@ class CaptureReceiverService:
         with closing(self._connect()) as connection:
             rows = connection.execute(
                 "SELECT * FROM capture_mission_packages WHERE status='pending' "
-                'AND (pairing_id IS NULL OR pairing_id=?)',
+                'AND (pairing_id IS NULL OR pairing_id=?) '
+                'ORDER BY created_at_utc, package_id',
                 (pairing.pairing_id,),
             ).fetchall()
+        # ORDER BY keeps the listing's canonical bytes stable across
+        # identical queue contents — an unordered SELECT would emit a
+        # different canonical JSON (and a different digest/byte size)
+        # whenever SQLite reorders the scan.
         packages = [
             self._mission_from_row(row).descriptor() for row in rows
         ]
@@ -1859,6 +1866,16 @@ class CaptureReceiverService:
                 if result in ('imported', 'duplicate', 'superseding')
                 else 'failed'
             )
+            if package.status != 'pending':
+                # A verdict is settled state: a first receipt that
+                # agrees is idempotent; a receipt reporting a
+                # different outcome on an already-settled package is
+                # a conflict, never a last-write-wins overwrite.
+                if package.status == status:
+                    return 200, {'ok': True}
+                return 409, {
+                    'detail': 'package verdict already settled'
+                }
             connection.execute(
                 'UPDATE capture_mission_packages SET status=?, '
                 'status_detail=?, updated_at_utc=? WHERE package_id=?',
@@ -1894,6 +1911,7 @@ class CaptureReceiverService:
         if status:
             sql += ' WHERE status=?'
             args = (status,)
+        sql += ' ORDER BY updated_at_utc DESC, package_id'
         with closing(self._connect()) as connection:
             rows = connection.execute(sql, args).fetchall()
             return tuple(self._mission_from_row(row) for row in rows)
