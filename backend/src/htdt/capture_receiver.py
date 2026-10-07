@@ -1627,6 +1627,30 @@ class CaptureReceiverService:
                         package.supersedes_package_id,
                     ),
                 )
+            # A mission queued AFTER the device already confirmed a
+            # settled child superseded it must not go pending — the
+            # settle paths above only fire while the supersession is
+            # in flight, so a re-issued parent would sit on the pull
+            # listing as alive forever otherwise.
+            superseding = connection.execute(
+                "SELECT package_id FROM capture_mission_packages "
+                "WHERE status IN ('received', 'completed') AND "
+                "json_extract(descriptor_json, "
+                "'$.supersedes_package_id')=?",
+                (package_id,),
+            ).fetchone()
+            if superseding is not None:
+                connection.execute(
+                    "UPDATE capture_mission_packages SET "
+                    "status='superseded', status_detail=?, "
+                    "updated_at_utc=? WHERE package_id=? AND "
+                    "status='pending'",
+                    (
+                        f'superseded by {superseding["package_id"]}',
+                        _utc_now(),
+                        package_id,
+                    ),
+                )
         return package
 
     def queue_mission(
@@ -1874,6 +1898,26 @@ class CaptureReceiverService:
                 if result in ('imported', 'duplicate', 'superseding')
                 else 'failed'
             )
+            if (
+                result == 'superseding'
+                and package.supersedes_package_id
+            ):
+                # The device reports this package replaced its parent —
+                # settle the parent whether this receipt is first, an
+                # idempotent re-send, or a conflict on a settled row:
+                # the parent's pending zombie is dead weight in every
+                # case, and the settle never overwrites a verdict.
+                connection.execute(
+                    "UPDATE capture_mission_packages SET "
+                    "status='superseded', status_detail=?, "
+                    "updated_at_utc=? WHERE package_id=? AND "
+                    "status='pending'",
+                    (
+                        f'superseded by {package.package_id}',
+                        _utc_now(),
+                        package.supersedes_package_id,
+                    ),
+                )
             if package.status != 'pending':
                 # A verdict is settled state: a first receipt that
                 # agrees is idempotent; a receipt reporting a
@@ -1894,21 +1938,6 @@ class CaptureReceiverService:
                     package_id,
                 ),
             )
-            if result == 'superseding' and package.supersedes_package_id:
-                # The device reports this package replaced its parent —
-                # settle the parent so a queued mission queued before
-                # the receipt does not stay on the pending listing.
-                connection.execute(
-                    "UPDATE capture_mission_packages SET "
-                    "status='superseded', status_detail=?, "
-                    "updated_at_utc=? WHERE package_id=? AND "
-                    "status='pending'",
-                    (
-                        f'superseded by {package.package_id}',
-                        _utc_now(),
-                        package.supersedes_package_id,
-                    ),
-                )
         return 200, {'ok': True}
 
     def list_mission_packages(

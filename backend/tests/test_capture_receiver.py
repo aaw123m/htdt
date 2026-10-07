@@ -1071,6 +1071,101 @@ class TestMissionPull:
         assert statuses['pkg-parent'] == 'received'
         assert statuses['pkg-repair3'] == 'pending'
 
+    def test_superseding_verdict_heals_parent_on_conflicting_receipt(
+        self, tmp_path
+    ):
+        service, pairing = self._active(tmp_path)
+        service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
+        child = service.queue_mission_package(
+            'pkg-repair4',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        # First verdict is a plain import — the parent-settle branch
+        # never ran, so pkg-parent stays pending.
+        receipt = {
+            'schema': 'htdt.capture.mission-receipt',
+            'schema_version': '1.0.0',
+            'receipt_id': str(uuid.uuid4()),
+            'package_id': 'pkg-repair4',
+            'package_sha256': child.package_sha256,
+            'capture_instance_id': 'dev-4',
+            'paired_destination_id': pairing.pairing_id,
+            'receiver_instance_id': pairing.receiver_instance_id,
+            'mission_record_id': None,
+            'received_at': '2026-01-01T00:00:00+00:00',
+            'validation_result': 'imported',
+            'detail': None,
+        }
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-repair4',
+            json.dumps(receipt).encode(), 'dev-4',
+        )
+        assert status == 200
+        # The device later reports the supersession it really did —
+        # 'imported' and 'superseding' both settle as 'received', so
+        # the second receipt is an idempotent 200 — but the pending
+        # parent must still be settled, not left as a zombie on the
+        # listing.
+        receipt['receipt_id'] = str(uuid.uuid4())
+        receipt['validation_result'] = 'superseding'
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-repair4',
+            json.dumps(receipt).encode(), 'dev-4',
+        )
+        assert status == 200
+        statuses = {
+            p.package_id: p.status
+            for p in service.list_mission_packages()
+        }
+        assert statuses['pkg-repair4'] == 'received'
+        assert statuses['pkg-parent'] == 'superseded'
+
+    def test_queue_after_confirmed_supersession_inserts_dead(
+        self, tmp_path
+    ):
+        service, pairing = self._active(tmp_path)
+        child = service.queue_mission_package(
+            'pkg-repair5',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        receipt = {
+            'schema': 'htdt.capture.mission-receipt',
+            'schema_version': '1.0.0',
+            'receipt_id': str(uuid.uuid4()),
+            'package_id': 'pkg-repair5',
+            'package_sha256': child.package_sha256,
+            'capture_instance_id': 'dev-5',
+            'paired_destination_id': pairing.pairing_id,
+            'receiver_instance_id': pairing.receiver_instance_id,
+            'mission_record_id': None,
+            'received_at': '2026-01-01T00:00:00+00:00',
+            'validation_result': 'superseding',
+            'detail': 'superseded pkg-parent',
+        }
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-repair5',
+            json.dumps(receipt).encode(), 'dev-5',
+        )
+        assert status == 200
+        # Re-issuing the already-replaced mission must not put a live
+        # package back on the pull listing.
+        service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
+        statuses = {
+            p.package_id: p.status
+            for p in service.list_mission_packages()
+        }
+        assert statuses['pkg-parent'] == 'superseded'
+        assert statuses['pkg-repair5'] == 'received'
+        status, listing = service.handle_mission_listing(
+            pairing.pairing_token, 'dev-5'
+        )
+        assert status == 200
+        assert [
+            entry['package_id'] for entry in listing['packages']
+        ] == []
+
     def test_superseded_package_bytes_stop_serving(self, tmp_path):
         service, pairing = self._active(tmp_path)
         service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
