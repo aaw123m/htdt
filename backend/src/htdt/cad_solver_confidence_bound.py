@@ -1986,6 +1986,25 @@ def evaluate_input_envelope(
     bound_poses = _resolve_envelope_refs(
         envelope.pose_refs, poses, 'pose_id', 'pose_sha256', 'pose',
     )
+    # The solver-side pins are authority refs like every other one:
+    # when the envelope declares them, only the pinned records may feed
+    # the gate — a caller-passed envelope/manifest that contradicts the
+    # seal cannot silently substitute.
+    if envelope.solver_envelope_ref is not None:
+        bound_solver_envelopes = _resolve_envelope_refs(
+            (envelope.solver_envelope_ref,), solver_envelopes,
+            'envelope_id', 'envelope_sha256', 'solver_envelope',
+        )
+    else:
+        bound_solver_envelopes = tuple(solver_envelopes)
+    if envelope.capability_manifest_ref is not None:
+        bound_manifest = _resolve_envelope_refs(
+            (envelope.capability_manifest_ref,),
+            (manifest,) if manifest is not None else (),
+            'manifest_id', 'semantic_sha256', 'capability_manifest',
+        )[0]
+    else:
+        bound_manifest = manifest
     rows = tuple(
         sorted(
             (
@@ -1996,8 +2015,8 @@ def evaluate_input_envelope(
                     geometries=bound_geometries,
                     poses=bound_poses,
                     environment=envelope.environment,
-                    solver_envelopes=solver_envelopes,
-                    manifest=manifest,
+                    solver_envelopes=bound_solver_envelopes,
+                    manifest=bound_manifest,
                 )
                 for claim in CLAIM_CLASSES
             ),
