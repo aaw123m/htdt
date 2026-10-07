@@ -85,6 +85,15 @@ class OverviewWorkspace(QWidget):
         cards_layout.setContentsMargins(0, 0, 0, 0)
         cards_layout.setSpacing(16)
 
+        # Golden-path journey strip (#804 Gate B): the whole-project flow
+        # 部屋 → 機材 → 測定 → 予測 → 比較 → 適用 → 再測定 → 出力, so the
+        # operator always knows where they are and what comes next.
+        self.journey_host = QWidget(cards_host)
+        self.journey_layout = QVBoxLayout(self.journey_host)
+        self.journey_layout.setContentsMargins(0, 0, 0, 0)
+        self.journey_layout.setSpacing(8)
+        cards_layout.addWidget(self.journey_host)
+
         self.variant_host = QWidget(cards_host)
         self.variant_layout = QVBoxLayout(self.variant_host)
         self.variant_layout.setContentsMargins(0, 0, 0, 0)
@@ -135,6 +144,8 @@ class OverviewWorkspace(QWidget):
         self.summary.setText(view.summary)
         self._clear_notices()
 
+        self._render_golden_path(view.golden_path_steps)
+
         for state in view.variant_states:
             self._add_variant_state(state)
 
@@ -174,6 +185,62 @@ class OverviewWorkspace(QWidget):
             _hint = deeplink_hint(view.next_action.target)
             self.next_button.setToolTip(_hint)
             self.next_button.setWhatsThis(_hint)
+
+    def _render_golden_path(self, steps) -> None:
+        """Numbered whole-project journey strip (#804 Gate B).
+
+        Done steps get a success tick, the single 'current' step is the
+        primary action, pending steps stay plain, and every step button
+        navigates — the strip is guidance, never a gate.
+        """
+        self.journey_host.setVisible(bool(steps))
+        if not steps:
+            return
+        done_count = sum(1 for step in steps if step.status == 'done')
+
+        card = QFrame(self.journey_host)
+        card.setObjectName("overviewJourneyCard")
+        set_surface_role(card, SurfaceRole.RAISED)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 10, 12, 10)
+        card_layout.setSpacing(8)
+
+        header = QLabel(
+            f"使い方の流れ {done_count}/{len(steps)}", card
+        )
+        header.setObjectName("overviewJourneyProgress")
+        set_typography_role(header, TypographyRole.SECTION_TITLE)
+        card_layout.addWidget(header)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        for step in steps:
+            button = QPushButton(f"{step.number}. {step.title}", card)
+            button.setObjectName(f"overviewJourneyStep_{step.key}")
+            _hint = (
+                step.detail
+                if step.target is None
+                else f"{step.detail} — {deeplink_hint(step.target)}"
+            )
+            button.setToolTip(_hint)
+            button.setWhatsThis(_hint)
+            button.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
+            if step.status == 'current':
+                set_primary_action(button)
+            elif step.status == 'done':
+                set_semantic_state(button, SemanticState.SUCCESS)
+                button.setText(f"{step.number}. {step.title} ✓")
+            if step.target is not None:
+                button.setProperty("deeplink", step.target.as_uri())
+                button.clicked.connect(
+                    lambda checked=False, target=step.target: self.navigate(target)
+                )
+            else:
+                button.setEnabled(False)
+            row.addWidget(button)
+        row.addStretch(1)
+        card_layout.addLayout(row)
+        self.journey_layout.addWidget(card)
 
     def _add_notice(self, notice: OverviewNotice) -> None:
         """One card per notice: icon + text state label + message + action (#443)."""
@@ -289,7 +356,13 @@ class OverviewWorkspace(QWidget):
         self.domain_layout.addWidget(card)
 
     def _clear_notices(self) -> None:
-        for host in (self.notice_layout, self.variant_layout, self.trust_layout, self.domain_layout):
+        for host in (
+            self.notice_layout,
+            self.variant_layout,
+            self.trust_layout,
+            self.domain_layout,
+            self.journey_layout,
+        ):
             while host.count():
                 item = host.takeAt(0)
                 widget = item.widget()

@@ -16,6 +16,7 @@ from .cad_prediction_models import CadPredictionResult
 from .cad_repository import SceneRevision
 from .cad_scene import duplicated_speaker_roles, is_unassigned_speaker_role
 from .cad_search_models import CadSearchSpec
+from .golden_path_journey import GoldenPathStep, evaluate_golden_path_journey
 from .result_trust import ResultTrustSummary
 from .result_trust_adapters import (
     trust_for_measurement,
@@ -190,6 +191,9 @@ class OverviewReadinessViewModel:
     # validation evidence (#740) — additive presentation, never a gate.
     trust_lines: tuple[str, ...] = ()
     secondary_domains: tuple[OverviewSecondaryDomain, ...] = ()
+    # Golden-path journey strip (#804 Gate B): 8 numbered steps from
+    # room creation to export. Guidance only — never a gate.
+    golden_path_steps: tuple[GoldenPathStep, ...] = ()
 
 
 class SceneReadSource(Protocol):
@@ -445,6 +449,16 @@ class OverviewReadinessService:
                 next_action=action,
                 optimization_ready=False,
                 secondary_domains=self._secondary_domains(document_id, None),
+                golden_path_steps=evaluate_golden_path_journey(
+                    scene_saved=False,
+                    room_complete=False,
+                    speakers_present=False,
+                    speaker_roles_ok=False,
+                    measurement_count=0,
+                    has_current_prediction=False,
+                    has_candidates=False,
+                    variant_stages=frozenset(),
+                ),
             )
 
         blockers: list[OverviewNotice] = []
@@ -719,6 +733,23 @@ class OverviewReadinessService:
             validation_action=validation_action,
             optimization_ready=optimization_ready,
         )
+        speaker_roles_ok = bool(speakers) and not any(
+            notice.code in {'speaker.role_missing', 'speaker.role_duplicate'}
+            for notice in blockers
+        )
+        golden_path_steps = evaluate_golden_path_journey(
+            scene_saved=True,
+            room_complete=document.room is not None,
+            speakers_present=bool(speakers),
+            speaker_roles_ok=speaker_roles_ok,
+            measurement_count=len(measurements),
+            has_current_prediction=bool(current_predictions),
+            has_candidates=(
+                bool(variant_states)
+                or bool(self._search_source.list_specs(revision.document_id))
+            ),
+            variant_stages=frozenset(state.stage for state in variant_states),
+        )
         return OverviewReadinessViewModel(
             summary=summary,
             blockers=tuple(blockers),
@@ -733,6 +764,7 @@ class OverviewReadinessService:
                 validation,
             ),
             secondary_domains=self._secondary_domains(document_id, document),
+            golden_path_steps=golden_path_steps,
         )
 
     def _trust_lines(

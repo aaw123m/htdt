@@ -5085,6 +5085,16 @@ issues:
       （offscreen 不可）。
 
       '
+  - id: golden-path-journey
+    kind: pytest
+    tests:
+    - backend/tests/test_golden_path_journey.py
+    description: '全体ゴールデンパス・ジャーニー（REV64）: Overview の
+      「使い方の流れ N/8」ストリップが永続化状態から導出され、ちょうど1つの
+      current・fail-closed blocked・全ステップのナビゲーションを保証。
+      docs/issues/issue-804-golden-path.md 参照。
+
+      '
   - id: ux160-real-input-acceptance
     kind: manual
     description: '実ポインタ・マウスでの VTK カメラ/ギズモ操作と主要操作の実打鍵確認
