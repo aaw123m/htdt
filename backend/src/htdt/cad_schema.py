@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 88
+NATIVE_SCHEMA_VERSION = 89
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1961,6 +1961,16 @@ def _migrate_87_to_88(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_88_to_89(connection: sqlite3.Connection) -> None:
+    # REV63: #791 operational-energy authority — per-mode power
+    # observations bound to exact device/firmware/network state,
+    # networked-standby profile evidence, system scenarios and
+    # reproducible annualized-energy derivations: new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2050,6 +2060,7 @@ _MIGRATIONS = {
     86: _migrate_85_to_86,
     87: _migrate_86_to_87,
     88: _migrate_87_to_88,
+    89: _migrate_88_to_89,
 }
 
 

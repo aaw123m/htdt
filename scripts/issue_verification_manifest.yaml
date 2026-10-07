@@ -5167,3 +5167,28 @@ issues:
       有資格電気/雷保護レビュー。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+
+- issue: 791
+  notes: 'REV63: 運用エネルギー/電源モード観測権威を実装（docs/issues/issue-791-operational-energy.md）。
+    正確な機器状態に束縛したモード観測、ネットワークスタンバイ証拠（CTA-6043 は
+    IEC 63474:2023 の米国採用であり 2026 直接結果ではない）、構成明示シナリオ、
+    スケジュール明示の年間導出の4レコード。全評価器 fail-closed。
+    残件は実機でのモード別実測取込とシナリオ合成UI。
+
+    '
+  checks:
+  - id: operational-energy-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_791_operational_energy.py
+    description: '運用エネルギー権威: モード/量/状態束縛、IEC 62087 刺激ピン、
+      CTA-6043 採用ピン、観測陳腐化評価器 fail-closed、シナリオ構成必須、
+      導出スケジュール明示、リポジトリ往復+改竄検出。
+
+      '
+  - id: field-power-measurements
+    kind: manual
+    description: '実機でのモード別電力実測（パワーメータ/AWG実行）と
+      シナリオ合成UI の現場取込。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

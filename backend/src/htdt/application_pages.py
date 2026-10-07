@@ -864,6 +864,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_transient_protection_observations": "過渡保護状態観測",
     "cad_transient_protection_events": "過渡保護イベント",
     "cad_transient_protection_assessments": "過渡保護評価",
+    "cad_device_power_mode_observations": "電源モード観測",
+    "cad_networked_standby_evidence": "ネットワークスタンバイエビデンス",
+    "cad_operational_energy_scenarios": "運用エネルギーシナリオ",
+    "cad_energy_use_derivations": "エネルギー使用量導出",
 }
 
 

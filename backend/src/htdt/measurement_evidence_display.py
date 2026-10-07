@@ -5007,3 +5007,20 @@ def transient_protection_label(code: str) -> str:
     """JA label lookup for any transient-protection vocabulary code
     (#789)."""
     return _TP_LABELS.get(code, code)
+
+
+from .cad_operational_energy import (  # noqa: E402
+    ENERGY_LABELS as _ENERGY_LABELS,
+)
+
+
+def energy_mode_label(code: str) -> str:
+    """JA label lookup for a power-mode / energy vocabulary code
+    (#791)."""
+    return _ENERGY_LABELS.get(code, code)
+
+
+def energy_observation_line(currency: str) -> str:
+    """One JA line for a power-mode observation's currency state (#791) —
+    ファームウェアやクイックスタート設定の変更は別の適用状態。"""
+    return '電源モード証拠: ' + _ENERGY_LABELS.get(currency, currency)

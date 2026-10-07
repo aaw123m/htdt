@@ -8336,6 +8336,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_tpa_doc ON cad_transient_protection_assessments(document_id, seq ASC)
     """
     ,
+    # REV63: #791 operational-energy authority — per-mode power
+    # observations bound to exact device/firmware/network state,
+    # networked-standby profile evidence, system scenarios and
+    # annualized-energy derivations.
+    """
+        CREATE TABLE IF NOT EXISTS cad_device_power_mode_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, device_state_ref_id TEXT, mode TEXT NOT NULL, evidence_class TEXT NOT NULL, standard_profile TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dpmo_doc ON cad_device_power_mode_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_networked_standby_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, standard_profile TEXT NOT NULL, evidence_class TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_nse_doc ON cad_networked_standby_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_operational_energy_scenarios ( seq INTEGER PRIMARY KEY AUTOINCREMENT, scenario_id TEXT NOT NULL UNIQUE, scenario_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_kind TEXT NOT NULL, label TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_oes_doc ON cad_operational_energy_scenarios(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_energy_use_derivations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, derivation_id TEXT NOT NULL UNIQUE, derivation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scenario_ref_id TEXT NOT NULL, derivation_kind TEXT NOT NULL, derivation_version TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_eud_doc ON cad_energy_use_derivations(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9422,4 +9458,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_transient_protection_observations',
     'cad_transient_protection_events',
     'cad_transient_protection_assessments',
+    # REV63: #791 operational-energy authority.
+    'cad_device_power_mode_observations',
+    'cad_networked_standby_evidence',
+    'cad_operational_energy_scenarios',
+    'cad_energy_use_derivations',
 )

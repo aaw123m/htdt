@@ -9071,6 +9071,61 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #791 operational-energy authority.
+    'cad_device_power_mode_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b(
+                'device_state_ref_id', 'device_state_ref', 'ref_id',
+                optional=True,
+            ),
+            _b('mode', 'mode'),
+            _b('evidence_class', 'evidence_class'),
+            _b('standard_profile', 'standard_profile'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_networked_standby_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b('standard_profile', 'standard_profile'),
+            _b('evidence_class', 'evidence_class'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_operational_energy_scenarios': (
+        'payload_json',
+        (
+            _b('scenario_id', 'scenario_id'),
+            _b('scenario_sha256', 'scenario_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_kind', 'scenario_kind'),
+            _b('label', 'label'),
+        ),
+        (),
+    ),
+    'cad_energy_use_derivations': (
+        'payload_json',
+        (
+            _b('derivation_id', 'derivation_id'),
+            _b('derivation_sha256', 'derivation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scenario_ref_id', 'scenario_ref', 'ref_id'),
+            _b('derivation_kind', 'derivation_kind'),
+            _b('derivation_version', 'derivation_version'),
+        ),
+        (),
+    ),
 }
 
 

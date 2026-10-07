@@ -1432,6 +1432,12 @@ class _RepositoryChain:
             )
 
             return CadTransientProtectionRepository(scene)
+        if name == 'operational_energy':
+            from .cad_operational_energy_repository import (
+                CadOperationalEnergyRepository,
+            )
+
+            return CadOperationalEnergyRepository(scene)
         raise KeyError(name)
 
 
@@ -7244,6 +7250,32 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_transient_protection_assessments',
         ('assessment_id',),
         _get('transient_protection', 'get_assessment'),
+    ),
+
+    # REV63: #791 operational-energy authority.
+    _ReplayProbe(
+        'device_power_mode_observation',
+        'cad_device_power_mode_observations',
+        ('observation_id',),
+        _get('operational_energy', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'networked_standby_evidence',
+        'cad_networked_standby_evidence',
+        ('evidence_id',),
+        _get('operational_energy', 'get_standby_evidence'),
+    ),
+    _ReplayProbe(
+        'operational_energy_scenario',
+        'cad_operational_energy_scenarios',
+        ('scenario_id',),
+        _get('operational_energy', 'get_scenario'),
+    ),
+    _ReplayProbe(
+        'energy_use_derivation',
+        'cad_energy_use_derivations',
+        ('derivation_id',),
+        _get('operational_energy', 'get_derivation'),
     ),
 
 )
