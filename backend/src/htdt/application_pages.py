@@ -2464,6 +2464,7 @@ class SupportPage(QWidget):
         export_diagnostics: Callable[[QWidget], str | None] | None = None,
         open_authority_graph: Callable[[QWidget], None] | None = None,
         open_solver_diagnostics: Callable[[QWidget], None] | None = None,
+        open_applicability_envelope: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -2471,6 +2472,7 @@ class SupportPage(QWidget):
         self._export_diagnostics = export_diagnostics
         self._open_authority_graph = open_authority_graph
         self._open_solver_diagnostics = open_solver_diagnostics
+        self._open_applicability_envelope = open_applicability_envelope
         layout = _page_layout(
             self,
             "サポート",
@@ -2516,6 +2518,17 @@ class SupportPage(QWidget):
             layout.addWidget(self.solver_button)
         else:
             self.solver_button = None
+        if self._open_applicability_envelope is not None:
+            self.envelope_button = QPushButton("適用範囲エンベロープ", self)
+            self.envelope_button.setToolTip("このソルバーパスに対して記録された証拠を7つの次元（能力・検証・外部検証・入力適格性・実室証拠・不確かさ・用途）で表示します")
+            self.envelope_button.setWhatsThis("このソルバーパスに対して記録された証拠を7つの次元で表示します — 能力の宣言は検証ではありません")
+            self.envelope_button.setObjectName("supportOpenApplicabilityEnvelope")
+            self.envelope_button.clicked.connect(
+                lambda: self._open_applicability_envelope(self)
+            )
+            layout.addWidget(self.envelope_button)
+        else:
+            self.envelope_button = None
         if self._export_diagnostics is not None:
             self.export_button = QPushButton("診断パッケージをエクスポート", self)
             self.export_button.setToolTip("サポート共有用の診断情報（ログ・設定の概要など）を1つのファイルにまとめて書き出します")

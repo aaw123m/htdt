@@ -309,6 +309,22 @@ _LAZY_IMPORTS = {
     'inbox_focus': ('.application_pages', 'inbox_focus'),
     'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
     'projects_focus': ('.application_pages', 'projects_focus'),
+    'ApplicabilityEnvelopeDialog': (
+        '.applicability_envelope_panel',
+        'ApplicabilityEnvelopeDialog',
+    ),
+    'compose_applicability_envelope': (
+        '.cad_applicability_envelope',
+        'compose_applicability_envelope',
+    ),
+    'context_for_document': (
+        '.cad_applicability_envelope',
+        'context_for_document',
+    ),
+    'load_envelope_evidence': (
+        '.cad_applicability_envelope',
+        'load_envelope_evidence',
+    ),
     'SolverOutputDiagnosticsDialog': (
         '.solver_output_diagnostics_ui',
         'SolverOutputDiagnosticsDialog',
@@ -2653,6 +2669,7 @@ class WorkflowApplicationComposition:
             export_diagnostics=self._export_diagnostics_package,
             open_authority_graph=self._open_authority_inspector,
             open_solver_diagnostics=self._open_solver_diagnostics,
+            open_applicability_envelope=self._open_applicability_envelope,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -2735,6 +2752,33 @@ class WorkflowApplicationComposition:
             initial_node_id=initial_node_id,
             parent=parent,
         )
+        dialog.exec()
+
+    def _open_applicability_envelope(self, parent: QWidget) -> None:
+        """Compose the seven-dimension applicability envelope and open it
+        (#814).
+
+        Read-only: the evidence bundle is loaded from the sealed stores at
+        open time, the envelope is a view, never persisted. The context is
+        derived from the sealed refs themselves (``context_for_document``)
+        — the app layer does not declare a solver identity on the
+        document's behalf.
+        """
+        if not self.document_id:
+            return
+        _self = sys.modules[__name__]
+        bundle = _self.load_envelope_evidence(
+            self.repository, document_id=self.document_id
+        )
+        context = _self.context_for_document(
+            bundle, document_id=self.document_id
+        )
+        envelope = _self.compose_applicability_envelope(
+            bundle,
+            context=context,
+            evaluated_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        dialog = _self.ApplicabilityEnvelopeDialog(envelope, parent=parent)
         dialog.exec()
 
     def _open_solver_diagnostics(self, parent: QWidget) -> None:

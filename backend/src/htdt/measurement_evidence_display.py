@@ -5041,3 +5041,55 @@ def campaign_promotion_line(outcome: str) -> str:
     """One JA line for a campaign promotion outcome (#813) —
     ホールドアウト漏洩や事前登録違反は自動で推奨不可。"""
     return '所有ルーム昇格: ' + _CAMPAIGN_LABELS.get(outcome, outcome)
+
+
+from .cad_applicability_envelope import (  # noqa: E402
+    ENVELOPE_CLASS_LABELS as _ENVELOPE_CLASS_LABELS,
+    ENVELOPE_DIMENSION_LABELS as _ENVELOPE_DIMENSION_LABELS,
+    DECISION_LABELS as _ENVELOPE_DECISION_LABELS,
+    DECISION_VERDICT_LABELS as _ENVELOPE_DECISION_VERDICT_LABELS,
+    QUALIFICATION_VERDICT_LABELS as _QUALIFICATION_VERDICT_LABELS,
+    QUALIFICATION_LEVEL_LABELS as _QUALIFICATION_LEVEL_LABELS,
+    CAPABILITY_STATE_LABELS as _CAPABILITY_STATE_LABELS,
+    envelope_verdict_label as _envelope_verdict_label,
+)
+
+
+def applicability_dimension_line(dimension: str, verdict: str | None, evidence_class: str) -> str:
+    """One JA line for an applicability-envelope dimension (#814) —
+    能力の宣言は検証ではない。未取得は成功として描画しない。"""
+    dim = _ENVELOPE_DIMENSION_LABELS.get(dimension, dimension)
+    cls = _ENVELOPE_CLASS_LABELS.get(evidence_class, evidence_class)
+    verdict_label = (
+        _envelope_verdict_label(verdict) if verdict else cls
+    )
+    return f'{dim}: {verdict_label}（{cls}）'
+
+
+def applicability_class_label(code: str) -> str:
+    """JA label lookup for an envelope evidence class (#814)."""
+    return _ENVELOPE_CLASS_LABELS.get(code, code)
+
+
+def applicability_verdict_label(verdict: str | None) -> str:
+    """JA label for any verdict token an envelope dimension can carry
+    (#809 qualification verdicts, capability declarations, #810 VUQ
+    verdicts, #811 bound verdicts and composer meta tokens)."""
+    return _envelope_verdict_label(verdict)
+
+
+def applicability_level_label(level: str) -> str:
+    """JA label lookup for a #809 qualification level token."""
+    return _QUALIFICATION_LEVEL_LABELS.get(level, level)
+
+
+def applicability_capability_label(state: str) -> str:
+    """JA label lookup for a capability-manifest state (declaration, not validation)."""
+    return _CAPABILITY_STATE_LABELS.get(state, state)
+
+
+def applicability_decision_line(decision: str, verdict: str) -> str:
+    """One JA line for a context-of-use decision (#814)."""
+    name = _ENVELOPE_DECISION_LABELS.get(decision, decision)
+    verdict_label = _ENVELOPE_DECISION_VERDICT_LABELS.get(verdict, verdict)
+    return f'{name}: {verdict_label}'
