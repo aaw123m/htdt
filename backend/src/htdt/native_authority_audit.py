@@ -7809,6 +7809,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'capture mission package authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'capture_mission_rebase_decisions': (
+        'STRUCTURAL_ONLY',
+        'mission rebase decision ledger authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
     'capture_receiver_config': (
         'STRUCTURAL_ONLY',
         'capture receiver config authority; canonical replay path '
