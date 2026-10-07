@@ -328,3 +328,48 @@ classes:
           - '{repo_root}/dist-native/HTDT'
         timeout_seconds: 600
         description: 'Packaged HTDT.exe identity vs checked-out revision.'
+
+  - id: performance-budget
+    title: 'Performance budget regression gate (#867)'
+    description: >-
+      scripts/perf_benchmark.py が決定的代表フィクスチャ (small) に対して
+      全ベンチマーク可能操作を実行し、scripts/perf_budgets.yaml の
+      p95/メモリ予算と突合する。予算超過は failed、未計測操作は
+      incomplete — リリース判定ではいずれも PASS にならない。
+      ハードウェア依存操作 (3D viewport) は owned-machine プロトコル扱いで
+      report 上に列挙され、fake CI timing として偽装しない。
+      フィクスチャ identity は spec sha256 でピンされる。
+    required: true
+    include_in_dev: false
+    checks:
+      - id: perf-budget-small
+        kind: script
+        command:
+          - '{python}'
+          - scripts/perf_benchmark.py
+          - '--fixture-size'
+          - small
+          - '--iterations'
+          - '5'
+          - '--warmup'
+          - '1'
+          - '--check'
+          - '--out'
+          - '{work_dir}/perf'
+          - '--fixtures-root'
+          - '{work_dir}/perf/fixtures'
+        env:
+          PYTHONPATH: '{repo_root}/backend/src'
+          QT_QPA_PLATFORM: offscreen
+          PYTHONIOENCODING: utf-8
+        timeout_seconds: 600
+        description: >-
+          Deterministic small-fixture benchmark vs perf_budgets.yaml;
+          report JSON+MD written under the evidence work dir.
+      - id: perf-budget-unit
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_867_perf_budget.py
+        description: >-
+          Fixture determinism, verdict ladder, and the
+          intentional-slowdown regression-detection proof.

@@ -1,0 +1,154 @@
+# HTDT performance budgets (issue #867)
+#
+# Each entry gates one benchmarkable operation on one fixture size.
+# Budgets are documented baselines (measured on the reference Windows
+# box, 2026-10) plus a ~2-4x headroom factor so legitimate regressions
+# trip the gate while ordinary host noise does not flake it. The
+# measured baselines themselves live in docs/issues/
+# issue-867-performance-budget.md and in retained report artifacts —
+# never edit a budget down to silence a regression without recording it.
+#
+# Fields per entry: operation_id, fixture_size, p95_budget_s,
+# memory_budget_bytes, rationale. A field may be omitted to record-but-
+# not-assert that dimension (never omit both: the entry then gates
+# nothing and the op reports 'unmeasured').
+
+version: '1'
+entries:
+  # --- small fixture (24 entities / 4 revisions) -----------------------
+  - operation_id: application_startup_cold
+    fixture_size: small
+    p95_budget_s: 6.0
+    rationale: baseline ~1.9s subprocess import on reference box
+  - operation_id: application_startup_warm
+    fixture_size: small
+    p95_budget_s: 5.0
+    rationale: baseline ~1.9s
+  - operation_id: project_open
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.03s (repository init + head load)
+  - operation_id: project_save
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.04s (head revision write)
+  - operation_id: project_reopen
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.03s
+  - operation_id: scene_revision_apply
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.03s (cold-cache load + entity walk)
+  - operation_id: workspace_first_mount
+    fixture_size: small
+    p95_budget_s: 12.0
+    rationale: baseline ~4.4s mounting 4 non-VTK workspaces offscreen
+  - operation_id: workspace_transition
+    fixture_size: small
+    p95_budget_s: 2.0
+    rationale: baseline ~0.7s steady-state navigation cycle
+  - operation_id: measurement_plot_load
+    fixture_size: small
+    p95_budget_s: 1.0
+    rationale: baseline ~0.13s measurement model load
+  - operation_id: comparison_view_prep
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.02s revision diff
+  - operation_id: memory_idle_rss
+    fixture_size: small
+    memory_budget_bytes: 1610612736
+    rationale: baseline ~0.9GiB process RSS once Qt+model layer loaded (1.5GiB cap)
+  - operation_id: memory_loaded_rss
+    fixture_size: small
+    memory_budget_bytes: 1610612736
+    rationale: baseline ~0.9GiB with project loaded (1.5GiB cap)
+  - operation_id: shutdown_close
+    fixture_size: small
+    p95_budget_s: 0.5
+    rationale: baseline ~0.07s handle release + collection
+
+  # --- medium fixture (300 entities / 12 revisions) --------------------
+  - operation_id: project_open
+    fixture_size: medium
+    p95_budget_s: 1.5
+    rationale: scale ~4-5x vs small (300 entities, 12 revisions)
+  - operation_id: project_save
+    fixture_size: medium
+    p95_budget_s: 1.5
+    rationale: scale ~4-5x vs small
+  - operation_id: project_reopen
+    fixture_size: medium
+    p95_budget_s: 1.5
+    rationale: scale ~4-5x vs small
+  - operation_id: scene_revision_apply
+    fixture_size: medium
+    p95_budget_s: 1.5
+    rationale: scale ~4-5x vs small
+  - operation_id: workspace_first_mount
+    fixture_size: medium
+    p95_budget_s: 20.0
+    rationale: baseline ~14.6s on reference box (300 entities)
+  - operation_id: workspace_transition
+    fixture_size: medium
+    p95_budget_s: 3.0
+    rationale: steady-state navigation grows modestly
+  - operation_id: measurement_plot_load
+    fixture_size: medium
+    p95_budget_s: 2.0
+    rationale: view materialization over larger revision history
+  - operation_id: comparison_view_prep
+    fixture_size: medium
+    p95_budget_s: 1.0
+    rationale: entity diff over 300 entities
+  - operation_id: memory_idle_rss
+    fixture_size: medium
+    memory_budget_bytes: 2147483648
+    rationale: baseline ~0.9GiB (2GiB cap)
+  - operation_id: memory_loaded_rss
+    fixture_size: medium
+    memory_budget_bytes: 2147483648
+    rationale: baseline ~0.9GiB with 300 entities (2GiB cap)
+
+  # --- large fixture (1500 entities / 24 revisions) --------------------
+  - operation_id: project_open
+    fixture_size: large
+    p95_budget_s: 4.0
+    rationale: scale ~10x vs small (1500 entities, 24 revisions)
+  - operation_id: project_save
+    fixture_size: large
+    p95_budget_s: 4.0
+    rationale: scale ~10x vs small
+  - operation_id: project_reopen
+    fixture_size: large
+    p95_budget_s: 4.0
+    rationale: scale ~10x vs small
+  - operation_id: scene_revision_apply
+    fixture_size: large
+    p95_budget_s: 4.0
+    rationale: scale ~10x vs small
+  - operation_id: workspace_first_mount
+    fixture_size: large
+    p95_budget_s: 40.0
+    rationale: mount cost grows with scene size (~15s medium)
+  - operation_id: workspace_transition
+    fixture_size: large
+    p95_budget_s: 6.0
+    rationale: steady-state navigation grows with scene size
+  - operation_id: measurement_plot_load
+    fixture_size: large
+    p95_budget_s: 4.0
+    rationale: view materialization over 24 revisions
+  - operation_id: comparison_view_prep
+    fixture_size: large
+    p95_budget_s: 2.0
+    rationale: entity diff over 1500 entities
+  - operation_id: memory_idle_rss
+    fixture_size: large
+    memory_budget_bytes: 3221225472
+    rationale: projected ~1-1.5GiB (3GiB cap)
+  - operation_id: memory_loaded_rss
+    fixture_size: large
+    memory_budget_bytes: 3221225472
+    rationale: projected ~1-2GiB with 1500 entities (3GiB cap)
