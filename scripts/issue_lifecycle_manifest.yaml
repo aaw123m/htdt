@@ -335,3 +335,11 @@ entries:
     description: 実機オーディオ + 実測定ポジションでのキャンペーン実行検証 — #869 エンジン実機バックエンドと同一ゲート (現状 fail-closed スタブ)
   evidence_refs: [docs/issues/issue-875-campaign-execution.md]
   close_when_gates_clear: true
+- issue: 883
+  lifecycle: acceptance_remaining
+  landed: {prs: [906], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 実機受入 — 実プロセス kill / OS 異常終了後の復旧ダイアログで未保存作業が復元できること
+  evidence_refs: [docs/issues/issue-883-session-recovery.md]
+  close_when_gates_clear: true
