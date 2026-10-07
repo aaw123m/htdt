@@ -23,6 +23,7 @@ from .project_identity import (
 )
 from .cad_schema import ensure_native_schema, require_native_tables, connect_sqlite
 from .canonical_json import canonical_json as _canonical_json
+from .content_blobs import ensure_content_blob_store, store_content_blob
 
 
 class FieldReturnError(ValueError):
@@ -337,6 +338,7 @@ class StagedFieldReturn(BaseModel):
     manifest_json: str | None = None
     detail: str | None = None
     recorded_at_utc: str | None = None
+    artifact_retained: bool = False
 
 
 # --- .htdtfieldreturn container wire form (capture-side issue #400) ------------
@@ -748,11 +750,14 @@ class FieldReturnRepository:
                 known_projects,
                 channel_project_ref=channel_project_ref,
                 declared_content_digest=declared_content_digest,
-            )
+            ),
+            artifact,
         )
 
     def _stage_entry(
-        self, staged: StagedFieldReturn
+        self,
+        staged: StagedFieldReturn,
+        artifact: bytes,
     ) -> tuple[StagedFieldReturn, bool]:
         if staged.contribution_id is None:
             return staged, False
@@ -802,6 +807,11 @@ class FieldReturnRepository:
                                 staged.contribution_id,
                             ),
                         )
+                        store_content_blob(
+                            connection,
+                            artifact,
+                            expected_sha256=staged.artifact_sha256,
+                        )
                         return staged, True
                     return staged, False
                 raise FieldReturnConflictError(
@@ -830,7 +840,51 @@ class FieldReturnRepository:
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
+            # Keep the artifact bytes: applied record_refs resolve into
+            # this container — discarding them left the binding dead.
+            store_content_blob(
+                connection,
+                artifact,
+                expected_sha256=staged.artifact_sha256,
+            )
         return staged, True
+
+    def artifact_bytes(
+        self, contribution_id: str
+    ) -> bytes | None:
+        """The staged artifact's bytes, or None when never retained.
+
+        Contributions staged before byte retention existed report
+        ``None`` — the row's sha pins the identity either way.
+        """
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                '''
+                SELECT artifact_sha256 FROM field_return_contributions
+                WHERE contribution_id=?
+                ''',
+                (contribution_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            ensure_content_blob_store(connection)
+            blob_row = connection.execute(
+                'SELECT payload_blob, payload_sha256, byte_count '
+                'FROM htdt_content_blobs WHERE payload_sha256=?',
+                (row['artifact_sha256'],),
+            ).fetchone()
+        if blob_row is None:
+            return None
+        payload = bytes(blob_row['payload_blob'])
+        if (
+            len(payload) != blob_row['byte_count']
+            or sha256(payload).hexdigest()
+            != blob_row['payload_sha256']
+        ):
+            raise FieldReturnError(
+                'stored field-return artifact fails integrity check'
+            )
+        return payload
 
     def get(self, contribution_id: str) -> StagedFieldReturn | None:
         with closing(self._connect()) as connection:
@@ -842,8 +896,18 @@ class FieldReturnRepository:
                 ''',
                 (contribution_id,),
             ).fetchone()
-        if row is None:
-            return None
+            if row is None:
+                return None
+            ensure_content_blob_store(connection)
+            return self._from_row(connection, row)
+
+    def _from_row(
+        self, connection: sqlite3.Connection, row: sqlite3.Row
+    ) -> StagedFieldReturn:
+        retained = connection.execute(
+            'SELECT 1 FROM htdt_content_blobs WHERE payload_sha256=?',
+            (row['artifact_sha256'],),
+        ).fetchone() is not None
         return StagedFieldReturn(
             contribution_id=row['contribution_id'],
             artifact_sha256=row['artifact_sha256'],
@@ -855,6 +919,7 @@ class FieldReturnRepository:
             manifest_json=row['manifest_json'],
             detail=row['detail'],
             recorded_at_utc=row['recorded_at_utc'],
+            artifact_retained=retained,
         )
 
     def list_staged(self) -> tuple[StagedFieldReturn, ...]:
@@ -866,18 +931,7 @@ class FieldReturnRepository:
                 ORDER BY recorded_at_utc ASC, contribution_id ASC
                 '''
             ).fetchall()
-        return tuple(
-            StagedFieldReturn(
-                contribution_id=row['contribution_id'],
-                artifact_sha256=row['artifact_sha256'],
-                validation_state=row['validation_state'],
-                routing=row['routing'],
-                matched_project_id=row['matched_project_id'],
-                mission_id=row['mission_id'],
-                plan_sha256=row['plan_sha256'],
-                manifest_json=row['manifest_json'],
-                detail=row['detail'],
-                recorded_at_utc=row['recorded_at_utc'],
+            ensure_content_blob_store(connection)
+            return tuple(
+                self._from_row(connection, row) for row in rows
             )
-            for row in rows
-        )

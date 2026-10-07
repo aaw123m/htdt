@@ -205,6 +205,21 @@ def test_repository_stages_and_handles_duplicates(tmp_path: Path) -> None:
     assert fetched.routing == staged.routing
 
 
+def test_repository_retains_artifact_bytes(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    staged = repository.stage(artifact, [])
+
+    # Bytes survive independently of the staging row's lifetime.
+    assert repository.artifact_bytes(CONTRIBUTION_ID) == artifact
+
+    reopened = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    assert reopened.artifact_bytes(CONTRIBUTION_ID) == artifact
+    assert reopened.get(CONTRIBUTION_ID).artifact_retained is True
+    assert reopened.list_staged()[0].artifact_retained is True
+    assert reopened.artifact_bytes('missing-contribution') is None
+
+
 def test_duplicate_classification_is_deterministic() -> None:
     assert (
         classify_contribution_duplicate(
