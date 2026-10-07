@@ -129,12 +129,22 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         repo = None
     else:
-        repo = CadManifestGateRepository(
-            SceneRepository(Path(args.scene)))
-        for gate in gates:
-            repo.save_manifest_gate(gate)
-        for result in results:
-            repo.save_gate_run_result(result)
+        try:
+            repo = CadManifestGateRepository(
+                SceneRepository(Path(args.scene)))
+            for gate in gates:
+                repo.save_manifest_gate(gate)
+            for result in results:
+                repo.save_gate_run_result(result)
+        except Exception as exc:
+            # Documented contract: exit 3 = integrity/commit failure —
+            # distinct from 2 (bad args/inputs) so callers can tell a
+            # sealed-store write failure apart from a usage error.
+            print(
+                f'[commit] integrity/commit failure: {exc}',
+                file=sys.stderr,
+            )
+            return 3
 
     # verdict summary per issue
     for issue in report.get('issues') or []:
