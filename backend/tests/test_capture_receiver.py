@@ -1071,6 +1071,27 @@ class TestMissionPull:
         assert statuses['pkg-parent'] == 'received'
         assert statuses['pkg-repair3'] == 'pending'
 
+    def test_superseded_package_bytes_stop_serving(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        service.queue_mission_package('pkg-parent', self.MISSION_PAYLOAD)
+        service.queue_mission_package(
+            'pkg-repair4',
+            self.MISSION_PAYLOAD,
+            descriptor={'supersedes_package_id': 'pkg-parent'},
+        )
+        # A device that listed the parent while it was pending must not
+        # be able to pull the stale bytes now — 410 tells it the plan
+        # was replaced, not that the package vanished.
+        status, _ = service.handle_mission_package(
+            pairing.pairing_token, 'pkg-parent', 'dev-4'
+        )
+        assert status == 410
+        status, body = service.handle_mission_package(
+            pairing.pairing_token, 'pkg-repair4', 'dev-4'
+        )
+        assert status == 200
+        assert body == self.MISSION_PAYLOAD
+
 
 class TestHttpsEndpoint:
     def test_real_https_roundtrip(self, tmp_path):
