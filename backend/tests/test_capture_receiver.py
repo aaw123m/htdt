@@ -584,6 +584,75 @@ class TestMissionPull:
         assert status == 200
         assert service.list_mission_packages()[0].status == 'failed'
 
+    def test_settled_verdict_is_immutable(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        package = service.queue_mission_package(
+            'pkg-settled', self.MISSION_PAYLOAD
+        )
+        def _receipt(result, detail=None):
+            return json.dumps({
+                'schema': 'htdt.capture.mission-receipt',
+                'schema_version': '1.0.0',
+                'receipt_id': str(uuid.uuid4()),
+                'package_id': 'pkg-settled',
+                'package_sha256': package.package_sha256,
+                'capture_instance_id': 'dev-1',
+                'receiver_instance_id': pairing.receiver_instance_id,
+                'received_at': '2026-01-01T00:00:00+00:00',
+                'validation_result': result,
+                'detail': detail,
+            }).encode()
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-settled',
+            _receipt('imported'), 'dev-1',
+        )
+        assert status == 200
+        # An identical re-report is idempotent — the device may retry.
+        status, _ = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-settled',
+            _receipt('imported'), 'dev-1',
+        )
+        assert status == 200
+        # A conflicting verdict never overwrites the settled one.
+        status, body = service.handle_mission_receipt(
+            pairing.pairing_token, 'pkg-settled',
+            _receipt('integrity_mismatch', 'late corruption'), 'dev-1',
+        )
+        assert status == 409
+        stored = service.list_mission_packages()[0]
+        assert stored.status == 'received'
+
+    def test_mission_listing_order_is_deterministic(self, tmp_path):
+        service, pairing = self._active(tmp_path)
+        for package_id in ('pkg-c', 'pkg-a', 'pkg-b'):
+            service.queue_mission_package(
+                package_id, self.MISSION_PAYLOAD,
+                descriptor={'mission_id': 'mission-1'},
+            )
+        status, first = service.handle_mission_listing(
+            pairing.pairing_token, 'capture-instance-9'
+        )
+        assert status == 200
+        assert {
+            entry['package_id'] for entry in first['packages']
+        } == {'pkg-a', 'pkg-b', 'pkg-c'}
+        status, second = service.handle_mission_listing(
+            pairing.pairing_token, 'capture-instance-9'
+        )
+        assert status == 200
+        # The canonical listing is byte-identical across reads — no
+        # dependence on SQLite scan order.
+        assert second == first
+        # ORDER BY created_at_utc then package_id: packages queued
+        # inside one timestamp tie fall back to id order.
+        ids = [entry['package_id'] for entry in first['packages']]
+        assert ids == sorted(ids) or ids == ['pkg-c', 'pkg-a', 'pkg-b']
+        stored_ids = [
+            package.package_id
+            for package in service.list_mission_packages()
+        ]
+        assert sorted(stored_ids) == sorted(('pkg-a', 'pkg-b', 'pkg-c'))
+
     def test_export_fallback_keeps_identity(self, tmp_path):
         service, _pairing = self._active(tmp_path)
         package = service.queue_mission_package(
