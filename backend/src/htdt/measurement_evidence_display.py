@@ -4931,3 +4931,20 @@ def accessible_playback_line(verdict: str) -> str:
     コンポーネント存在は提示確認を意味しない。"""
     return 'アクセシブル再生: ' + _ACCESSIBLE_MEDIA_LABELS.get(
         verdict, verdict)
+
+
+from .cad_calibration_deployment import (  # noqa: E402
+    DEPLOYMENT_LABELS as _DEPLOYMENT_LABELS,
+)
+
+
+def calibration_deployment_line(verdict: str) -> str:
+    """One JA line for a calibration-deployment state (#806) —
+    エクスポート/適用ACKはデプロイ済みを意味しない。"""
+    return '校正デプロイ: ' + _DEPLOYMENT_LABELS.get(verdict, verdict)
+
+
+def deployment_effectiveness_line(verdict: str) -> str:
+    """One JA line for a deployment effectiveness verdict (#806) —
+    再測定の比較はデプロイ状態の証拠に紐づく。"""
+    return 'デプロイ効果: ' + _DEPLOYMENT_LABELS.get(verdict, verdict)

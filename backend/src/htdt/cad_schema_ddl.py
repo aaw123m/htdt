@@ -8022,6 +8022,46 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_deployment_capability_declarations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, declaration_id TEXT NOT NULL UNIQUE, declaration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, adapter_id TEXT NOT NULL, adapter_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dcld_doc ON cad_deployment_capability_declarations(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_calibration_deployments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, deployment_id TEXT NOT NULL UNIQUE, deployment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_state TEXT NOT NULL, evidence_mode TEXT NOT NULL, target_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cdpl_doc ON cad_calibration_deployments(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_deployment_effectiveness_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_defx_doc ON cad_deployment_effectiveness_reports(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_deployment_rollbacks ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rollback_id TEXT NOT NULL UNIQUE, rollback_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_drbk_doc ON cad_deployment_rollbacks(document_id, seq ASC)
+    
+    """
+    ,
 )
 
 
@@ -9066,4 +9106,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_material_durability_evidence',
     'cad_material_evidence_applicability',
     'cad_material_reinspections',
+
+    'cad_deployment_capability_declarations',
+    'cad_calibration_deployments',
+    'cad_deployment_effectiveness_reports',
+    'cad_deployment_rollbacks',
 )

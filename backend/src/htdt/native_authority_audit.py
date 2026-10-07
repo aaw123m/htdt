@@ -1384,6 +1384,12 @@ class _RepositoryChain:
             )
 
             return CadEdgeAuthorityRepository(scene)
+        if name == 'deployment':
+            from .cad_calibration_deployment_repository import (
+                CadCalibrationDeploymentRepository,
+            )
+
+            return CadCalibrationDeploymentRepository(scene)
         raise KeyError(name)
 
 
@@ -6968,6 +6974,31 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         ('assessment_id',),
         _get('material_condition', 'get_reinspection'),
     ),
+    # #806 calibration deployment/verification loop.
+    _ReplayProbe(
+        'deployment_capability_declaration',
+        'cad_deployment_capability_declarations',
+        ('declaration_id',),
+        _get('deployment', 'get_capability_declaration'),
+    ),
+    _ReplayProbe(
+        'calibration_deployment',
+        'cad_calibration_deployments',
+        ('deployment_id',),
+        _get('deployment', 'get_deployment'),
+    ),
+    _ReplayProbe(
+        'deployment_effectiveness_report',
+        'cad_deployment_effectiveness_reports',
+        ('report_id',),
+        _get('deployment', 'get_effectiveness_report'),
+    ),
+    _ReplayProbe(
+        'deployment_rollback',
+        'cad_deployment_rollbacks',
+        ('rollback_id',),
+        _get('deployment', 'get_rollback'),
+    ),
 
 )
 
@@ -7777,6 +7808,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'STRUCTURAL_ONLY',
         'capture mission package authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
+    ),
+    'capture_mission_rebase_decisions': (
+        'STRUCTURAL_ONLY',
+        'mission rebase decision ledger authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
     ),
     'capture_receiver_config': (
         'STRUCTURAL_ONLY',

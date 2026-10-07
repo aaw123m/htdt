@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 80
+NATIVE_SCHEMA_VERSION = 81
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1884,6 +1884,13 @@ def _migrate_78_to_79(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_79_to_80(connection: sqlite3.Connection) -> None:
+    # #806 calibration deployment/verification authority: four new
+    # append-only tables the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_80_to_81(connection: sqlite3.Connection) -> None:
     # Install the field-return application ledger (mission-return
     # reconciliation): each row binds one returned task's evidence to a
     # current project entity — the destination the rebase decision names.
@@ -1972,6 +1979,7 @@ _MIGRATIONS = {
     78: _migrate_77_to_78,
     79: _migrate_78_to_79,
     80: _migrate_79_to_80,
+    81: _migrate_80_to_81,
 }
 
 
