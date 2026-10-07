@@ -1,6 +1,6 @@
 # Issue #812 — R160 ハイブリッド合成の検証権威
 
-追加日: 2026-10-07 (REV63)。スキーマ v90。
+追加日: 2026-10-07 (REV63)。スキーマ v93。
 
 ## 概要
 
@@ -109,7 +109,7 @@ crossover/ownership/phase/grid/sensitivity/late の各サブ状態を記録
 
 ## 結合点
 
-- スキーマ v90: 3 テーブル + インデックス(`_migrate_89_to_90`)。
+- スキーマ v93: 3 テーブル + インデックス(`_migrate_92_to_93`)。
 - リポジトリ `CadHybridCompositionValidationRepository`(append-only、
   保存時に seal 検証)。
 - `native_authority_audit`: `hybrid_composition_validation`
