@@ -7519,6 +7519,11 @@ _TABLE_POLICY: dict[str, tuple[str, str]] = {
         'field return contribution authority; canonical replay path '
         'pending — strongest verification is schema + payload parse',
     ),
+    'field_return_applications': (
+        'STRUCTURAL_ONLY',
+        'field return application ledger authority; canonical replay '
+        'path pending — strongest verification is schema + payload parse',
+    ),
     'project_action_items': (
         'STRUCTURAL_ONLY',
         'project action item authority; canonical replay path pending '

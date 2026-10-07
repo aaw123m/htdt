@@ -394,7 +394,7 @@ def test_rebase_decision_persists_and_marks_drift_decided(
         contribution,
         repository,
         task_id=task_id,
-        current_target_id='spk-fl',
+        current_target_id='spk-fl2',
         mapping_reason='mapping corrected',
         decided_by='operator-2',
     )
@@ -402,9 +402,21 @@ def test_rebase_decision_persists_and_marks_drift_decided(
         repository.path
     ).decisions_for_mission(mission.mission_id)
     assert len(stored) == 1
-    assert stored[0].current_target_id == 'spk-fl'
+    assert stored[0].current_target_id == 'spk-fl2'
     assert stored[0].decided_by == 'operator-2'
     assert stored[0].decision_id != decision.decision_id
+
+    # A target that no longer exists is refused — evidence never binds
+    # to a dead entity.
+    with pytest.raises(MissionReconciliationError):
+        record_return_rebase_decision(
+            contribution,
+            repository,
+            task_id=task_id,
+            current_target_id='spk-fl',
+            mapping_reason='bogus',
+            decided_by='operator-1',
+        )
 
     # A task outside the issuing mission is refused.
     with pytest.raises(MissionReconciliationError):
@@ -412,7 +424,244 @@ def test_rebase_decision_persists_and_marks_drift_decided(
             contribution,
             repository,
             task_id='foreign-task',
-            current_target_id='spk-fl',
+            current_target_id='spk-fl2',
             mapping_reason='bogus',
             decided_by='operator-1',
+        )
+
+
+def test_apply_returned_tasks_binds_evidence_to_resolved_targets(
+    tmp_path,
+) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        MissionReconciliationError,
+        MissionReconciliationRepository,
+        apply_returned_tasks,
+        mission_return_reconciliation_lines,
+        record_return_rebase_decision,
+        returned_task_applications,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    saved = repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_id = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    record_id = str(uuid.uuid4())
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': record_id, 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {
+                'task_id': task_id,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': record_id,
+            },
+        ),
+    )
+    contribution = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+    )
+
+    # Undrifted: the applicable task binds to its pinned target.
+    outcome = apply_returned_tasks(
+        contribution, repository, applied_by='operator-1'
+    )
+    assert len(outcome.applied) == 1
+    application = outcome.applied[0]
+    assert application.applied_target_id == 'spk-fl'
+    assert application.source_target_id == 'spk-fl'
+    assert application.decision_id is None
+    assert application.record_refs == (record_id,)
+    assert outcome.skipped_task_ids == ()
+    stored = returned_task_applications(contribution, repository)
+    assert len(stored) == 1
+    assert stored[0].application_id == application.application_id
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert '適用済み 1件' in lines[0]
+    assert '適用: spk-fl' in lines[1]
+
+    # Re-applying is a no-op — the binding stays exactly once.
+    second = apply_returned_tasks(
+        contribution, repository, applied_by='operator-1'
+    )
+    assert second.applied == ()
+    assert len(returned_task_applications(contribution, repository)) == 1
+
+
+def test_apply_consumes_rebase_decision_and_skips_undecided(
+    tmp_path,
+) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        MissionReconciliationError,
+        MissionReconciliationRepository,
+        apply_returned_tasks,
+        record_return_rebase_decision,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document(
+        (_speaker('spk-fl', 'FL', 1.0), _speaker('spk-fr', 'FR', 4.0))
+    )
+    saved = repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_fl = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    task_fr = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fr'
+    )
+    record_id = str(uuid.uuid4())
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': record_id, 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {
+                'task_id': task_fl,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': record_id,
+            },
+            {
+                'task_id': task_fr,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': record_id,
+            },
+        ),
+    )
+    contribution = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+    )
+    # Both targets drift; only FL gets a decision.
+    drifted = repository.save(
+        _document(
+            (_speaker('spk-fl', 'FL', 2.5), _speaker('spk-fr', 'FR', 5.0))
+        ),
+        parent_revision_id=saved.revision.revision_id,
+    )
+    repository.save(
+        _document(
+            (_speaker('spk-fl2', 'FL', 2.5), _speaker('spk-fr', 'FR', 5.0))
+        ),
+        parent_revision_id=drifted.revision.revision_id,
+    )
+    decision = record_return_rebase_decision(
+        contribution,
+        repository,
+        task_id=task_fl,
+        current_target_id='spk-fl2',
+        mapping_reason='renamed during the move',
+        decided_by='operator-1',
+    )
+
+
+    # A current target that does not exist is refused — evidence must
+    # never bind to a dead entity.
+    with pytest.raises(MissionReconciliationError):
+        record_return_rebase_decision(
+            contribution,
+            repository,
+            task_id=task_fl,
+            current_target_id='spk-ghost',
+            mapping_reason='bogus',
+            decided_by='operator-1',
+        )
+    outcome = apply_returned_tasks(
+        contribution, repository, applied_by='operator-2'
+    )
+    assert {a.task_id for a in outcome.applied} == {task_fl}
+    applied = outcome.applied[0]
+    assert applied.applied_target_id == 'spk-fl2'
+    assert applied.source_target_id == 'spk-fl'
+    assert applied.decision_id == decision.decision_id
+    # FR has no decision — skipped, never rebound onto a guess.
+    assert outcome.skipped_task_ids == (task_fr,)
+    # The decision's resulting_authority now names the application.
+    stored = MissionReconciliationRepository(
+        repository.path
+    ).decisions_for_mission(mission.mission_id)
+    assert stored[0].resulting_authority == applied.application_id
+
+    # Scoping the apply to an unresolvable task fails closed.
+    with pytest.raises(MissionReconciliationError):
+        apply_returned_tasks(
+            contribution,
+            repository,
+            applied_by='operator-2',
+            task_ids=[task_fr],
         )

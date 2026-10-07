@@ -398,10 +398,15 @@ class MissionReturnReconciliationContext:
     returned_task_ids: tuple[str, ...]
     report: 'MissionReconciliationReport'
     decisions: tuple[RebaseDecision, ...]
+    applications: tuple['FieldReturnApplication', ...] = ()
 
     @property
     def decided_task_ids(self) -> frozenset[str]:
         return frozenset(d.task_id for d in self.decisions)
+
+    @property
+    def applied_task_ids(self) -> frozenset[str]:
+        return frozenset(d.task_id for d in self.applications)
 
     @property
     def undecided(self) -> tuple[TaskDriftResult, ...]:
@@ -412,6 +417,26 @@ class MissionReturnReconciliationContext:
             if result.classification
             in ('needs_reconciliation', 'historical_target_removed')
             and result.task_id not in decided
+        )
+
+    @property
+    def applyable(self) -> tuple[TaskDriftResult, ...]:
+        """Tasks whose evidence can still be bound into the project.
+
+        'applicable' tasks land on their pinned target; drifted tasks
+        need a recorded decision to name the current target. Applied
+        tasks are out — re-applying is a no-op.
+        """
+        decided = self.decided_task_ids
+        applied = self.applied_task_ids
+        return tuple(
+            result
+            for result in self.report.results
+            if result.task_id not in applied
+            and (
+                result.classification == 'applicable'
+                or result.task_id in decided
+            )
         )
 
 
@@ -483,12 +508,16 @@ def mission_return_reconciliation_context(
     decisions = MissionReconciliationRepository(
         scene_repository.path
     ).decisions_for_mission(mission_id)
+    applications = returned_task_applications(
+        contribution, scene_repository
+    )
     return MissionReturnReconciliationContext(
         package=package,
         revision=revision,
         returned_task_ids=tuple(returned_ids),
         report=report,
         decisions=decisions,
+        applications=applications,
     )
 
 
@@ -514,30 +543,48 @@ def mission_return_reconciliation_lines(
         return (resolved,)
     report = resolved.report
     decided = resolved.decided_task_ids
+    applied = resolved.applied_task_ids
     decisions_by_task = {d.task_id: d for d in resolved.decisions}
+    applications_by_task = {
+        a.task_id: a for a in resolved.applications
+    }
+    resolved_ids = decided | applied
     undecided_applicable = sum(
-        item.classification == 'applicable' and item.task_id not in decided
+        item.classification == 'applicable'
+        and item.task_id not in resolved_ids
         for item in report.results
     )
     undecided_removed = sum(
         item.classification == 'historical_target_removed'
-        and item.task_id not in decided
+        and item.task_id not in resolved_ids
         for item in report.results
     )
     undecided_review = sum(
         item.classification == 'needs_reconciliation'
-        and item.task_id not in decided
+        and item.task_id not in resolved_ids
         for item in report.results
     )
     decided_count = sum(
-        item.task_id in decided for item in report.results
+        item.task_id in decided and item.task_id not in applied
+        for item in report.results
+    )
+    applied_count = sum(
+        item.task_id in applied for item in report.results
     )
     lines = [
         f'照合: 適用可能 {undecided_applicable}件 / '
         f'要調整 {undecided_review}件 / 対象消失 {undecided_removed}件 / '
-        f'決定記録済み {decided_count}件',
+        f'決定記録済み {decided_count}件 / 適用済み {applied_count}件',
     ]
     for result in report.results:
+        application = applications_by_task.get(result.task_id)
+        if application is not None:
+            lines.append(
+                f'・{result.task_id[:8]}… — 適用: '
+                f'{application.applied_target_id}'
+                f'（{application.applied_by}）'
+            )
+            continue
         if result.task_id not in decided and result.classification not in (
             'needs_reconciliation',
             'historical_target_removed',
@@ -590,6 +637,12 @@ def record_return_rebase_decision(
         raise MissionReconciliationError(
             'task does not belong to the issuing mission plan'
         )
+    try:
+        resolved.revision.document.entity(current_target_id)
+    except KeyError:
+        raise MissionReconciliationError(
+            'current target does not exist in the saved project'
+        ) from None
     decision = record_rebase_decision(
         mission=resolved.package.mission,
         task=task,
@@ -653,3 +706,287 @@ def _returned_task_ids(manifest_json: str) -> list[str] | None:
             else item_ref
         )
     return task_ids
+
+
+# --- applying returned evidence to the project -------------------------------
+#
+# A staged contribution is evidence waiting for an explicit apply: each
+# returned task binds its fulfilling record refs to the project entity the
+# reconciliation resolved — the pinned target when still 'applicable', or the
+# current target a recorded rebase decision named. Rows are per
+# (contribution_id, task_id); re-applying is a no-op.
+
+
+class FieldReturnApplication(BaseModel):
+    """One returned task bound into the project."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    schema: Literal['htdt.capture.return-application'] = (
+        'htdt.capture.return-application'
+    )
+    application_version: Literal[1] = 1
+    application_id: str
+    contribution_id: str = Field(min_length=1)
+    mission_id: str = Field(min_length=1)
+    task_id: str
+    source_target_id: str | None = None
+    applied_target_id: str = Field(min_length=1)
+    record_refs: tuple[str, ...] = ()
+    decision_id: str | None = None
+    applied_by: str = Field(min_length=1)
+    applied_at_utc: str = ''
+
+
+class ApplicationOutcome(BaseModel):
+    """Summary of one apply run."""
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    applied: tuple[FieldReturnApplication, ...]
+    skipped_task_ids: tuple[str, ...]
+
+
+def _application_row(row: object) -> FieldReturnApplication:
+    return FieldReturnApplication(
+        application_id=row['application_id'],
+        contribution_id=row['contribution_id'],
+        mission_id=row['mission_id'],
+        task_id=row['task_id'],
+        source_target_id=row['source_target_id'],
+        applied_target_id=row['applied_target_id'],
+        record_refs=tuple(json.loads(row['record_refs_json'])),
+        decision_id=row['decision_id'],
+        applied_by=row['applied_by'],
+        applied_at_utc=row['applied_at_utc'],
+    )
+
+
+def _task_record_refs(
+    manifest_json: str,
+) -> dict[str, tuple[str, ...]] | None:
+    """Fulfilling record refs per task, across both wire families.
+
+    ``None`` when the stored manifest decodes as neither family — the
+    same honesty rule as ``_returned_task_ids``.
+    """
+    from .field_return_ingestion import (
+        FieldReturnContainerDocument,
+        FieldReturnManifest,
+    )
+
+    try:
+        manifest = FieldReturnManifest.model_validate_json(manifest_json)
+    except ValueError:
+        manifest = None
+    if manifest is not None:
+        return {
+            outcome.task_id: (
+                (outcome.fulfilled_by_ref,)
+                if outcome.fulfilled_by_ref is not None
+                else ()
+            )
+            for outcome in manifest.task_outcomes
+            if outcome.outcome == 'fulfilled'
+        }
+    try:
+        container = FieldReturnContainerDocument.model_validate_json(
+            manifest_json
+        )
+    except ValueError:
+        return None
+    refs: dict[str, tuple[str, ...]] = {}
+    for entry in container.task_fulfillment_ledger:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get('outcome') not in _CONTAINER_FULFILLED_OUTCOMES:
+            continue
+        item_ref = entry.get('item_ref')
+        if not isinstance(item_ref, str):
+            continue
+        task_id = (
+            item_ref.split(':', 1)[1] if ':' in item_ref else item_ref
+        )
+        fulfilled_by = entry.get('fulfilled_by_refs')
+        refs[task_id] = tuple(
+            ref for ref in
+            (fulfilled_by if isinstance(fulfilled_by, list) else [])
+            if isinstance(ref, str)
+        )
+    return refs
+
+
+def returned_task_applications(
+    contribution: object, scene_repository: object
+) -> tuple[FieldReturnApplication, ...]:
+    """Applications recorded for one staged contribution."""
+    from contextlib import closing
+
+    from .cad_schema import connect_sqlite
+
+    contribution_id = getattr(contribution, 'contribution_id', None)
+    if contribution_id is None:
+        return ()
+    with closing(connect_sqlite(scene_repository.path)) as connection:
+        rows = connection.execute(
+            'SELECT * FROM field_return_applications '
+            'WHERE contribution_id=? ORDER BY task_id',
+            (contribution_id,),
+        ).fetchall()
+    return tuple(_application_row(row) for row in rows)
+
+
+def apply_returned_tasks(
+    contribution: object,
+    scene_repository: object,
+    *,
+    applied_by: str,
+    task_ids: Sequence[str] | None = None,
+) -> ApplicationOutcome:
+    """Bind a contribution's resolvable returned tasks into the project.
+
+    'applicable' tasks land on the pinned target; drifted tasks land on
+    the target their recorded rebase decision named — undecided drift is
+    reported as skipped, never rebound. ``task_ids`` scopes the apply;
+    naming an unresolvable task fails closed. Applying twice is a no-op.
+    """
+    from contextlib import closing
+
+    from .cad_schema import connect_sqlite
+    from .clock import utc_now_iso
+
+    resolved = mission_return_reconciliation_context(
+        contribution, scene_repository
+    )
+    if not isinstance(resolved, MissionReturnReconciliationContext):
+        raise MissionReconciliationError(
+            resolved
+            if isinstance(resolved, str)
+            else '照合対象ではありません'
+        )
+    contribution_id = getattr(contribution, 'contribution_id', None)
+    if not contribution_id:
+        raise MissionReconciliationError(
+            'contribution carries no identity to apply under'
+        )
+    manifest_json = getattr(contribution, 'manifest_json', None)
+    if manifest_json is None:
+        raise MissionReconciliationError(
+            '照合: 返却マニフェストが記録されていません'
+        )
+    record_refs = _task_record_refs(manifest_json)
+    if record_refs is None:
+        raise MissionReconciliationError(
+            '照合: 返却マニフェストを解読できません'
+        )
+    decisions = {d.task_id: d for d in resolved.decisions}
+    applied_targets: dict[str, tuple[str, str | None]] = {}
+    skipped: list[str] = []
+    tasks = {
+        task.task_id: task for task in resolved.package.mission.plan.tasks
+    }
+    for result in resolved.report.results:
+        if result.classification == 'applicable':
+            task = tasks.get(result.task_id)
+            if task is None or task.target_entity_id is None:
+                skipped.append(result.task_id)
+                continue
+            applied_targets[result.task_id] = (
+                task.target_entity_id, None
+            )
+            continue
+        decision = decisions.get(result.task_id)
+        if decision is None:
+            skipped.append(result.task_id)
+            continue
+        applied_targets[result.task_id] = (
+            decision.current_target_id, decision.decision_id
+        )
+    if task_ids is not None:
+        missing = [
+            task_id
+            for task_id in task_ids
+            if task_id not in applied_targets
+        ]
+        if missing:
+            raise MissionReconciliationError(
+                'unresolvable tasks requested: ' + ', '.join(missing)
+            )
+        applied_targets = {
+            task_id: target
+            for task_id, target in applied_targets.items()
+            if task_id in task_ids
+        }
+    now = utc_now_iso()
+    with closing(connect_sqlite(scene_repository.path)) as connection, (
+        connection
+    ):
+        existing = {
+            row['task_id']
+            for row in connection.execute(
+                'SELECT task_id FROM field_return_applications '
+                'WHERE contribution_id=?',
+                (contribution_id,),
+            ).fetchall()
+        }
+        applications: list[FieldReturnApplication] = []
+        for task_id, (target, decision_id) in sorted(
+            applied_targets.items()
+        ):
+            if task_id in existing:
+                continue
+            task = tasks.get(task_id)
+            application_id = _deterministic_uuid(
+                'htdt.capture.return-application',
+                contribution_id,
+                task_id,
+                target,
+            )
+            row = FieldReturnApplication(
+                application_id=application_id,
+                contribution_id=contribution_id,
+                mission_id=resolved.package.mission.mission_id,
+                task_id=task_id,
+                source_target_id=(
+                    task.target_entity_id if task is not None else None
+                ),
+                applied_target_id=target,
+                record_refs=record_refs.get(task_id, ()),
+                decision_id=decision_id,
+                applied_by=applied_by,
+                applied_at_utc=now,
+            )
+            connection.execute(
+                'INSERT INTO field_return_applications('
+                'application_id, contribution_id, mission_id, task_id, '
+                'source_target_id, applied_target_id, record_refs_json, '
+                'decision_id, applied_by, applied_at_utc'
+                ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (
+                    application_id,
+                    contribution_id,
+                    row.mission_id,
+                    task_id,
+                    row.source_target_id,
+                    target,
+                    json.dumps(list(row.record_refs)),
+                    decision_id,
+                    applied_by,
+                    now,
+                ),
+            )
+            if decision_id is not None:
+                connection.execute(
+                    'UPDATE capture_mission_rebase_decisions SET '
+                    'resulting_authority=? WHERE decision_id=?',
+                    (application_id, decision_id),
+                )
+            applications.append(row)
+    return ApplicationOutcome(
+        applied=tuple(applications),
+        skipped_task_ids=tuple(
+            task_id
+            for task_id in skipped
+            if task_ids is None or task_id in task_ids
+        ),
+    )
