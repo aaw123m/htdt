@@ -1222,3 +1222,32 @@ class FieldReturnRepository:
             return tuple(
                 self._from_row(connection, row) for row in rows
             )
+
+    def discard_staged(self, contribution_id: str) -> bool:
+        """Drop a staged contribution that carries no applied evidence.
+
+        Rejected and diagnostic rows otherwise accumulate forever — the
+        inbox offers no other cleanup path. A row bound by
+        ``field_return_applications`` is the retained original for its
+        applied record_refs: deleting it would orphan the bindings, so
+        it is refused instead. The content blob is kept — it is
+        content-addressed and may back a sibling row with identical
+        bytes. Returns False when no such row exists.
+        """
+
+        with closing(self._connect()) as connection, connection:
+            bound = connection.execute(
+                'SELECT COUNT(*) AS n FROM field_return_applications '
+                'WHERE contribution_id=?',
+                (contribution_id,),
+            ).fetchone()['n']
+            if bound:
+                raise FieldReturnError(
+                    'この返却は適用済み証跡の原本のため破棄できません'
+                )
+            result = connection.execute(
+                'DELETE FROM field_return_contributions '
+                'WHERE contribution_id=?',
+                (contribution_id,),
+            )
+            return result.rowcount > 0

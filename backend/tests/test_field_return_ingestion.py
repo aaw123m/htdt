@@ -207,6 +207,48 @@ def test_repository_stages_and_handles_duplicates(tmp_path: Path) -> None:
     assert fetched.routing == staged.routing
 
 
+def test_discard_staged_removes_only_unbound_rows(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    staged = repository.stage(artifact, [])
+    assert staged.validation_state == 'validated'
+
+    # Unknown ids report False — no phantom deletes.
+    assert repository.discard_staged('missing-contribution') is False
+
+    # A row the application ledger binds is the retained original its
+    # applied record_refs resolve through — refuse to orphan it.
+    with closing(connect_sqlite(repository.path)) as connection, (
+        connection
+    ):
+        connection.execute(
+            "INSERT INTO field_return_applications("
+            "application_id, contribution_id, mission_id, task_id, "
+            "source_target_id, applied_target_id, record_refs_json, "
+            "decision_id, applied_by, applied_at_utc"
+            ") VALUES ('app-1', ?, 'mission-1', 'task-1', NULL, "
+            "'target-1', '[]', NULL, 'ops', '2026-01-01T00:00:00Z')",
+            (CONTRIBUTION_ID,),
+        )
+    with pytest.raises(FieldReturnError):
+        repository.discard_staged(CONTRIBUTION_ID)
+    assert repository.get(CONTRIBUTION_ID) is not None
+
+    # Unbind and the row discards cleanly; re-delivery re-stages.
+    with closing(connect_sqlite(repository.path)) as connection, (
+        connection
+    ):
+        connection.execute(
+            "DELETE FROM field_return_applications WHERE "
+            "application_id='app-1'"
+        )
+    assert repository.discard_staged(CONTRIBUTION_ID) is True
+    assert repository.get(CONTRIBUTION_ID) is None
+    assert repository.list_staged() == ()
+    restaged = repository.stage(artifact, [])
+    assert restaged.contribution_id == CONTRIBUTION_ID
+
+
 def test_repository_retains_artifact_bytes(tmp_path: Path) -> None:
     repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
     artifact = json.dumps(_manifest_dict()).encode('utf-8')
