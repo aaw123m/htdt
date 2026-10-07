@@ -269,18 +269,47 @@ def classify_issue(
     return Classification(issue, lc, 'closeable', 'no remaining gates')
 
 
+def load_verification_report(
+    path: Path,
+) -> dict[int, tuple[str, ...]]:
+    """Per-issue automated check statuses from an
+    ``issue_verification_report.json`` written by
+    ``scripts/verify_open_issues.py``."""
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as exc:
+        _fail(f'{path}: report unreadable: {exc}')
+    if not isinstance(raw, dict):
+        _fail(f'{path}: report must be a JSON object')
+    statuses: dict[int, tuple[str, ...]] = {}
+    for item in raw.get('issues') or []:
+        if not isinstance(item, dict):
+            continue
+        issue = item.get('issue')
+        if not isinstance(issue, int):
+            continue
+        statuses[issue] = tuple(
+            str(check.get('status'))
+            for check in item.get('checks') or []
+            if isinstance(check, dict) and check.get('status')
+        )
+    return statuses
+
+
 def render_report(
     entries: dict[int, LifecycleEntry],
     classifications: list[Classification],
     findings: list[Finding],
     *,
     github_supplied: bool,
+    checks_supplied: bool = False,
 ) -> str:
     lines = [
         '# Issue lifecycle report (#848)',
         '',
         'Canonical lifecycle metadata — separate from GitHub open/closed.',
         f'GitHub metadata: {"supplied" if github_supplied else "not supplied (offline)"}',
+        f'Verification check statuses: {"supplied" if checks_supplied else "not supplied (checks-red bucket cannot trigger)"}',
         '',
         '## Buckets',
         '',
@@ -318,6 +347,11 @@ def main(argv: list[str] | None = None) -> int:
                         default=DEFAULT_VERIFICATION)
     parser.add_argument('--issues-json', type=Path, default=None,
                         help='pre-fetched GitHub issues JSON (offline input)')
+    parser.add_argument('--verification-report', type=Path, default=None,
+                        help='issue_verification_report.json from '
+                        'verify_open_issues.py — supplies per-issue '
+                        'automated check statuses for the checks-red '
+                        'bucket')
     parser.add_argument('--report', type=Path, default=None)
     parser.add_argument('--json', dest='json_out', type=Path, default=None)
     args = parser.parse_args(argv)
@@ -333,6 +367,10 @@ def main(argv: list[str] | None = None) -> int:
             for item in raw_issues if isinstance(item.get('number'), int)
         }
 
+    check_statuses: dict[int, tuple[str, ...]] = {}
+    if args.verification_report is not None:
+        check_statuses = load_verification_report(args.verification_report)
+
     findings = drift_findings(entries, verification, github_states)
     classifications = []
     for issue in sorted(set(entries) | set(verification)):
@@ -343,10 +381,15 @@ def main(argv: list[str] | None = None) -> int:
             detail = 'GitHub closed' if state == 'closed' else 'no lifecycle entry'
             classifications.append(Classification(issue, None, bucket, detail))
             continue
-        classifications.append(classify_issue(entry, github_state=state))
+        classifications.append(classify_issue(
+            entry,
+            check_statuses=check_statuses.get(issue, ()),
+            github_state=state,
+        ))
     report = render_report(
         entries, classifications, findings,
         github_supplied=github_states is not None,
+        checks_supplied=args.verification_report is not None,
     )
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
