@@ -9275,6 +9275,49 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV64: #838 delegated-provider + file-export authority.
+    'cad_delegated_provider_manifests': (
+        'payload_json',
+        (
+            _b('manifest_id', 'manifest_id'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('document_id', 'document_id'),
+            _b('provider_class', 'provider_class'),
+            _b('provider_id', 'provider_id'),
+            _b('adapter_id', 'adapter_id'),
+            _b('endpoint_kind', 'endpoint_kind'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_provider_acquisitions': (
+        'payload_json',
+        (
+            _b('acquisition_id', 'acquisition_id'),
+            _b('acquisition_sha256', 'acquisition_sha256'),
+            _b('document_id', 'document_id'),
+            _b('manifest_ref_id', 'manifest_ref', 'ref_id'),
+            _b('capability', 'capability'),
+            _b('outcome', 'outcome'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_file_deployments': (
+        'payload_json',
+        (
+            _b('file_deployment_id', 'file_deployment_id'),
+            _b('file_deployment_sha256', 'file_deployment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('target_class', 'target_class'),
+            _b('file_state', 'file_state'),
+            _b('runtime_state', 'runtime_state'),
+            _b('evidence_mode', 'evidence_mode'),
+            _b('roundtrip_verdict', 'roundtrip_verdict'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

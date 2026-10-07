@@ -1396,6 +1396,12 @@ class _RepositoryChain:
             )
 
             return CadCamillaDSPDeploymentRepository(scene)
+        if name == 'delegated_provider':
+            from .cad_delegated_provider_repository import (
+                CadDelegatedProviderRepository,
+            )
+
+            return CadDelegatedProviderRepository(scene)
         if name == 'playback_electronics':
             from .cad_playback_electronics_repository import (
                 CadPlaybackElectronicsRepository,
@@ -7385,6 +7391,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_hybrid_validation_verdicts',
         ('verdict_id',),
         _get('hybrid_composition_validation', 'get_verdict'),
+    ),
+    # #838 delegated-provider + file-export authority.
+    _ReplayProbe(
+        'delegated_provider_manifest',
+        'cad_delegated_provider_manifests',
+        ('manifest_id',),
+        _get('delegated_provider', 'get_provider_manifest'),
+    ),
+    _ReplayProbe(
+        'provider_acquisition',
+        'cad_provider_acquisitions',
+        ('acquisition_id',),
+        _get('delegated_provider', 'get_acquisition'),
+    ),
+    _ReplayProbe(
+        'file_export_deployment',
+        'cad_file_deployments',
+        ('file_deployment_id',),
+        _get('delegated_provider', 'get_file_deployment'),
     ),
 
 )

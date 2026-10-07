@@ -877,6 +877,9 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_campaign_verdicts": "キャンペーン評価",
     "cad_production_readiness_decisions": "本番適格判定",
     "cad_recommendation_surface_decisions": "推奨サーフェス判定",
+    "cad_delegated_provider_manifests": "委託プロバイダマニフェスト",
+    "cad_provider_acquisitions": "プロバイダ取得レコード",
+    "cad_file_deployments": "ファイルデプロイ証跡",
 }
 
 

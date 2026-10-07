@@ -8506,6 +8506,34 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_hvv_doc ON cad_hybrid_validation_verdicts(document_id, seq ASC)
     """
     ,
+    # REV64: #838 delegated-provider + file-export deployment authority —
+    # external measurement providers are capability-gated, never copied
+    # into core; file-based deployments carry an honest evidence chain
+    # whose runtime ceiling is post-measurement verification only.
+    """
+        CREATE TABLE IF NOT EXISTS cad_delegated_provider_manifests ( seq INTEGER PRIMARY KEY AUTOINCREMENT, manifest_id TEXT NOT NULL UNIQUE, manifest_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, provider_class TEXT NOT NULL, provider_id TEXT NOT NULL, adapter_id TEXT NOT NULL, endpoint_kind TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dpmf_doc ON cad_delegated_provider_manifests(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_provider_acquisitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, acquisition_id TEXT NOT NULL UNIQUE, acquisition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manifest_ref_id TEXT NOT NULL, capability TEXT NOT NULL, outcome TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dpaq_doc ON cad_provider_acquisitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_file_deployments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, file_deployment_id TEXT NOT NULL UNIQUE, file_deployment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, target_class TEXT NOT NULL, file_state TEXT NOT NULL, runtime_state TEXT NOT NULL, evidence_mode TEXT NOT NULL, roundtrip_verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_fdep_doc ON cad_file_deployments(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9615,4 +9643,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_hybrid_composition_validation_specs',
     'cad_hybrid_validation_evidence',
     'cad_hybrid_validation_verdicts',
+    # REV64: #838 delegated-provider + file-export authority.
+    'cad_delegated_provider_manifests',
+    'cad_provider_acquisitions',
+    'cad_file_deployments',
 )
