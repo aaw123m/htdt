@@ -1309,6 +1309,26 @@ class MeasurementAcquisitionEngine:
     def _transition(self, stage: AcquisitionStage, reason: str) -> None:
         self._stage = stage
         self._history.append(StageTransition(stage, reason, self._clock()))
+        # #883: the session journal mirrors the stage so a mid-run crash
+        # reads ACQUISITION_INCOMPLETE instead of a completed measurement.
+        try:
+            from .session_recovery import (
+                declare_acquisition_stage,
+                declare_operation_finished,
+                declare_operation_started,
+            )
+
+            declare_acquisition_stage(self.run_id, stage)
+            if stage in _TERMINAL_STAGES:
+                declare_operation_finished(self.run_id)
+            elif stage == 'ready':
+                # First non-precheck stage of a configured run — the run
+                # is now a real in-flight operation.
+                declare_operation_started(
+                    'sweep_acquisition', self.run_id
+                )
+        except Exception:
+            pass
 
     # -- PRECHECK ----------------------------------------------------------
 

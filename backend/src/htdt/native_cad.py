@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import sys
+import uuid
 
 from typing import TYPE_CHECKING
 
@@ -865,6 +866,38 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             # never was).
             diagnostics.logger.exception('launch record write failed')
             launch_record = None
+        # #883: open this session's crash-safe journal before risky
+        # initialization — the sha-chained journal + envelope are the
+        # evidence the next launch inspects. Like the launch record, a
+        # journal failure degrades to no-journal rather than gating the
+        # launch (a failed journal open must not read as a crash).
+        session_journal = None
+        try:
+            from .cad_schema import NATIVE_SCHEMA_VERSION
+            from .session_recovery import (
+                HEARTBEAT_INTERVAL_MS,
+                SessionJournal,
+                activate_journal,
+                deactivate_journal,
+            )
+
+            session_journal = SessionJournal.open(
+                args.data_dir,
+                session_id=(
+                    launch_record.launch_id
+                    if launch_record is not None
+                    else f'session-{uuid.uuid4().hex[:16]}'
+                ),
+                launch_id=getattr(launch_record, 'launch_id', None),
+                app_version=version_string(),
+                build_id=version_string(),
+                native_schema_version=NATIVE_SCHEMA_VERSION,
+                started_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+            activate_journal(session_journal)
+        except Exception:
+            diagnostics.logger.exception('session journal open failed')
+            session_journal = None
         # Round8-lifecycle deferred item: an honest splash for the
         # pre-window phase — shown only after the recovery decision is
         # resolved (dialogs are user input, not loading), and hidden while
@@ -1004,6 +1037,73 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             )
         except Exception:
             diagnostics.logger.exception('launch record annotation failed')
+        # #883: bind the journal to the opened project, then inspect prior
+        # session journals against every sealed authority. Reports feed the
+        # recovery dialog once the window is up; inspection is read-only.
+        session_recovery_inspection = None
+        session_recovery_repository = None
+        if session_journal is not None:
+            try:
+                session_journal.record_project_bound(
+                    project_entry.document_id
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'session journal project bind failed'
+                )
+        try:
+            from .cad_apply_transaction_repository import (
+                CadApplyTransactionRepository,
+            )
+            from .cad_commissioning_orchestrator import (
+                CommissioningOrchestrator,
+            )
+            from .cad_schema import NATIVE_SCHEMA_VERSION
+            from .cad_sweep_acquisition_repository import (
+                CadSweepAcquisitionRepository,
+            )
+            from .session_recovery import (
+                enforce_retention,
+                inspect_recoverable_sessions,
+            )
+            from .session_recovery_repository import (
+                SessionRecoveryRepository,
+            )
+
+            session_recovery_repository = SessionRecoveryRepository(
+                repository
+            )
+            session_recovery_inspection = inspect_recoverable_sessions(
+                args.data_dir,
+                scene_repository=repository,
+                session_recovery_repository=session_recovery_repository,
+                sweep_repository=CadSweepAcquisitionRepository(
+                    repository
+                ),
+                apply_repository=CadApplyTransactionRepository(
+                    repository
+                ),
+                orchestrator=CommissioningOrchestrator(repository),
+                launch_metadata=recovery_metadata,
+                current_native_schema_version=NATIVE_SCHEMA_VERSION,
+                current_session_id=session_journal.session_id
+                if session_journal is not None
+                else None,
+            )
+            removed = enforce_retention(
+                args.data_dir,
+                session_recovery_repository=session_recovery_repository,
+            )
+            if removed:
+                diagnostics.logger.info(
+                    'session journal retention pruned %d dirs',
+                    len(removed),
+                )
+        except Exception:
+            diagnostics.logger.exception(
+                'session recovery inspection failed'
+            )
+            session_recovery_inspection = None
         # #926: the Capture receiver is one application-scoped service owned
         # by the data root — the workflow shell composes it and the app exit
         # stops it.
@@ -1090,6 +1190,38 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             navigate = getattr(window, 'navigate', None)
             if navigate is not None:
                 navigate('projects')
+        # #883: offer the crashed-session recovery report now that the
+        # window owns the screen. Safe Mode skips it — the guarded launch
+        # is itself the recovery path; evidence stays for a normal launch.
+        if (
+            session_recovery_inspection is not None
+            and session_recovery_repository is not None
+            and safe_mode_policy is None
+            and (
+                session_recovery_inspection.reports
+                or session_recovery_inspection.rejected
+            )
+        ):
+            try:
+                from .session_recovery_dialog import (
+                    offer_session_recovery,
+                )
+
+                offer_session_recovery(
+                    window,
+                    session_recovery_inspection,
+                    session_recovery_repository,
+                    restoring_session_id=(
+                        session_journal.session_id
+                        if session_journal is not None
+                        else None
+                    ),
+                    logger=diagnostics.logger,
+                )
+            except Exception:
+                diagnostics.logger.exception(
+                    'session recovery dialog failed'
+                )
         # #755: the periodic trigger point the scheduler was designed for —
         # the first in-app caller. Safe Mode leaves background jobs off.
         application = getattr(window, 'workflow_application', None)
@@ -1171,6 +1303,45 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         intent_pump.setInterval(5000)
         intent_pump.timeout.connect(_drain)
         intent_pump.start()
+        # #883: heartbeat + workspace-state provider — the interval bounds
+        # how fresh the envelope's last_seen is when the process dies.
+        journal_pump = None
+        if session_journal is not None:
+            def _workspace_state() -> dict:
+                router = getattr(window, 'router', None)
+                if router is None:
+                    return {}
+                current = getattr(router, 'current_workspace_id', None)
+                mounts = getattr(router, '_mounts', {}) or {}
+                mounted: list[str] = []
+                dirty: list[str] = []
+                for workspace_id, mount in mounts.items():
+                    mounted.append(str(workspace_id))
+                    provider = getattr(mount, 'dirty_state', None)
+                    if callable(provider):
+                        try:
+                            if provider():
+                                dirty.append(str(workspace_id))
+                        except Exception:
+                            pass
+                return {
+                    'destination': (
+                        str(current) if current is not None else None
+                    ),
+                    'mounts': sorted(mounted),
+                    'dirty_documents': sorted(dirty),
+                }
+
+            try:
+                session_journal.set_state_provider(_workspace_state)
+            except Exception:
+                diagnostics.logger.exception(
+                    'journal state provider failed'
+                )
+            journal_pump = QTimer()
+            journal_pump.setInterval(HEARTBEAT_INTERVAL_MS)
+            journal_pump.timeout.connect(session_journal.heartbeat)
+            journal_pump.start()
         exit_code = int(app.exec())
         # #926: stop the LAN listener on exit; the requested policy in
         # preferences is untouched so next launch restores the same choice.
@@ -1202,9 +1373,29 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
             diagnostics.logger.exception(
                 "clean-close automatic backup marker failed"
             )
+        # #883: the journal's clean-close entry is the next launch's
+        # clean evidence — written last so nothing in shutdown mutates
+        # after it. Failure must not mask the successful exit code.
+        if session_journal is not None:
+            try:
+                session_journal.close_clean()
+            except Exception:
+                diagnostics.logger.exception(
+                    'session journal clean close failed'
+                )
+            try:
+                deactivate_journal(session_journal)
+            except Exception:
+                pass
         return exit_code
     except IncompatibleNewerSchemaError as exc:
         _close_splash(splash)
+        if session_journal is not None:
+            try:
+                session_journal.note_failure('schema_incompatibility')
+                deactivate_journal(session_journal)
+            except Exception:
+                pass
         if launch_record is not None:
             try:
                 complete_launch(
@@ -1229,6 +1420,12 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         return 1
     except NativeUpgradeError as exc:
         _close_splash(splash)
+        if session_journal is not None:
+            try:
+                session_journal.note_failure('migration_failure')
+                deactivate_journal(session_journal)
+            except Exception:
+                pass
         if launch_record is not None:
             try:
                 complete_launch(
@@ -1252,6 +1449,12 @@ def _run_gui(args: argparse.Namespace, diagnostics: NativeDiagnostics) -> int:
         return 1
     except Exception as exc:
         _close_splash(splash)
+        if session_journal is not None:
+            try:
+                session_journal.note_failure(classify_startup_failure(exc))
+                deactivate_journal(session_journal)
+            except Exception:
+                pass
         if launch_record is not None:
             try:
                 complete_launch(

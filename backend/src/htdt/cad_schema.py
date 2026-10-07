@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 101
+NATIVE_SCHEMA_VERSION = 102
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2051,14 +2051,6 @@ def _migrate_99_to_100(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
-def _migrate_100_to_101(connection: sqlite3.Connection) -> None:
-    # REV67: #877 guided calibration wizard — runs, transitions,
-    # acceptance profiles and campaign check plans are new append-only
-    # authorities the idempotent baseline creates.
-    for statement in NATIVE_BASELINE_DDL:
-        connection.execute(statement)
-
-
 def _migrate_96_to_97(connection: sqlite3.Connection) -> None:
     # REV66: #866 geometry intake readiness — intake reports, repair
     # proposals, explicit acceptances, derived geometry revisions and
@@ -2082,6 +2074,15 @@ def _migrate_100_to_101(connection: sqlite3.Connection) -> None:
     # transitions, acceptance profiles, check plans, execution plans,
     # journal and per-attempt run records: new append-only authorities
     # the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_101_to_102(connection: sqlite3.Connection) -> None:
+    # REV67: #883 crash-safe autosave + session recovery — sealed journal
+    # detection records, operator recovery decisions with restoring-session
+    # lineage, and reconciliation verdicts for uncertain external effects:
+    # new append-only authorities the idempotent baseline creates.
     for statement in NATIVE_BASELINE_DDL:
         connection.execute(statement)
 
@@ -2188,6 +2189,7 @@ _MIGRATIONS = {
     99: _migrate_98_to_99,
     100: _migrate_99_to_100,
     101: _migrate_100_to_101,
+    102: _migrate_101_to_102,
 }
 
 

@@ -8774,6 +8774,48 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_mcrun_doc ON cad_campaign_execution_runs(document_id, seq ASC)
     """
     ,
+    # REV67: #883 crash-safe autosave + session recovery — the durable
+    # side of the journal: one sealed detection record per crashed
+    # session (envelope facts + head/envelope sha, so the record outlives
+    # file retention as tamper-evidence), append-only operator decisions
+    # carrying the restoring session's lineage, and reconciliation
+    # verdicts for external effects that may not have landed.
+    """
+        CREATE TABLE IF NOT EXISTS session_recovery_journals ( seq INTEGER PRIMARY KEY AUTOINCREMENT, journal_id TEXT NOT NULL UNIQUE, journal_sha256 TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, ending TEXT NOT NULL, integrity TEXT NOT NULL, entry_count INTEGER NOT NULL, head_entry_sha256 TEXT, envelope_sha256 TEXT, detected_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srjrnl_doc ON session_recovery_journals(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srjrnl_session ON session_recovery_journals(session_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS session_recovery_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, decision_sha256 TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL, document_id TEXT NOT NULL, scope_kind TEXT NOT NULL, scope_ref_id TEXT, action TEXT NOT NULL, actor TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srdec_doc ON session_recovery_decisions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srdec_session ON session_recovery_decisions(session_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS session_recovery_reconciliations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, reconciliation_id TEXT NOT NULL UNIQUE, reconciliation_sha256 TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL, document_id TEXT NOT NULL, operation_kind TEXT NOT NULL, operation_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srrec_doc ON session_recovery_reconciliations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_srrec_session ON session_recovery_reconciliations(session_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9920,4 +9962,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_campaign_execution_plans',
     'cad_campaign_execution_events',
     'cad_campaign_execution_runs',
+    # REV67: #883 crash-safe session-recovery authority.
+    'session_recovery_journals',
+    'session_recovery_decisions',
+    'session_recovery_reconciliations',
 )

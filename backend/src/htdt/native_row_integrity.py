@@ -9619,6 +9619,52 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV67: #883 crash-safe session-recovery authority.
+    'session_recovery_journals': (
+        'payload_json',
+        (
+            _b('journal_id', 'journal_id'),
+            _b('journal_sha256', 'journal_sha256'),
+            _b('session_id', 'session_id'),
+            _b('document_id', 'document_id'),
+            _b('ending', 'ending'),
+            _b('integrity', 'integrity'),
+            _b('entry_count', 'entry_count'),
+            _b('head_entry_sha256', 'head_entry_sha256', optional=True),
+            _b('envelope_sha256', 'envelope_sha256', optional=True),
+            _b('detected_at_utc', 'detected_at_utc'),
+        ),
+        (),
+    ),
+    'session_recovery_decisions': (
+        'payload_json',
+        (
+            _b('decision_id', 'decision_id'),
+            _b('decision_sha256', 'decision_sha256'),
+            _b('session_id', 'session_id'),
+            _b('document_id', 'document_id'),
+            _b('scope_kind', 'scope_kind'),
+            _b('scope_ref_id', 'scope_ref_id', optional=True),
+            _b('action', 'action'),
+            _b('actor', 'actor'),
+            _b('decided_at_utc', 'decided_at_utc'),
+        ),
+        (),
+    ),
+    'session_recovery_reconciliations': (
+        'payload_json',
+        (
+            _b('reconciliation_id', 'reconciliation_id'),
+            _b('reconciliation_sha256', 'reconciliation_sha256'),
+            _b('session_id', 'session_id'),
+            _b('document_id', 'document_id'),
+            _b('operation_kind', 'operation_kind'),
+            _b('operation_ref_id', 'operation_ref_id'),
+            _b('verdict', 'verdict'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
     'cad_spl_check_acceptance_profiles': (
         'payload_json',
         (

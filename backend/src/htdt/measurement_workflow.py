@@ -178,6 +178,40 @@ class PendingMeasurementImport:
         return (self.frequency_hz[0], self.frequency_hz[-1])
 
 
+def _pending_import_journal_state(
+    pending: PendingMeasurementImport,
+) -> dict[str, Any]:
+    """JSON-safe journal projection of a staged import (#883).
+
+    Carries enough to re-stage honestly after a crash: samples, binding
+    and the file payload (base64 — the journal is JSON). A live
+    ``rew_snapshot`` cannot ride along; ``rew_snapshot_resident`` marks
+    that the API snapshot must be re-fetched to restore fully.
+    """
+
+    state: dict[str, Any] = {
+        'source_kind': pending.source_kind,
+        'source_label': pending.source_label,
+        'scene_revision_id': pending.scene_revision_id,
+        'scene_content_hash': pending.scene_content_hash,
+        'frequency_hz': list(pending.frequency_hz),
+        'level_db': list(pending.level_db),
+        'has_phase_samples': pending.has_phase_samples,
+        'scene_revision_explicit': pending.scene_revision_explicit,
+        'raw_filename': pending.raw_filename,
+        'duplicate_kind': pending.duplicate_kind,
+        'duplicate_of_measurement_id': pending.duplicate_of_measurement_id,
+        'rew_snapshot_resident': pending.rew_snapshot is not None,
+    }
+    if pending.raw_text is not None:
+        import base64
+
+        state['raw_text_b64'] = base64.b64encode(
+            pending.raw_text
+        ).decode('ascii')
+    return state
+
+
 @dataclass(frozen=True, slots=True)
 class AcquisitionCapture:
     """Acquisition-condition spec to persist as a CadAcquisitionContext (#471).
@@ -674,6 +708,7 @@ class MeasurementWorkflowController:
             duplicate_of_measurement_id=duplicate_of,
         )
         self._pending = pending
+        self._journal_pending()
         return pending
 
     def stage_rew_snapshot(
@@ -708,6 +743,7 @@ class MeasurementWorkflowController:
             duplicate_of_measurement_id=duplicate_of,
         )
         self._pending = pending
+        self._journal_pending()
         return pending
 
     def revision_options(self) -> tuple[SceneRevision, ...]:
@@ -740,6 +776,7 @@ class MeasurementWorkflowController:
             scene_revision_explicit=True,
         )
         self._pending = pending
+        self._journal_pending()
         return pending
 
     def pending_divergence(self) -> bool:
@@ -756,6 +793,28 @@ class MeasurementWorkflowController:
 
     def clear_pending(self) -> None:
         self._pending = None
+        self._journal_pending()
+
+    def _journal_pending(self) -> None:
+        """#883: mirror the staged import into the session journal so a
+        crash mid-staging leaves honest recoverable evidence. The journal
+        is volatile trace, never canonical — commit/clear stay the
+        authority; journaling failures never gate the workflow.
+        """
+
+        try:
+            from .session_recovery import declare_pending_import
+
+            declare_pending_import(
+                None
+                if self._pending is None
+                else {
+                    'document_id': self.document_id,
+                    **_pending_import_journal_state(self._pending),
+                }
+            )
+        except Exception:
+            pass
 
     def list_rew_measurements(
         self, *, cancel_event: Event | None = None
@@ -871,6 +930,7 @@ class MeasurementWorkflowController:
         self._save_acquisition_context(assignment, record)
         self._produce_quality_report(record.measurement_id)
         self._pending = None
+        self._journal_pending()
         return record
 
     def _engine_session_payload(self) -> dict[str, Any] | None:

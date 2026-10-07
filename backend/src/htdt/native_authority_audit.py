@@ -1504,6 +1504,12 @@ class _RepositoryChain:
             )
 
             return CadCampaignExecutionRepository(scene)
+        if name == 'session_recovery':
+            from .session_recovery_repository import (
+                SessionRecoveryRepository,
+            )
+
+            return SessionRecoveryRepository(scene)
         raise KeyError(name)
 
 
@@ -7605,6 +7611,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_campaign_check_plans',
         ('plan_id',),
         _get('calibration_wizard', 'get_check_plan'),
+    ),
+
+    # REV67: #883 crash-safe session-recovery authority.
+    _ReplayProbe(
+        'session_recovery_journal',
+        'session_recovery_journals',
+        ('journal_id',),
+        _get('session_recovery', 'get_journal_record'),
+    ),
+    _ReplayProbe(
+        'session_recovery_decision',
+        'session_recovery_decisions',
+        ('decision_id',),
+        _get('session_recovery', 'get_decision'),
+    ),
+    _ReplayProbe(
+        'session_recovery_reconciliation',
+        'session_recovery_reconciliations',
+        ('reconciliation_id',),
+        _get('session_recovery', 'get_reconciliation'),
     ),
 
 )

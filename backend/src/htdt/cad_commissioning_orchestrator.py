@@ -1273,6 +1273,24 @@ class CommissioningOrchestrator:
                 recorded_at_utc=event.at_utc,
             )
         self.repository.save_transition(transition)
+        # #883: mirror the run's lifecycle into the session journal so a
+        # crash mid-run advertises a resumable checkpoint — the sealed
+        # transitions remain the resume source, never the journal.
+        try:
+            from .session_recovery import (
+                declare_operation_finished,
+                declare_operation_started,
+            )
+
+            if event.kind == 'run_created':
+                declare_operation_started(
+                    'commissioning_run', run.run_id,
+                    document_id=run.document_id,
+                )
+            if transition.to_stage in TERMINAL_STAGES:
+                declare_operation_finished(run.run_id)
+        except Exception:
+            pass
         return transition
 
     # -- run creation ---------------------------------------------------

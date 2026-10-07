@@ -308,6 +308,21 @@ class CadApplyTransactionRepository:
 
     def save_transaction(self, record: DeviceApplyTransaction) -> None:
         self.transactions.save(record)
+        # #883: an unclosed sealed transaction is an in-flight external
+        # effect — the journal marks it so crash recovery surfaces
+        # DEVICE_STATE_UNKNOWN until sealed verification (or a machine
+        # read-back) resolves it. Journaling never gates the store.
+        if record.closed_at_utc is None:
+            try:
+                from .session_recovery import declare_operation_started
+
+                declare_operation_started(
+                    'device_apply_transaction',
+                    record.transaction_id,
+                    document_id=record.document_id,
+                )
+            except Exception:
+                pass
 
     def get_transaction(
         self, transaction_id: str

@@ -986,6 +986,17 @@ class SceneRepository:
                         'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
                         (document.document_id,),
                     )
+                    # #883: the draft row is gone — the journal's pending
+                    # draft evidence clears too. Journaling never gates
+                    # the canonical write.
+                    try:
+                        from .session_recovery import (
+                            declare_scene_draft_cleared,
+                        )
+
+                        declare_scene_draft_cleared(document.document_id)
+                    except Exception:
+                        pass
                     return None
             connection.execute(
                 '''
@@ -1000,6 +1011,19 @@ class SceneRepository:
                 ''',
                 (document.document_id, source_revision_id, updated_at, content_hash, payload_json),
             )
+        # #883: durable draft landed — the session journal mirrors the
+        # identity (not the payload) so crash recovery can verify and
+        # offer it. Journaling never gates the canonical write.
+        try:
+            from .session_recovery import declare_scene_draft
+
+            declare_scene_draft(
+                document_id=document.document_id,
+                content_hash=content_hash,
+                source_revision_id=source_revision_id,
+            )
+        except Exception:
+            pass
         return RecoverySnapshot(
             document_id=document.document_id,
             source_revision_id=source_revision_id,
@@ -1035,6 +1059,13 @@ class SceneRepository:
                 'DELETE FROM scene_recovery_snapshots WHERE document_id=?',
                 (document_id,),
             )
+        # #883: explicit draft discard clears the journaled evidence too.
+        try:
+            from .session_recovery import declare_scene_draft_cleared
+
+            declare_scene_draft_cleared(document_id)
+        except Exception:
+            pass
 
     def store_blob(self, payload: bytes) -> str:
         """Persist immutable bytes in the project content-addressed blob store.
