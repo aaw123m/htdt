@@ -40,21 +40,29 @@ def run_cell(python: Path, scale: str, scenario: str, data_dir: Path,
            '--data-dir', str(data_dir), '--out', str(out_dir),
            '--scenario', scenario]
     with open(log_path, 'w', encoding='utf-8') as log:
-        proc = subprocess.run(cmd, env=env, stdout=log, stderr=log,
-                              timeout=600)
+        try:
+            proc = subprocess.run(cmd, env=env, stdout=log, stderr=log,
+                                  timeout=600)
+        except subprocess.TimeoutExpired:
+            # subprocess.run already killed the child; record the cell
+            # BLOCKED like any other crashed cell instead of aborting the
+            # whole matrix run.
+            proc = None
     verdict_path = out_dir / 'verdict.json'
     cell = {
         'scale': scale, 'scenario': scenario,
-        'returncode': proc.returncode,
+        'returncode': proc.returncode if proc is not None else None,
         'clean_exit': (out_dir / 'clean_exit.marker').exists(),
         'log': str(log_path),
     }
-    if verdict_path.exists():
+    if proc is not None and verdict_path.exists():
         cell['verdict'] = json.loads(
             verdict_path.read_text(encoding='utf-8'))
         cell['status'] = 'ran'
     else:
         cell['status'] = 'blocked'
+        if proc is None:
+            cell['detail'] = 'timeout'
         tail = log_path.read_text(encoding='utf-8', errors='replace')[-2000:]
         cell['stderr_tail'] = tail
     return cell
@@ -62,7 +70,10 @@ def run_cell(python: Path, scale: str, scenario: str, data_dir: Path,
 
 def summarize_cell(cell: dict) -> dict:
     if cell['status'] == 'blocked':
-        return {'status': 'BLOCKED', 'detail': f"rc={cell['returncode']}"}
+        return {
+            'status': 'BLOCKED',
+            'detail': cell.get('detail') or f"rc={cell['returncode']}",
+        }
     rows = cell['verdict'].get('rows', [])
     nav_fail = [r['destination'] for r in rows if r.get('navigated') is False]
     overflow = {
