@@ -579,6 +579,10 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+    CREATE TABLE IF NOT EXISTS field_return_applications ( application_id TEXT PRIMARY KEY, contribution_id TEXT NOT NULL, mission_id TEXT, task_id TEXT NOT NULL, source_target_id TEXT, applied_target_id TEXT NOT NULL, record_refs_json TEXT NOT NULL DEFAULT '[]', decision_id TEXT, applied_by TEXT NOT NULL, applied_at_utc TEXT NOT NULL, UNIQUE(contribution_id, task_id) )
+    """
+    ,
+    """
     CREATE TABLE IF NOT EXISTS capture_receiver_config ( id INTEGER PRIMARY KEY CHECK(id=1), receiver_instance_id TEXT NOT NULL, display_name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL, enabled INTEGER NOT NULL, pinned_identity TEXT NOT NULL )
     """
     ,
@@ -8456,6 +8460,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'editor_camera_states',
     'editor_named_views',
     'editor_view_states',
+    'field_return_applications',
     'field_return_contributions',
     'floor_plan_underlays',
     'htdt_acceptance_evidence',

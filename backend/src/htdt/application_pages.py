@@ -1349,6 +1349,7 @@ class CaptureInboxPage(QWidget):
         reconcile_contribution: Callable[[object], tuple] | None = None,
         rebase_context: Callable[[object], object] | None = None,
         rebase_record: Callable | None = None,
+        apply_record: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1365,6 +1366,7 @@ class CaptureInboxPage(QWidget):
         self._reconcile_contribution = reconcile_contribution
         self._rebase_context = rebase_context
         self._rebase_record = rebase_record
+        self._apply_record = apply_record
         self._active_rebase_context = None
         self._selected_contribution = None
         self._contributions: tuple = ()
@@ -1811,9 +1813,22 @@ class CaptureInboxPage(QWidget):
         )
         self.rebase_button.setEnabled(False)
         self.rebase_button.clicked.connect(self._record_rebase_decision)
-        layout.addWidget(self.rebase_button)
+        actions = QHBoxLayout()
+        actions.addWidget(self.rebase_button)
+        self.apply_button = QPushButton("適用…")
+        self.apply_button.setAccessibleName("返却証跡の適用")
+        self.apply_button.setToolTip(
+            "照合済みの返却証跡を、解決した対象エンティティへ"
+            "結びつけます。"
+        )
+        self.apply_button.setEnabled(False)
+        self.apply_button.clicked.connect(self._apply_returned_tasks)
+        actions.addWidget(self.apply_button)
+        layout.addLayout(actions)
         if self._rebase_record is None:
             self.rebase_button.setVisible(False)
+        if self._apply_record is None:
+            self.apply_button.setVisible(False)
         return panel
 
     def _refresh_contributions(self) -> None:
@@ -1855,6 +1870,7 @@ class CaptureInboxPage(QWidget):
         if index is None or index >= len(self._contributions):
             self._active_rebase_context = None
             self.rebase_button.setEnabled(False)
+            self.apply_button.setEnabled(False)
             if self.contribution_table.rowCount() == 0:
                 self.contribution_detail.setText(
                     "フィールドリターンはまだ届いていません。"
@@ -1877,6 +1893,13 @@ class CaptureInboxPage(QWidget):
                 bool(
                     getattr(
                         self._active_rebase_context, 'undecided', ()
+                    )
+                )
+            )
+            self.apply_button.setEnabled(
+                bool(
+                    getattr(
+                        self._active_rebase_context, 'applyable', ()
                     )
                 )
             )
@@ -1966,6 +1989,38 @@ class CaptureInboxPage(QWidget):
         except Exception as exc:
             warn_user(self, "再基準決定を記録できませんでした", exc)
             return
+        self._sync_contribution_detail()
+
+    def _apply_returned_tasks(self) -> None:
+        context = self._active_rebase_context
+        if not getattr(context, 'applyable', ()) or (
+            self._apply_record is None
+        ):
+            return
+        applied_by, ok = QInputDialog.getText(
+            self, "適用", "適用者名を入力してください。"
+        )
+        if not ok or not applied_by.strip():
+            return
+        try:
+            outcome = self._apply_record(
+                self._selected_contribution, applied_by.strip()
+            )
+        except Exception as exc:
+            warn_user(self, "適用できませんでした", exc)
+            return
+        applied_count = len(getattr(outcome, 'applied', ()))
+        skipped_count = len(getattr(outcome, 'skipped_task_ids', ()))
+        QMessageBox.information(
+            self,
+            "適用完了",
+            f"{applied_count} 件を適用しました"
+            + (
+                f"（未決定のため {skipped_count} 件を見送り）"
+                if skipped_count
+                else ""
+            ),
+        )
         self._sync_contribution_detail()
 
 
