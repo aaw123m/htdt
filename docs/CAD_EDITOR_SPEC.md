@@ -2,6 +2,7 @@
 
 > 2026-09-16 / N05以降の実装仕様。**本書の型・機能は計画であり、実装済みを意味しない。**
 > 優先順位は[ロードマップ](IMPLEMENTATION_ROADMAP.md)、画面操作は[UI設計](UI_DESIGN.md)、判定方法は[受入仕様](CAD_EDITOR_ACCEPTANCE.md)。
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 
 ## 1. 実装境界
 
@@ -92,11 +93,11 @@ speakerの表示yaw/pitchは[測定データ契約](DATA_AND_ANALYSIS.md)の式�
 
 扉開口を描けたことと、透過/回折を音響計算できることは別。N30の開口は編集・寸法・可視化の範囲とし、予測で無視する場合は適用条件に明記する。
 
-### Post-0.1 acoustic configuration（Issue #101、未実装）
+### Post-0.1 acoustic configuration（Issue bolph71656-ai/Home-Theater-Digital-Twin#101、未実装）
 
 R110/R120は上記v0.1の単室prism仕様を拡張する後続工程である。exact SceneRevisionに結び付く不変acoustic configurationへ、object/surface material、source/receiver/environment、隣接AcousticRegionとPortal/BoundaryTerminationを保存し、Inspector等から入力できるようにする。既存Sceneの読込時に未知材質や隣接空間を推測確定しない。stable surface/Scene IDを保持し、設定変更はUndo/Redo・保存/再open・prediction stale判定へ接続する。
 
-R120Aの初期対応範囲は凹polygon prism、対応object surface/volume、接続したprism regionまたは明示termination。R120Bでは向き付きpolyhedral surface/air volumeへ拡張し、段差/傾斜天井と許容誤差を保存した曲面の面分割を対象にする。native編集または明示importからSceneRevisionへ保存し、material/surface ID、再open、volume/topology、表示診断を検証する。compilerと対応R130/R150数値gateを通過するまでunsupportedとし、汎用B-rep CADや全import形式は要求しない。prism対応だけでIssue #101の一般3D要件を完了にしない。
+R120Aの初期対応範囲は凹polygon prism、対応object surface/volume、接続したprism regionまたは明示termination。R120Bでは向き付きpolyhedral surface/air volumeへ拡張し、段差/傾斜天井と許容誤差を保存した曲面の面分割を対象にする。native編集または明示importからSceneRevisionへ保存し、material/surface ID、再open、volume/topology、表示診断を検証する。compilerと対応R130/R150数値gateを通過するまでunsupportedとし、汎用B-rep CADや全import形式は要求しない。prism対応だけでIssue bolph71656-ai/Home-Theater-Digital-Twin#101の一般3D要件を完了にしない。
 
 ViewStateのhide/lockは音響的な撤去としない。acoustic participation/omissionを別属性として保存する。speaker/receiver markerを自動的に固体とせず、物理cabinetを含める場合はsourceとの結合とdirectivityの二重計上を検証する。詳細と工程は[研究文書 §5](ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md#5-acoustic-data-model)と[正本ロードマップ](IMPLEMENTATION_ROADMAP.md)に従う。
 

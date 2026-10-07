@@ -1,16 +1,18 @@
 # 実装ステータス
 
+> **Frozen snapshot (2026-09-16)** — この文書は当時の状態の記録であり現況の正本ではない。参照は `<owner>/<repo>#<N>` へ機械的に書き換え済みだが内容自体は変更していない。詳細は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml) と docs/issues/issue-803-traceability.md を参照。
+
 > 更新: 2026-09-16 / N20a basic transform・Windows A05/A06受入反映
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧UI/旧PoCをnative CAD完了とは扱わない。
 
 ## Native CADの状態
 
-**N05 / N10 / N20aの技術gateは通過。** N05とN10はmainへ反映済み。N20aはIssue #47 / `feat/n20a-basic-transform-snap` で、body pose quaternion、Move/Rotate、Inspector数値編集、grid/angle snap、cancel/capture-loss耐性とA05/A06実機受入まで完了した。multi-selectやvertex/edge snapはまだ実装していない。
+**N05 / N10 / N20aの技術gateは通過。** N05とN10はmainへ反映済み。N20aはIssue bolph71656-ai/Home-Theater-Digital-Twin#47 / `feat/n20a-basic-transform-snap` で、body pose quaternion、Move/Rotate、Inspector数値編集、grid/angle snap、cancel/capture-loss耐性とA05/A06実機受入まで完了した。multi-selectやvertex/edge snapはまだ実装していない。
 
 | 区分 | 現在の状態 |
 |---|---|
-| main | N10まで反映済み。PR #46 merge `a229a34e258eb0d13a43c9635dfebc9073ac362d` |
-| N20a branch / Issue | `feat/n20a-basic-transform-snap` / Issue #47 |
+| main | N10まで反映済み。PR bolph71656-ai/Home-Theater-Digital-Twin#46 merge `a229a34e258eb0d13a43c9635dfebc9073ac362d` |
+| N20a branch / Issue | `feat/n20a-basic-transform-snap` / Issue bolph71656-ai/Home-Theater-Digital-Twin#47 |
 | N20a実機受入 | Windows 11 / 実OS 200% DPIでA05/A06 pass |
 | A05 | Top/Front/Side/PerspectiveでMove/Rotate、0.10 m grid snap、15° angle snap、Inspector、Undoをpass。unknown speaker aim保持 |
 | A06 | Esc、window外release、Alt+Tab/deactivate、tool/view切替、capture lossをcancel。history/recoveryへ未確定値を残さず、その後Move/Rotate/Orbit可能 |

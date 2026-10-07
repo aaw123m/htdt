@@ -1,0 +1,2042 @@
+version: 1
+migration:
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_capture_repo: bolph71656-ai/HTDT-Capture
+  current_repo: ka0923s-a11y/HTDT
+  current_capture_repo: ka0923s-a11y/HTDT-Capture
+  note: 'HTDT was migrated from bolph71656-ai/Home-Theater-Digital-Twin to ka0923s-a11y/HTDT on 2026-10-05. Both repositories'' pull-request merge histories exist in this repo''s git history and their numbers overlap; every reference in canonical docs is therefore written as owner/repo#number. Bare #N is invalid. Issue numbers were NOT preserved across the migration: only the issues listed with status=imported exist on the current repo, and they were renumbered. Original repos are offline, so unverifiable historical objects are marked unavailable rather than guessed.'
+reference_syntax:
+  issue_or_pr: <owner>/<repo>#<number>
+  chain_suffix: A '/'-separated suffix inherits the leading repo (e.g. owner/repo#228/#236).
+  merge_sha: Implementation/merge claims append ' (merge <8-char sha>)' giving the merge commit on main.
+  unavailable: Unrecoverable objects append ' (unavailable)'.
+  superseded: Refs superseded by a different PR append ' (superseded)'.
+  run: Diagnostic workflow runs use 'run-<number>' (project artifacts, not repo objects).
+number_collisions:
+- number: 2
+  kind: issue
+  note: 'current repo #2 = arbitrary-room acoustics slice (doc-cited); a same-numbered legacy issue exists only as unrecoverable history'
+- number: 140
+  kind: issue
+  note: 'legacy #140 = O90 robust-optimization planning; current #140 = imported #893 installation-drawing correctness'
+- number: 166
+  kind: issue
+  note: 'legacy #166 = competitive-gap tracking; current #166 = imported #940 solver-integration regression'
+- number: 170
+  kind: issue
+  note: 'legacy #170 = StandardsProfile authority; current #170 = imported #946 speaker-aim gap'
+- number: 430
+  kind: pr
+  note: 'legacy PR #430 = R140 atomic publish (merge 97386d4c); current PR #430 = R150 late-field authority (merge 86c35edf)'
+- number: 432
+  kind: pr
+  note: 'legacy PR #432 = fidelity-policy dispatch (merge 135ca7e5); current PR #432 = R150 multi-Portal (merge 77432fe6)'
+- number: 433
+  kind: pr
+  note: 'legacy PR #433 = pareto read replay (merge c3cce2b6); current PR #433 = R160 union-band stitching (merge 7dd039c8)'
+- number: 534
+  kind: issue
+  note: 'legacy #534 = authority-experiences issue (not doc-cited); current #534 = client presentation workspace'
+- number: 538
+  kind: issue
+  note: 'legacy #538 = cable runs (doc-cited); current #538 = auralization evidence (doc-cited) — same doc cites both namespaces'
+- number: 564
+  kind: issue
+  note: 'legacy #564 = capture promotion typed-unsupported tracking (doc-cited); current #564 = prediction/measurement registration'
+- number: 748
+  kind: pr
+  note: 'legacy PR #748 = installation/authority batch (merge 492f6db6); current #748 is an unrelated theater-lighting issue'
+- number: 792
+  kind: issue
+  note: 'legacy #792 = adapter compatibility matrix (imported as current #64); current #792 = product-lifecycle supportability'
+- number: 803
+  kind: issue
+  note: 'legacy #803 = integrity hardening field-evidence (doc-cited); current #803 = this traceability task'
+- number: 334
+  kind: issue
+  note: 'legacy capture #334 = cross-repo compatibility CI; current capture #334 = UI-audit issue'
+- number: 369
+  kind: issue
+  note: 'legacy capture #369 = unavailable capture-tracking ref; current HTDT #369 = unrelated'
+- number: 76
+  kind: run
+  note: 'run-76 = R130D diagnostic project artifact; shares surface syntax with legacy PR #76 (superseded) and current issue #76'
+references:
+- kind: release_artifact
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 23
+  status: unavailable
+  subject: Windows Release Artifact (N90)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: release_artifact
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 93
+  status: unavailable
+  subject: Windows Release Artifact (O80)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: release_artifact
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 109
+  status: unavailable
+  subject: Windows Release Artifact (R100A)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 4
+  status: unavailable
+  subject: 'PR #259 workflow run 35489817678'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 309
+  status: unavailable
+  subject: N80a product CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 312
+  status: unavailable
+  subject: final harness CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 313
+  status: unavailable
+  subject: acceptance docs CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 321
+  status: unavailable
+  subject: N80a product CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 323
+  status: unavailable
+  subject: final gate CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 324
+  status: unavailable
+  subject: N80a acceptance docs CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 345
+  status: unavailable
+  subject: N80b CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 397
+  status: unavailable
+  subject: N80c product CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 427
+  status: unavailable
+  subject: O60 CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 458
+  status: unavailable
+  subject: N90 stable release CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 459
+  status: unavailable
+  subject: gate-harness fix CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 512
+  status: unavailable
+  subject: O60E CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 548
+  status: unavailable
+  subject: O80 final product CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 582
+  status: unavailable
+  subject: R100A CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: ci_run
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 588
+  status: unavailable
+  subject: R100B CI run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 333
+  status: historical
+  subject: capture-bundle/import tracking (production .htdtcapture path)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 334
+  status: historical
+  subject: cross-repo compatibility CI (CAPTURE_COMPATIBILITY.json)
+  note: number collides with ka0923s-a11y/HTDT-Capture#334 (UI-audit issue)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 335
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 336
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 337
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 338
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 343
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 345
+  status: historical
+  subject: capture-bundle/import tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/HTDT-Capture
+  original_number: 369
+  status: unavailable
+  subject: null
+  note: referenced as a capture-tracking issue; no object survives and no imported map exists
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 41
+  status: historical
+  subject: initial milestone (closed; superseded by canonical roadmap)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 47
+  status: historical
+  subject: N20a basic transform tracking (archive only)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 63
+  status: historical
+  subject: N70 native prediction / visualization workspace
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 65
+  status: historical
+  subject: N80 native optimization workspace
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 67
+  status: historical
+  subject: O20 objective authority
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 75
+  status: historical
+  subject: O60 software validation
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 77
+  status: historical
+  subject: N90 stable Windows release
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 81
+  status: historical
+  subject: O60E preregistered owned-room validation campaign
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 83
+  status: imported
+  subject: O60R owned-room campaign / real-data evidence gate
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 1
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 90
+  status: historical
+  subject: O70/O80 synthetic-first development lane
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 101
+  status: imported
+  subject: post-0.1 arbitrary-room R-series hybrid acoustics
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 2
+  cited_in:
+  - README.md
+  - docs/CAD_EDITOR_SPEC.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 102
+  status: historical
+  subject: GUI backup/restore/migration (UX data management)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 118
+  status: imported
+  subject: native UI/UX overhaul (UX100-UX160)
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 3
+  cited_in:
+  - docs/CAD_EDITOR_ACCEPTANCE.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+  - docs/UI_DESIGN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 140
+  status: imported
+  subject: O90 robust / tolerance-aware optimization
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 4
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 142
+  status: imported
+  subject: O100 system expansion / virtual channel topology optimization
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 5
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 146
+  status: historical
+  subject: O90B completion (probability-resume) tracking
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 166
+  status: historical
+  subject: 'competitive gap closure tracking (children #167-#176)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 167
+  status: historical
+  subject: 3D capture/import to semantic acoustic geometry / repair
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 168
+  status: historical
+  subject: EquipmentDefinition / directivity import (O100C)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 169
+  status: historical
+  subject: coverage / SPL / headroom / worst-seat objectives (O100D)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 170
+  status: historical
+  subject: StandardsProfile authority
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+  - docs/UI_DESIGN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 171
+  status: historical
+  subject: AcousticTreatment
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 172
+  status: historical
+  subject: guided measurement / MeasurementQualityReport
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 173
+  status: historical
+  subject: CalibrationPlan / device-neutral export / re-measure
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 174
+  status: historical
+  subject: joint physical placement + DSP optimization
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 175
+  status: historical
+  subject: projector / screen / sightline
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 176
+  status: historical
+  subject: installation / report output
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 180
+  status: historical
+  subject: R100A-4 finite-record authority slice
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 229
+  status: historical
+  subject: O100F robust expansion tracking
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 447
+  status: historical
+  subject: DesignComparisonSet
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 452
+  status: historical
+  subject: Calibration workflow UX backend
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 453
+  status: historical
+  subject: Installation handoff
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 495
+  status: historical
+  subject: Directivity inspection
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 496
+  status: historical
+  subject: Display units
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 507
+  status: historical
+  subject: Field / as-built evidence
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 508
+  status: historical
+  subject: Target curve profiles
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 512
+  status: historical
+  subject: Analysis export
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 520
+  status: historical
+  subject: Commissioning verification
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 537
+  status: historical
+  subject: Installation datum
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 538
+  status: historical
+  subject: Cable runs
+  note: number collides with ka0923s-a11y/HTDT#538 (auralization evidence)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 555
+  status: historical
+  subject: ProjectDesignBrief
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 556
+  status: historical
+  subject: Room operating state
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 564
+  status: historical
+  subject: capture promotion typed-unsupported entity tracking (display/projection_screen)
+  note: number collides with ka0923s-a11y/HTDT#564 (prediction-measurement registration)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 567
+  status: historical
+  subject: TheaterOperatingPreset
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 568
+  status: historical
+  subject: SystemHealthBaseline + HealthCheckPlan/Run
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 594
+  status: historical
+  subject: AnalysisStudy
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 600
+  status: historical
+  subject: External dependency resolver
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 602
+  status: historical
+  subject: Evidence reconciliation
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 609
+  status: historical
+  subject: CalibrationDeviceAdapter framework
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 610
+  status: historical
+  subject: Dirty-state resolution UX
+  note: number collides with ka0923s-a11y/HTDT#610 (new-era issue)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 614
+  status: historical
+  subject: ProjectTemplate
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 615
+  status: historical
+  subject: ProjectActivityEvent projection
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 619
+  status: historical
+  subject: ProjectDesignCheckpoint + ConstraintWorkspaceSnapshot
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 620
+  status: historical
+  subject: Evidence-gap register
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 654
+  status: historical
+  subject: DesignDecisionRecord
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 655
+  status: historical
+  subject: product domain boundary charter (docs-only)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 667
+  status: historical
+  subject: ProjectActionItem + spatial notes
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 668
+  status: historical
+  subject: docs-only boundary/charter update
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 678
+  status: historical
+  subject: 'dirty-state resolution UX (paired with #610)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 726
+  status: imported
+  subject: Hue CLIP v2 contract / general equipment device adapter framework
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 11
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 792
+  status: imported
+  subject: device adapter compatibility matrix & conformance harness
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 64
+  note: number collides with ka0923s-a11y/HTDT#792 (product lifecycle supportability)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 799
+  status: historical
+  subject: 'integrity hardening: commissioning'
+  note: number collides with ka0923s-a11y/HTDT#799 (REV61-UI follow-up)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 800
+  status: historical
+  subject: 'integrity hardening: analysis export'
+  note: number collides with ka0923s-a11y/HTDT#800 (mission rebase decisions)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 801
+  status: imported
+  subject: measurement batch commit integrity
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 67
+  note: number collides with ka0923s-a11y/HTDT#801 (production credibility gate)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 802
+  status: historical
+  subject: 'integrity hardening: external resolver'
+  note: number collides with ka0923s-a11y/HTDT#802 (PR verification merge-blocking)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 803
+  status: historical
+  subject: 'integrity hardening: field evidence'
+  note: number collides with ka0923s-a11y/HTDT#803 (this traceability task)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 804
+  status: historical
+  subject: 'integrity hardening: study/brief'
+  note: number collides with ka0923s-a11y/HTDT#804 (UX160 acceptance)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 805
+  status: historical
+  subject: 'integrity hardening: reconciliation'
+  note: number collides with ka0923s-a11y/HTDT#805 (standards-aware coverage)
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 834
+  status: historical
+  subject: external asset admission ledger
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 835
+  status: historical
+  subject: saved-analysis exactness
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 836
+  status: historical
+  subject: external dependency resolver provenance hardening
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 837
+  status: historical
+  subject: installation handoff package integrity
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 838
+  status: historical
+  subject: analysis export reproducibility
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 978
+  status: imported
+  subject: T10 FIR / mixed-phase calibration authority
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 201
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 980
+  status: imported
+  subject: playback-level-dependent loudness compensation
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 203
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 992
+  status: imported
+  subject: spatially robust room-EQ design policy
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 215
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 994
+  status: imported
+  subject: O100 cost evaluation integrity
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 217
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1034
+  status: imported
+  subject: R180 calibration execution accounting
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 254
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1035
+  status: imported
+  subject: R180 objective integrity
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 255
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1049
+  status: imported
+  subject: operating power & thermal telemetry
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 269
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1057
+  status: imported
+  subject: Yamaha RX-A4A adapter qualification
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 277
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1069
+  status: imported
+  subject: lighting adapter qualification (Hue local API)
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 289
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1072
+  status: imported
+  subject: open DSP interop (CamillaDSP)
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 292
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1082
+  status: imported
+  subject: PJLink projector adapter qualification
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 302
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1083
+  status: imported
+  subject: NUT UPS/PDU telemetry adapter
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 303
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 1084
+  status: imported
+  subject: CEC event-observation adapter
+  current_mapping:
+    repo: ka0923s-a11y/HTDT
+    issue: 304
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 2
+  status: current
+  subject: 'arbitrary-room acoustics solver contract (imported form of legacy #101)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 533
+  status: current
+  subject: active low-frequency control planning
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 534
+  status: current
+  subject: client presentation workspace (PM10-PM40)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 538
+  status: current
+  subject: auralization evidence & shareability
+  note: number collides with bolph71656-ai/Home-Theater-Digital-Twin#538 (cable runs)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 541
+  status: current
+  subject: guided video commissioning workspace
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 545
+  status: current
+  subject: capture promotion shear rejection
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: issue
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 546
+  status: current
+  subject: capture promotion non-affine transform rejection
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 37
+  status: unavailable
+  subject: feature-parity policy discussion
+  note: PR object and merge commit unrecoverable; policy recorded in roadmap §2
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 46
+  status: historical
+  subject: N10 editor shell save/restore + A03/A04 (archive only)
+  merge_sha: a229a34e258eb0d13a43c9635dfebc9073ac362d
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 64
+  status: historical
+  subject: N70 native prediction / visualization workspace
+  merge_sha: 2ca8755b66af5521c2ed4fc98d39ce1aeb732c64
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 70
+  status: historical
+  subject: N80 objective vector and Pareto cores
+  merge_sha: b4381f4b01683bba65b3857514ea583160f0eb7b
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 71
+  status: historical
+  subject: N80b transactional Room Simulator batch
+  merge_sha: cdbd0f45f8c66b01522fcc3006b8019e2cd1ba88
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 74
+  status: historical
+  subject: N80c native Pareto comparison workspace
+  merge_sha: 171f30a25ef322b09046adfee5f8eabe76e8c51b
+  note: merge commit 171f30a2; product head 2a891dbc1796d3cfdaebbe762d0d6e0d2636563f recorded in docs
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 76
+  status: superseded
+  subject: O60 software validation implementation history
+  merge_sha: b0b56497255425b5b343c6f5f52763d11dbf5ee6
+  note: 'draft could not be un-drafted; identical head ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3 merged via PR #78 (merge b0b56497)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 78
+  status: historical
+  subject: 'O60 holdout trend sensitivity repeatability (merge-only vehicle for PR #76 head)'
+  merge_sha: b0b56497255425b5b343c6f5f52763d11dbf5ee6
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 79
+  status: historical
+  subject: N90 stable Windows release and A15 acceptance
+  merge_sha: d1f0f7cf1bf24e4590954071d78c9ac281fc15b9
+  note: 'merge commit d1f0f7cf has no PR marker in subject; identified by matching ''N90: stable Windows release and A15'' landing'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 82
+  status: historical
+  subject: O60E preregister owned-room validation campaign
+  merge_sha: 138c3ed532396ee1b2b9b1cedd64be767979e1aa
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 85
+  status: historical
+  subject: O60R read-only owned-room audit gate
+  merge_sha: ab44e4250a50b285f18ec33e5748ca8b4a9c2e13
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 92
+  status: historical
+  subject: O70 synthetic-first adaptive planner core
+  merge_sha: 5030bf2c622c4c51d040745c4e0b47942f1fc4b8
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 93
+  status: historical
+  subject: O70 Adaptive Planner native UI
+  merge_sha: f9b304bab63e78f3818a1b58bc8fdf63acbfa64c
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 94
+  status: historical
+  subject: O80 extended search software path completion
+  merge_sha: 6faf554bcf3670f64ff13c530fa4fc79ab1881b8
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 110
+  status: historical
+  subject: R100A solver-neutral acoustic benchmark authority
+  merge_sha: 1714c078d4063f59da93f0d733171547f7eb486d
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 111
+  status: historical
+  subject: R100B solver bakeoff authority + pinned candidate preflight
+  merge_sha: 7be0127fb352c7073d4a686f2e77cc22bc06eac3
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 112
+  status: historical
+  subject: R100B raw observation evaluator + pyroomacoustics reference probe
+  merge_sha: 5725f8f2eecb150773202bf324132a34a40ba492
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 113
+  status: historical
+  subject: R100B pinned PFFDTD Python/Numba Windows platform smoke
+  merge_sha: ea5f5b8631e5097d37788210b2652b3089a28807
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 114
+  status: historical
+  subject: R100B MFEM serial H1 FEM Neumann reference
+  merge_sha: 245a3efc66144b81742d65c62ad99ba081fe7426
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 115
+  status: historical
+  subject: R100B PFFDTD rigid-room grid-refinement validation
+  merge_sha: fe4224cfb31cfd0b250f4a15ebf87da317f269da
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 116
+  status: historical
+  subject: R100A-2 pressure-authority fix + PFFDTD convergence evidence
+  merge_sha: e0c0418cc3fd5dd1685ec95a2e50eb9e03291c11
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 122
+  status: unavailable
+  subject: workflow-shell first version (bridge design)
+  note: 'PR object and merge commit unrecoverable; superseded by integration PR #127 (c0210441)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 123
+  status: historical
+  subject: UX dark-first Qt design system foundation
+  merge_sha: 7fbc3c5fedc4fdd782bcc74e20cdd515e07fdede
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 124
+  status: historical
+  subject: data-management controller + restore lifecycle
+  merge_sha: 24fe430acaa0e313789aef6988d9e812cef55eb2
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 125
+  status: historical
+  subject: UX110 central command registry / Ctrl+K palette
+  merge_sha: 89e0831acf4228aa319977df6af3aea4e44b4d16
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 126
+  status: historical
+  subject: read-only Overview readiness aggregation
+  merge_sha: 841391ef6c4e2ea7ac07ba716fb598ccf4eff2aa
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 128
+  status: historical
+  subject: Settings / Data Management UI
+  merge_sha: 00763ced46529f0a18119332ab4eebc957d33187
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 129
+  status: historical
+  subject: UX120 reusable CAD input + shortcut controller
+  merge_sha: fcf2bfd7b2e2480922d1a240853730c3d890f42f
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 130
+  status: historical
+  subject: UX120 viewport-centric Room workspace
+  merge_sha: 22d697124361455e15dc5bab0b8d89782251f3dd
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 131
+  status: superseded
+  subject: Optimization workspace
+  merge_sha: a8cab563cf2aa6bdab17ad4f8ccfb7428f55b2fd
+  note: 'no own merge commit; taken in via integration PR #133 squash a8cab563 after command/navigation reconciliation with #129'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 132
+  status: historical
+  subject: UX130 page-based measurement workspace
+  merge_sha: ef46ff7613dcbb906d27f076d6776de3bf114080
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 144
+  status: historical
+  subject: O100A proposed system-variant authority
+  merge_sha: 27fc1cb0d1995b2d7ea2a6156b834bb0966bbb36
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 145
+  status: historical
+  subject: O90A robust tolerance-aware optimization authority
+  merge_sha: 1f9586bc8a2cd350b2ff5e853aeb44ef3b56516c
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 149
+  status: historical
+  subject: O90B multidimensional robustness sampling + robust Pareto
+  merge_sha: becfe50f3e4975afb88a0ffd96ce9ed61934b676
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 150
+  status: historical
+  subject: O100B virtual topology and placement search
+  merge_sha: 0286829f4ce1df98b57d05dd0b6e21aeabe0a5c3
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 151
+  status: historical
+  subject: R100B explicit PFFDTD impedance reflection gate
+  merge_sha: 6da7ac3994fd2d17370acd713356ad9c906dcc10
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 154
+  status: historical
+  subject: R100B MFEM concave independent numerical reference
+  merge_sha: cb6d15b0674aa72ada63bd9b5ec70eba23ef4a6b
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 155
+  status: historical
+  subject: R100B pyroomacoustics stochastic seed/convergence evidence
+  merge_sha: ca7ed332caa732c1a690ab7da2a7e25ecd7c1e9e
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 156
+  status: historical
+  subject: issue-146 O90B probability-resume authority
+  merge_sha: 9ed5bf774adba55eaf799846d8c58f4f9fb460d6
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 160
+  status: historical
+  subject: R100B MFEM Portal continuity cross-fixture evidence
+  merge_sha: ab2875fa69bed6931f4c35333bcc186abba6196a
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 162
+  status: historical
+  subject: R100A-3 explicit radiation termination authority
+  merge_sha: 9b255d7c62ae334749b4f9a10129b4b9c3f859a1
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 177
+  status: historical
+  subject: R100B MFEM R100A-3 radiation termination gate
+  merge_sha: 6e085576a3bfe3b51daabedcdfaa929d0518e3d3
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 181
+  status: historical
+  subject: R100B exact-concave PFFDTD evidence probe
+  merge_sha: 17ae0307399ea1c177f81c99322d1d8b16090f22
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 192
+  status: historical
+  subject: versioned StandardsProfile authority
+  merge_sha: be3e4ae86ec4673c26771e0d05159f1fbe4f9e3b
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 195
+  status: historical
+  subject: R120B raw-mesh ingestion + deterministic diagnostics
+  merge_sha: c95a6415213a16fb75052994029472f569b1a6d2
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 196
+  status: historical
+  subject: issue-167 semantic acoustic geometry
+  merge_sha: f4af97e081d83032d58d57123414e3e91fd6b470
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 197
+  status: historical
+  subject: issue-171 acoustic-treatment foundation
+  merge_sha: 702014d4521984765e72c9d4a0d803444d223b4b
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 207
+  status: historical
+  subject: issue-167 R120 geometry-compiler contract
+  merge_sha: a968256d58abd48d89567343714f3bf8b2bd7aa8
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 211
+  status: historical
+  subject: issue-171 R120 treatment-boundary overlay
+  merge_sha: 3f683765b271c3cfeea6b538ed37bb43aff99916
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 219
+  status: historical
+  subject: issue-171 treatment acoustic snapshot
+  merge_sha: 0a54356ed542c23fb979c1e919b67c876ed20bc5
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 220
+  status: historical
+  subject: issue-167 bounded raw-mesh repair
+  merge_sha: 2fc69d873feb19c04c35c90a3592c8f6bd39cd9b
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 221
+  status: historical
+  subject: issue-167 R120 acceptance
+  merge_sha: 77040036f929ec01bd504665d4630dbc9b9d6d6f
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 223
+  status: historical
+  subject: issue-171 treatment comparison (named A/B/no-treatment)
+  merge_sha: 0022c728a380be398cd57ed2af2663568f42891b
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 224
+  status: historical
+  subject: issue-101 wave-excitation authority
+  merge_sha: ac1567e6c058bd8d6e054d55409acf9390530dca
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 228
+  status: historical
+  subject: O90C/O100E multi-fidelity authority
+  merge_sha: 7a387673b727b5824855f42b5f49e216c0413dd8
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 231
+  status: historical
+  subject: issue-229 proposal-robustness foundation
+  merge_sha: fc019cec9bca66423088961380b7ea26e905bcf9
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 232
+  status: historical
+  subject: issue-229 proposal-robustness O90B clean
+  merge_sha: 3e1dcc8e7d988e5ccac7cd30152b1b174bc39716
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 233
+  status: historical
+  subject: issue-229 proposal-robust Pareto
+  merge_sha: d0d5758c810fa59356630eb68017c980f7e3d585
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 235
+  status: historical
+  subject: O100G as-built lineage
+  merge_sha: 640953b0338018f06aed1ce7dc2103441e700c93
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 236
+  status: historical
+  subject: issue-101 R140 multi-fidelity execution / CPU bounded executor
+  merge_sha: d35ff117ab4a2dfe88d89c92de3ec74c0e0cdde2
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 238
+  status: historical
+  subject: issue-140 O90C robust finalization
+  merge_sha: 5a6d4e2dbc66720dc133745e150a44c60df8dc71
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 239
+  status: historical
+  subject: O100G measured lifecycle v2
+  merge_sha: 8a51b6ca4c8c737d5f8a58554e1ec268db8f0ca7
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 243
+  status: historical
+  subject: issue-101 R130A candidate wave execution
+  merge_sha: cae26bfe6950971a321f00d71e81dff5e6ca6f65
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 244
+  status: historical
+  subject: O100G SystemVariant-specific measurement plans/campaigns
+  merge_sha: 89af03d8ed6fc481cd912ae2d9a7e8f2a5f297b4
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 245
+  status: historical
+  subject: issue-101 R150 deterministic GA adapter foundation
+  merge_sha: 51dd8d8daed4b40e9f0bcc2aa7d09a8330228ccd
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 249
+  status: historical
+  subject: O90D workflow-first robustness UI
+  merge_sha: d7c9a52802af794d46bad92acaeeb96e13832eee
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 250
+  status: historical
+  subject: R140 bounded actual executor + estimator + telemetry
+  merge_sha: e284dc33617bc027234c82e6530eb2e746293b96
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 253
+  status: historical
+  subject: issue-101 R150 general planar first-order
+  merge_sha: 35e99483fb19de7c2da6a8fd5336e6f9abb55ed7
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 254
+  status: historical
+  subject: issue-101 R160 hybrid result authority
+  merge_sha: 3b2b0dcb55366be8acaebd0ad971eaae0285a201
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 255
+  status: historical
+  subject: O100G workflow-first Room/Optimize UX connection
+  merge_sha: c4d72ddb829c48ef20bf9f241760c7f3bc419acd
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+  - docs/PROJECT_PLAN.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 258
+  status: historical
+  subject: R150 bounded deterministic second-order specular
+  merge_sha: 7e058bf450539c393e89fc75dcf09591ae0dfbbf
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 259
+  status: historical
+  subject: R140 PFFDTD-specific resource estimator
+  merge_sha: 972285607608a1d67c0ccdc59f981e1f09ba0920
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 260
+  status: historical
+  subject: R130B explicit impedance boundary execution
+  merge_sha: 0933db0c177f9cbbce44f6ae0434700b7a446062
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 262
+  status: historical
+  subject: R160 bounded hybrid composition authority
+  merge_sha: aa91e2df294cd3b4083c8e5392deeff86c072f57
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 263
+  status: historical
+  subject: S130 StandardsProfile workspace integration
+  merge_sha: be534bb940daf418a293eab53658ffa1437fb2f2
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 264
+  status: historical
+  subject: R130C causal frequency-dependent PFFDTD boundaries
+  merge_sha: bcc48997a9b7cf5a9d567cb532b4671f6d581275
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 265
+  status: historical
+  subject: R150 multi-region Portal (2-region/1-Portal direct)
+  merge_sha: 511fc31e44ce1885ca3699880272411c518a5bdf
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 266
+  status: historical
+  subject: issue-140 O90E owned-room validation authority
+  merge_sha: f1a33420ba1557eb853fb7f0860b0611ea543ac2
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 267
+  status: historical
+  subject: issue-101 R100B production-adoption gate
+  merge_sha: 5dbe96b8f41171360fb190e6c4e849ab9a55eea5
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 270
+  status: historical
+  subject: R150 arbitrary-region graph Portals
+  merge_sha: 63ee0dbeec3c90e722cfa971980ef230ccc8afdb
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 271
+  status: historical
+  subject: R170A low-band prediction provider
+  merge_sha: b41edef9cef7d09782c77cbbd9e1b29f59f51816
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 272
+  status: historical
+  subject: R120B polyhedral geometry authority
+  merge_sha: 3683caf9b51fc7b3e2251e1c864bd1c83e597b99
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 273
+  status: historical
+  subject: R140 GPU equivalence authority
+  merge_sha: 17679f83e56733653c06ab11b48bb3d09a4861e4
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 274
+  status: historical
+  subject: R100B MFEM concave bounded experiment
+  merge_sha: 2b5ac062259f20496b310d342fe9e5ab75c8ca5e
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 276
+  status: historical
+  subject: R150 complex path-response authority
+  merge_sha: a421d340929c10eeb4d21dca8f4a53b74bacf755
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 278
+  status: historical
+  subject: R130D polyhedral PFFDTD execution
+  merge_sha: 4049c626e8b1ab4c4598678da0090b608455ec49
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 283
+  status: historical
+  subject: R160 complex hybrid composition (exact common-bin)
+  merge_sha: f3119f06365738169d6fd0e9373ba383f13a09e8
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 285
+  status: historical
+  subject: R100B MFEM GL2 half-steps
+  merge_sha: 15561b75d436c50962cb1a2e3290ff1119d91fb5
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 286
+  status: historical
+  subject: R130D refinement diagnosis
+  merge_sha: b790f13f38dcb89e6e92782c2c87406a235203f6
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 287
+  status: historical
+  subject: R160 grid reconciliation (frequency-grid) authority
+  merge_sha: 5cb2b3e7ada85e4c7ea1146addedce0611f31df3
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 289
+  status: historical
+  subject: R100B MFEM GL2 four-substeps experiment
+  merge_sha: be95694362f0a5963d170d17b766a6daf6f1fcc0
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 291
+  status: historical
+  subject: issue-118 UX160 owned-Windows partial acceptance
+  merge_sha: 5143bfe00fa28067b1a8a7a5293509ad80c6c32c
+  cited_in:
+  - README.md
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 292
+  status: historical
+  subject: R150 Portal first-reflection
+  merge_sha: 533757f6530968228426eb979dc11f988a47c916
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 295
+  status: historical
+  subject: R130D window-alignment diagnostic
+  merge_sha: a1c08df6a36301aefbc64d7f15a3761d9227957d
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: bolph71656-ai/Home-Theater-Digital-Twin
+  original_number: 748
+  status: historical
+  subject: 'installation/authority batch (issues #453 #507 #512 #520 #555 #594 #600 #602)'
+  merge_sha: 492f6db6fe59fb0347b76ebc394f9c6849eb0e63
+  note: squash-merge marker (#748); number collides with ka0923s-a11y/HTDT#748
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 430
+  status: current
+  subject: R150 late-field scattering/diffraction authority
+  merge_sha: 86c35edfa3adb47f7f92f05e9dc1c519b4416941
+  note: 'number collides with legacy PR #430 (R140 atomic publish, merge 97386d4c)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 432
+  status: current
+  subject: R150 multi-Portal cross-region reflected paths
+  merge_sha: 77432fe6190ec04bdf003469b1ae6f23ecc9843d
+  note: 'number collides with legacy PR #432 (fidelity-policy dispatch, merge 135ca7e5)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 433
+  status: current
+  subject: R160 numerical stitching / automatic crossover / late-energy
+  merge_sha: 7dd039c8421d93ec574cd857d2b2fd483b17b449
+  note: 'number collides with legacy PR #433 (pareto read replay, merge c3cce2b6)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 521
+  status: current
+  subject: REV42 measurement-quality producer
+  merge_sha: 4c7c06f054b6d61d0856136966000b8dc3a33cf1
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 527
+  status: current
+  subject: REV44 save-as-template menu action
+  merge_sha: 0e25a4d9283a44ea4bbb5cc1c37a8513fc3ec809
+  note: 'number collides with legacy PR #527 (calibration lifecycle, merge b2e48e8e)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 528
+  status: current
+  subject: REV44-SURFACES prediction-matrix provider/matrix
+  merge_sha: 96ba2e09af247ef800886e21a9fc98910e3b26e0
+  note: 'number collides with legacy PR #528 (r120 recompile, merge d95d4941)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 529
+  status: current
+  subject: REV44-QUALITYAUTH measurement registration surfaces
+  merge_sha: 30aaaf5222daeeb1bfb75818bdcf5e0cae389a6d
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 530
+  status: current
+  subject: REV44-HEALTHSYNC health baseline + AV-sync recording
+  merge_sha: a9a83ba9d10e42f9b7f844fb23b030f87ff8bcac
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 531
+  status: current
+  subject: REV44-INSTALL installation context + datum registration
+  merge_sha: ffc946444df7d69f5f45cde840d3372347968832
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 532
+  status: current
+  subject: REV44-STAGED wire record entry for preset/installation/treatment
+  merge_sha: 7e8c4bcef502cf5e79b38ecbc8faaf64502b3db6
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 535
+  status: current
+  subject: REV44-ISSUEVERIFY automated open-issue verification
+  merge_sha: 44f92dc8840c18220180b0af05f9f35979e5ee5d
+  note: 'number collides with legacy PR #535 (fr-sample-binding, merge 12a97ba1)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 537
+  status: current
+  subject: REV45-ISSUEVERIFY runner hardening
+  merge_sha: 26dd1a0bb1440a480d53c52905585524c6015731
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 539
+  status: current
+  subject: capture entity promotion executor
+  merge_sha: 89e0ec9a1a48407c978dba7817b5464c22900238
+  note: 'number collides with legacy PR #539 (o30 objective authority, merge 79262f50)'
+  cited_in:
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 540
+  status: current
+  subject: REV46 second-pass issue-verification hardening
+  merge_sha: 848fe08608196197be56240d8d708f8332bba13f
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+  - docs/IMPLEMENTATION_STATUS.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 543
+  status: current
+  subject: REV47-ISS2 derivation chain + capability manifest + r100a-5
+  merge_sha: c4bf57fa77cdda12ca7f5cdd9c151ad079d9017c
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 544
+  status: superseded
+  subject: '#533 active-LF control remaining slices'
+  merge_sha: ef85080c767ada7b595973a6ed134a559d850d6a
+  note: PR closed unmerged on GitHub (merge_commit_sha 7766401d absent from main); content landed via direct commit ef85080c
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 547
+  status: current
+  subject: REV47-ISS534 presentation mode PM10-PM40
+  merge_sha: 16b8f3897b8d53c404532d0426d191704956eadf
+  note: 'number collides with legacy PR #547 (candidate-variant atomic, merge bd9e3db6)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 548
+  status: current
+  subject: '#538 auralization evidence & shareability'
+  merge_sha: 10000b2957fd9f8f1c891c7af262e08a3cde311e
+  note: 'number collides with legacy PR #548 (o100g-completion atomic, merge 7f7bb91c)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 549
+  status: current
+  subject: REV48 guided acceptance wizard
+  merge_sha: 58f2b7be2249bd1709be0fe83eef4b6d408c8e94
+  note: 'number collides with legacy PR #549 (snapshot-readiness replay, merge 3d6e3567)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 550
+  status: current
+  subject: REV48 follow-up acceptance-wizard fixes
+  merge_sha: 013c3fa486364970867f2fad07a6d075722e4b59
+  note: 'number collides with legacy PR #550 (retake lineage, merge bc59653a)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: pull_request
+  original_repo: ka0923s-a11y/HTDT
+  original_number: 551
+  status: current
+  subject: '#541 guided video commissioning journey (REV48-VIDEO)'
+  merge_sha: b0dc20325f5344034eea4ceba8018605a1188484
+  note: 'number collides with legacy PR #551 (candidate pagination, merge a8f87e44)'
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md
+- kind: diagnostic_run
+  original_repo: project
+  original_number: 76
+  status: historical
+  subject: R130D canonical PFFDTD diagnostic run (pinned trace in docs/R130D_*)
+  cited_in:
+  - docs/IMPLEMENTATION_ROADMAP.md

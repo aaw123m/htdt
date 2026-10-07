@@ -1,8 +1,9 @@
 # 実装ステータス
 
-> 更新: 2026-10-05 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR #291の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue #170 StandardsProfile + workspace integration実装 / Issue #101: PR #289 R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR #295 R130D target-window diagnostic後もNOT_VALIDATED、PR #292 R150 bounded one-Portal first-order reflection、PR #432 R150 multi-Portal cross-region reflected pathsをmain反映、PR #287 R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過 / post-0.1追加surface: プレゼン・映像調整・受入検証wizard・capture entity昇格・solver capability manifest・auralization・active-LF制御計画・品質プロデューサー・open-issue検証システムを実装済み（詳細は末尾「REV42〜REV53」節）
+> 更新: 2026-10-05 / N05〜N90 + O10〜O80 software path実装済み / O90A〜O90E software authority実装済み・actual owned-room evidence残件 / O100A〜O100G workflow-first software UX実装済み / UX160はPR bolph71656-ai/Home-Theater-Digital-Twin#291 (merge 5143bfe0)の部分owned-Windows acceptanceと具体的不具合修正をmain反映したがfull gateはBLOCKED / Issue bolph71656-ai/Home-Theater-Digital-Twin#170 StandardsProfile + workspace integration実装 / Issue bolph71656-ai/Home-Theater-Digital-Twin#101: PR bolph71656-ai/Home-Theater-Digital-Twin#289 (merge be956943) R100B exact 4 GL2 substeps experimentはunchanged numerical gate PASSだがcandidate-wide production adoption NO_GO、PR bolph71656-ai/Home-Theater-Digital-Twin#295 (merge a1c08df6) R130D target-window diagnostic後もNOT_VALIDATED、PR bolph71656-ai/Home-Theater-Digital-Twin#292 (merge 533757f6) R150 bounded one-Portal first-order reflection、PR ka0923s-a11y/HTDT#432 (merge 77432fe6) R150 multi-Portal cross-region reflected pathsをmain反映、PR bolph71656-ai/Home-Theater-Digital-Twin#287 (merge 5cb2b3e7) R160 unequal-grid reconciliation authority維持 / production solver・full numerical・R180・実室model gate未通過 / post-0.1追加surface: プレゼン・映像調整・受入検証wizard・capture entity昇格・solver capability manifest・auralization・active-LF制御計画・品質プロデューサー・open-issue検証システムを実装済み（詳細は末尾「REV42〜REV53」節）
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)。旧browser/backendの詳細履歴は[2026-09-16 archive](IMPLEMENTATION_STATUS_ARCHIVE_2026-09-16.md)へ保存する。
 > 注記: `.github/workflows` のGitHub Actions CIはこのmirrorでは削除済み（commit `b47f052`）。本書の「CI #nnn PASS」「Windows Release Artifact #nn」等は当時の実行記録であり、現在の検証はlocalのbackend test suiteと `scripts/` のpackaging/validation gateで行う。
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 
 ## 正本ドキュメントの責任分担と更新チェックリスト
 
@@ -26,56 +27,56 @@ milestone状態を実質的に変えるPRは、関連する現在地の面だけ
 
 ## Native CAD — 現在地
 
-**N05〜N90のnative CAD release pathとO10〜O80のsoftware pathは実装済み。O90 robust/tolerance-aware optimizationはIssue #140で正式計画化し、O90A robustness authorityをPR #145、bounded multidimensional O90B foundationをPR #149で実装。Issue #146 completionでcanonical O90B authorityを完了し、O90CはPR #228/#236/#238でauditable multi-fidelity screening、R140 exact execution/cache、common-fidelity robust-Pareto finalizationまで実装済み。O90D workflow-first robustness software UIはPR #249で実装済み。O90E software authorityはPR #266で実装済みだが、actual owned-room evidenceは未登録のためproduction robustness gateはclosedのまま。UX160 owned-Windows visual acceptanceは未完了。O100 system expansion / virtual channel topology optimizationはIssue #142で正式計画化し、O100AをPR #144、O100BをPR #150、O100CをIssue #168、O100DをIssue #169、O100EをPR #228、O100FをIssue #229 / PR #231/#232/#233で実装。O100G backendはPR #235/#239でproposal lineage / explicit As-built / exact measured evidence、PR #244でSystemVariant-specific MeasurementPlan/Campaignまで実装済み。PR #255でRoom/Optimize workflow-first UX、Japanese-first lifecycle badge、proposal ghost、SystemVariant comparison、既存O90D「ばらつき耐性」内のread-only O100F proposal robustness表示、apply confirmation、SystemVariant measurement-state presentationを実装。Windows DPI/font/mouse/3D readability/clipping/first-use clarityはUX160 owned-Windows gateとして未完了。O70はPR #92/#93、O80はPR #94でmain反映済み。PR #94 merge `6faf554bcf3670f64ff13c530fa4fc79ab1881b8` はCI #548 / run `35313405578` とWindows Release Artifact #93 / run `35313405629`をPASSし、real-repository synthetic O10→O80 laneとpackaged seed/installerまで検証した。Issue #101のpost-0.1 arbitrary-room R-seriesはR100AをPR #110 / merge `1714c078d4063f59da93f0d733171547f7eb486d` でmain反映済み。R100B authority基盤はPR #111 / merge `7be0127fb352c7073d4a686f2e77cc22bc06eac3` でmain反映済み。raw observation evaluator / pyroomacoustics reference probeはPR #112 / merge `5725f8f2eecb150773202bf324132a34a40ba492`、PFFDTD Windows Python/Numba platform smokeはPR #113 / merge `ea5f5b8631e5097d37788210b2652b3089a28807` でmain反映済み。PR #115 / run `35349358027` でPFFDTD R100A rigid rectangular eigenfrequency fixtureは3段階grid convergence + p=2 Richardson extrapolationにより4 observableすべてPASS。accepted evidence summaryを `benchmarks/acoustics/evidence/r100b_pffdtd_rigid_modes_2026-09-18.json` に固定済み。MFEM rigid-room independent referenceはPR #114 / merge `245a3efc66144b81742d65c62ad99ba081fe7426` でmain反映済み。PR #116でpressure authority欠落を修正するR100A-2（density明示）とPFFDTD complex-pressure convergenceを実装し、専用workflowをPASS。R100A hash変更により旧R100B artifactはcurrent selectionにはstaleとなり、新authorityで再実行する。PR #151でPFFDTD native DEF boundary/reflection-functionによるexplicit impedance gateはPASSしたが、spatial FDTD incident/reflected pressure decompositionは未検証。PR #154でMFEM concave independent referenceを追加し、solver-qualified p2–p5 solveは得られたもののp-refinement非収束のためconcave referenceはFAIL、impedance complex-R extractionはR100A-2にincident/reflected decomposition authorityが無いためBLOCKED。PR #155でpyroomacoustics stochastic seed/convergence evidenceを追加し、same-seed raw histogram replayは再現したがfine estimatorのinsufficient supportによりfixtureはFAIL/non-converged。PR #160でMFEM Portal continuity cross-fixture gateを追加し、同一conforming mesh・内部共有面・境界条件なしの表現で281点のmagnitude/phase比較が全て一致してPortal fixtureはPASS。PR #267でcandidate-wide production-adoption readiness gateを実装し、current evidenceのmachine decisionは`NO_GO / additional evidence required`、ready candidateは0件。production solver selectionは未完了。一方、PR #243でbounded PFFDTD candidate wave execution、PR #250でactual CPU-baseline R140 executorをmainへ接続し、PR #259でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific resource estimator・workload authority・actual R140 executor integrationを追加した。R150はPR #245でbounded deterministic direct/first-specular GA adapter foundation、PR #253でexact R120 semantic surfaceに基づくgeneral planar single-region first-orderを成立させ、PR #258でordered surface pairのbounded deterministic second-order specular reflectionまで拡張し、PR #265でexact 2-region + 1 open Portal + maximum 1 crossingのbounded deterministic direct propagationを追加した。R160はPR #254のtyped foundationに続き、PR #262でexact R130/R150 artifactをbindするbounded composition authorityまで実装した。さらにPR #260でR100Bのexact frequency-independent purely-resistive specific-impedance→PFFDTD DEF mappingを再利用し、actual non-rigid material executionまでR130B vertical sliceを接続した。PR #264でR130C positive-real normalized-admittance DEF authority、causal/passive/stable contract、valid-band fail-closed、deterministic compiled boundary、mixed-material PFFDTD execution、solver-specific resource-estimate provenance、independent normal-incidence magnitude/phase/passivity referenceまでを追加した。これらはproduction adoptionやfull R130/R150 numerical validationを意味しない。実室の独立validation evidenceもまだ無いため、`production_owned_room` recommendationとowned-room directional capabilityはIssue #83のreal-data gate成立までdisabledを維持する。**
+**N05〜N90のnative CAD release pathとO10〜O80のsoftware pathは実装済み。O90 robust/tolerance-aware optimizationはIssue bolph71656-ai/Home-Theater-Digital-Twin#140で正式計画化し、O90A robustness authorityをPR bolph71656-ai/Home-Theater-Digital-Twin#145 (merge 1f9586bc)、bounded multidimensional O90B foundationをPR bolph71656-ai/Home-Theater-Digital-Twin#149 (merge becfe50f)で実装。Issue bolph71656-ai/Home-Theater-Digital-Twin#146 completionでcanonical O90B authorityを完了し、O90CはPR bolph71656-ai/Home-Theater-Digital-Twin#228 (merge 7a387673)/#236 (merge d35ff117)/#238 (merge 5a6d4e2d)でauditable multi-fidelity screening、R140 exact execution/cache、common-fidelity robust-Pareto finalizationまで実装済み。O90D workflow-first robustness software UIはPR bolph71656-ai/Home-Theater-Digital-Twin#249 (merge d7c9a528)で実装済み。O90E software authorityはPR bolph71656-ai/Home-Theater-Digital-Twin#266 (merge f1a33420)で実装済みだが、actual owned-room evidenceは未登録のためproduction robustness gateはclosedのまま。UX160 owned-Windows visual acceptanceは未完了。O100 system expansion / virtual channel topology optimizationはIssue bolph71656-ai/Home-Theater-Digital-Twin#142で正式計画化し、O100AをPR bolph71656-ai/Home-Theater-Digital-Twin#144 (merge 27fc1cb0)、O100BをPR bolph71656-ai/Home-Theater-Digital-Twin#150 (merge 0286829f)、O100CをIssue bolph71656-ai/Home-Theater-Digital-Twin#168、O100DをIssue bolph71656-ai/Home-Theater-Digital-Twin#169、O100EをPR bolph71656-ai/Home-Theater-Digital-Twin#228 (merge 7a387673)、O100FをIssue bolph71656-ai/Home-Theater-Digital-Twin#229 / PR bolph71656-ai/Home-Theater-Digital-Twin#231 (merge fc019cec)/#232 (merge 3e1dcc8e)/#233 (merge d0d5758c)で実装。O100G backendはPR bolph71656-ai/Home-Theater-Digital-Twin#235 (merge 640953b0)/#239 (merge 8a51b6ca)でproposal lineage / explicit As-built / exact measured evidence、PR bolph71656-ai/Home-Theater-Digital-Twin#244 (merge 89af03d8)でSystemVariant-specific MeasurementPlan/Campaignまで実装済み。PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)でRoom/Optimize workflow-first UX、Japanese-first lifecycle badge、proposal ghost、SystemVariant comparison、既存O90D「ばらつき耐性」内のread-only O100F proposal robustness表示、apply confirmation、SystemVariant measurement-state presentationを実装。Windows DPI/font/mouse/3D readability/clipping/first-use clarityはUX160 owned-Windows gateとして未完了。O70はPR bolph71656-ai/Home-Theater-Digital-Twin#92 (merge 5030bf2c)/#93 (merge f9b304ba)、O80はPR bolph71656-ai/Home-Theater-Digital-Twin#94でmain反映済み。PR bolph71656-ai/Home-Theater-Digital-Twin#94 merge `6faf554bcf3670f64ff13c530fa4fc79ab1881b8` はCI bolph71656-ai/Home-Theater-Digital-Twin#548 (unavailable) / run `35313405578` とWindows Release Artifact bolph71656-ai/Home-Theater-Digital-Twin#93 (unavailable) / run `35313405629`をPASSし、real-repository synthetic O10→O80 laneとpackaged seed/installerまで検証した。Issue bolph71656-ai/Home-Theater-Digital-Twin#101のpost-0.1 arbitrary-room R-seriesはR100AをPR bolph71656-ai/Home-Theater-Digital-Twin#110 / merge `1714c078d4063f59da93f0d733171547f7eb486d` でmain反映済み。R100B authority基盤はPR bolph71656-ai/Home-Theater-Digital-Twin#111 / merge `7be0127fb352c7073d4a686f2e77cc22bc06eac3` でmain反映済み。raw observation evaluator / pyroomacoustics reference probeはPR bolph71656-ai/Home-Theater-Digital-Twin#112 / merge `5725f8f2eecb150773202bf324132a34a40ba492`、PFFDTD Windows Python/Numba platform smokeはPR bolph71656-ai/Home-Theater-Digital-Twin#113 / merge `ea5f5b8631e5097d37788210b2652b3089a28807` でmain反映済み。PR bolph71656-ai/Home-Theater-Digital-Twin#115 (merge fe4224cf) / run `35349358027` でPFFDTD R100A rigid rectangular eigenfrequency fixtureは3段階grid convergence + p=2 Richardson extrapolationにより4 observableすべてPASS。accepted evidence summaryを `benchmarks/acoustics/evidence/r100b_pffdtd_rigid_modes_2026-09-18.json` に固定済み。MFEM rigid-room independent referenceはPR bolph71656-ai/Home-Theater-Digital-Twin#114 / merge `245a3efc66144b81742d65c62ad99ba081fe7426` でmain反映済み。PR bolph71656-ai/Home-Theater-Digital-Twin#116 (merge e0c0418c)でpressure authority欠落を修正するR100A-2（density明示）とPFFDTD complex-pressure convergenceを実装し、専用workflowをPASS。R100A hash変更により旧R100B artifactはcurrent selectionにはstaleとなり、新authorityで再実行する。PR bolph71656-ai/Home-Theater-Digital-Twin#151 (merge 6da7ac39)でPFFDTD native DEF boundary/reflection-functionによるexplicit impedance gateはPASSしたが、spatial FDTD incident/reflected pressure decompositionは未検証。PR bolph71656-ai/Home-Theater-Digital-Twin#154 (merge cb6d15b0)でMFEM concave independent referenceを追加し、solver-qualified p2–p5 solveは得られたもののp-refinement非収束のためconcave referenceはFAIL、impedance complex-R extractionはR100A-2にincident/reflected decomposition authorityが無いためBLOCKED。PR bolph71656-ai/Home-Theater-Digital-Twin#155 (merge ca7ed332)でpyroomacoustics stochastic seed/convergence evidenceを追加し、same-seed raw histogram replayは再現したがfine estimatorのinsufficient supportによりfixtureはFAIL/non-converged。PR bolph71656-ai/Home-Theater-Digital-Twin#160 (merge ab2875fa)でMFEM Portal continuity cross-fixture gateを追加し、同一conforming mesh・内部共有面・境界条件なしの表現で281点のmagnitude/phase比較が全て一致してPortal fixtureはPASS。PR bolph71656-ai/Home-Theater-Digital-Twin#267 (merge 5dbe96b8)でcandidate-wide production-adoption readiness gateを実装し、current evidenceのmachine decisionは`NO_GO / additional evidence required`、ready candidateは0件。production solver selectionは未完了。一方、PR bolph71656-ai/Home-Theater-Digital-Twin#243 (merge cae26bfe)でbounded PFFDTD candidate wave execution、PR bolph71656-ai/Home-Theater-Digital-Twin#250 (merge e284dc33)でactual CPU-baseline R140 executorをmainへ接続し、PR bolph71656-ai/Home-Theater-Digital-Twin#259 (merge 97228560)でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific resource estimator・workload authority・actual R140 executor integrationを追加した。R150はPR bolph71656-ai/Home-Theater-Digital-Twin#245 (merge 51dd8d8d)でbounded deterministic direct/first-specular GA adapter foundation、PR bolph71656-ai/Home-Theater-Digital-Twin#253 (merge 35e99483)でexact R120 semantic surfaceに基づくgeneral planar single-region first-orderを成立させ、PR bolph71656-ai/Home-Theater-Digital-Twin#258 (merge 7e058bf4)でordered surface pairのbounded deterministic second-order specular reflectionまで拡張し、PR bolph71656-ai/Home-Theater-Digital-Twin#265 (merge 511fc31e)でexact 2-region + 1 open Portal + maximum 1 crossingのbounded deterministic direct propagationを追加した。R160はPR bolph71656-ai/Home-Theater-Digital-Twin#254 (merge 3b2b0dcb)のtyped foundationに続き、PR bolph71656-ai/Home-Theater-Digital-Twin#262 (merge aa91e2df)でexact R130/R150 artifactをbindするbounded composition authorityまで実装した。さらにPR bolph71656-ai/Home-Theater-Digital-Twin#260 (merge 0933db0c)でR100Bのexact frequency-independent purely-resistive specific-impedance→PFFDTD DEF mappingを再利用し、actual non-rigid material executionまでR130B vertical sliceを接続した。PR bolph71656-ai/Home-Theater-Digital-Twin#264 (merge bcc48997)でR130C positive-real normalized-admittance DEF authority、causal/passive/stable contract、valid-band fail-closed、deterministic compiled boundary、mixed-material PFFDTD execution、solver-specific resource-estimate provenance、independent normal-incidence magnitude/phase/passivity referenceまでを追加した。これらはproduction adoptionやfull R130/R150 numerical validationを意味しない。実室の独立validation evidenceもまだ無いため、`production_owned_room` recommendationとowned-room directional capabilityはIssue bolph71656-ai/Home-Theater-Digital-Twin#83のreal-data gate成立までdisabledを維持する。**
 
-N70はIssue #63 / PR #64、N80 workspaceはIssue #65 / PR #74、O60 software validationはIssue #75 / PR #76・#78で完了済み。N90はIssue #77 / PR #79でstable Windows releaseを実装し、A15を通過した。N80a最終製品コード変更は `c6cc15e76edbc1ac263911ee084803ca1e32b42c`、accepted gate/headは `ff4dc8078eb9ca0b3effaed66b523cff175fea1a`。
+N70はIssue bolph71656-ai/Home-Theater-Digital-Twin#63 / PR bolph71656-ai/Home-Theater-Digital-Twin#64 (merge 2ca8755b)、N80 workspaceはIssue bolph71656-ai/Home-Theater-Digital-Twin#65 / PR bolph71656-ai/Home-Theater-Digital-Twin#74 (merge 171f30a2)、O60 software validationはIssue bolph71656-ai/Home-Theater-Digital-Twin#75 / PR bolph71656-ai/Home-Theater-Digital-Twin#76 (superseded)・#78 (merge b0b56497)で完了済み。N90はIssue bolph71656-ai/Home-Theater-Digital-Twin#77 / PR bolph71656-ai/Home-Theater-Digital-Twin#79 (merge d1f0f7cf)でstable Windows releaseを実装し、A15を通過した。N80a最終製品コード変更は `c6cc15e76edbc1ac263911ee084803ca1e32b42c`、accepted gate/headは `ff4dc8078eb9ca0b3effaed66b523cff175fea1a`。
 
 | 区分 | 現在の状態 |
 |---|---|
-| main | **N05〜N90 stable releaseとO10〜O80 software pathをmerge済み**。O90/O100 software authorityとworkflow UXは実装済み。PR #291でUX160の部分owned-Windows acceptanceと発見不具合修正を反映したが、full UX160は`BLOCKED / NOT ACCEPTED`、actual owned-room evidenceも残件。R-seriesはPR #289でR100B exact 4 GL2 substeps experiment、PR #292でR150 bounded one-Portal first-order reflection、PR #432でR150 multi-Portal cross-region reflected paths、PR #295でR130D target-window diagnosticまで反映し、PR #287のR160 explicit frequency-grid reconciliation / bounded complex stitch authorityも維持。R100B candidate-wide production adoptionは`NO_GO`、R130D general-3D physicsは`NOT_VALIDATED`、R160 production/broadband validationは未成立。R140 real GPU evidence、R180/owned-room validationも未完了。post-0.1追加surface（プレゼン・映像調整・受入検証・capture昇格・solver capability manifest等）は末尾「REV42〜REV53」節が正本 |
-| N80 tracking | Issue #65（closed） / Issue #67（O20 closed） / PR #74 merged |
-| O60 tracking | Issue #75 / PR #76（implementation history） / PR #78 merged。final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3`、CI #427 PASS |
-| O90 tracking | Issue #140 / #146。O90A/B authorityとprobability/cancel/cache/stale safeguardsを実装し、O90CをPR #228/#236/#238、O90D workflow-first robustness software UIをPR #249、O90E owned-room robustness validation authorityをPR #266でmain反映済み。actual owned-room evidence未登録のためproduction gateはclosed。残件はreal evidence acquisition/validationとUX160 owned-Windows visual acceptance |
-| O100 tracking | Issue #142。O100A〜O100Fは実装済み。O100GはPR #235でdescendant-aware proposal lineage + explicit As-built、PR #239でexact Measurement/Quality/Acquisition binding + measured lifecycle、PR #244でSystemVariant-specific MeasurementPlan/Campaign、PR #255でRoom/Optimize workflow-first software UX・badge/ghost・comparison・O100F proposal robustness read-only integration・measured/validation separationを実装。残件はUX160 owned-Windows visual acceptance |
-| T10 calibration-authority tracking | Issue #978/#980/#992/#994/#1034/#1035。backend authority slices: FIR/mixed-phase filter evaluate/verify (`cad_fir_filter`)、playback-level-dependent loudness compensation (`cad_playback_level_compensation`)、spatially robust correction-design policy (`cad_correction_design_policy`)、O100 canonical cost-evaluation replay on repository save/read、R180 calibration execution accounting (budget scope・search/diagnostic evaluation counting・termination)とobjective integrity (engine-owned per-octave weighting・residual-basis identity)。production/owned-room validation gatesは変更しない |
-| StandardsProfile tracking | Issue #170 / PR #192 + PR #263。immutable/versioned profile、criterion source/version/reference、PASS/FAIL/UNKNOWN/NOT_APPLICABLE、predicted/measured distinction、exact SceneRevision/SystemVariant/entity binding、append-only historical re-evaluation、user-defined profile、explicit hard-constraint opt-inを実装し、PR #263でRoom/Optimize workspaceへcriterion provenance/status/evidence basisと明示hard-constraint opt-inを統合。built-inは公開sourceで境界を明示できるRP22 spatial/layout subset、Dolby 5.1.2 azimuth range、AURO-3D Rev.12 elevation/opening-angle criteria。REV26でscene-layout derivation laneを追加: layout由来で正直に計算できるcriterion（RP22 P1 listener-boundary distance、Dolby 5.1.2の4 role azimuth、P5 adjacent-surround horizontal angle、P9 same-side upper vertical angle）をexact evaluation target geometryから導出し、`scene-layout-derivation-v1` methodのpredicted observation authorityとしてretain・評価へ供給（これまでproduction observation sourceが無く全criterionがUNKNOWNだった）。recommended-zone membership、upfiring mode、wide/AURO layer membership、SPL/headroom入力はlayout由来ではないためUNKNOWNを維持。DTS:X推定criteria、Auro source上の不整合を補正したazimuth criteria、追加O100D SPL/headroom objectiveは未実装 |
+| main | **N05〜N90 stable releaseとO10〜O80 software pathをmerge済み**。O90/O100 software authorityとworkflow UXは実装済み。PR bolph71656-ai/Home-Theater-Digital-Twin#291 (merge 5143bfe0)でUX160の部分owned-Windows acceptanceと発見不具合修正を反映したが、full UX160は`BLOCKED / NOT ACCEPTED`、actual owned-room evidenceも残件。R-seriesはPR bolph71656-ai/Home-Theater-Digital-Twin#289 (merge be956943)でR100B exact 4 GL2 substeps experiment、PR bolph71656-ai/Home-Theater-Digital-Twin#292 (merge 533757f6)でR150 bounded one-Portal first-order reflection、PR ka0923s-a11y/HTDT#432 (merge 77432fe6)でR150 multi-Portal cross-region reflected paths、PR bolph71656-ai/Home-Theater-Digital-Twin#295 (merge a1c08df6)でR130D target-window diagnosticまで反映し、PR bolph71656-ai/Home-Theater-Digital-Twin#287 (merge 5cb2b3e7)のR160 explicit frequency-grid reconciliation / bounded complex stitch authorityも維持。R100B candidate-wide production adoptionは`NO_GO`、R130D general-3D physicsは`NOT_VALIDATED`、R160 production/broadband validationは未成立。R140 real GPU evidence、R180/owned-room validationも未完了。post-0.1追加surface（プレゼン・映像調整・受入検証・capture昇格・solver capability manifest等）は末尾「REV42〜REV53」節が正本 |
+| N80 tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#65（closed） / Issue bolph71656-ai/Home-Theater-Digital-Twin#67（O20 closed） / PR bolph71656-ai/Home-Theater-Digital-Twin#74 (merge 171f30a2) merged |
+| O60 tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#75 / PR bolph71656-ai/Home-Theater-Digital-Twin#76 (superseded)（implementation history） / PR bolph71656-ai/Home-Theater-Digital-Twin#78 (merge b0b56497) merged。final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3`、CI bolph71656-ai/Home-Theater-Digital-Twin#427 (unavailable) PASS |
+| O90 tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#140 / #146。O90A/B authorityとprobability/cancel/cache/stale safeguardsを実装し、O90CをPR bolph71656-ai/Home-Theater-Digital-Twin#228 (merge 7a387673)/#236 (merge d35ff117)/#238 (merge 5a6d4e2d)、O90D workflow-first robustness software UIをPR bolph71656-ai/Home-Theater-Digital-Twin#249 (merge d7c9a528)、O90E owned-room robustness validation authorityをPR bolph71656-ai/Home-Theater-Digital-Twin#266 (merge f1a33420)でmain反映済み。actual owned-room evidence未登録のためproduction gateはclosed。残件はreal evidence acquisition/validationとUX160 owned-Windows visual acceptance |
+| O100 tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#142。O100A〜O100Fは実装済み。O100GはPR bolph71656-ai/Home-Theater-Digital-Twin#235 (merge 640953b0)でdescendant-aware proposal lineage + explicit As-built、PR bolph71656-ai/Home-Theater-Digital-Twin#239 (merge 8a51b6ca)でexact Measurement/Quality/Acquisition binding + measured lifecycle、PR bolph71656-ai/Home-Theater-Digital-Twin#244 (merge 89af03d8)でSystemVariant-specific MeasurementPlan/Campaign、PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)でRoom/Optimize workflow-first software UX・badge/ghost・comparison・O100F proposal robustness read-only integration・measured/validation separationを実装。残件はUX160 owned-Windows visual acceptance |
+| T10 calibration-authority tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#978/#980/#992/#994/#1034/#1035。backend authority slices: FIR/mixed-phase filter evaluate/verify (`cad_fir_filter`)、playback-level-dependent loudness compensation (`cad_playback_level_compensation`)、spatially robust correction-design policy (`cad_correction_design_policy`)、O100 canonical cost-evaluation replay on repository save/read、R180 calibration execution accounting (budget scope・search/diagnostic evaluation counting・termination)とobjective integrity (engine-owned per-octave weighting・residual-basis identity)。production/owned-room validation gatesは変更しない |
+| StandardsProfile tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#170 / PR bolph71656-ai/Home-Theater-Digital-Twin#192 (merge be3e4ae8) + PR bolph71656-ai/Home-Theater-Digital-Twin#263 (merge be534bb9)。immutable/versioned profile、criterion source/version/reference、PASS/FAIL/UNKNOWN/NOT_APPLICABLE、predicted/measured distinction、exact SceneRevision/SystemVariant/entity binding、append-only historical re-evaluation、user-defined profile、explicit hard-constraint opt-inを実装し、PR bolph71656-ai/Home-Theater-Digital-Twin#263 (merge be534bb9)でRoom/Optimize workspaceへcriterion provenance/status/evidence basisと明示hard-constraint opt-inを統合。built-inは公開sourceで境界を明示できるRP22 spatial/layout subset、Dolby 5.1.2 azimuth range、AURO-3D Rev.12 elevation/opening-angle criteria。REV26でscene-layout derivation laneを追加: layout由来で正直に計算できるcriterion（RP22 P1 listener-boundary distance、Dolby 5.1.2の4 role azimuth、P5 adjacent-surround horizontal angle、P9 same-side upper vertical angle）をexact evaluation target geometryから導出し、`scene-layout-derivation-v1` methodのpredicted observation authorityとしてretain・評価へ供給（これまでproduction observation sourceが無く全criterionがUNKNOWNだった）。recommended-zone membership、upfiring mode、wide/AURO layer membership、SPL/headroom入力はlayout由来ではないためUNKNOWNを維持。DTS:X推定criteria、Auro source上の不整合を補正したazimuth criteria、追加O100D SPL/headroom objectiveは未実装 |
 | O60 validation state | software gate実装済み。owned-room calibration/holdout/repeatability evidence未登録のため、実model validatedとは扱わない |
 | N80a last product-code head | `c6cc15e76edbc1ac263911ee084803ca1e32b42c` |
 | N80a accepted gate head | `ff4dc8078eb9ca0b3effaed66b523cff175fea1a` |
-| N80a product CI | #321 / run `35280237062` PASS |
-| N80a acceptance docs CI | #324 / run `35286052855` PASS |
-| N70 tracking | Issue #63 / PR #64（完了） |
+| N80a product CI | bolph71656-ai/Home-Theater-Digital-Twin#321 (unavailable) / run `35280237062` PASS |
+| N80a acceptance docs CI | bolph71656-ai/Home-Theater-Digital-Twin#324 (unavailable) / run `35286052855` PASS |
+| N70 tracking | Issue bolph71656-ai/Home-Theater-Digital-Twin#63 / PR bolph71656-ai/Home-Theater-Digital-Twin#64 (merge 2ca8755b)（完了） |
 | N70 last product-code head | `76c21eed7d7efcff23905e8af977854669df2752` |
 | N70 accepted gate head | `2a6eaae351beb8b2cbbef23a07e3054bb4fb1c93` |
 | acceptance docs head | `bff12d4a379a5458f7dcf6cfa7e2b55b570ea4ec` |
-| product CI | #309 / run `35270706491` PASS |
-| final harness CI | #312 / run `35272332747` PASS |
-| acceptance docs CI | #313 / run `35276546531` PASS |
+| product CI | bolph71656-ai/Home-Theater-Digital-Twin#309 (unavailable) / run `35270706491` PASS |
+| final harness CI | bolph71656-ai/Home-Theater-Digital-Twin#312 (unavailable) / run `35272332747` PASS |
+| acceptance docs CI | bolph71656-ai/Home-Theater-Digital-Twin#313 (unavailable) / run `35276546531` PASS |
 | A13 | stale、UI responsiveness、明示cancel、document change、clean close/no worker PASS |
 | A14 | 8頂点L-room、rectangular-only model=`unsupported`、無silent approximation、overlayなし、scalar control gated PASS |
 | F5 | 50 editable objects＋10,000 markers、1 non-pickable actor、初回11.406 ms、orbit p95 27.963 ms PASS |
 | native entry | `htdt-native` / `run-native.ps1` / `python -m htdt.native_cad` はworkflow-first shellのみで起動（REV36-UX140Cで旧`OptimizationWorkspaceWindow` compositionを撤去。`--legacy-ui`指定は日本語エラーで終了）。起動時にactive compositionがdiagnosticsへ記録される |
 | browser UI | 新CAD機能は凍結。native release CIからfrontend buildを除外済み。二重実装しない |
-| N90 stable product head | `968a9461435ac37138ddd15526140c06613fccb8` / CI #458 PASS / Windows Release Artifact #23 PASS |
+| N90 stable product head | `968a9461435ac37138ddd15526140c06613fccb8` / CI bolph71656-ai/Home-Theater-Digital-Twin#458 (unavailable) PASS / Windows Release Artifact bolph71656-ai/Home-Theater-Digital-Twin#23 (unavailable) PASS |
 | N90 accepted gate head | `3ee2fb91b4976d7b0cac7b13718222cd6e359b76` / A15 owned-Windows PASS |
 | stable version | `0.1.0` |
-| R100A tracking | PR #110 merged `1714c078d4063f59da93f0d733171547f7eb486d`。CI #582 / Windows Release Artifact #109 PASS。solver-neutral authority + 10 canonical fixturesをmain反映済み |
-| R100B tracking | PR #289でPR #285と同一p2/h1・40 elements/525 DOFs・同一M/K/source/receiver・同一R100A finite-record contractのまま、各output intervalをexact 4 GL2 substepsへ分割。6000→9000 / 9000→12000 complex-RMSは`0.00364295 -> 0.00186558`でnumerical convergence PASS、all-rate modal referenceもPASS。final 9000→12000は`0.444193 dB / 0.0498540 relative / 2.41554 deg`でunchanged `0.75 dB / 0.05 / 8 deg` toleranceを全項PASS。candidate solve total約`71.32 s`、PR #285比約`2.03x`だがresource ceiling内でoverall experiment PASS。candidate-wide production adoptionは`NO_GO`のままで、この結果だけをproduction qualificationへ昇格しない |
-| R120B general-3D geometry | PR #272でsolver-neutral explicit polyhedral acoustic geometry authorityを実装。arbitrary planar polygon surface、closed air volume、sloped ceiling、step geometry、deterministic canonicalization/triangulation、surface material identity、topology diagnostics、bounded curved-surface tessellation metadata、independent wave/GA representation readinessを追加。wave numerical statusは`NOT_VALIDATED`のままで、対応R130/R150 numerical acceptanceは別gate |
-| R130A execution | PR #243。exact snapshot/request/READY dispatch→pinned PFFDTD candidate numerical execution→immutable complex-pressure artifact→result envelope/save-reopenのbounded vertical sliceを実装。candidate-onlyでありR130A numerical acceptance/production adoptionは未完了 |
-| R130B impedance execution | PR #260 / merge `0933db0c177f9cbbce44f6ae0434700b7a446062`。exact snapshot surface refs→existing R100B explicit specific-impedance authority→exact `Zn/DEF`→actual pinned PFFDTD non-rigid material execution→immutable complex-pressure artifactまで実装。supported subsetはpositive / frequency-independent / purely-resistive specific impedance。reactive/frequency-dependent/scalar absorption conversionはfail-closed。accepted dedicated runs: R130B `35490749861`、R130A rigid regression `35490749862`、R100B impedance regression `35490749864` PASS。`production_solver_selected=false` / `r130b_numerical_acceptance_completed=false` / `owned_room_evidence=false` |
+| R100A tracking | PR bolph71656-ai/Home-Theater-Digital-Twin#110 merged `1714c078d4063f59da93f0d733171547f7eb486d`。CI bolph71656-ai/Home-Theater-Digital-Twin#582 (unavailable) / Windows Release Artifact bolph71656-ai/Home-Theater-Digital-Twin#109 (unavailable) PASS。solver-neutral authority + 10 canonical fixturesをmain反映済み |
+| R100B tracking | PR bolph71656-ai/Home-Theater-Digital-Twin#289 (merge be956943)でPR bolph71656-ai/Home-Theater-Digital-Twin#285 (merge 15561b75)と同一p2/h1・40 elements/525 DOFs・同一M/K/source/receiver・同一R100A finite-record contractのまま、各output intervalをexact 4 GL2 substepsへ分割。6000→9000 / 9000→12000 complex-RMSは`0.00364295 -> 0.00186558`でnumerical convergence PASS、all-rate modal referenceもPASS。final 9000→12000は`0.444193 dB / 0.0498540 relative / 2.41554 deg`でunchanged `0.75 dB / 0.05 / 8 deg` toleranceを全項PASS。candidate solve total約`71.32 s`、PR bolph71656-ai/Home-Theater-Digital-Twin#285 (merge 15561b75)比約`2.03x`だがresource ceiling内でoverall experiment PASS。candidate-wide production adoptionは`NO_GO`のままで、この結果だけをproduction qualificationへ昇格しない |
+| R120B general-3D geometry | PR bolph71656-ai/Home-Theater-Digital-Twin#272 (merge 3683caf9)でsolver-neutral explicit polyhedral acoustic geometry authorityを実装。arbitrary planar polygon surface、closed air volume、sloped ceiling、step geometry、deterministic canonicalization/triangulation、surface material identity、topology diagnostics、bounded curved-surface tessellation metadata、independent wave/GA representation readinessを追加。wave numerical statusは`NOT_VALIDATED`のままで、対応R130/R150 numerical acceptanceは別gate |
+| R130A execution | PR bolph71656-ai/Home-Theater-Digital-Twin#243 (merge cae26bfe)。exact snapshot/request/READY dispatch→pinned PFFDTD candidate numerical execution→immutable complex-pressure artifact→result envelope/save-reopenのbounded vertical sliceを実装。candidate-onlyでありR130A numerical acceptance/production adoptionは未完了 |
+| R130B impedance execution | PR bolph71656-ai/Home-Theater-Digital-Twin#260 / merge `0933db0c177f9cbbce44f6ae0434700b7a446062`。exact snapshot surface refs→existing R100B explicit specific-impedance authority→exact `Zn/DEF`→actual pinned PFFDTD non-rigid material execution→immutable complex-pressure artifactまで実装。supported subsetはpositive / frequency-independent / purely-resistive specific impedance。reactive/frequency-dependent/scalar absorption conversionはfail-closed。accepted dedicated runs: R130B `35490749861`、R130A rigid regression `35490749862`、R100B impedance regression `35490749864` PASS。`production_solver_selected=false` / `r130b_numerical_acceptance_completed=false` / `owned_room_evidence=false` |
 | R130C causal frequency-dependent boundary | positive-real parallel series-RLC normalized-admittance `DEF` をversioned exact authorityとして追加。`D>=0,E>0,F>=0`、CAUSAL/PASSIVE/STABLE、analytic rational evaluation、valid-band外 extrapolation禁止をfail-closedで強制し、source authority hashとcompiled PFFDTD boundary hashを分離。actual pinned PFFDTD `write_freq_dep_mat` execution、independent normal-incidence complex reflection/passivity reference、resource-estimate provenance、save/reopen/tamper/stale identity evidenceをdedicated workflowで検証する。production adoption/GPU/R170/owned-room/scalar absorption conversionはnon-claim |
-| R130D polyhedral execution | PR #278でexact R120B single-region closed polyhedron→actual pinned PFFDTD CPU execution/no-box gateを成立。PR #286で0.25 s rectangular record、MFEM 1/2/3、PFFDTD 8/10/12 PPWをpredeclareして再実行し双方SELF_CONVERGENCE_FAILED。PR #295では同一series/40・80 Hz/threshold/maskを保持し、PR #286 canonical transferをexact reproductionした上でPPW依存`N*dt`差だけをhash-bound diagnostic operatorで切り分けた。PFFDTD canonical adjacent complex-RMS `0.876122 -> 3.171427`に対しalignedは`0.871173 -> 3.187879`、`ALIGNED_NON_MONOTONICITY_REMAINS`でworsening-excessは約1.51%悪化。finite-window mismatchをprincipal causeとする根拠は得られずcanonical contractは変更しない。cross-solverはBLOCKED、`general_3d_validation_state=NOT_VALIDATED`を維持 |
-| R140 execution | PR #236/#250のgeneric bounded executorに加え、PR #259でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific estimator/workload authority/real executor adapterを追加。PR #273でGPU capability/resource/task/provenance authorityとCPU/GPU equivalence spec/evaluation harnessを追加し、UNKNOWN resourceはfail-closed、mock/synthetic GPU evidenceのPASS/FAIL昇格を禁止。GitHub runnerではGPU device/backendが無いため`gpu_validation_state=NOT_VALIDATED`、`production_gpu_support=false`のまま。real GPU worker/backend・numerical equivalence evidence・production adoption・owned-room evidenceは残件 |
-| R150 execution | PR #245 deterministic direct/first-specular foundation、PR #253 general planar first-order、PR #258 bounded second-order、PR #265 2-region/1-Portal direct、PR #270 explicit directed region graph + bounded multi-Portal direct、PR #276 frequency-dependent complex path responseに続き、PR #292でexact 2 regions / 1 directed Portal / 1 ordinary finite surface / 1 first-order specular reflectionを実装。source-region reflection→PortalとPortal→receiver-region reflectionの両event orderをfinite surface/aperture/region membership/occlusion/material/directivity/persistence/stale authorityで検証し、Portal surface reflectionやmulti-Portal reflected pathはfail-closed。path responseは既存`Pa/(m3/s)` complex authorityを再利用。PR #430でbounded late-field authorityを実装: per-surface scattering（material scattering coefficient×specular deficit、compiled patch bounded）、declared wedge / aperture-rim edge diffraction（Fermat apex、endpoint-clamped、explicit energy bound）、typed `LateEnergyPathContribution`（kind / per-band upper bound / distance bounds / provenanceを保持しspecular identityと分離）をR160 `late_energy_decay` observableへ供給。native schema v12 `cad_late_field_artifacts`。PR #432で任意回数（bounded）のdirected Portal crossingを伴うreflected path、cross-region route上のordered second-order specular reflection pair、非横断Portal surfaceへのspecular bounceを実装し、任意region slot reflection・leg別exact aperture piercing・event order tamper・persistence/stale authorityを検証。stochastic rays / full late-decay model / production validationは残件 |
-| R160 hybrid foundation / bounded composition | PR #254/#262のtyped/bounded composition、PR #283のexact common-bin actual complex compositionに続き、PR #287でversioned/hash-bound frequency-grid reconciliationとfixed bounded crossover authorityを追加。default exact-binを保持し、unequal-gridは明示`cartesian_linear_v1`（linear Hz real/imag interpolation）、extrapolation禁止、validity band/output grid/rule/tolerance/overlap/blendをidentityへbinding。regular/irregular unequal-grid synthetic stitch fixture、no-double-count、out-of-band fail-closed、save/reopenをPASS。さらにPR #433でunion-band numerical stitching（per-output-point provenance region `wave_only`/`crossover_blend`/`ga_only` + 未cover intervalのexplicit `gap_domains`記録、ambiguous evidenceはjoinせずgap保持）、evidence-driven automatic crossover selection（wave/GA complex agreementのcontiguous bandを`widest_contiguous_agreement_band_v1`で採用、tie/違反/sample不足はUNSUPPORTED fail-closed）、bounded late-energy solver（exact deterministic path band chainからreflection毎のscattering注入をaudited derivation、declared decay law上で`bounded_exponential_after_last_deterministic_arrival_v1` decayを生成し`LateEnergyDecay` componentとして再利用可能）を追加。optimal crossover、diffractionの自動modeling、full broadband/production/owned-room validationは未成立 |
-| R170A low-band integration | PR #271でexact R130 complex-pressure artifactからsolver-neutral `LowBandPredictionProvider`を構築し、N70 typed read、O30/O40 objective/Pareto、O50 Measurement Plan binding、O60 residual validation、O70 validation bindingへ接続。candidate/validated/production evidence state、valid band、source/receiver/environment/result identity、unsupported observable、save/reopen/staleをfail-closedで保持し、R130 resultをRoomSim attemptへ偽装しない。current R100B decisionがNO_GOのためproduction adoptionは未成立。R180 owned-room validationも未完了 |
+| R130D polyhedral execution | PR bolph71656-ai/Home-Theater-Digital-Twin#278 (merge 4049c626)でexact R120B single-region closed polyhedron→actual pinned PFFDTD CPU execution/no-box gateを成立。PR bolph71656-ai/Home-Theater-Digital-Twin#286 (merge b790f13f)で0.25 s rectangular record、MFEM 1/2/3、PFFDTD 8/10/12 PPWをpredeclareして再実行し双方SELF_CONVERGENCE_FAILED。PR bolph71656-ai/Home-Theater-Digital-Twin#295 (merge a1c08df6)では同一series/40・80 Hz/threshold/maskを保持し、PR bolph71656-ai/Home-Theater-Digital-Twin#286 (merge b790f13f) canonical transferをexact reproductionした上でPPW依存`N*dt`差だけをhash-bound diagnostic operatorで切り分けた。PFFDTD canonical adjacent complex-RMS `0.876122 -> 3.171427`に対しalignedは`0.871173 -> 3.187879`、`ALIGNED_NON_MONOTONICITY_REMAINS`でworsening-excessは約1.51%悪化。finite-window mismatchをprincipal causeとする根拠は得られずcanonical contractは変更しない。cross-solverはBLOCKED、`general_3d_validation_state=NOT_VALIDATED`を維持 |
+| R140 execution | PR bolph71656-ai/Home-Theater-Digital-Twin#236 (merge d35ff117)/#250 (merge e284dc33)のgeneric bounded executorに加え、PR bolph71656-ai/Home-Theater-Digital-Twin#259 (merge 97228560)でpinned R130A PFFDTD Python/Numba CPU candidateのsolver-specific estimator/workload authority/real executor adapterを追加。PR bolph71656-ai/Home-Theater-Digital-Twin#273 (merge 17679f83)でGPU capability/resource/task/provenance authorityとCPU/GPU equivalence spec/evaluation harnessを追加し、UNKNOWN resourceはfail-closed、mock/synthetic GPU evidenceのPASS/FAIL昇格を禁止。GitHub runnerではGPU device/backendが無いため`gpu_validation_state=NOT_VALIDATED`、`production_gpu_support=false`のまま。real GPU worker/backend・numerical equivalence evidence・production adoption・owned-room evidenceは残件 |
+| R150 execution | PR bolph71656-ai/Home-Theater-Digital-Twin#245 (merge 51dd8d8d) deterministic direct/first-specular foundation、PR bolph71656-ai/Home-Theater-Digital-Twin#253 (merge 35e99483) general planar first-order、PR bolph71656-ai/Home-Theater-Digital-Twin#258 (merge 7e058bf4) bounded second-order、PR bolph71656-ai/Home-Theater-Digital-Twin#265 (merge 511fc31e) 2-region/1-Portal direct、PR bolph71656-ai/Home-Theater-Digital-Twin#270 (merge 63ee0dbe) explicit directed region graph + bounded multi-Portal direct、PR bolph71656-ai/Home-Theater-Digital-Twin#276 (merge a421d340) frequency-dependent complex path responseに続き、PR bolph71656-ai/Home-Theater-Digital-Twin#292 (merge 533757f6)でexact 2 regions / 1 directed Portal / 1 ordinary finite surface / 1 first-order specular reflectionを実装。source-region reflection→PortalとPortal→receiver-region reflectionの両event orderをfinite surface/aperture/region membership/occlusion/material/directivity/persistence/stale authorityで検証し、Portal surface reflectionやmulti-Portal reflected pathはfail-closed。path responseは既存`Pa/(m3/s)` complex authorityを再利用。PR ka0923s-a11y/HTDT#430 (merge 86c35edf)でbounded late-field authorityを実装: per-surface scattering（material scattering coefficient×specular deficit、compiled patch bounded）、declared wedge / aperture-rim edge diffraction（Fermat apex、endpoint-clamped、explicit energy bound）、typed `LateEnergyPathContribution`（kind / per-band upper bound / distance bounds / provenanceを保持しspecular identityと分離）をR160 `late_energy_decay` observableへ供給。native schema v12 `cad_late_field_artifacts`。PR ka0923s-a11y/HTDT#432 (merge 77432fe6)で任意回数（bounded）のdirected Portal crossingを伴うreflected path、cross-region route上のordered second-order specular reflection pair、非横断Portal surfaceへのspecular bounceを実装し、任意region slot reflection・leg別exact aperture piercing・event order tamper・persistence/stale authorityを検証。stochastic rays / full late-decay model / production validationは残件 |
+| R160 hybrid foundation / bounded composition | PR bolph71656-ai/Home-Theater-Digital-Twin#254 (merge 3b2b0dcb)/#262 (merge aa91e2df)のtyped/bounded composition、PR bolph71656-ai/Home-Theater-Digital-Twin#283 (merge f3119f06)のexact common-bin actual complex compositionに続き、PR bolph71656-ai/Home-Theater-Digital-Twin#287 (merge 5cb2b3e7)でversioned/hash-bound frequency-grid reconciliationとfixed bounded crossover authorityを追加。default exact-binを保持し、unequal-gridは明示`cartesian_linear_v1`（linear Hz real/imag interpolation）、extrapolation禁止、validity band/output grid/rule/tolerance/overlap/blendをidentityへbinding。regular/irregular unequal-grid synthetic stitch fixture、no-double-count、out-of-band fail-closed、save/reopenをPASS。さらにPR ka0923s-a11y/HTDT#433 (merge 7dd039c8)でunion-band numerical stitching（per-output-point provenance region `wave_only`/`crossover_blend`/`ga_only` + 未cover intervalのexplicit `gap_domains`記録、ambiguous evidenceはjoinせずgap保持）、evidence-driven automatic crossover selection（wave/GA complex agreementのcontiguous bandを`widest_contiguous_agreement_band_v1`で採用、tie/違反/sample不足はUNSUPPORTED fail-closed）、bounded late-energy solver（exact deterministic path band chainからreflection毎のscattering注入をaudited derivation、declared decay law上で`bounded_exponential_after_last_deterministic_arrival_v1` decayを生成し`LateEnergyDecay` componentとして再利用可能）を追加。optimal crossover、diffractionの自動modeling、full broadband/production/owned-room validationは未成立 |
+| R170A low-band integration | PR bolph71656-ai/Home-Theater-Digital-Twin#271 (merge b41edef9)でexact R130 complex-pressure artifactからsolver-neutral `LowBandPredictionProvider`を構築し、N70 typed read、O30/O40 objective/Pareto、O50 Measurement Plan binding、O60 residual validation、O70 validation bindingへ接続。candidate/validated/production evidence state、valid band、source/receiver/environment/result identity、unsupported observable、save/reopen/staleをfail-closedで保持し、R130 resultをRoomSim attemptへ偽装しない。current R100B decisionがNO_GOのためproduction adoptionは未成立。R180 owned-room validationも未完了 |
 | R170B hybrid / extended integration | capability-gated software vertical sliceを実装済み（production未採用）。mixed-fidelity/hybrid batchは1件の`PredictionMatrixSpec`をcellごとに実際にbindされたprovider lane（R170A multi-receiver low-band / R170B single-pair hybrid）でcapability gridとauthority pinを再検証し、no admissible laneはBLOCKED/UNSUPPORTEDへfail-closed。O70ではmixed result setからcell単位のbound measurementを持つ`CadModelValidationRecord`を生成し既存O70 adaptive bindingへ接続。O80ではpredicted multi-seat memberのprovider解決/`O80_MULTI_SEAT` binding、equipment identity gate付きの`O80_MULTI_RADIATOR` binding、aim evaluation（`spatial_pressure_field`非対応のため現状fail-closed）を実装。R120Bではdeclared `z_extent_m` envelopeによるceiling超過拒否とdeclared `entity_collision` constraint kindを接続。全bindingがcapability-gated・typed provenance保持でproduction claimはしない。R180 owned-room validationは別gate |
-| 次工程 | **R100BはPR #289で4-substep numerical gate自体はPASSしたがcandidate-wide adoptionは`NO_GO`なので、内部dtを無制限に細分化せず、未成立のcandidate-wide hard gate / geometry・external benchmark evidenceを事前固定して解消する。R130DはPR #295でfinite-record sampling差がPFFDTD non-monotonicityのprincipal causeではないことを確認したため、次はspatial/voxel-staircase representation、mode/bin sensitivity、source/receiver discretization等を分離した事前固定diagnosticへ進み、self-convergence成立前にcross-solver acceptanceを進めない。R150はPR #292/#432のbounded reflected Portal pathを基礎に能力拡張できるがproduction validationとは分離する。R160はPR #287のexplicit grid authorityを基礎に、production claimを広げずR170B integration policy/validated overlap evidenceへ進む。production solver adoption、R140 real GPU evidence、R180/owned-room、O90E actual evidence、full UX160、Issue #83は引き続き独立gate** |
+| 次工程 | **R100BはPR bolph71656-ai/Home-Theater-Digital-Twin#289 (merge be956943)で4-substep numerical gate自体はPASSしたがcandidate-wide adoptionは`NO_GO`なので、内部dtを無制限に細分化せず、未成立のcandidate-wide hard gate / geometry・external benchmark evidenceを事前固定して解消する。R130DはPR bolph71656-ai/Home-Theater-Digital-Twin#295 (merge a1c08df6)でfinite-record sampling差がPFFDTD non-monotonicityのprincipal causeではないことを確認したため、次はspatial/voxel-staircase representation、mode/bin sensitivity、source/receiver discretization等を分離した事前固定diagnosticへ進み、self-convergence成立前にcross-solver acceptanceを進めない。R150はPR bolph71656-ai/Home-Theater-Digital-Twin#292 (merge 533757f6)/ka0923s-a11y/HTDT#432 (merge 77432fe6)のbounded reflected Portal pathを基礎に能力拡張できるがproduction validationとは分離する。R160はPR bolph71656-ai/Home-Theater-Digital-Twin#287 (merge 5cb2b3e7)のexplicit grid authorityを基礎に、production claimを広げずR170B integration policy/validated overlap evidenceへ進む。production solver adoption、R140 real GPU evidence、R180/owned-room、O90E actual evidence、full UX160、Issue bolph71656-ai/Home-Theater-Digital-Twin#83は引き続き独立gate** |
 
-## O100G — workflow-first software UX / PR #255
+## O100G — workflow-first software UX / PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)
 
-Issue #142のsoftware UX slice。Issue #118の四つのglobal destinationを増やさず、O100 authorityをRoom / Optimizeへ統合した。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#142のsoftware UX slice。Issue bolph71656-ai/Home-Theater-Digital-Twin#118の四つのglobal destinationを増やさず、O100 authorityをRoom / Optimizeへ統合した。
 
 - Room / 「スピーカー・座席」: current physical systemとpersisted SystemVariant proposalをhuman-readable nameで選択し、追加speaker/channel、role、equipment/source、install zone、lifecycle、reasonを表示する。
 - proposed entityはcurrent SceneDocumentへ混入させず、`proposed` semantic stateからselectable wireframe ghostをoverlayする。ghostはmeasurement/collision truthとして扱わない。
@@ -88,40 +89,40 @@ Issue #142のsoftware UX slice。Issue #118の四つのglobal destinationを増�
 - UUID / SHA-256 / schema / repository/provenance keyはAdvancedへ隔離し、provenance自体は保持する。
 - focused software semantic testsとRoom/Optimize/navigation regressionをGitHub Actions対象にした。
 - RDC usage: **0**。
-- UX160: PR #291で200% DPIのowned-Windows部分acceptanceを実施し、CAD navigation discoverability、O100G panel overflow、日本語copy、unsupported prediction readiness、disabled-action理由等を修正。full DPI matrix、Ctrl+K、mouse/focus/VTK gesture、O90D/O100G apply等は未完了のため **BLOCKED / NOT ACCEPTED**。CIや部分確認をfull Windows visual acceptanceの代用にしない。
-- O90E software authorityはPR #266で実装済みだが、actual owned-room evidence / R180 / Issue #83 owned-room evidence gateは別途未完了であり、O100全体をproduction-validとしてcloseしない。
+- UX160: PR bolph71656-ai/Home-Theater-Digital-Twin#291 (merge 5143bfe0)で200% DPIのowned-Windows部分acceptanceを実施し、CAD navigation discoverability、O100G panel overflow、日本語copy、unsupported prediction readiness、disabled-action理由等を修正。full DPI matrix、Ctrl+K、mouse/focus/VTK gesture、O90D/O100G apply等は未完了のため **BLOCKED / NOT ACCEPTED**。CIや部分確認をfull Windows visual acceptanceの代用にしない。
+- O90E software authorityはPR bolph71656-ai/Home-Theater-Digital-Twin#266 (merge f1a33420)で実装済みだが、actual owned-room evidence / R180 / Issue bolph71656-ai/Home-Theater-Digital-Twin#83 owned-room evidence gateは別途未完了であり、O100全体をproduction-validとしてcloseしない。
 
-## Issue #447 / #452 / #567 / #568 / #615 / #619 — design lifecycle authorities — 2026-09-23
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#447 / #452 / #567 / #568 / #615 / #619 — design lifecycle authorities — 2026-09-23
 
 プロジェクト設計ライフサイクル系6 Issueのbackend software authorityを一括実装した。いずれも既存のimmutable authority + sha256 pin + append-only repository conventionに従う。
 
-- **#447 DesignComparisonSet** (`cad_design_comparison.py` + repository): named alternatives pin exact SceneRevision (id + content hash) と任意の SystemVariant / as-built / checkpoint / prediction・measurement・standards・robustness evidence refs。supersedes chainでrevision管理。`diff_alternatives`は`diff_scene_documents`によるsemantic A/B diff + evidence added/removed/changed、`evaluate_comparison_set`はavailable / unresolvable / incompatible_baselineをitem別に報告し、non-comparableを落とさない。overall scoreやwinner判定は実装しない。
-- **#452 Calibration workflow UX backend** (`cad_calibration_workflow.py` + `cad_applied_settings` table): 既存CalibrationPlan lifecycleをworkflow facade化。`review_plan`は計画自身のper-channel gain/delay/polarity/crossover/PEQをstructural projectionとして返し (generic 80 Hz defaultの注入なし)、`export_settings`はdeterministic JSON/CSV + `exported` lifecycle、`mark_user_applied`は明示user-applied transitionとして`CadAppliedSettingsRecord` (export ⊕ deviations でeffective settings再構築可能) を記録する。`plan_verification`/`record_remeasurement`/`mark_validated`は既存preregistration/completion authorityを束ね、evidenceが揃わない状態遷移はfail closed。
-- **#567 TheaterOperatingPreset** (`cad_operating_preset.py` + repository): named preset (movie/music/game/night/custom) はSceneRevision cloneを作らずexact refsで構成全componentをpin。desired/applied/measuredを`TheaterOperatingPreset` / `AppliedPresetState` / `PresetMeasurementBinding`で分離し、`evaluate_preset_freshness`はcomponent別 current/stale/missingを報告してpreset自体は書き換えない。decoder internalsはdeclared input/device modeのみでUNKNOWNを維持。`OPERATING_PRESET_NOT_CONFIGURED`はexplicit default。best-preset scoreは実装しない。
-- **#568 SystemHealthBaseline + HealthCheckPlan/Run** (`cad_system_health.py` + repository): post-commissioning baselineはas-built/preset/measurement/instrument/metric pin + tolerance policyをexact refsで固定 ("latest"なし)。bounded check planとrunはplan↔baseline hash bindingを必須とし、observationは`within_baseline` / `changed` / `indeterminate` (repeatability不足・比較不能) / `not_comparable` (acquisition context不一致) / `not_run`に分類。cause inferenceはせず`cause_hypothesis`は明示note扱い。run historyはappend-only。
-- **#615 ProjectActivityEvent projection** (`cad_project_activity.py` + notes repository): Scene revision/label、SystemVariant lifecycle、capture inbox、measurement、calibration lifecycle、design checkpoint、operating preset、health run、AV sync、user noteからrebuildable deterministic event streamを射影。event_idはsource authorityのdeterministic digestで再構築も同一。`WorkspaceDeepLink`でexact authorityへdeep-linkし、Overview `OverviewReadinessViewModel.recent_activity`へ"Recent activity"として接続。routine UI opsは発火しない。
-- **#619 ProjectDesignCheckpoint + ConstraintWorkspaceSnapshot** (`cad_design_checkpoint.py` + repository): scene_revision_id + content hash必須のimmutable manifest + mutable CadConstraintSetのsemantic snapshot。read時にcurrent/latestを解決しない。`diff_checkpoints`はcomponent別 unchanged/changed/added/removed、`restore_design_checkpoint`は新head SceneRevisionとして復元 (restore ≠ undo、履歴・as-built・measuredを書き換えない) + constraint workspaceの新generationを書き込み、partial restoreはapplied componentを列挙。
+- **bolph71656-ai/Home-Theater-Digital-Twin#447 DesignComparisonSet** (`cad_design_comparison.py` + repository): named alternatives pin exact SceneRevision (id + content hash) と任意の SystemVariant / as-built / checkpoint / prediction・measurement・standards・robustness evidence refs。supersedes chainでrevision管理。`diff_alternatives`は`diff_scene_documents`によるsemantic A/B diff + evidence added/removed/changed、`evaluate_comparison_set`はavailable / unresolvable / incompatible_baselineをitem別に報告し、non-comparableを落とさない。overall scoreやwinner判定は実装しない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#452 Calibration workflow UX backend** (`cad_calibration_workflow.py` + `cad_applied_settings` table): 既存CalibrationPlan lifecycleをworkflow facade化。`review_plan`は計画自身のper-channel gain/delay/polarity/crossover/PEQをstructural projectionとして返し (generic 80 Hz defaultの注入なし)、`export_settings`はdeterministic JSON/CSV + `exported` lifecycle、`mark_user_applied`は明示user-applied transitionとして`CadAppliedSettingsRecord` (export ⊕ deviations でeffective settings再構築可能) を記録する。`plan_verification`/`record_remeasurement`/`mark_validated`は既存preregistration/completion authorityを束ね、evidenceが揃わない状態遷移はfail closed。
+- **bolph71656-ai/Home-Theater-Digital-Twin#567 TheaterOperatingPreset** (`cad_operating_preset.py` + repository): named preset (movie/music/game/night/custom) はSceneRevision cloneを作らずexact refsで構成全componentをpin。desired/applied/measuredを`TheaterOperatingPreset` / `AppliedPresetState` / `PresetMeasurementBinding`で分離し、`evaluate_preset_freshness`はcomponent別 current/stale/missingを報告してpreset自体は書き換えない。decoder internalsはdeclared input/device modeのみでUNKNOWNを維持。`OPERATING_PRESET_NOT_CONFIGURED`はexplicit default。best-preset scoreは実装しない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#568 SystemHealthBaseline + HealthCheckPlan/Run** (`cad_system_health.py` + repository): post-commissioning baselineはas-built/preset/measurement/instrument/metric pin + tolerance policyをexact refsで固定 ("latest"なし)。bounded check planとrunはplan↔baseline hash bindingを必須とし、observationは`within_baseline` / `changed` / `indeterminate` (repeatability不足・比較不能) / `not_comparable` (acquisition context不一致) / `not_run`に分類。cause inferenceはせず`cause_hypothesis`は明示note扱い。run historyはappend-only。
+- **bolph71656-ai/Home-Theater-Digital-Twin#615 ProjectActivityEvent projection** (`cad_project_activity.py` + notes repository): Scene revision/label、SystemVariant lifecycle、capture inbox、measurement、calibration lifecycle、design checkpoint、operating preset、health run、AV sync、user noteからrebuildable deterministic event streamを射影。event_idはsource authorityのdeterministic digestで再構築も同一。`WorkspaceDeepLink`でexact authorityへdeep-linkし、Overview `OverviewReadinessViewModel.recent_activity`へ"Recent activity"として接続。routine UI opsは発火しない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#619 ProjectDesignCheckpoint + ConstraintWorkspaceSnapshot** (`cad_design_checkpoint.py` + repository): scene_revision_id + content hash必須のimmutable manifest + mutable CadConstraintSetのsemantic snapshot。read時にcurrent/latestを解決しない。`diff_checkpoints`はcomponent別 unchanged/changed/added/removed、`restore_design_checkpoint`は新head SceneRevisionとして復元 (restore ≠ undo、履歴・as-built・measuredを書き換えない) + constraint workspaceの新generationを書き込み、partial restoreはapplied componentを列挙。
 - 検証: 新規53 backend test +既存test_overview_readiness/test_workflow系をscopedでPASS (`tests/test_cad_{design_comparison,design_checkpoint,operating_preset,system_health,project_activity,calibration_workflow}.py`)。GUI/hardware-gated項目 (native Measurements/Optimize page上の表示確認、実機apply) はuntested。
 
-## Issue #1057 / #1069 / #1072 / #1082 / #1083 / #1084 — adapter qualification batch — 2026-09-25
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#1057 / #1069 / #1072 / #1082 / #1083 / #1084 — adapter qualification batch — 2026-09-25
 
 Fixture-verified software slices only; every hardware/owned-device item
 stays an explicit gate (see the per-issue docs):
 
-- **#1057 Yamaha RX-A4A packet** (`htdt/cad_yamaha_rxa4a.py`): firmware
-  2.26-scoped #792 matrix rows (DOCUMENTED_ONLY at best, mirrored YXC
+- **bolph71656-ai/Home-Theater-Digital-Twin#1057 Yamaha RX-A4A packet** (`htdt/cad_yamaha_rxa4a.py`): firmware
+  2.26-scoped bolph71656-ai/Home-Theater-Digital-Twin#792 matrix rows (DOCUMENTED_ONLY at best, mirrored YXC
   stays `experimental_undocumented`/`UNKNOWN`), firmware history with
   `stale_after` markers, official-source inventory, backup semantics
   (`MC_backup_*.dat` stored content-addressed unparsed), sanitized
   fixtures and the consolidated hardware-session checklist.
-- **#1069 lighting** (`htdt/cad_hue_lighting.py`): `HueLocalAdapter` on
-  the #726 contract over Hue CLIP v2 — explicit `hue://` bindings,
+- **bolph71656-ai/Home-Theater-Digital-Twin#1069 lighting** (`htdt/cad_hue_lighting.py`): `HueLocalAdapter` on
+  the bolph71656-ai/Home-Theater-Digital-Twin#726 contract over Hue CLIP v2 — explicit `hue://` bindings,
   credential by `credential_ref` only, bounded on/dimming/CCT/xy/scene
   mutation with read-back verification; event-stream objects as evidence
   records. `DeviceKind` gained `lighting_fixture`/`lighting_controller`.
   Matter Scenes evaluated: controller track deferred (needs a Matter
   controller stack), reuse seam documented.
-- **#1072 open DSP interop** (`htdt/cad_camilladsp.py` +
+- **bolph71656-ai/Home-Theater-Digital-Twin#1072 open DSP interop** (`htdt/cad_camilladsp.py` +
   `cad_external_calibration.py`): CamillaDSP YAML/JSON →
   `ImportedCalibrationArtifact` (Biquad/Gain/Delay/convolution refs,
   mixers/processors opaque, `playback:N` channel labels, unmapped never
@@ -129,15 +130,15 @@ stays an explicit gate (see the per-issue docs):
   canonical-config read-back. Equalizer APO importer gains tracked
   `Convolution` file dependencies and conditional-block (`If`/`Else`/
   `EndIf`) opaque blocking. New pinned dep `PyYAML==6.0.3` (lazy import).
-- **#1082 PJLink** (`htdt/cad_pjlink.py`): `PJLinkDeviceAdapter` (JBMIA
+- **bolph71656-ai/Home-Theater-Digital-Twin#1082 PJLink** (`htdt/cad_pjlink.py`): `PJLinkDeviceAdapter` (JBMIA
   Class 2 v2.10 profile) — per-command probing, exact ERR1–ERR4/ERRA
   categories, transitional power states preserved, Class-2 notifications
   as raw+normalized event records, documented MD5 auth path only.
-- **#1083 NUT telemetry** (`htdt/cad_nut_adapter.py`): read-only RFC 9271
-  client producing #1049 `OperatingPowerObservation`/`PowerEventObservation`
+- **bolph71656-ai/Home-Theater-Digital-Twin#1083 NUT telemetry** (`htdt/cad_nut_adapter.py`): read-only RFC 9271
+  client producing bolph71656-ai/Home-Theater-Digital-Twin#1049 `OperatingPowerObservation`/`PowerEventObservation`
   evidence (ups/pdu_branch subject kinds, ups_reported/pdu_reported
   instrument source, battery charge/runtime fields, raw dump pinned).
-- **#1084 CEC observation** (`htdt/cad_cec_adapter.py`): bounded bus-frame
+- **bolph71656-ai/Home-Theater-Digital-Twin#1084 CEC observation** (`htdt/cad_cec_adapter.py`): bounded bus-frame
   normalization to `CECEventRecord` evidence (raw + normalized, unknown
   opcodes retained) — observe-only seam, libCEC kept out-of-process.
 
@@ -145,43 +146,43 @@ Real-device verification (projector, UPS, CEC dongle, Hue bridge,
 CamillaDSP process, owned RX-A4A) is the remaining hardware gate for
 each issue — nothing above asserts live-device support.
 
-## Issue #453 / #507 / #512 / #520 / #555 / #594 / #600 / #602 — installation/authority batch — 2026-09-24
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#453 / #507 / #512 / #520 / #555 / #594 / #600 / #602 — installation/authority batch — 2026-09-24
 
 インストール・エクスポート・証拠管理系8 Issueのbackend software authorityを一括実装した。いずれも既存のimmutable authority + sha256 pin + append-only repository conventionに従う。
 
-- **#453 Installation handoff** (`installation_handoff.py` + `installation.export_handoff` command): 明示SceneRevision/SystemVariant選択→`InstallationReportService`のfail-closed resolve→`HandoffReview` (非AVAILABLE sectionを列挙) →preview→byte-deterministic export (dimension sheets CSV / settings CSV / coordinates CSV / report HTML) をdirectoryへ書き出す。exportはread-onlyでproject stateを変更しない。
-- **#507 Field/as-built evidence** (`cad_field_evidence.py` + repository): installation photo/note/verification fileをcontent-addressed blob (sha256) + ≥1 exact target (scene revision+entity / variant / section) にbind。evidence追加はentity/verification stateを一切promoteしない。append-only + per-target index照会。
-- **#512 Analysis export** (`analysis_export.py`): raw/derived/predicted/display_transformedのvalue classを明示したseriesをcanonical順で束ね、deterministic CSV/JSONとself-contained HTML (inline SVG plot + embedded machine-readable payload) を描画。stale/historical metadataはseries単位で保持しsource numericsはコピーしない。
-- **#520 Commissioning verification** (`cad_commissioning.py` + repository): versioned `ToleranceProfile` (abs_error/min/max/range/equals) →`CommissioningPlan` (pinned profile hash + exact SceneRevision/Variant) →append-only `CommissioningRun`。判定はuncertainty-aware: interval全体がtolerance内でPASS、全体が外でFAIL、straddleまたはuncertainty未定量ならUNKNOWN、N/Aは明示。`AcceptedDeviation`はFAILのままeffective outcomeのみ`accepted_deviation`とし、決してPASSに昇格しない。
-- **#555 ProjectDesignBrief** (`cad_design_brief.py` + repository): project goals/constraintsをrequired/preferred/informational付きの`BriefGoalRef`としてfirst-class化 (非free_textはref_id必須)。append-only revision chain (`supersedes_brief_id`)、NOT_CONFIGUREDは`latest_brief→None`として明示、`evaluate_brief_coverage`はgoal別current/stale/missing/unevaluable。
-- **#594 AnalysisStudy** (`cad_analysis_study.py` + repository): bound authority refs (source numericsを複写しない) + presentation_spec + versioned analysis operations + typed notes (observation/decision/follow_up/rejected_alternative/assumption)。updateは`duplicate_analysis_study`のみでoriginalはbyte-identicalのまま。`evaluate_study_state`はreproducible/not_current/broken_referenceを報告。
-- **#600 External dependency resolver** (`external_dependency_resolver.py` + repository): local→embedded→importedのdeterministic順でexact (kind, ref) matchのみresolve。expected sha256不一致は`identity_conflict`、未対応kindは`unsupported_dependency_kind`、未解決はrequired/optionalで分離。fuzzy substitutionなし。resolution eventはappend-onlyで永続化。
-- **#602 Evidence reconciliation** (`cad_evidence_reconciliation.py` + repository): subject/observation/decisionを分離しsource provenance (capture/manual/floor_plan/imported/measurement) を保持。alignment_key未解決または不一致は`not_comparable`、uncertainty未定量は`unknown`のまま、tolerance+combined uncertaintyでconsistent/conflictを判定。decisionはversioned hash付きでappend-only。
+- **bolph71656-ai/Home-Theater-Digital-Twin#453 Installation handoff** (`installation_handoff.py` + `installation.export_handoff` command): 明示SceneRevision/SystemVariant選択→`InstallationReportService`のfail-closed resolve→`HandoffReview` (非AVAILABLE sectionを列挙) →preview→byte-deterministic export (dimension sheets CSV / settings CSV / coordinates CSV / report HTML) をdirectoryへ書き出す。exportはread-onlyでproject stateを変更しない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#507 Field/as-built evidence** (`cad_field_evidence.py` + repository): installation photo/note/verification fileをcontent-addressed blob (sha256) + ≥1 exact target (scene revision+entity / variant / section) にbind。evidence追加はentity/verification stateを一切promoteしない。append-only + per-target index照会。
+- **Issue bolph71656-ai/Home-Theater-Digital-Twin#512 Analysis export** (`analysis_export.py`): raw/derived/predicted/display_transformedのvalue classを明示したseriesをcanonical順で束ね、deterministic CSV/JSONとself-contained HTML (inline SVG plot + embedded machine-readable payload) を描画。stale/historical metadataはseries単位で保持しsource numericsはコピーしない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#520 Commissioning verification** (`cad_commissioning.py` + repository): versioned `ToleranceProfile` (abs_error/min/max/range/equals) →`CommissioningPlan` (pinned profile hash + exact SceneRevision/Variant) →append-only `CommissioningRun`。判定はuncertainty-aware: interval全体がtolerance内でPASS、全体が外でFAIL、straddleまたはuncertainty未定量ならUNKNOWN、N/Aは明示。`AcceptedDeviation`はFAILのままeffective outcomeのみ`accepted_deviation`とし、決してPASSに昇格しない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#555 ProjectDesignBrief** (`cad_design_brief.py` + repository): project goals/constraintsをrequired/preferred/informational付きの`BriefGoalRef`としてfirst-class化 (非free_textはref_id必須)。append-only revision chain (`supersedes_brief_id`)、NOT_CONFIGUREDは`latest_brief→None`として明示、`evaluate_brief_coverage`はgoal別current/stale/missing/unevaluable。
+- **bolph71656-ai/Home-Theater-Digital-Twin#594 AnalysisStudy** (`cad_analysis_study.py` + repository): bound authority refs (source numericsを複写しない) + presentation_spec + versioned analysis operations + typed notes (observation/decision/follow_up/rejected_alternative/assumption)。updateは`duplicate_analysis_study`のみでoriginalはbyte-identicalのまま。`evaluate_study_state`はreproducible/not_current/broken_referenceを報告。
+- **bolph71656-ai/Home-Theater-Digital-Twin#600 External dependency resolver** (`external_dependency_resolver.py` + repository): local→embedded→importedのdeterministic順でexact (kind, ref) matchのみresolve。expected sha256不一致は`identity_conflict`、未対応kindは`unsupported_dependency_kind`、未解決はrequired/optionalで分離。fuzzy substitutionなし。resolution eventはappend-onlyで永続化。
+- **bolph71656-ai/Home-Theater-Digital-Twin#602 Evidence reconciliation** (`cad_evidence_reconciliation.py` + repository): subject/observation/decisionを分離しsource provenance (capture/manual/floor_plan/imported/measurement) を保持。alignment_key未解決または不一致は`not_comparable`、uncertainty未定量は`unknown`のまま、tolerance+combined uncertaintyでconsistent/conflictを判定。decisionはversioned hash付きでappend-only。
 - 検証: 新規54 backend testをscopedでPASS (`tests/test_{design_brief,analysis_study,field_evidence,external_dependency_resolver,commissioning,analysis_export,evidence_reconciliation,installation_handoff,command_registry}.py`) + `python -m compileall src/htdt` PASS。GUI項目 (export dialog/選択pickerの動作) はuntested。
 
-### Integrity hardening (issues #799–#805 + #453 preview refinement) — 2026-09-24
+### Integrity hardening (issues bolph71656-ai/Home-Theater-Digital-Twin#799–#805 + bolph71656-ai/Home-Theater-Digital-Twin#453 preview refinement) — 2026-09-24
 
-PR #748のpre-merge review blockerに対応し、決定性・改竄耐性・exact authority pinningを強化。共有基盤: `cad_authority_resolver.py` (`AuthorityRef`/`ResolvedAuthority`/`ExactAuthorityResolver` — hash-bearing kindは`ref_sha256`必須でexact一致のみ) と `cad_units.py` (`UnitKind`/`convert_unit`)。
+PR bolph71656-ai/Home-Theater-Digital-Twin#748 (merge 492f6db6)のpre-merge review blockerに対応し、決定性・改竄耐性・exact authority pinningを強化。共有基盤: `cad_authority_resolver.py` (`AuthorityRef`/`ResolvedAuthority`/`ExactAuthorityResolver` — hash-bearing kindは`ref_sha256`必須でexact一致のみ) と `cad_units.py` (`UnitKind`/`convert_unit`)。
 
-- **#799 Commissioning**: `build_commissioning_plan`はpersisted `SceneRevision`/`SystemVariant` objectを要求しcontent hashをpin (foreign document/ghost entity/ghost roleはsave拒否)。`CommissioningCheck.subject`はtyped `CheckSubject` (scene_entity_id | channel_role_id | authority_ref) + named `property`。`CommissioningObservation`はvalue存在時`unit`必須、`convert_unit`で基準変換後に比較、`evidence_ref`はexact `AuthorityRef` (stale hash拒否)。`save_run`はobservationから判定をreplayし、記述と不一致なら永続化拒否。
-- **#800 Analysis export**: `AnalysisExportBundle`は`export_id`/`generated_at_utc`をsemantic payloadから除外し`spec_sha256`がcontentのみの決定的identity。HTML embedded JSONは`&lt;` escapeで正確にround-trip。source adapterはtyped (`measurement_dataset_id`/`comparison_id`/`prediction_id`)でrepository経由のexact resolveのみ、missing sourceは`historical`由来。incompatibleなy-unit (db vs m)は別plot group。native UIから`analysis.export_bundle`コマンド→QDialog preview→directory export。
-- **#802 External resolver**: `DEPENDENCY_KIND_IDENTITY`でkind毎のidentity schemeを宣言 (hash_required/id_pin/version_required)。hash-bearing kindは`expected_sha256`未指定なら`legacy_unverified`。`resolve_and_record`はresolution eventをderiveしてpersist (stateは計算結果のみ、eventのdocument_id=dependencyのdocument_id)。local→embedded→importedは明示policyで、conflict時はlocal indexの次のexact matchへfallback、枯渇時は`identity_conflict`。
-- **#803 Field evidence**: `EvidenceTarget`は`revision_id`+`entity_id`+`ref_sha256`のtyped formで、same-document persisted revisionのexact hash一致のみ受付 (foreign/ghost entity/foreign documentは`FieldEvidenceConflictError`、commit前にreject)。`byte_length`は実blobと照合。repository照会は`document_id` scoped、historical pinはhead前進後も有効。
-- **#804 Study/Brief**: `CadAnalysisStudy`/`ProjectDesignBrief`のbound refsは`AuthorityRef`として`ExactAuthorityResolver`でsave時にpre-persist resolve (stale hash/unresolvable kind/ghost pinはreject)。scene/variant pinはsame-project persisted authority必須。`evaluate_study_state`/`evaluate_brief_coverage`はpersisted semantic shaでcurrent/stale/brokenを派生。
-- **#805 Reconciliation**: `EvidenceSubject`/`AlignmentRef`はtyped (frame_kind/frame_id/frame_sha256)。`save_decision`はpinned `observation_ids`集合をexact一致で要求しpersisted observationから判定をreplay、forged consistent/conflictは永続化拒否。numeric比較は`quantity_kind`+`unit` (tolerance_unit必須) でconvert後に行い、frame不一致は`not_comparable`。hash-bearing source (`_HASH_BEARING_SOURCES`) はexact persisted provenance必須。decisionのdocument_id=subjectのdocument_id。
-- **#453 preview**: handoff previewはcounts表示から読める形式へ (entity名+座標 `x=`/`y=`/`== `区切り、dimension sheets/equipment/treatment/calibration/standardsの行を列挙)。`write_handoff_package`は`.htdt-handoff-` staging tempに書き出しatomic publish、失敗時cleanup。byte-determinismの主張をnarrowing。
+- **bolph71656-ai/Home-Theater-Digital-Twin#799 Commissioning**: `build_commissioning_plan`はpersisted `SceneRevision`/`SystemVariant` objectを要求しcontent hashをpin (foreign document/ghost entity/ghost roleはsave拒否)。`CommissioningCheck.subject`はtyped `CheckSubject` (scene_entity_id | channel_role_id | authority_ref) + named `property`。`CommissioningObservation`はvalue存在時`unit`必須、`convert_unit`で基準変換後に比較、`evidence_ref`はexact `AuthorityRef` (stale hash拒否)。`save_run`はobservationから判定をreplayし、記述と不一致なら永続化拒否。
+- **bolph71656-ai/Home-Theater-Digital-Twin#800 Analysis export**: `AnalysisExportBundle`は`export_id`/`generated_at_utc`をsemantic payloadから除外し`spec_sha256`がcontentのみの決定的identity。HTML embedded JSONは`&lt;` escapeで正確にround-trip。source adapterはtyped (`measurement_dataset_id`/`comparison_id`/`prediction_id`)でrepository経由のexact resolveのみ、missing sourceは`historical`由来。incompatibleなy-unit (db vs m)は別plot group。native UIから`analysis.export_bundle`コマンド→QDialog preview→directory export。
+- **bolph71656-ai/Home-Theater-Digital-Twin#802 External resolver**: `DEPENDENCY_KIND_IDENTITY`でkind毎のidentity schemeを宣言 (hash_required/id_pin/version_required)。hash-bearing kindは`expected_sha256`未指定なら`legacy_unverified`。`resolve_and_record`はresolution eventをderiveしてpersist (stateは計算結果のみ、eventのdocument_id=dependencyのdocument_id)。local→embedded→importedは明示policyで、conflict時はlocal indexの次のexact matchへfallback、枯渇時は`identity_conflict`。
+- **bolph71656-ai/Home-Theater-Digital-Twin#803 Field evidence**: `EvidenceTarget`は`revision_id`+`entity_id`+`ref_sha256`のtyped formで、same-document persisted revisionのexact hash一致のみ受付 (foreign/ghost entity/foreign documentは`FieldEvidenceConflictError`、commit前にreject)。`byte_length`は実blobと照合。repository照会は`document_id` scoped、historical pinはhead前進後も有効。
+- **bolph71656-ai/Home-Theater-Digital-Twin#804 Study/Brief**: `CadAnalysisStudy`/`ProjectDesignBrief`のbound refsは`AuthorityRef`として`ExactAuthorityResolver`でsave時にpre-persist resolve (stale hash/unresolvable kind/ghost pinはreject)。scene/variant pinはsame-project persisted authority必須。`evaluate_study_state`/`evaluate_brief_coverage`はpersisted semantic shaでcurrent/stale/brokenを派生。
+- **bolph71656-ai/Home-Theater-Digital-Twin#805 Reconciliation**: `EvidenceSubject`/`AlignmentRef`はtyped (frame_kind/frame_id/frame_sha256)。`save_decision`はpinned `observation_ids`集合をexact一致で要求しpersisted observationから判定をreplay、forged consistent/conflictは永続化拒否。numeric比較は`quantity_kind`+`unit` (tolerance_unit必須) でconvert後に行い、frame不一致は`not_comparable`。hash-bearing source (`_HASH_BEARING_SOURCES`) はexact persisted provenance必須。decisionのdocument_id=subjectのdocument_id。
+- **bolph71656-ai/Home-Theater-Digital-Twin#453 preview**: handoff previewはcounts表示から読める形式へ (entity名+座標 `x=`/`y=`/`== `区切り、dimension sheets/equipment/treatment/calibration/standardsの行を列挙)。`write_handoff_package`は`.htdt-handoff-` staging tempに書き出しatomic publish、失敗時cleanup。byte-determinismの主張をnarrowing。
 - 検証: 67 backend test PASS (8 test file) + test_command_registry/test_workflow_application/test_workflow_integration/test_palette_search/test_cad_input/test_help_registry PASS + `python -m compileall` PASS。
 
-## Issue #495 / #496 / #508 / #537 / #538 / #556 — authority batch — 2026-09-24
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#495 / #496 / #508 / #537 / #538 / #556 — authority batch — 2026-09-24
 
 directivity検証・表示単位・target profile・installation datum・cable run・room operating stateの6 Issueをbackend software authorityとして一括実装した。いずれも既存のimmutable authority + sha256 pin + append-only repository conventionに従う。
 
-- **#495 Directivity inspection** (`cad_directivity_inspection.py`): 取込済み `CadDirectivityDataset` をprediction前に目視検証する解析authority。axis markers (front/back/left/right/up/down + in_domain)、exact-grid polar slice (`directivity_polar_slice` — off-grid周波数は明示`allow_interpolation`なしにUNKNOWN、`interpolated`/`interpolation_method`/`on_grid`/`unsupported_angles_deg`で実測から乖離しない)、複素grid限定のslice heatmap、`inspect_directivity_dataset` summary (provenance dict + advanced dict + phase statement、definitionはexact bound id/version/hash一致のみ)、`confirm_directivity_inspection`はreviewer provenanceをdataset semantic hashへpinしてappend-only (correctnessではなく「このdatasetを見た」事実のみ記録)。
-- **#496 Display units** (`cad_display_units.py`): canonical SI (`_m`)を一切変えずにmm/cm/m/inchの表示・入出力層を追加。`si_to_display`/`display_to_si`はexact metric除算 (120 mm == 0.12 m)、`format_length_m`/`format_length_m_dual`/`format_length_ftin`、`parse_length_input`はbare number+明示suffix (`m|cm|mm|in|ft`) と `5 ft 10 in` / `5'10"` を受理し、bare数値は明示`default_unit`のみ採用 (単位推測・黙った丸めなし)。`length_display_policy_from_preferences`は既存`display_input.length_unit`/`numeric_precision`へbind。
-- **#508 Target curve profiles** (`cad_target_profile.py` + repository): `CadTargetCurveProfile`をversioned first-class authority化 (kind/source/normalization/tolerances/applies_to、semantic hashは`semantic_payload`から決定的)。repositoryは`(profile_id, version)` append-onlyで旧versionを書き換えない。`CalibrationPlanTargetBinding`はplan semantic hash × profile semantic hashのexact pairをappend-only factとして記録し、save時にpersisted plan/profileの存在とpin hash一致をfail-closedで要求。
-- **#537 Installation datum** (`cad_installation_datum.py` + repository): `InstallationDatum`はanchor (room_vertex | wall_face) + +X/+Y direction wall + frame semantics (origin/x/y/zラベル) + evidence refsをscene revision+content hashへpin。`reproject_datum_coordinates`はdeterministicにorigin/axis/rotationを再生し、非直行wallは`UNKNOWN` fail-closed。`evaluate_datum_freshness`はcurrent/stale/missingをreportし決して書き換えない。
-- **#538 Cable runs** (`cad_cable_run.py` + repository): `CableRun`はkind/medium/gauge/from/to endpoint (entity pin optional) +明示`CableRunSegment{sequence,path_kind,length_m}`列 + `service_loop_m`で構成し、`total_length_m`はsegment合計+loopの決定的値としてvalidator強制 (placement距離からの再推定なし)。`signal_path_edge_id`は`SignalPathEdge.cable_run_ref`と対になる明示pin。`evaluate_cable_run_freshness`はstale pin/absent entity/absent edgeをreason付きで報告。
-- **#556 Room operating state** (`cad_room_operating_state.py` + repository): `RoomOperatingState`はcurtain coverage fraction (0–1)/opening is_open/HVAC on-off/movable configuration in_effectをversioned authorityとしてscene revisionへpin。`PresetComponentKind`の`'room_operating_state'`に対応する`state_id`/`semantic_sha256`を保持し、prediction/measurement bindingはexact semantic hash参照のみ。`evaluate_operating_state_freshness`はcurrent/stale/missing。
+- **bolph71656-ai/Home-Theater-Digital-Twin#495 Directivity inspection** (`cad_directivity_inspection.py`): 取込済み `CadDirectivityDataset` をprediction前に目視検証する解析authority。axis markers (front/back/left/right/up/down + in_domain)、exact-grid polar slice (`directivity_polar_slice` — off-grid周波数は明示`allow_interpolation`なしにUNKNOWN、`interpolated`/`interpolation_method`/`on_grid`/`unsupported_angles_deg`で実測から乖離しない)、複素grid限定のslice heatmap、`inspect_directivity_dataset` summary (provenance dict + advanced dict + phase statement、definitionはexact bound id/version/hash一致のみ)、`confirm_directivity_inspection`はreviewer provenanceをdataset semantic hashへpinしてappend-only (correctnessではなく「このdatasetを見た」事実のみ記録)。
+- **bolph71656-ai/Home-Theater-Digital-Twin#496 Display units** (`cad_display_units.py`): canonical SI (`_m`)を一切変えずにmm/cm/m/inchの表示・入出力層を追加。`si_to_display`/`display_to_si`はexact metric除算 (120 mm == 0.12 m)、`format_length_m`/`format_length_m_dual`/`format_length_ftin`、`parse_length_input`はbare number+明示suffix (`m|cm|mm|in|ft`) と `5 ft 10 in` / `5'10"` を受理し、bare数値は明示`default_unit`のみ採用 (単位推測・黙った丸めなし)。`length_display_policy_from_preferences`は既存`display_input.length_unit`/`numeric_precision`へbind。
+- **bolph71656-ai/Home-Theater-Digital-Twin#508 Target curve profiles** (`cad_target_profile.py` + repository): `CadTargetCurveProfile`をversioned first-class authority化 (kind/source/normalization/tolerances/applies_to、semantic hashは`semantic_payload`から決定的)。repositoryは`(profile_id, version)` append-onlyで旧versionを書き換えない。`CalibrationPlanTargetBinding`はplan semantic hash × profile semantic hashのexact pairをappend-only factとして記録し、save時にpersisted plan/profileの存在とpin hash一致をfail-closedで要求。
+- **bolph71656-ai/Home-Theater-Digital-Twin#537 Installation datum** (`cad_installation_datum.py` + repository): `InstallationDatum`はanchor (room_vertex | wall_face) + +X/+Y direction wall + frame semantics (origin/x/y/zラベル) + evidence refsをscene revision+content hashへpin。`reproject_datum_coordinates`はdeterministicにorigin/axis/rotationを再生し、非直行wallは`UNKNOWN` fail-closed。`evaluate_datum_freshness`はcurrent/stale/missingをreportし決して書き換えない。
+- **bolph71656-ai/Home-Theater-Digital-Twin#538 Cable runs** (`cad_cable_run.py` + repository): `CableRun`はkind/medium/gauge/from/to endpoint (entity pin optional) +明示`CableRunSegment{sequence,path_kind,length_m}`列 + `service_loop_m`で構成し、`total_length_m`はsegment合計+loopの決定的値としてvalidator強制 (placement距離からの再推定なし)。`signal_path_edge_id`は`SignalPathEdge.cable_run_ref`と対になる明示pin。`evaluate_cable_run_freshness`はstale pin/absent entity/absent edgeをreason付きで報告。
+- **bolph71656-ai/Home-Theater-Digital-Twin#556 Room operating state** (`cad_room_operating_state.py` + repository): `RoomOperatingState`はcurtain coverage fraction (0–1)/opening is_open/HVAC on-off/movable configuration in_effectをversioned authorityとしてscene revisionへpin。`PresetComponentKind`の`'room_operating_state'`に対応する`state_id`/`semantic_sha256`を保持し、prediction/measurement bindingはexact semantic hash参照のみ。`evaluate_operating_state_freshness`はcurrent/stale/missing。
 - `InstallationOutput` schema 5 (`installation-output-5`): `datum` (id/version/hash + reprojection origin/axis/rotation + freshness) と `cable_runs` (run id/version/hash/segments/path kinds/total length/freshness) sectionを追加。v1–v4のdeserialize/replay contractは不変で、v5 rebuildはrecorded id+versionからfail-closed resolve。report HTMLにも両sectionを描画。
 - 検証: 新規36+6 backend testをscopedでPASS (`tests/test_cad_{display_units,directivity_inspection,target_profile,installation_datum,cable_run,room_operating_state}.py` + installation/output/authority integration) + `python -m compileall src/htdt` PASS。GUI項目 (inspector dialog/単位picker/datum・配線・operating-state編集画面) はuntested。
 
@@ -191,30 +192,30 @@ directivity検証・表示単位・target profile・installation datum・cable r
 - `benchmarks/acoustics/r100b_candidates.json`: PFFDTD `main@aa319f6...`、MFEM `v4.10@d964264...`、pyroomacoustics `v0.10.1@f02b01d...` をversion pin。probe capabilityはverified capabilityではない。
 - `.github/workflows/ci.yml`: Windows CIでR100B authority preflightを実行していた（workflowは `b47f052` で削除済み。現行の検証はlocalで `python -m pytest backend/tests/test_acoustic_bakeoff*` を実行する）。
 - `backend/tests/test_acoustic_bakeoff.py`: source pin、coverage gap、semantic hash、unknown fixture、capability mismatch、hard-gate selection block、reference-only selection blockを検証。
-- `wave-portal-split-room-v1` はPR #160でMFEM candidateへ `portal_continuity` probe capabilityを明示し、fixture PASSまで確認済み。`hybrid-overlap-continuity-v1` は引き続き意図的にcandidate未割当で、未実装capabilityを黙ってclaimしない。
-- PR #111でcandidate/run/selection authorityはmain反映済み（CI #588 PASS）。
+- `wave-portal-split-room-v1` はPR bolph71656-ai/Home-Theater-Digital-Twin#160 (merge ab2875fa)でMFEM candidateへ `portal_continuity` probe capabilityを明示し、fixture PASSまで確認済み。`hybrid-overlap-continuity-v1` は引き続き意図的にcandidate未割当で、未実装capabilityを黙ってclaimしない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#111 (merge 7be0127f)でcandidate/run/selection authorityはmain反映済み（CI bolph71656-ai/Home-Theater-Digital-Twin#588 (unavailable) PASS）。
 - `backend/src/htdt/acoustic_bakeoff_observation.py`: backend raw sample→R100A expected sample/tolerance比較を中央化。scalar/complex/vectorのabsolute/relative/phase errorを共通評価し、unsampled observableはspecialized evaluator必須。
-- PR #112 / merge `5725f8f2eecb150773202bf324132a34a40ba492`: raw observation evaluator + pyroomacoustics v0.10.1 Windows reference probe。direct/direct-delay/y-min first-reflection point/pathの4 observableはR100A tolerance PASS。
-- PR #113 / merge `ea5f5b8631e5097d37788210b2652b3089a28807`: pinned PFFDTD Python/Numba CPU source-checkout pathをWindows Server 2025 / Python 3.12で実行。3つのexact-source-checked runtime compatibility shim後、geometry→voxel→HDF5→FDTD→receiver interpolationまでplatform smoke PASS。physics correctness / CPU baseline / product packagingは未判定。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#112 / merge `5725f8f2eecb150773202bf324132a34a40ba492`: raw observation evaluator + pyroomacoustics v0.10.1 Windows reference probe。direct/direct-delay/y-min first-reflection point/pathの4 observableはR100A tolerance PASS。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#113 / merge `ea5f5b8631e5097d37788210b2652b3089a28807`: pinned PFFDTD Python/Numba CPU source-checkout pathをWindows Server 2025 / Python 3.12で実行。3つのexact-source-checked runtime compatibility shim後、geometry→voxel→HDF5→FDTD→receiver interpolationまでplatform smoke PASS。physics correctness / CPU baseline / product packagingは未判定。
 - `backend/src/htdt/acoustic_pffdtd_adapter.py`: 上記compatibility shim、R100A rigid geometry compiler、upstream trilinear receiver recombinationを共通化。
 - R100B fixture evidenceに `disk_mb` を追加し、R100A `disk_budget_mb` をfail-closed enforcement対象へ追加。
 - `scripts/run_r100b_pffdtd_modes.py`: h=0.5/0.25/0.125 mの3段階Cartesian gridでrigid rectangular impulse responseを実行。run `35349358027` でm010/m100/m110/m001の4 observableがabs error 0.0108/0.0276/0.0314/0.0404 Hzで全PASS。delta ratio 3.93–4.12、compile 6.014 s、solve 0.586 s、peak RSS 202.66 MiB、disk 1.238 MiB。durable evidence summaryとraw signal archive hashを記録済み。
-- PR #114 / merge `245a3efc66144b81742d65c62ad99ba081fe7426`: MFEM v4.10 serial H1 FEM Neumann referenceをWindows Actionsで実行。order 5 / 216 DOFで4 rigid-mode observableを最大9.06e-6 Hz errorでPASS。latest run `35350707920` はdisk/RAM/runtime evidence込みでPASS。
-- PR #116: R100Aをschema `r100a-2` / revision 2へ更新し、`density_kg_m3=1.2` を全fixtureの環境authorityへ追加。complex pressure convergenceはabsolute/relative complex RMSで評価し、重複したexact-zero phase gateを削除。旧R100B artifactは新semantic hashのcurrent selection evidenceには流用しない。
-- PR #116: PFFDTD velocity potential→pressure変換と3-level/full-2s complex-pressure convergence probeを実装。workflow自体はPASSし、candidate convergence結果はevidenceとしてFAILを保持してtoleranceを緩和しない。
-- PR #151: canonical `wave-normal-incidence-impedance-v1` をPFFDTD native DEF boundary/reflection関数へexact mappingし、100/200/300 Hzで `R=1/3+0j`、|R|=1/3、phase=0°としてfixture PASS。これはnative boundary representation gateであり、spatial FDTD propagation/reflection validationではない。
-- PR #154: exact five-hex L-prism MFEM concave reference probe。p2–p5の線形残差は固定qualification内だが、complex RMS p-refinementは `0.2966 → 3.7665 → 1.0520` で非収束のためconcave resultはFAIL。finest traceをreference truthへ昇格しない。explicit impedance Robinは表現可能だが、R100A-2 point-source finite-room fixtureにincident/reflected decompositionが未定義のためindependent complex-R extractionはBLOCKED。
-- PR #155: pyroomacoustics v0.10.1 stochastic seed/convergence probe。same-seed raw histogramは再現する一方、fine budgetでrequired decay sampleがinsufficient supportとなりrepeatability curve/convergenceはFAIL。independent seeds、resource scaling、raw histogramを保持しzero responseは生成しない。
-- PR #160: MFEM Portal/peerを同一2-hexahedron conforming meshへcompileし、x=3 m共有面を内部面としてboundary conditionを置かずにH1 continuityで表現。281 frequency sampleのmagnitude/phase/complex差は全て0でPortal fixtureはPASS。candidate manifest hash更新後のR100B workflow replayも実施。
-- PR #162: R100A-3へ進め、explicit radiation terminationを `p/u_n=rho*c` / outward normal / `k=omega/c` / `dp/dn-i*k*p=0` としてsolver-neutralに固定。absolute transferは `dB re 1 Pa/(m3/s)` を明示し、281点のsemi-analytical referenceとfail-closed checkerを追加。
-- PR #177 / merge `6e085576a3bfe3b51daabedcdfaa929d0518e3d3`: MFEM v4.10でR100A-3 radiation candidate gateを実装。workflow/compileはPASSしたが、fixtureはfrozen assembly+solve 360 s resource budgetを360.0043634 sで超過したためFAIL。timeout後のpressure sampleは生成せず、run `35422266641` / artifact `10578835428` / digest `sha256:88c3883a5f8c1214303cb5b9fa2adee775e924be370edb23d673ce219682c374` をnegative evidenceとして保持。
-- PR #181でPFFDTD exact-concave geometry/evidenceを追加し、h=0.5/0.25/0.125 m self-refinementはFAIL/non-convergedとして保持。
-- R100A-4 finite-record authority: rectangular convergence / concave L-roomだけにsolver-native dt、`[0,2s)`、direct scored-frequency DTFT、actual source recordとの `P/Q` normalizationを明示するIssue #180 sliceを実装中。tolerance変更なし。solver-neutral spatial reflection decomposition、qualified independent finite-record concave reference、geometric obstacle、external benchmark/candidate-wide hard gates、production stack ADRは未完了。R100B完了とは扱わない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#114 / merge `245a3efc66144b81742d65c62ad99ba081fe7426`: MFEM v4.10 serial H1 FEM Neumann referenceをWindows Actionsで実行。order 5 / 216 DOFで4 rigid-mode observableを最大9.06e-6 Hz errorでPASS。latest run `35350707920` はdisk/RAM/runtime evidence込みでPASS。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#116 (merge e0c0418c): R100Aをschema `r100a-2` / revision 2へ更新し、`density_kg_m3=1.2` を全fixtureの環境authorityへ追加。complex pressure convergenceはabsolute/relative complex RMSで評価し、重複したexact-zero phase gateを削除。旧R100B artifactは新semantic hashのcurrent selection evidenceには流用しない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#116 (merge e0c0418c): PFFDTD velocity potential→pressure変換と3-level/full-2s complex-pressure convergence probeを実装。workflow自体はPASSし、candidate convergence結果はevidenceとしてFAILを保持してtoleranceを緩和しない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#151 (merge 6da7ac39): canonical `wave-normal-incidence-impedance-v1` をPFFDTD native DEF boundary/reflection関数へexact mappingし、100/200/300 Hzで `R=1/3+0j`、|R|=1/3、phase=0°としてfixture PASS。これはnative boundary representation gateであり、spatial FDTD propagation/reflection validationではない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#154 (merge cb6d15b0): exact five-hex L-prism MFEM concave reference probe。p2–p5の線形残差は固定qualification内だが、complex RMS p-refinementは `0.2966 → 3.7665 → 1.0520` で非収束のためconcave resultはFAIL。finest traceをreference truthへ昇格しない。explicit impedance Robinは表現可能だが、R100A-2 point-source finite-room fixtureにincident/reflected decompositionが未定義のためindependent complex-R extractionはBLOCKED。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#155 (merge ca7ed332): pyroomacoustics v0.10.1 stochastic seed/convergence probe。same-seed raw histogramは再現する一方、fine budgetでrequired decay sampleがinsufficient supportとなりrepeatability curve/convergenceはFAIL。independent seeds、resource scaling、raw histogramを保持しzero responseは生成しない。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#160 (merge ab2875fa): MFEM Portal/peerを同一2-hexahedron conforming meshへcompileし、x=3 m共有面を内部面としてboundary conditionを置かずにH1 continuityで表現。281 frequency sampleのmagnitude/phase/complex差は全て0でPortal fixtureはPASS。candidate manifest hash更新後のR100B workflow replayも実施。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#162 (merge 9b255d7c): R100A-3へ進め、explicit radiation terminationを `p/u_n=rho*c` / outward normal / `k=omega/c` / `dp/dn-i*k*p=0` としてsolver-neutralに固定。absolute transferは `dB re 1 Pa/(m3/s)` を明示し、281点のsemi-analytical referenceとfail-closed checkerを追加。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#177 / merge `6e085576a3bfe3b51daabedcdfaa929d0518e3d3`: MFEM v4.10でR100A-3 radiation candidate gateを実装。workflow/compileはPASSしたが、fixtureはfrozen assembly+solve 360 s resource budgetを360.0043634 sで超過したためFAIL。timeout後のpressure sampleは生成せず、run `35422266641` / artifact `10578835428` / digest `sha256:88c3883a5f8c1214303cb5b9fa2adee775e924be370edb23d673ce219682c374` をnegative evidenceとして保持。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#181 (merge 17ae0307)でPFFDTD exact-concave geometry/evidenceを追加し、h=0.5/0.25/0.125 m self-refinementはFAIL/non-convergedとして保持。
+- R100A-4 finite-record authority: rectangular convergence / concave L-roomだけにsolver-native dt、`[0,2s)`、direct scored-frequency DTFT、actual source recordとの `P/Q` normalizationを明示するIssue bolph71656-ai/Home-Theater-Digital-Twin#180 sliceを実装中。tolerance変更なし。solver-neutral spatial reflection decomposition、qualified independent finite-record concave reference、geometric obstacle、external benchmark/candidate-wide hard gates、production stack ADRは未完了。R100B完了とは扱わない。
 - RDCは使用しない。
 
 ## R100A — solver-neutral benchmark authority / merged
 
-Issue #101の最初の実装slice。solver選定やkernel実装より先に、R100Bで全候補を同一条件比較するauthorityを固定する。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#101の最初の実装slice。solver選定やkernel実装より先に、R100Bで全候補を同一条件比較するauthorityを固定する。
 
 - `backend/src/htdt/acoustic_benchmark.py`: immutable Pydantic authority。AcousticRegion / AcousticObstacle / Portal / BoundaryTermination、wave/geometric material capability、source/receiver/environment、numerical comparison、observable/tolerance、resource budget、hard gate、canonical JSON/SHA-256 identityを実装。
 - `benchmarks/acoustics/r100a_manifest.json`: 10 fixture。rigid analytical modes、convergence、complex impedance reflection、concave L-room、Portal split、explicit radiation termination、direct/first reflection、reflecting counter、stochastic seed repeatability、hybrid overlapをsolver-neutralに固定。
@@ -231,9 +232,9 @@ Issue #101の最初の実装slice。solver選定やkernel実装より先に、R1
 - stable product version: `0.1.0`
 - product/artifact head: `968a9461435ac37138ddd15526140c06613fccb8`
 - final A15 gate head: `3ee2fb91b4976d7b0cac7b13718222cd6e359b76`
-- CI #458 / run `35299355927`: PASS
-- Windows Release Artifact #23 / run `35299355977`: PASS
-- gate-harness fix CI #459 / run `35300374434`: PASS
+- CI bolph71656-ai/Home-Theater-Digital-Twin#458 (unavailable) / run `35299355927`: PASS
+- Windows Release Artifact bolph71656-ai/Home-Theater-Digital-Twin#23 (unavailable) / run `35299355977`: PASS
+- gate-harness fix CI bolph71656-ai/Home-Theater-Digital-Twin#459 (unavailable) / run `35300374434`: PASS
 - SQLite backup API + version/hash manifest + measurement asset verificationを実装。
 - packaged `--backup` / `--restore` / `--version` はQApplication生成前に実行する。
 - committed Windows dependency lockからPyInstaller onedir packageを再現する。
@@ -344,16 +345,16 @@ N80a（native SearchSpec + candidate workspace）はWindows実機受入を完了
 
 - last product-code head: `c6cc15e76edbc1ac263911ee084803ca1e32b42c`
 - accepted gate head: `ff4dc8078eb9ca0b3effaed66b523cff175fea1a`
-- product CI #321 / run `35280237062` PASS
-- final gate CI #323 / run `35280664154` PASS
+- product CI bolph71656-ai/Home-Theater-Digital-Twin#321 (unavailable) / run `35280237062` PASS
+- final gate CI bolph71656-ai/Home-Theater-Digital-Twin#323 (unavailable) / run `35280664154` PASS
 - A13 stale/cancel/document/clean close PASS
 - A14 SearchSpec→candidate preview→1-command apply→1 Undo exact restore PASS
 
-N80 workspaceはPR #74で完了しmain反映済み。O20〜O50のprediction/objective/Pareto/measurement-loop authorityをnative CADへ接続し、N80c/O50 owned-Windows acceptanceもPASSした。O60 full validationはIssue #75 / PR #76へ分離して継続する。
+N80 workspaceはPR bolph71656-ai/Home-Theater-Digital-Twin#74 (merge 171f30a2)で完了しmain反映済み。O20〜O50のprediction/objective/Pareto/measurement-loop authorityをnative CADへ接続し、N80c/O50 owned-Windows acceptanceもPASSした。O60 full validationはIssue bolph71656-ai/Home-Theater-Digital-Twin#75 / PR bolph71656-ai/Home-Theater-Digital-Twin#76 (superseded)へ分離して継続する。
 
-- PR #70: objective-vector / Pareto algorithms + immutable native objective/Pareto persistenceをmerge済み。
-- PR #71: position-only REW Room Simulator transaction + native Scene/SearchSpec/Candidate adapterをmerge済み。CI #345 PASS。
-- O20 exact batch spec / candidate attempt / resume-cancel persistenceとowned-Windows writable gateはIssue #67で完了・close済み。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#70 (merge b4381f4b): objective-vector / Pareto algorithms + immutable native objective/Pareto persistenceをmerge済み。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#71 (merge cdbd0f45): position-only REW Room Simulator transaction + native Scene/SearchSpec/Candidate adapterをmerge済み。CI bolph71656-ai/Home-Theater-Digital-Twin#345 (unavailable) PASS。
+- O20 exact batch spec / candidate attempt / resume-cancel persistenceとowned-Windows writable gateはIssue bolph71656-ai/Home-Theater-Digital-Twin#67で完了・close済み。
 - N50/N60/N70とO20〜O40の該当gateを前提にする。
 - SearchSpec編集とO10候補集合をnative Sceneへadapter接続する。
 - 候補preview/適用は1 commandでUndo可能にする。
@@ -363,7 +364,7 @@ N80 workspaceはPR #74で完了しmain反映済み。O20〜O50のprediction/obje
 - 実測loopへ接続する場合も、独立検証前に自動推薦へ昇格しない。
 
 N70で外部solverを暗黙採用しなかった方針を維持する。REW Room SimulatorはS01相当、polygon predictorはS03相当のWindows/座標/精度/性能/再現性証拠を通過した場合だけprediction authorityとして追加する。
-### PR #74 — N80c / O50 / O60 現在地
+### PR bolph71656-ai/Home-Theater-Digital-Twin#74 (merge 171f30a2) — N80c / O50 / O60 現在地
 
 - native Pareto比較はSearchSpec/Scene/constraintのstale状態をfail-closedし、候補間でobjective集合またはunitが不一致なら比較を保存しない。
 - 同一semantic Pareto snapshotはSHAで再利用し、ボタン再実行で同一内容を重複保存しない。
@@ -377,7 +378,7 @@ N70で外部solverを暗黙採用しなかった方針を維持する。REW Room
 
 ## N80c / O50 acceptance
 
-PR #74 product head `2a891dbc1796d3cfdaebbe762d0d6e0d2636563f` はCI #397 / run `35294094501`をPASSし、gate head `44628a1e51c199c10b883ed8accba452578bb1eb`でowned-Windows受入もPASSした。
+PR bolph71656-ai/Home-Theater-Digital-Twin#74 (merge 171f30a2) product head `2a891dbc1796d3cfdaebbe762d0d6e0d2636563f` はCI bolph71656-ai/Home-Theater-Digital-Twin#397 (unavailable) / run `35294094501`をPASSし、gate head `44628a1e51c199c10b883ed8accba452578bb1eb`でowned-Windows受入もPASSした。
 
 - Pareto比較・evidence provenance・semantic snapshot de-dup: PASS
 - candidate apply/save → exact SceneRevision Measurement Plan: PASS
@@ -388,12 +389,12 @@ PR #74 product head `2a891dbc1796d3cfdaebbe762d0d6e0d2636563f` はCI #397 / run 
 
 詳細は [N80c/O50 Windows acceptance](N80C_ACCEPTANCE_2026-09-18.md)。
 
-N80 workspaceのIssue #65完了条件はこの受入で満たす。残るO60 full validationはIssue #75で独立継続し、trend/rank・sensitivity・repeatabilityと実データgateが成立するまでO70 automatic recommendationはdisabledを維持する。
+N80 workspaceのIssue bolph71656-ai/Home-Theater-Digital-Twin#65完了条件はこの受入で満たす。残るO60 full validationはIssue bolph71656-ai/Home-Theater-Digital-Twin#75で独立継続し、trend/rank・sensitivity・repeatabilityと実データgateが成立するまでO70 automatic recommendationはdisabledを維持する。
 
 
 ## O60 — full model-validation implementation
 
-PR #76 final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3` はCI #427 / run `35295833407` PASS。connector上のdraft状態を解除できなかったため、同一headをnon-draft merge-only PR #78でmainへmergeし、merge commitは `b0b56497255425b5b343c6f5f52763d11dbf5ee6`。
+PR bolph71656-ai/Home-Theater-Digital-Twin#76 (superseded) final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3` はCI bolph71656-ai/Home-Theater-Digital-Twin#427 (unavailable) / run `35295833407` PASS。connector上のdraft状態を解除できなかったため、同一headをnon-draft merge-only PR bolph71656-ai/Home-Theater-Digital-Twin#78でmainへmergeし、merge commitは `b0b56497255425b5b343c6f5f52763d11dbf5ee6`。
 
 - calibration / holdout candidateを分離し、両方が無ければrecommendation gateを開かない。
 - objectiveごとのholdout pairwise-ordering agreementを保存し、tie/insufficient/failを独立表示する。
@@ -410,8 +411,8 @@ PR #76 final head `ce92d6d04e3ca7463fdf8cfc002e271ffdc00bc3` はCI #427 / run `3
 
 ## O60E — owned-room validation campaign / software authority完了
 
-Issue #81 / PR #82。product head `e3bdd111cfb2ed0487cdf98d93adfa58e759532b` は
-CI #512 / run `35305119035` PASS。O60 real-data gateを実測後の恣意的splitから保護する
+Issue bolph71656-ai/Home-Theater-Digital-Twin#81 / PR bolph71656-ai/Home-Theater-Digital-Twin#82 (merge 138c3ed5)。product head `e3bdd111cfb2ed0487cdf98d93adfa58e759532b` は
+CI bolph71656-ai/Home-Theater-Digital-Twin#512 (unavailable) / run `35305119035` PASS。O60 real-data gateを実測後の恣意的splitから保護する
 preregistration authorityとnative workflowを実装した。実室campaignそのものはまだ実施していない。
 
 - calibration / holdout candidateを測定前にimmutable固定する。
@@ -433,7 +434,7 @@ N90 stable 0.1.0のacceptanceは完了済みで、O60E software authorityのた�
 
 ## O60R — real-data audit software gate / main反映済み
 
-Issue #83 / PR #85で、実室campaign完了後に使うread-only監査harnessをmainへ追加した。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#83 / PR bolph71656-ai/Home-Theater-Digital-Twin#85 (merge ab44e425)で、実室campaign完了後に使うread-only監査harnessをmainへ追加した。
 
 - source `cad-scenes.sqlite3`はSQLite `mode=ro` / `query_only=ON`で開く。
 - committed WALを含む一貫snapshotをtemp DBへ作り、full save-time authority replayはsnapshot上だけで実行する。
@@ -445,7 +446,7 @@ Issue #83 / PR #85で、実室campaign完了後に使うread-only監査harness�
 - 残る作業は人手のspeaker/setup移動とREW実測を伴うowned-room campaign実行のみ。O70/O80のsoftware実装は完了済みだが、これを満たすまで`production_owned_room` recommendationとowned-room directional capabilityはdisabled。
 ## O70 — Adaptive Planner software実装完了 / synthetic acceptance PASS
 
-Issue #90 / PR #92・#93で、実測待ちをソフトウェア完成のblockerにしないdevelopment laneを実装した。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#90 / PR bolph71656-ai/Home-Theater-Digital-Twin#92 (merge 5030bf2c)・#93 (merge f9b304ba)で、実測待ちをソフトウェア完成のblockerにしないdevelopment laneを実装した。
 
 - `development_synthetic`: O60のresidual/trend/sensitivity/repeatability/separation/applicabilityが全PASSし、唯一のstop reasonがowned-room evidence不足であるsynthetic ValidationRecordを許可する。
 - `production_owned_room`: current campaign-backed `eligible` ValidationRecordだけを許可する。
@@ -456,7 +457,7 @@ Issue #90 / PR #92・#93で、実測待ちをソフトウェア完成のblocker�
 - native最適化dockにAdaptive Planner UIを統合し、ValidationRecord選択→scope/length scale/proposal上限→immutable plan保存→proposalの補正値/不確実性表示→candidate選択同期まで接続した。
 ## O80 — Extended Search software実装完了 / synthetic acceptance PASS
 
-Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended-search layerを実装した。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#90で、既存O10を壊さずmodel-dependent変数を追加するextended-search layerを実装した。
 
 - 既存O10のmultiple entity XYZ探索（高さを含む）を再実装しない。
 - base SearchSpec / candidate-setをimmutable authorityとして再生成し、そのfeasible候補へ追加parameterを直積展開する。
@@ -482,23 +483,23 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 
 ## O70/O80 final software acceptance
 
-- O70 core: PR #92。synthetic/production authority分離、objective別residual GP、uncertainty acquisition、immutable persistence。
-- O70 native UI: PR #93。ValidationRecord→Adaptive Plan→proposal表示/候補同期をnative最適化workspaceへ統合。
-- O80 + synthetic completion: PR #94 merge `6faf554bcf3670f64ff13c530fa4fc79ab1881b8`。
-- final product CI: #548 / run `35313405578` **PASS**。backend tests、CLI、N60/N70/N80/N80c/N90/O60R preflightを含む。
-- Windows Release Artifact: #93 / run `35313405629` **PASS**。locked native package、packaged synthetic demo seed、Inno Setup installer、install/uninstall data-retention smoke、artifact uploadを含む。
+- O70 core: PR bolph71656-ai/Home-Theater-Digital-Twin#92 (merge 5030bf2c)。synthetic/production authority分離、objective別residual GP、uncertainty acquisition、immutable persistence。
+- O70 native UI: PR bolph71656-ai/Home-Theater-Digital-Twin#93 (merge f9b304ba)。ValidationRecord→Adaptive Plan→proposal表示/候補同期をnative最適化workspaceへ統合。
+- O80 + synthetic completion: PR bolph71656-ai/Home-Theater-Digital-Twin#94 merge `6faf554bcf3670f64ff13c530fa4fc79ab1881b8`。
+- final product CI: bolph71656-ai/Home-Theater-Digital-Twin#548 (unavailable) / run `35313405578` **PASS**。backend tests、CLI、N60/N70/N80/N80c/N90/O60R preflightを含む。
+- Windows Release Artifact: bolph71656-ai/Home-Theater-Digital-Twin#93 (unavailable) / run `35313405629` **PASS**。locked native package、packaged synthetic demo seed、Inno Setup installer、install/uninstall data-retention smoke、artifact uploadを含む。
 - synthetic fixtureは通常repositoryを通るが、常に `synthetic_fixture` / `physical_measurement=false`。owned-room recommendationへ昇格しない。
 - O80 owned-room capabilityはexact document/SearchSpec SHA/candidate-set SHA/O60 eligible ValidationRecord/model versionへ再照合する。
-- このsoftware completionではRDCを使用していない。既存native stackのowned-Windows N90/A15受入は維持されるが、O70/O80の実室音響妥当性はIssue #83が未完了のため未主張。
+- このsoftware completionではRDCを使用していない。既存native stackのowned-Windows N90/A15受入は維持されるが、O70/O80の実室音響妥当性はIssue bolph71656-ai/Home-Theater-Digital-Twin#83が未完了のため未主張。
 
 
 ## UX110 parallel integration — 2026-09-18
 
-- PR #123 dark-first design system: main反映済み。
-- PR #125 central command registry / Ctrl+K: main反映済み。
-- PR #126 read-only Overview readiness: main反映済み。
-- PR #124 Issue #102 data-management controller: main反映済み。
-- workflow shell初版 #122 はcomponent統合前のbridge設計として再レビューし、独立legacy workspaceがstale WorkingDocumentを保持できる問題を検出した。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#123 (merge 7fbc3c5f) dark-first design system: main反映済み。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#125 (merge 89e0831a) central command registry / Ctrl+K: main反映済み。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#126 (merge 841391ef) read-only Overview readiness: main反映済み。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#124 (merge 24fe430a) Issue bolph71656-ai/Home-Theater-Digital-Twin#102 data-management controller: main反映済み。
+- workflow shell初版 bolph71656-ai/Home-Theater-Digital-Twin#122 (unavailable) はcomponent統合前のbridge設計として再レビューし、独立legacy workspaceがstale WorkingDocumentを保持できる問題を検出した。
 - integration branchでは `workflow_navigation.py` をsingle workspace/deep-link contractとし、shell/command/OverviewのID重複を解消した。
 - legacy bridgeはdirty/preview/recovery/running-worker中のworkspace移動をfail-closedし、clean再activate時にlatest SceneRevisionへ同期する。
 - shell独自QSSを廃止し `apply_dark_theme(app)` をcomposition rootへ接続、Ctrl+Kとreadiness-driven Overviewもshellへ接続した。
@@ -510,14 +511,14 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 
 ## UX120–UX140 parallel workspace integration — 2026-09-19
 
-- #128 Settings / Data Management UI、#129 CAD input controller、#130 Room workspace、#132 Measurements workspaceをmainへmerge済み。
-- #131 Optimization workspaceは#129とのshared command/navigation競合をintegration branchで解消して取り込む。
+- bolph71656-ai/Home-Theater-Digital-Twin#128 (merge 00763ced) Settings / Data Management UI、bolph71656-ai/Home-Theater-Digital-Twin#129 (merge fcf2bfd7) CAD input controller、bolph71656-ai/Home-Theater-Digital-Twin#130 (merge 22d69712) Room workspace、bolph71656-ai/Home-Theater-Digital-Twin#132 (merge ef46ff76) Measurements workspaceをmainへmerge済み。
+- bolph71656-ai/Home-Theater-Digital-Twin#131 (superseded) Optimization workspaceはbolph71656-ai/Home-Theater-Digital-Twin#129 (merge fcf2bfd7)とのshared command/navigation競合をintegration branchで解消して取り込む。
 - `workflow_application.py` をcomposition rootとして追加し、`--workflow-shell` でOverview / Room / Measurements / Optimizationの新workspaceをlazy mountする。
 - Roomはdark viewport、object palette、Inspector、overlay、MMB pan、Shift+MMB orbit、wheel zoom、RMB command menu、M/R direct transform、X/Y/Z constraint、F/Home、Esc/Enter、Ctrl+D、polygon room作図・vertex dragを既存WorkingDocumentへ接続した。
 - Room transform previewは `working.document` を描画し、commitだけがrecovery/Undo履歴へ入る。
 - Measurementsは `読み込み → 割り当て → 品質 → 比較` の4 page compositionへ切替。REW background job中はdeactivation/restoreをblockする。
 - Optimization canonical contextは `setup / candidates / comparison / validation`。旧 `objectives / measurement-plan` deep-linkはshared navigation boundaryで互換normalizeする。
-- rail下部の「設定」から#128 Data Management UIへ入り、restore時は全mounted workspace guard→handle dispose→native restore→fresh SceneRepository→lazy rebuildを行う。
+- rail下部の「設定」からbolph71656-ai/Home-Theater-Digital-Twin#128 (merge 00763ced) Data Management UIへ入り、restore時は全mounted workspace guard→handle dispose→native restore→fresh SceneRepository→lazy rebuildを行う。
 - follow-upで新Roomへ既存N70 rectangular geometry predictionを接続。request identity / JobGuard / repository / constraint hashを再利用し、dirty/stale/cancelled resultはfail closed、current resultだけ3D overlayへ表示する。
 - 既知残件: 旧wall/opening・高度geometry editingの完全移植、UX150/UX160 visual acceptance。（UX140のlegacy QMainWindow adapter除去はREV36-UX140Cで完了）
 - workflow shellは引き続き明示 `--workflow-shell` preview。default launcherはUX160 acceptanceまで変更しない。
@@ -579,7 +580,7 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 
 - UX150追加監査: Optimize/REWの標準表示から内部ID/英語内部語を退避し、Qt UserRole/repository authorityは維持。
 
-### Issue #172 Measurement quality authority — 2026-09-19
+### Issue bolph71656-ai/Home-Theater-Digital-Twin#172 Measurement quality authority — 2026-09-19
 
 - 既存N60 Measurement/REW importを変更せず、immutable `MeasurementQualityReport` を追加。
 - exact Measurement/Dataset/raw asset SHA、SceneRevision/content hash、entity/measurement point、optional AcquisitionContext ID/hash、algorithm/profile hashへ固定。
@@ -588,12 +589,12 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - downstreamを `magnitude_response / phase_response / common_timing / arrival_time / decay / calibrated_response / repeatability / polarity` のclaim別 `ALLOWED/BLOCKED/UNKNOWN` でgate。要求bandもfail closedで評価可能。
 - profile変更は新report、retakeは別Measurement + append-only supersedes/selected lineage。旧measurement/reportとO50/O60 calibration/holdout authorityは変更しない。
 - persistenceは既存native DB内のadditive tableで行い、native schema compatibility gateを再利用。
-- GUI、#173 CalibrationPlan、#174 joint DSP optimization、owned-room physical acceptanceはscope外。
+- GUI、bolph71656-ai/Home-Theater-Digital-Twin#173 CalibrationPlan、bolph71656-ai/Home-Theater-Digital-Twin#174 joint DSP optimization、owned-room physical acceptanceはscope外。
 - 詳細: [Measurement quality authority](MEASUREMENT_QUALITY.md)
 - RDC未使用。
 
 
-### Issue #173 CalibrationPlan foundation — 2026-09-19
+### Issue bolph71656-ai/Home-Theater-Digital-Twin#173 CalibrationPlan foundation — 2026-09-19
 
 - immutable/versioned device-neutral `CalibrationPlan` を exact SceneRevision / SystemVariant / Measurement / Dataset / MeasurementQualityReport hash へ固定。
 - MeasurementQualityReport の magnitude / phase / common timing / arrival / decay / calibrated response / repeatability / polarity / required-band gateを再利用し、absolute delayはcommon timing、polarity inversionはpolarity authorityなしではunsupported。
@@ -601,10 +602,10 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - `htdt-generic-biquad@1` export snapshotでrequested planとquantized actual settingsを分離し、canonical JSON / deterministic CSV / JSON readbackを提供。
 - export / user-applied / remeasured / validatedをappend-only lifecycleで分離。exportだけでinstalled/as-built/validatedへ進めない。
 - exact exported settingsを参照するVerificationMeasurementPlan foundationとbefore/after Measurement lineageを実装。
-- all-pass correction、coherent inter-channel phase correction、proprietary adapters、advanced PEQ generation、#174 joint optimization、owned-room production recommendation enablementはdeferred。
+- all-pass correction、coherent inter-channel phase correction、proprietary adapters、advanced PEQ generation、bolph71656-ai/Home-Theater-Digital-Twin#174 joint optimization、owned-room production recommendation enablementはdeferred。
 - 詳細: [CalibrationPlan authority](CALIBRATION_PLAN.md)
 
-### Issue #142 / O100G MeasurementPlan / Campaign — 2026-09-20（当時のスナップショット）
+### Issue bolph71656-ai/Home-Theater-Digital-Twin#142 / O100G MeasurementPlan / Campaign — 2026-09-20（当時のスナップショット）
 
 - exact SystemVariant/Application/applied-revision binding: implemented
 - exact AsBuilt record and actual revision binding: implemented
@@ -616,12 +617,12 @@ Issue #90で、既存O10を壊さずmodel-dependent変数を追加するextended
 - measured lifecycle transition: reuses existing SystemVariantMeasuredRecord
 - generic N60 measurement auto-promotion: prohibited
 - O60 validation/recommendation implication: none
-- O100G overall status（2026-09-20時点）: partial。以後PR #255でworkflow-first software UX・badge/ghost・comparison・apply confirmation・measured presentationをmain反映済み。現行状態は上部のO100 tracking行を正本とする（残件はUX160 owned-Windows visual acceptanceのみ）
+- O100G overall status（2026-09-20時点）: partial。以後PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)でworkflow-first software UX・badge/ghost・comparison・apply confirmation・measured presentationをmain反映済み。現行状態は上部のO100 tracking行を正本とする（残件はUX160 owned-Windows visual acceptanceのみ）
 - RDC: not used
 
 Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md).
 
-### Issue #140 / O90D robustness UI — 2026-09-20
+### Issue bolph71656-ai/Home-Theater-Digital-Twin#140 / O90D robustness UI — 2026-09-20
 
 - Optimize > ばらつき耐性 canonical context: implemented
 - Nominal / sensitivity / sampled adverse / feasibility / completeness presentation: implemented
@@ -643,9 +644,9 @@ Details: [ISSUE_142_O100G_VARIANT_MEASUREMENT_CAMPAIGN_2026-09-20.md](ISSUE_142_
 
 Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md).
 
-## Issue #101 / R130B explicit impedance candidate execution — 2026-09-20
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#101 / R130B explicit impedance candidate execution — 2026-09-20
 
-- PR #260 / merge `0933db0c177f9cbbce44f6ae0434700b7a446062`。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#260 / merge `0933db0c177f9cbbce44f6ae0434700b7a446062`。
 - R100B exact mapping reuse: explicit frequency-independent purely-resistive specific impedanceのみ。scalar/statistical absorption conversion、missing phase synthesis、reactive/frequency-dependent fittingは許可しない。
 - exact execution identity: semantic surface、material/boundary id/version/hash、physical Z、unit/capability/valid band/provenance、density/sound-speed authority、PFFDTD mapping id/version/hash、DEFを保持。
 - actual backend: pinned PFFDTD `write_freq_ind_mat_from_Zn()` → material HDF5 → `mat_files_dict` → `sim_setup()`。packaged DEF一致とactive non-rigid boundary nodeを再読込検証。
@@ -654,9 +655,9 @@ Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_
 - Implementation record: [R130B_CANDIDATE_IMPEDANCE_EXECUTION_2026-09-20.md](R130B_CANDIDATE_IMPEDANCE_EXECUTION_2026-09-20.md)。
 - RDC: 0。
 
-## Issue #101 / R150 bounded second-order specular — 2026-09-20
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#101 / R150 bounded second-order specular — 2026-09-20
 
-- PR #258 / merge `7e058bf450539c393e89fc75dcf09591ae0dfbbf`。
+- PR bolph71656-ai/Home-Theater-Digital-Twin#258 / merge `7e058bf450539c393e89fc75dcf09591ae0dfbbf`。
 - general-planar single-region laneをdirect/first-orderからbounded deterministic second-order specularまで拡張。legacy shoebox/pinned pyroomacoustics laneはfirst-orderのまま維持。
 - ordered plane pairごとにmirror/reverse reconstructionし、各reflection pointをexact R120 triangle unionへ拘束。source→p1→p2→receiverの3 segmentをexact triangle visibilityで検証。
 - same-surface repeat、coincident/degenerate plane、zero-length、grazing、shared-edge ambiguity、finite-surface miss、occlusion、unsupported directivity/materialはfail-closed。
@@ -666,7 +667,7 @@ Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_
 - Implementation record: [R150_DETERMINISTIC_GA_ADAPTER.md](R150_DETERMINISTIC_GA_ADAPTER.md)。
 - RDC: 0。
 
-## Issue #101 / R140 actual executor — 2026-09-20
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#101 / R140 actual executor — 2026-09-20
 
 - actual CPU-baseline bounded worker pool: implemented
 - outer worker / inner solver thread authority separation: implemented
@@ -676,18 +677,18 @@ Details: [ISSUE_140_O90D_ROBUSTNESS_UI_2026-09-20.md](ISSUE_140_O90D_ROBUSTNESS_
 - exact cache reuse + resume: implemented
 - deterministic synthetic CI lane: implemented, explicitly non-production evidence
 - portable observed peak-RSS metric: unsupported rather than fabricated
-- pinned R130A PFFDTD Python/Numba CPU solver-specific resource estimator: implemented in PR #259
+- pinned R130A PFFDTD Python/Numba CPU solver-specific resource estimator: implemented in PR bolph71656-ai/Home-Theater-Digital-Twin#259 (merge 97228560)
 - source-bound grid / Nt / cell-time workload authority: implemented
 - task-incremental RAM/scratch derivation with explicit component semantics: implemented
 - multiprocess setup RAM without a portable bound: UNKNOWN -> fail-closed defer
-- real bounded PFFDTD task through R140 + exact second-run cache/resume integration lane: implemented; PR #259 final workflow run #4 (`35489817678`) PASS
+- real bounded PFFDTD task through R140 + exact second-run cache/resume integration lane: implemented; PR bolph71656-ai/Home-Theater-Digital-Twin#259 (merge 97228560) final workflow run bolph71656-ai/Home-Theater-Digital-Twin#4 (unavailable) (`35489817678`) PASS
 - GPU executor / GPU resource estimator / CPU-GPU numerical-equivalence evidence: pending
 - production solver adoption / owned-room evidence: pending
 - R140 overall status: partial completion
 
 Implementation records: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md) and [ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md](ISSUE_101_R140_PFFDTD_RESOURCE_ESTIMATOR_2026-09-20.md). RDC was not used.
 
-### Issue #170 / S130 StandardsProfile workflow integration — 2026-09-20
+### Issue bolph71656-ai/Home-Theater-Digital-Twin#170 / S130 StandardsProfile workflow integration — 2026-09-20
 
 - workflow placement: Room > スピーカー・座席 / Optimize > 比較へfirst-class integration。新global destinationなし。
 - profile selection: immutable built-in profileとpersisted user-defined profileをversion付きで選択可能。
@@ -700,9 +701,9 @@ Implementation records: [ISSUE_101_R140_ACTUAL_EXECUTOR_2026-09-20.md](ISSUE_101
 - UX160 owned-Windows DPI/font/mouse/3D screenshot / first-use visual acceptance: **pending**。
 - RDC: **0**。
 
-Details: [Issue #170 S130 workspace integration](ISSUE_170_S130_STANDARDS_WORKSPACE_2026-09-20.md).
+Details: [Issue bolph71656-ai/Home-Theater-Digital-Twin#170 S130 workspace integration](ISSUE_170_S130_STANDARDS_WORKSPACE_2026-09-20.md).
 
-## Issue #101 / R130C causal frequency-dependent boundary — 2026-09-20
+## Issue bolph71656-ai/Home-Theater-Digital-Twin#101 / R130C causal frequency-dependent boundary — 2026-09-20
 
 - exact source authority: specific acoustic admittance `m/(Pa*s)`、`Yn=rho*c*Y_specific`、parallel series-RLC normalized `DEF`、exact SceneRevision/content/surface/material identity、provenance/evidence state/optional uncertainty、explicit valid band。
 - causal/passive/stable contract: `D>=0,E>0,F>=0` のpositive-real structural gate。sampled-response IFFTは使わず、PFFDTD native recursive boundary stateへ同一DEFを渡す。valid-band外、wrong quantity、missing phase-equivalent complex authority、malformed/stale/non-passive inputはfallbackせずfail-closed。
@@ -714,7 +715,7 @@ Details: [Issue #170 S130 workspace integration](ISSUE_170_S130_STANDARDS_WORKSP
 
 ## Capture integration (HTDT-Capture → native HTDT) — contract authority
 
-Issues #333–#338, #343, #345, #369. Production `.htdtcapture` import path
+Issues bolph71656-ai/HTDT-Capture#333–#338, bolph71656-ai/HTDT-Capture#343, bolph71656-ai/HTDT-Capture#345, bolph71656-ai/HTDT-Capture#369 (unavailable). Production `.htdtcapture` import path
 plus the enforced transaction-layer contract on top of the phase-6
 vendored fixture bundle (HTDT-Capture pinned commit
 `daa00b122f399050c29ba3af988b1d6438686746`).
@@ -768,8 +769,8 @@ vendored fixture bundle (HTDT-Capture pinned commit
   measurements reconcile (consistent/conflict/new — never overwrite),
   RoomPlan is suggestion-only, apply is an explicit operator action that
   stamps capture provenance (handoff id, payload hash, space, revision).
-  Display/projection_screen entity types stay typed-unsupported (#564).
-- **Cross-repo compatibility CI** (#334): `docs/CAPTURE_COMPATIBILITY.json`
+  Display/projection_screen entity types stay typed-unsupported (bolph71656-ai/Home-Theater-Digital-Twin#564).
+- **Cross-repo compatibility CI** (bolph71656-ai/HTDT-Capture#334): `docs/CAPTURE_COMPATIBILITY.json`
   is the machine-readable registry — pinned HTDT-Capture commit, fixture
   bundle digest, canonical plan sha256
   `fa249e30…`, lineage digest `92e81abe…`, ingestor identity and expected
@@ -785,29 +786,29 @@ vendored fixture bundle (HTDT-Capture pinned commit
 
 ## Project workflow authorities — 2026-09-24
 
-Issues #609, #610, #614, #620, #654, #655, #667, #668, #678 (backend authority
+Issues bolph71656-ai/Home-Theater-Digital-Twin#609, bolph71656-ai/Home-Theater-Digital-Twin#610, bolph71656-ai/Home-Theater-Digital-Twin#614, bolph71656-ai/Home-Theater-Digital-Twin#620, bolph71656-ai/Home-Theater-Digital-Twin#654, bolph71656-ai/Home-Theater-Digital-Twin#655, bolph71656-ai/Home-Theater-Digital-Twin#667, bolph71656-ai/Home-Theater-Digital-Twin#668, bolph71656-ai/Home-Theater-Digital-Twin#678 (backend authority
 and workspace UX; no hardware/physical-room evidence involved).
 
-- **DesignDecisionRecord (#654)** (`htdt/cad_design_decision.py` +
+- **DesignDecisionRecord (bolph71656-ai/Home-Theater-Digital-Twin#654)** (`htdt/cad_design_decision.py` +
   `cad_design_decision_repository.py`): immutable append-only record of the
   adopted alternative — selected_ref ∈ considered_refs, typed authority
   refs, decision_scope, lifecycle_intent, rationale tags, accepted
   tradeoffs/assumption refs, supersedes chain, sha256 self-verifying.
   No auto-winner: the record never picks a winner itself.
-- **ProjectActionItem + spatial notes (#667)** (`htdt/cad_action_item.py` +
+- **ProjectActionItem + spatial notes (bolph71656-ai/Home-Theater-Digital-Twin#667)** (`htdt/cad_action_item.py` +
   `cad_action_item_repository.py`): action_id/statuses/priority, typed
   subject refs (entity/measurement/prediction/calibration/decision/…),
   optional ActionSpatialAnchor that is NOT a SceneEntity, archive over
   delete, upsert repository with cross-document rebind rejection. No
   PM-suite features (no assignees/due dates/comments).
-- **Evidence-gap register (#620)** (`htdt/cad_evidence_register.py` +
+- **Evidence-gap register (bolph71656-ai/Home-Theater-Digital-Twin#620)** (`htdt/cad_evidence_register.py` +
   `cad_assumption_decision.py` + repository): derived rebuildable register
   projecting UNKNOWN/MISSING_EVIDENCE/ASSUMED/INFERRED/UNVERIFIED/
   UNSUPPORTED/UNRESOLVED_DEPENDENCY/STALE classifications plus
   USER_ATTESTED via scoped `AssumptionDecision` records (design-checkpoint /
   analysis-study / project / commissioning-run scopes, expiry, supersedes).
   Deterministic gap_id from the semantic payload; no confidence score.
-- **ProjectTemplate (#614)** (`htdt/cad_project_template.py` + repository):
+- **ProjectTemplate (bolph71656-ai/Home-Theater-Digital-Twin#614)** (`htdt/cad_project_template.py` + repository):
   template authority (speakers + design brief + measurement spec only —
   measurements/capture/bindings/serials/predictions/calibrations never
   copied), save-from-document preview, materialization with fresh entity
@@ -815,7 +816,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   recorded instantiation provenance. Built-ins: 5.1.4 and 7.1.4 theater
   starters (Dolby-style azimuths) and a TV-room starter using direct-view
   display intent (never a fake projector/passive screen).
-- **CalibrationDeviceAdapter framework (#609)** (`htdt/cad_device_adapter.py`
+- **CalibrationDeviceAdapter framework (bolph71656-ai/Home-Theater-Digital-Twin#609)** (`htdt/cad_device_adapter.py`
   + `cad_device_adapter_file.py`): capability/materialization/apply/
   read-back contract keeping exported settings, bound-device materialized
   payloads, apply acknowledgments and observed installed state strictly
@@ -826,7 +827,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   raises `AdapterCapabilityError`) and live adapters require
   `operator_confirmed` plus binding-sha equality. `diff_observed_vs_exported`
   gives field-level deviation semantics on top of `CadAppliedSettingsRecord`.
-- **Dirty-state resolution UX (#610 + #678)** (`htdt/workspace_dirty_state.py`
+- **Dirty-state resolution UX (bolph71656-ai/Home-Theater-Digital-Twin#610 + bolph71656-ai/Home-Theater-Digital-Twin#678)** (`htdt/workspace_dirty_state.py`
   + `htdt/dirty_state_dialog.py` + shell/controller ports): navigation,
   app exit, project switch and data dispose now offer explicit
   Save/Discard/Recover-Draft/keep-as-draft/cancel decisions through one
@@ -836,10 +837,10 @@ and workspace UX; no hardware/physical-room evidence involved).
   joined the contract). keep_draft persists a recovery snapshot and
   releases exactly that acknowledged state — new edits re-block; preview
   is never silently committed; a failed resolution keeps the context.
-- **Docs only (#655, #668)**: `docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md`
+- **Docs only (bolph71656-ai/Home-Theater-Digital-Twin#655, bolph71656-ai/Home-Theater-Digital-Twin#668)**: `docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md`
   (Tier A/B/C depth + canonical domain map, linked from PROJECT_PLAN.md
   and the README docs table); O100G status made consistent across README /
-  PROJECT_PLAN / IMPLEMENTATION_STATUS (PR #255 software implemented;
+  PROJECT_PLAN / IMPLEMENTATION_STATUS (PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb) software implemented;
   historical snapshots labeled), plus a canonical-document responsibility
   and per-surface update checklist at the top of IMPLEMENTATION_STATUS.md.
 - **Verified on Linux**: scoped pytest for each authority (10 + 8 + 15 + 11
@@ -848,9 +849,9 @@ and workspace UX; no hardware/physical-room evidence involved).
   native-window exit flow and Windows DPI behavior are GUI/Windows-gated
   and untested here.
 
-## Provenance / reproducibility hardening (#834–#838) — 2026-09-24
+## Provenance / reproducibility hardening (bolph71656-ai/Home-Theater-Digital-Twin#834–#838) — 2026-09-24
 
-- **External Asset Admission Ledger (#834)** (`docs/EXTERNAL_ASSET_ADMISSION_LEDGER.md`):
+- **External Asset Admission Ledger (bolph71656-ai/Home-Theater-Digital-Twin#834)** (`docs/EXTERNAL_ASSET_ADMISSION_LEDGER.md`):
   planning/governance ledger recording the cross-domain admission-state
   vocabulary (READY_FOR_ADMISSION_REVIEW … REJECT_FOR_BUNDLING), per-domain
   ledgers (acoustic materials, loudspeaker directivity, validation corpus,
@@ -858,7 +859,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   interop, OSS reuse, standards), the admission review checklist and the
   permission/contact backlog. No external payloads downloaded; no legal
   advice; "downloadable" is never "redistributable".
-- **Saved Analysis exactness (#835)** (`htdt/cad_analysis_study.py` +
+- **Saved Analysis exactness (bolph71656-ai/Home-Theater-Digital-Twin#835)** (`htdt/cad_analysis_study.py` +
   `cad_analysis_study_repository.py`): supersedes/duplicated_from is now
   documented as explicit lineage metadata only — every persisted study is
   an independent artifact, no single current head is derived, parallel
@@ -871,7 +872,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   validates same-document applicability via the typed kind resolvers and
   every bound ref is hash-bearing (verified, with a regression test for
   cross-document refs).
-- **External dependency resolver (#836)**
+- **External dependency resolver (bolph71656-ai/Home-Theater-Digital-Twin#836)**
   (`htdt/external_dependency_repository.py`): current-resolution
   selection now orders by insertion sequence (`rowid`), not the
   caller-supplied `created_at_utc` — `list_resolutions` returns event
@@ -879,7 +880,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   Full identity pins, `authority_version_id`, deterministic
   embedded/imported/local resolution with named-conflict fallback and
   the `resolve_and_record` sole write path were already in place.
-- **Installation Handoff package integrity (#837)**
+- **Installation Handoff package integrity (bolph71656-ai/Home-Theater-Digital-Twin#837)**
   (`htdt/installation_handoff.py`): `write_handoff_package` now stages a
   complete generation — four members + `handoff_manifest.json` — in a
   staging directory, fsyncs, verifies staged digests against the
@@ -889,7 +890,7 @@ and workspace UX; no hardware/physical-room evidence involved).
   schema/generator versions, generated time, authority ids
   (scene_revision/system_variant/semantic_sha256), `complete`/`degraded`
   machine-readable state, and per-file sha256+size.
-- **Analysis Export reproducibility (#838)** (`htdt/analysis_export.py`):
+- **Analysis Export reproducibility (bolph71656-ai/Home-Theater-Digital-Twin#838)** (`htdt/analysis_export.py`):
   every series now requires an exact source pin
   (source_kind+source_id+source_sha256); `derived`/`display_transformed`
   additionally pin the processing `operation`/`operation_version`
@@ -913,25 +914,25 @@ and workspace UX; no hardware/physical-room evidence involved).
 
 ### 追加されたuser-facing surface / authority
 
-- **「プレゼン」workspace**（Issue #534 / REV47-ISS534）: 決定論的 `PresentationSession`、保存ビューポイント再生、同期A/B比較、提案・決定・レビューメモ記録、オフライン360レビューパッケージと提案書パッケージの書き出し。編集面ではなく確定権威のread-only再生面。`CadPresentationRepository`がpin済みauthorityのsave/verify/materializeを担当。
-- **「映像調整」workspace**（Issue #541 / REV48-VIDEO）: HCFR CSV取込（`.chc`は非公開形式のためunsupportedを明示）→既存の測色/EOTF/光度authorityによるSDR/HDR診断→証拠引用つき是正アクション→before/after証跡比較（比較不能は`INCOMPARABLE`+理由）。guidedジャーニー構成。
+- **「プレゼン」workspace**（Issue ka0923s-a11y/HTDT#534 / REV47-ISS534）: 決定論的 `PresentationSession`、保存ビューポイント再生、同期A/B比較、提案・決定・レビューメモ記録、オフライン360レビューパッケージと提案書パッケージの書き出し。編集面ではなく確定権威のread-only再生面。`CadPresentationRepository`がpin済みauthorityのsave/verify/materializeを担当。
+- **「映像調整」workspace**（Issue ka0923s-a11y/HTDT#541 / REV48-VIDEO）: HCFR CSV取込（`.chc`は非公開形式のためunsupportedを明示）→既存の測色/EOTF/光度authorityによるSDR/HDR診断→証拠引用つき是正アクション→before/after証跡比較（比較不能は`INCOMPARABLE`+理由）。guidedジャーニー構成。
 - **「受入検証」guided wizard**（application destination / REV48-HWGUIDE）: 物理受入ゲート（windows-m10・o60r・ux160・golden-path・native-matrix・o90e・o100-physical）を`auto`/`guided_manual`/`attest`の3種ステップへ分解したmanifest（`htdt/acceptance_gates.py`、各stepは受入書・スクリプトの実項目に`source_ref`で紐付け）。autoはクリック一発で実チェック実行、guided-manualは手順表示+証拠自動取得+1クリック確認、attestは型付き証言+digest-bound証拠添付。実行ランはrevisioned永続化（schema v18）・再起動越え再開・完了時に`htdt.acceptance-evidence-bundle` JSON出力。詳細は[GUIDED_ACCEPTANCE](GUIDED_ACCEPTANCE.md)。
-- **capture entity昇格**（PR #539 / `capture_entity_promotion.py`）: 取り込みinboxのannotationを SceneEntity へ promote するexecutor。rejected envelopeも`rejected:` lineageでinboxにstageされる。
-- **solver capability manifest / geometry provenance**（Issue #2 / REV47-ISS2）: `SolverCapabilityManifest`がper-path phenomenon行・有効帯域・UNSUPPORTED理由を宣言し、`AcousticGeometryDerivation`がhash-bound provenance権威として永続化。REV51-WIRE/REV52-GAEMITでGA descriptor persist・wave executor・polyhedral result-commit・artifact commit emitまでruntime emit経路を接続済み。
-- **auralization evidence**（Issue #538 / REV47-ISS538）: `AuralizationRoutingDeclaration`・`AuralizationCapability`（IR出自・検証帯域・HRTF、overclaimはfail-closed）、実測vs予測のバンド一致検証、改竄検出つき共有レビューパッケージ（schema v17）。
-- **active-LF制御計画**（Issue #533 / REV47-ISS533）: 配列/wavefront適格性モデル、パス分類（diagonal/content_feed/cross_channel_support）、マルチシートLF目的、DSP資源実現性（UNKNOWN含む）、能力ラベル分離、計画永続化+ライフサイクルジャーナル。
-- **計測権威の登録面**（REV44-QUALITYAUTH / PR #529）: レベル校正・タイミング基準・刺激プロファイル・ルーティング・データセットレベル基準の5種登録UI。SPL準備ステップが完了可能になり、品質プロデューサーがUNKNOWN以上を実データで解決可能。
-- **予測行列+適格性証明の登録面**（REV44-SURFACES / PR #528）: provider登録→行列作成→実行。`MatrixRunVerification`（REV52-GAEMIT）でcoverage完備時のみ`validated`/`synthetic_fixture`へ昇格するverify-only永続化（実測`owned_room`はclaimしない）。
-- **健全性ベースライン+AV同期記録**（REV44-HEALTHSYNC / PR #530）: 概要「稼働状況」ドメインが実データで点灯。
-- **設置コンテキスト/設置基準登録**（REV44-INSTALL / PR #531）: 部屋→スピーカー・座席の「設置の記録」パネル。設置ハンドオフが実値を受け取る。
-- **テンプレート保存**（REV44 / PR #527）: 「現在のプロジェクトをテンプレートとして保存」メニュー。
-- **測定品質レポートproducer**（REV42 / PR #521）: `CadMeasurementQualityProducer`が証明可能な証拠のみから品質レポートを導出（取込み帯域/タイミング・retained校正・IR・反復性）。証明不能項目は`unknown/missing`で記録し捏造しない。全コミット経路に配線+冪等backfill。
-- **open issue検証システム**（REV44〜46 / PR #535/#537/#540）: `scripts/issue_verification_manifest.yaml` + `verify_open_issues.py` + `verify-open-issues.yml` workflow（手動起動）。issue→実在チェックの正直なマッピング、プロセスツリー/job-object containment、comment upsert、SHA-keyed cache。詳細は[ISSUE_VERIFICATION](ISSUE_VERIFICATION.md)。
+- **capture entity昇格**（PR ka0923s-a11y/HTDT#539 (merge 89e0ec9a) / `capture_entity_promotion.py`）: 取り込みinboxのannotationを SceneEntity へ promote するexecutor。rejected envelopeも`rejected:` lineageでinboxにstageされる。
+- **solver capability manifest / geometry provenance**（Issue ka0923s-a11y/HTDT#2 / REV47-ISS2）: `SolverCapabilityManifest`がper-path phenomenon行・有効帯域・UNSUPPORTED理由を宣言し、`AcousticGeometryDerivation`がhash-bound provenance権威として永続化。REV51-WIRE/REV52-GAEMITでGA descriptor persist・wave executor・polyhedral result-commit・artifact commit emitまでruntime emit経路を接続済み。
+- **auralization evidence**（Issue ka0923s-a11y/HTDT#538 / REV47-ISS538）: `AuralizationRoutingDeclaration`・`AuralizationCapability`（IR出自・検証帯域・HRTF、overclaimはfail-closed）、実測vs予測のバンド一致検証、改竄検出つき共有レビューパッケージ（schema v17）。
+- **active-LF制御計画**（Issue ka0923s-a11y/HTDT#533 / REV47-ISS533）: 配列/wavefront適格性モデル、パス分類（diagonal/content_feed/cross_channel_support）、マルチシートLF目的、DSP資源実現性（UNKNOWN含む）、能力ラベル分離、計画永続化+ライフサイクルジャーナル。
+- **計測権威の登録面**（REV44-QUALITYAUTH / PR ka0923s-a11y/HTDT#529 (merge 30aaaf52)）: レベル校正・タイミング基準・刺激プロファイル・ルーティング・データセットレベル基準の5種登録UI。SPL準備ステップが完了可能になり、品質プロデューサーがUNKNOWN以上を実データで解決可能。
+- **予測行列+適格性証明の登録面**（REV44-SURFACES / PR ka0923s-a11y/HTDT#528 (merge 96ba2e09)）: provider登録→行列作成→実行。`MatrixRunVerification`（REV52-GAEMIT）でcoverage完備時のみ`validated`/`synthetic_fixture`へ昇格するverify-only永続化（実測`owned_room`はclaimしない）。
+- **健全性ベースライン+AV同期記録**（REV44-HEALTHSYNC / PR ka0923s-a11y/HTDT#530 (merge a9a83ba9)）: 概要「稼働状況」ドメインが実データで点灯。
+- **設置コンテキスト/設置基準登録**（REV44-INSTALL / PR ka0923s-a11y/HTDT#531 (merge ffc94644)）: 部屋→スピーカー・座席の「設置の記録」パネル。設置ハンドオフが実値を受け取る。
+- **テンプレート保存**（REV44 / PR ka0923s-a11y/HTDT#527 (merge 0e25a4d9)）: 「現在のプロジェクトをテンプレートとして保存」メニュー。
+- **測定品質レポートproducer**（REV42 / PR ka0923s-a11y/HTDT#521 (merge 4c7c06f0)）: `CadMeasurementQualityProducer`が証明可能な証拠のみから品質レポートを導出（取込み帯域/タイミング・retained校正・IR・反復性）。証明不能項目は`unknown/missing`で記録し捏造しない。全コミット経路に配線+冪等backfill。
+- **open issue検証システム**（REV44〜46 / PR ka0923s-a11y/HTDT#535 (merge 44f92dc8)/#537 (merge 26dd1a0b)/#540 (merge 848fe086)）: `scripts/issue_verification_manifest.yaml` + `verify_open_issues.py` + `verify-open-issues.yml` workflow（手動起動）。issue→実在チェックの正直なマッピング、プロセスツリー/job-object containment、comment upsert、SHA-keyed cache。詳細は[ISSUE_VERIFICATION](ISSUE_VERIFICATION.md)。
 
 ### 構造/整合性の修正（REV43/49〜53の主要分）
 
 - capture watchのdrop消失2件（再キュー上限+拒否通知）、inbox staging/promotionの整合性、品質backfillの永続化漏れ（冪等ingest経路がrollbackしていた）、world→scene権威の空間別・時系列正規化、watch-folder rejectionのprovenance修正（REV53-CAPTURE）。
 - backup/restore/bundle/relocation: Windows `_promote_directory`/`_park_directory`による永続brick防止、`_ASSET_TABLES`駆動のexport/import対称化（acceptance-evidenceのsilent drop防止）、fingerprintのaux/subtree coverage、中断restoreの`pre_restore_live` rollback（REV52-DATA→REV53-PASS4のrollback脚統一・sha一致検出・expected_assets gateまで）。
-- capture promotionの非affine/shear transform拒否（#545/#546）。
+- capture promotionの非affine/shear transform拒否（ka0923s-a11y/HTDT#545/#546）。
 - UX: 右パネルリサイズ（QSplitter）、配置パネルの横overflow解消、768px溢れdialogのQScrollArea化、Ctrl+Kパレットの新workspace対応、field_explorerの表示単位混入修正、生例外→JA `warn_user`化（17+9箇所）、28ボタンのJA tooltip、dark themeのdisabled視認性、HealthCheckDialogのN+1解消、`count_evaluations`等の計測改善（489ms→2.93ms、3904ms→263ms）。
 - 反復レビュー（REV50-SECOND/REV51-PASS3/REV53-PASS4）で導入欠陥を継続捕捉・修正。REV51-PASS3は実欠陥0件。

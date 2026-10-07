@@ -1,6 +1,7 @@
-# HTDT Product Domain Boundary Charter — Issue #655
+# HTDT Product Domain Boundary Charter — Issue bolph71656-ai/Home-Theater-Digital-Twin#655
 
 > 制定: 2026-09-24 / 対象: 新規feature・issue review・製品scope判断の共通基準
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 
 ## 基本原則
 
@@ -144,7 +145,7 @@ HTDTが明示的に主張しないことは何か?
 
 ## numerical solver境界
 
-HTDTはacoustic solver adapterと、正当化される場合はsolver実装（Issue #101系）を
+HTDTはacoustic solver adapterと、正当化される場合はsolver実装（Issue bolph71656-ai/Home-Theater-Digital-Twin#101系）を
 所有しうる。ただし次を分離する:
 
 - Digital Twin authority

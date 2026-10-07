@@ -2,6 +2,8 @@
 
 HTDTは、Windows上で**部屋・ホームシアター配置・測定・予測・最適化を一つの3D空間モデルへ統合するnative desktop digital twin**です。
 
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](docs/MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
+
 ## North Star Architecture Principle
 
 HTDTは、source-neutralなreal-room evidence、実機equipment/directivity/playback-chain authority、acoustic treatment、measurement evidenceを、immutable SceneRevision とexplicit provenanceによって**一つのrevisioned Digital Twin**へ統合します。
@@ -36,10 +38,10 @@ stable personal Windows releaseは **0.1.0** です。
 - stable Windows package / installer / update / backup / restore / uninstall data retention
 - open issue検証システム（manifest→runner→手動起動workflowで回帰検証）
 
-N05〜N90のnative release pathとO10〜O80のsoftware pathは実装済みです。O90 robust/tolerance-aware optimizationはO90A〜O90Dまで実装済みです。bounded / distribution / empirical / discrete uncertainty、probability-gated statistics、cancel/cache/resume/stale protection、auditable multi-fidelity screening、common-fidelity robust-Pareto finalizationに加え、PR #249でworkflow-first「ばらつき耐性」UIまでmainへ反映済みです。残るO90E owned-room robust validationとUX160 owned-Windows visual acceptanceは別gateです。O100 system expansion / virtual channel topology optimizationはO100A〜O100Fまで実装済みです。O100G backendはPR #235でproposal→explicit As-built、PR #239でexact As-built→measured evidence binding、PR #244でSystemVariant-specific MeasurementPlan / Campaignまで実装済みです。PR #255でRoom/Optimize workflow-first UX、proposed/as-built/measured badge・ghost、SystemVariant comparison、apply confirmation、measured presentationも実装済みです。残件はUX160 owned-Windows visual acceptanceのfull gateです（PR #291で部分acceptanceは反映済み）。詳細な現在地は[実装ステータス](docs/IMPLEMENTATION_STATUS.md)を正本とします。  
+N05〜N90のnative release pathとO10〜O80のsoftware pathは実装済みです。O90 robust/tolerance-aware optimizationはO90A〜O90Dまで実装済みです。bounded / distribution / empirical / discrete uncertainty、probability-gated statistics、cancel/cache/resume/stale protection、auditable multi-fidelity screening、common-fidelity robust-Pareto finalizationに加え、PR bolph71656-ai/Home-Theater-Digital-Twin#249 (merge d7c9a528)でworkflow-first「ばらつき耐性」UIまでmainへ反映済みです。残るO90E owned-room robust validationとUX160 owned-Windows visual acceptanceは別gateです。O100 system expansion / virtual channel topology optimizationはO100A〜O100Fまで実装済みです。O100G backendはPR bolph71656-ai/Home-Theater-Digital-Twin#235 (merge 640953b0)でproposal→explicit As-built、PR bolph71656-ai/Home-Theater-Digital-Twin#239 (merge 8a51b6ca)でexact As-built→measured evidence binding、PR bolph71656-ai/Home-Theater-Digital-Twin#244 (merge 89af03d8)でSystemVariant-specific MeasurementPlan / Campaignまで実装済みです。PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)でRoom/Optimize workflow-first UX、proposed/as-built/measured badge・ghost、SystemVariant comparison、apply confirmation、measured presentationも実装済みです。残件はUX160 owned-Windows visual acceptanceのfull gateです（PR bolph71656-ai/Home-Theater-Digital-Twin#291 (merge 5143bfe0)で部分acceptanceは反映済み）。詳細な現在地は[実装ステータス](docs/IMPLEMENTATION_STATUS.md)を正本とします。  
 O70 Adaptive Plannerは `development_synthetic` で、O80 Extended SearchとAdaptive Extended acquisitionはsynthetic directional capabilityでsoftware pathを最後まで確認できます。一方、`production_owned_room` recommendationとowned-room directional capabilityは、**独立した実室O60 validation evidenceが成立するまでfail-closed**です。
 
-実装済み・未検証項目の事実は [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)、今後の実装順とgateは [`docs/IMPLEMENTATION_ROADMAP.md`](docs/IMPLEMENTATION_ROADMAP.md) を正本とします。Issue #101の任意形状音響solverはR100〜R180として計画化し、技術判断は [`docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md`](docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md) に記録しています。
+実装済み・未検証項目の事実は [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)、今後の実装順とgateは [`docs/IMPLEMENTATION_ROADMAP.md`](docs/IMPLEMENTATION_ROADMAP.md) を正本とします。Issue bolph71656-ai/Home-Theater-Digital-Twin#101の任意形状音響solverはR100〜R180として計画化し、技術判断は [`docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md`](docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md) に記録しています。
 
 ## Windows stable release
 
@@ -186,7 +188,7 @@ HTDTの中心は、数値フォームを先に埋める方式ではなく、同�
 - O100E: auditable multi-fidelity hard-gate / validated screening / budget defer / exact common-fidelity finalization
 - O100F: proposal-aware O90 local+multidimensional robustness / exact O100D bundle lineage / nominal-vs-sampled-worst robust Pareto
 - O100G backend: descendant-aware proposal lineage / explicit As-built / exact measured evidence / SystemVariant-specific MeasurementPlan+Campaign preregistration / measured lifecycle
-- O100G UX: PR #255 workflow-first Room/Optimize / lifecycle badge・proposal ghost / SystemVariant comparison / apply confirmation / measured-state presentation（UX160 full Windows visual acceptanceは別gate）
+- O100G UX: PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb) workflow-first Room/Optimize / lifecycle badge・proposal ghost / SystemVariant comparison / apply confirmation / measured-state presentation（UX160 full Windows visual acceptanceは別gate）
 - N90: reproducible package / per-user installer / backup+restore / update+uninstall data retention
 
 ## 対象環境
@@ -227,7 +229,7 @@ native stable releaseのcorrectnessはfrontend buildへ依存しません。
 | [PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | CAD-first製品スコープとrelease方針 |
 | [PRODUCT_DOMAIN_BOUNDARY_CHARTER.md](docs/PRODUCT_DOMAIN_BOUNDARY_CHARTER.md) | domain所有深度（Tier A/B/C）とcanonical domain mapの製品charter |
 | [CAD_EDITOR_OSS_RESEARCH.md](docs/CAD_EDITOR_OSS_RESEARCH.md) | 3D CAD/OSS調査、採否、参照コード |
-| [ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md](docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md) | Issue #101のwave/geometric hybrid、OSS、CPU/GPU、材料、validation調査 |
+| [ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md](docs/ACOUSTIC_SOLVER_RESEARCH_2026-09-18.md) | Issue bolph71656-ai/Home-Theater-Digital-Twin#101のwave/geometric hybrid、OSS、CPU/GPU、材料、validation調査 |
 | [COMPETITIVE_PRODUCT_RESEARCH_2026-09-19.md](docs/COMPETITIVE_PRODUCT_RESEARCH_2026-09-19.md) | 類似製品比較、HTDTの機能gap、追加/修正候補と優先順位 |
 | [ADR-0001](docs/adr/0001-native-cad-editor-stack.md) | native CAD editor技術決定 |
 | [DATA_AND_ANALYSIS.md](docs/DATA_AND_ANALYSIS.md) | 不変履歴、比較、座標、保存契約 |

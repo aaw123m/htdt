@@ -1,8 +1,9 @@
 # Native CAD UI / Interaction Design
 
-> 改訂: 2026-09-18 / Issue #118 workflow-first UI/UX overhaul
+> 改訂: 2026-09-18 / Issue bolph71656-ai/Home-Theater-Digital-Twin#118 workflow-first UI/UX overhaul
 > 実装順は[ロードマップ](IMPLEMENTATION_ROADMAP.md)、編集・保存契約は[SPEC](CAD_EDITOR_SPEC.md)、判定は[受入仕様](CAD_EDITOR_ACCEPTANCE.md)。
 > 本書は従来の「viewportを常に主画面＋dock追加」方針を置き換える。
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 
 ## 1. 設計問題と変更方針
 
@@ -697,7 +698,7 @@ UI簡略化のためにdomain authorityを弱めない。
 - phase/timing capabilityが無いmeasurementから強いclaimへ昇格しない。
 - old measurementは元SceneRevisionへbindingしたまま表示する。
 
-## 16. Issue #118 implementation slices
+## 16. Issue bolph71656-ai/Home-Theater-Digital-Twin#118 implementation slices
 
 ### UX100 — information architecture freeze
 - current task/control inventory
@@ -779,7 +780,7 @@ Windows実機visual acceptanceはUX160でRDCをまとめて使う。計画・構
 
 旧browser UIの記録は履歴として残すが、native GUIの合格証拠へ流用しない。
 
-## 18. Issue #170 / S130 StandardsProfile integration
+## 18. Issue bolph71656-ai/Home-Theater-Digital-Twin#170 / S130 StandardsProfile integration
 
 StandardsProfileは新しいglobal destinationにせず、既存workflowの文脈へ統合する。
 

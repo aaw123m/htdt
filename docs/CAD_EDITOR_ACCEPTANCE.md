@@ -2,6 +2,7 @@
 
 > 2026-09-16 / **未実行の受入計画**。過去のPoC報告は[実装状況](IMPLEMENTATION_STATUS.md)へ分離する。
 > 対象: Windows 11 x64、所有PC。計画の機能一覧を「検証済み」へ読み替えない。
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 
 ## 1. 記録と対象範囲
 
@@ -72,9 +73,9 @@ N40で初見操作として「L字室を作り、speakerを左右に置き、座
 Qt/VTKの実機操作を、headless CIやpixel一致testの成功で代替しない。今回の文書レビューではrelative link・milestone・差分・根拠を検査し、Windows実機gateは実行しない。既存CIが自動実行される場合、その結果もPRへ記録する。
 
 
-## 7. Issue #118 UX-series acceptance
+## 7. Issue bolph71656-ai/Home-Theater-Digital-Twin#118 UX-series acceptance
 
-Issue #118は既存A01〜A15のdomain/editor correctnessを置き換えない。UX-seriesは**発見性・情報設計・layout安定性**を追加で受け入れる。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#118は既存A01〜A15のdomain/editor correctnessを置き換えない。UX-seriesは**発見性・情報設計・layout安定性**を追加で受け入れる。
 
 | Gate | 手順 | 合格条件 |
 |---|---|---|

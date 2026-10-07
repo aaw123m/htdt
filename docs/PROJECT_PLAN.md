@@ -2,6 +2,7 @@
 
 > 2026-09-16 / CAD-first改訂
 > Windows・個人利用・ローカル完結。旧GUI/API/保存形式の互換は不要。
+> 参照ルール: issue/PR参照は `<owner>/<repo>#<N>` 形式でrepo省略不可（旧repo objectは現repoの同番号と衝突する）。実装claimは `(merge <sha8>)`、回収不能な旧objectは `(unavailable)`、別PRに置き換えられたものは `(superseded)` を付記する。対応表は [MIGRATION_REFERENCE_MANIFEST](MIGRATION_REFERENCE_MANIFEST.yaml)、機械検査は `scripts/validate_canonical_references.py`。
 > 実装順・完了条件の正本は[IMPLEMENTATION_ROADMAP](IMPLEMENTATION_ROADMAP.md)。
 
 ## 1. 目的
@@ -97,7 +98,7 @@ Qt shell → editor service → domain/repository/adapterの境界を置く。na
 
 ## 8. 初期非目標
 
-汎用B-rep CAD、FEM/BEM/FDTD、一般拘束solver、独自スイープ/ASIO/WASAPI engine、マイク校正engine、EQ/YPAO/Dirac/Audyssey相当の補正、未公開.mdat解析、Atmos encoder、常駐AVR制御、マルチユーザー、クラウド、LLM説明機能は**v0.1初期releaseでは対象外**。任意形状wave/FEM/FDTD等はpost-0.1のIssue #101 / R-seriesで後続実装する。
+汎用B-rep CAD、FEM/BEM/FDTD、一般拘束solver、独自スイープ/ASIO/WASAPI engine、マイク校正engine、EQ/YPAO/Dirac/Audyssey相当の補正、未公開.mdat解析、Atmos encoder、常駐AVR制御、マルチユーザー、クラウド、LLM説明機能は**v0.1初期releaseでは対象外**。任意形状wave/FEM/FDTD等はpost-0.1のIssue bolph71656-ai/Home-Theater-Digital-Twin#101 / R-seriesで後続実装する。
 
 一室・一定天井高・primitive家具から開始し、BIM/STEP/複雑mesh importや複数室は実要件が生じた時に追加する。
 
@@ -105,10 +106,10 @@ Qt shell → editor service → domain/repository/adapterの境界を置く。na
 
 native GUIをWindowsのDPI/mouse/keyboardで確認する。headless CIを操作品質の証拠にしない。仕様上の目標、過去のPoC報告、今回の再検証を分ける。
 
-変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue #170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90A〜O90Dまで実装済みで、O90E owned-room robust validationとUX160 owned-Windows acceptanceが残る。O100はO100A〜O100Fまで実装済み。O100G backendはPR #235/#239のproposal→As-built→exact measured evidenceに加え、PR #244でSystemVariant-specific MeasurementPlan/Campaign、PR #255でRoom/Optimize workflow-first UX・badge/ghost・measured comparison・apply confirmationまで実装済みで、残るはUX160 owned-Windows visual acceptanceのみ（実装状態の詳細は[実装ステータス](IMPLEMENTATION_STATUS.md)が正本）。Issue #101ではR130A bounded candidate wave execution（PR #243）、R140 actual CPU executor（PR #250）、R150 bounded deterministic GA adapter（PR #245）まで進んだが、production solver採用・full numerical acceptance・hybrid/owned-room validationは別gateとして未完了である。Issue #118のUX100〜UX160 UI/UX overhaulと各domain trackを独立管理し、R-seriesの新しいuser-facing acoustic inputをlegacy dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
+変更に適した検証だけを行い、可逆・低影響変更へ不要なtestを追加しない。Issue bolph71656-ai/Home-Theater-Digital-Twin#170ではcriterion evaluator/profile data/persistenceをGUIやO100D objectiveから分離し、公開sourceに明示された境界だけをbuilt-in criteriaへ採用する。compliance FAILは明示hard-constraint opt-inなしにcandidateを削除しない。N05〜N90/O10〜O80 software pathは完了済み。O90はO90A〜O90Dまで実装済みで、O90E owned-room robust validationとUX160 owned-Windows acceptanceが残る。O100はO100A〜O100Fまで実装済み。O100G backendはPR bolph71656-ai/Home-Theater-Digital-Twin#235 (merge 640953b0)/#239 (merge 8a51b6ca)のproposal→As-built→exact measured evidenceに加え、PR bolph71656-ai/Home-Theater-Digital-Twin#244 (merge 89af03d8)でSystemVariant-specific MeasurementPlan/Campaign、PR bolph71656-ai/Home-Theater-Digital-Twin#255 (merge c4d72ddb)でRoom/Optimize workflow-first UX・badge/ghost・measured comparison・apply confirmationまで実装済みで、残るはUX160 owned-Windows visual acceptanceのみ（実装状態の詳細は[実装ステータス](IMPLEMENTATION_STATUS.md)が正本）。Issue bolph71656-ai/Home-Theater-Digital-Twin#101ではR130A bounded candidate wave execution（PR bolph71656-ai/Home-Theater-Digital-Twin#243 (merge cae26bfe)）、R140 actual CPU executor（PR bolph71656-ai/Home-Theater-Digital-Twin#250 (merge e284dc33)）、R150 bounded deterministic GA adapter（PR bolph71656-ai/Home-Theater-Digital-Twin#245 (merge 51dd8d8d)）まで進んだが、production solver採用・full numerical acceptance・hybrid/owned-room validationは別gateとして未完了である。Issue bolph71656-ai/Home-Theater-Digital-Twin#118のUX100〜UX160 UI/UX overhaulと各domain trackを独立管理し、R-seriesの新しいuser-facing acoustic inputをlegacy dock shellへ増築しない。採用gateはR-series fixture/ADRとUX acceptance、進捗は[実装状況](IMPLEMENTATION_STATUS.md)へ残す。
 
 
-## Competitive gap closure lifecycle — Issue #166
+## Competitive gap closure lifecycle — Issue bolph71656-ai/Home-Theater-Digital-Twin#166
 
 HTDTの実用上のgap closureは、既存N/O/R authorityを置換せず、次のend-to-end lifecycleで設計判断とevidenceを切らさないことを製品scopeとする。
 
@@ -129,7 +130,7 @@ Capture / Import
 → Validated Final System
 ```
 
-Issue #167–#176の正本状態・依存・残gateは[IMPLEMENTATION_ROADMAP](IMPLEMENTATION_ROADMAP.md)の「Competitive gap closure — Issue #166 canonical tracking」を参照する。
+Issue bolph71656-ai/Home-Theater-Digital-Twin#167–#176の正本状態・依存・残gateは[IMPLEMENTATION_ROADMAP](IMPLEMENTATION_ROADMAP.md)の「Competitive gap closure — Issue bolph71656-ai/Home-Theater-Digital-Twin#166 canonical tracking」を参照する。
 
 製品上の境界は以下を維持する。
 
@@ -139,6 +140,6 @@ Issue #167–#176の正本状態・依存・残gateは[IMPLEMENTATION_ROADMAP](I
 - unsupported prediction capabilityからSPL、phase、impedance、source strength等を捏造しない。
 - named comparison / Paretoは独立objectiveとexact evidenceを保持し、hidden総合scoreを作らない。
 - REW等の専門engineは再利用し、HTDTはSceneRevision/SystemVariant/measurement/evidence lineageを保持する。
-- domain/software completionと、#118 Windows visual acceptance、#101 numerical solver validation、#83 owned-room evidenceを別gateとして扱う。
+- domain/software completionと、bolph71656-ai/Home-Theater-Digital-Twin#118 Windows visual acceptance、bolph71656-ai/Home-Theater-Digital-Twin#101 numerical solver validation、bolph71656-ai/Home-Theater-Digital-Twin#83 owned-room evidenceを別gateとして扱う。
 
-2026-09-20時点で#167/#168/#169/#170/#171/#172/#173/#174/#175/#176はdomain acceptance完了。#171のtreatment named A/B/no-treatment comparisonはPR #223で成立済み。#101 arbitrary-room acousticsはsolver-neutral snapshot/dispatch authorityまで進んでいるが、production solver selectionとowned-room numerical validationは未完了である。
+2026-09-20時点でbolph71656-ai/Home-Theater-Digital-Twin#167/#168/#169/#170/#171/#172/#173/#174/#175/#176はdomain acceptance完了。bolph71656-ai/Home-Theater-Digital-Twin#171のtreatment named A/B/no-treatment comparisonはPR bolph71656-ai/Home-Theater-Digital-Twin#223 (merge 0022c728)で成立済み。bolph71656-ai/Home-Theater-Digital-Twin#101 arbitrary-room acousticsはsolver-neutral snapshot/dispatch authorityまで進んでいるが、production solver selectionとowned-room numerical validationは未完了である。
