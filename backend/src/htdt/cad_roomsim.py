@@ -99,6 +99,10 @@ def build_cad_roomsim_batch_request(
             )
 
     receiver_entity = preview.entity(binding.receiver_entity_id)
+    if receiver_entity.kind != 'measurement_point':
+        raise ValueError(
+            f'Room Simulator receiver binding is not a measurement point: {binding.receiver_entity_id}'
+        )
     receiver = acoustic_reference_position(receiver_entity)
     if receiver is None:
         raise ValueError('Room Simulator receiver has no acoustic reference position')

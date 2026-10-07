@@ -213,3 +213,30 @@ def test_native_roomsim_adapter_rejects_non_rectangular_room(tmp_path) -> None:
     assert exact_rectangular_room_frame(room) is None
     with pytest.raises(ValueError, match='requires an axis-aligned rectangular room'):
         build_cad_roomsim_batch_request(revision, spec, candidate, _binding())
+
+
+def test_native_roomsim_adapter_rejects_non_measurement_point_receiver(tmp_path) -> None:
+    """A speaker bound as the receiver yields a plausible-but-wrong request.
+
+    Before the guard, acoustic_reference_position() resolved any entity that
+    has an explicit offset — so a speaker could silently stand in as the mic.
+    """
+    repository = SceneRepository(tmp_path / 'cad.sqlite3')
+    revision = repository.save(_shifted_scene(), parent_revision_id=None).revision
+    spec = _spec(revision)
+    candidate = CadCandidate(
+        candidate_id='candidate-a',
+        raw_index=0,
+        feasible_index=0,
+        positions={'speaker-fl': {'x_m': 11.5, 'y_m': 21.0, 'z_m': 1.0}},
+    )
+    binding = CadRoomSimBinding(
+        receiver_entity_id='speaker-fl',
+        sources=(
+            CadRoomSimSourceBinding(entity_id='speaker-fl', rew_source_name='Left'),
+        ),
+        response_source_name='Left',
+    )
+
+    with pytest.raises(ValueError, match='not a measurement point'):
+        build_cad_roomsim_batch_request(revision, spec, candidate, binding)
