@@ -28,7 +28,7 @@ treated as cosmetic tolerance.
 
 ## Sealed record types
 
-Six append-only native tables (schema v85):
+Six append-only native tables (schema v87):
 
 | Type | Table | id prefix |
 | --- | --- | --- |
