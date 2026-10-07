@@ -1390,6 +1390,12 @@ class _RepositoryChain:
             )
 
             return CadCalibrationDeploymentRepository(scene)
+        if name == 'camilladsp_deployment':
+            from .cad_camilladsp_deployment_repository import (
+                CadCamillaDSPDeploymentRepository,
+            )
+
+            return CadCamillaDSPDeploymentRepository(scene)
         if name == 'playback_electronics':
             from .cad_playback_electronics_repository import (
                 CadPlaybackElectronicsRepository,
@@ -7076,6 +7082,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_deployment_rollbacks',
         ('rollback_id',),
         _get('deployment', 'get_rollback'),
+    ),
+    # REV64: #838 CamillaDSP deploy/read-back/rollback evidence.
+    _ReplayProbe(
+        'camilladsp_deployment_session',
+        'cad_camilladsp_deployment_sessions',
+        ('session_id',),
+        _get('camilladsp_deployment', 'get_deployment_session'),
+    ),
+    _ReplayProbe(
+        'camilladsp_runtime_observation',
+        'cad_camilladsp_runtime_observations',
+        ('observation_id',),
+        _get('camilladsp_deployment', 'get_runtime_observation'),
+    ),
+    _ReplayProbe(
+        'camilladsp_rollback_evidence',
+        'cad_camilladsp_rollback_evidence',
+        ('evidence_id',),
+        _get('camilladsp_deployment', 'get_rollback_evidence'),
     ),
     # #790 playback-electronics / electrical audio-path authority.
     _ReplayProbe(

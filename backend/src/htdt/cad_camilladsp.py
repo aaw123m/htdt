@@ -869,7 +869,16 @@ class CamillaDSPAdapter:
 
 
 class FixtureCamillaDSPTransport:
-    """Deterministic in-memory CamillaDSP daemon for CI fixtures."""
+    """Deterministic in-memory CamillaDSP daemon for CI fixtures.
+
+    Beyond the original probe/mutation commands this fixture also models
+    the runtime-telemetry and previous-config surface the #838 deploy
+    adapter consumes: ``GetPreviousConfig`` (the config the last
+    successful ``SetConfigJson`` replaced), ``GetStopReason``,
+    ``GetClippedSamples``/``ResetClippedSamples``, ``GetCaptureRate``,
+    ``GetRateAdjust``, ``GetBufferLevel``, ``GetProcessingLoad`` and
+    ``GetSignalLevels``.
+    """
 
     def __init__(
         self,
@@ -879,12 +888,31 @@ class FixtureCamillaDSPTransport:
         config: dict[str, Any] | None = None,
         reject_config: str | None = None,
         fail: bool = False,
+        previous_config: dict[str, Any] | None = None,
+        stop_reason: str = 'None',
+        clipped_samples: int = 0,
+        capture_rate_hz: int = 48000,
+        rate_adjust: float = 1.0,
+        buffer_level: int = 0,
+        processing_load_pct: float = 0.0,
+        signal_levels: dict[str, list[float]] | None = None,
     ) -> None:
         self._version = version
         self._state = state
         self._config = config if config is not None else {'devices': {}}
+        self._previous = previous_config
         self._reject_config = reject_config
         self._fail = fail
+        self._stop_reason = stop_reason
+        self._clipped_samples = clipped_samples
+        self._capture_rate_hz = capture_rate_hz
+        self._rate_adjust = rate_adjust
+        self._buffer_level = buffer_level
+        self._processing_load_pct = processing_load_pct
+        self._signal_levels = signal_levels or {
+            'playback_peak': [], 'playback_rms': [],
+            'capture_peak': [], 'capture_rms': [],
+        }
         self.requests: list[dict[str, Any]] = []
 
     def request(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -898,9 +926,47 @@ class FixtureCamillaDSPTransport:
             return {name: {'result': 'Ok', 'value': self._version}}
         if name == 'GetState':
             return {name: {'result': 'Ok', 'value': self._state}}
+        if name == 'GetStopReason':
+            return {name: {'result': 'Ok', 'value': self._stop_reason}}
+        if name == 'GetClippedSamples':
+            return {
+                name: {'result': 'Ok', 'value': self._clipped_samples}
+            }
+        if name == 'ResetClippedSamples':
+            self._clipped_samples = 0
+            return {name: {'result': 'Ok', 'value': None}}
+        if name == 'GetCaptureRate':
+            return {
+                name: {'result': 'Ok', 'value': self._capture_rate_hz}
+            }
+        if name == 'GetRateAdjust':
+            return {name: {'result': 'Ok', 'value': self._rate_adjust}}
+        if name == 'GetBufferLevel':
+            return {name: {'result': 'Ok', 'value': self._buffer_level}}
+        if name == 'GetProcessingLoad':
+            return {
+                name: {
+                    'result': 'Ok', 'value': self._processing_load_pct
+                }
+            }
+        if name == 'GetSignalLevels':
+            return {
+                name: {'result': 'Ok', 'value': dict(self._signal_levels)}
+            }
         if name in ('GetConfigJson', 'GetConfig'):
             return {
                 name: {'result': 'Ok', 'value': json.dumps(self._config)}
+            }
+        if name == 'GetPreviousConfig':
+            if self._previous is None:
+                return {
+                    name: {
+                        'result': 'Error',
+                        'value': 'no previous config stored',
+                    }
+                }
+            return {
+                name: {'result': 'Ok', 'value': json.dumps(self._previous)}
             }
         if name in ('ValidateConfigJson', 'ValidateConfig'):
             if self._reject_config is not None:
@@ -914,7 +980,7 @@ class FixtureCamillaDSPTransport:
                     name: {'result': 'Error', 'value': self._reject_config}
                 }
             try:
-                self._config = json.loads(argument)
+                replacement = json.loads(argument)
             except (json.JSONDecodeError, TypeError):
                 return {
                     name: {
@@ -922,6 +988,8 @@ class FixtureCamillaDSPTransport:
                         'value': 'config is not valid JSON',
                     }
                 }
+            self._previous = self._config
+            self._config = replacement
             return {name: {'result': 'Ok', 'value': None}}
         if name == 'Reload':
             return {name: {'result': 'Ok', 'value': None}}

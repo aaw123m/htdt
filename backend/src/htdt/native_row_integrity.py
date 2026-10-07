@@ -8655,6 +8655,43 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV64: #838 CamillaDSP deploy/read-back/rollback evidence.
+    'cad_camilladsp_deployment_sessions': (
+        'payload_json',
+        (
+            _b('session_id', 'session_id'),
+            _b('session_sha256', 'session_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id'),
+            _b('binding_sha256', 'binding_sha256'),
+            _b('candidate_config_sha256', 'candidate_config_sha256'),
+        ),
+        (),
+    ),
+    'cad_camilladsp_runtime_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('binding_sha256', 'binding_sha256'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id',
+               optional=True),
+            _b('processing_state', 'processing_state', optional=True),
+        ),
+        (),
+    ),
+    'cad_camilladsp_rollback_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('deployment_ref_id', 'deployment_ref', 'ref_id'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
     # #790 playback-electronics / electrical audio-path authority.
     'cad_electronic_audio_path_profiles': (
         'payload_json',

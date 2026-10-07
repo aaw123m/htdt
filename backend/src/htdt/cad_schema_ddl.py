@@ -8062,6 +8062,39 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     
     """
     ,
+    # REV64: #838 slice B — CamillaDSP deploy/read-back/rollback
+    # evidence (sessions, runtime observations, rollback evidence) as
+    # append-only sealed authorities.
+    """
+        CREATE TABLE IF NOT EXISTS cad_camilladsp_deployment_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, session_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL, candidate_config_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cdses_doc ON cad_camilladsp_deployment_sessions(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_camilladsp_runtime_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, binding_sha256 TEXT NOT NULL, deployment_ref_id TEXT, processing_state TEXT, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cdrt_doc ON cad_camilladsp_runtime_observations(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_camilladsp_rollback_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cdrbk_doc ON cad_camilladsp_rollback_evidence(document_id, seq ASC)
+    
+    """
+    ,
     """
         CREATE TABLE IF NOT EXISTS cad_benchmark_scene_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, asset_ref_id TEXT NOT NULL, corpus_scene_id TEXT NOT NULL, solver_path TEXT NOT NULL, phenomenon_id TEXT NOT NULL, curvature_class TEXT NOT NULL, payload_json TEXT NOT NULL )
     
@@ -9525,6 +9558,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_calibration_deployments',
     'cad_deployment_effectiveness_reports',
     'cad_deployment_rollbacks',
+    # REV64: #838 CamillaDSP deploy/read-back/rollback authorities.
+    'cad_camilladsp_deployment_sessions',
+    'cad_camilladsp_runtime_observations',
+    'cad_camilladsp_rollback_evidence',
     'cad_electronic_audio_path_profiles',
     'cad_electrical_transfer_measurements',
     'cad_electronic_linearity_evidence',
