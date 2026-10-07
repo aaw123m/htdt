@@ -1958,7 +1958,15 @@ class CaptureInboxPage(QWidget):
             lines.append(f"計画: {contribution.plan_sha256[:16]}…")
         if self._reconcile_contribution is not None:
             lines.extend(self._reconcile_contribution(contribution))
-        lines.append(f"アーティファクト: {contribution.artifact_sha256[:16]}…")
+        retention = (
+            'バイト保持'
+            if getattr(contribution, 'artifact_retained', False)
+            else 'バイト未保持'
+        )
+        lines.append(
+            f"アーティファクト: {contribution.artifact_sha256[:16]}…"
+            f"（{retention}）"
+        )
         if contribution.detail:
             lines.append(f"詳細: {contribution.detail}")
         self.contribution_detail.setText("\n".join(lines))

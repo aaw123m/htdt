@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 from pathlib import Path
 
 import pytest
 
+from htdt.cad_schema import connect_sqlite
 from htdt.field_return_ingestion import (
     FieldReturnConflictError,
     FieldReturnError,
@@ -203,6 +205,37 @@ def test_repository_stages_and_handles_duplicates(tmp_path: Path) -> None:
     assert fetched is not None
     assert fetched.artifact_sha256 == staged.artifact_sha256
     assert fetched.routing == staged.routing
+
+
+def test_repository_retains_artifact_bytes(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    staged = repository.stage(artifact, [])
+
+    # Bytes survive independently of the staging row's lifetime.
+    assert repository.artifact_bytes(CONTRIBUTION_ID) == artifact
+
+    reopened = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    assert reopened.artifact_bytes(CONTRIBUTION_ID) == artifact
+    assert reopened.get(CONTRIBUTION_ID).artifact_retained is True
+    assert reopened.list_staged()[0].artifact_retained is True
+    assert reopened.artifact_bytes('missing-contribution') is None
+
+
+def test_redelivery_heals_a_pre_retention_row(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    repository.stage(artifact, [])
+    # Simulate a row staged before byte retention existed.
+    with closing(connect_sqlite(tmp_path / 'field.sqlite3')) as connection:
+        connection.execute('DELETE FROM htdt_content_blobs')
+        connection.commit()
+    assert repository.get(CONTRIBUTION_ID).artifact_retained is False
+
+    staged, created = repository.stage_artifact(artifact, [])
+    assert created is False
+    assert repository.artifact_bytes(CONTRIBUTION_ID) == artifact
+    assert repository.get(CONTRIBUTION_ID).artifact_retained is True
 
 
 def test_duplicate_classification_is_deterministic() -> None:
