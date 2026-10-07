@@ -434,7 +434,7 @@ class MissionReturnReconciliationContext:
             for result in self.report.results
             if result.task_id not in applied
             and (
-                result.classification == 'applicable'
+                result.classification in ('applicable', 'unaffected')
                 or result.task_id in decided
             )
         )
@@ -912,7 +912,7 @@ def apply_returned_tasks(
         task.task_id: task for task in resolved.package.mission.plan.tasks
     }
     for result in resolved.report.results:
-        if result.classification == 'applicable':
+        if result.classification in ('applicable', 'unaffected'):
             task = tasks.get(result.task_id)
             if task is None:
                 skipped.append(result.task_id)
