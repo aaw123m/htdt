@@ -5243,3 +5243,31 @@ issues:
       判定の実行と発行。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 836
+  title: 'P0: External qualification program for R130/R150/R160 — minimize
+    owned-room validation without weakening production claims'
+  notes: 'REV63 Action 1: 封印済み外部検証コーパスマニフェストを実装
+    （docs/issues/issue-836-external-corpus-manifest.md）。BRAS v3 (DOI
+    10.14279/depositonce-6726.3) と BRAS RS8 (DOI 10.14279/depositonce-25649) を
+    DOI/版/ライセンス/ファイル checksum で固定し、20 シーン（RS1–RS7 直接参照、
+    CR1–CR4 補助、RS8 の 9 構成）の許容クレームを構造的に拘束。
+    scripts/fetch_external_corpus.py が checksum 検証付きの決定的取得を提供。
+    残件は Action 2–9（importer、メトリクス、修飾実行、ホールドアウト）。
+
+    '
+  checks:
+  - id: external-corpus-manifest
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_836_external_corpus.py
+    description: '外部コーパス権威: 封印/ID 整合性、決定的再構築、supporting
+      シーンの修飾クレーム拒否、stale dataset pin 拒否、fetch plan 決定性、
+      checksum 検証の fail-closed verdict。
+
+      '
+  - id: corpus-fetch-and-qualification
+    kind: manual
+    description: 'BRAS v3/RS8 の実取得（fetch_external_corpus.py）と Action 2+
+      の importer/修飾実行。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

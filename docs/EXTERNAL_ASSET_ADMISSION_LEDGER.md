@@ -72,7 +72,7 @@ current state.
 | BUT ReverbDB | DOWNLOAD_ON_DEMAND_CANDIDATE | CC BY 4.0 | multi-room RIR diversity |
 | Arni | DOWNLOAD_ON_DEMAND_CANDIDATE | CC BY 4.0 | variable-treatment/repeatability |
 | dEchorate | LICENSE_REVIEW_REQUIRED before bundle | repo/data rights must be captured separately | early reflection/source localization |
-| BRAS | LICENSE_REVIEW_REQUIRED at exact asset endpoint | benchmark paper says public/free database; exact payload terms to capture | solver benchmark |
+| BRAS v3 + RS8 | DOWNLOAD_ON_DEMAND_CANDIDATE | CC BY-SA 4.0 per DepositOnce `dc.rights.uri`; endpoints+checksums pinned in `cad_external_corpus_manifest` (#836 Action 1) | solver benchmark |
 | Motus | LICENSE_REVIEW_REQUIRED upstream | public index says CC BY 4.0; upstream check required | furniture/spatial variation |
 | Real Acoustic Fields | LOCAL_RESEARCH_ONLY | CC BY-NC 4.0 | dense real/6DoF research |
 | AcousticRooms | DOWNLOAD_ON_DEMAND_CANDIDATE | CC BY 4.0 | synthetic stress only, not physical validation |
@@ -300,7 +300,6 @@ Before a source moves to BUNDLE_CANDIDATE / approved fixture, record:
 High-value ambiguous sources must not sit at "license unclear"
 indefinitely. Bounded follow-up research records are owed for:
 
-- BRAS exact database rights/endpoint;
 - dEchorate dataset rights;
 - RPG CSV redistribution;
 - Acoustic Index API/cache/redistribution terms;
