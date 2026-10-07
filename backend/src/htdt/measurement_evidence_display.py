@@ -4990,3 +4990,20 @@ def confidence_bound_verdict_line(verdict: str) -> str:
 def confidence_bound_label(code: str) -> str:
     """JA label lookup for any bound vocabulary code (#811)."""
     return _CONFIDENCE_BOUND_LABELS.get(code, code)
+
+
+from .cad_transient_protection import (  # noqa: E402
+    TRANSIENT_PROTECTION_LABELS as _TP_LABELS,
+)
+
+
+def transient_protection_verdict_line(verdict: str) -> str:
+    """One JA line for a per-path transient-protection verdict (#789) —
+    安定した電源やUPSのライドスルーはSPD保護の証拠ではない。"""
+    return '過渡保護: ' + _TP_LABELS.get(verdict, verdict)
+
+
+def transient_protection_label(code: str) -> str:
+    """JA label lookup for any transient-protection vocabulary code
+    (#789)."""
+    return _TP_LABELS.get(code, code)

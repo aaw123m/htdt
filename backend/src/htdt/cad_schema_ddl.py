@@ -8283,6 +8283,59 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_cbr_doc ON cad_claim_bound_records(document_id, seq ASC)
     """
     ,
+    # REV63: #789 surge/lightning transient-protection authority —
+    # exact protected paths, declared plans, SPD product/listing/install
+    # evidence, health observations, staling events and sealed per-path
+    # assessments. A UPS ride-through or 'surge protector' label is not
+    # SPD evidence.
+    """
+        CREATE TABLE IF NOT EXISTS cad_protected_paths ( seq INTEGER PRIMARY KEY AUTOINCREMENT, path_id TEXT NOT NULL UNIQUE, path_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, load_ref_id TEXT NOT NULL, path_kind TEXT NOT NULL, requires_protection INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ppath_doc ON cad_protected_paths(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_transient_protection_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, jurisdiction_country TEXT, code_family TEXT, code_edition TEXT, requires_qualified_review INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_tpplan_doc ON cad_transient_protection_plans(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_spd_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spd_id TEXT NOT NULL UNIQUE, spd_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, domain TEXT NOT NULL, spd_type_class TEXT NOT NULL, standard_profile TEXT NOT NULL, install_state TEXT NOT NULL, evidence_basis TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_spd_doc ON cad_spd_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_transient_protection_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spd_ref_id TEXT NOT NULL, status TEXT NOT NULL, status_source TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_tpo_doc ON cad_transient_protection_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_transient_protection_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, event_kind TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_tpe_doc ON cad_transient_protection_events(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_transient_protection_assessments ( seq INTEGER PRIMARY KEY AUTOINCREMENT, assessment_id TEXT NOT NULL UNIQUE, assessment_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_ref_id TEXT NOT NULL, plan_ref_id TEXT, verdict TEXT NOT NULL, coordination_state TEXT NOT NULL, professional_review_required INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_tpa_doc ON cad_transient_protection_assessments(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9362,4 +9415,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_pose_input_authorities',
     'cad_solver_input_envelopes',
     'cad_claim_bound_records',
+    # REV63: #789 surge/lightning transient-protection authority.
+    'cad_protected_paths',
+    'cad_transient_protection_plans',
+    'cad_spd_evidence',
+    'cad_transient_protection_observations',
+    'cad_transient_protection_events',
+    'cad_transient_protection_assessments',
 )

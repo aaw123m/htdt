@@ -8988,6 +8988,89 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #789 surge/lightning transient-protection authority.
+    'cad_protected_paths': (
+        'payload_json',
+        (
+            _b('path_id', 'path_id'),
+            _b('path_sha256', 'path_sha256'),
+            _b('document_id', 'document_id'),
+            _b('load_ref_id', 'load_ref', 'ref_id'),
+            _b('path_kind', 'path_kind'),
+            _b('requires_protection', 'requires_protection'),
+        ),
+        (),
+    ),
+    'cad_transient_protection_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('jurisdiction_country', 'jurisdiction_country',
+               optional=True),
+            _b('code_family', 'code_family', optional=True),
+            _b('code_edition', 'code_edition', optional=True),
+            _b('requires_qualified_review', 'requires_qualified_review'),
+        ),
+        (),
+    ),
+    'cad_spd_evidence': (
+        'payload_json',
+        (
+            _b('spd_id', 'spd_id'),
+            _b('spd_sha256', 'spd_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+            _b('domain', 'domain'),
+            _b('spd_type_class', 'spd_type_class'),
+            _b('standard_profile', 'standard_profile'),
+            _b('install_state', 'install_state'),
+            _b('evidence_basis', 'evidence_basis'),
+        ),
+        (),
+    ),
+    'cad_transient_protection_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('spd_ref_id', 'spd_ref', 'ref_id'),
+            _b('status', 'status'),
+            _b('status_source', 'status_source'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_transient_protection_events': (
+        'payload_json',
+        (
+            _b('event_id', 'event_id'),
+            _b('event_sha256', 'event_sha256'),
+            _b('document_id', 'document_id'),
+            _b('event_kind', 'event_kind'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_transient_protection_assessments': (
+        'payload_json',
+        (
+            _b('assessment_id', 'assessment_id'),
+            _b('assessment_sha256', 'assessment_sha256'),
+            _b('document_id', 'document_id'),
+            _b('path_ref_id', 'path_ref', 'ref_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id', optional=True),
+            _b('verdict', 'verdict'),
+            _b('coordination_state', 'coordination_state'),
+            _b(
+                'professional_review_required',
+                'professional_review_required',
+            ),
+        ),
+        (),
+    ),
 }
 
 

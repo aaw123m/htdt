@@ -5143,3 +5143,27 @@ issues:
       バックアップの後方互換ゲート付き）。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+
+- issue: 789
+  notes: 'REV63: サージ/雷過渡保護エビデンス権威を実装（docs/issues/issue-789-transient-protection.md）。
+    保護対象経路・宣言計画・SPDエビデンス・健全性観測・陳腐化イベント・封印評価の6レコード。
+    UPSライドスルーや「サージプロテクタ」ラベルは SPD エビデンスとして扱わない。
+    残件は実機器の listing/設置/写真エビデンスと有資格レビューの現場取込（非ソフトウェア作業）。
+
+    '
+  checks:
+  - id: transient-protection-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_789_transient_protection.py
+    description: '過渡保護権威: 全 verdict 経路 fail-closed、vendor marketing 拒否、
+      非SPD機能の電源ドメイン拒否、協調未検証、イベント陳腐化と点検解除、
+      封印/id整合性、リポジトリ往復+改竄検出。
+
+      '
+  - id: field-spd-evidence-capture
+    kind: manual
+    description: '実 SPD listing/設置/写真/レビュー記録の現場取込と
+      有資格電気/雷保護レビュー。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

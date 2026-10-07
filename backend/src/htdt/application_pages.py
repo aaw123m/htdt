@@ -858,6 +858,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_pose_input_authorities": "配置入力権限",
     "cad_solver_input_envelopes": "ソルバー入力エンベロープ",
     "cad_claim_bound_records": "クレーム拘束レコード",
+    "cad_protected_paths": "保護対象経路",
+    "cad_transient_protection_plans": "過渡保護計画",
+    "cad_spd_evidence": "SPDエビデンス",
+    "cad_transient_protection_observations": "過渡保護状態観測",
+    "cad_transient_protection_events": "過渡保護イベント",
+    "cad_transient_protection_assessments": "過渡保護評価",
 }
 
 

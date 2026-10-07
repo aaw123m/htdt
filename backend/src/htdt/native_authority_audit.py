@@ -1426,6 +1426,12 @@ class _RepositoryChain:
             )
 
             return CadSolverConfidenceBoundRepository(scene)
+        if name == 'transient_protection':
+            from .cad_transient_protection_repository import (
+                CadTransientProtectionRepository,
+            )
+
+            return CadTransientProtectionRepository(scene)
         raise KeyError(name)
 
 
@@ -7200,6 +7206,44 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_claim_bound_records',
         ('record_id',),
         _get('solver_confidence', 'get_claim_bound'),
+    ),
+
+    # REV63: #789 surge/lightning transient-protection authority.
+    _ReplayProbe(
+        'protected_path',
+        'cad_protected_paths',
+        ('path_id',),
+        _get('transient_protection', 'get_path'),
+    ),
+    _ReplayProbe(
+        'transient_protection_plan',
+        'cad_transient_protection_plans',
+        ('plan_id',),
+        _get('transient_protection', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'spd_evidence',
+        'cad_spd_evidence',
+        ('spd_id',),
+        _get('transient_protection', 'get_spd'),
+    ),
+    _ReplayProbe(
+        'transient_protection_observation',
+        'cad_transient_protection_observations',
+        ('observation_id',),
+        _get('transient_protection', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'transient_protection_event',
+        'cad_transient_protection_events',
+        ('event_id',),
+        _get('transient_protection', 'get_event'),
+    ),
+    _ReplayProbe(
+        'transient_protection_assessment',
+        'cad_transient_protection_assessments',
+        ('assessment_id',),
+        _get('transient_protection', 'get_assessment'),
     ),
 
 )
