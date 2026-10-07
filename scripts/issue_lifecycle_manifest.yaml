@@ -289,3 +289,11 @@ entries:
     description: 実機オーディオ (WASAPI) でのスイープ測定検証 — 現状バックエンドは fail-closed スタブ
   evidence_refs: [docs/issues/issue-869-native-sweep.md]
   close_when_gates_clear: true
+- issue: 876
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [898], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機オーディオでチャンネル励起検証を実行 — WASAPI バックエンド非対応のため現状は simulated/scripted のみ
+  evidence_refs: [docs/issues/issue-876-channel-verification.md]
+  close_when_gates_clear: true
