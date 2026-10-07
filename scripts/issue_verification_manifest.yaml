@@ -5281,3 +5281,26 @@ issues:
       の importer/修飾実行。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 848
+  title: 'P1: Make issue lifecycle evidence-aware — open issues must distinguish landed implementation from remaining manual/physical gates'
+  notes: 'REV64: canonical lifecycle manifest (scripts/issue_lifecycle_manifest.yaml)
+    + ドリフトチェッカー/分類レポート (scripts/issue_lifecycle.py)。
+    docs/issues/issue-848-lifecycle.md 参照。open issue 全件で drift エラー 0。
+
+    '
+  checks:
+  - id: issue-lifecycle-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_848_lifecycle.py
+    description: 'ライフサイクル権威: fail-closed パース、全ドリフトルール
+      （landed_without_refs / complete_with_gates / closed_but_active /
+      unclassified / landed_no_gate_not_complete）、バケット分類、
+      緑ソフトウェア≠完了、実マニフェストの drift エラー 0。
+
+      '
+  - id: lifecycle-metadata-maintenance
+    kind: manual
+    description: 'PR 着地時・ゲート解消時に issue_lifecycle_manifest.yaml を更新する運用。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

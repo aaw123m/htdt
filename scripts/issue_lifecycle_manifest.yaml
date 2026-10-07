@@ -1,0 +1,256 @@
+# Issue #848 — canonical evidence-aware issue lifecycle metadata.
+#
+# GitHub open/closed is binary; HTDT's completion model is not. This
+# manifest records, per tracked issue: what has landed (exact PR/commit
+# refs), what gate kinds remain, and the canonical lifecycle state that
+# `scripts/issue_lifecycle.py` classifies and drift-checks.
+#
+# lifecycle values:
+#   planned                        — scoped, no implementation started
+#   in_progress                    — implementation underway
+#   software_landed                — implementation merged; no gate declared
+#   acceptance_remaining           — landed; automated/manual acceptance red
+#   physical_evidence_remaining    — landed; physical/owned-room evidence missing
+#   structural_followup_remaining  — landed; restructuring/follow-up issues remain
+#   complete                       — every declared gate cleared; safe to close
+#   withdrawn                      — closed as wontfix/duplicate
+#   superseded                     — replaced by a newer issue (record `superseded_by`)
+#
+# Rules enforced by the checker (never inferred from software tests):
+#   - landed states require at least one landed.prs/commits ref
+#   - `complete` requires remaining_gates == []
+#   - GitHub-closed issues must not carry an active lifecycle
+#   - entries in issue_verification_manifest.yaml without a lifecycle
+#     record are reported as `unclassified` — never silently assumed.
+version: 1
+
+entries:
+- issue: 789
+  lifecycle: acceptance_remaining
+  landed: {prs: [827], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — サージ/雷過渡保護エビデンス権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-789-transient-protection.md]
+  close_when_gates_clear: true
+
+- issue: 790
+  lifecycle: acceptance_remaining
+  landed: {prs: [816], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 再生系電気伝送権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-790-electronics.md]
+  close_when_gates_clear: true
+
+- issue: 791
+  lifecycle: acceptance_remaining
+  landed: {prs: [828], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 運用エネルギー権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-791-operational-energy.md]
+  close_when_gates_clear: true
+
+- issue: 792
+  lifecycle: acceptance_remaining
+  landed: {prs: [818], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — ライフサイクル/サポート性権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-792-lifecycle.md]
+  close_when_gates_clear: true
+
+- issue: 793
+  lifecycle: acceptance_remaining
+  landed: {prs: [820], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — ライブ観測権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-793-live-spectrum.md]
+  close_when_gates_clear: true
+
+- issue: 801
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [834], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 所有ルーム検証キャンペーン実測（#813 権威配線済み）
+  - kind: manual
+    description: 初回本番採用判定（verify_surface_decision のリプレイ証跡で判定）
+  evidence_refs: [docs/issues/issue-801-production-readiness.md]
+  close_when_gates_clear: true
+
+- issue: 803
+  lifecycle: complete
+  landed: {prs: [824], commits: []}
+  remaining_gates: []
+  evidence_refs: [docs/issues/issue-803-traceability.md]
+  close_when_gates_clear: true
+
+- issue: 804
+  lifecycle: acceptance_remaining
+  landed: {prs: [821, 846], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: UX160 実機受理行（実ポインタ/VTKジェスチャ + 日本語可読性の目視評価）
+  evidence_refs: [docs/issues/issue-804-golden-path.md]
+  close_when_gates_clear: true
+
+- issue: 805
+  lifecycle: structural_followup_remaining
+  landed: {prs: [835], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 標準カバレッジ拡張の残件（#839 ソースマトリクスで追跡）
+  evidence_refs: [docs/issues/issue-805-standards.md]
+  close_when_gates_clear: true
+
+- issue: 806
+  lifecycle: structural_followup_remaining
+  landed: {prs: [819], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: プロバイダアダプタ実装（#838 REW/CamillaDSP/miniDSP で追跡）
+  evidence_refs: [docs/issues/issue-806-deployment.md]
+  close_when_gates_clear: true
+
+- issue: 807
+  lifecycle: structural_followup_remaining
+  landed: {prs: [825], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 監査済みパッケージ境界への実リファクタ（継続作業）
+  evidence_refs: [docs/issues/issue-807-boundaries.md]
+  close_when_gates_clear: true
+
+- issue: 809
+  lifecycle: structural_followup_remaining
+  landed: {prs: [823], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: BRAS v3/RS8 データセット取込 + 修飾実行（#836 Action 2–6 で追跡）
+  evidence_refs: [docs/issues/issue-809-qualification.md]
+  close_when_gates_clear: true
+
+- issue: 810
+  lifecycle: acceptance_remaining
+  landed: {prs: [826], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 不確かさ対応検証権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-810-uncertainty.md]
+  close_when_gates_clear: true
+
+- issue: 811
+  lifecycle: acceptance_remaining
+  landed: {prs: [822], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 入力権威信頼度上限の維持者レビュー
+  evidence_refs: [docs/issues/issue-811-confidence-bound.md]
+  close_when_gates_clear: true
+
+- issue: 812
+  lifecycle: acceptance_remaining
+  landed: {prs: [840], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — R160 ハイブリッド独立検証権威の維持者レビュー
+  evidence_refs: [docs/issues/issue-812-hybrid-composition-validation.md]
+  close_when_gates_clear: true
+
+- issue: 813
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [831], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 所有ルーム holdout キャンペーン実測（権威+評価ラダー着地済み、実測のみ残）
+  evidence_refs: [docs/issues/issue-813-owned-room-campaign.md]
+  close_when_gates_clear: true
+
+- issue: 814
+  lifecycle: acceptance_remaining
+  landed: {prs: [830], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 信頼度/適用性エンベロープ面の維持者レビュー
+  evidence_refs: [docs/issues/issue-814-envelope.md]
+  close_when_gates_clear: true
+
+- issue: 815
+  lifecycle: acceptance_remaining
+  landed: {prs: [829], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ドメイン受理 — 型付きエラー境界の維持者レビュー（残 broad-except 監査）
+  evidence_refs: [docs/issues/issue-815-error-boundaries.md]
+  close_when_gates_clear: true
+
+- issue: 832
+  lifecycle: in_progress
+  landed: {prs: [], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 収束ゲート運用 — 列挙ブロッカーのソフトウェア面は全着地、#804/#801 の手動ゲート残
+  evidence_refs: []
+  close_when_gates_clear: true
+
+- issue: 833
+  lifecycle: complete
+  landed: {prs: [842], commits: []}
+  remaining_gates: []
+  evidence_refs: [docs/issues/issue-833-verification-gate.md]
+  close_when_gates_clear: true
+
+- issue: 836
+  lifecycle: structural_followup_remaining
+  landed: {prs: [843], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 'Action 2–6: BRAS importer・メトリクス・修飾実行（コーパス権威着地済み）'
+  evidence_refs: [docs/issues/issue-836-external-corpus-manifest.md]
+  close_when_gates_clear: true
+
+- issue: 838
+  lifecycle: in_progress
+  landed: {prs: [], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 'REV64 スライス: REW プロバイダ + CamillaDSP/miniDSP（子セッション稼働中）'
+  evidence_refs: []
+  close_when_gates_clear: true
+
+- issue: 839
+  lifecycle: in_progress
+  landed: {prs: [], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 'REV64 スライス: 標準ソースマトリクス権威（子セッション稼働中）'
+  evidence_refs: []
+  close_when_gates_clear: true
+
+- issue: 848
+  lifecycle: in_progress
+  landed: {prs: [], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: 本マニフェスト + ドリフトチェッカー（REV64 実装中）
+  evidence_refs: [docs/issues/issue-848-lifecycle.md]
+  close_when_gates_clear: true
+
+- issue: 849
+  lifecycle: planned
+  landed: {prs: [], commits: []}
+  remaining_gates:
+  - kind: structural
+    description: Authenticode 署名ステージ + マニフェスト publisher_signature 分離
+  evidence_refs: []
+  close_when_gates_clear: true
+
+- issue: 808
+  lifecycle: complete
+  landed: {prs: [], commits: []}
+  remaining_gates: []
+  evidence_refs: []
+  close_when_gates_clear: true
