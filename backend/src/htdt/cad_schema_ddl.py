@@ -8399,6 +8399,25 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_crv_doc ON cad_campaign_verdicts(document_id, seq ASC)
     """
     ,
+    # REV63: #801 production-readiness gate — adoption decisions binding
+    # the full evidence chain and issued recommendation surface
+    # enablements.
+    """
+        CREATE TABLE IF NOT EXISTS cad_production_readiness_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, decision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_ref_id TEXT NOT NULL, solver_version_ref_id TEXT NOT NULL, solver_path_kind TEXT NOT NULL, outcome TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_prd_doc ON cad_production_readiness_decisions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_recommendation_surface_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, surface_decision_id TEXT NOT NULL UNIQUE, surface_decision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, decision_ref_id TEXT NOT NULL, outcome_at_issue TEXT NOT NULL, issued_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rsd_doc ON cad_recommendation_surface_decisions(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9494,4 +9513,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_campaign_preregistrations',
     'cad_campaign_measurements',
     'cad_campaign_verdicts',
+    # REV63: #801 production-readiness gate.
+    'cad_production_readiness_decisions',
+    'cad_recommendation_surface_decisions',
 )

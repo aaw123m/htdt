@@ -5093,3 +5093,26 @@ def applicability_decision_line(decision: str, verdict: str) -> str:
     name = _ENVELOPE_DECISION_LABELS.get(decision, decision)
     verdict_label = _ENVELOPE_DECISION_VERDICT_LABELS.get(verdict, verdict)
     return f'{name}: {verdict_label}'
+
+
+from .cad_production_readiness import (  # noqa: E402
+    PRODUCTION_LABELS as _PRODUCTION_LABELS,
+    SURFACE_STATE_LABELS as _SURFACE_STATE_LABELS,
+)
+
+
+def production_readiness_label(code: str) -> str:
+    """JA label lookup for any production-readiness vocabulary code
+    (#801)."""
+    return _PRODUCTION_LABELS.get(code, code)
+
+
+def production_readiness_line(outcome: str, surface: str,
+                            state: str) -> str:
+    """One JA line explaining why a recommendation surface is in its
+    state (#801) — product UI must explain unavailability without
+    implementation jargon."""
+    surface_label = _PRODUCTION_LABELS.get(surface, surface)
+    state_label = _SURFACE_STATE_LABELS.get(state, state)
+    outcome_label = _PRODUCTION_LABELS.get(outcome, outcome)
+    return f'{surface_label}: {state_label}（採用判定: {outcome_label}）'

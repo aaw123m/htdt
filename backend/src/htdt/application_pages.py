@@ -871,6 +871,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_campaign_preregistrations": "キャンペーン事前登録",
     "cad_campaign_measurements": "キャンペーン測定",
     "cad_campaign_verdicts": "キャンペーン評価",
+    "cad_production_readiness_decisions": "本番適格判定",
+    "cad_recommendation_surface_decisions": "推奨サーフェス判定",
 }
 
 

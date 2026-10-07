@@ -9166,6 +9166,33 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #801 production-readiness gate.
+    'cad_production_readiness_decisions': (
+        'payload_json',
+        (
+            _b('decision_id', 'decision_id'),
+            _b('decision_sha256', 'decision_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scene_ref_id', 'scene_ref', 'ref_id'),
+            _b('solver_version_ref_id', 'solver_version_ref', 'ref_id'),
+            _b('solver_path_kind', 'solver_path_kind'),
+            _b('outcome', 'outcome'),
+            _b('decided_at_utc', 'decided_at_utc'),
+        ),
+        (),
+    ),
+    'cad_recommendation_surface_decisions': (
+        'payload_json',
+        (
+            _b('surface_decision_id', 'surface_decision_id'),
+            _b('surface_decision_sha256', 'surface_decision_sha256'),
+            _b('document_id', 'document_id'),
+            _b('decision_ref_id', 'decision_ref', 'ref_id'),
+            _b('outcome_at_issue', 'outcome_at_issue'),
+            _b('issued_at_utc', 'issued_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

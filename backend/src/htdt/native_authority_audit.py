@@ -1444,6 +1444,12 @@ class _RepositoryChain:
             )
 
             return CadOwnedRoomCampaignRepository(scene)
+        if name == 'production_readiness':
+            from .cad_production_readiness_repository import (
+                CadProductionReadinessRepository,
+            )
+
+            return CadProductionReadinessRepository(scene)
         raise KeyError(name)
 
 
@@ -7302,6 +7308,20 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_campaign_verdicts',
         ('verdict_id',),
         _get('owned_room_campaign', 'get_verdict'),
+    ),
+
+    # REV63: #801 production-readiness gate.
+    _ReplayProbe(
+        'production_readiness_decision',
+        'cad_production_readiness_decisions',
+        ('decision_id',),
+        _get('production_readiness', 'get_decision'),
+    ),
+    _ReplayProbe(
+        'recommendation_surface_decision',
+        'cad_recommendation_surface_decisions',
+        ('surface_decision_id',),
+        _get('production_readiness', 'get_surface_decision'),
     ),
 
 )

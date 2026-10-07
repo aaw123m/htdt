@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 90
+NATIVE_SCHEMA_VERSION = 91
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1980,6 +1980,15 @@ def _migrate_89_to_90(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_90_to_91(connection: sqlite3.Connection) -> None:
+    # REV63: #801 production-readiness gate — adoption decisions
+    # binding the full evidence chain and issued recommendation
+    # surface enablements: new append-only authorities the idempotent
+    # baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2071,6 +2080,7 @@ _MIGRATIONS = {
     88: _migrate_87_to_88,
     89: _migrate_88_to_89,
     90: _migrate_89_to_90,
+    91: _migrate_90_to_91,
 }
 
 
