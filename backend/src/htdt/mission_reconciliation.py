@@ -748,12 +748,22 @@ class FieldReturnApplication(BaseModel):
 
 
 class ApplicationOutcome(BaseModel):
-    """Summary of one apply run."""
+    """Summary of one apply run.
+
+    ``unresolved_refs`` names applied record refs the retained artifact
+    could not resolve — the device claimed evidence that its own
+    container does not carry; the binding is recorded verbatim (it is a
+    ledger of the claim) but the gap is reported, never silenced.
+    ``refs_unverifiable`` marks the weaker honesty state: refs were
+    applied but no retained artifact could verify them.
+    """
 
     model_config = ConfigDict(frozen=True, extra='forbid')
 
     applied: tuple[FieldReturnApplication, ...]
     skipped_task_ids: tuple[str, ...]
+    unresolved_refs: tuple[str, ...] = ()
+    refs_unverifiable: bool = False
 
 
 def _application_row(row: object) -> FieldReturnApplication:
@@ -1037,6 +1047,47 @@ def apply_returned_tasks(
                     resolved.package.mission.mission_id,
                 ),
             )
+    unresolved_refs: list[str] = []
+    refs_unverifiable = False
+    applied_refs = sorted(
+        {ref for application in applications for ref in application.record_refs}
+    )
+    if applied_refs:
+        from .field_return_ingestion import (
+            FieldReturnError,
+            FieldReturnManifest,
+            FieldReturnRepository,
+        )
+
+        try:
+            flat = FieldReturnManifest.model_validate_json(manifest_json)
+        except ValueError:
+            flat = None
+        if flat is not None:
+            # The flat manifest IS the record store — its own
+            # validation already pins fulfilled_by_ref to a carried
+            # record, so anything missing here is a forged manifest.
+            carried = {record.record_id for record in flat.records}
+            unresolved_refs = [
+                ref for ref in applied_refs if ref not in carried
+            ]
+        else:
+            try:
+                resolved_tasks = FieldReturnRepository(
+                    scene_repository.path
+                ).resolve_return_refs(contribution_id)
+            except FieldReturnError:
+                resolved_tasks = None
+            if resolved_tasks is None:
+                refs_unverifiable = True
+            else:
+                unresolved_refs = sorted(
+                    ref.ref
+                    for task in resolved_tasks
+                    for ref in task.refs
+                    if ref.state == 'unresolved'
+                    and ref.ref in applied_refs
+                )
     return ApplicationOutcome(
         applied=tuple(applications),
         skipped_task_ids=tuple(
@@ -1044,4 +1095,6 @@ def apply_returned_tasks(
             for task_id in skipped
             if task_ids is None or task_id in task_ids
         ),
+        unresolved_refs=tuple(unresolved_refs),
+        refs_unverifiable=refs_unverifiable,
     )
