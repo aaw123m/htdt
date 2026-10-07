@@ -90,7 +90,7 @@ entries:
 
 - issue: 804
   lifecycle: acceptance_remaining
-  landed: {prs: [821, 846], commits: []}
+  landed: {prs: [821, 846, 851], commits: []}
   remaining_gates:
   - kind: manual
     description: UX160 実機受理行（実ポインタ/VTKジェスチャ + 日本語可読性の目視評価）
@@ -231,20 +231,20 @@ entries:
   close_when_gates_clear: true
 
 - issue: 848
-  lifecycle: in_progress
-  landed: {prs: [], commits: []}
+  lifecycle: acceptance_remaining
+  landed: {prs: [851], commits: []}
   remaining_gates:
-  - kind: structural
-    description: 本マニフェスト + ドリフトチェッカー（REV64 実装中）
+  - kind: manual
+    description: 継続運用 — 着地PR/ゲート解消に応じた本マニフェストの保守
   evidence_refs: [docs/issues/issue-848-lifecycle.md]
   close_when_gates_clear: true
 
 - issue: 849
-  lifecycle: planned
-  landed: {prs: [], commits: []}
+  lifecycle: acceptance_remaining
+  landed: {prs: [852], commits: []}
   remaining_gates:
-  - kind: structural
-    description: Authenticode 署名ステージ + マニフェスト publisher_signature 分離
+  - kind: manual
+    description: HTDT_CODESIGN_* org secret 設定 + 実署名リリース実施
   evidence_refs: []
   close_when_gates_clear: true
 
