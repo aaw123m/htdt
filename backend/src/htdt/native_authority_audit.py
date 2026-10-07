@@ -1420,6 +1420,12 @@ class _RepositoryChain:
             )
 
             return CadValidationUncertaintyRepository(scene)
+        if name == 'solver_confidence':
+            from .cad_solver_confidence_bound_repository import (
+                CadSolverConfidenceBoundRepository,
+            )
+
+            return CadSolverConfidenceBoundRepository(scene)
         raise KeyError(name)
 
 
@@ -7156,6 +7162,44 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_uncertainty_validation_verdicts',
         ('verdict_id',),
         _get('validation_uncertainty', 'get_verdict'),
+    ),
+
+    # REV63: #811 solver-confidence-bound authority.
+    _ReplayProbe(
+        'material_input_authority',
+        'cad_material_input_authorities',
+        ('material_id',),
+        _get('solver_confidence', 'get_material_authority'),
+    ),
+    _ReplayProbe(
+        'source_directivity_authority',
+        'cad_source_directivity_authorities',
+        ('directivity_id',),
+        _get('solver_confidence', 'get_directivity_authority'),
+    ),
+    _ReplayProbe(
+        'geometry_input_authority',
+        'cad_geometry_input_authorities',
+        ('geometry_id',),
+        _get('solver_confidence', 'get_geometry_authority'),
+    ),
+    _ReplayProbe(
+        'pose_input_authority',
+        'cad_pose_input_authorities',
+        ('pose_id',),
+        _get('solver_confidence', 'get_pose_authority'),
+    ),
+    _ReplayProbe(
+        'solver_input_envelope',
+        'cad_solver_input_envelopes',
+        ('envelope_id',),
+        _get('solver_confidence', 'get_input_envelope'),
+    ),
+    _ReplayProbe(
+        'claim_bound_record',
+        'cad_claim_bound_records',
+        ('record_id',),
+        _get('solver_confidence', 'get_claim_bound'),
     ),
 
 )

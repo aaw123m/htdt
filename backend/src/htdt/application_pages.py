@@ -852,6 +852,12 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_validation_uncertainty_protocols": "不確かさ検証プロトコル",
     "cad_observable_uncertainty_evaluations": "観測量不確かさ評価",
     "cad_uncertainty_validation_verdicts": "不確かさ検証判定",
+    "cad_material_input_authorities": "材料入力権限",
+    "cad_source_directivity_authorities": "音源指向性入力権限",
+    "cad_geometry_input_authorities": "幾何入力権限",
+    "cad_pose_input_authorities": "配置入力権限",
+    "cad_solver_input_envelopes": "ソルバー入力エンベロープ",
+    "cad_claim_bound_records": "クレーム拘束レコード",
 }
 
 

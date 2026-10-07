@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 86
+NATIVE_SCHEMA_VERSION = 87
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1943,6 +1943,15 @@ def _migrate_85_to_86(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_86_to_87(connection: sqlite3.Connection) -> None:
+    # REV63: #811 solver-confidence-bound authority — per-dimension
+    # input authorities (material, source directivity, geometry, pose),
+    # the solver input envelope and the per-claim bound record: new
+    # append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2030,6 +2039,7 @@ _MIGRATIONS = {
     84: _migrate_83_to_84,
     85: _migrate_84_to_85,
     86: _migrate_85_to_86,
+    87: _migrate_86_to_87,
 }
 
 

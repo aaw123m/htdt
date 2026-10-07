@@ -4974,3 +4974,19 @@ def uncertainty_band_line(verdict: str) -> str:
     """One JA line for a per-band uncertainty verdict (#810) —
     ブロードバンド平均は狭帯域の失敗を覆い隠せない。"""
     return '帯域評価: ' + _VUQ_LABELS.get(verdict, verdict)
+
+
+from .cad_solver_confidence_bound import (  # noqa: E402
+    CONFIDENCE_BOUND_LABELS as _CONFIDENCE_BOUND_LABELS,
+)
+
+
+def confidence_bound_verdict_line(verdict: str) -> str:
+    """One JA line for a solver-confidence bound verdict (#811) —
+    高精度ソルバーは弱い入力権限を上書きしない。"""
+    return '信頼度上限: ' + _CONFIDENCE_BOUND_LABELS.get(verdict, verdict)
+
+
+def confidence_bound_label(code: str) -> str:
+    """JA label lookup for any bound vocabulary code (#811)."""
+    return _CONFIDENCE_BOUND_LABELS.get(code, code)

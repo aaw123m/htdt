@@ -8231,6 +8231,58 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_uvv_doc ON cad_uncertainty_validation_verdicts(document_id, seq ASC)
     """
     ,
+    # REV63: #811 solver-confidence-bound authority —
+    # per-dimension input authorities (material, source directivity,
+    # geometry, pose), the solver input envelope that binds them, and the
+    # per-claim bound record produced by the fail-closed evaluator.
+    """
+        CREATE TABLE IF NOT EXISTS cad_material_input_authorities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, material_id TEXT NOT NULL UNIQUE, material_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, authority_class TEXT NOT NULL, quantity TEXT NOT NULL, method_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mia_doc ON cad_material_input_authorities(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_source_directivity_authorities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, directivity_id TEXT NOT NULL UNIQUE, directivity_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, provenance_class TEXT NOT NULL, format_compliance TEXT NOT NULL, coverage TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sda_doc ON cad_source_directivity_authorities(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_geometry_input_authorities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, geometry_id TEXT NOT NULL UNIQUE, geometry_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, fidelity_class TEXT NOT NULL, scene_revision_ref_id TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gia_doc ON cad_geometry_input_authorities(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_pose_input_authorities ( seq INTEGER PRIMARY KEY AUTOINCREMENT, pose_id TEXT NOT NULL UNIQUE, pose_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_kind TEXT NOT NULL, subject_ref_id TEXT NOT NULL, authority_class TEXT NOT NULL, modal_sensitivity TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_pia_doc ON cad_pose_input_authorities(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_solver_input_envelopes ( seq INTEGER PRIMARY KEY AUTOINCREMENT, envelope_id TEXT NOT NULL UNIQUE, envelope_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, solver_request_ref_id TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sie_doc ON cad_solver_input_envelopes(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_claim_bound_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, record_id TEXT NOT NULL UNIQUE, record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, input_envelope_ref_id TEXT NOT NULL, evaluator_version TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cbr_doc ON cad_claim_bound_records(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9303,4 +9355,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_validation_uncertainty_protocols',
     'cad_observable_uncertainty_evaluations',
     'cad_uncertainty_validation_verdicts',
+    # REV63: #811 solver-confidence-bound authority.
+    'cad_material_input_authorities',
+    'cad_source_directivity_authorities',
+    'cad_geometry_input_authorities',
+    'cad_pose_input_authorities',
+    'cad_solver_input_envelopes',
+    'cad_claim_bound_records',
 )

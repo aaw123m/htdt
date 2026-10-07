@@ -8916,6 +8916,78 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #811 solver-confidence-bound authority.
+    'cad_material_input_authorities': (
+        'payload_json',
+        (
+            _b('material_id', 'material_id'),
+            _b('material_sha256', 'material_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('authority_class', 'authority_class'),
+            _b('quantity', 'quantity'),
+            _b('method_class', 'method_class'),
+        ),
+        (),
+    ),
+    'cad_source_directivity_authorities': (
+        'payload_json',
+        (
+            _b('directivity_id', 'directivity_id'),
+            _b('directivity_sha256', 'directivity_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('provenance_class', 'provenance_class'),
+            _b('format_compliance', 'format_compliance'),
+            _b('coverage', 'coverage'),
+        ),
+        (),
+    ),
+    'cad_geometry_input_authorities': (
+        'payload_json',
+        (
+            _b('geometry_id', 'geometry_id'),
+            _b('geometry_sha256', 'geometry_sha256'),
+            _b('document_id', 'document_id'),
+            _b('fidelity_class', 'fidelity_class'),
+            _b('scene_revision_ref_id', 'scene_revision_ref', 'ref_id', optional=True),
+        ),
+        (),
+    ),
+    'cad_pose_input_authorities': (
+        'payload_json',
+        (
+            _b('pose_id', 'pose_id'),
+            _b('pose_sha256', 'pose_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_kind', 'subject_kind'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('authority_class', 'authority_class'),
+            _b('modal_sensitivity', 'modal_sensitivity'),
+        ),
+        (),
+    ),
+    'cad_solver_input_envelopes': (
+        'payload_json',
+        (
+            _b('envelope_id', 'envelope_id'),
+            _b('envelope_sha256', 'envelope_sha256'),
+            _b('document_id', 'document_id'),
+            _b('solver_request_ref_id', 'solver_request_ref', 'ref_id'),
+        ),
+        (),
+    ),
+    'cad_claim_bound_records': (
+        'payload_json',
+        (
+            _b('record_id', 'record_id'),
+            _b('record_sha256', 'record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('input_envelope_ref_id', 'input_envelope_ref', 'ref_id'),
+            _b('evaluator_version', 'evaluator_version'),
+        ),
+        (),
+    ),
 }
 
 
