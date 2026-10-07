@@ -1414,6 +1414,12 @@ class _RepositoryChain:
             )
 
             return CadLiveSpectrumRepository(scene)
+        if name == 'validation_uncertainty':
+            from .cad_validation_uncertainty_repository import (
+                CadValidationUncertaintyRepository,
+            )
+
+            return CadValidationUncertaintyRepository(scene)
         raise KeyError(name)
 
 
@@ -7130,6 +7136,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_benchmark_qualifications',
         ('qualification_id',),
         _get('benchmark_qualification', 'get_qualification'),
+    ),
+
+    # REV63: #810 uncertainty-aware validation authority.
+    _ReplayProbe(
+        'validation_uncertainty_protocol',
+        'cad_validation_uncertainty_protocols',
+        ('protocol_id',),
+        _get('validation_uncertainty', 'get_protocol'),
+    ),
+    _ReplayProbe(
+        'observable_uncertainty_evaluation',
+        'cad_observable_uncertainty_evaluations',
+        ('evaluation_id',),
+        _get('validation_uncertainty', 'get_evaluation'),
+    ),
+    _ReplayProbe(
+        'uncertainty_validation_verdict',
+        'cad_uncertainty_validation_verdicts',
+        ('verdict_id',),
+        _get('validation_uncertainty', 'get_verdict'),
     ),
 
 )

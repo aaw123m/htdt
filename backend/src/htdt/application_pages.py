@@ -849,6 +849,9 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_spl_time_histories": "SPL時系列履歴",
     "cad_captured_live_traces": "ライブ捕捉トレース",
     "cad_live_event_annotations": "ライブイベント注釈",
+    "cad_validation_uncertainty_protocols": "不確かさ検証プロトコル",
+    "cad_observable_uncertainty_evaluations": "観測量不確かさ評価",
+    "cad_uncertainty_validation_verdicts": "不確かさ検証判定",
 }
 
 

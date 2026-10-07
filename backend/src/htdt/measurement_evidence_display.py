@@ -4957,3 +4957,20 @@ def live_observation_line(verdict: str) -> str:
     """One JA line for a live-observation verdict (#793) —
     ライブ表示は証拠ではなく、単ch観測は伝達関数ではない。"""
     return 'ライブ観測: ' + _LIVE_LABELS.get(verdict, verdict)
+
+
+from .cad_validation_uncertainty import (  # noqa: E402
+    VUQ_LABELS as _VUQ_LABELS,
+)
+
+
+def uncertainty_validation_line(verdict: str) -> str:
+    """One JA line for an uncertainty-aware validation verdict (#810) —
+    dB残差の単一閾値は物理的妥当性の声明ではない。"""
+    return '不確かさ検証: ' + _VUQ_LABELS.get(verdict, verdict)
+
+
+def uncertainty_band_line(verdict: str) -> str:
+    """One JA line for a per-band uncertainty verdict (#810) —
+    ブロードバンド平均は狭帯域の失敗を覆い隠せない。"""
+    return '帯域評価: ' + _VUQ_LABELS.get(verdict, verdict)

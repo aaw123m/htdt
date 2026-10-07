@@ -8863,6 +8863,59 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #810 uncertainty-aware validation authority.
+    'cad_validation_uncertainty_protocols': (
+        'payload_json',
+        (
+            _b('protocol_id', 'protocol_id'),
+            _b('protocol_sha256', 'protocol_sha256'),
+            _b('document_id', 'document_id'),
+            _b('model_id', 'model_id'),
+            _b('protocol_version', 'protocol_version'),
+            _b('calibration_uncertainty_tuned', 'calibration_uncertainty_tuned'),
+        ),
+        (),
+    ),
+    'cad_observable_uncertainty_evaluations': (
+        'payload_json',
+        (
+            _b('evaluation_id', 'evaluation_id'),
+            _b('evaluation_sha256', 'evaluation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('protocol_ref_id', 'protocol_ref', 'ref_id'),
+            _b('candidate_id', 'candidate_id'),
+            _b('split', 'split'),
+            _b('observable_id', 'observable', 'observable_id'),
+            _b('summary_verdict', 'summary_verdict'),
+            _b(
+                'dominant_uncertainty_category',
+                'dominant_uncertainty_category',
+            ),
+        ),
+        (),
+    ),
+    'cad_uncertainty_validation_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('protocol_ref_id', 'protocol_ref', 'ref_id'),
+            _b(
+                'validation_ref_id', 'validation_ref', 'ref_id',
+                optional=True,
+            ),
+            _b('evidence_scope', 'evidence_scope'),
+            _b('absolute_verdict', 'absolute_verdict'),
+            _b('ranking_verdict', 'ranking_verdict'),
+            _b('calibration_state', 'calibration_state'),
+            _b(
+                'model_form_discrepancy_suspected',
+                'model_form_discrepancy_suspected',
+            ),
+        ),
+        (),
+    ),
 }
 
 

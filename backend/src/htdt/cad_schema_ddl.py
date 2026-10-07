@@ -8207,6 +8207,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_lea_doc ON cad_live_event_annotations(document_id, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_validation_uncertainty_protocols ( seq INTEGER PRIMARY KEY AUTOINCREMENT, protocol_id TEXT NOT NULL UNIQUE, protocol_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, model_id TEXT NOT NULL, protocol_version TEXT NOT NULL, calibration_uncertainty_tuned INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_vup_doc ON cad_validation_uncertainty_protocols(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_observable_uncertainty_evaluations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id TEXT NOT NULL UNIQUE, evaluation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, protocol_ref_id TEXT NOT NULL, candidate_id TEXT NOT NULL, split TEXT NOT NULL, observable_id TEXT NOT NULL, summary_verdict TEXT NOT NULL, dominant_uncertainty_category TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uoe_doc ON cad_observable_uncertainty_evaluations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_uncertainty_validation_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, protocol_ref_id TEXT NOT NULL, validation_ref_id TEXT, evidence_scope TEXT NOT NULL, absolute_verdict TEXT NOT NULL, ranking_verdict TEXT NOT NULL, calibration_state TEXT NOT NULL, model_form_discrepancy_suspected INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uvv_doc ON cad_uncertainty_validation_verdicts(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9275,4 +9299,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_benchmark_scene_mappings',
     'cad_benchmark_preregistrations',
     'cad_benchmark_qualifications',
+    # REV63: #810 uncertainty-aware validation authority.
+    'cad_validation_uncertainty_protocols',
+    'cad_observable_uncertainty_evaluations',
+    'cad_uncertainty_validation_verdicts',
 )
