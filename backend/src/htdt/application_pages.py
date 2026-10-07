@@ -36,6 +36,11 @@ from PySide6.QtWidgets import (
 from .build_info import version_string
 from .cad_repository import SceneRepository
 from .capture_inbox import capture_inbox_item_project_id
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -1941,7 +1946,15 @@ class CaptureInboxPage(QWidget):
                 self._active_rebase_context = self._rebase_context(
                     contribution
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:
+                # The decision surface degrades to 'no context', never
+                # silently — and an authority/integrity failure must not
+                # masquerade as 'nothing to decide'.
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(
+                    exc, operation='再基準コンテキストの解決'
+                )
                 self._active_rebase_context = None
             self.rebase_button.setEnabled(
                 bool(
@@ -1996,8 +2009,13 @@ class CaptureInboxPage(QWidget):
                 resolved_tasks = self._resolve_return_evidence(
                     contribution
                 )
-            except Exception as exc:
-                lines.append(f"証跡: 解読失敗（{exc}）")
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise
+                lines.append(
+                    "証跡: 解読失敗（"
+                    f"{operation_error_message(exc)}）"
+                )
             else:
                 if resolved_tasks is not None:
                     counts = {
@@ -2037,9 +2055,22 @@ class CaptureInboxPage(QWidget):
         undecided = getattr(context, 'undecided', None)
         if not undecided or self._rebase_record is None:
             return
-        task_labels = [
+        # Labels must be unique — two undecided tasks can share the
+        # 8-char prefix and reason, and matching by text would silently
+        # record the decision against whichever sorts first.
+        raw_task_labels = [
             f'{result.task_id[:8]}… — {result.reason}'
             for result in undecided
+        ]
+        task_labels = [
+            (
+                label
+                if raw_task_labels.count(label) == 1
+                else f'{label} [{result.task_id}]'
+            )
+            for label, result in zip(
+                raw_task_labels, undecided, strict=True
+            )
         ]
         choice, ok = QInputDialog.getItem(
             self, "再基準決定", "対象タスク:", task_labels, 0, False
