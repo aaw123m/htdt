@@ -1,0 +1,302 @@
+version: 1
+repo: ka0923s-a11y/HTDT
+
+# Release-candidate software verification manifest (issue #833).
+#
+# This manifest defines the bounded check CLASSES that make up the canonical
+# local software-verification gate. It is intentionally different from
+# scripts/issue_verification_manifest.yaml, which maps *open issues* to
+# triage checks; this file maps *correctness surface areas* to the checks a
+# release candidate must pass before packaging.
+#
+# Execution contract (scripts/run_release_verification.py):
+#   - classes run in manifest order, checks in listed order — deterministic;
+#   - required:true classes must be green for verdict=passed; a required
+#     check that is skipped/not-executed is a failure, never a pass;
+#   - required:false classes may skip ONLY with an explicit recorded reason
+#     (e.g. requires_capability probe failed); an optional check that runs
+#     and fails still fails the run;
+#   - timeout/cancellation/interruption can never be reported as PASS;
+#   - the evidence JSON records exact HEAD sha, dirty state, manifest sha256
+#     and toolchain identity, so reviewers can prove which revision was
+#     verified.
+#
+# Dev profile: classes with include_in_dev:true form the bounded fast subset
+# for day-to-day local runs. It is NOT release evidence — release verdicts
+# always require the full release profile.
+
+defaults:
+  timeout_seconds: 900
+  pytest_workers: 4
+
+# Physical / specialist gates that software verification deliberately does
+# NOT cover. They are copied verbatim into every evidence file so a green
+# software verdict can never be misread as physical or visual acceptance.
+external_gates:
+  - id: owned-room-physical
+    title: '実室 owned-room campaign / 物理受入ゲート (O60R, O90E, #813)'
+    evidence: >-
+      scripts/run-o60-owned-room-gate.ps1 等の物理ゲートハーネスと REW 実測
+      campaign evidence。ソフトウェア PASS は物理妥当性を名乗らない。
+  - id: gpu-solver-validation
+    title: 'R140 GPU validation / real-GPU solver evidence'
+    evidence: >-
+      scripts/run_r140_gpu_validation_gate.py による実 GPU 環境での検証。
+      本ゲートのソルバークラスは artifact/provenance 契約のみを検査する。
+  - id: ux160-windows-acceptance
+    title: 'UX160 owned-Windows visual acceptance (実機 GUI 受入)'
+    evidence: >-
+      scripts/ux160_acceptance.py / ux160_driver.py による実機 Windows 表示
+      受入。offscreen pytest はその代替ではない。
+
+classes:
+  - id: dependency-lock
+    title: 'Dependency lock / pinned toolchain consistency'
+    description: >-
+      backend/requirements-n05-windows.lock が全 pin に sha256 digest を持ち、
+      backend/pyproject.toml の == pin と一致すること。リリース pipeline の
+      pip install --require-hashes が検証するのと同じ閉包をローカルで保証する。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: lock-consistency
+        kind: script
+        command:
+          - '{python}'
+          - scripts/check_dependency_lock.py
+        description: >-
+          Lock completeness + hash pins + pyproject pin parity (pure static
+          check, installs nothing).
+      - id: lock-regression
+        kind: pytest
+        tests:
+          - backend/tests/test_dependency_lock.py
+        description: 'Lock checker regression suite (pin drift, floating tags).'
+
+  - id: canonical-references
+    title: 'Canonical doc reference integrity'
+    description: >-
+      正準ドキュメントの issue/PR/merge-sha 参照が
+      docs/MIGRATION_REFERENCE_MANIFEST.yaml と一致すること。
+      証跡ドキュメントが別リポジトリの番号を暗黙に乗り換えないための検査。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: canonical-references
+        kind: script
+        command:
+          - '{python}'
+          - scripts/validate_canonical_references.py
+          - '{repo_root}'
+        description: 'Owner/repo#N + merge-sha reference validation over canonical docs.'
+
+  - id: package-boundary
+    title: 'Package boundary / layering audit'
+    description: >-
+      backend/src/htdt の静的レイヤ規則 (kernel/persistence/domain/ui/
+      application)、import cycle、サイズ予算。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: package-boundary-rules
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_807_boundaries.py
+        description: '#807 boundary rules + exemption freshness.'
+
+  - id: schema-migration
+    title: 'Schema / migration authority'
+    description: >-
+      NATIVE_SCHEMA_VERSION の migration 履歴、DDL 契約、upgrade パスと
+      migration guard の fail-closed 動作。
+    required: true
+    checks:
+      - id: schema-migration-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_schema.py
+          - backend/tests/test_cad_schema_ddl_contract.py
+          - backend/tests/test_native_upgrade.py
+          - backend/tests/test_migration_guard.py
+          - backend/tests/test_schema_wire_key.py
+        description: 'Schema version ledger, DDL contract, upgrade/migration paths.'
+
+  - id: authority-invariants
+    title: 'Authority / hash / tamper invariants'
+    description: >-
+      sealed authority の行整合性、authority audit の coverage/mode 完全性、
+      lifecycle/evidence integrity。fail-open 退化はここで落ちる。
+    required: true
+    checks:
+      - id: authority-audit-coverage
+        kind: pytest
+        tests:
+          - backend/tests/test_authority_audit_coverage.py
+          - backend/tests/test_native_authority_audit.py
+          - backend/tests/test_native_authority_audit_hardening.py
+        description: 'Every schema table classified + audit replay/canonical coverage.'
+      - id: row-integrity
+        kind: pytest
+        tests:
+          - backend/tests/test_native_row_integrity.py
+          - backend/tests/test_authority_integrity_s8.py
+          - backend/tests/test_authority_lifecycle_integrity.py
+          - backend/tests/test_s5_evidence_integrity.py
+        description: 'Row bindings, sealed-store tamper/lifecycle invariants.'
+
+  - id: persistence
+    title: 'Persistence / save-reopen'
+    description: >-
+      SceneRepository save/reopen、revision lineage、persisted-data 契約。
+    required: true
+    checks:
+      - id: persistence-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_repository.py
+          - backend/tests/test_persisted_data.py
+          - backend/tests/test_rev61_persist.py
+          - backend/tests/test_cad_model_calibration_persistence.py
+        description: 'Repository save/reopen + lineage + persisted shape contracts.'
+
+  - id: backup-restore
+    title: 'Backup / restore / relocation'
+    description: >-
+      native backup、自動 backup runner、データディレクトリ relocation
+      journal の cutover 契約。
+    required: true
+    checks:
+      - id: backup-restore-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_native_backup.py
+          - backend/tests/test_automatic_backup.py
+          - backend/tests/test_automatic_backup_runner.py
+          - backend/tests/test_data_relocation.py
+          - backend/tests/test_data_relocation_cutover.py
+        description: 'Backup/restore + relocation journal round-trips.'
+
+  - id: measurement-evidence
+    title: 'Measurement / evidence binding'
+    description: >-
+      測定 dataset 整合性、managed-asset 契約/atomicity、measurement
+      authorities と verify パイプライン、wave excitation evidence。
+    required: true
+    checks:
+      - id: measurement-evidence-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_cad_measurement_verify.py
+          - backend/tests/test_cad_measurement_dataset_integrity.py
+          - backend/tests/test_cad_measurement_asset_contract.py
+          - backend/tests/test_cad_measurement_asset_atomicity.py
+          - backend/tests/test_measurement_authorities.py
+          - backend/tests/test_cad_wave_excitation_evidence.py
+        description: 'Measurement evidence binding + asset integrity.'
+
+  - id: recommendation-gating
+    title: 'Stale / recommendation gating'
+    description: >-
+      production-readiness 採用判定 (#801)、applicability/confidence
+      envelope (#814)、applicability gate、stale job 検出。
+      推奨面の fail-closed 有効化条件。
+    required: true
+    checks:
+      - id: recommendation-gating-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_801_production_readiness.py
+          - backend/tests/test_issue_814_envelope.py
+          - backend/tests/test_cad_applicability_gate.py
+          - backend/tests/test_measurement_job_staleness.py
+          - backend/tests/test_acoustic_bakeoff_readiness.py
+        description: 'Recommendation surface gating + staleness ladders.'
+
+  - id: solver-provenance
+    title: 'Solver artifact / provenance contracts'
+    description: >-
+      ソルバー artifact manifest、capability manifest、実行 provenance と
+      derivation chain の契約テスト。数値妥当性ではなく artifact 契約を検査
+      (物理/GPU 検証は external_gates)。
+    required: true
+    checks:
+      - id: solver-contract-suite
+        kind: pytest
+        tests:
+          - backend/tests/test_solver_artifact_manifest.py
+          - backend/tests/test_solver_capability_manifest.py
+          - backend/tests/test_cad_candidate_wave_execution.py
+          - backend/tests/test_acoustic_geometry_derivation.py
+          - backend/tests/test_solver_output_diagnostics.py
+          - backend/tests/test_cad_acoustic_treatment_provenance.py
+        description: 'Solver artifact/provenance/capability contract tests.'
+
+  - id: golden-path-preflight
+    title: 'Golden Path software preflight'
+    description: >-
+      scripts/golden_path_preflight.py (#877): create→room→equipment→
+      prediction→measurement plan→authority audit→backup→restore→reopen の
+      サービス/repository seam を通した閉ループ。synthetic_fixture ラベル付き。
+    required: true
+    checks:
+      - id: golden-path-closed-loop
+        kind: script
+        command:
+          - '{python}'
+          - scripts/golden_path_preflight.py
+          - '--work-dir'
+          - '{work_dir}'
+        timeout_seconds: 1800
+        description: 'End-to-end software-only Golden Path with authority trace.'
+
+  - id: native-startup-smoke
+    title: 'Native startup smoke'
+    description: >-
+      パッケージ外観の起動経路: launch intent / startup recovery の pytest
+      契約と `python -m htdt.native_cad --version` の import+version 経路。
+      ウィンドウ表示そのものは UX160 external gate。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: launch-contract
+        kind: pytest
+        tests:
+          - backend/tests/test_native_launch.py
+          - backend/tests/test_launch_intents.py
+          - backend/tests/test_startup_recovery.py
+        description: 'Launch intent routing, startup recovery, boot contracts.'
+      - id: module-version-smoke
+        kind: script
+        command:
+          - '{python}'
+          - '-m'
+          - htdt.native_cad
+          - '--version'
+        env:
+          PYTHONPATH: '{repo_root}/backend/src'
+        timeout_seconds: 300
+        description: >-
+          Full import of the native entrypoint + build_info version path —
+          proves the installed/pinned dependency closure imports and reports
+          the checkout-bound display version.
+
+  - id: package-smoke
+    title: 'Package/installer smoke (environment-gated)'
+    description: >-
+      dist-native の PyInstaller onedir パッケージが HEAD と同一 revision で
+      build されているか、--version round-trip と build_info 同定を検査する。
+      パッケージ未 build 環境では explicit reason 付きで skip される
+      (optional)。installer 側の binding は scripts/build-installer.ps1
+      -VerificationEvidence が担う。
+    required: false
+    requires_capability: native_package
+    checks:
+      - id: packaged-build-identity
+        kind: script
+        command:
+          - '{python}'
+          - scripts/package_smoke.py
+          - '--package-dir'
+          - '{repo_root}/dist-native/HTDT'
+        timeout_seconds: 600
+        description: 'Packaged HTDT.exe identity vs checked-out revision.'
