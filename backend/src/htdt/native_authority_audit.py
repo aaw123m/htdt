@@ -1468,6 +1468,12 @@ class _RepositoryChain:
             )
 
             return CadHybridCompositionValidationRepository(scene)
+        if name == 'geometry_intake':
+            from .cad_geometry_intake_repository import (
+                CadGeometryIntakeRepository,
+            )
+
+            return CadGeometryIntakeRepository(scene)
         raise KeyError(name)
 
 
@@ -7410,6 +7416,37 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_file_deployments',
         ('file_deployment_id',),
         _get('delegated_provider', 'get_file_deployment'),
+    ),
+    # REV66: #866 geometry intake readiness authority.
+    _ReplayProbe(
+        'geometry_intake_report',
+        'cad_geometry_intake_reports',
+        ('report_id',),
+        _get('geometry_intake', 'get_intake_report'),
+    ),
+    _ReplayProbe(
+        'geometry_repair_proposal',
+        'cad_geometry_repair_proposals',
+        ('proposal_id',),
+        _get('geometry_intake', 'get_repair_proposal'),
+    ),
+    _ReplayProbe(
+        'geometry_repair_acceptance',
+        'cad_geometry_repair_acceptances',
+        ('acceptance_id',),
+        _get('geometry_intake', 'get_repair_acceptance'),
+    ),
+    _ReplayProbe(
+        'derived_geometry_revision',
+        'cad_derived_geometry_revisions',
+        ('derived_revision_id',),
+        _get('geometry_intake', 'get_derived_revision'),
+    ),
+    _ReplayProbe(
+        'geometry_solver_readiness',
+        'cad_geometry_solver_readiness',
+        ('verdict_id',),
+        _get('geometry_intake', 'get_solver_readiness'),
     ),
 
 )

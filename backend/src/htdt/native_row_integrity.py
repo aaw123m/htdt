@@ -9318,6 +9318,72 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV66: #866 geometry intake readiness authority.
+    'cad_geometry_intake_reports': (
+        'payload_json',
+        (
+            _b('report_id', 'report_id'),
+            _b('report_sha256', 'report_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('subject_sha256', 'subject_sha256'),
+            _b('defect_count', 'defect_count'),
+            _b('critical_count', 'critical_count'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_geometry_repair_proposals': (
+        'payload_json',
+        (
+            _b('proposal_id', 'proposal_id'),
+            _b('proposal_sha256', 'proposal_sha256'),
+            _b('document_id', 'document_id'),
+            _b('report_ref_id', 'report_ref', 'ref_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('generated_by', 'generated_by'),
+            _b('generated_at_utc', 'generated_at_utc'),
+        ),
+        (),
+    ),
+    'cad_geometry_repair_acceptances': (
+        'payload_json',
+        (
+            _b('acceptance_id', 'acceptance_id'),
+            _b('acceptance_sha256', 'acceptance_sha256'),
+            _b('document_id', 'document_id'),
+            _b('proposal_ref_id', 'proposal_ref', 'ref_id'),
+            _b('decided_by', 'decided_by'),
+            _b('decided_at_utc', 'decided_at_utc'),
+        ),
+        (),
+    ),
+    'cad_derived_geometry_revisions': (
+        'payload_json',
+        (
+            _b('derived_revision_id', 'derived_revision_id'),
+            _b('derived_revision_sha256', 'derived_revision_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'source_subject_ref', 'ref_id'),
+            _b('acceptance_ref_id', 'acceptance_ref', 'ref_id'),
+            _b('derived_geometry_sha256', 'derived_geometry_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_geometry_solver_readiness': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('geometry_sha256', 'geometry_sha256'),
+            _b('adapter_ref_id', 'adapter_descriptor_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

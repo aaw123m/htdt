@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 96
+NATIVE_SCHEMA_VERSION = 97
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2033,6 +2033,15 @@ def _migrate_95_to_96(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_96_to_97(connection: sqlite3.Connection) -> None:
+    # REV66: #866 geometry intake readiness — intake reports, repair
+    # proposals, explicit acceptances, derived geometry revisions and
+    # solver-readiness verdicts: new append-only authorities the
+    # idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2130,6 +2139,7 @@ _MIGRATIONS = {
     94: _migrate_93_to_94,
     95: _migrate_94_to_95,
     96: _migrate_95_to_96,
+    97: _migrate_96_to_97,
 }
 
 

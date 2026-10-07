@@ -8534,6 +8534,50 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_fdep_doc ON cad_file_deployments(document_id, seq ASC)
     """
     ,
+    # REV66: #866 geometry intake readiness — sealed chain
+    # SOURCE_GEOMETRY -> HEALTH_CHECK -> REPAIR_PROPOSAL ->
+    # EXPLICIT_ACCEPTANCE -> DERIVED_GEOMETRY_REVISION ->
+    # SOLVER_READINESS with no silent mutation of source geometry.
+    """
+        CREATE TABLE IF NOT EXISTS cad_geometry_intake_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, subject_sha256 TEXT NOT NULL, defect_count INTEGER NOT NULL, critical_count INTEGER NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gdir_doc ON cad_geometry_intake_reports(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_geometry_repair_proposals ( seq INTEGER PRIMARY KEY AUTOINCREMENT, proposal_id TEXT NOT NULL UNIQUE, proposal_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, report_ref_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, generated_by TEXT NOT NULL, generated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gdrp_doc ON cad_geometry_repair_proposals(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_geometry_repair_acceptances ( seq INTEGER PRIMARY KEY AUTOINCREMENT, acceptance_id TEXT NOT NULL UNIQUE, acceptance_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, proposal_ref_id TEXT NOT NULL, decided_by TEXT NOT NULL, decided_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gdra_doc ON cad_geometry_repair_acceptances(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_derived_geometry_revisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, derived_revision_id TEXT NOT NULL UNIQUE, derived_revision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, acceptance_ref_id TEXT NOT NULL, derived_geometry_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gdrv_doc ON cad_derived_geometry_revisions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_geometry_solver_readiness ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, geometry_sha256 TEXT NOT NULL, adapter_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_gsrv_doc ON cad_geometry_solver_readiness(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9647,4 +9691,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_delegated_provider_manifests',
     'cad_provider_acquisitions',
     'cad_file_deployments',
+    # REV66: #866 geometry intake readiness authority.
+    'cad_geometry_intake_reports',
+    'cad_geometry_repair_proposals',
+    'cad_geometry_repair_acceptances',
+    'cad_derived_geometry_revisions',
+    'cad_geometry_solver_readiness',
 )
