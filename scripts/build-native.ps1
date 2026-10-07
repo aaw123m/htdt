@@ -103,7 +103,12 @@ try {
         }
         if ($CommitSha) {
             $Status = & git -C $RepoRoot status --porcelain 2>$null
-            $Dirty = ($LASTEXITCODE -eq 0) -and [bool]$Status
+            if ($LASTEXITCODE -ne 0) {
+                # A failed status probe must never stamp "clean" into the
+                # build identity — the real dirty state is unknown.
+                throw "git status failed (exit code $LASTEXITCODE) — cannot determine worktree dirty state"
+            }
+            $Dirty = [bool]$Status
         }
     }
     if (-not $CommitSha -and $env:GITHUB_SHA) {
