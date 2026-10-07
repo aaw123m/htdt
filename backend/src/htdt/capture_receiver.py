@@ -379,9 +379,9 @@ class MissionPackage(BaseModel):
     required_schema_version: str | None = None
     receiver_requirement: dict | None = None
     pairing_id: str | None = None
-    status: Literal['pending', 'received', 'failed', 'superseded'] = (
-        'pending'
-    )
+    status: Literal[
+        'pending', 'received', 'failed', 'superseded', 'completed'
+    ] = ('pending')
     status_detail: str = ''
 
     def descriptor(self) -> dict:

@@ -434,10 +434,18 @@ class MissionReturnReconciliationContext:
             for result in self.report.results
             if result.task_id not in applied
             and (
-                result.classification == 'applicable'
+                result.classification in ('applicable', 'unaffected')
                 or result.task_id in decided
             )
         )
+
+    @property
+    def completed(self) -> bool:
+        """Every planned task has an application binding."""
+        plan_ids = {
+            task.task_id for task in self.package.mission.plan.tasks
+        }
+        return bool(plan_ids) and plan_ids <= self.applied_task_ids
 
 
 def mission_return_reconciliation_context(
@@ -508,9 +516,7 @@ def mission_return_reconciliation_context(
     decisions = MissionReconciliationRepository(
         scene_repository.path
     ).decisions_for_mission(mission_id)
-    applications = returned_task_applications(
-        contribution, scene_repository
-    )
+    applications = mission_applications(mission_id, scene_repository)
     return MissionReturnReconciliationContext(
         package=package,
         revision=revision,
@@ -571,11 +577,14 @@ def mission_return_reconciliation_lines(
     applied_count = sum(
         item.task_id in applied for item in report.results
     )
-    lines = [
+    header = (
         f'照合: 適用可能 {undecided_applicable}件 / '
         f'要調整 {undecided_review}件 / 対象消失 {undecided_removed}件 / '
-        f'決定記録済み {decided_count}件 / 適用済み {applied_count}件',
-    ]
+        f'決定記録済み {decided_count}件 / 適用済み {applied_count}件'
+    )
+    if resolved.completed:
+        header = f'ミッション完了 — {header}'
+    lines = [header]
     for result in report.results:
         application = applications_by_task.get(result.task_id)
         if application is not None:
@@ -836,6 +845,23 @@ def returned_task_applications(
     return tuple(_application_row(row) for row in rows)
 
 
+def mission_applications(
+    mission_id: str, scene_repository: object
+) -> tuple[FieldReturnApplication, ...]:
+    """Applications recorded for a mission across ALL contributions."""
+    from contextlib import closing
+
+    from .cad_schema import connect_sqlite
+
+    with closing(connect_sqlite(scene_repository.path)) as connection:
+        rows = connection.execute(
+            'SELECT * FROM field_return_applications '
+            'WHERE mission_id=? ORDER BY task_id',
+            (mission_id,),
+        ).fetchall()
+    return tuple(_application_row(row) for row in rows)
+
+
 def apply_returned_tasks(
     contribution: object,
     scene_repository: object,
@@ -886,13 +912,17 @@ def apply_returned_tasks(
         task.task_id: task for task in resolved.package.mission.plan.tasks
     }
     for result in resolved.report.results:
-        if result.classification == 'applicable':
+        if result.classification in ('applicable', 'unaffected'):
             task = tasks.get(result.task_id)
-            if task is None or task.target_entity_id is None:
+            if task is None:
                 skipped.append(result.task_id)
                 continue
+            # Entity-less tasks (e.g. room measurements) bind to the
+            # project document itself — project-level evidence.
             applied_targets[result.task_id] = (
-                task.target_entity_id, None
+                task.target_entity_id
+                or resolved.revision.document.document_id,
+                None,
             )
             continue
         decision = decisions.get(result.task_id)
@@ -982,6 +1012,31 @@ def apply_returned_tasks(
                     (application_id, decision_id),
                 )
             applications.append(row)
+        # A mission completes when every planned task has an
+        # application — across ALL contributions for the mission, not
+        # just this one (partial returns land task-by-task).
+        plan_task_ids = {
+            task.task_id for task in resolved.package.mission.plan.tasks
+        }
+        bound = {
+            row['task_id']
+            for row in connection.execute(
+                'SELECT task_id FROM field_return_applications '
+                'WHERE mission_id=?',
+                (resolved.package.mission.mission_id,),
+            ).fetchall()
+        }
+        if plan_task_ids and plan_task_ids <= bound:
+            connection.execute(
+                "UPDATE capture_mission_packages SET status='completed', "
+                "status_detail=?, updated_at_utc=? WHERE package_id=? "
+                "AND status IN ('pending', 'received')",
+                (
+                    f'all {len(plan_task_ids)} tasks applied',
+                    now,
+                    resolved.package.mission.mission_id,
+                ),
+            )
     return ApplicationOutcome(
         applied=tuple(applications),
         skipped_task_ids=tuple(

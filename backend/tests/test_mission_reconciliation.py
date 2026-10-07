@@ -665,3 +665,94 @@ def test_apply_consumes_rebase_decision_and_skips_undecided(
             applied_by='operator-2',
             task_ids=[task_fr],
         )
+
+
+def test_mission_completes_when_every_plan_task_is_applied(
+    tmp_path,
+) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        apply_returned_tasks,
+        mission_return_reconciliation_lines,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_ids = [task.task_id for task in mission.plan.tasks]
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': str(uuid.uuid4()), 'kind': 'instrument_result'},
+        ),
+        task_outcomes=tuple(
+            {
+                'task_id': task_id,
+                'outcome': 'fulfilled',
+                'fulfilled_by_ref': str(uuid.uuid4()),
+            }
+            for task_id in task_ids
+        ),
+    )
+    contribution = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+    )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT status FROM capture_mission_packages "
+            'WHERE package_id=?',
+            (mission.mission_id,),
+        ).fetchone()[0] == 'pending'
+
+    outcome = apply_returned_tasks(
+        contribution, repository, applied_by='operator-1'
+    )
+    assert len(outcome.applied) == len(task_ids)
+    # Entity-less tasks bind to the project document itself.
+    by_task = {a.task_id: a for a in outcome.applied}
+    for task in mission.plan.tasks:
+        expected = task.target_entity_id or 'recon-doc-1'
+        assert by_task[task.task_id].applied_target_id == expected
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT status FROM capture_mission_packages "
+            'WHERE package_id=?',
+            (mission.mission_id,),
+        ).fetchone()[0] == 'completed'
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert lines[0].startswith('ミッション完了')
