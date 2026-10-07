@@ -35,6 +35,7 @@ sys.path.insert(0, str(ROOT / 'backend' / 'src'))
 
 from htdt.cad_external_corpus_manifest import (  # noqa: E402
     CorpusFetchStep,
+    corpus_dataset,
     corpus_fetch_plan,
     external_corpus_manifest,
     verify_fetched_file,
@@ -43,9 +44,14 @@ from htdt.cad_external_corpus_manifest import (  # noqa: E402
 RECEIPT_NAME = 'corpus_fetch_receipt.jsonl'
 
 
-def _fetch(step: CorpusFetchStep, target: Path) -> None:
+def _fetch(
+    step: CorpusFetchStep, target: Path, timeout: float
+) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(step.uri) as response:
+    # timeout bounds each blocking socket read (connect included), not the
+    # whole transfer — multi-GB payloads stay fetchable while a stalled
+    # connection still terminates instead of hanging an unattended run.
+    with urllib.request.urlopen(step.uri, timeout=timeout) as response:
         tmp = target.with_suffix(target.suffix + '.part')
         try:
             with tmp.open('wb') as handle:
@@ -89,9 +95,41 @@ def run(argv: list[str] | None = None) -> int:
             '--target-dir against the manifest pins'
         ),
     )
+    parser.add_argument(
+        '--timeout-seconds',
+        type=float,
+        default=300.0,
+        metavar='SECONDS',
+        help='per-read network timeout for each fetch (default: 300)',
+    )
     args = parser.parse_args(argv)
 
     manifest = external_corpus_manifest()
+    if args.dataset:
+        # Every requested id must resolve to a dataset the manifest
+        # actually admits for retrieval — an unknown or unfetchable id
+        # must never collapse into an empty plan that exits 0 having
+        # fetched and verified nothing.
+        unknown = [
+            admission_id
+            for admission_id in args.dataset
+            if corpus_dataset(manifest, admission_id) is None
+        ]
+        if unknown:
+            parser.error(
+                f'unknown --dataset admission id(s): {", ".join(unknown)}'
+            )
+        unfetchable = [
+            admission_id
+            for admission_id in args.dataset
+            if corpus_dataset(manifest, admission_id).admission_state
+            != 'download_on_demand_candidate'
+        ]
+        if unfetchable:
+            parser.error(
+                '--dataset id(s) not admitted for retrieval '
+                f'(not download_on_demand_candidate): {", ".join(unfetchable)}'
+            )
     steps = corpus_fetch_plan(manifest, args.dataset)
     target_root = Path(args.target_dir)
 
@@ -113,7 +151,7 @@ def run(argv: list[str] | None = None) -> int:
             target = target_root / step.target_relpath
             if not args.verify_existing:
                 print(f'fetching {step.target_relpath}', file=sys.stderr)
-                _fetch(step, target)
+                _fetch(step, target, args.timeout_seconds)
             receipt = verify_fetched_file(step, target)
             if receipt.verdict != 'verified':
                 failures += 1
