@@ -1468,6 +1468,12 @@ class _RepositoryChain:
             )
 
             return CadHybridCompositionValidationRepository(scene)
+        if name == 'commissioning_orchestrator':
+            from .cad_commissioning_orchestrator_repository import (
+                CadCommissioningOrchestratorRepository,
+            )
+
+            return CadCommissioningOrchestratorRepository(scene)
         if name == 'geometry_intake':
             from .cad_geometry_intake_repository import (
                 CadGeometryIntakeRepository,
@@ -7422,6 +7428,43 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_file_deployments',
         ('file_deployment_id',),
         _get('delegated_provider', 'get_file_deployment'),
+    ),
+    # #868 closed-loop commissioning orchestrator.
+    _ReplayProbe(
+        'commissioning_orchestration_run',
+        'cad_commissioning_orch_runs',
+        ('run_id',),
+        _get('commissioning_orchestrator', 'get_run'),
+    ),
+    _ReplayProbe(
+        'commissioning_stage_transition',
+        'cad_commissioning_orch_transitions',
+        ('transition_id',),
+        _get('commissioning_orchestrator', 'get_transition'),
+    ),
+    _ReplayProbe(
+        'commissioning_operator_authorization',
+        'cad_commissioning_orch_authorizations',
+        ('authorization_id',),
+        _get('commissioning_orchestrator', 'get_authorization'),
+    ),
+    _ReplayProbe(
+        'commissioning_rollback',
+        'cad_commissioning_orch_rollbacks',
+        ('rollback_id',),
+        _get('commissioning_orchestrator', 'get_rollback'),
+    ),
+    _ReplayProbe(
+        'commissioning_before_after',
+        'cad_commissioning_orch_before_after',
+        ('comparison_id',),
+        _get('commissioning_orchestrator', 'get_before_after'),
+    ),
+    _ReplayProbe(
+        'commissioning_acceptance_verdict',
+        'cad_commissioning_orch_verdicts',
+        ('verdict_id',),
+        _get('commissioning_orchestrator', 'get_verdict'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

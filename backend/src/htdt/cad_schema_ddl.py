@@ -8534,6 +8534,58 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_fdep_doc ON cad_file_deployments(document_id, seq ASC)
     """
     ,
+    # REV66: #868 closed-loop commissioning orchestrator — the run record,
+    # its sealed stage-transition log (which makes a run resumable after
+    # restart), one-shot operator authorizations, rollback records,
+    # before/after comparisons and the acceptance verdict.
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, provider_manifest_ref_id TEXT NOT NULL, device_binding_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cor_doc ON cad_commissioning_orch_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_transitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transition_id TEXT NOT NULL UNIQUE, transition_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, seq_no INTEGER NOT NULL, event_kind TEXT NOT NULL, outcome TEXT NOT NULL, to_stage TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cot_doc ON cad_commissioning_orch_transitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_authorizations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, authorization_id TEXT NOT NULL UNIQUE, authorization_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, scope TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_coa_doc ON cad_commissioning_orch_authorizations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_rollbacks ( seq INTEGER PRIMARY KEY AUTOINCREMENT, rollback_id TEXT NOT NULL UNIQUE, rollback_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_crl_doc ON cad_commissioning_orch_rollbacks(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_before_after ( seq INTEGER PRIMARY KEY AUTOINCREMENT, comparison_id TEXT NOT NULL UNIQUE, comparison_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, deployment_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cba_doc ON cad_commissioning_orch_before_after(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_commissioning_orch_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cav_doc ON cad_commissioning_orch_verdicts(document_id, seq ASC)
+    """
+    ,
     # REV66: #869 HTDT-native sweep acquisition authority — the engine's
     # stimulus identity, retained run evidence and transition events are
     # sealed, append-only records; requested-vs-actual and unqualified
@@ -9723,6 +9775,13 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_delegated_provider_manifests',
     'cad_provider_acquisitions',
     'cad_file_deployments',
+    # REV66: #868 closed-loop commissioning orchestrator.
+    'cad_commissioning_orch_runs',
+    'cad_commissioning_orch_transitions',
+    'cad_commissioning_orch_authorizations',
+    'cad_commissioning_orch_rollbacks',
+    'cad_commissioning_orch_before_after',
+    'cad_commissioning_orch_verdicts',
     # REV66: #869 HTDT-native sweep acquisition authority.
     'cad_sweep_stimulus_definitions',
     'cad_sweep_acquisition_runs',
