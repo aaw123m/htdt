@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 82
+NATIVE_SCHEMA_VERSION = 83
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1907,6 +1907,16 @@ def _migrate_81_to_82(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_82_to_83(connection: sqlite3.Connection) -> None:
+    # Install the REV62 lifecycle/supportability authority (#792):
+    # supportability profiles, function-level external dependencies,
+    # time-stamped lifecycle observations, authorized offline-continuity
+    # evidence, and replacement-readiness records — new append-only
+    # authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -1990,6 +2000,7 @@ _MIGRATIONS = {
     80: _migrate_79_to_80,
     81: _migrate_80_to_81,
     82: _migrate_81_to_82,
+    83: _migrate_82_to_83,
 }
 
 

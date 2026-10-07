@@ -1396,6 +1396,12 @@ class _RepositoryChain:
             )
 
             return CadPlaybackElectronicsRepository(scene)
+        if name == 'supportability':
+            from .cad_supportability_repository import (
+                CadSupportabilityRepository,
+            )
+
+            return CadSupportabilityRepository(scene)
         raise KeyError(name)
 
 
@@ -7029,6 +7035,38 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_playback_electronics_qualifications',
         ('qualification_id',),
         _get('playback_electronics', 'get_qualification'),
+    ),
+
+    # REV62: #792 lifecycle/supportability authority.
+    _ReplayProbe(
+        'supportability_profile',
+        'cad_supportability_profiles',
+        ('profile_id',),
+        _get('supportability', 'get_supportability_profile'),
+    ),
+    _ReplayProbe(
+        'external_dependency',
+        'cad_supportability_dependencies',
+        ('dependency_id',),
+        _get('supportability', 'get_external_dependency'),
+    ),
+    _ReplayProbe(
+        'lifecycle_observation',
+        'cad_lifecycle_risk_observations',
+        ('observation_id',),
+        _get('supportability', 'get_lifecycle_observation'),
+    ),
+    _ReplayProbe(
+        'offline_continuity',
+        'cad_offline_continuity_evidence',
+        ('evidence_id',),
+        _get('supportability', 'get_offline_continuity'),
+    ),
+    _ReplayProbe(
+        'replacement_readiness',
+        'cad_replacement_readiness',
+        ('readiness_id',),
+        _get('supportability', 'get_replacement_readiness'),
     ),
 
 )

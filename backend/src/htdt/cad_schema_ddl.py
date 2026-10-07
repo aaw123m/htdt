@@ -8094,6 +8094,46 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_peq_doc ON cad_playback_electronics_qualifications(document_id, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_supportability_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_label TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_spro_doc ON cad_supportability_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_supportability_dependencies ( seq INTEGER PRIMARY KEY AUTOINCREMENT, dependency_id TEXT NOT NULL UNIQUE, dependency_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, profile_ref_id TEXT, function_label TEXT NOT NULL, dependency_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sdep_doc ON cad_supportability_dependencies(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_lifecycle_risk_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, kind TEXT NOT NULL, support_state TEXT NOT NULL, observed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_lro_doc ON cad_lifecycle_risk_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_offline_continuity_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, function_label TEXT NOT NULL, condition TEXT NOT NULL, outcome TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_oce_doc ON cad_offline_continuity_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_replacement_readiness ( seq INTEGER PRIMARY KEY AUTOINCREMENT, readiness_id TEXT NOT NULL UNIQUE, readiness_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, requalification_ref_id TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rpr_doc ON cad_replacement_readiness(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9147,4 +9187,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_electrical_transfer_measurements',
     'cad_electronic_linearity_evidence',
     'cad_playback_electronics_qualifications',
+    'cad_supportability_profiles',
+    'cad_supportability_dependencies',
+    'cad_lifecycle_risk_observations',
+    'cad_offline_continuity_evidence',
+    'cad_replacement_readiness',
 )

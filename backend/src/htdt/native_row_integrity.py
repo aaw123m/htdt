@@ -8702,6 +8702,67 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV62: #792 lifecycle/supportability authority.
+    'cad_supportability_profiles': (
+        'payload_json',
+        (
+            _b('profile_id', 'profile_id'),
+            _b('profile_sha256', 'profile_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_label', 'profile_label'),
+        ),
+        (),
+    ),
+    'cad_supportability_dependencies': (
+        'payload_json',
+        (
+            _b('dependency_id', 'dependency_id'),
+            _b('dependency_sha256', 'dependency_sha256'),
+            _b('document_id', 'document_id'),
+            _b('profile_ref_id', 'profile_ref', 'ref_id', optional=True),
+            _b('function_label', 'function_label'),
+            _b('dependency_kind', 'dependency_kind'),
+        ),
+        (),
+    ),
+    'cad_lifecycle_risk_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('kind', 'kind'),
+            _b('support_state', 'support_state'),
+            _b('observed_at_utc', 'observed_at_utc'),
+        ),
+        (),
+    ),
+    'cad_offline_continuity_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('function_label', 'function_label'),
+            _b('condition', 'condition'),
+            _b('outcome', 'outcome'),
+        ),
+        (),
+    ),
+    'cad_replacement_readiness': (
+        'payload_json',
+        (
+            _b('readiness_id', 'readiness_id'),
+            _b('readiness_sha256', 'readiness_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('requalification_ref_id', 'requalification_scope_ref',
+               'ref_id', optional=True),
+        ),
+        (),
+    ),
+
 }
 
 
