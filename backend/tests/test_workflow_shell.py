@@ -431,9 +431,12 @@ def test_workflow_shell_layout_profiles_do_not_clip_context_navigation() -> None
         compact = logical_width < 1120
         assert window.rail.is_compact is compact
         assert window.context_bar.is_compact is compact
-        assert window.rail.width() == (
-            window.rail.COMPACT_WIDTH if compact else window.rail.EXPANDED_WIDTH
-        )
+        if compact:
+            # #804: compact rail grows beyond the floor when scaled fonts
+            # make the glyph buttons wider than the legacy 72 px constant.
+            assert window.rail.width() >= window.rail.COMPACT_WIDTH
+        else:
+            assert window.rail.width() == window.rail.EXPANDED_WIDTH
 
         buttons = tuple(window.context_bar._context_buttons.values())
         assert len(buttons) == 6
@@ -464,7 +467,15 @@ def test_compact_rail_uses_glyph_buttons_with_full_label_tooltips() -> None:
     window.resize(800, 600)  # below the 1120 compact threshold
     app.processEvents()
     assert rail.is_compact
-    assert rail.width() == rail.COMPACT_WIDTH
+    assert rail.width() >= rail.COMPACT_WIDTH
+    # #804 regression: the rail must cover the widest glyph button hint plus
+    # its outer margins — at scaled fonts a fixed 72 px clipped controls.
+    margins = rail._outer_layout.contentsMargins()
+    widest = max(
+        button.sizeHint().width() for button in rail._buttons.values()
+    )
+    widest = max(widest, rail.settings_button.sizeHint().width())
+    assert rail.width() >= widest + margins.left() + margins.right()
     for button, label in zip(rail._buttons.values(), expanded_labels):
         assert button.text() == label[:1]
         assert button.toolTip() == label

@@ -575,12 +575,30 @@ class WorkflowRail(QFrame):
     def is_compact(self) -> bool:
         return self._compact
 
+    def _compact_width(self) -> int:
+        """Compact rail width honoring the current font metrics.
+
+        Glyph buttons scale with the font (QT_SCALE_FACTOR / Windows text
+        scaling); a fixed 72 px clips them once the font grows (#804's
+        automated 150%/200% DPI sweep caught this). The rail grows to the
+        widest button hint plus the outer margins instead.
+        """
+        margins = self._outer_layout.contentsMargins()
+        widest = max(
+            (button.sizeHint().width() for button in self._buttons.values()),
+            default=0,
+        )
+        widest = max(widest, self.settings_button.sizeHint().width())
+        return max(
+            self.COMPACT_WIDTH,
+            widest + margins.left() + margins.right(),
+        )
+
     def set_compact(self, compact: bool) -> None:
         compact = bool(compact)
         if self._compact == compact:
             return
         self._compact = compact
-        self.setFixedWidth(self.COMPACT_WIDTH if compact else self.EXPANDED_WIDTH)
         self._brand.setVisible(not compact)
         for header in self._section_headers:
             header.setVisible(not compact)
@@ -595,6 +613,10 @@ class WorkflowRail(QFrame):
         self._outer_layout.setContentsMargins(margin_x, margin_y, margin_x, margin_y)
         self._outer_layout.setSpacing(4 if compact else 6)
         self._layout.setSpacing(4 if compact else 6)
+        # Margins must be settled before the width derives from button hints.
+        self.setFixedWidth(
+            self._compact_width() if compact else self.EXPANDED_WIDTH
+        )
 
     def set_active(self, workspace_id: DestinationId | str) -> None:
         button = self._buttons.get(normalize_destination_id(workspace_id))

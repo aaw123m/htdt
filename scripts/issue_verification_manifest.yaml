@@ -5056,3 +5056,38 @@ issues:
     description: 'issue 受入基準の実機・フィールド検証（実素材の湿度/劣化応答の現場測定）。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 804
+  title: 'P0: Complete UX160 owned-Windows visual and golden-path acceptance
+    across supported DPI/input conditions'
+  notes: 'REV63: 自動受入マトリクスを scripts/ux160_acceptance.py + ux160_driver.py
+    で実装（実ディスプレイ、QT_SCALE_FACTOR で DPI 行）。スクリプトセルが検出した
+    compact レール幅のクリップ不具合は修正済み。残件は実ポインタ/VTK ジェスチャと
+    目視の読みやすさ評価。
+
+    '
+  checks:
+  - id: ux160-acceptance-matrix
+    kind: script
+    command:
+    - '{python}'
+    - scripts/ux160_acceptance.py
+    - --work-dir
+    - '{work_dir}/ux160'
+    - --report
+    - '{report_dir}/issue-804-ux160-matrix.md'
+    - --python
+    - '{python}'
+    timeout_seconds: 1800
+    description: '実ディスプレイの受入マトリクス（100/125/150/200% × seeded/fresh）:
+      全宛先ナビゲーション + コンテキスト、レイアウト overflow ヒューリスティック、
+      Tab フォーカス鎖サイクル、無効アクション理由、Ctrl+K パレット、クリーン終了。
+      スクリーンショットと verdict.json をセル毎に保存。実ディスプレイ必須
+      （offscreen 不可）。
+
+      '
+  - id: ux160-real-input-acceptance
+    kind: manual
+    description: '実ポインタ・マウスでの VTK カメラ/ギズモ操作と主要操作の実打鍵確認
+      （DPI 各行）、日本語コピーの可読性目視評価、初回使用の発見可能性。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
