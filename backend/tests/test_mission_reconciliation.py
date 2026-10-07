@@ -1138,3 +1138,97 @@ def test_redecision_refused_after_task_applied(tmp_path) -> None:
             mapping_reason='rethink',
             decided_by='op2',
         )
+
+
+def test_apply_skips_decision_whose_target_was_deleted(tmp_path) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        apply_returned_tasks,
+        record_return_rebase_decision,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document(
+        (_speaker('spk-fl', 'FL', 1.0), _speaker('spk-fr', 'FR', 4.0))
+    )
+    saved = repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_fl = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': str(uuid.uuid4()), 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {'task_id': task_fl, 'outcome': 'fulfilled'},
+        ),
+    )
+    contribution = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+        validation_state='validated',
+    )
+    # Drift spk-fl away, then record a decision naming spk-fl2.
+    drifted = repository.save(
+        _document(
+            (_speaker('spk-fl2', 'FL', 2.5), _speaker('spk-fr', 'FR', 4.0))
+        ),
+        parent_revision_id=saved.revision.revision_id,
+    )
+    record_return_rebase_decision(
+        contribution,
+        repository,
+        task_id=task_fl,
+        current_target_id='spk-fl2',
+        mapping_reason='renamed during the move',
+        decided_by='op-1',
+    )
+    # The decision's target is then deleted — the recorded decision is
+    # stale and must never bind evidence to the removed entity.
+    repository.save(
+        _document((_speaker('spk-fr', 'FR', 4.0),)),
+        parent_revision_id=drifted.revision.revision_id,
+    )
+
+    outcome = apply_returned_tasks(
+        contribution, repository, applied_by='op-2'
+    )
+    assert outcome.applied == ()
+    assert outcome.skipped_task_ids == (task_fl,)
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            'SELECT COUNT(*) FROM field_return_applications'
+        ).fetchone()[0] == 0

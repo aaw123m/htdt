@@ -978,6 +978,15 @@ def apply_returned_tasks(
         if decision is None:
             skipped.append(result.task_id)
             continue
+        # The decision named its target at record time; the entity may
+        # have been deleted since. A stale decision must skip like an
+        # undecided drift — binding evidence to a removed entity would
+        # mint provenance pointing at nothing.
+        try:
+            resolved.revision.document.entity(decision.current_target_id)
+        except KeyError:
+            skipped.append(result.task_id)
+            continue
         applied_targets[result.task_id] = (
             decision.current_target_id, decision.decision_id
         )
