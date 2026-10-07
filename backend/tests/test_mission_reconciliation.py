@@ -912,7 +912,13 @@ def test_apply_flags_refs_the_container_cannot_resolve(
     assert outcome.refs_unverifiable is False
 
     # A second contribution whose retained bytes are absent applies its
-    # refs honestly as unverifiable.
+    # refs honestly as unverifiable. A mission task binds once across
+    # contributions, so this one carries a different mission task.
+    task_id_2 = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.task_id != task_id
+    )
     contribution_id_2 = str(uuid.uuid4())
     root2 = dict(root)
     root2.update(
@@ -927,7 +933,7 @@ def test_apply_flags_refs_the_container_cannot_resolve(
             'evidence_assets': [],
             'task_fulfillment_ledger': [
                 {
-                    'item_ref': f'task_item:{task_id}',
+                    'item_ref': f'task_item:{task_id_2}',
                     'title': 'verify',
                     'requirement': 'required',
                     'outcome': 'fulfilled',

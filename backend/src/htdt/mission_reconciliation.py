@@ -969,11 +969,30 @@ def apply_returned_tasks(
                 (contribution_id,),
             ).fetchall()
         }
+        # A mission task binds once, across every contribution for the
+        # mission — only UNIQUE(contribution_id, task_id) guards the
+        # table, so without this check a sibling contribution could mint
+        # a second, conflicting application for the same task.
+        mission_applied = {
+            row['task_id']
+            for row in connection.execute(
+                'SELECT task_id FROM field_return_applications '
+                'WHERE mission_id=? AND contribution_id != ?',
+                (resolved.package.mission.mission_id, contribution_id),
+            ).fetchall()
+        }
+        if task_ids is not None:
+            conflicts = sorted(set(task_ids) & mission_applied)
+            if conflicts:
+                raise MissionReconciliationError(
+                    'task(s) already applied under another '
+                    'contribution: ' + ', '.join(conflicts)
+                )
         applications: list[FieldReturnApplication] = []
         for task_id, (target, decision_id) in sorted(
             applied_targets.items()
         ):
-            if task_id in existing:
+            if task_id in existing or task_id in mission_applied:
                 continue
             task = tasks.get(task_id)
             application_id = _deterministic_uuid(
