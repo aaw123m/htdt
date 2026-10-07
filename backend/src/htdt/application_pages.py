@@ -18,6 +18,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -1383,6 +1384,10 @@ class CaptureInboxPage(QWidget):
         rebase_context: Callable[[object], object] | None = None,
         rebase_record: Callable | None = None,
         apply_record: Callable | None = None,
+        list_missions: Callable[[], tuple] | None = None,
+        list_mission_pairings: Callable[[], tuple] | None = None,
+        issue_mission: Callable | None = None,
+        export_mission: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1400,6 +1405,11 @@ class CaptureInboxPage(QWidget):
         self._rebase_context = rebase_context
         self._rebase_record = rebase_record
         self._apply_record = apply_record
+        self._list_missions = list_missions
+        self._list_mission_pairings = list_mission_pairings
+        self._issue_mission = issue_mission
+        self._export_mission = export_mission
+        self._missions: tuple = ()
         self._active_rebase_context = None
         self._selected_contribution = None
         self._contributions: tuple = ()
@@ -1493,6 +1503,8 @@ class CaptureInboxPage(QWidget):
         tabs.addTab(splitter, "キャプチャ配送")
         if self._list_contributions is not None:
             tabs.addTab(self._build_contributions_tab(), "フィールドリターン")
+        if self._list_missions is not None:
+            tabs.addTab(self._build_missions_tab(), "ミッション")
         layout.addWidget(tabs, 1)
         self.refresh()
 
@@ -1769,6 +1781,7 @@ class CaptureInboxPage(QWidget):
                 self.table.setItem(row, column, cell)
         self._sync_detail()
         self._refresh_contributions()
+        self._refresh_missions()
 
     # -- field-return contributions -------------------------------------
 
@@ -2063,6 +2076,312 @@ class CaptureInboxPage(QWidget):
             ),
         )
         self._sync_contribution_detail()
+
+    # -- mission ledger ---------------------------------------------------
+
+    _MISSION_STATUS_LABELS = {
+        'pending': '発行済み',
+        'received': '受信済み',
+        'failed': '失敗',
+        'superseded': '置換済み',
+        'completed': '完了',
+    }
+    _MISSION_PURPOSE_LABELS = {
+        'initial_capture': '初期キャプチャ',
+        'design_verification': '設計検証',
+        'equipment_identity': '機器識別',
+        'measurement_campaign': '測定キャンペーン',
+        'recapture': '再キャプチャ',
+        'commissioning': 'コミッショニング',
+        'custom': 'カスタム',
+    }
+
+    def _build_missions_tab(self) -> QWidget:
+        """Issued mission packages awaiting/confirming delivery."""
+
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        intro = QLabel(
+            "ペアリング済みデバイスへ発行したミッションパッケージの一覧です。"
+            "「発行…」でこのプロジェクトから新しいミッションを送り出せます。"
+        )
+        intro.setWordWrap(True)
+        set_typography_role(intro, TypographyRole.SECONDARY)
+        layout.addWidget(intro)
+
+        self.mission_table = QTableWidget(0, 5)
+        self.mission_table.setAccessibleName("ミッション一覧")
+        self.mission_table.setToolTip(
+            "発行済みのキャプチャミッションの一覧です。行を選ぶと詳細が下に表示されます。"
+        )
+        self.mission_table.setHorizontalHeaderLabels(
+            ("ミッション", "目的", "部屋", "状態", "更新")
+        )
+        for _col, _tip in enumerate((
+            "ミッションの識別子（先頭12文字）",
+            "ミッションの目的分類",
+            "作業対象の部屋名",
+            "デバイスへの配送・完了状態",
+            "状態が最後に更新された日時",
+        )):
+            self.mission_table.horizontalHeaderItem(_col).setToolTip(_tip)
+        self.mission_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.mission_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.mission_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.mission_table.itemSelectionChanged.connect(
+            self._sync_mission_detail
+        )
+        layout.addWidget(self.mission_table, 1)
+
+        self.mission_detail = QLabel(
+            "一覧からミッションを選択すると詳細を表示します。"
+        )
+        self.mission_detail.setWordWrap(True)
+        self.mission_detail.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        set_typography_role(
+            self.mission_detail, TypographyRole.SECONDARY
+        )
+        layout.addWidget(self.mission_detail)
+
+        actions = QHBoxLayout()
+        self.issue_button = QPushButton("発行…")
+        self.issue_button.setToolTip(
+            "プロジェクトの現行シーンからタスク計画を生成し、ペアリング済みデバイスのプルレーンへ登録します"
+        )
+        self.issue_button.setWhatsThis(self.issue_button.toolTip())
+        self.issue_button.clicked.connect(self._issue_mission_dialog)
+        self.issue_button.setEnabled(
+            self._issue_mission is not None
+            and self._list_projects is not None
+        )
+        actions.addWidget(self.issue_button)
+        self.export_mission_button = QPushButton("エクスポート…")
+        self.export_mission_button.setToolTip(
+            "選択したミッションパッケージのワイヤバイトをファイルへ書き出します（ペアリング外デバイスへの手渡し用）"
+        )
+        self.export_mission_button.setWhatsThis(
+            self.export_mission_button.toolTip()
+        )
+        self.export_mission_button.clicked.connect(
+            self._export_mission_dialog
+        )
+        self.export_mission_button.setEnabled(False)
+        actions.addWidget(self.export_mission_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        return panel
+
+    def _refresh_missions(self) -> None:
+        if self._list_missions is None:
+            return
+        self._missions = self._list_missions()
+        self.mission_table.setRowCount(0)
+        for package in self._missions:
+            row = self.mission_table.rowCount()
+            self.mission_table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    f"{(package.mission_id or package.package_id)[:12]}…",
+                    self._MISSION_PURPOSE_LABELS.get(
+                        package.purpose, package.purpose or '—'
+                    ),
+                    package.room_label or '—',
+                    self._MISSION_STATUS_LABELS.get(
+                        package.status, package.status
+                    ),
+                    package.issued_at_utc or '',
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, package.package_id
+                    )
+                self.mission_table.setItem(row, column, cell)
+        self._sync_mission_detail()
+
+    def _selected_mission(self):
+        items = self.mission_table.selectedItems()
+        index = None
+        for item in items:
+            if item.column() == 0:
+                index = item.row()
+                break
+        if index is None or index >= len(self._missions):
+            return None
+        return self._missions[index]
+
+    def _sync_mission_detail(self) -> None:
+        package = self._selected_mission()
+        self.export_mission_button.setEnabled(
+            package is not None and self._export_mission is not None
+        )
+        if package is None:
+            self.mission_detail.setText(
+                "一覧からミッションを選択すると詳細を表示します。"
+            )
+            return
+        lines = [
+            f"ミッション: {package.mission_id or '—'}",
+            f"パッケージ: {package.package_id}",
+            f"目的: {self._MISSION_PURPOSE_LABELS.get(package.purpose, package.purpose or '—')}",
+            f"部屋: {package.room_label or '—'}",
+            f"対象: {package.project_ref or '—'}",
+            (
+                f"状態: {self._MISSION_STATUS_LABELS.get(package.status, package.status)}"
+                + (
+                    f" — {package.status_detail}"
+                    if package.status_detail
+                    else ""
+                )
+            ),
+            f"パッケージ SHA-256: {package.package_sha256[:16]}…",
+            f"サイズ: {package.byte_size:,} バイト",
+            f"ペアリング: {package.pairing_id or '（スコープなし）'}",
+        ]
+        if package.supersedes_package_id:
+            lines.append(f"置換元: {package.supersedes_package_id[:12]}…")
+        if package.required_schema_version:
+            lines.append(
+                f"必要スキーマ: {package.required_schema_version}"
+            )
+        if package.issued_at_utc:
+            lines.append(f"発行: {package.issued_at_utc}")
+        self.mission_detail.setText("\n".join(lines))
+
+    def _issue_mission_dialog(self) -> None:
+        if (
+            self._issue_mission is None
+            or self._list_projects is None
+        ):
+            return
+        entries = tuple(
+            entry
+            for entry in self._list_projects()
+            if getattr(entry, 'document_id', None)
+            and not getattr(entry, 'archived', False)
+        )
+        if not entries:
+            QMessageBox.information(
+                self,
+                "ミッション発行",
+                "発行先となるプロジェクトがありません。",
+            )
+            return
+        names = [entry.display_name for entry in entries]
+        name, ok = QInputDialog.getItem(
+            self,
+            "ミッション発行",
+            "発行対象のプロジェクトを選んでください。",
+            names,
+            0,
+            False,
+        )
+        if not ok:
+            return
+        entry = entries[names.index(name)]
+        purposes = list(self._MISSION_PURPOSE_LABELS)
+        purpose_label, ok = QInputDialog.getItem(
+            self,
+            "ミッション発行",
+            "ミッションの目的を選んでください。",
+            [
+                self._MISSION_PURPOSE_LABELS[purpose]
+                for purpose in purposes
+            ],
+            0,
+            False,
+        )
+        if not ok:
+            return
+        purpose = purposes[
+            [
+                self._MISSION_PURPOSE_LABELS[p] for p in purposes
+            ].index(purpose_label)
+        ]
+        room_name, ok = QInputDialog.getText(
+            self,
+            "ミッション発行",
+            "作業対象の部屋名を入力してください。",
+            text=entry.display_name,
+        )
+        if not ok or not room_name.strip():
+            return
+        pairing_id = None
+        if self._list_mission_pairings is not None:
+            pairings = tuple(
+                pairing
+                for pairing in self._list_mission_pairings()
+                if getattr(pairing, 'state', 'active')
+                in ('offered', 'active')
+            )
+            if pairings:
+                options = ["（スコープなし — 全ペアリングが取得可能）"] + [
+                    getattr(p, 'capture_instance_id', None)
+                    or getattr(p, 'pairing_id', '')
+                    for p in pairings
+                ]
+                choice, ok = QInputDialog.getItem(
+                    self,
+                    "ミッション発行",
+                    "配送先を絞る場合はペアリングを選んでください。",
+                    options,
+                    0,
+                    False,
+                )
+                if not ok:
+                    return
+                if choice != options[0]:
+                    pairing_id = pairings[options.index(choice) - 1].pairing_id
+        try:
+            package = self._issue_mission(
+                entry, purpose, room_name.strip(), pairing_id
+            )
+        except Exception as exc:
+            warn_user(self, "ミッションを発行できませんでした", exc)
+            return
+        QMessageBox.information(
+            self,
+            "ミッション発行",
+            "ミッションを発行しました"
+            + (
+                f"（ミッションID: {package.mission_id or package.package_id}）"
+            ),
+        )
+        self._refresh_missions()
+
+    def _export_mission_dialog(self) -> None:
+        package = self._selected_mission()
+        if package is None or self._export_mission is None:
+            return
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "ミッションのエクスポート",
+            f"mission-{package.package_id[:8]}.json",
+            "ミッションパッケージ (*.json)",
+        )
+        if not destination:
+            return
+        try:
+            written = self._export_mission(
+                package.package_id, destination
+            )
+        except Exception as exc:
+            warn_user(self, "エクスポートできませんでした", exc)
+            return
+        QMessageBox.information(
+            self,
+            "エクスポート完了",
+            f"ミッションパッケージを書き出しました。\n{written}",
+        )
 
 
 _OPERATION_STATE_LABELS = {
