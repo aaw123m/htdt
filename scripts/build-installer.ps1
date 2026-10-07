@@ -2,11 +2,21 @@ param(
     [string]$PackageDir = "",
     [string]$OutputDir = "",
     [string]$IsccPath = "",
-    [string]$Version = ""
+    [string]$Version = "",
+    # Path to release_verification_evidence.json produced by
+    # scripts/run_release_verification.py --profile release (issue #833).
+    # When supplied, the release manifest binds the evidence identity; when
+    # absent the manifest records verification.status = 'unverified' so an
+    # unverified build can never look like a verified release candidate.
+    [string]$VerificationEvidence = "",
+    # Hard-fail unless the evidence validates as a full, green, same-commit
+    # release-profile verification run. Use for release candidates.
+    [switch]$RequireVerification
 )
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "verification_evidence.ps1")
 
 if (-not $PackageDir) {
     $PackageDir = Join-Path $RepoRoot "dist-native\HTDT"
@@ -106,6 +116,20 @@ if (-not (Test-Path $Expected)) {
     throw "Installer output missing: $Expected"
 }
 
+# Software-verification binding (issue #833): the release manifest records
+# the sha256 of the verification evidence that covers this exact commit —
+# or, without it, a visible 'unverified'/'rejected' status. -RequireVerification
+# makes anything but a green full release-profile run fatal.
+$Verification = Get-VerificationBlock `
+    -EvidencePath $VerificationEvidence `
+    -ExpectedCommitSha $(if ($CommitSha) { $CommitSha } else { "" }) `
+    -RequireEvidence:$RequireVerification
+if ($Verification.status -eq "verified") {
+    Write-Host "Verification evidence bound: $($Verification.evidence_sha256)"
+} else {
+    Write-Warning "Release manifest will carry verification.status='$($Verification.status)' ($($Verification.reason))"
+}
+
 # Release/build manifest: exact source SHA, lock hash and installer digest
 # travel next to the artifact instead of an external manual note.
 if (-not $LockSha256) {
@@ -134,6 +158,7 @@ $Manifest = [ordered]@{
         python = $PythonVersion
         pip    = $PipVersion
     }
+    verification        = $Verification
     github              = [ordered]@{
         workflow    = $env:GITHUB_WORKFLOW
         run_id      = $env:GITHUB_RUN_ID
