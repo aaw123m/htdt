@@ -256,3 +256,12 @@ entries:
   # authority stack the research produced (landed via #811/#814).
   evidence_refs: [docs/issues/issue-811-confidence-bound.md, docs/issues/issue-814-confidence-envelope.md]
   close_when_gates_clear: true
+
+- issue: 865
+  lifecycle: acceptance_remaining
+  landed: {prs: [881], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 継続運用 — evidence_ref 解決検査の保守（fail-closed、release ゲート統合済み）
+  evidence_refs: [docs/issues/issue-865-lifecycle-evidence.md]
+  close_when_gates_clear: true
