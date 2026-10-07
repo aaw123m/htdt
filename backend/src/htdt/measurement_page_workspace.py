@@ -170,6 +170,9 @@ _CONTEXT_IDS = (
     "comparison",
     "calibration",
     "acquisition",
+    # #877 guided calibration wizard — reached from the calibration page,
+    # not the context rail (same pattern as the acquisition page).
+    "calibration_wizard",
 )
 
 _CELL_STATUS_LABELS = {
@@ -739,6 +742,7 @@ class MeasurementPageWorkspace(QWidget):
         self._build_comparison_page()
         self._build_calibration_page()
         self._build_acquisition_page()
+        self._build_calibration_wizard_page()
         self._wire_explanations()
         self.refresh()
 
@@ -5915,6 +5919,18 @@ class MeasurementPageWorkspace(QWidget):
         guide_text.setWordWrap(True)
         set_typography_role(guide_text, TypographyRole.SECONDARY)
         guide.addWidget(guide_text)
+        wizard_row = QHBoxLayout()
+        open_wizard = QPushButton("ガイド付き校正を開く", guide_card)
+        open_wizard.setAccessibleName("ガイド付き校正ウィザードを開く")
+        open_wizard.setToolTip(
+            "ループバック校正・SPLリファレンスチェック・"
+            "キャンペーン前後チェックをガイド手順で実行します。")
+        open_wizard.setWhatsThis(open_wizard.toolTip())
+        open_wizard.clicked.connect(
+            lambda: self.set_context("calibration_wizard"))
+        wizard_row.addWidget(open_wizard)
+        wizard_row.addStretch(1)
+        guide.addLayout(wizard_row)
         layout.addWidget(guide_card)
 
         # REV44: the production write path for the quality-authority
@@ -7661,6 +7677,799 @@ class MeasurementPageWorkspace(QWidget):
                     f"生録音: "
                     f"{self._acq_run_record.raw_audio_sha256[:16]}…")
         self.acq_evidence_label.setText(" / ".join(evidence))
+
+    # -- guided calibration wizard (#877) -------------------------------------
+
+    def _build_calibration_wizard_page(self) -> None:
+        """Guided measurement-chain calibration (#877).
+
+        Three lanes — interface loopback calibration, microphone/SPL
+        reference check, and campaign pre/post checks — all driving the
+        #869 acquisition engine. Software-controlled stages run
+        automatically; the only prompts are the physical instructions the
+        machine cannot perform. Every step seals a transition so the run
+        survives restarts without inventing completion.
+        """
+        from .cad_calibration_wizard import (
+            CALIBRATION_WIZARD_INSTRUCTION_LABELS,
+            CALIBRATION_WIZARD_LANE_LABELS,
+            CALIBRATION_WIZARD_STAGE_LABELS,
+        )
+        from .cad_sweep_acquisition import (
+            _WASAPI_BACKEND_ID,
+            _FAKE_BACKEND_ID,
+        )
+
+        page, _host, layout = _page(
+            "ガイド付き測定チェーン校正",
+            "ソフトウェアで実行できる作業は自動化し、ケーブル接続・"
+            "校正器の取り付けなど物理的な操作だけを明示的に指示します。"
+            "すべてのステップは封緘記録として保存され、中断・再起動しても"
+            "完了状態を偽りません。",
+        )
+        self._wiz_stage_labels = CALIBRATION_WIZARD_STAGE_LABELS
+        self._wiz_instruction_labels = CALIBRATION_WIZARD_INSTRUCTION_LABELS
+        self._wiz_lane_labels = CALIBRATION_WIZARD_LANE_LABELS
+        self._wiz = None
+        self._wiz_instruments: dict = {}
+        self._wiz_profiles: dict = {}
+        self._wiz_campaigns: dict = {}
+
+        # -- lane + backend --------------------------------------------------
+        lane_card, lane_box = _card("校正レーン", page)
+        backend_id = getattr(self._acq_backend, 'backend_id', 'unknown')
+        if backend_id == _WASAPI_BACKEND_ID:
+            wiz_backend_text = (
+                f"バックエンド: {backend_id}（このビルドでは未実装 — "
+                "実デバイス取得は利用できません）")
+        elif backend_id == _FAKE_BACKEND_ID:
+            wiz_backend_text = (
+                f"バックエンド: {backend_id}（シミュレーション — "
+                "テスト証跡のみ）")
+        else:
+            wiz_backend_text = f"バックエンド: {backend_id}"
+        self.wiz_backend_label = QLabel(wiz_backend_text, lane_card)
+        self.wiz_backend_label.setWordWrap(True)
+        self.wiz_backend_label.setAccessibleName("オーディオバックエンド")
+        set_typography_role(self.wiz_backend_label, TypographyRole.SECONDARY)
+        lane_box.addWidget(self.wiz_backend_label)
+
+        lane_form = QFormLayout()
+        self.wiz_lane_combo = QComboBox(lane_card)
+        self.wiz_lane_combo.setAccessibleName("校正レーン")
+        for lane_id, label in CALIBRATION_WIZARD_LANE_LABELS.items():
+            self.wiz_lane_combo.addItem(label, lane_id)
+        self.wiz_lane_combo.currentIndexChanged.connect(
+            lambda _i: self.wiz_setup_stack.setCurrentIndex(
+                self.wiz_lane_combo.currentIndex()))
+        lane_form.addRow("レーン", self.wiz_lane_combo)
+        lane_box.addLayout(lane_form)
+        self.wiz_persistence_note = QLabel("", lane_card)
+        self.wiz_persistence_note.setWordWrap(True)
+        set_typography_role(
+            self.wiz_persistence_note, TypographyRole.SECONDARY)
+        lane_box.addWidget(self.wiz_persistence_note)
+        layout.addWidget(lane_card)
+
+        # -- per-lane setup ---------------------------------------------------
+        self.wiz_setup_stack = QStackedWidget(page)
+
+        # Lane A: interface loopback — devices, routing, sweep spec.
+        lane_a = QWidget()
+        a_form = QFormLayout(lane_a)
+        self.wiz_playback_device = QComboBox(lane_a)
+        self.wiz_playback_device.setAccessibleName("再生デバイス")
+        a_form.addRow("再生デバイス", self.wiz_playback_device)
+        self.wiz_playback_channel = QSpinBox(lane_a)
+        self.wiz_playback_channel.setRange(0, 31)
+        self.wiz_playback_channel.setAccessibleName("再生チャンネル")
+        a_form.addRow("再生チャンネル", self.wiz_playback_channel)
+        self.wiz_capture_device = QComboBox(lane_a)
+        self.wiz_capture_device.setAccessibleName("録音デバイス")
+        a_form.addRow("録音デバイス", self.wiz_capture_device)
+        self.wiz_capture_channel = QSpinBox(lane_a)
+        self.wiz_capture_channel.setRange(0, 31)
+        self.wiz_capture_channel.setAccessibleName("録音チャンネル")
+        a_form.addRow("録音チャンネル", self.wiz_capture_channel)
+        self.wiz_loopback_channel = QComboBox(lane_a)
+        self.wiz_loopback_channel.setAccessibleName("ループバック基準")
+        for ch in range(8):
+            self.wiz_loopback_channel.addItem(f"入力 {ch}", ch)
+        self.wiz_loopback_channel.setCurrentIndex(1)
+        a_form.addRow("ループバック基準", self.wiz_loopback_channel)
+        self.wiz_sample_rate = QComboBox(lane_a)
+        self.wiz_sample_rate.setAccessibleName("サンプルレート")
+        for rate in (44100, 48000, 96000):
+            self.wiz_sample_rate.addItem(f"{rate} Hz", rate)
+        self.wiz_sample_rate.setCurrentIndex(1)
+        a_form.addRow("サンプルレート", self.wiz_sample_rate)
+        self.wiz_start_freq = QDoubleSpinBox(lane_a)
+        self.wiz_start_freq.setRange(1.0, 24000.0)
+        self.wiz_start_freq.setValue(100.0)
+        self.wiz_start_freq.setSuffix(" Hz")
+        self.wiz_start_freq.setAccessibleName("掃引開始周波数")
+        a_form.addRow("開始周波数", self.wiz_start_freq)
+        self.wiz_end_freq = QDoubleSpinBox(lane_a)
+        self.wiz_end_freq.setRange(2.0, 24000.0)
+        self.wiz_end_freq.setValue(8000.0)
+        self.wiz_end_freq.setSuffix(" Hz")
+        self.wiz_end_freq.setAccessibleName("掃引終了周波数")
+        a_form.addRow("終了周波数", self.wiz_end_freq)
+        self.wiz_duration = QDoubleSpinBox(lane_a)
+        self.wiz_duration.setRange(0.02, 120.0)
+        self.wiz_duration.setValue(0.5)
+        self.wiz_duration.setSuffix(" s")
+        self.wiz_duration.setAccessibleName("掃引長")
+        a_form.addRow("掃引長", self.wiz_duration)
+        self.wiz_level = QDoubleSpinBox(lane_a)
+        self.wiz_level.setRange(-80.0, -6.0)
+        self.wiz_level.setDecimals(1)
+        self.wiz_level.setValue(-12.0)
+        self.wiz_level.setSuffix(" dBFS")
+        self.wiz_level.setAccessibleName("出力レベル dBFS")
+        a_form.addRow("出力レベル", self.wiz_level)
+        lane_a_note = QLabel(
+            "出力→入力のループバックケーブルを指示されたら接続します。"
+            "DAC+ADCの結合校正として記録されます。",
+            lane_a)
+        lane_a_note.setWordWrap(True)
+        set_typography_role(lane_a_note, TypographyRole.SECONDARY)
+        a_form.addRow(lane_a_note)
+        self.wiz_setup_stack.addWidget(lane_a)
+
+        # Lane B: instrument + acceptance profile + check kind.
+        lane_b = QWidget()
+        b_form = QFormLayout(lane_b)
+        self.wiz_instrument_combo = QComboBox(lane_b)
+        self.wiz_instrument_combo.setAccessibleName("対象機器")
+        b_form.addRow("対象機器", self.wiz_instrument_combo)
+        new_box = QHBoxLayout()
+        self.wiz_inst_manufacturer = QLineEdit(lane_b)
+        self.wiz_inst_manufacturer.setPlaceholderText("メーカー")
+        self.wiz_inst_manufacturer.setAccessibleName("機器メーカー")
+        self.wiz_inst_model = QLineEdit(lane_b)
+        self.wiz_inst_model.setPlaceholderText("型番")
+        self.wiz_inst_model.setAccessibleName("機器型番")
+        self.wiz_inst_serial = QLineEdit(lane_b)
+        self.wiz_inst_serial.setPlaceholderText("シリアル/資産ID *")
+        self.wiz_inst_serial.setAccessibleName("機器シリアルまたは資産ID")
+        for w in (self.wiz_inst_manufacturer, self.wiz_inst_model,
+                  self.wiz_inst_serial):
+            new_box.addWidget(w)
+        b_form.addRow("新規機器", new_box)
+        self.wiz_check_kind = QComboBox(lane_b)
+        self.wiz_check_kind.setAccessibleName("チェック種別")
+        for kind, label in (
+            ('interim_check', '中間チェック'),
+            ('pre_use_field_check', '使用前フィールドチェック'),
+            ('post_use_field_check', '使用後フィールドチェック'),
+            ('periodic_test', '定期試験'),
+        ):
+            self.wiz_check_kind.addItem(label, kind)
+        b_form.addRow("チェック種別", self.wiz_check_kind)
+        self.wiz_profile_name = QLineEdit(lane_b)
+        self.wiz_profile_name.setText("field-check-94dB-1k")
+        self.wiz_profile_name.setAccessibleName("合格基準プロファイル名")
+        b_form.addRow("プロファイル名", self.wiz_profile_name)
+        self.wiz_ref_level = QDoubleSpinBox(lane_b)
+        self.wiz_ref_level.setRange(30.0, 150.0)
+        self.wiz_ref_level.setValue(94.0)
+        self.wiz_ref_level.setSuffix(" dB")
+        self.wiz_ref_level.setAccessibleName("校正器の公称レベル")
+        b_form.addRow("公称レベル", self.wiz_ref_level)
+        self.wiz_ref_freq = QDoubleSpinBox(lane_b)
+        self.wiz_ref_freq.setRange(10.0, 24000.0)
+        self.wiz_ref_freq.setValue(1000.0)
+        self.wiz_ref_freq.setSuffix(" Hz")
+        self.wiz_ref_freq.setAccessibleName("基準周波数")
+        b_form.addRow("基準周波数", self.wiz_ref_freq)
+        self.wiz_expected_level = QDoubleSpinBox(lane_b)
+        self.wiz_expected_level.setRange(-120.0, 0.0)
+        self.wiz_expected_level.setDecimals(1)
+        self.wiz_expected_level.setValue(-20.0)
+        self.wiz_expected_level.setSuffix(" dBFS")
+        self.wiz_expected_level.setAccessibleName("期待測定レベル")
+        b_form.addRow("期待レベル", self.wiz_expected_level)
+        self.wiz_level_tol = QDoubleSpinBox(lane_b)
+        self.wiz_level_tol.setRange(0.05, 10.0)
+        self.wiz_level_tol.setValue(1.0)
+        self.wiz_level_tol.setSuffix(" dB")
+        self.wiz_level_tol.setAccessibleName("レベル許容差")
+        b_form.addRow("レベル許容差", self.wiz_level_tol)
+        self.wiz_freq_tol = QDoubleSpinBox(lane_b)
+        self.wiz_freq_tol.setRange(0.5, 500.0)
+        self.wiz_freq_tol.setValue(10.0)
+        self.wiz_freq_tol.setSuffix(" Hz")
+        self.wiz_freq_tol.setAccessibleName("周波数許容差")
+        b_form.addRow("周波数許容差", self.wiz_freq_tol)
+        self.wiz_stability_tol = QDoubleSpinBox(lane_b)
+        self.wiz_stability_tol.setRange(0.05, 10.0)
+        self.wiz_stability_tol.setValue(0.5)
+        self.wiz_stability_tol.setSuffix(" dB")
+        self.wiz_stability_tol.setAccessibleName("安定性許容差")
+        b_form.addRow("安定性", self.wiz_stability_tol)
+        self.wiz_min_snr = QDoubleSpinBox(lane_b)
+        self.wiz_min_snr.setRange(3.0, 120.0)
+        self.wiz_min_snr.setValue(20.0)
+        self.wiz_min_snr.setSuffix(" dB")
+        self.wiz_min_snr.setAccessibleName("最低SNR")
+        b_form.addRow("最低SNR", self.wiz_min_snr)
+        self.wiz_check_duration = QDoubleSpinBox(lane_b)
+        self.wiz_check_duration.setRange(0.1, 60.0)
+        self.wiz_check_duration.setValue(0.5)
+        self.wiz_check_duration.setSuffix(" s")
+        self.wiz_check_duration.setAccessibleName("録音窓の長さ")
+        b_form.addRow("録音窓", self.wiz_check_duration)
+        lane_b_note = QLabel(
+            "校正器・基準ソースを対象機器に取り付け、安定させてから"
+            "セットアップを確認します。野外チェックは試験所校正では"
+            "ありません — 機器適合性の更新として記録されます。",
+            lane_b)
+        lane_b_note.setWordWrap(True)
+        set_typography_role(lane_b_note, TypographyRole.SECONDARY)
+        b_form.addRow(lane_b_note)
+        self.wiz_setup_stack.addWidget(lane_b)
+
+        # Lane C: campaign + check plan (sealed before the run).
+        lane_c = QWidget()
+        c_form = QFormLayout(lane_c)
+        self.wiz_campaign_combo = QComboBox(lane_c)
+        self.wiz_campaign_combo.setAccessibleName("対象キャンペーン")
+        c_form.addRow("キャンペーン", self.wiz_campaign_combo)
+        self.wiz_c_instrument_combo = QComboBox(lane_c)
+        self.wiz_c_instrument_combo.setAccessibleName("チェック対象機器")
+        c_form.addRow("対象機器", self.wiz_c_instrument_combo)
+        self.wiz_c_profile_combo = QComboBox(lane_c)
+        self.wiz_c_profile_combo.setAccessibleName("合格基準プロファイル")
+        c_form.addRow("合格基準", self.wiz_c_profile_combo)
+        checks_row = QHBoxLayout()
+        self.wiz_c_pre = QCheckBox("使用前チェック", lane_c)
+        self.wiz_c_pre.setChecked(True)
+        self.wiz_c_pre.setAccessibleName("使用前フィールドチェックを要求")
+        self.wiz_c_post = QCheckBox("使用後チェック", lane_c)
+        self.wiz_c_post.setChecked(True)
+        self.wiz_c_post.setAccessibleName("使用後フィールドチェックを要求")
+        checks_row.addWidget(self.wiz_c_pre)
+        checks_row.addWidget(self.wiz_c_post)
+        checks_row.addStretch(1)
+        c_form.addRow("要求チェック", checks_row)
+        self.wiz_c_blocking = QCheckBox(
+            "失敗時はキャンペーン証跡をブロック", lane_c)
+        self.wiz_c_blocking.setChecked(True)
+        self.wiz_c_blocking.setAccessibleName("失敗時ブロックポリシー")
+        c_form.addRow("ポリシー", self.wiz_c_blocking)
+        lane_c_note = QLabel(
+            "計画は実行前に封緘されます — 要求されたチェックを"
+            "後から弱めることはできません。機器とプロファイルは"
+            "登録済みレコードから選びます。",
+            lane_c)
+        lane_c_note.setWordWrap(True)
+        set_typography_role(lane_c_note, TypographyRole.SECONDARY)
+        c_form.addRow(lane_c_note)
+        self.wiz_setup_stack.addWidget(lane_c)
+        layout.addWidget(self.wiz_setup_stack)
+
+        devices_row = QHBoxLayout()
+        self.wiz_refresh_button = QPushButton(
+            "デバイス・レコードを更新", page)
+        self.wiz_refresh_button.setAccessibleName(
+            "デバイスと機器レコードを更新")
+        self.wiz_refresh_button.clicked.connect(
+            self._wiz_refresh_devices)
+        devices_row.addWidget(self.wiz_refresh_button)
+        devices_row.addStretch(1)
+        layout.addLayout(devices_row)
+
+        # -- guidance: the physical instruction -------------------------------
+        guide_card, guide = _card("ガイダンス", page)
+        self.wiz_stage_label = QLabel("ステージ: —", guide_card)
+        self.wiz_stage_label.setAccessibleName("校正ウィザードのステージ")
+        guide.addWidget(self.wiz_stage_label)
+        self.wiz_instruction_label = QLabel("", guide_card)
+        self.wiz_instruction_label.setWordWrap(True)
+        self.wiz_instruction_label.setAccessibleName("物理操作の指示")
+        guide.addWidget(self.wiz_instruction_label)
+        self.wiz_blocked_label = QLabel("", guide_card)
+        self.wiz_blocked_label.setWordWrap(True)
+        self.wiz_blocked_label.setAccessibleName("ブロック理由")
+        set_typography_role(self.wiz_blocked_label, TypographyRole.SECONDARY)
+        guide.addWidget(self.wiz_blocked_label)
+        self.wiz_next_label = QLabel("", guide_card)
+        self.wiz_next_label.setWordWrap(True)
+        self.wiz_next_label.setAccessibleName("次に許可されたイベント")
+        set_typography_role(self.wiz_next_label, TypographyRole.SECONDARY)
+        guide.addWidget(self.wiz_next_label)
+        layout.addWidget(guide_card)
+
+        # -- controls ----------------------------------------------------------
+        ctrl_card, ctrl = _card("操作", page)
+        buttons = QHBoxLayout()
+        self.wiz_begin_button = QPushButton("開始", ctrl_card)
+        self.wiz_begin_button.setAccessibleName("校正ウィザードを開始")
+        self.wiz_begin_button.setToolTip(
+            "選択したレーンの実行を封緘して開始します。")
+        self.wiz_begin_button.setWhatsThis(self.wiz_begin_button.toolTip())
+        self.wiz_begin_button.clicked.connect(self._wiz_begin)
+        buttons.addWidget(self.wiz_begin_button)
+        self.wiz_confirm_button = QPushButton("セットアップを確認", ctrl_card)
+        self.wiz_confirm_button.setAccessibleName("物理セットアップを確認")
+        self.wiz_confirm_button.setToolTip(
+            "指示された物理操作を完了したことを記録します。")
+        self.wiz_confirm_button.setWhatsThis(
+            self.wiz_confirm_button.toolTip())
+        self.wiz_confirm_button.clicked.connect(self._wiz_confirm)
+        buttons.addWidget(self.wiz_confirm_button)
+        self.wiz_campaign_done_button = QPushButton(
+            "キャンペーン完了を記録", ctrl_card)
+        self.wiz_campaign_done_button.setAccessibleName(
+            "キャンペーン測定の完了を記録")
+        self.wiz_campaign_done_button.clicked.connect(
+            self._wiz_campaign_done)
+        buttons.addWidget(self.wiz_campaign_done_button)
+        self.wiz_retry_button = QPushButton("再試行", ctrl_card)
+        self.wiz_retry_button.setAccessibleName("ブロックされたステップを再試行")
+        self.wiz_retry_button.setToolTip(
+            "ブロックされたステップへ戻り、ソフトウェア処理をやり直します。")
+        self.wiz_retry_button.setWhatsThis(self.wiz_retry_button.toolTip())
+        self.wiz_retry_button.clicked.connect(self._wiz_retry)
+        buttons.addWidget(self.wiz_retry_button)
+        self.wiz_cancel_button = QPushButton("中止", ctrl_card)
+        self.wiz_cancel_button.setAccessibleName("校正ウィザードを中止")
+        self.wiz_cancel_button.clicked.connect(self._wiz_cancel)
+        buttons.addWidget(self.wiz_cancel_button)
+        buttons.addStretch(1)
+        ctrl.addLayout(buttons)
+        layout.addWidget(ctrl_card)
+
+        # -- evidence ------------------------------------------------------------
+        ev_card, ev = _card("証跡", page)
+        self.wiz_run_label = QLabel("実行: —", ev_card)
+        self.wiz_run_label.setAccessibleName("校正ウィザード実行ID")
+        ev.addWidget(self.wiz_run_label)
+        self.wiz_artifacts_label = QLabel("", ev_card)
+        self.wiz_artifacts_label.setWordWrap(True)
+        self.wiz_artifacts_label.setAccessibleName("封緘された証跡")
+        set_typography_role(
+            self.wiz_artifacts_label, TypographyRole.SECONDARY)
+        ev.addWidget(self.wiz_artifacts_label)
+        self.wiz_log = QListWidget(ev_card)
+        self.wiz_log.setAccessibleName("遷移ログ")
+        self.wiz_log.setMinimumHeight(140)
+        ev.addWidget(self.wiz_log)
+        layout.addWidget(ev_card)
+
+        layout.addStretch(1)
+        self.pages.addWidget(page)
+        self._wiz_refresh_devices()
+        self._wiz_sync_ui()
+
+    # -- wizard helpers -------------------------------------------------------
+
+    def _wiz_stores(self):
+        """Real repositories when the scene has a database, else in-memory.
+
+        Without a scene repository nothing can persist — the page states
+        that honestly instead of implying evidence was saved.
+        """
+        from .cad_calibration_wizard import WizardStores
+
+        scene_repo = getattr(self.controller, 'scene_repository', None)
+        if scene_repo is None:
+            return WizardStores(), False
+        from .cad_calibration_wizard_repository import (
+            CadCalibrationWizardRepository,
+        )
+        from .cad_calibration_lifecycle_repository import (
+            CadCalibrationLifecycleRepository,
+        )
+        from .cad_interface_loopback_repository import (
+            CadInterfaceLoopbackRepository,
+        )
+        from .cad_sweep_acquisition_repository import (
+            CadSweepAcquisitionRepository,
+        )
+        try:
+            return WizardStores(
+                wizard=CadCalibrationWizardRepository(scene_repo),
+                sweep=CadSweepAcquisitionRepository(scene_repo),
+                interface=CadInterfaceLoopbackRepository(scene_repo),
+                lifecycle=CadCalibrationLifecycleRepository(scene_repo),
+            ), True
+        except EXPECTED_OPERATION_ERRORS:
+            # error-boundary: expected — DB unavailable/locked means
+            # in-memory evidence, not a fake persisted one.
+            return WizardStores(), False
+
+    def _wiz_refresh_devices(self) -> None:
+        """Enumerate devices + registered records honestly."""
+        from .cad_sweep_acquisition import ChannelRouting  # noqa: F401
+
+        self.wiz_playback_device.clear()
+        self.wiz_capture_device.clear()
+        try:
+            devices = self._acq_backend.enumerate_devices()
+        except EXPECTED_OPERATION_ERRORS:
+            devices = ()
+        playback = [d for d in devices
+                    if d.direction in ('playback', 'duplex')]
+        capture = [d for d in devices
+                   if d.direction in ('capture', 'duplex')]
+        for dev in playback:
+            self.wiz_playback_device.addItem(
+                f"{dev.display_name} ({dev.device_id})", dev.device_id)
+        for dev in capture:
+            self.wiz_capture_device.addItem(
+                f"{dev.display_name} ({dev.device_id})", dev.device_id)
+        stores, persisted = self._wiz_stores()
+        self.wiz_persistence_note.setText(
+            "" if persisted else
+            "注: シーンデータベースが開かれていないため、証跡は"
+            "このセッション内でのみ保持されます。")
+        self._wiz_instruments.clear()
+        self._wiz_profiles.clear()
+        self._wiz_campaigns.clear()
+        self.wiz_instrument_combo.clear()
+        self.wiz_c_instrument_combo.clear()
+        self.wiz_c_profile_combo.clear()
+        self.wiz_campaign_combo.clear()
+        if stores.lifecycle is not None:
+            for inst in stores.lifecycle.list_instruments(
+                    getattr(self.controller, 'document_id', None)):
+                self._wiz_instruments[inst.instrument_id] = inst
+                label = inst.serial_or_instance_id
+                if inst.model:
+                    label += f" ({inst.model})"
+                self.wiz_instrument_combo.addItem(label, inst.instrument_id)
+                self.wiz_c_instrument_combo.addItem(
+                    label, inst.instrument_id)
+        self.wiz_instrument_combo.addItem(
+            "（新規登録 — 下の欄を入力）", '__new__')
+        if stores.wizard is not None:
+            for prof in stores.wizard.list_profiles(
+                    getattr(self.controller, 'document_id', None)):
+                self._wiz_profiles[prof.profile_id] = prof
+                self.wiz_c_profile_combo.addItem(
+                    f"{prof.name} ({prof.profile_id[:12]}…)",
+                    prof.profile_id)
+        if persisted:
+            from .cad_owned_room_campaign_repository import (
+                CadOwnedRoomCampaignRepository,
+            )
+            try:
+                campaign_repo = CadOwnedRoomCampaignRepository(
+                    self.controller.scene_repository)
+                for prereg in campaign_repo.preregistrations.list(
+                        getattr(self.controller, 'document_id', None)):
+                    self._wiz_campaigns[
+                        prereg.preregistration_id] = prereg
+                    self.wiz_campaign_combo.addItem(
+                        prereg.preregistration_id,
+                        prereg.preregistration_id)
+            except EXPECTED_OPERATION_ERRORS:
+                # error-boundary: expected — no campaign tables yet.
+                pass
+        if self.wiz_campaign_combo.count() == 0:
+            self.wiz_campaign_combo.addItem("（登録済みキャンペーンなし）", None)
+        if self.wiz_c_profile_combo.count() == 0:
+            self.wiz_c_profile_combo.addItem("（登録済みプロファイルなし）", None)
+
+    def _wiz_selected_instrument(self, combo) -> tuple | None:
+        """(instrument, needs_save) — a registered record or a new one
+        built from the entry fields. Never invents an identity."""
+        from .cad_calibration_lifecycle import build_instrument_instance
+        from .clock import utc_now_iso
+
+        data = combo.currentData()
+        if data and data != '__new__':
+            return self._wiz_instruments.get(data), False
+        serial = self.wiz_inst_serial.text().strip()
+        if not serial:
+            return None, False
+        inst = build_instrument_instance(
+            document_id=self.controller.document_id,
+            category='measurement_microphone',
+            manufacturer=self.wiz_inst_manufacturer.text().strip() or None,
+            model=self.wiz_inst_model.text().strip() or None,
+            serial_or_instance_id=serial,
+            declared_at_utc=utc_now_iso(),
+        )
+        return inst, True
+
+    def _wiz_routing(self):
+        from .cad_sweep_acquisition import (
+            ChannelRouting, SweepStimulusSpec,
+        )
+
+        spec = SweepStimulusSpec(
+            start_frequency_hz=self.wiz_start_freq.value(),
+            end_frequency_hz=self.wiz_end_freq.value(),
+            duration_s=self.wiz_duration.value(),
+            level_dbfs=self.wiz_level.value(),
+            sample_rate_hz=int(self.wiz_sample_rate.currentData()),
+            repetitions=2,
+        )
+        routing = ChannelRouting(
+            playback_device_id=str(
+                self.wiz_playback_device.currentData() or ''),
+            playback_channel=self.wiz_playback_channel.value(),
+            capture_device_id=str(
+                self.wiz_capture_device.currentData() or ''),
+            capture_channel=self.wiz_capture_channel.value(),
+            loopback_input_channel=self.wiz_loopback_channel.currentData(),
+        )
+        return spec, routing
+
+    def _wiz_check_routing(self):
+        """Record-window spec for check lanes — a short near-silent
+        playback while the physical calibrator supplies the tone."""
+        from .cad_sweep_acquisition import (
+            ChannelRouting, SweepStimulusSpec,
+        )
+
+        spec = SweepStimulusSpec(
+            start_frequency_hz=100.0,
+            end_frequency_hz=8000.0,
+            duration_s=self.wiz_check_duration.value(),
+            level_dbfs=-60.0,
+            sample_rate_hz=int(self.wiz_sample_rate.currentData()),
+            repetitions=1,
+        )
+        routing = ChannelRouting(
+            playback_device_id=str(
+                self.wiz_playback_device.currentData() or ''),
+            playback_channel=self.wiz_playback_channel.value(),
+            capture_device_id=str(
+                self.wiz_capture_device.currentData() or ''),
+            capture_channel=self.wiz_capture_channel.value(),
+            loopback_input_channel=self.wiz_loopback_channel.currentData(),
+        )
+        return spec, routing
+
+    def _wiz_profile_from_fields(self):
+        """Seal the acceptance profile exactly as the operator set it."""
+        from .cad_calibration_wizard import CadSplCheckAcceptanceProfile
+        from .clock import utc_now_iso
+
+        return CadSplCheckAcceptanceProfile.create(
+            document_id=self.controller.document_id,
+            name=self.wiz_profile_name.text().strip()
+            or f"profile-{utc_now_iso()}",
+            reference_level_db=self.wiz_ref_level.value(),
+            reference_frequency_hz=self.wiz_ref_freq.value(),
+            expected_measured_level_db=self.wiz_expected_level.value(),
+            level_tolerance_db=self.wiz_level_tol.value(),
+            frequency_tolerance_hz=self.wiz_freq_tol.value(),
+            max_level_deviation_db=self.wiz_stability_tol.value(),
+            min_snr_db=self.wiz_min_snr.value(),
+            min_duration_s=max(0.05, self.wiz_check_duration.value() * 0.6),
+            declared_at_utc=utc_now_iso(),
+            declared_by='operator',
+        )
+
+    def _wiz_begin(self) -> None:
+        from .cad_authority_resolver import AuthorityRef
+        from .cad_calibration_lifecycle import instrument_binding
+        from .cad_calibration_wizard import (
+            CalibrationWizard, CadCampaignCheckPlan,
+            RequiredCheckSpec, spl_profile_binding,
+        )
+        from .cad_interface_loopback import CadInterfaceIoPath
+        from .clock import utc_now_iso
+
+        lane = self.wiz_lane_combo.currentData()
+        stores, persisted = self._wiz_stores()
+        self._wiz = CalibrationWizard(
+            self.controller.document_id, self._acq_backend,
+            stores=stores)
+        try:
+            if lane == 'interface_loopback':
+                spec, routing = self._wiz_routing()
+                if not routing.playback_device_id \
+                        or not routing.capture_device_id:
+                    self._set_notice(
+                        "再生・録音デバイスを選択してください",
+                        SemanticState.WARNING)
+                    self._wiz = None
+                    return
+                backend_id = getattr(
+                    self._acq_backend, 'backend_id', 'unknown')
+                io_path = CadInterfaceIoPath(
+                    output_device=routing.playback_device_id,
+                    output_port=str(routing.playback_channel),
+                    output_channel=str(routing.playback_channel),
+                    input_device=routing.capture_device_id,
+                    input_port=str(routing.capture_channel),
+                    input_channel=str(routing.capture_channel),
+                    sample_rate_hz=float(spec.sample_rate_hz),
+                    loopback_path_kind='analog',
+                    acquisition_class='analog_interface',
+                    driver_backend=backend_id,
+                )
+                self._wiz.begin_loopback(
+                    io_path=io_path, routing=routing, stimulus_spec=spec,
+                    created_by='operator', at_utc=utc_now_iso())
+            elif lane == 'spl_reference_check':
+                instrument, needs_save = self._wiz_selected_instrument(
+                    self.wiz_instrument_combo)
+                if instrument is None:
+                    self._set_notice(
+                        "対象機器を選ぶか、新規機器を登録してください",
+                        SemanticState.WARNING)
+                    self._wiz = None
+                    return
+                if needs_save and stores.lifecycle is not None:
+                    stores.lifecycle.save_instrument(instrument)
+                profile = self._wiz_profile_from_fields()
+                spec, routing = self._wiz_check_routing()
+                self._wiz.begin_reference_check(
+                    instrument=instrument, acceptance_profile=profile,
+                    routing=routing, stimulus_spec=spec,
+                    check_kind=self.wiz_check_kind.currentData(),
+                    created_by='operator', at_utc=utc_now_iso())
+            else:  # campaign_checks
+                campaign_id = self.wiz_campaign_combo.currentData()
+                instrument, needs_save = self._wiz_selected_instrument(
+                    self.wiz_c_instrument_combo)
+                profile_id = self.wiz_c_profile_combo.currentData()
+                if not campaign_id or instrument is None \
+                        or not profile_id:
+                    self._set_notice(
+                        "キャンペーン・機器・合格基準を選択してください",
+                        SemanticState.WARNING)
+                    self._wiz = None
+                    return
+                if needs_save and stores.lifecycle is not None:
+                    stores.lifecycle.save_instrument(instrument)
+                prereg = self._wiz_campaigns.get(campaign_id)
+                campaign_ref = AuthorityRef(
+                    kind='campaign_preregistration',
+                    ref_id=prereg.preregistration_id,
+                    ref_sha256=prereg.preregistration_sha256,
+                )
+                profile = self._wiz_profiles[profile_id]
+                spec_routing = self._wiz_check_routing()
+                inst_ref = instrument_binding(instrument)
+                prof_ref = spl_profile_binding(profile)
+                specs = []
+                if self.wiz_c_pre.isChecked():
+                    specs.append(RequiredCheckSpec(
+                        instrument_ref=inst_ref,
+                        check_kind='pre_use_field_check',
+                        acceptance_profile_ref=prof_ref))
+                if self.wiz_c_post.isChecked():
+                    specs.append(RequiredCheckSpec(
+                        instrument_ref=inst_ref,
+                        check_kind='post_use_field_check',
+                        acceptance_profile_ref=prof_ref))
+                if not specs:
+                    self._set_notice(
+                        "少なくとも1つのチェックを要求してください",
+                        SemanticState.WARNING)
+                    self._wiz = None
+                    return
+                plan = CadCampaignCheckPlan.create(
+                    document_id=self.controller.document_id,
+                    campaign_ref=campaign_ref,
+                    required_checks=tuple(specs),
+                    blocked_on_failure=self.wiz_c_blocking.isChecked(),
+                    declared_at_utc=utc_now_iso(), declared_by='operator')
+                self._wiz.begin_campaign_checks(
+                    campaign_ref=campaign_ref, plan=plan,
+                    routing=spec_routing[1], stimulus_spec=spec_routing[0],
+                    created_by='operator', at_utc=utc_now_iso())
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — invalid inputs reject before any
+            # run is sealed.
+            self._operation_error_notice("校正の開始に失敗しました", exc)
+            self._wiz = None
+        except ValueError as exc:
+            self._operation_error_notice("校正の開始に失敗しました", exc)
+            self._wiz = None
+        self._wiz_sync_ui()
+
+    def _wiz_confirm(self) -> None:
+        """Physical step done → machine records it, software resumes."""
+        if self._wiz is None:
+            return
+        try:
+            self._wiz.confirm_hardware()
+            self._wiz.run_automatic()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — backend open/capture failures.
+            self._operation_error_notice("ステップの実行に失敗しました", exc)
+        self._wiz_sync_ui()
+
+    def _wiz_campaign_done(self) -> None:
+        if self._wiz is None:
+            return
+        try:
+            self._wiz.record_campaign_completed()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("記録に失敗しました", exc)
+        self._wiz_sync_ui()
+
+    def _wiz_retry(self) -> None:
+        if self._wiz is None:
+            return
+        try:
+            self._wiz.request_retry()
+            self._wiz.run_automatic()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("再試行に失敗しました", exc)
+        self._wiz_sync_ui()
+
+    def _wiz_cancel(self) -> None:
+        if self._wiz is None:
+            return
+        try:
+            self._wiz.cancel()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self._operation_error_notice("中止に失敗しました", exc)
+        self._wiz_sync_ui()
+
+    def _wiz_sync_ui(self) -> None:
+        from .cad_calibration_wizard import next_permitted_events
+
+        wiz = self._wiz
+        state = wiz.state if wiz is not None else None
+        stage = state.current_stage if state is not None else None
+        self.wiz_stage_label.setText(
+            "ステージ: "
+            + (self._wiz_stage_labels.get(stage, stage)
+               if stage else '—'))
+        instruction = wiz.pending_instruction if wiz is not None else None
+        if instruction is not None:
+            self.wiz_instruction_label.setText(
+                "物理操作: "
+                + self._wiz_instruction_labels.get(instruction, instruction))
+        else:
+            self.wiz_instruction_label.setText("")
+        blocked = (
+            state.blocked_reason if state is not None else None)
+        self.wiz_blocked_label.setText(
+            f"ブロック理由: {blocked}" if blocked else "")
+        if state is not None:
+            permitted = ', '.join(next_permitted_events(state) or ('—',))
+            self.wiz_next_label.setText(f"次のイベント: {permitted}")
+        else:
+            self.wiz_next_label.setText("")
+
+        terminal = state is not None and (
+            state.completed or state.cancelled or state.failed)
+        can_begin = wiz is None or terminal
+        self.wiz_begin_button.setEnabled(can_begin)
+        self.wiz_confirm_button.setEnabled(
+            instruction in (
+                'connect_loopback_cable', 'position_calibrator')
+            and not state.device_disconnected)
+        self.wiz_campaign_done_button.setEnabled(
+            stage == 'await_campaign')
+        self.wiz_retry_button.setEnabled(
+            state is not None and state.blocked_reason is not None
+            and not state.device_disconnected)
+        self.wiz_cancel_button.setEnabled(
+            state is not None and not terminal)
+
+        if wiz is not None and wiz.run is not None:
+            self.wiz_run_label.setText(
+                f"実行: {wiz.run.run_id} "
+                f"({self._wiz_lane_labels.get(wiz.run.lane, wiz.run.lane)})")
+            artifacts = []
+            for kind in sorted(state.evidence):
+                ref = state.evidence[kind]
+                artifacts.append(f"{kind}: {ref.ref_id[:18]}…")
+            self.wiz_artifacts_label.setText(
+                " / ".join(artifacts) if artifacts else "")
+        else:
+            self.wiz_run_label.setText("実行: —")
+            self.wiz_artifacts_label.setText("")
+        self.wiz_log.clear()
+        if wiz is not None:
+            for t in wiz.transitions:
+                self.wiz_log.addItem(
+                    f"[{t.seq}] {t.event_kind} → {t.outcome} "
+                    f"({self._wiz_stage_labels.get(t.to_stage, t.to_stage)})")
+            self.wiz_log.scrollToBottom()
 
     def _set_notice(
         self,

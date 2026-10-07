@@ -1486,6 +1486,12 @@ class _RepositoryChain:
             )
 
             return CadSweepAcquisitionRepository(scene)
+        if name == 'calibration_wizard':
+            from .cad_calibration_wizard_repository import (
+                CadCalibrationWizardRepository,
+            )
+
+            return CadCalibrationWizardRepository(scene)
         raise KeyError(name)
 
 
@@ -7516,6 +7522,32 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_sweep_acquisition_stage_events',
         ('event_id',),
         _get('sweep_acquisition', 'get_stage_event'),
+    ),
+
+    # REV67: #877 guided measurement-chain calibration authority.
+    _ReplayProbe(
+        'calibration_wizard_run',
+        'cad_calibration_wizard_runs',
+        ('run_id',),
+        _get('calibration_wizard', 'get_run'),
+    ),
+    _ReplayProbe(
+        'calibration_wizard_transition',
+        'cad_calibration_wizard_transitions',
+        ('transition_id',),
+        _get('calibration_wizard', 'get_transition'),
+    ),
+    _ReplayProbe(
+        'spl_check_acceptance_profile',
+        'cad_spl_check_acceptance_profiles',
+        ('profile_id',),
+        _get('calibration_wizard', 'get_profile'),
+    ),
+    _ReplayProbe(
+        'campaign_check_plan',
+        'cad_campaign_check_plans',
+        ('plan_id',),
+        _get('calibration_wizard', 'get_check_plan'),
     ),
 
 )

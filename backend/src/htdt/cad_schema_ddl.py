@@ -8662,6 +8662,46 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_gsrv_doc ON cad_geometry_solver_readiness(document_id, seq ASC)
     """
     ,
+    # REV67: #877 guided automatic measurement-chain calibration — the
+    # wizard's sealed runs (lane + exact pins), sealed transition log
+    # (sole resume authority), SPL/reference-check acceptance profiles
+    # and campaign check plans are append-only authorities.
+    """
+        CREATE TABLE IF NOT EXISTS cad_calibration_wizard_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, lane TEXT NOT NULL, wizard_version TEXT NOT NULL, engine_version TEXT NOT NULL, derivation_version TEXT NOT NULL, check_evaluation_version TEXT NOT NULL, instrument_ref_id TEXT, calibrator_ref_id TEXT, acceptance_profile_ref_id TEXT, campaign_ref_id TEXT, check_plan_ref_id TEXT, check_kind TEXT, created_at_utc TEXT NOT NULL, created_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cwrun_doc ON cad_calibration_wizard_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_calibration_wizard_transitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, transition_id TEXT NOT NULL UNIQUE, transition_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, run_ref_id TEXT NOT NULL, run_seq INTEGER NOT NULL, event_kind TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, from_stage TEXT, to_stage TEXT NOT NULL, event_succeeded INTEGER, result_tag TEXT, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cwtrn_doc ON cad_calibration_wizard_transitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cwtrn_run ON cad_calibration_wizard_transitions(run_ref_id, run_seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_spl_check_acceptance_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, name TEXT NOT NULL, reference_level_db REAL NOT NULL, reference_frequency_hz REAL NOT NULL, expected_measured_level_db REAL NOT NULL, level_tolerance_db REAL NOT NULL, min_snr_db REAL NOT NULL, declared_at_utc TEXT NOT NULL, declared_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cwspl_doc ON cad_spl_check_acceptance_profiles(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_check_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, campaign_ref_id TEXT NOT NULL, blocked_on_failure INTEGER NOT NULL, declared_at_utc TEXT NOT NULL, declared_by TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cwchk_doc ON cad_campaign_check_plans(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9792,4 +9832,9 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_geometry_repair_acceptances',
     'cad_derived_geometry_revisions',
     'cad_geometry_solver_readiness',
+    # REV67: #877 guided measurement-chain calibration authority.
+    'cad_calibration_wizard_runs',
+    'cad_calibration_wizard_transitions',
+    'cad_spl_check_acceptance_profiles',
+    'cad_campaign_check_plans',
 )

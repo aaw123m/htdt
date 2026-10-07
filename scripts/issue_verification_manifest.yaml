@@ -5351,3 +5351,31 @@ issues:
       封印/id整合性、リポジトリ往復+改竄検出、JA ラベル。
 
       '
+- issue: 877
+  title: 'P1: guided automatic measurement-chain calibration wizard'
+  notes: 'REV67: cad_calibration_wizard (3レーン封緘状態機械: ループバック校正 /
+    SPLリファレンスチェック / キャンペーン前後チェック、#869 エンジン駆動、
+    #611/#699 権威封緘) + シーン封緘リポジトリ (schema v100) +
+    measurement_page_workspace calibration_wizard コンテキスト。
+    docs/issues/issue-877-guided-calibration.md 参照。
+
+    '
+  checks:
+  - id: calibration-wizard-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_877_calibration_wizard.py
+    description: 'ウィザード権威: 遷移機械/再開 fold/拒否/ブロック/後退/切断、
+      物理プロンプト語彙、3レーン E2E (フェイクバックエンド)、リファレンス
+      評価合格判定、キャンペーンゲート、シーン封緘往復+改竄検出、
+      UI コンテキスト配線。
+
+      '
+  - id: calibration-wizard-physical
+    kind: manual
+    description: '実機オーディオ (WASAPI) + 実校正器でのガイド実行検証 —
+      現状バックエンドは fail-closed スタブ。VERAUTO: commit_manifest_verification
+      で GateRunResult(outcome=evidence_committed) をコミットすると
+      evaluate_issue_verdict が verified へ遷移。
+
+      '
