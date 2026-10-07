@@ -894,6 +894,10 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_sweep_stimulus_definitions": "掃引刺激定義",
     "cad_sweep_acquisition_runs": "掃引測定実行レコード",
     "cad_sweep_acquisition_stage_events": "掃引測定ステージイベント",
+    "cad_channel_verification_plans": "チャンネル検証計画",
+    "cad_channel_excitation_results": "チャンネル励起測定結果",
+    "cad_channel_operator_attestations": "チャンネル確認証言",
+    "cad_channel_verification_verdicts": "チャンネル検証判定",
 }
 
 

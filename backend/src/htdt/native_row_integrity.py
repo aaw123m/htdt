@@ -9519,6 +9519,61 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    'cad_channel_verification_plans': (
+        'payload_json',
+        (
+            _b('plan_id', 'plan_id'),
+            _b('plan_sha256', 'plan_sha256'),
+            _b('document_id', 'document_id'),
+            _b('reference_channel', 'reference_channel', optional=True),
+            _b('target_count', 'target_count'),
+            _b('method', 'method'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
+    'cad_channel_excitation_results': (
+        'payload_json',
+        (
+            _b('result_id', 'result_id'),
+            _b('result_sha256', 'result_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('logical_channel', 'logical_channel'),
+            _b('acquisition_run_ref_id', 'acquisition_run_ref', 'ref_id',
+               optional=True),
+            _b('capture_quality', 'capture_quality'),
+            _b('response_detected', 'response_detected'),
+            _b('measured_at_utc', 'measured_at_utc'),
+        ),
+        (),
+    ),
+    'cad_channel_operator_attestations': (
+        'payload_json',
+        (
+            _b('attestation_id', 'attestation_id'),
+            _b('attestation_sha256', 'attestation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('logical_channel', 'logical_channel'),
+            _b('attested_by', 'attested_by'),
+            _b('responded', 'responded'),
+            _b('attested_at_utc', 'attested_at_utc'),
+        ),
+        (),
+    ),
+    'cad_channel_verification_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('plan_ref_id', 'plan_ref', 'ref_id'),
+            _b('map_state', 'map_state'),
+            _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
