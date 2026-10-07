@@ -164,12 +164,37 @@ class GeometryIntakePanel(QWidget):
         self._wire_selection()
 
     def _wire_selection(self) -> None:
+        # one defect selection at a time across the two tables —
+        # selecting a row in one clears the other so the locate
+        # affordance always targets the defect the operator picked last.
+        self._clearing = False
+        self.source_table.itemSelectionChanged.connect(
+            lambda: self._exclusive_selection(self.source_table)
+        )
+        self.solver_table.itemSelectionChanged.connect(
+            lambda: self._exclusive_selection(self.solver_table)
+        )
         self.source_table.itemSelectionChanged.connect(
             self._sync_locate_enabled
         )
         self.solver_table.itemSelectionChanged.connect(
             self._sync_locate_enabled
         )
+
+    def _exclusive_selection(self, table: QTableWidget) -> None:
+        if self._clearing or table.currentRow() < 0:
+            return
+        self._clearing = True
+        try:
+            other = (
+                self.solver_table
+                if table is self.source_table
+                else self.source_table
+            )
+            other.setCurrentCell(-1, -1)
+            other.clearSelection()
+        finally:
+            self._clearing = False
 
     # -- content ---------------------------------------------------------
 
