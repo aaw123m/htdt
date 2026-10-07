@@ -844,6 +844,11 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_calibration_deployments": "校正デプロイ",
     "cad_deployment_effectiveness_reports": "デプロイ効果レポート",
     "cad_deployment_rollbacks": "デプロイロールバック",
+    "cad_realtime_measurement_sessions": "ライブ測定セッション",
+    "cad_live_spectrum_observations": "ライブスペクトル観測",
+    "cad_spl_time_histories": "SPL時系列履歴",
+    "cad_captured_live_traces": "ライブ捕捉トレース",
+    "cad_live_event_annotations": "ライブイベント注釈",
 }
 
 

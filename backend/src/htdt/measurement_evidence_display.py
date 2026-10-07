@@ -4948,3 +4948,12 @@ def deployment_effectiveness_line(verdict: str) -> str:
     """One JA line for a deployment effectiveness verdict (#806) —
     再測定の比較はデプロイ状態の証拠に紐づく。"""
     return 'デプロイ効果: ' + _DEPLOYMENT_LABELS.get(verdict, verdict)
+from .cad_live_spectrum import (  # noqa: E402
+    LIVE_LABELS as _LIVE_LABELS,
+)
+
+
+def live_observation_line(verdict: str) -> str:
+    """One JA line for a live-observation verdict (#793) —
+    ライブ表示は証拠ではなく、単ch観測は伝達関数ではない。"""
+    return 'ライブ観測: ' + _LIVE_LABELS.get(verdict, verdict)

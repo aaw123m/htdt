@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 83
+NATIVE_SCHEMA_VERSION = 84
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1917,6 +1917,15 @@ def _migrate_82_to_83(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_83_to_84(connection: sqlite3.Connection) -> None:
+    # REV62: #793 single-channel live-observation authority — real-time
+    # spectrum/RTA, spectrograph, SPL/Leq history, peak hold, event
+    # annotations and captured live traces: new append-only authorities
+    # the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2001,6 +2010,7 @@ _MIGRATIONS = {
     81: _migrate_80_to_81,
     82: _migrate_81_to_82,
     83: _migrate_82_to_83,
+    84: _migrate_83_to_84,
 }
 
 

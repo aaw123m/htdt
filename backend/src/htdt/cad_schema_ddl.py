@@ -8134,6 +8134,49 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_rpr_doc ON cad_replacement_readiness(document_id, seq ASC)
     """
     ,
+    # REV62: #793 single-channel live-observation authority —
+    # real-time spectrum/RTA, spectrograph, SPL/Leq history, peak hold,
+    # event annotations and the live->capture promotion boundary.
+    """
+        CREATE TABLE IF NOT EXISTS cad_realtime_measurement_sessions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE, session_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, input_channel TEXT NOT NULL, input_domain TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rms_doc ON cad_realtime_measurement_sessions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_live_spectrum_observations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, observation_id TEXT NOT NULL UNIQUE, observation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, mode TEXT NOT NULL, capture_state TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_lso_doc ON cad_live_spectrum_observations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_spl_time_histories ( seq INTEGER PRIMARY KEY AUTOINCREMENT, history_id TEXT NOT NULL UNIQUE, history_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, quantity TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_sth_doc ON cad_spl_time_histories(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_captured_live_traces ( seq INTEGER PRIMARY KEY AUTOINCREMENT, trace_id TEXT NOT NULL UNIQUE, trace_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, capture_kind TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_clt_doc ON cad_captured_live_traces(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_live_event_annotations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, annotation_id TEXT NOT NULL UNIQUE, annotation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, session_ref_id TEXT NOT NULL, source TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_lea_doc ON cad_live_event_annotations(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9192,4 +9235,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_lifecycle_risk_observations',
     'cad_offline_continuity_evidence',
     'cad_replacement_readiness',
+    # REV62: #793 single-channel live-observation authority.
+    'cad_realtime_measurement_sessions',
+    'cad_live_spectrum_observations',
+    'cad_spl_time_histories',
+    'cad_captured_live_traces',
+    'cad_live_event_annotations',
 )

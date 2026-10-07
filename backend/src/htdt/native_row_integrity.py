@@ -8763,6 +8763,63 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         (),
     ),
 
+    # REV62: #793 single-channel live-observation authority.
+    'cad_realtime_measurement_sessions': (
+        'payload_json',
+        (
+            _b('session_id', 'session_id'),
+            _b('session_sha256', 'session_sha256'),
+            _b('document_id', 'document_id'),
+            _b('input_channel', 'input_channel'),
+            _b('input_domain', 'input_domain'),
+        ),
+        (),
+    ),
+    'cad_live_spectrum_observations': (
+        'payload_json',
+        (
+            _b('observation_id', 'observation_id'),
+            _b('observation_sha256', 'observation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('mode', 'mode'),
+            _b('capture_state', 'capture_state'),
+        ),
+        (),
+    ),
+    'cad_spl_time_histories': (
+        'payload_json',
+        (
+            _b('history_id', 'history_id'),
+            _b('history_sha256', 'history_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('quantity', 'quantity'),
+        ),
+        (),
+    ),
+    'cad_captured_live_traces': (
+        'payload_json',
+        (
+            _b('trace_id', 'trace_id'),
+            _b('trace_sha256', 'trace_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('capture_kind', 'capture_kind'),
+        ),
+        (),
+    ),
+    'cad_live_event_annotations': (
+        'payload_json',
+        (
+            _b('annotation_id', 'annotation_id'),
+            _b('annotation_sha256', 'annotation_sha256'),
+            _b('document_id', 'document_id'),
+            _b('session_ref_id', 'session_ref', 'ref_id'),
+            _b('source', 'source'),
+        ),
+        (),
+    ),
 }
 
 

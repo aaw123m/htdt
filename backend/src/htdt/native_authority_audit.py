@@ -1402,6 +1402,12 @@ class _RepositoryChain:
             )
 
             return CadSupportabilityRepository(scene)
+        if name == 'live_spectrum':
+            from .cad_live_spectrum_repository import (
+                CadLiveSpectrumRepository,
+            )
+
+            return CadLiveSpectrumRepository(scene)
         raise KeyError(name)
 
 
@@ -7067,6 +7073,38 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_replacement_readiness',
         ('readiness_id',),
         _get('supportability', 'get_replacement_readiness'),
+    ),
+
+    # REV62: #793 single-channel live-observation authority.
+    _ReplayProbe(
+        'realtime_measurement_session',
+        'cad_realtime_measurement_sessions',
+        ('session_id',),
+        _get('live_spectrum', 'get_session'),
+    ),
+    _ReplayProbe(
+        'live_spectrum_observation',
+        'cad_live_spectrum_observations',
+        ('observation_id',),
+        _get('live_spectrum', 'get_observation'),
+    ),
+    _ReplayProbe(
+        'spl_time_history',
+        'cad_spl_time_histories',
+        ('history_id',),
+        _get('live_spectrum', 'get_history'),
+    ),
+    _ReplayProbe(
+        'captured_live_trace',
+        'cad_captured_live_traces',
+        ('trace_id',),
+        _get('live_spectrum', 'get_trace'),
+    ),
+    _ReplayProbe(
+        'live_event_annotation',
+        'cad_live_event_annotations',
+        ('annotation_id',),
+        _get('live_spectrum', 'get_annotation'),
     ),
 
 )
