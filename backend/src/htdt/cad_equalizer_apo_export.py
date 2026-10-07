@@ -121,12 +121,12 @@ def apo_band_support_problems(band: ExportFilterBand) -> tuple[str, ...]:
             problems.append(
                 f'{band.filter_type} supports q, not bandwidth_oct')
     elif band.filter_type == 'notch':
-        if band.gain_db is None:
+        if band.gain_db is not None:
             problems.append('notch takes no gain_db')
         if band.q is None and band.bandwidth_oct is None:
             problems.append('notch requires q or bandwidth_oct')
     elif band.filter_type == 'band_pass':
-        if band.gain_db is None:
+        if band.gain_db is not None:
             problems.append('band_pass takes no gain_db')
         if band.q is None and band.bandwidth_oct is None:
             problems.append('band_pass requires q or bandwidth_oct')
