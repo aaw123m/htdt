@@ -8063,6 +8063,36 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
     """
+        CREATE TABLE IF NOT EXISTS cad_benchmark_scene_mappings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, mapping_id TEXT NOT NULL UNIQUE, mapping_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, asset_ref_id TEXT NOT NULL, corpus_scene_id TEXT NOT NULL, solver_path TEXT NOT NULL, phenomenon_id TEXT NOT NULL, curvature_class TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_bmap_doc ON cad_benchmark_scene_mappings(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_benchmark_preregistrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, preregistration_id TEXT NOT NULL UNIQUE, preregistration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mapping_ref_id TEXT NOT NULL, benchmark_sha256 TEXT NOT NULL, provider_id TEXT NOT NULL, run_mode TEXT NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_bpreg_doc ON cad_benchmark_preregistrations(document_id, seq ASC)
+    
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_benchmark_qualifications ( seq INTEGER PRIMARY KEY AUTOINCREMENT, qualification_id TEXT NOT NULL UNIQUE, qualification_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, mapping_ref_id TEXT NOT NULL, preregistration_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, level_attained TEXT NOT NULL, run_mode TEXT NOT NULL, predictive INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_bqual_doc ON cad_benchmark_qualifications(document_id, seq ASC)
+    
+    """
+    ,
+    """
         CREATE TABLE IF NOT EXISTS cad_electronic_audio_path_profiles ( seq INTEGER PRIMARY KEY AUTOINCREMENT, profile_id TEXT NOT NULL UNIQUE, profile_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, path_class TEXT NOT NULL, payload_json TEXT NOT NULL )
     """
     ,
@@ -9241,4 +9271,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_spl_time_histories',
     'cad_captured_live_traces',
     'cad_live_event_annotations',
+    # REV63: #809 benchmark-qualification authority.
+    'cad_benchmark_scene_mappings',
+    'cad_benchmark_preregistrations',
+    'cad_benchmark_qualifications',
 )

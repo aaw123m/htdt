@@ -1402,6 +1402,12 @@ class _RepositoryChain:
             )
 
             return CadSupportabilityRepository(scene)
+        if name == 'benchmark_qualification':
+            from .cad_benchmark_qualification_repository import (
+                CadBenchmarkQualificationRepository,
+            )
+
+            return CadBenchmarkQualificationRepository(scene)
         if name == 'live_spectrum':
             from .cad_live_spectrum_repository import (
                 CadLiveSpectrumRepository,
@@ -7105,6 +7111,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_live_event_annotations',
         ('annotation_id',),
         _get('live_spectrum', 'get_annotation'),
+    ),
+    # REV63: #809 benchmark-qualification authority.
+    _ReplayProbe(
+        'benchmark_scene_mapping',
+        'cad_benchmark_scene_mappings',
+        ('mapping_id',),
+        _get('benchmark_qualification', 'get_mapping'),
+    ),
+    _ReplayProbe(
+        'benchmark_preregistration',
+        'cad_benchmark_preregistrations',
+        ('preregistration_id',),
+        _get('benchmark_qualification', 'get_preregistration'),
+    ),
+    _ReplayProbe(
+        'benchmark_qualification',
+        'cad_benchmark_qualifications',
+        ('qualification_id',),
+        _get('benchmark_qualification', 'get_qualification'),
     ),
 
 )

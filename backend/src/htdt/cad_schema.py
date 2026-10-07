@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 84
+NATIVE_SCHEMA_VERSION = 85
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1926,6 +1926,14 @@ def _migrate_83_to_84(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_84_to_85(connection: sqlite3.Connection) -> None:
+    # REV63: #809 external-benchmark qualification authority — scene
+    # mappings, frozen preregistrations and sealed qualification verdicts:
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2011,6 +2019,7 @@ _MIGRATIONS = {
     82: _migrate_81_to_82,
     83: _migrate_82_to_83,
     84: _migrate_83_to_84,
+    85: _migrate_84_to_85,
 }
 
 

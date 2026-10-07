@@ -8820,6 +8820,49 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #809 benchmark-qualification authority.
+    'cad_benchmark_scene_mappings': (
+        'payload_json',
+        (
+            _b('mapping_id', 'mapping_id'),
+            _b('mapping_sha256', 'mapping_sha256'),
+            _b('document_id', 'document_id'),
+            _b('asset_ref_id', 'asset_ref', 'ref_id'),
+            _b('corpus_scene_id', 'corpus_scene_id'),
+            _b('solver_path', 'solver_path'),
+            _b('phenomenon_id', 'phenomenon_id'),
+            _b('curvature_class', 'curvature_class'),
+        ),
+        (),
+    ),
+    'cad_benchmark_preregistrations': (
+        'payload_json',
+        (
+            _b('preregistration_id', 'preregistration_id'),
+            _b('preregistration_sha256', 'preregistration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('mapping_ref_id', 'mapping_ref', 'ref_id'),
+            _b('benchmark_sha256', 'benchmark_sha256'),
+            _b('provider_id', 'provider_id'),
+            _b('run_mode', 'run_mode'),
+        ),
+        (),
+    ),
+    'cad_benchmark_qualifications': (
+        'payload_json',
+        (
+            _b('qualification_id', 'qualification_id'),
+            _b('qualification_sha256', 'qualification_sha256'),
+            _b('document_id', 'document_id'),
+            _b('mapping_ref_id', 'mapping_ref', 'ref_id'),
+            _b('preregistration_ref_id', 'preregistration_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('level_attained', 'level_attained'),
+            _b('run_mode', 'run_mode'),
+            _b('predictive', 'predictive'),
+        ),
+        (),
+    ),
 }
 
 

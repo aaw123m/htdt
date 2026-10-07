@@ -5091,3 +5091,30 @@ issues:
       （DPI 各行）、日本語コピーの可読性目視評価、初回使用の発見可能性。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 809
+  title: 'P0: Qualify R130/R150 with analytical + BRAS external benchmarks
+    before production adoption'
+  notes: 'REV63: ベンチマーク修飾権威レイヤを実装（docs/issues/issue-809-benchmark-qualification.md）。
+    scene→現象マッピング、preregistered/informed の構造的分離、拡張 verdict 梯子、
+    capability≠validation の拘束を含む。残件は BRAS v3/RS8 データセット取込と
+    実ソルバ provider 実行（非ソフトウェア作業）。
+
+    '
+  checks:
+  - id: benchmark-qualification-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_809_qualification.py
+    - backend/tests/test_cad_schema.py
+    description: 'ベンチマーク修飾権威: preregistration 凍結構成検証、informed
+      分離、verdict 梯子 fail-closed、level キャップ (EXTERNAL_BENCHMARK_VALIDATED
+      まで)、行整合性・封印・リポジトリ回帰。
+
+      '
+  - id: bras-dataset-execution
+    kind: manual
+    description: 'BRAS v3 (DOI 10.14279/depositonce-6726.3) の台帳アドミッション、
+      canonical importer 作成、R130/R150 provider の preregistered 実行。
+      RS8 (DOI 10.14279/depositonce-25649) は曲面 GA レーンとして別途。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
