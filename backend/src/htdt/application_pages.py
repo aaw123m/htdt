@@ -2344,10 +2344,7 @@ class CaptureInboxPage(QWidget):
                     for other in entries
                 )
                 == 1
-                else (
-                    f'{entry.display_name} '
-                    f'[{entry.project_id[:8]}]'
-                )
+                else f'{entry.display_name} [{entry.project_id}]'
             )
             for entry in entries
         ]
@@ -2398,11 +2395,28 @@ class CaptureInboxPage(QWidget):
                 in ('offered', 'active')
             )
             if pairings:
-                options = ["（スコープなし — 全ペアリングが取得可能）"] + [
+                device_labels = [
                     getattr(p, 'capture_instance_id', None)
-                    or getattr(p, 'pairing_id', '')
+                    or getattr(p, 'pairing_id', None)
+                    or '（不明なデバイス）'
                     for p in pairings
                 ]
+                # Labels must be unique — two pairings can show the
+                # same device id, and options.index() would silently
+                # scope the mission to whichever sorts first.
+                device_labels = [
+                    (
+                        label
+                        if device_labels.count(label) == 1
+                        else f'{label} [{pairing.pairing_id}]'
+                    )
+                    for label, pairing in zip(
+                        device_labels, pairings, strict=True
+                    )
+                ]
+                options = [
+                    "（スコープなし — 全ペアリングが取得可能）"
+                ] + device_labels
                 choice, ok = QInputDialog.getItem(
                     self,
                     "ミッション発行",
