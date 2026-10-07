@@ -1479,7 +1479,8 @@ class _RepositoryChain:
                 CadSweepAcquisitionRepository,
             )
 
-            return CadSweepAcquisitionRepository(scene)        raise KeyError(name)
+            return CadSweepAcquisitionRepository(scene)
+        raise KeyError(name)
 
 
 @dataclass(frozen=True)

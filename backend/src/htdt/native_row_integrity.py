@@ -9367,6 +9367,10 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('subject_ref_id', 'source_subject_ref', 'ref_id'),
             _b('acceptance_ref_id', 'acceptance_ref', 'ref_id'),
             _b('derived_geometry_sha256', 'derived_geometry_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
     'cad_sweep_stimulus_definitions': (
         'payload_json',
         (
@@ -9381,7 +9385,8 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('level_dbfs', 'level_dbfs'),
             _b('repetitions', 'repetitions'),
             _b('params_sha256', 'params_sha256'),
-            _b('samples_sha256', 'samples_sha256'),            _b('created_at_utc', 'created_at_utc'),
+            _b('samples_sha256', 'samples_sha256'),
+            _b('created_at_utc', 'created_at_utc'),
         ),
         (),
     ),
@@ -9395,6 +9400,9 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('adapter_ref_id', 'adapter_descriptor_ref', 'ref_id'),
             _b('verdict', 'verdict'),
             _b('evaluated_at_utc', 'evaluated_at_utc'),
+        ),
+        (),
+    ),
     'cad_sweep_acquisition_runs': (
         'payload_json',
         (
@@ -9434,7 +9442,8 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
             _b('run_id', 'run_id'),
             _b('run_seq', 'run_seq'),
             _b('stage', 'stage'),
-            _b('entered_at_utc', 'entered_at_utc'),        ),
+            _b('entered_at_utc', 'entered_at_utc'),
+        ),
         (),
     ),
 }
