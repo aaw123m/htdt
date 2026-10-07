@@ -404,6 +404,75 @@ def test_inbox_missions_issue_flow_invokes_lambda(
         app.processEvents()
 
 
+def test_inbox_missions_issue_pairing_label_collision(
+    tmp_path, monkeypatch
+) -> None:
+    """Two pairings showing the same device id get disambiguated labels;
+    picking the second scopes the mission to the SECOND pairing."""
+
+    app = _app()
+    entry = SimpleNamespace(
+        project_id="proj-a",
+        document_id="doc-a",
+        display_name="Alpha",
+        archived=False,
+    )
+    pairing_a = SimpleNamespace(
+        pairing_id="pairing-aaa111",
+        capture_instance_id="dev-1",
+        state="active",
+    )
+    pairing_b = SimpleNamespace(
+        pairing_id="pairing-bbb222",
+        capture_instance_id="dev-1",
+        state="active",
+    )
+    calls = []
+
+    def _issue(e, purpose, room_name, pairing_id):
+        calls.append(pairing_id)
+        return SimpleNamespace(package_id="pkg", mission_id="m")
+
+    page = CaptureInboxPage(
+        lambda: (),
+        on_navigate=lambda link: True,
+        list_missions=lambda: (),
+        list_projects=lambda: (entry,),
+        list_mission_pairings=lambda: (pairing_a, pairing_b),
+        issue_mission=_issue,
+    )
+    try:
+        answers = iter(
+            [
+                ("Alpha", True),
+                ("設計検証", True),
+                ("Theater", True),
+                ("dev-1 [pairing-bbb222]", True),
+            ]
+        )
+        monkeypatch.setattr(
+            QInputDialog,
+            "getItem",
+            staticmethod(lambda *args, **kwargs: next(answers)),
+        )
+        monkeypatch.setattr(
+            QInputDialog,
+            "getText",
+            staticmethod(lambda *args, **kwargs: next(answers)),
+        )
+        monkeypatch.setattr(
+            QMessageBox,
+            "information",
+            staticmethod(lambda *args, **kwargs: None),
+        )
+        page._issue_mission_dialog()
+        assert calls == ["pairing-bbb222"]
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()
+
+
 def test_inbox_contribution_detail_surfaces_resolved_evidence(
     tmp_path,
 ) -> None:
