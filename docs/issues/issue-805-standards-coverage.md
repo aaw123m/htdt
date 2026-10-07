@@ -10,7 +10,7 @@ Unsupported or unpublished criteria remain UNKNOWN — never inferred truth.
 
 `StandardsGapMatrix` is a sealed, content-addressed record
 (`matrix_id`/`matrix_sha256` derive from the semantic payload) persisted to
-the append-only `cad_standards_gap_matrices` table (schema v88) and
+the append-only `cad_standards_gap_matrices` table (schema v92) and
 reachable via `CadStandardsRepository.save_gap_matrix` /
 `get_gap_matrix` / `get_gap_matrix_version` / `list_gap_matrices`.
 
