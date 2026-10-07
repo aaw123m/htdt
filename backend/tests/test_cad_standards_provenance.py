@@ -395,7 +395,12 @@ def test_builtin_profiles_carry_exact_provenance(tmp_path) -> None:
             assert criterion.source.authority_ref is not None
             assert criterion.source.extraction_id is not None
             assert criterion.source.content_kind is not None
-    assert len(repository.list_source_authorities()) == 6
+    # REV63 #805 — the emitted set now spans both profile families and
+    # every retained revision (spatial + performance + Dolby prov1/prov2
+    # + AURO); the count derives from the builder, not a literal.
+    assert len(repository.list_source_authorities()) == len(
+        builtin_standards_source_authorities()
+    )
 
     # Published profile persistence still feeds the #170/#410 evaluation path.
     profile = rp22_spatial_profile(2)
