@@ -9154,6 +9154,51 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #812 hybrid-composition validation authority.
+    'cad_hybrid_composition_validation_specs': (
+        'payload_json',
+        (
+            _b('spec_id', 'spec_id'),
+            _b('spec_sha256', 'spec_sha256'),
+            _b('document_id', 'document_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('composition_semantics', 'composition_semantics'),
+            _b('late_field_composed', 'late_field_composed'),
+            _b(
+                'grid_reconciliation_required',
+                'grid_reconciliation_required',
+            ),
+        ),
+        (),
+    ),
+    'cad_hybrid_validation_evidence': (
+        'payload_json',
+        (
+            _b('evidence_id', 'evidence_id'),
+            _b('evidence_sha256', 'evidence_sha256'),
+            _b('document_id', 'document_id'),
+            _b('spec_ref_id', 'spec_ref', 'ref_id'),
+            _b('evidence_kind', 'evidence_kind'),
+            _b('outcome', 'outcome'),
+            _b('domain_kind', 'domain_kind', optional=True),
+            _b('solver_path', 'solver_path', optional=True),
+            _b('reference_class', 'reference_class', optional=True),
+        ),
+        (),
+    ),
+    'cad_hybrid_validation_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('spec_ref_id', 'spec_ref', 'ref_id'),
+            _b('subject_ref_id', 'subject_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('qualification_level', 'qualification_level'),
+        ),
+        (),
+    ),
     'cad_campaign_verdicts': (
         'payload_json',
         (

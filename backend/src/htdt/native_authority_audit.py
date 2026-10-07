@@ -1450,6 +1450,12 @@ class _RepositoryChain:
             )
 
             return CadProductionReadinessRepository(scene)
+        if name == 'hybrid_composition_validation':
+            from .cad_hybrid_composition_validation_repository import (
+                CadHybridCompositionValidationRepository,
+            )
+
+            return CadHybridCompositionValidationRepository(scene)
         raise KeyError(name)
 
 
@@ -7328,6 +7334,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_recommendation_surface_decisions',
         ('surface_decision_id',),
         _get('production_readiness', 'get_surface_decision'),
+    ),
+
+    # REV63: #812 hybrid-composition validation authority.
+    _ReplayProbe(
+        'hybrid_composition_validation_spec',
+        'cad_hybrid_composition_validation_specs',
+        ('spec_id',),
+        _get('hybrid_composition_validation', 'get_spec'),
+    ),
+    _ReplayProbe(
+        'hybrid_validation_evidence',
+        'cad_hybrid_validation_evidence',
+        ('evidence_id',),
+        _get('hybrid_composition_validation', 'get_evidence'),
+    ),
+    _ReplayProbe(
+        'hybrid_validation_verdict',
+        'cad_hybrid_validation_verdicts',
+        ('verdict_id',),
+        _get('hybrid_composition_validation', 'get_verdict'),
     ),
 
 )
