@@ -169,6 +169,7 @@ _CONTEXT_IDS = (
     "quality",
     "comparison",
     "calibration",
+    "acquisition",
 )
 
 _CELL_STATUS_LABELS = {
@@ -543,9 +544,21 @@ class MeasurementPageWorkspace(QWidget):
         rew_launcher: Callable[..., Any] | None = None,
         rew_auto_interval_ms: int = 15_000,
         rew_launch_timeout_s: float = 90.0,
+        acquisition_backend=None,
     ) -> None:
         super().__init__(parent)
         self.controller = controller
+        # #869: the sweep-acquisition backend — WASAPI stub by default (it
+        # reports backend_unavailable honestly on this build); tests inject
+        # the deterministic fake.
+        if acquisition_backend is None:
+            from .cad_sweep_acquisition import WasapiAudioBackend
+
+            acquisition_backend = WasapiAudioBackend()
+        self._acq_backend = acquisition_backend
+        self._acq_engine = None
+        self._acq_stimulus_definition = None
+        self._acq_run_record = None
         self._on_navigate = on_navigate
         # REV32-TERMS: help surfaces — the registry drives the glossary
         # dialog and error→topic resolution; ``open_help`` routes to the
@@ -725,6 +738,7 @@ class MeasurementPageWorkspace(QWidget):
         self._build_quality_page()
         self._build_comparison_page()
         self._build_calibration_page()
+        self._build_acquisition_page()
         self._wire_explanations()
         self.refresh()
 
@@ -7137,6 +7151,516 @@ class MeasurementPageWorkspace(QWidget):
                     )
             return
         on_success(result)
+
+    # ------------------------------------------------------------------
+    # #869 HTDT-native sweep acquisition context (REV66)
+
+    def _build_acquisition_page(self) -> None:
+        """Minimal honest surface for the HTDT-native sweep engine.
+
+        Shows backend/device truth (empty enumeration and an unavailable
+        backend are both legal, honest states), the exact armed
+        device/channel/level the operator must confirm, the current stage
+        with its blocked reason and next permitted action, and the sealed
+        evidence identity once a run terminates. No real audio path is
+        wired here — the default WASAPI stub reports unavailable.
+        """
+        from .cad_sweep_acquisition import (
+            LevelSafetyPolicy,
+            _WASAPI_BACKEND_ID,
+            _FAKE_BACKEND_ID,
+        )
+        from .cad_sweep_acquisition_evidence import (
+            SWEEP_ACQUISITION_STAGE_LABELS,
+        )
+
+        page, _host, layout = _page(
+            "HTDTネイティブ掃引測定",
+            "REW等の外部ツールを介さず、掃引信号の生成・再生・録音と"
+            "インパルス応答の導出をHTDT自身で行います。"
+            "実デバイスでの取得は、バックエンドが利用可能な環境でのみ実行できます。",
+        )
+        self._acq_stage_labels = SWEEP_ACQUISITION_STAGE_LABELS
+
+        # -- backend + device binding ------------------------------------
+        device_card, device = _card("バックエンド・デバイス", page)
+        backend_id = getattr(self._acq_backend, 'backend_id', 'unknown')
+        if backend_id == _WASAPI_BACKEND_ID:
+            backend_text = (
+                f"バックエンド: {backend_id}（このビルドでは未実装 — "
+                "デバイスI/Oは利用できません）")
+        elif backend_id == _FAKE_BACKEND_ID:
+            backend_text = (
+                f"バックエンド: {backend_id}（シミュレーション — "
+                "テスト証跡のみ）")
+        else:
+            backend_text = f"バックエンド: {backend_id}"
+        self.acq_backend_label = QLabel(backend_text, device_card)
+        self.acq_backend_label.setWordWrap(True)
+        self.acq_backend_label.setAccessibleName("オーディオバックエンド")
+        set_typography_role(self.acq_backend_label, TypographyRole.SECONDARY)
+        device.addWidget(self.acq_backend_label)
+
+        form = QFormLayout()
+        self.acq_playback_device = QComboBox(device_card)
+        self.acq_playback_device.setAccessibleName("再生デバイス")
+        form.addRow("再生デバイス", self.acq_playback_device)
+        self.acq_playback_channel = QSpinBox(device_card)
+        self.acq_playback_channel.setRange(0, 31)
+        self.acq_playback_channel.setAccessibleName("再生チャンネル")
+        form.addRow("再生チャンネル", self.acq_playback_channel)
+        self.acq_capture_device = QComboBox(device_card)
+        self.acq_capture_device.setAccessibleName("録音デバイス")
+        form.addRow("録音デバイス", self.acq_capture_device)
+        self.acq_capture_channel = QSpinBox(device_card)
+        self.acq_capture_channel.setRange(0, 31)
+        self.acq_capture_channel.setAccessibleName("録音チャンネル")
+        form.addRow("録音チャンネル", self.acq_capture_channel)
+        self.acq_loopback_channel = QComboBox(device_card)
+        self.acq_loopback_channel.setAccessibleName("ループバック基準チャンネル")
+        self.acq_loopback_channel.addItem("なし（タイミングは限定的）", None)
+        for ch in range(8):
+            self.acq_loopback_channel.addItem(f"入力 {ch}", ch)
+        form.addRow("ループバック基準", self.acq_loopback_channel)
+        device.addLayout(form)
+
+        self.acq_devices_note = QLabel("", device_card)
+        self.acq_devices_note.setWordWrap(True)
+        set_typography_role(self.acq_devices_note, TypographyRole.SECONDARY)
+        device.addWidget(self.acq_devices_note)
+        refresh_row = QHBoxLayout()
+        self.acq_refresh_button = QPushButton("デバイスを更新", device_card)
+        self.acq_refresh_button.setAccessibleName("オーディオデバイスを更新")
+        self.acq_refresh_button.clicked.connect(self._acq_refresh_devices)
+        refresh_row.addWidget(self.acq_refresh_button)
+        refresh_row.addStretch(1)
+        device.addLayout(refresh_row)
+        layout.addWidget(device_card)
+
+        # -- sweep parameters + level safety ------------------------------
+        params_card, params = _card("掃引パラメータとレベル安全", page)
+        pform = QFormLayout()
+        self.acq_start_freq = QDoubleSpinBox(params_card)
+        self.acq_start_freq.setRange(1.0, 24000.0)
+        self.acq_start_freq.setValue(100.0)
+        self.acq_start_freq.setSuffix(" Hz")
+        self.acq_start_freq.setAccessibleName("掃引開始周波数")
+        pform.addRow("開始周波数", self.acq_start_freq)
+        self.acq_end_freq = QDoubleSpinBox(params_card)
+        self.acq_end_freq.setRange(2.0, 24000.0)
+        self.acq_end_freq.setValue(8000.0)
+        self.acq_end_freq.setSuffix(" Hz")
+        self.acq_end_freq.setAccessibleName("掃引終了周波数")
+        pform.addRow("終了周波数", self.acq_end_freq)
+        self.acq_duration = QDoubleSpinBox(params_card)
+        self.acq_duration.setRange(0.02, 120.0)
+        self.acq_duration.setValue(0.5)
+        self.acq_duration.setSuffix(" s")
+        self.acq_duration.setAccessibleName("掃引長")
+        pform.addRow("掃引長", self.acq_duration)
+        self.acq_level = QDoubleSpinBox(params_card)
+        self.acq_level.setRange(-80.0, 0.0)
+        self.acq_level.setDecimals(1)
+        self.acq_level.setValue(-12.0)
+        self.acq_level.setSuffix(" dBFS")
+        self.acq_level.setAccessibleName("出力レベル dBFS")
+        pform.addRow("出力レベル", self.acq_level)
+        self.acq_sample_rate = QComboBox(params_card)
+        self.acq_sample_rate.setAccessibleName("サンプルレート")
+        for rate in (44100, 48000, 96000):
+            self.acq_sample_rate.addItem(f"{rate} Hz", rate)
+        self.acq_sample_rate.setCurrentIndex(1)
+        pform.addRow("サンプルレート", self.acq_sample_rate)
+        self.acq_repetitions = QSpinBox(params_card)
+        self.acq_repetitions.setRange(1, 16)
+        self.acq_repetitions.setValue(2)
+        self.acq_repetitions.setAccessibleName("リピート回数")
+        pform.addRow("リピート", self.acq_repetitions)
+        self.acq_require_absolute = QCheckBox(
+            "絶対レベル（SPL）の校正が必要", params_card)
+        self.acq_require_absolute.setAccessibleName(
+            "絶対レベル校正の要求")
+        pform.addRow("", self.acq_require_absolute)
+        params.addLayout(pform)
+        self._acq_level_policy = LevelSafetyPolicy()
+        self.acq_policy_label = QLabel(
+            f"ポリシー上限: {self._acq_level_policy.max_output_level_dbfs} "
+            "dBFS — 超過した要求はアームを拒否します。",
+            params_card,
+        )
+        self.acq_policy_label.setWordWrap(True)
+        set_typography_role(self.acq_policy_label, TypographyRole.SECONDARY)
+        params.addWidget(self.acq_policy_label)
+        layout.addWidget(params_card)
+
+        # -- run controls --------------------------------------------------
+        run_card, run = _card("測定の実行", page)
+        self.acq_stage_label = QLabel(
+            f"ステージ: {self._acq_stage_labels['precheck']}", run_card)
+        self.acq_stage_label.setAccessibleName("取得ステージ")
+        run.addWidget(self.acq_stage_label)
+        self.acq_blocked_label = QLabel("", run_card)
+        self.acq_blocked_label.setWordWrap(True)
+        self.acq_blocked_label.setAccessibleName("ブロック理由")
+        set_typography_role(self.acq_blocked_label, TypographyRole.SECONDARY)
+        run.addWidget(self.acq_blocked_label)
+        self.acq_next_action_label = QLabel("", run_card)
+        self.acq_next_action_label.setWordWrap(True)
+        self.acq_next_action_label.setAccessibleName("次の許可された操作")
+        set_typography_role(self.acq_next_action_label, TypographyRole.SECONDARY)
+        run.addWidget(self.acq_next_action_label)
+        self.acq_progress_label = QLabel("", run_card)
+        self.acq_progress_label.setAccessibleName("取得進捗")
+        set_typography_role(self.acq_progress_label, TypographyRole.SECONDARY)
+        run.addWidget(self.acq_progress_label)
+
+        buttons = QHBoxLayout()
+        self.acq_configure_button = QPushButton("事前チェック", run_card)
+        self.acq_configure_button.setAccessibleName("取得の事前チェック")
+        self.acq_configure_button.clicked.connect(self._acq_configure)
+        buttons.addWidget(self.acq_configure_button)
+        self.acq_arm_button = QPushButton("アーム", run_card)
+        self.acq_arm_button.setAccessibleName("出力をアーム")
+        self.acq_arm_button.setToolTip(
+            "表示中のデバイス・チャンネル・レベルを確認して出力をアームします。")
+        self.acq_arm_button.setWhatsThis(self.acq_arm_button.toolTip())
+        self.acq_arm_button.clicked.connect(self._acq_arm)
+        buttons.addWidget(self.acq_arm_button)
+        self.acq_start_button = QPushButton("測定開始", run_card)
+        self.acq_start_button.setAccessibleName("掃引測定を開始")
+        self.acq_start_button.clicked.connect(self._acq_start)
+        buttons.addWidget(self.acq_start_button)
+        self.acq_cancel_button = QPushButton("中止", run_card)
+        self.acq_cancel_button.setAccessibleName("掃引測定を中止")
+        self.acq_cancel_button.clicked.connect(self._acq_cancel)
+        buttons.addWidget(self.acq_cancel_button)
+        buttons.addStretch(1)
+        run.addLayout(buttons)
+        layout.addWidget(run_card)
+
+        # -- result / evidence --------------------------------------------
+        result_card, result = _card("結果・証跡", page)
+        self.acq_outcome_label = QLabel("結果: —", result_card)
+        self.acq_outcome_label.setAccessibleName("取得結果")
+        result.addWidget(self.acq_outcome_label)
+        self.acq_quality_label = QLabel("品質: —", result_card)
+        self.acq_quality_label.setWordWrap(True)
+        self.acq_quality_label.setAccessibleName("品質判定")
+        result.addWidget(self.acq_quality_label)
+        self.acq_measured_label = QLabel("", result_card)
+        self.acq_measured_label.setWordWrap(True)
+        self.acq_measured_label.setAccessibleName("測定値")
+        set_typography_role(self.acq_measured_label, TypographyRole.SECONDARY)
+        result.addWidget(self.acq_measured_label)
+        self.acq_evidence_label = QLabel("", result_card)
+        self.acq_evidence_label.setWordWrap(True)
+        self.acq_evidence_label.setAccessibleName("証跡アイデンティティ")
+        set_typography_role(self.acq_evidence_label, TypographyRole.SECONDARY)
+        result.addWidget(self.acq_evidence_label)
+        save_row = QHBoxLayout()
+        self.acq_save_button = QPushButton("証跡を保存", result_card)
+        self.acq_save_button.setAccessibleName("測定証跡を保存")
+        self.acq_save_button.setToolTip(
+            "掃引定義・実行レコード・ステージ遷移を封緘レコードとして保存します。")
+        self.acq_save_button.setWhatsThis(self.acq_save_button.toolTip())
+        self.acq_save_button.clicked.connect(self._acq_save_evidence)
+        save_row.addWidget(self.acq_save_button)
+        save_row.addStretch(1)
+        result.addLayout(save_row)
+        layout.addWidget(result_card)
+
+        layout.addStretch(1)
+        self.pages.addWidget(page)
+        self._acq_refresh_devices()
+        self._acq_sync_stage_ui()
+
+    # -- acquisition handlers ---------------------------------------------
+
+    def _acq_refresh_devices(self) -> None:
+        """Enumerate devices honestly — an empty list is a legal state."""
+        self.acq_playback_device.clear()
+        self.acq_capture_device.clear()
+        try:
+            devices = self._acq_backend.enumerate_devices()
+        except EXPECTED_OPERATION_ERRORS:
+            devices = ()
+        playback = [d for d in devices
+                    if d.direction in ('playback', 'duplex')]
+        capture = [d for d in devices
+                   if d.direction in ('capture', 'duplex')]
+        for dev in playback:
+            self.acq_playback_device.addItem(
+                f"{dev.display_name} ({dev.device_id})", dev.device_id)
+        for dev in capture:
+            self.acq_capture_device.addItem(
+                f"{dev.display_name} ({dev.device_id})", dev.device_id)
+        if not devices:
+            self.acq_devices_note.setText(
+                "列挙されたデバイスがありません — "
+                "バックエンドが利用できないか、デバイスが接続されていません。")
+        else:
+            self.acq_devices_note.setText(
+                f"{len(devices)} 台のデバイスを検出しました。")
+        # Enumeration changed → any armed state is stale.
+        if self._acq_engine is not None:
+            self._acq_engine.notify_configuration_changed()
+            self._acq_sync_stage_ui()
+
+    def _acq_request(self):
+        from .cad_sweep_acquisition import (
+            AcquisitionRequest,
+            ChannelRouting,
+            SweepStimulusSpec,
+        )
+
+        spec = SweepStimulusSpec(
+            start_frequency_hz=self.acq_start_freq.value(),
+            end_frequency_hz=self.acq_end_freq.value(),
+            duration_s=self.acq_duration.value(),
+            level_dbfs=self.acq_level.value(),
+            sample_rate_hz=int(self.acq_sample_rate.currentData()),
+            repetitions=self.acq_repetitions.value(),
+        )
+        routing = ChannelRouting(
+            playback_device_id=str(
+                self.acq_playback_device.currentData() or ''),
+            playback_channel=self.acq_playback_channel.value(),
+            capture_device_id=str(
+                self.acq_capture_device.currentData() or ''),
+            capture_channel=self.acq_capture_channel.value(),
+            loopback_input_channel=self.acq_loopback_channel.currentData(),
+        )
+        return AcquisitionRequest(
+            stimulus=spec,
+            routing=routing,
+            level_policy=self._acq_level_policy,
+            requires_absolute_level=(
+                self.acq_require_absolute.isChecked()),
+            # Honest: this surface does not resolve a bound calibration —
+            # the recorded state stays 'unknown' unless the authority is
+            # wired by a later slice.
+            calibration_state='unknown',
+            declared_synchronized=False,
+        )
+
+    def _acq_configure(self) -> None:
+        from .cad_sweep_acquisition import MeasurementAcquisitionEngine
+
+        try:
+            request = self._acq_request()
+            self._acq_engine = MeasurementAcquisitionEngine(
+                self._acq_backend)
+            report = self._acq_engine.configure(request)
+            if report.ok:
+                self._set_notice("事前チェックに合格しました", SemanticState.SUCCESS)
+            else:
+                self._set_notice(
+                    "事前チェックでブロックされました: "
+                    + " / ".join(report.blocked_reasons),
+                    SemanticState.WARNING,
+                )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — invalid sweep/device params.
+            self._operation_error_notice("事前チェックに失敗しました", exc)
+        self._acq_sync_stage_ui()
+
+    def _acq_arm(self) -> None:
+        from .cad_sweep_acquisition import ArmConfirmation
+
+        engine = self._acq_engine
+        if engine is None:
+            self._set_notice("先に事前チェックを実行してください",
+                             SemanticState.WARNING)
+            return
+        # The level-safety contract: the operator confirms exactly the
+        # device/channel/level shown on this surface.
+        try:
+            engine.arm(ArmConfirmation(
+                acknowledged_playback_device_id=str(
+                    self.acq_playback_device.currentData() or ''),
+                acknowledged_playback_channel=(
+                    self.acq_playback_channel.value()),
+                acknowledged_capture_device_id=str(
+                    self.acq_capture_device.currentData() or ''),
+                acknowledged_capture_channel=(
+                    self.acq_capture_channel.value()),
+                acknowledged_level_dbfs=self.acq_level.value(),
+            ))
+            self._set_notice("出力をアームしました — 測定開始できます",
+                             SemanticState.SUCCESS)
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — arm gate refusal is operator-facing.
+            self._operation_error_notice("アームに失敗しました", exc)
+        self._acq_sync_stage_ui()
+
+    def _acq_start(self) -> None:
+        engine = self._acq_engine
+        if engine is None:
+            self._set_notice("先に事前チェックを実行してください",
+                             SemanticState.WARNING)
+            return
+        try:
+            # REV66 note: the engine is synchronous; with a real backend a
+            # run belongs on the worker pool. The fake backend and the
+            # WASAPI stub both return immediately/deterministically.
+            engine.start()
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — backend open/state failures.
+            self._operation_error_notice("測定を開始できませんでした", exc)
+        self._acq_sync_stage_ui()
+        self._acq_sync_result_ui()
+
+    def _acq_cancel(self) -> None:
+        engine = self._acq_engine
+        if engine is None:
+            return
+        engine.cancel()
+        self._acq_sync_stage_ui()
+        self._acq_sync_result_ui()
+
+    def _acq_save_evidence(self) -> None:
+        from .cad_authority_resolver import AuthorityRef
+        from .cad_sweep_acquisition_evidence import (
+            build_stimulus_definition,
+        )
+        from .cad_sweep_acquisition_repository import (
+            CadSweepAcquisitionRepository,
+        )
+        from .clock import utc_now_iso
+
+        engine = self._acq_engine
+        if engine is None or engine.result.stimulus is None:
+            self._set_notice("保存できる証跡がありません — 先に測定を実行してください",
+                             SemanticState.WARNING)
+            return
+        try:
+            repo = CadSweepAcquisitionRepository(
+                self.controller.scene_repository)
+            if self._acq_stimulus_definition is None:
+                self._acq_stimulus_definition = build_stimulus_definition(
+                    document_id=self.controller.document_id,
+                    stimulus=engine.result.stimulus,
+                    created_at_utc=utc_now_iso(),
+                )
+                repo.save_stimulus_definition(
+                    self._acq_stimulus_definition)
+            stimulus_ref = AuthorityRef(
+                kind='sweep_stimulus_definition',
+                ref_id=(
+                    self._acq_stimulus_definition.stimulus_definition_id),
+                ref_sha256=(
+                    self._acq_stimulus_definition.stimulus_sha256),
+            )
+            self._acq_run_record = repo.record_run(
+                document_id=self.controller.document_id,
+                engine=engine,
+                result=engine.result,
+                stimulus_ref=stimulus_ref,
+            )
+            self._set_notice(
+                f"証跡を保存しました: {self._acq_run_record.acquisition_id}",
+                SemanticState.SUCCESS)
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # error-boundary: expected — sealed-store rejection stays
+            # operator-facing.
+            self._operation_error_notice("証跡の保存に失敗しました", exc)
+        self._acq_sync_result_ui()
+
+    def _acq_sync_stage_ui(self) -> None:
+        engine = self._acq_engine
+        stage = engine.stage if engine is not None else 'precheck'
+        self.acq_stage_label.setText(
+            f"ステージ: {self._acq_stage_labels.get(stage, stage)}")
+        blocked = engine.blocked_reasons if engine is not None else ()
+        self.acq_blocked_label.setText(
+            ("ブロック理由: " + " / ".join(blocked)) if blocked else "")
+        next_action = (
+            engine.next_permitted_action() if engine is not None
+            else 'configure() — resolve devices and routing')
+        self.acq_next_action_label.setText(f"次の操作: {next_action}")
+        done, total = engine.progress if engine is not None else (0, 0)
+        self.acq_progress_label.setText(
+            f"進捗: {done}/{total} フレーム" if total else "")
+        is_ready = engine is not None and engine.stage == 'ready'
+        is_armed = engine is not None and engine.stage == 'armed'
+        terminal = engine is not None and engine.stage in (
+            'completed', 'failed', 'cancelled')
+        self.acq_arm_button.setEnabled(is_ready)
+        self.acq_start_button.setEnabled(is_armed)
+        self.acq_cancel_button.setEnabled(
+            engine is not None and engine.stage == 'armed')
+        self.acq_save_button.setEnabled(bool(terminal))
+        # Arm button shows exactly what the operator confirms.
+        if is_ready:
+            self.acq_arm_button.setText(
+                f"アーム: "
+                f"{self.acq_playback_device.currentData() or '?'}:"
+                f"{self.acq_playback_channel.value()} @ "
+                f"{self.acq_level.value()} dBFS")
+        else:
+            self.acq_arm_button.setText("アーム")
+
+    def _acq_sync_result_ui(self) -> None:
+        from .cad_sweep_acquisition_evidence import (
+            SWEEP_ACQUISITION_QUALITY_LABELS,
+            SWEEP_ACQUISITION_REASON_LABELS,
+            SWEEP_TIMING_QUALITY_LABELS,
+        )
+
+        engine = self._acq_engine
+        result = engine.result if engine is not None else None
+        if result is None or engine is None or engine.stage == 'precheck':
+            return
+        stage = engine.stage
+        outcome_text = self._acq_stage_labels.get(stage, stage)
+        self.acq_outcome_label.setText(f"結果: {outcome_text}")
+        quality = result.quality
+        if quality is None:
+            self.acq_quality_label.setText("品質: 未評価")
+            self.acq_measured_label.setText("")
+            self.acq_evidence_label.setText("")
+            return
+        verdict = SWEEP_ACQUISITION_QUALITY_LABELS.get(
+            quality.verdict, quality.verdict)
+        reasons = "、".join(
+            SWEEP_ACQUISITION_REASON_LABELS.get(r, r)
+            for r in quality.reasons)
+        warnings = "、".join(quality.warnings)
+        parts = [f"品質: {verdict}"]
+        if reasons:
+            parts.append(f"理由: {reasons}")
+        if warnings:
+            parts.append(f"警告: {warnings}")
+        self.acq_quality_label.setText(" / ".join(parts))
+        measured = quality.measured
+        bits = []
+        if measured.get('snr_db') is not None:
+            bits.append(f"SNR {measured['snr_db']:.1f} dB")
+        if measured.get('noise_floor_dbfs') is not None:
+            bits.append(
+                f"ノイズフロア {measured['noise_floor_dbfs']:.1f} dBFS")
+        if measured.get('clipped_samples'):
+            bits.append(f"クリップ {measured['clipped_samples']} サンプル")
+        if measured.get('xrun_count'):
+            bits.append(f"xrun {measured['xrun_count']} 回")
+        if result.timing is not None:
+            tq = SWEEP_TIMING_QUALITY_LABELS.get(
+                result.timing.quality, result.timing.quality)
+            bits.append(f"タイミング: {tq}")
+        self.acq_measured_label.setText(" · ".join(bits))
+        evidence = []
+        if result.impulse_response is not None and (
+                result.impulse_response.ir_sha256):
+            evidence.append(
+                f"IR: {result.impulse_response.ir_sha256[:16]}…")
+        if self._acq_run_record is not None:
+            evidence.append(
+                f"記録: {self._acq_run_record.acquisition_id}")
+            if self._acq_run_record.raw_audio_sha256:
+                evidence.append(
+                    f"生録音: "
+                    f"{self._acq_run_record.raw_audio_sha256[:16]}…")
+        self.acq_evidence_label.setText(" / ".join(evidence))
 
     def _set_notice(
         self,
