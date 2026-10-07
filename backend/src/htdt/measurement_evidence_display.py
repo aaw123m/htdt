@@ -5149,3 +5149,18 @@ def production_readiness_line(outcome: str, surface: str,
     state_label = _SURFACE_STATE_LABELS.get(state, state)
     outcome_label = _PRODUCTION_LABELS.get(outcome, outcome)
     return f'{surface_label}: {state_label}（採用判定: {outcome_label}）'
+from .cad_hybrid_composition_validation import (  # noqa: E402
+    HYBRID_VALIDATION_LABELS as _HV_LABELS,
+)
+
+
+def hybrid_validation_verdict_line(verdict: str) -> str:
+    """One JA line for a hybrid-composition validation verdict (#812) —
+    R130 PASS と R150 PASS が揃っても R160 PASS にはならない。"""
+    return 'ハイブリッド検証: ' + _HV_LABELS.get(verdict, verdict)
+
+
+def hybrid_validation_label(code: str) -> str:
+    """JA label lookup for any hybrid-validation vocabulary code
+    (#812)."""
+    return _HV_LABELS.get(code, code)

@@ -8430,6 +8430,36 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_sgm_version ON cad_standards_gap_matrices(matrix_version, seq ASC)
     """
     ,
+    # REV63: #812 hybrid-composition validation authority — the pinned
+    # V&V spec (component minimums, expected regions, versioned
+    # crossover rule, disjoint ownership policy, sensitivity sweep,
+    # applicability envelope), sealed evidence rows and sealed
+    # per-region verdicts: new append-only authorities the idempotent
+    # baseline creates.
+    """
+        CREATE TABLE IF NOT EXISTS cad_hybrid_composition_validation_specs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, spec_id TEXT NOT NULL UNIQUE, spec_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, composition_semantics TEXT NOT NULL, late_field_composed INTEGER NOT NULL, grid_reconciliation_required INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_hvspec_doc ON cad_hybrid_composition_validation_specs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_hybrid_validation_evidence ( seq INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id TEXT NOT NULL UNIQUE, evidence_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spec_ref_id TEXT NOT NULL, evidence_kind TEXT NOT NULL, outcome TEXT NOT NULL, domain_kind TEXT, solver_path TEXT, reference_class TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_hve_doc ON cad_hybrid_validation_evidence(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_hybrid_validation_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, spec_ref_id TEXT NOT NULL, subject_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, qualification_level TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_hvv_doc ON cad_hybrid_validation_verdicts(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9529,4 +9559,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV63: #801 production-readiness gate.
     'cad_production_readiness_decisions',
     'cad_recommendation_surface_decisions',
+    # REV63: #812 hybrid-composition validation authority.
+    'cad_hybrid_composition_validation_specs',
+    'cad_hybrid_validation_evidence',
+    'cad_hybrid_validation_verdicts',
 )

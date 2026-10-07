@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 92
+NATIVE_SCHEMA_VERSION = 93
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -1998,6 +1998,14 @@ def _migrate_91_to_92(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_92_to_93(connection: sqlite3.Connection) -> None:
+    # REV63: #812 hybrid-composition validation authority — the pinned
+    # V&V spec, sealed evidence rows and sealed per-region verdicts:
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2091,6 +2099,7 @@ _MIGRATIONS = {
     90: _migrate_89_to_90,
     91: _migrate_90_to_91,
     92: _migrate_91_to_92,
+    93: _migrate_92_to_93,
 }
 
 
