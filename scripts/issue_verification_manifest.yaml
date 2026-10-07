@@ -5118,3 +5118,28 @@ issues:
       RS8 (DOI 10.14279/depositonce-25649) は曲面 GA レーンとして別途。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 807
+  title: 'P1: Establish domain package boundaries and size budgets for the
+    growing native codebase'
+  notes: 'REV63: 依存監査スクリプト + 層ルールの自動検証を実装
+    （docs/issues/issue-807-package-boundaries.md）。955モジュールの層分類、
+    Qt 混在禁止、persistence→UI 禁止、新規循環禁止、サイズ予算がテスト化。
+    メガSCC (~470 modules) は負債として記録。残件は実際のパッケージ分割
+    （メンテナ判断）。
+
+    '
+  checks:
+  - id: package-boundary-rules
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_807_boundaries.py
+    description: '層分類・Qt 混入・persistence→UI・新規循環・サイズ予算の自動検証。
+      scripts/package_boundary_audit.py と同一解析を pytest で強制。
+
+      '
+  - id: package-restructure-review
+    kind: manual
+    description: 'ドメイン分割案のメンテナレビューと段階的移行（保存プロジェクト/
+      バックアップの後方互換ゲート付き）。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
