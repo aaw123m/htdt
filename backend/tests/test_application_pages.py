@@ -402,3 +402,95 @@ def test_inbox_missions_issue_flow_invokes_lambda(
         page.close()
         page.deleteLater()
         app.processEvents()
+
+
+def test_inbox_contribution_detail_surfaces_resolved_evidence(
+    tmp_path,
+) -> None:
+    """Retained artifacts surface how many fulfilled_by refs resolve."""
+
+    app = _app()
+    contribution = SimpleNamespace(
+        contribution_id="cid-1",
+        validation_state="validated",
+        routing="matched",
+        matched_project_id="proj-alpha",
+        mission_id="mission-xyz",
+        plan_sha256="cd" * 32,
+        detail=None,
+        artifact_sha256="ef" * 32,
+        artifact_retained=True,
+        recorded_at_utc="2026-10-07T00:00:00Z",
+    )
+    tasks = (
+        SimpleNamespace(
+            task_id="t-1",
+            outcome="fulfilled",
+            refs=(
+                SimpleNamespace(state="resolved"),
+                SimpleNamespace(state="resolved"),
+                SimpleNamespace(state="external"),
+                SimpleNamespace(state="unresolved"),
+            ),
+        ),
+    )
+    seen = []
+    page = CaptureInboxPage(
+        lambda: (),
+        on_navigate=lambda link: True,
+        list_contributions=lambda: (contribution,),
+        resolve_return_evidence=lambda item: (
+            seen.append(item.contribution_id) or tasks
+        ),
+    )
+    try:
+        assert page.contribution_table.rowCount() == 1
+        page.contribution_table.selectRow(0)
+        app.processEvents()
+        text = page.contribution_detail.text()
+        assert seen == ["cid-1"]
+        assert "証跡: 4件参照" in text
+        assert "解決 2" in text
+        assert "外部参照 1" in text
+        assert "未解決 1" in text
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()
+
+
+def test_inbox_contribution_detail_skips_resolution_when_unretained(
+    tmp_path,
+) -> None:
+    """Pre-retention rows never claim resolved evidence."""
+
+    app = _app()
+    contribution = SimpleNamespace(
+        contribution_id="cid-2",
+        validation_state="validated",
+        routing="unrouted",
+        matched_project_id=None,
+        mission_id=None,
+        plan_sha256=None,
+        detail=None,
+        artifact_sha256="ef" * 32,
+        artifact_retained=False,
+        recorded_at_utc="2026-10-07T00:00:00Z",
+    )
+    calls = []
+    page = CaptureInboxPage(
+        lambda: (),
+        on_navigate=lambda link: True,
+        list_contributions=lambda: (contribution,),
+        resolve_return_evidence=lambda item: calls.append(item)
+        or (),
+    )
+    try:
+        page.contribution_table.selectRow(0)
+        app.processEvents()
+        assert calls == []
+        assert "証跡" not in page.contribution_detail.text()
+    finally:
+        page.close()
+        page.deleteLater()
+        app.processEvents()

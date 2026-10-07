@@ -507,6 +507,183 @@ def read_field_return_container(
     return entries, envelope, document
 
 
+_RETURN_DOC_BINDINGS: Mapping[str, tuple[str, str, str]] = {
+    # container doc schema → (records key, identity field, ref namespace)
+    'htdt.field_return.field-evidence': (
+        'records',
+        'evidence_id',
+        'field_evidence',
+    ),
+    'htdt.field_return.settings-observations': (
+        'observations',
+        'observation_id',
+        'settings_observation',
+    ),
+    'htdt.field_return.room-state-observations': (
+        'observations',
+        'observation_id',
+        'room_state',
+    ),
+    'htdt.field_return.wiring-routes': (
+        'routes',
+        'route_id',
+        'wiring_route',
+    ),
+    'htdt.field_return.inventory-items': (
+        'inventory_items',
+        'item_id',
+        'inventory_item',
+    ),
+    'htdt.field_return.operator-profiles': (
+        'operators',
+        'operator_id',
+        'operator',
+    ),
+    'htdt.field_return.instrument-profiles': (
+        'instruments',
+        'instrument_id',
+        'instrument',
+    ),
+}
+
+_CONTAINER_DOC_NAMESPACES = frozenset(
+    namespace for _, _, namespace in _RETURN_DOC_BINDINGS.values()
+)
+
+# Binding-token namespaces that name authorities outside a field-return
+# container (capture bundles, mission plans, calibration records) — they
+# resolve elsewhere, never against `authority/`.
+_EXTERNAL_BINDING_NAMESPACES = frozenset({
+    'entity',
+    'measurement',
+    'capture_revision',
+    'capture_session',
+    'field_return',
+    'task_item',
+    'commissioning_check',
+    'equipment',
+    'calibration_plan_item',
+    'surface',
+    'mesh_anchor',
+    'path',
+    'frame',
+})
+
+
+class ResolvedReturnRef(BaseModel):
+    """One `fulfilled_by` ref resolved against the retained artifact.
+
+    ``resolved`` carries the typed record the ref names; ``evidence_asset``
+    resolves a ``sha256:`` ref to a declared container payload;
+    ``external`` honestly marks refs whose authority lives outside the
+    artifact (capture-bundle records, plan items); ``unresolved`` means a
+    container-bound namespace did not match any carried record — a real
+    gap, never silently guessed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    ref: str = Field(min_length=1)
+    state: Literal['resolved', 'evidence_asset', 'external', 'unresolved']
+    document_schema: str | None = None
+    document_path: str | None = None
+    record: dict | None = None
+    asset_path: str | None = None
+    detail: str | None = None
+
+
+class ResolvedReturnTask(BaseModel):
+    """One plan task's fulfillment refs resolved."""
+
+    model_config = ConfigDict(frozen=True)
+
+    task_id: str = Field(min_length=1)
+    outcome: str = Field(min_length=1)
+    refs: tuple[ResolvedReturnRef, ...] = ()
+
+
+def _return_container_ref_index(
+    entries: dict[str, bytes],
+    envelope: FieldReturnContainerDocument,
+) -> dict[str, tuple[str, str, dict]]:
+    """Index every typed record a container carries by its binding ref.
+
+    Documents are byte-verified by ``read_field_return_container`` before
+    indexing — a record that parses here is integrity-pinned.
+    """
+
+    index: dict[str, tuple[str, str, dict]] = {}
+    for declared in envelope.authority_documents:
+        binding = _RETURN_DOC_BINDINGS.get(declared.schema)
+        if binding is None:
+            continue
+        records_key, identity_field, namespace = binding
+        payload = entries.get(declared.path)
+        if payload is None:
+            continue
+        try:
+            document = json.loads(payload.decode('utf-8'))
+        except (UnicodeDecodeError, ValueError):
+            continue
+        if not isinstance(document, dict):
+            continue
+        records = document.get(records_key)
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            identity = record.get(identity_field)
+            if not isinstance(identity, str) or not identity:
+                continue
+            index[f'{namespace}:{identity}'] = (
+                declared.schema,
+                declared.path,
+                record,
+            )
+    return index
+
+
+def _resolve_return_ref(
+    ref: str,
+    index: Mapping[str, tuple[str, str, dict]],
+    assets: Mapping[str, FieldReturnContainerAssetRef],
+) -> ResolvedReturnRef:
+    if ref.startswith('sha256:'):
+        asset = assets.get(ref.split(':', 1)[1])
+        if asset is not None:
+            return ResolvedReturnRef(
+                ref=ref,
+                state='evidence_asset',
+                asset_path=asset.path,
+            )
+        return ResolvedReturnRef(ref=ref, state='external')
+    hit = index.get(ref)
+    if hit is not None:
+        doc_schema, doc_path, record = hit
+        return ResolvedReturnRef(
+            ref=ref,
+            state='resolved',
+            document_schema=doc_schema,
+            document_path=doc_path,
+            record=record,
+        )
+    namespace = ref.split(':', 1)[0]
+    if namespace in _CONTAINER_DOC_NAMESPACES:
+        return ResolvedReturnRef(
+            ref=ref,
+            state='unresolved',
+            detail='container does not carry the named record',
+        )
+    if namespace in _EXTERNAL_BINDING_NAMESPACES:
+        return ResolvedReturnRef(ref=ref, state='external')
+    return ResolvedReturnRef(
+        ref=ref,
+        state='unresolved',
+        detail='unknown ref namespace',
+    )
+
+
 def _stage_field_return_container(
     artifact: bytes,
     channel_project_ref: str | None = None,
@@ -892,6 +1069,93 @@ class FieldReturnRepository:
                 'stored field-return artifact fails integrity check'
             )
         return payload
+
+    def resolve_return_refs(
+        self, contribution_id: str
+    ) -> tuple[ResolvedReturnTask, ...] | None:
+        """Resolve every task's `fulfilled_by` refs to what they name.
+
+        ``None`` when the row is unknown, its bytes were never retained,
+        or the artifact is neither wire family — the caller surfaces that
+        honestly rather than fabricating resolution.
+        """
+
+        artifact = self.artifact_bytes(contribution_id)
+        if artifact is None:
+            return None
+        if artifact[:4] == _STORED_ZIP_MAGIC:
+            entries, envelope, _root = read_field_return_container(
+                artifact
+            )
+            index = _return_container_ref_index(entries, envelope)
+            assets = {
+                asset.sha256: asset
+                for asset in envelope.evidence_assets
+            }
+            tasks: list[ResolvedReturnTask] = []
+            for ledger_entry in envelope.task_fulfillment_ledger:
+                item_ref = str(ledger_entry.get('item_ref') or '')
+                task_id = (
+                    item_ref.split(':', 1)[1]
+                    if item_ref.startswith('task_item:')
+                    else item_ref
+                )
+                refs = tuple(
+                    _resolve_return_ref(str(ref), index, assets)
+                    for ref in (
+                        ledger_entry.get('fulfilled_by_refs') or ()
+                    )
+                )
+                tasks.append(
+                    ResolvedReturnTask(
+                        task_id=task_id or item_ref or 'task',
+                        outcome=str(
+                            ledger_entry.get('outcome') or 'unknown'
+                        ),
+                        refs=refs,
+                    )
+                )
+            return tuple(tasks)
+        try:
+            document = json.loads(artifact.decode('utf-8'))
+        except (UnicodeDecodeError, ValueError):
+            return None
+        if not (
+            isinstance(document, dict)
+            and document.get('schema') == 'htdt.field-return'
+        ):
+            return None
+        manifest = validate_field_return(document)
+        records = {record.record_id: record for record in manifest.records}
+        tasks = []
+        for outcome in manifest.task_outcomes:
+            refs: tuple[ResolvedReturnRef, ...] = ()
+            if outcome.fulfilled_by_ref:
+                record = records.get(outcome.fulfilled_by_ref)
+                if record is None:
+                    refs = (
+                        ResolvedReturnRef(
+                            ref=outcome.fulfilled_by_ref,
+                            state='unresolved',
+                            detail='manifest carries no such record',
+                        ),
+                    )
+                else:
+                    refs = (
+                        ResolvedReturnRef(
+                            ref=outcome.fulfilled_by_ref,
+                            state='resolved',
+                            record=record.model_dump(mode='json'),
+                        ),
+                    )
+            tasks.append(
+                ResolvedReturnTask(
+                    task_id=outcome.task_id,
+                    outcome=outcome.outcome,
+                    refs=refs,
+                )
+            )
+        return tuple(tasks)
 
     def get(self, contribution_id: str) -> StagedFieldReturn | None:
         with closing(self._connect()) as connection:

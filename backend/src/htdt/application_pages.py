@@ -1381,6 +1381,7 @@ class CaptureInboxPage(QWidget):
         assign_scope: Callable[[str, str], object] | None = None,
         list_contributions: Callable[[], tuple] | None = None,
         reconcile_contribution: Callable[[object], tuple] | None = None,
+        resolve_return_evidence: Callable[[object], object] | None = None,
         rebase_context: Callable[[object], object] | None = None,
         rebase_record: Callable | None = None,
         apply_record: Callable | None = None,
@@ -1402,6 +1403,7 @@ class CaptureInboxPage(QWidget):
         self._assign_scope = assign_scope
         self._list_contributions = list_contributions
         self._reconcile_contribution = reconcile_contribution
+        self._resolve_return_evidence = resolve_return_evidence
         self._rebase_context = rebase_context
         self._rebase_record = rebase_record
         self._apply_record = apply_record
@@ -1980,6 +1982,46 @@ class CaptureInboxPage(QWidget):
             f"アーティファクト: {contribution.artifact_sha256[:16]}…"
             f"（{retention}）"
         )
+        if (
+            self._resolve_return_evidence is not None
+            and getattr(contribution, 'artifact_retained', False)
+        ):
+            try:
+                resolved_tasks = self._resolve_return_evidence(
+                    contribution
+                )
+            except Exception as exc:
+                lines.append(f"証跡: 解読失敗（{exc}）")
+            else:
+                if resolved_tasks is not None:
+                    counts = {
+                        'resolved': 0,
+                        'evidence_asset': 0,
+                        'external': 0,
+                        'unresolved': 0,
+                    }
+                    for task in resolved_tasks:
+                        for ref in getattr(task, 'refs', ()):
+                            state = getattr(ref, 'state', '')
+                            if state in counts:
+                                counts[state] += 1
+                    total = sum(counts.values())
+                    parts = []
+                    if counts['resolved']:
+                        parts.append(f"解決 {counts['resolved']}")
+                    if counts['evidence_asset']:
+                        parts.append(
+                            f"証拠ファイル {counts['evidence_asset']}"
+                        )
+                    if counts['external']:
+                        parts.append(f"外部参照 {counts['external']}")
+                    if counts['unresolved']:
+                        parts.append(f"未解決 {counts['unresolved']}")
+                    lines.append(
+                        f"証跡: {total}件参照（{' / '.join(parts)}）"
+                        if total
+                        else "証跡: 参照なし"
+                    )
         if contribution.detail:
             lines.append(f"詳細: {contribution.detail}")
         self.contribution_detail.setText("\n".join(lines))

@@ -2522,6 +2522,11 @@ class WorkflowApplicationComposition:
                     contribution, self.repository
                 )
             ),
+            resolve_return_evidence=lambda contribution: (
+                _self.FieldReturnRepository(
+                    self.repository.path
+                ).resolve_return_refs(contribution.contribution_id)
+            ),
             rebase_context=lambda contribution: (
                 _self.mission_return_reconciliation_context(
                     contribution, self.repository
