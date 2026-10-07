@@ -265,3 +265,27 @@ entries:
     description: 継続運用 — evidence_ref 解決検査の保守（fail-closed、release ゲート統合済み）
   evidence_refs: [docs/issues/issue-865-lifecycle-evidence.md]
   close_when_gates_clear: true
+- issue: 866
+  lifecycle: acceptance_remaining
+  landed: {prs: [894], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: オペレータ受入 — ジオメトリ取込パネルの実運用確認
+  evidence_refs: [docs/issues/issue-866-geometry-intake.md]
+  close_when_gates_clear: true
+- issue: 868
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [896], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機DSP (CamillaDSP等) での閉ループ調整エンドツーエンド検証
+  evidence_refs: [docs/issues/issue-868-commissioning-orchestrator.md]
+  close_when_gates_clear: true
+- issue: 869
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [895], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機オーディオ (WASAPI) でのスイープ測定検証 — 現状バックエンドは fail-closed スタブ
+  evidence_refs: [docs/issues/issue-869-native-sweep.md]
+  close_when_gates_clear: true
