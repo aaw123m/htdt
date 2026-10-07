@@ -1787,6 +1787,14 @@ class CaptureReceiverService:
             package = self._mission_from_row(row)
             if package.pairing_id and package.pairing_id != pairing.pairing_id:
                 return 404, {'detail': 'package not offered to this pairing'}
+            if package.status == 'superseded':
+                # Listing→download race: a superseded package leaves the
+                # listing but its bytes still name a stale mission —
+                # serving them lets the device import a plan the issuer
+                # replaced. 'received'/'failed'/'completed' stay
+                # servable: verdict-settled bytes are idempotent, and a
+                # failed transfer must stay retryable.
+                return 410, {'detail': 'package superseded by a re-issue'}
             payload = read_content_blob(connection, package.package_sha256)
         if payload is None:
             return 500, {'detail': 'package payload missing'}
