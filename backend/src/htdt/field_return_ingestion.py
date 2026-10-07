@@ -813,6 +813,13 @@ class FieldReturnRepository:
                             expected_sha256=staged.artifact_sha256,
                         )
                         return staged, True
+                    # Rows staged before byte retention get their blob
+                    # healed on redelivery (INSERT OR IGNORE — idempotent).
+                    store_content_blob(
+                        connection,
+                        artifact,
+                        expected_sha256=staged.artifact_sha256,
+                    )
                     return staged, False
                 raise FieldReturnConflictError(
                     'field return contribution '
