@@ -111,6 +111,21 @@ _NAME_PATTERNS: tuple[tuple[str, str, str, str | None], ...] = (
     ('PreferenceError', 'preferences.error', '環境設定を適用できませんでした', None),
     ('IngressTooLargeError', 'ingress.too_large', 'ファイルが大きすぎます',
      'より小さいファイルを選択してください'),
+    # #869 HTDT-native sweep acquisition engine rejections.
+    ('BackendUnavailableError', 'audio.backend_unavailable',
+     'オーディオバックエンドを利用できません',
+     'オーディオデバイスの接続とドライバを確認してください'),
+    ('DeviceNotFoundError', 'audio.device_not_found',
+     '指定したオーディオデバイスが見つかりません',
+     'デバイス一覧を更新してからやり直してください'),
+    ('UnsupportedConfigurationError', 'audio.unsupported_config',
+     '指定したサンプルレート・形式・チャンネル構成に対応していません',
+     'デバイスが対応する設定を選択してください'),
+    ('ArmBlockedError', 'acquisition.arm_blocked',
+     '安全条件を満たしていないため出力をアームできません',
+     '出力レベルとデバイス確認を見直してください'),
+    ('AcquisitionStateError', 'acquisition.state',
+     '現在の測定状態では完了できませんでした', None),
     # Launch/data-format family: subclasses of NativeUpgradeError must
     # precede it (pattern lookup is MRO-membership based).
     ('IncompatibleNewerSchemaError', 'schema.too_new',

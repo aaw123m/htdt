@@ -8534,6 +8534,38 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_fdep_doc ON cad_file_deployments(document_id, seq ASC)
     """
     ,
+    # REV66: #869 HTDT-native sweep acquisition authority — the engine's
+    # stimulus identity, retained run evidence and transition events are
+    # sealed, append-only records; requested-vs-actual and unqualified
+    # timing stay recorded exactly as observed.
+    """
+        CREATE TABLE IF NOT EXISTS cad_sweep_stimulus_definitions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, stimulus_definition_id TEXT NOT NULL UNIQUE, stimulus_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, generator_version TEXT NOT NULL, sample_rate_hz INTEGER NOT NULL, start_frequency_hz REAL NOT NULL, end_frequency_hz REAL NOT NULL, duration_s REAL NOT NULL, level_dbfs REAL NOT NULL, repetitions INTEGER NOT NULL, params_sha256 TEXT NOT NULL, samples_sha256 TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_swstim_doc ON cad_sweep_stimulus_definitions(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_sweep_acquisition_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, acquisition_id TEXT NOT NULL UNIQUE, acquisition_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, run_id TEXT NOT NULL, engine_version TEXT NOT NULL, backend_id TEXT NOT NULL, backend_version TEXT NOT NULL, backend_is_simulated INTEGER NOT NULL, stimulus_ref_id TEXT NOT NULL, playback_device_id TEXT NOT NULL, capture_device_id TEXT NOT NULL, requested_sample_rate_hz INTEGER NOT NULL, actual_sample_rate_hz INTEGER, timing_method TEXT, timing_quality TEXT, raw_audio_sha256 TEXT, ir_sha256 TEXT, calibration_state TEXT NOT NULL, stage TEXT NOT NULL, outcome TEXT, quality_verdict TEXT, captured_at_utc TEXT, completed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_swrun_doc ON cad_sweep_acquisition_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_swrun_run ON cad_sweep_acquisition_runs(run_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_sweep_acquisition_stage_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL, document_id TEXT NOT NULL, run_id TEXT NOT NULL, run_seq INTEGER NOT NULL, stage TEXT NOT NULL, entered_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_swstg_run ON cad_sweep_acquisition_stage_events(run_id, run_seq ASC)
+    """
+    ,
     # REV66: #866 geometry intake readiness — sealed chain
     # SOURCE_GEOMETRY -> HEALTH_CHECK -> REPAIR_PROPOSAL ->
     # EXPLICIT_ACCEPTANCE -> DERIVED_GEOMETRY_REVISION ->
@@ -9691,6 +9723,10 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_delegated_provider_manifests',
     'cad_provider_acquisitions',
     'cad_file_deployments',
+    # REV66: #869 HTDT-native sweep acquisition authority.
+    'cad_sweep_stimulus_definitions',
+    'cad_sweep_acquisition_runs',
+    'cad_sweep_acquisition_stage_events',
     # REV66: #866 geometry intake readiness authority.
     'cad_geometry_intake_reports',
     'cad_geometry_repair_proposals',

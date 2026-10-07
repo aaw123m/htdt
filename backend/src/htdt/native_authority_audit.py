@@ -1474,7 +1474,12 @@ class _RepositoryChain:
             )
 
             return CadGeometryIntakeRepository(scene)
-        raise KeyError(name)
+        if name == 'sweep_acquisition':
+            from .cad_sweep_acquisition_repository import (
+                CadSweepAcquisitionRepository,
+            )
+
+            return CadSweepAcquisitionRepository(scene)        raise KeyError(name)
 
 
 @dataclass(frozen=True)
@@ -7447,6 +7452,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_geometry_solver_readiness',
         ('verdict_id',),
         _get('geometry_intake', 'get_solver_readiness'),
+    ),
+
+    # REV66: #869 HTDT-native sweep acquisition authority.
+    _ReplayProbe(
+        'sweep_stimulus_definition',
+        'cad_sweep_stimulus_definitions',
+        ('stimulus_definition_id',),
+        _get('sweep_acquisition', 'get_stimulus_definition'),
+    ),
+    _ReplayProbe(
+        'sweep_acquisition_run',
+        'cad_sweep_acquisition_runs',
+        ('acquisition_id',),
+        _get('sweep_acquisition', 'get_acquisition_run'),
+    ),
+    _ReplayProbe(
+        'sweep_acquisition_stage_event',
+        'cad_sweep_acquisition_stage_events',
+        ('event_id',),
+        _get('sweep_acquisition', 'get_stage_event'),
     ),
 
 )

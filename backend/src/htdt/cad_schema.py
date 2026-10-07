@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 97
+NATIVE_SCHEMA_VERSION = 98
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2042,6 +2042,14 @@ def _migrate_96_to_97(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_97_to_98(connection: sqlite3.Connection) -> None:
+    # REV66: #869 HTDT-native sweep acquisition authority — sealed
+    # stimulus definitions, retained acquisition runs and stage events:
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2140,6 +2148,7 @@ _MIGRATIONS = {
     95: _migrate_94_to_95,
     96: _migrate_95_to_96,
     97: _migrate_96_to_97,
+    98: _migrate_97_to_98,
 }
 
 

@@ -885,6 +885,9 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_delegated_provider_manifests": "委託プロバイダマニフェスト",
     "cad_provider_acquisitions": "プロバイダ取得レコード",
     "cad_file_deployments": "ファイルデプロイ証跡",
+    "cad_sweep_stimulus_definitions": "掃引刺激定義",
+    "cad_sweep_acquisition_runs": "掃引測定実行レコード",
+    "cad_sweep_acquisition_stage_events": "掃引測定ステージイベント",
 }
 
 
