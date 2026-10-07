@@ -8430,6 +8430,19 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_sgm_version ON cad_standards_gap_matrices(matrix_version, seq ASC)
     """
     ,
+    # REV64: #839 authoritative standards source matrix — a sealed,
+    # versioned record enumerating every external standards source HTDT
+    # may cite, its exact edition/status, StandardsProfile taxonomy
+    # class, HTDT role, definability and the explicit
+    # rights/access/redistribution boundary.
+    """
+        CREATE TABLE IF NOT EXISTS cad_standards_source_matrices ( seq INTEGER PRIMARY KEY AUTOINCREMENT, matrix_id TEXT NOT NULL UNIQUE, matrix_version TEXT NOT NULL UNIQUE, matrix_sha256 TEXT NOT NULL UNIQUE, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ssm_version ON cad_standards_source_matrices(matrix_version, seq ASC)
+    """
+    ,
     # REV63: #812 hybrid-composition validation authority — the pinned
     # V&V spec (component minimums, expected regions, versioned
     # crossover rule, disjoint ownership policy, sensitivity sweep,
@@ -8805,6 +8818,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_standards_observation_authorities',
     'cad_standards_profiles',
     'cad_standards_source_authorities',
+    # REV64: #839 standards source matrix authority.
+    'cad_standards_source_matrices',
     'cad_sti_measurements',
     'cad_sti_predictions',
     'cad_stimulus_assets',

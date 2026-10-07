@@ -133,3 +133,15 @@ already JA-labelled in `standards_workspace`.
   promotes an unencoded criterion into an evaluated one.
 - Byte-level tampering with the stored payload fails seal verification on
   read.
+
+## Source matrix (REV64 #839)
+
+The gap matrix says *which criteria* of each standard HTDT covers; the
+sealed source matrix (`cad_standards_source_matrix.py`,
+`cad_standards_source_matrices` table, schema v94) says *which documents*
+HTDT may cite at all and on what terms. See
+[issue-839-source-matrix.md](issue-839-source-matrix.md): it records exact
+edition identity, source status, precedence, the #839 StandardsProfile
+taxonomy class, definability, and the rights/access/redistribution
+boundary for RP22, Dolby, AURO, DTS:X, the three ITU-R references, and
+the AVIXA documents — including the preserved AVIXA A103 source conflict.

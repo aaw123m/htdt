@@ -113,6 +113,26 @@ records:
 `predicted` and `measured` evidence remain distinct in the result. A predicted
 `PASS` is not renamed or promoted to a measurement-verified `PASS`.
 
+## Source matrix (Issue #839)
+
+`cad_standards_source_matrix.py` seals the research-level question of *which*
+external documents may be cited at all. The `StandardsSourceMatrix` record
+(schema v94) enumerates every source with exact edition identity, a #839
+`StandardsProfile` taxonomy class, the HTDT role it may play, its
+`source_status` (`executable` / `metadata_only` /
+`licensed_source_required` / `unsupported` / `source_conflict` /
+`no_authoritative_numeric_criteria`), definability, and an explicit
+rights/access/redistribution boundary. See
+[docs/issues/issue-839-source-matrix.md](issues/issue-839-source-matrix.md).
+
+The pinned rows keep CEDIA/CTA-RP22 v1.2 as the single primary
+private-theater profile, AURO Rev.12 as the default AURO source, Dolby R3.1
+as vendor home guidance, DTS:X as `no_authoritative_numeric_criteria`
+(flexible-layout vendor statement — never fixed numeric criteria), the three
+ITU-R references as `non_home_reference`, the AVIXA documents as
+`licensed_source_required` metadata, and AVIXA A103 as a preserved
+`source_conflict`. Third-party summaries can never be `executable`.
+
 ## Explicit hard-constraint interface
 
 Compliance is advisory by default. A `FAIL` does not remove a candidate or mutate an

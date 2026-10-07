@@ -5327,3 +5327,27 @@ issues:
     description: 'HTDT_CODESIGN_PFX_BASE64 / HTDT_CODESIGN_PFX_PASSWORD の org secret 設定と実署名リリース。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 839
+  title: 'P1 research synthesis: authoritative theater standards matrix
+    beyond RP22 — Dolby, AURO, DTS, ITU and AVIXA'
+  notes: 'REV64: 権威ある規格ソースマトリクス権威を実装
+    (docs/issues/issue-839-source-matrix.md)。#839 §12 の即時マトリクスを
+    封印済み StandardsSourceMatrix として固定 (schema v94): RP22 v1.2 が唯一の
+    primary、AURO Rev.12 が既定 AURO 出所、Dolby R3.1 の正確な版/範囲、
+    DTS:X は no_authoritative_numeric_criteria、ITU 系は non_home_reference、
+    AVIXA は licensed_source_required メタデータのみ、A103 出所不一致を
+    source_conflict として保存。第三者サマリは executable になり得ず、
+    版の黙っての選択は拒否。
+
+    '
+  checks:
+  - id: standards-source-matrix
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_839_source_matrix.py
+    description: 'ソースマトリクス権威: §12 行のピン、RP22 唯一 primary、
+      AURO Rev.12 既定、Dolby 版固定、DTS:X UNKNOWN、ITU 非ホーム範囲、
+      AVIXA ライセンス/出所不一致保存、precedence/ taxonomy 整合、
+      封印/id整合性、リポジトリ往復+改竄検出、JA ラベル。
+
+      '

@@ -29,6 +29,7 @@ from .cad_health_drift import DriftAssessment
 from .cad_substitution_impact import ChangeImpactAssessment
 from .cad_security_authority import SecurityReview
 from .cad_standards_gap_matrix import GapMatrixCriterion
+from .cad_standards_source_matrix import SourceMatrixEntry
 from .cad_control_scenario import ControlScenarioQualification
 from .cad_safe_listening import ExposureAssessment
 from .cad_large_signal import (
@@ -316,6 +317,37 @@ _GAP_STATE_LABELS = {
     'unsupported': '非対応（公開基準なし）',
 }
 
+# REV64 #839 — standards source-matrix states / taxonomy classes.
+_SOURCE_MATRIX_STATUS_LABELS = {
+    'executable': '評価可能',
+    'metadata_only': 'メタデータのみ（規定本文は未取得）',
+    'licensed_source_required': 'ライセンス版原本が必要',
+    'unsupported': '非対応（公開権威なし）',
+    'source_conflict': '出所間の不一致（版を仮定しない）',
+    'no_authoritative_numeric_criteria': '権威ある数値基準なし',
+}
+
+_SOURCE_MATRIX_ROLE_LABELS = {
+    'primary_private_theater_profile': 'プライベートホーム主要プロファイル',
+    'format_layout_recommendation': 'フォーマット配置推奨',
+    'vendor_capability_layout_statement': 'ベンダー能力・配置声明',
+    'conventional_multichannel_reference': '従来型マルチチャンネル参照',
+    'advanced_immersive_production_reference': 'イマーシブ制作参照',
+    'critical_listening_test_reference': '批判的聴取試験参照',
+    'measurement_design_commissioning_procedure': '計測・設計・検収手順',
+    'supplementary_project_or_research_source': 'プロジェクト/研究用補助ソース',
+}
+
+_SOURCE_MATRIX_CLASS_LABELS = {
+    'private_theater_recommended_practice': 'プライベートシアター推奨慣行',
+    'format_vendor_home_guidance': 'フォーマットベンダー家庭向けガイダンス',
+    'production_reference_layout': '制作用参照レイアウト',
+    'subjective_test_reference_room': '主観評価用参照室',
+    'av_system_measurement_standard': 'AVシステム計測規格',
+    'project_defined_profile': 'プロジェクト定義プロファイル',
+    'research_only_profile': '研究専用プロファイル',
+}
+
 _DEVICE_EVIDENCE_CLASS_LABELS = {
     'device_readback': '機器から読み出し',
     'device_export_backup': '機器バックアップ出力',
@@ -415,6 +447,35 @@ def gap_entry_line(criterion: 'GapMatrixCriterion') -> str:
     return (
         f'{criterion.criterion_id}: {label}（{citation}）'
         f'— {criterion.state_reason}'
+    )
+
+
+def source_matrix_status_label(status: str) -> str:
+    """JA label for a source-matrix source status (#839)."""
+
+    return _SOURCE_MATRIX_STATUS_LABELS.get(status, status)
+
+
+def source_matrix_role_label(role: str) -> str:
+    """JA label for a source-matrix HTDT role (#839)."""
+
+    return _SOURCE_MATRIX_ROLE_LABELS.get(role, role)
+
+
+def source_matrix_class_label(profile_class: str) -> str:
+    """JA label for a source-matrix StandardsProfile class (#839)."""
+
+    return _SOURCE_MATRIX_CLASS_LABELS.get(profile_class, profile_class)
+
+
+def source_entry_line(entry: 'SourceMatrixEntry') -> str:
+    """One JA line for a source-matrix entry: status + edition + role."""
+
+    status = source_matrix_status_label(entry.source_status)
+    role = source_matrix_role_label(entry.htdt_role)
+    return (
+        f'{entry.source_id}: {status}（{entry.name} '
+        f'{entry.document_version}）— {role}'
     )
 
 

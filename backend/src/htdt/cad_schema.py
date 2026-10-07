@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 93
+NATIVE_SCHEMA_VERSION = 94
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2006,6 +2006,16 @@ def _migrate_92_to_93(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_93_to_94(connection: sqlite3.Connection) -> None:
+    # REV64: #839 authoritative standards source matrix — a sealed,
+    # versioned record of every external standards source, its exact
+    # edition/status, taxonomy class, HTDT role, definability and
+    # explicit rights/access/redistribution boundary: a new append-only
+    # authority the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2100,6 +2110,7 @@ _MIGRATIONS = {
     91: _migrate_90_to_91,
     92: _migrate_91_to_92,
     93: _migrate_92_to_93,
+    94: _migrate_93_to_94,
 }
 
 

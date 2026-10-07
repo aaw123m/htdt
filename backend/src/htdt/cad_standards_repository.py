@@ -28,6 +28,7 @@ from .cad_standards_evidence import (
     validate_observation_evidence,
 )
 from .cad_standards_gap_matrix import StandardsGapMatrix
+from .cad_standards_source_matrix import StandardsSourceMatrix
 from .cad_system_variant import SystemVariant, materialize_system_variant
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .r120_geometry_compiler import ExactExternalAuthorityRef
@@ -83,7 +84,7 @@ class CadStandardsRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection, connection:
-            require_native_tables(connection, 'cad_standards_source_authorities', 'cad_standards_profiles', 'cad_standards_observation_authorities', 'cad_standards_evaluations', 'cad_standards_gap_matrices')
+            require_native_tables(connection, 'cad_standards_source_authorities', 'cad_standards_profiles', 'cad_standards_observation_authorities', 'cad_standards_evaluations', 'cad_standards_gap_matrices', 'cad_standards_source_matrices')
 
     def save_source_authority(
         self,
@@ -526,6 +527,87 @@ class CadStandardsRepository:
             ).fetchall()
         return tuple(
             StandardsGapMatrix.model_validate_json(row['payload_json'])
+            for row in rows
+        )
+
+    def save_source_matrix(
+        self,
+        matrix: StandardsSourceMatrix,
+    ) -> StandardsSourceMatrix:
+        """Retain a sealed standards source-matrix authority (#839).
+
+        A matrix id is content-addressed: re-saving the identical record
+        is a no-op, and a different record under the same id is a sealed
+        conflict.
+        """
+
+        matrix = StandardsSourceMatrix.model_validate(
+            matrix.model_dump(mode='python')
+        )
+        existing = self.get_source_matrix(matrix.matrix_id)
+        if existing is not None:
+            if existing.matrix_sha256 != matrix.matrix_sha256:
+                raise ValueError(
+                    'StandardsSourceMatrix id exists with different semantics'
+                )
+            return existing
+        if self.get_source_matrix_version(matrix.matrix_version) is not None:
+            raise ValueError('StandardsSourceMatrix version is immutable')
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                """
+                INSERT INTO cad_standards_source_matrices(
+                    matrix_id, matrix_version,
+                    matrix_sha256, payload_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    matrix.matrix_id,
+                    matrix.matrix_version,
+                    matrix.matrix_sha256,
+                    matrix.model_dump_json(),
+                ),
+            )
+        return matrix
+
+    def get_source_matrix(
+        self,
+        matrix_id: str,
+    ) -> StandardsSourceMatrix | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_standards_source_matrices '
+                'WHERE matrix_id=?',
+                (matrix_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StandardsSourceMatrix.model_validate_json(row['payload_json'])
+
+    def get_source_matrix_version(
+        self,
+        matrix_version: str,
+    ) -> StandardsSourceMatrix | None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                'SELECT payload_json FROM cad_standards_source_matrices '
+                'WHERE matrix_version=?',
+                (matrix_version,),
+            ).fetchone()
+        if row is None:
+            return None
+        return StandardsSourceMatrix.model_validate_json(row['payload_json'])
+
+    def list_source_matrices(self) -> tuple[StandardsSourceMatrix, ...]:
+        """Return every retained source matrix in insertion order."""
+
+        with closing(self._connect()) as connection, connection:
+            rows = connection.execute(
+                'SELECT payload_json FROM cad_standards_source_matrices '
+                'ORDER BY seq ASC'
+            ).fetchall()
+        return tuple(
+            StandardsSourceMatrix.model_validate_json(row['payload_json'])
             for row in rows
         )
 
