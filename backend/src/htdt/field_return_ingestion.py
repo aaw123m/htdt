@@ -931,6 +931,22 @@ class FieldReturnRepository:
             artifact,
         )
 
+    def stage_prepared(
+        self,
+        staged: StagedFieldReturn,
+        artifact: bytes,
+    ) -> tuple[StagedFieldReturn, bool]:
+        """Persist a ``StagedFieldReturn`` built by the caller.
+
+        Delivery lanes that must gate persistence on checks that only
+        resolve after parsing (e.g. a header artifact id that must equal
+        the contribution identity) build the staged record first with
+        ``stage_field_return_artifact`` and only persist through here once
+        every gate has passed.
+        """
+
+        return self._stage_entry(staged, artifact)
+
     def _stage_entry(
         self,
         staged: StagedFieldReturn,

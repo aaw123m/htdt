@@ -509,6 +509,15 @@ class TestFieldReturnDelivery:
         assert status == 400
         assert receipt['ingestion_outcome'] == 'rejected'
         assert 'artifact id' in (receipt['detail'] or '').lower()
+        # The rejected delivery must never leave a validated row an
+        # operator could reconcile or apply — the readable contribution
+        # is kept only as a malformed diagnostic.
+        staged = FieldReturnRepository(service.path).get(
+            document['contribution_id']
+        )
+        assert staged is not None
+        assert staged.validation_state == 'malformed'
+        assert 'artifact id' in (staged.detail or '').lower()
 
     def test_same_contribution_different_bytes_is_a_conflict(
         self, tmp_path
