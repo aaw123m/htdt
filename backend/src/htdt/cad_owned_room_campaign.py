@@ -450,6 +450,11 @@ class CampaignVerdict(BaseModel):
                 and self.holdout_residual_ref is None:
             raise ValueError(
                 'trend/domain validation requires holdout_residual_ref')
+        claim_kinds = [cv.claim_kind for cv in self.claim_verdicts]
+        if len(set(claim_kinds)) != len(claim_kinds):
+            raise ValueError(
+                'claim_verdicts must declare each claim_kind at most '
+                'once')
         return self
 
     @property
@@ -490,6 +495,32 @@ def evaluate_campaign_promotion(
         return 'external_only'
     if prereg is None:
         return 'owned_room_insufficient'
+
+    # evidence binding: the verdict and every measurement must pin this
+    # preregistration, and every measurement ref the verdict claims
+    # must resolve to a bound campaign measurement — a pinned ref that
+    # names nothing in the campaign is a structural violation, not
+    # evidence.
+    if verdict.campaign_ref.ref_id != prereg.preregistration_id \
+            or verdict.campaign_ref.ref_sha256 \
+            != prereg.preregistration_sha256:
+        return 'owned_room_insufficient'
+    by_id = {m.measurement_id: m for m in measurements}
+    for m in measurements:
+        if m.campaign_ref.ref_id != prereg.preregistration_id \
+                or m.campaign_ref.ref_sha256 \
+                != prereg.preregistration_sha256:
+            return 'owned_room_insufficient'
+    for ref in verdict.holdout_measurement_refs:
+        target = by_id.get(ref.ref_id)
+        if target is None or target.role != 'holdout' \
+                or target.measurement_sha256 != ref.ref_sha256:
+            return 'owned_room_insufficient'
+    for ref in verdict.calibration_measurement_refs:
+        target = by_id.get(ref.ref_id)
+        if target is None or target.role == 'holdout' \
+                or target.measurement_sha256 != ref.ref_sha256:
+            return 'owned_room_insufficient'
 
     # preregistration must precede the earliest holdout acquisition
     earliest = min(m.acquired_at_utc for m in holdout)
