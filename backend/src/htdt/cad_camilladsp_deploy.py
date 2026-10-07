@@ -321,6 +321,7 @@ def compile_camilladsp_config(
     if not isinstance(filters, dict):
         filters = {}
         config['filters'] = filters
+    prefix_owner: dict[str, str] = {}
 
     for channel in export.channels:
         output = routing.get(channel.channel_id)
@@ -346,6 +347,16 @@ def compile_camilladsp_config(
             continue
 
         prefix = f'{HTDT_REGION_PREFIX}{tag}_{_slug(channel.channel_id)}'
+        owner = prefix_owner.get(prefix)
+        if owner is not None:
+            # _slug is not injective: 'a.b' and 'a_b' share a filter
+            # region. Merging them would silently overwrite one
+            # channel's calibration with the other's — fail closed.
+            unsupported.append(
+                f'{channel.channel_id}: filter-name region collides '
+                f'with channel {owner!r} after name normalization')
+            continue
+        prefix_owner[prefix] = channel.channel_id
         names: list[str] = []
         if channel.gain_db != 0.0 or channel.polarity == 'inverted':
             name = f'{prefix}_gain'
@@ -544,13 +555,20 @@ def normalize_camilladsp_config(
                     ))
                 elif subtype in ('Highpass', 'Lowpass') and isinstance(
                         frequency, (int, float)):
-                    crossovers.append(CadCrossoverSetting(
-                        crossover_type=(
-                            'high_pass' if subtype.startswith('High')
-                            else 'low_pass'),
-                        frequency_hz=float(frequency),
-                        filter_order=2,
-                    ))
+                    q = parameters.get('q')
+                    if isinstance(q, (int, float)) and abs(
+                            float(q) - _BUTTERWORTH_Q) <= 1e-6:
+                        crossovers.append(CadCrossoverSetting(
+                            crossover_type=(
+                                'high_pass' if subtype.startswith('High')
+                                else 'low_pass'),
+                            frequency_hz=float(frequency),
+                            filter_order=2,
+                        ))
+                    # an htdt_-owned order-2 crossover is only ever
+                    # written as Butterworth — any other q means the
+                    # device deviates, so leave it out and let the diff
+                    # surface the drift.
                 # other subtypes are not htdt-representable: left out of
                 # the reconstruction so the diff surfaces the deviation.
             elif suffix.startswith('_peq') and spec.get('type') == 'Biquad':
@@ -675,6 +693,12 @@ class CamillaDSPDeploymentSession(BaseModel):
                 'runtime/effectiveness refs require a matched '
                 'config read-back — the ladder cannot advance on a '
                 'divergent or missing read-back')
+        if (self.readback_matched is None) != (
+                self.readback_config_sha256 is None):
+            raise ValueError(
+                'readback_matched and readback_config_sha256 must be '
+                'recorded together — a read-back verdict must pin the '
+                'config it compared')
         if self.session_sha256 != _hash(self.identity_payload()):
             raise ValueError(
                 'CamillaDSPDeploymentSession hash mismatch')
