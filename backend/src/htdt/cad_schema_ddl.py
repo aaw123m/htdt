@@ -8662,6 +8662,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_gsrv_doc ON cad_geometry_solver_readiness(document_id, seq ASC)
     """
     ,
+    # REV67: #876 automated channel identity/routing/polarity
+    # verification — sealed plan, per-channel excitation results, operator
+    # attestations and map-level verdicts driven through the #869 sweep
+    # engine. Evidence class is derived, never promoted upward.
+    """
+        CREATE TABLE IF NOT EXISTS cad_channel_verification_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, reference_channel TEXT, target_count INTEGER NOT NULL, method TEXT NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cvpl_doc ON cad_channel_verification_plans(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_channel_excitation_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, result_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, logical_channel TEXT NOT NULL, acquisition_run_ref_id TEXT, capture_quality TEXT NOT NULL, response_detected INTEGER NOT NULL, measured_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cvex_plan ON cad_channel_excitation_results(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_channel_operator_attestations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, attestation_id TEXT NOT NULL UNIQUE, attestation_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, logical_channel TEXT NOT NULL, attested_by TEXT NOT NULL, responded INTEGER NOT NULL, attested_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cvoa_plan ON cad_channel_operator_attestations(plan_ref_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_channel_verification_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_ref_id TEXT NOT NULL, map_state TEXT NOT NULL, evaluated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cvvd_plan ON cad_channel_verification_verdicts(plan_ref_id, seq ASC)
+    """
+    ,
     # REV67: #877 guided automatic measurement-chain calibration — the
     # wizard's sealed runs (lane + exact pins), sealed transition log
     # (sole resume authority), SPL/reference-check acceptance profiles
@@ -8703,6 +8739,8 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
     """
     ,
 )
+
+
 
 
 
@@ -9832,6 +9870,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_geometry_repair_acceptances',
     'cad_derived_geometry_revisions',
     'cad_geometry_solver_readiness',
+    # REV67: #876 automated channel verification authority.
+    'cad_channel_verification_plans',
+    'cad_channel_excitation_results',
+    'cad_channel_operator_attestations',
+    'cad_channel_verification_verdicts',
     # REV67: #877 guided measurement-chain calibration authority.
     'cad_calibration_wizard_runs',
     'cad_calibration_wizard_transitions',

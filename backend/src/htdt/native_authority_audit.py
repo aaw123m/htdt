@@ -1486,6 +1486,12 @@ class _RepositoryChain:
             )
 
             return CadSweepAcquisitionRepository(scene)
+        if name == 'channel_verification':
+            from .cad_channel_verification_repository import (
+                CadChannelVerificationRepository,
+            )
+
+            return CadChannelVerificationRepository(scene)
         if name == 'calibration_wizard':
             from .cad_calibration_wizard_repository import (
                 CadCalibrationWizardRepository,
@@ -7522,6 +7528,32 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_sweep_acquisition_stage_events',
         ('event_id',),
         _get('sweep_acquisition', 'get_stage_event'),
+    ),
+
+    # REV67: #876 automated channel verification authority.
+    _ReplayProbe(
+        'channel_verification_plan',
+        'cad_channel_verification_plans',
+        ('plan_id',),
+        _get('channel_verification', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'channel_excitation_result',
+        'cad_channel_excitation_results',
+        ('result_id',),
+        _get('channel_verification', 'get_excitation_result'),
+    ),
+    _ReplayProbe(
+        'operator_channel_attestation',
+        'cad_channel_operator_attestations',
+        ('attestation_id',),
+        _get('channel_verification', 'get_attestation'),
+    ),
+    _ReplayProbe(
+        'channel_verification_verdict',
+        'cad_channel_verification_verdicts',
+        ('verdict_id',),
+        _get('channel_verification', 'get_verdict'),
     ),
 
     # REV67: #877 guided measurement-chain calibration authority.

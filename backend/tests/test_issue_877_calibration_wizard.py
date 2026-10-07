@@ -4,7 +4,7 @@ Covers the three lanes (interface loopback, SPL/reference check,
 campaign pre/post checks), the sealed transition log as sole resume
 authority, fail-closed behaviour (clipping, low SNR, unstable reference,
 wrong port, wrong rate, device loss, cancellation), repository
-round-trip + tamper detection, schema v100 wiring, and the offscreen UI
+round-trip + tamper detection, schema v101 wiring, and the offscreen UI
 surface. Fake hardware is deterministic throughout.
 """
 
@@ -871,14 +871,14 @@ class TestResume:
 
 
 # ---------------------------------------------------------------------------
-# schema v100 wiring
+# schema v101 wiring
 # ---------------------------------------------------------------------------
 
 
-def test_schema_v100_tables(tmp_path: Path) -> None:
+def test_schema_v101_tables(tmp_path: Path) -> None:
     db = tmp_path / 's.sqlite3'
     version = ensure_native_schema(db)
-    assert version == 100
+    assert version == 101
     with connect_sqlite(db) as conn:
         names = {
             r[0] for r in conn.execute(

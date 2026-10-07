@@ -80,10 +80,10 @@
 ## シーン封緘 (`cad_calibration_wizard_repository.py`)
 
 `CadCalibrationWizardRepository` — runs/profiles/plans/transitions を
-シーン DB の v100 テーブルへ書く。遷移行は `run_ref` バインド +
+シーン DB の v101 テーブルへ書く。遷移行は `run_ref` バインド +
 `seq` の一意性で保護され、読み出し時に全バインド列を再検証する
 (改ざん → integrity error)。プロファイル/計画は内容ハッシュの
-コンフリクト検出つき。スキーマは `NATIVE_SCHEMA_VERSION = 100`
+コンフリクト検出つき。スキーマは `NATIVE_SCHEMA_VERSION = 101`
 (`cad_calibration_wizard_runs` / `cad_calibration_wizard_transitions` /
 `cad_spl_acceptance_profiles` / `cad_campaign_check_plans`)、
 `cad_schema_ddl`・`native_row_integrity`・`native_authority_audit` に

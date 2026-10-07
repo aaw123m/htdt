@@ -5355,7 +5355,7 @@ issues:
   title: 'P1: guided automatic measurement-chain calibration wizard'
   notes: 'REV67: cad_calibration_wizard (3レーン封緘状態機械: ループバック校正 /
     SPLリファレンスチェック / キャンペーン前後チェック、#869 エンジン駆動、
-    #611/#699 権威封緘) + シーン封緘リポジトリ (schema v100) +
+    #611/#699 権威封緘) + シーン封緘リポジトリ (schema v101) +
     measurement_page_workspace calibration_wizard コンテキスト。
     docs/issues/issue-877-guided-calibration.md 参照。
 
