@@ -979,3 +979,156 @@ def test_apply_flags_refs_the_container_cannot_resolve(
     )
     assert outcome2.unresolved_refs == ()
     assert outcome2.refs_unverifiable is True
+
+
+def test_unvalidated_contribution_cannot_apply(tmp_path) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        MissionReconciliationError,
+        apply_returned_tasks,
+        mission_return_reconciliation_lines,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_id = mission.plan.tasks[0].task_id
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': str(uuid.uuid4()), 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {'task_id': task_id, 'outcome': 'fulfilled'},
+        ),
+    )
+    # 'unsupported' staging keeps mission_id + manifest_json — but the
+    # artifact was never validated, so its evidence must not bind.
+    contribution = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+        validation_state='unsupported',
+    )
+    lines = mission_return_reconciliation_lines(
+        contribution, repository
+    )
+    assert len(lines) == 1
+    assert '検証未通過' in lines[0]
+    with pytest.raises(MissionReconciliationError):
+        apply_returned_tasks(
+            contribution, repository, applied_by='op'
+        )
+
+
+def test_redecision_refused_after_task_applied(tmp_path) -> None:
+    import sqlite3
+    import uuid
+    from types import SimpleNamespace
+
+    from htdt.cad_repository import SceneRepository
+    from htdt.capture_mission import build_mission_package
+    from htdt.capture_receiver import CaptureReceiverService
+    from htdt.field_return_ingestion import FieldReturnManifest
+    from htdt.mission_reconciliation import (
+        MissionReconciliationError,
+        apply_returned_tasks,
+        record_return_rebase_decision,
+    )
+
+    path = tmp_path / 'cad.sqlite3'
+    repository = SceneRepository(path)
+    document = _document((_speaker('spk-fl', 'FL', 1.0),))
+    repository.save(document, parent_revision_id=None)
+    project = new_project_reference(document_id='recon-doc-1')
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            'INSERT INTO htdt_project_documents('
+            'project_id, document_id, display_name, created_at_utc'
+            ") VALUES (?, ?, 'Theater', 'now')",
+            (project.project_id, 'recon-doc-1'),
+        )
+    service = CaptureReceiverService(
+        repository, data_dir=tmp_path / 'rx'
+    )
+    mission = build_mission(
+        document,
+        project=new_project_reference(document_id='recon-doc-1'),
+        purpose='design_verification',
+        room_name='Theater',
+    )
+    service.queue_mission(build_mission_package(mission))
+    task_id = next(
+        task.task_id
+        for task in mission.plan.tasks
+        if task.target_entity_id == 'spk-fl'
+    )
+    manifest = FieldReturnManifest(
+        schema_version=1,
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        records=(
+            {'record_id': str(uuid.uuid4()), 'kind': 'instrument_result'},
+        ),
+        task_outcomes=(
+            {'task_id': task_id, 'outcome': 'fulfilled'},
+        ),
+    )
+    # Two contributions reporting the same task — the guard is
+    # mission-scoped, not contribution-scoped.
+    first = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+        validation_state='validated',
+    )
+    second = SimpleNamespace(
+        contribution_id=str(uuid.uuid4()),
+        mission_id=mission.mission_id,
+        matched_project_id=project.project_id,
+        manifest_json=manifest.model_dump_json(),
+        validation_state='validated',
+    )
+    apply_returned_tasks(first, repository, applied_by='op')
+    # The task is bound now — a re-decision would orphan the
+    # application's decision_id and rewrite provenance, from ANY
+    # contribution of this mission.
+    with pytest.raises(MissionReconciliationError):
+        record_return_rebase_decision(
+            second,
+            repository,
+            task_id=task_id,
+            current_target_id='spk-fl',
+            mapping_reason='rethink',
+            decided_by='op2',
+        )
