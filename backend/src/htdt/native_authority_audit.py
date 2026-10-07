@@ -1438,6 +1438,12 @@ class _RepositoryChain:
             )
 
             return CadOperationalEnergyRepository(scene)
+        if name == 'owned_room_campaign':
+            from .cad_owned_room_campaign_repository import (
+                CadOwnedRoomCampaignRepository,
+            )
+
+            return CadOwnedRoomCampaignRepository(scene)
         raise KeyError(name)
 
 
@@ -7276,6 +7282,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_energy_use_derivations',
         ('derivation_id',),
         _get('operational_energy', 'get_derivation'),
+    ),
+
+    # REV63: #813 owned-room campaign authority.
+    _ReplayProbe(
+        'campaign_preregistration',
+        'cad_campaign_preregistrations',
+        ('preregistration_id',),
+        _get('owned_room_campaign', 'get_preregistration'),
+    ),
+    _ReplayProbe(
+        'campaign_measurement',
+        'cad_campaign_measurements',
+        ('measurement_id',),
+        _get('owned_room_campaign', 'get_measurement'),
+    ),
+    _ReplayProbe(
+        'campaign_verdict',
+        'cad_campaign_verdicts',
+        ('verdict_id',),
+        _get('owned_room_campaign', 'get_verdict'),
     ),
 
 )

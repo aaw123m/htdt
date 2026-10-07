@@ -8372,6 +8372,33 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_eud_doc ON cad_energy_use_derivations(document_id, seq ASC)
     """
     ,
+    # REV63: #813 owned-room holdout campaign authority — hash-bound
+    # preregistrations, role-declared field measurements and sealed
+    # promotion verdicts.
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_preregistrations ( seq INTEGER PRIMARY KEY AUTOINCREMENT, preregistration_id TEXT NOT NULL UNIQUE, preregistration_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, protocol_id TEXT NOT NULL, protocol_version TEXT NOT NULL, scene_ref_id TEXT NOT NULL, solver_ref_id TEXT NOT NULL, preregistered_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_crc_doc ON cad_campaign_preregistrations(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_measurements ( seq INTEGER PRIMARY KEY AUTOINCREMENT, measurement_id TEXT NOT NULL UNIQUE, measurement_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, campaign_ref_id TEXT NOT NULL, role TEXT NOT NULL, condition_id TEXT NOT NULL, acquired_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_crm_doc ON cad_campaign_measurements(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_verdicts ( seq INTEGER PRIMARY KEY AUTOINCREMENT, verdict_id TEXT NOT NULL UNIQUE, verdict_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, campaign_ref_id TEXT NOT NULL, promotion_outcome TEXT NOT NULL, concluded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_crv_doc ON cad_campaign_verdicts(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9463,4 +9490,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_networked_standby_evidence',
     'cad_operational_energy_scenarios',
     'cad_energy_use_derivations',
+    # REV63: #813 owned-room campaign authority.
+    'cad_campaign_preregistrations',
+    'cad_campaign_measurements',
+    'cad_campaign_verdicts',
 )

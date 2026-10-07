@@ -5024,3 +5024,20 @@ def energy_observation_line(currency: str) -> str:
     """One JA line for a power-mode observation's currency state (#791) —
     ファームウェアやクイックスタート設定の変更は別の適用状態。"""
     return '電源モード証拠: ' + _ENERGY_LABELS.get(currency, currency)
+
+
+from .cad_owned_room_campaign import (  # noqa: E402
+    CAMPAIGN_LABELS as _CAMPAIGN_LABELS,
+)
+
+
+def campaign_label(code: str) -> str:
+    """JA label lookup for any owned-room campaign vocabulary code
+    (#813)."""
+    return _CAMPAIGN_LABELS.get(code, code)
+
+
+def campaign_promotion_line(outcome: str) -> str:
+    """One JA line for a campaign promotion outcome (#813) —
+    ホールドアウト漏洩や事前登録違反は自動で推奨不可。"""
+    return '所有ルーム昇格: ' + _CAMPAIGN_LABELS.get(outcome, outcome)

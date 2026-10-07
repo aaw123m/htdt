@@ -9126,6 +9126,46 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV63: #813 owned-room campaign authority.
+    'cad_campaign_preregistrations': (
+        'payload_json',
+        (
+            _b('preregistration_id', 'preregistration_id'),
+            _b('preregistration_sha256', 'preregistration_sha256'),
+            _b('document_id', 'document_id'),
+            _b('protocol_id', 'protocol_id'),
+            _b('protocol_version', 'protocol_version'),
+            _b('scene_ref_id', 'scene_ref', 'ref_id'),
+            _b('solver_ref_id', 'solver_ref', 'ref_id'),
+            _b('preregistered_at_utc', 'preregistered_at_utc'),
+        ),
+        (),
+    ),
+    'cad_campaign_measurements': (
+        'payload_json',
+        (
+            _b('measurement_id', 'measurement_id'),
+            _b('measurement_sha256', 'measurement_sha256'),
+            _b('document_id', 'document_id'),
+            _b('campaign_ref_id', 'campaign_ref', 'ref_id'),
+            _b('role', 'role'),
+            _b('condition_id', 'condition_id'),
+            _b('acquired_at_utc', 'acquired_at_utc'),
+        ),
+        (),
+    ),
+    'cad_campaign_verdicts': (
+        'payload_json',
+        (
+            _b('verdict_id', 'verdict_id'),
+            _b('verdict_sha256', 'verdict_sha256'),
+            _b('document_id', 'document_id'),
+            _b('campaign_ref_id', 'campaign_ref', 'ref_id'),
+            _b('promotion_outcome', 'promotion_outcome'),
+            _b('concluded_at_utc', 'concluded_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

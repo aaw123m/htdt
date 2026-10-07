@@ -5192,3 +5192,29 @@ issues:
       シナリオ合成UI の現場取込。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+
+- issue: 813
+  notes: 'REV63: 所有ルーム ホールドアウトキャンペーン権威を実装
+    （docs/issues/issue-813-owned-room-campaign.md）。ハッシュ束縛事前登録、
+    役割宣言測定、昇格ラダー評価器（漏洩/prereg違反/stale は自動 insufficient）。
+    校正/ホールドアウト条件の disjoint は構造強制。残件は物理キャンペーンの実行
+    （実測取込は手動— #804 VERAUTO 経路で証拠コミット可）。
+
+    '
+  checks:
+  - id: owned-room-campaign-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_813_owned_room_campaign.py
+    description: 'キャンペーン権威: 事前登録必須フィールド、条件 disjoint、
+      SPL 校正必須、verdict ゲート必須、昇格ラダー全経路 fail-closed、
+      漏洩検出、prereg-after-acquisition 拒否、封印/id整合性、
+      リポジトリ往復+改竄検出。
+
+      '
+  - id: physical-holdout-campaign
+    kind: manual
+    description: '実部屋での事前登録キャンペーン実行: 校正+ホールドアウト+
+      再現性+摂動レーンの測定取込と昇格判定。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'

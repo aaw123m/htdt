@@ -868,6 +868,9 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_networked_standby_evidence": "ネットワークスタンバイエビデンス",
     "cad_operational_energy_scenarios": "運用エネルギーシナリオ",
     "cad_energy_use_derivations": "エネルギー使用量導出",
+    "cad_campaign_preregistrations": "キャンペーン事前登録",
+    "cad_campaign_measurements": "キャンペーン測定",
+    "cad_campaign_verdicts": "キャンペーン評価",
 }
 
 
