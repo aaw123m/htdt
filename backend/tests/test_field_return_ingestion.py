@@ -266,3 +266,133 @@ def test_duplicate_classification_is_deterministic() -> None:
         )
         == 'distinct'
     )
+
+
+EVIDENCE_ID = '50000000-0000-4000-8000-000000000050'
+EXTERNAL_ENTITY_ID = '60000000-0000-4000-8000-000000000060'
+MISSING_ITEM_ID = '70000000-0000-4000-8000-000000000070'
+
+
+def _container_with_refs() -> bytes:
+    from test_capture_receiver_field_return import (
+        _container,
+        _doc_ref,
+        _root_document,
+    )
+
+    from hashlib import sha256 as _sha256
+
+    asset_payload = b'asset-bytes'
+    evidence_payload = json.dumps(
+        {
+            'schema': 'htdt.field_return.field-evidence',
+            'contribution_ref': {
+                'kind': 'field_return',
+                'id': CONTRIBUTION_ID,
+            },
+            'records': [
+                {
+                    'evidence_id': EVIDENCE_ID,
+                    'channel_role': 'FL',
+                    'note': 'wall position confirmed',
+                }
+            ],
+        }
+    ).encode('utf-8')
+    root = _root_document(
+        contribution_id=CONTRIBUTION_ID,
+        task_fulfillment_ledger=[
+            {
+                'item_ref': 'task_item:t-alpha',
+                'title': 'verify speaker placement',
+                'requirement': 'recommended',
+                'outcome': 'fulfilled',
+                'fulfilled_by_refs': [
+                    f'field_evidence:{EVIDENCE_ID}',
+                    f'sha256:{_sha256(asset_payload).hexdigest()}',
+                    f'entity:{EXTERNAL_ENTITY_ID}',
+                    f'inventory_item:{MISSING_ITEM_ID}',
+                ],
+            },
+            {
+                'item_ref': 'task_item:t-beta',
+                'title': 'ambient temperature',
+                'requirement': 'optional',
+                'outcome': 'unfulfilled',
+                'fulfilled_by_refs': [],
+            },
+        ],
+        authority_documents=[
+            _doc_ref(
+                'authority/field-evidence.json',
+                'htdt.field_return.field-evidence',
+                evidence_payload,
+            )
+        ],
+        evidence_assets=[
+            _doc_ref(
+                'evidence/p1.bin',
+                'application/octet-stream',
+                asset_payload,
+            )
+        ],
+    )
+    return _container(
+        {
+            'field-return.json': json.dumps(root).encode('utf-8'),
+            'authority/field-evidence.json': evidence_payload,
+            'evidence/p1.bin': asset_payload,
+        }
+    )
+
+
+def test_resolve_return_refs_container(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = _container_with_refs()
+    staged = repository.stage(artifact, [])
+    assert staged.contribution_id == CONTRIBUTION_ID
+
+    tasks = repository.resolve_return_refs(CONTRIBUTION_ID)
+    assert tasks is not None and len(tasks) == 2
+
+    alpha, beta = tasks
+    assert alpha.task_id == 't-alpha' and alpha.outcome == 'fulfilled'
+    resolved, asset, external, unresolved = alpha.refs
+    assert resolved.state == 'resolved'
+    assert resolved.document_schema == 'htdt.field_return.field-evidence'
+    assert resolved.document_path == 'authority/field-evidence.json'
+    assert resolved.record['evidence_id'] == EVIDENCE_ID
+    assert resolved.record['channel_role'] == 'FL'
+    assert asset.state == 'evidence_asset'
+    assert asset.asset_path == 'evidence/p1.bin'
+    assert external.state == 'external'
+    assert external.ref == f'entity:{EXTERNAL_ENTITY_ID}'
+    assert unresolved.state == 'unresolved'
+    assert unresolved.ref == f'inventory_item:{MISSING_ITEM_ID}'
+    assert beta.task_id == 't-beta' and beta.refs == ()
+
+
+def test_resolve_return_refs_flat_manifest(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    repository.stage(artifact, [])
+
+    tasks = repository.resolve_return_refs(CONTRIBUTION_ID)
+    assert tasks is not None and len(tasks) == 1
+    task = tasks[0]
+    assert task.task_id == TASK_ID and task.outcome == 'fulfilled'
+    (ref,) = task.refs
+    assert ref.state == 'resolved'
+    assert ref.record['record_id'] == RECORD_ID
+    assert ref.record['kind'] == 'equipment_identity'
+
+
+def test_resolve_return_refs_absent_artifact(tmp_path: Path) -> None:
+    repository = FieldReturnRepository(tmp_path / 'field.sqlite3')
+    assert repository.resolve_return_refs('missing-contribution') is None
+    artifact = json.dumps(_manifest_dict()).encode('utf-8')
+    repository.stage(artifact, [])
+    with closing(connect_sqlite(tmp_path / 'field.sqlite3')) as connection:
+        connection.execute('DELETE FROM htdt_content_blobs')
+        connection.commit()
+    assert repository.resolve_return_refs(CONTRIBUTION_ID) is None
