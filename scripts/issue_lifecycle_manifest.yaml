@@ -222,12 +222,12 @@ entries:
   close_when_gates_clear: true
 
 - issue: 839
-  lifecycle: in_progress
-  landed: {prs: [], commits: []}
+  lifecycle: acceptance_remaining
+  landed: {prs: [854], commits: []}
   remaining_gates:
-  - kind: structural
-    description: 'REV64 スライス: 標準ソースマトリクス権威（子セッション稼働中）'
-  evidence_refs: []
+  - kind: manual
+    description: ドメイン受理 — ソースマトリクスの版/範囲・出所状態判断（DTS:X UNKNOWN、AVIXA A103 出所不一致保存等）の維持者レビュー
+  evidence_refs: [docs/issues/issue-839-source-matrix.md]
   close_when_gates_clear: true
 
 - issue: 848
