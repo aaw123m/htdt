@@ -1396,6 +1396,7 @@ class CaptureInboxPage(QWidget):
         rebase_context: Callable[[object], object] | None = None,
         rebase_record: Callable | None = None,
         apply_record: Callable | None = None,
+        discard_record: Callable | None = None,
         list_missions: Callable[[], tuple] | None = None,
         list_mission_pairings: Callable[[], tuple] | None = None,
         issue_mission: Callable | None = None,
@@ -1418,6 +1419,7 @@ class CaptureInboxPage(QWidget):
         self._rebase_context = rebase_context
         self._rebase_record = rebase_record
         self._apply_record = apply_record
+        self._discard_record = discard_record
         self._list_missions = list_missions
         self._list_mission_pairings = list_mission_pairings
         self._issue_mission = issue_mission
@@ -1883,11 +1885,22 @@ class CaptureInboxPage(QWidget):
         self.apply_button.setEnabled(False)
         self.apply_button.clicked.connect(self._apply_returned_tasks)
         actions.addWidget(self.apply_button)
+        self.discard_button = QPushButton("破棄…")
+        self.discard_button.setAccessibleName("返却の破棄")
+        self.discard_button.setToolTip(
+            "この返却を一覧から取り除きます。"
+            "適用済み証跡の原本は破棄できません。"
+        )
+        self.discard_button.setEnabled(False)
+        self.discard_button.clicked.connect(self._discard_contribution)
+        actions.addWidget(self.discard_button)
         layout.addLayout(actions)
         if self._rebase_record is None:
             self.rebase_button.setVisible(False)
         if self._apply_record is None:
             self.apply_button.setVisible(False)
+        if self._discard_record is None:
+            self.discard_button.setVisible(False)
         return panel
 
     def _refresh_contributions(self) -> None:
@@ -1930,6 +1943,7 @@ class CaptureInboxPage(QWidget):
             self._active_rebase_context = None
             self.rebase_button.setEnabled(False)
             self.apply_button.setEnabled(False)
+            self.discard_button.setEnabled(False)
             if self.contribution_table.rowCount() == 0:
                 self.contribution_detail.setText(
                     "フィールドリターンはまだ届いていません。"
@@ -1970,6 +1984,18 @@ class CaptureInboxPage(QWidget):
                     )
                 )
             )
+        # An applied contribution is the retained original its bound
+        # record_refs resolve through — only offer discard when nothing
+        # in the application ledger cites this contribution.
+        self.discard_button.setEnabled(
+            not any(
+                application.contribution_id
+                == contribution.contribution_id
+                for application in getattr(
+                    self._active_rebase_context, 'applications', ()
+                ) or ()
+            )
+        )
         lines = [
             f"貢献: {contribution.contribution_id}",
             f"検証: "
@@ -2165,6 +2191,31 @@ class CaptureInboxPage(QWidget):
             )
         QMessageBox.information(self, "適用完了", message)
         self._sync_contribution_detail()
+
+    def _discard_contribution(self) -> None:
+        contribution = self._selected_contribution
+        if contribution is None or self._discard_record is None:
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("返却の破棄")
+        box.setText("この返却を一覧から取り除きます。")
+        box.setInformativeText(
+            "ステージング済みの記録だけが削除されます。"
+            "アーティファクト原本と、別の返却が共有する内容は残ります。"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._discard_record(contribution)
+        except Exception as exc:
+            warn_user(self, "破棄できませんでした", exc)
+            return
+        self._refresh_contributions()
 
     # -- mission ledger ---------------------------------------------------
 

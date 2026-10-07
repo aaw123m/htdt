@@ -2549,6 +2549,11 @@ class WorkflowApplicationComposition:
                     applied_by=applied_by,
                 )
             ),
+            discard_record=lambda contribution: (
+                _self.FieldReturnRepository(
+                    self.repository.path
+                ).discard_staged(contribution.contribution_id)
+            ),
             list_missions=(
                 (
                     lambda: self.capture_receiver.service.list_mission_packages()
