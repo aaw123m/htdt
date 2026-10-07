@@ -37,11 +37,15 @@ SIGNATURE_STATUSES = {
     'unverifiable',
 }
 
+#: Fields every report must carry as non-empty values. ``signed_sha256``
+#: is deliberately absent: only a ``signed_verified`` report may carry a
+#: digest there — ``sign-release.ps1`` emits ``''`` for every other
+#: status, and those reports must still load so their honest
+#: unsigned/failed/unverifiable status can be merged.
 REPORT_REQUIRED_FIELDS = {
     'file': str,
     'status': str,
     'pre_sign_sha256': str,
-    'signed_sha256': str,
 }
 
 #: Field names that must never appear in a signature report — the report
@@ -87,6 +91,23 @@ def load_signature_report(path: Path) -> dict[str, Any]:
     if report['status'] not in SIGNATURE_STATUSES:
         raise SignatureMergeError(
             f"signature status must be one of {sorted(SIGNATURE_STATUSES)}"
+        )
+    # signed_sha256 is conditional on the outcome: a signtool-verified
+    # report must carry the post-sign digest; every other status must
+    # carry it empty. A report contradicting itself in either direction
+    # is rejected rather than silently reinterpreted.
+    signed_sha = report.get('signed_sha256')
+    if not isinstance(signed_sha, str):
+        raise SignatureMergeError(
+            'signature report missing/invalid field: signed_sha256'
+        )
+    if report['status'] == 'signed_verified' and not signed_sha.strip():
+        raise SignatureMergeError(
+            'signed_verified report must carry a signed_sha256 digest'
+        )
+    if report['status'] != 'signed_verified' and signed_sha.strip():
+        raise SignatureMergeError(
+            f"{report['status']} report must not carry signed_sha256"
         )
     return report
 
