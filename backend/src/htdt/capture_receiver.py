@@ -73,6 +73,7 @@ from .field_return_ingestion import (
     FieldReturnConflictError,
     FieldReturnRepository,
     SUPPORTED_FIELD_RETURN_CONTAINER_VERSIONS,
+    stage_field_return_artifact,
 )
 from .ingress import IngressTooLargeError, read_file_bounded
 from .export_io import write_bytes_atomic
@@ -1106,11 +1107,46 @@ class CaptureReceiverService:
         by the verified SHA-256 header)."""
 
         try:
-            staged, created = self.field_return_repository.stage_artifact(
+            prepared = stage_field_return_artifact(
                 body,
                 self._known_project_references(),
                 channel_project_ref=pairing.project_ref,
                 declared_content_digest=artifact_digest,
+            )
+        except Exception as exc:
+            _LOGGER.exception('field return staging failed')
+            return reject(f'field return could not be staged: {exc}')
+
+        if (
+            artifact_id
+            and prepared.contribution_id
+            and artifact_id != prepared.contribution_id
+        ):
+            # A header/body identity mismatch is a sender-side
+            # inconsistency: the contribution is kept only as a
+            # malformed diagnostic — never as a validated row an
+            # operator could reconcile or apply.
+            detail = (
+                'artifact id header disagrees with the contribution '
+                'identity declared inside the artifact'
+            )
+            try:
+                self.field_return_repository.stage_prepared(
+                    prepared.model_copy(
+                        update={
+                            'validation_state': 'malformed',
+                            'detail': detail,
+                        }
+                    ),
+                    body,
+                )
+            except FieldReturnConflictError:
+                pass  # the ledger already knows these bytes differently
+            return reject(detail)
+
+        try:
+            staged, created = self.field_return_repository.stage_prepared(
+                prepared, body
             )
         except FieldReturnConflictError as exc:
             return reject(
@@ -1120,15 +1156,6 @@ class CaptureReceiverService:
             _LOGGER.exception('field return staging failed')
             return reject(f'field return could not be staged: {exc}')
 
-        if (
-            artifact_id
-            and staged.contribution_id
-            and artifact_id != staged.contribution_id
-        ):
-            return reject(
-                'artifact id header disagrees with the contribution '
-                'identity declared inside the artifact'
-            )
         if staged.validation_state != 'validated':
             return reject(
                 staged.detail
