@@ -213,12 +213,12 @@ entries:
   close_when_gates_clear: true
 
 - issue: 838
-  lifecycle: in_progress
-  landed: {prs: [], commits: []}
+  lifecycle: acceptance_remaining
+  landed: {prs: [857, 858], commits: []}
   remaining_gates:
-  - kind: structural
-    description: 'REV64 スライス: REW プロバイダ + CamillaDSP/miniDSP（子セッション稼働中）'
-  evidence_refs: []
+  - kind: physical
+    description: 実機受理 — 実 REW/CamillaDSP/Equalizer APO 機器でのプロバイダ導出・読み戻し・ロールバックの検証
+  evidence_refs: [docs/issues/issue-838-rew-provider.md, docs/issues/issue-838-camilladsp-minidsp.md]
   close_when_gates_clear: true
 
 - issue: 839
