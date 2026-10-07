@@ -297,3 +297,11 @@ entries:
     description: 実機オーディオでチャンネル励起検証を実行 — WASAPI バックエンド非対応のため現状は simulated/scripted のみ
   evidence_refs: [docs/issues/issue-876-channel-verification.md]
   close_when_gates_clear: true
+- issue: 867
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [901], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 参照マシンでの viewport_3d_interaction owned-machine プロトコル実行 + 各所有マシンのベースライン採取 — 決定的ベンチマーク自体はゲート統合済み
+  evidence_refs: [docs/issues/issue-867-performance-budget.md, scripts/perf_budgets.yaml]
+  close_when_gates_clear: true
