@@ -281,6 +281,11 @@ from .ui_theme import (
     set_surface_role,
     set_typography_role,
 )
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import (
     log_operation_error,
     operation_error_message,
@@ -5798,7 +5803,9 @@ class RoomWorkspace(QWidget):
         self.constraints_panel.set_walls(self.controller.document)
         try:
             evaluation = self.controller.evaluate_constraints()
-        except Exception as exc:  # evaluator raises on malformed constraints
+        except EXPECTED_OPERATION_ERRORS as exc:  # evaluator raises on malformed constraints
+            if is_authority_failure(exc):
+                raise
             evaluation = None
             self.constraints_panel.sync_state(
                 self.controller.constraint_set,
@@ -7195,7 +7202,10 @@ class RoomWorkspace(QWidget):
             head = self.controller.repository.latest(
                 self.controller.document_id
             )
-        except Exception:  # noqa: BLE001 — head unreadable → step 1
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise  # store failures never masquerade as 'nothing saved'
+            report_boundary_failure(exc, operation='保存済みシーンの確認')
             head = None
         document = head.document if head is not None else None
         room = document.room if document is not None else None
@@ -7211,7 +7221,10 @@ class RoomWorkspace(QWidget):
                     document_id
                 )
             )
-        except Exception:  # noqa: BLE001 — pose state unreadable
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='測定姿勢の確認')
             pose_count = 0
         try:
             material_count = len(
@@ -7219,7 +7232,10 @@ class RoomWorkspace(QWidget):
                     document_id
                 )
             )
-        except Exception:  # noqa: BLE001 — material state unreadable
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='素材割り当ての確認')
             material_count = 0
         try:
             treatment_count = len(
@@ -7227,13 +7243,19 @@ class RoomWorkspace(QWidget):
                     document_id
                 )
             )
-        except Exception:  # noqa: BLE001 — treatment state unreadable
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='吸音処理の確認')
             treatment_count = 0
         try:
             prediction_count = len(
                 self.prediction_repository.list_results(document_id)
             )
-        except Exception:  # noqa: BLE001 — prediction state unreadable
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='予測結果の確認')
             prediction_count = 0
         steps = evaluate_room_journey(
             room_saved=room is not None,

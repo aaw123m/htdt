@@ -108,6 +108,11 @@ from .measurement_explanations import (
     metric_explanation,
     status_explanation,
 )
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .measurement_workflow import (
     AcquisitionCapture,
     AssignmentCorrection,
@@ -115,6 +120,7 @@ from .measurement_workflow import (
     MeasurementAssignment,
     MeasurementView,
     MeasurementWorkflowController,
+    MeasurementWorkflowError,
     PendingMeasurementImport,
     RewReadSource,
 )
@@ -1048,7 +1054,10 @@ class MeasurementPageWorkspace(QWidget):
         try:
             self.controller.latest_revision()
             scene_saved = True
-        except Exception:  # noqa: BLE001 — unsaved/failed scene → step 1
+        except MeasurementWorkflowError:
+            # Genuinely unsaved → step 1. Store/integrity failures must
+            # not masquerade as 'no scene' — they propagate to the
+            # uncaught-exception diagnostics boundary instead (#815).
             scene_saved = False
         plan_count = 0
         cells_completed = 0
@@ -1070,11 +1079,16 @@ class MeasurementPageWorkspace(QWidget):
                     cells_remaining += (
                         progress.total - progress.completed - progress.skipped
                     )
-            except Exception:  # noqa: BLE001 — plan state unreadable
-                pass
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise  # sealed-store failures never degrade to step-1
+                report_boundary_failure(exc, operation='測定計画の状態確認')
         try:
             pending_import = self.controller.pending_import
-        except Exception:  # noqa: BLE001 — staged state unreadable
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='取り込み予定の確認')
             pending_import = None
         staged_pending = pending_import is not None or any(
             item.status in ("staged", "failed") for item in batch_items
@@ -1175,7 +1189,7 @@ class MeasurementPageWorkspace(QWidget):
                 label="REWテキストファイル",
             )
             self.controller.stage_rew_text(raw, file_path.name)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("読み込みに失敗しました", exc)
             return
         self._set_notice(
@@ -1209,14 +1223,14 @@ class MeasurementPageWorkspace(QWidget):
                         file_path.name,
                     )
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:
                 self._operation_error_notice(
                     f"読み込みに失敗しました · {file_path.name}", exc
                 )
                 return
         try:
             items = self.controller.stage_rew_text_files(files)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("読み込みに失敗しました", exc)
             return
         self._set_notice(
@@ -1259,7 +1273,7 @@ class MeasurementPageWorkspace(QWidget):
                 raw_bytes=raw,
                 kind=kind,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("添付に失敗しました", exc)
             return
         self._set_notice(
@@ -1308,7 +1322,7 @@ class MeasurementPageWorkspace(QWidget):
             self.controller.set_batch_resolution(
                 item_id, str(combo.itemData(value))
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("解決方法を変更できませんでした", exc)
 
     def _batch_table_row(self, item_id: str) -> int:
@@ -1613,7 +1627,7 @@ class MeasurementPageWorkspace(QWidget):
     def _stage_rew_snapshot(self, value: object) -> None:
         try:
             self.controller.stage_rew_snapshot(value)  # type: ignore[arg-type]
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("REW測定の確認に失敗しました", exc)
             return
         self._set_notice(
@@ -1647,7 +1661,10 @@ class MeasurementPageWorkspace(QWidget):
             return default
         try:
             return store.get(key)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:
+            # Preference values are presentation state: an invalid stored
+            # value falls back to the design default by contract, so this
+            # degrade is silent on purpose (#815).
             return default
 
     def _rew_port(self) -> int:
@@ -1728,7 +1745,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         try:
             self._rew_launcher(install, port=self._rew_port())
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("REWの起動に失敗しました", exc)
             return
         self._rew_launch_deadline = monotonic() + self._rew_launch_timeout_s
@@ -1758,7 +1775,7 @@ class MeasurementPageWorkspace(QWidget):
                 lambda cancel_event: call(cancel_event),
                 self._job_completed,
             )
-        except Exception:
+        except Exception:  # error-boundary: teardown — clear leaked job key, re-raise
             # A failed start must not leak the key — a phantom auto job
             # would undercount _user_busy_count forever and wedge
             # navigation with a "background processing" gate that never
@@ -1832,7 +1849,7 @@ class MeasurementPageWorkspace(QWidget):
                 rows = controller.list_rew_measurements(
                     cancel_event=cancel_event
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:
                 result['error'] = exc
                 return result
             result['rows'] = rows
@@ -1848,9 +1865,11 @@ class MeasurementPageWorkspace(QWidget):
                 if new_uuids:
                     try:
                         controller.latest_revision()
-                    except Exception:
+                    except MeasurementWorkflowError:
                         # Staging pins the current scene head — without a
                         # saved room there is nothing honest to stage into.
+                        # Store/adapter failures propagate to the job-error
+                        # path instead of reading as 'no scene' (#815).
                         result['needs_scene'] = True
                     else:
                         snapshots = []
@@ -1868,7 +1887,7 @@ class MeasurementPageWorkspace(QWidget):
                                 )
                                 fetched.append(measurement_uuid)
                                 fetch_failures.pop(measurement_uuid, None)
-                            except Exception:
+                            except EXPECTED_OPERATION_ERRORS:
                                 # Transient failures retry next tick, but a
                                 # fetch that keeps failing (undecodable or
                                 # removed mid-poll) must not re-request every
@@ -1947,7 +1966,7 @@ class MeasurementPageWorkspace(QWidget):
         if snapshots:
             try:
                 items = self.controller.stage_rew_snapshots(snapshots)
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:
                 # Fetched uuids stay unseen so the next poll retries —
                 # marking them seen here would silently drop the
                 # measurements the user was told would auto-load. The
@@ -1976,16 +1995,17 @@ class MeasurementPageWorkspace(QWidget):
             ).strip()
             try:
                 self.controller.latest_revision()
-            except Exception:
+            except MeasurementWorkflowError:
                 # No saved scene yet — the snapshot path already reports
                 # this via needs_scene; watch files re-queue and stage
                 # once a scene exists instead of dropping silently.
+                # Store/adapter failures stay loud via the job error path.
                 needs_scene = True
                 self._unmark_watch_files(watch_dir, watch_files)
             else:
                 try:
                     items = self.controller.stage_rew_text_files(watch_files)
-                except Exception as exc:
+                except EXPECTED_OPERATION_ERRORS as exc:
                     stage_failed_this_tick = True
                     wedged = self._fail_watch_files(watch_dir, watch_files)
                     if wedged:
@@ -2074,7 +2094,7 @@ class MeasurementPageWorkspace(QWidget):
             # condition actually appears.
             try:
                 self.controller.latest_revision()
-            except Exception:
+            except MeasurementWorkflowError:
                 self._rew_auto_notice_keys.intersection_update(
                     {'needs_scene'}
                 )
@@ -2104,7 +2124,7 @@ class MeasurementPageWorkspace(QWidget):
             return self.controller.auto_assign_batch_items(
                 item_ids=[item.item_id for item in items]
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "REW測定点の自動割り当てに失敗しました", exc
             )
@@ -2190,8 +2210,9 @@ class MeasurementPageWorkspace(QWidget):
             )
             center.mark_running(operation_id)
             center.complete(operation_id, result_summary=summary)
-        except Exception:
-            pass
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # Best-effort reporting surface — degrade, never silently.
+            report_boundary_failure(exc, operation='アクティビティ記録の登録')
 
     def _refresh_pending(self) -> None:
         pending = self.controller.pending_import
@@ -2581,7 +2602,7 @@ class MeasurementPageWorkspace(QWidget):
         try:
             targets = self.controller.assignment_targets()
             speakers = self.controller.source_speakers()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             targets = ()
             speakers = ()
             self._operation_error_notice(
@@ -2616,7 +2637,7 @@ class MeasurementPageWorkspace(QWidget):
         self.acquisition_revision_combo.clear()
         try:
             revisions = self.controller.revision_options()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             revisions = ()
             self._operation_error_notice(
                 "履歴候補を読み込めませんでした",
@@ -2648,7 +2669,7 @@ class MeasurementPageWorkspace(QWidget):
             profiles = self.controller.quality_repository.list_routing_profiles(
                 document_id=self.controller.document_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             profiles = ()
             self._operation_error_notice(
                 "ルーティングプロファイルを読み込めませんでした",
@@ -2674,7 +2695,7 @@ class MeasurementPageWorkspace(QWidget):
             timing_references = (
                 self.controller.quality_repository.list_timing_references()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             timing_references = ()
             self._operation_error_notice(
                 "タイミング基準を読み込めませんでした",
@@ -2698,7 +2719,7 @@ class MeasurementPageWorkspace(QWidget):
         self.acquisition_preset_combo.addItem("（プリセットなし）", None)
         try:
             contexts = self.controller.acquisition_contexts()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             contexts = ()
             self._operation_error_notice(
                 "プリセットを読み込めませんでした",
@@ -2805,7 +2826,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         try:
             self.controller.select_pending_revision(revision_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "取得時の配置を切り替えられませんでした",
                 exc,
@@ -2883,7 +2904,12 @@ class MeasurementPageWorkspace(QWidget):
             reference = self.controller.quality_repository.get_timing_reference(
                 reference_id
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            # Autofill convenience — the form keeps what the user typed,
+            # and the failure is logged rather than silent.
+            report_boundary_failure(exc, operation='タイミング基準の確認')
             return
         if reference is None:
             return
@@ -2917,7 +2943,7 @@ class MeasurementPageWorkspace(QWidget):
         assert record is not None
         try:
             self.controller.quality_repository.save_timing_reference(record)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "タイミング基準を登録できませんでした", exc
             )
@@ -2936,7 +2962,7 @@ class MeasurementPageWorkspace(QWidget):
         assert record is not None
         try:
             self.controller.quality_repository.save_routing_profile(record)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "ルーティングプロファイルを登録できませんでした", exc
             )
@@ -2953,7 +2979,7 @@ class MeasurementPageWorkspace(QWidget):
             contexts = (
                 self.controller.quality_repository.list_acquisition_contexts()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             contexts = ()
             self._operation_error_notice(
                 "取得コンテキストを読み込めませんでした",
@@ -2970,7 +2996,7 @@ class MeasurementPageWorkspace(QWidget):
         assert record is not None
         try:
             self.controller.quality_repository.save_level_calibration(record)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "レベル校正を登録できませんでした", exc
             )
@@ -2992,7 +3018,7 @@ class MeasurementPageWorkspace(QWidget):
         assert record is not None
         try:
             self.controller.quality_repository.save_stimulus_profile(record)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "刺激プロファイルを登録できませんでした", exc
             )
@@ -3016,7 +3042,7 @@ class MeasurementPageWorkspace(QWidget):
                     row.measurement_id
                 )
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "データセットを確認できませんでした", exc
             )
@@ -3031,7 +3057,7 @@ class MeasurementPageWorkspace(QWidget):
             calibrations = (
                 self.controller.quality_repository.list_level_calibrations()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             calibrations = ()
             self._operation_error_notice(
                 "レベル校正を読み込めませんでした",
@@ -3052,7 +3078,7 @@ class MeasurementPageWorkspace(QWidget):
             # re-derive so the report seals the new reference and the
             # absolute-SPL claim resolves against it.
             self.controller.reproduce_quality_report(row.measurement_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "レベル基準を登録できませんでした", exc
             )
@@ -3094,7 +3120,7 @@ class MeasurementPageWorkspace(QWidget):
                 filename=file_path.name,
                 raw_bytes=raw,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice(
                 "校正ファイルの保存に失敗しました", exc
             )
@@ -3205,7 +3231,7 @@ class MeasurementPageWorkspace(QWidget):
                         timing_reference_id
                     )
                 )
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS:
                 return (
                     None,
                     None,
@@ -3420,7 +3446,7 @@ class MeasurementPageWorkspace(QWidget):
                 assignment,
                 on_divergence=on_divergence,  # type: ignore[arg-type]
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("測定を保存できませんでした", exc)
             return
         retake_source_id = self._retake_source_id
@@ -3434,7 +3460,7 @@ class MeasurementPageWorkspace(QWidget):
                     supersedes_measurement_id=retake_source_id,
                     reason="測定品質ページからのユーザー指定再測定",
                 )
-            except Exception as exc:
+            except EXPECTED_OPERATION_ERRORS as exc:
                 # Partial commit: the measurement persisted; the retake
                 # lineage did not. Keep the exact mutation outcome (#903).
                 self._set_notice(
@@ -3488,7 +3514,7 @@ class MeasurementPageWorkspace(QWidget):
             else:
                 self.controller.set_batch_item_assignment(str(ref), assignment)
                 item_ids = [str(ref)]
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("バッチを保存できませんでした", exc)
             return
         self._set_batch_committing(True)
@@ -3634,7 +3660,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         try:
             self.controller.correct_assignment(measurement_id, corrected, reason)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("訂正を記録できませんでした", exc)
             return
         self._correction_target_id = None
@@ -3824,7 +3850,7 @@ class MeasurementPageWorkspace(QWidget):
                 target.entity_id: target.name
                 for target in self.controller.assignment_targets()
             }
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             log_operation_error(
                 to_user_facing_error(exc, title="対象名を読み込めませんでした"),
                 exc,
@@ -3847,7 +3873,10 @@ class MeasurementPageWorkspace(QWidget):
                 else:
                     labels[speaker.entity_id] = name
             return labels
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='音源名の読み込み')
             return {}
 
     def _measurement_display_labels(
@@ -4012,7 +4041,7 @@ class MeasurementPageWorkspace(QWidget):
                 repeat_count=int(self.campaign_repeat.value()),
                 purposes=self._selected_campaign_purposes(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self.campaign_preview_label.setText(operation_error_message(exc))
             return
         self.campaign_preview_label.setText(
@@ -4057,7 +4086,10 @@ class MeasurementPageWorkspace(QWidget):
         speaker_labels = self._campaign_speaker_labels()
         try:
             options = self.controller.runner_source_options()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='キャンペーン音源候補の読み込み')
             options = ()
         source_entries = []
         for option in options:
@@ -4083,7 +4115,10 @@ class MeasurementPageWorkspace(QWidget):
 
         try:
             targets = self.controller.assignment_targets()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='割り当て対象の読み込み')
             targets = ()
         first_population = self.campaign_target_list.count() == 0
         self._rebuild_campaign_checklist(
@@ -4101,7 +4136,10 @@ class MeasurementPageWorkspace(QWidget):
 
         try:
             patterns = self.controller.target_patterns()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='パターン候補の読み込み')
             patterns = ()
         target_names = self._campaign_target_names()
         self.campaign_pattern_combo.clear()
@@ -4120,7 +4158,10 @@ class MeasurementPageWorkspace(QWidget):
 
         try:
             variant_plans = self.controller.variant_measurement_plans()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='バリアント計画の読み込み')
             variant_plans = ()
         previous_variant = self.campaign_variant_combo.currentData()
         self.campaign_variant_combo.blockSignals(True)
@@ -4172,7 +4213,7 @@ class MeasurementPageWorkspace(QWidget):
             entity_ids = set(
                 self.controller.target_pattern_entity_ids(pattern_id)
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._set_notice(
                 f"パターンを適用できませんでした · {operation_error_message(exc)}",
                 SemanticState.ERROR,
@@ -4205,7 +4246,7 @@ class MeasurementPageWorkspace(QWidget):
             plan = self.controller.create_runner_plan_from_variant_plan(
                 plan_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._set_notice(
                 f"計画を開けませんでした · {operation_error_message(exc)}", SemanticState.ERROR
             )
@@ -4228,7 +4269,7 @@ class MeasurementPageWorkspace(QWidget):
                 repeat_count=int(self.campaign_repeat.value()),
                 purposes=self._selected_campaign_purposes(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("計画を作成できませんでした", exc)
             return
         self._set_notice(
@@ -4262,7 +4303,7 @@ class MeasurementPageWorkspace(QWidget):
             step = self.controller.runner_guided_step(
                 self._campaign_run_id, int(cell_index)
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             log_operation_error(
                 to_user_facing_error(exc, title="計画ステップを読み込めませんでした"),
                 exc,
@@ -4308,7 +4349,7 @@ class MeasurementPageWorkspace(QWidget):
             self.controller.runner_commit_cell(
                 self._campaign_run_id, cell_index, measurement_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("セルへ登録できませんでした", exc)
             return
         self._set_notice("計画セルに測定を登録しました。", SemanticState.SUCCESS)
@@ -4321,7 +4362,7 @@ class MeasurementPageWorkspace(QWidget):
             return
         try:
             self.controller.runner_skip_cell(self._campaign_run_id, cell_index)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("スキップできませんでした", exc)
             return
         self._refresh_campaign()
@@ -4767,7 +4808,10 @@ class MeasurementPageWorkspace(QWidget):
                 self._spatial_campaign_lines(measurement_id)
             )
             return lines
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='証拠レコードの読み込み')
             return ["不確かさ/状態安定性: 証拠レコードを読み込めませんでした"]
 
     def _stimulus_pin_lines(self, measurement_id: str) -> list[str]:
@@ -4797,7 +4841,10 @@ class MeasurementPageWorkspace(QWidget):
             from .measurement_evidence_display import stimulus_pin_line
 
             return [stimulus_pin_line(pin) for pin in pins]
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='刺激ピン登録簿の読み込み')
             return ['刺激ピン: 登録簿を読み込めませんでした']
 
     def _spatial_campaign_lines(self, measurement_id: str) -> list[str]:
@@ -4848,7 +4895,10 @@ class MeasurementPageWorkspace(QWidget):
                     line = f'{line} — 役割: {roles}'
                 lines.append(line)
             return lines
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='空間キャンペーン束縛の読み込み')
             return [
                 '空間キャンペーン: 束縛レコードを読み込めませんでした'
             ]
@@ -5025,7 +5075,10 @@ class MeasurementPageWorkspace(QWidget):
                     row.dataset_id
                 )
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='レベル基準の検証')
             self.level_reference_label.setText(
                 "レベル基準: 検証できませんでした（保存データを確認してください）"
             )
@@ -5154,7 +5207,7 @@ class MeasurementPageWorkspace(QWidget):
         self.quality_target_combo.addItem("オーバーレイなし", None)
         try:
             curves = self.controller.target_curves()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             curves = ()
             self._operation_error_notice(
                 "ターゲットカーブを読み込めませんでした",
@@ -5174,7 +5227,7 @@ class MeasurementPageWorkspace(QWidget):
         # #903: a failed load must read differently from "no context".
         try:
             self._spatial_context = self.controller.spatial_context(row.measurement_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._spatial_context = None
             self.spatial_summary.setText("空間コンテキストを読み込めませんでした")
             self.spatial_fallback_label.setText("")
@@ -5234,7 +5287,10 @@ class MeasurementPageWorkspace(QWidget):
                 self._spatial_viewport.setMinimumHeight(320)
                 self._spatial_overlays = RoomOverlayState(grid=True, labels=True)
                 self.spatial_viewport_holder.addWidget(self._spatial_viewport)
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='空間ビューの初期化')
                 self._spatial_viewport_failed = True
                 self.spatial_fallback_label.setText(
                     "この環境では3D表示を利用できません。"
@@ -5271,7 +5327,10 @@ class MeasurementPageWorkspace(QWidget):
                     position=context.measurement_position,
                     direction=context.measurement_direction,
                 )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='空間ビューの描画')
             self._spatial_viewport_failed = True
             self.spatial_fallback_label.setText(
                 "この環境では3D表示を利用できません。上の差分一覧で確認してください。"
@@ -5310,7 +5369,7 @@ class MeasurementPageWorkspace(QWidget):
             self.controller.set_disposition(
                 row.measurement_id, disposition, reason.strip()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("状態を記録できませんでした", exc)
             return
         self._set_notice("測定の状態を記録しました", SemanticState.SUCCESS)
@@ -5351,7 +5410,7 @@ class MeasurementPageWorkspace(QWidget):
                 filename=file_path.name,
                 raw_bytes=raw,
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("添付に失敗しました", exc)
             return
         self._set_notice("ソース添付を保存しました", SemanticState.SUCCESS)
@@ -5433,7 +5492,10 @@ class MeasurementPageWorkspace(QWidget):
                 )
             else:
                 self.av_sync_summary.setText("条件なし")
-        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise  # integrity failures never read as a normal summary
+            report_boundary_failure(exc, operation='AV同期サマリーの読み込み')
             self.av_sync_summary.setText("確認できません")
         try:
             health = CadSystemHealthRepository(self.controller.scene_repository)
@@ -5456,7 +5518,10 @@ class MeasurementPageWorkspace(QWidget):
                 )
             else:
                 self.health_summary.setText("ベースラインなし")
-        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise  # integrity failures never read as a normal summary
+            report_boundary_failure(exc, operation='ヘルスサマリーの読み込み')
             self.health_summary.setText("確認できません")
         try:
             presets = CadOperatingPresetRepository(
@@ -5474,7 +5539,10 @@ class MeasurementPageWorkspace(QWidget):
                 )
             else:
                 self.preset_summary.setText("プリセットなし")
-        except Exception:  # noqa: BLE001 — unreadable store must not kill refresh
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise  # integrity failures never read as a normal summary
+            report_boundary_failure(exc, operation='プリセットサマリーの読み込み')
             self.preset_summary.setText("確認できません")
 
     # ------------------------------------------------------------------
@@ -6009,7 +6077,10 @@ class MeasurementPageWorkspace(QWidget):
                 # probes may return a formatted composite label
                 # (e.g. profiles + assets) or a plain collection
                 return value if isinstance(value, str) else f"{len(value)} 件"
-            except Exception:
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise
+                report_boundary_failure(exc, operation='権威データ件数の確認')
                 failures.append(kind)
                 return "読み込み失敗"
 
@@ -6161,7 +6232,7 @@ class MeasurementPageWorkspace(QWidget):
         self._preview_comparison_pair(views)
         try:
             comparisons = self.controller.saved_comparisons()
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             # One row that fails comparison re-verification must not take
             # the workspace down: the history reads stay empty and the
             # failure is surfaced instead of an unhandled exception.
@@ -6350,7 +6421,11 @@ class MeasurementPageWorkspace(QWidget):
                     self.controller, 'quality_repository', None
                 ),
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='登録サービスの初期化')
+            return None
             return None
 
     def _selected_pair_views(self) -> tuple:
@@ -6397,7 +6472,10 @@ class MeasurementPageWorkspace(QWidget):
             registrations = (
                 service.list_registrations() if service is not None else ()
             )
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='登録レコードの読み込み')
             registrations = ()
         freshness = {}
         for registration in registrations:
@@ -6405,8 +6483,14 @@ class MeasurementPageWorkspace(QWidget):
                 freshness[registration.registration_id] = (
                     service.registration_freshness(registration)
                 )
-            except Exception:
-                freshness[registration.registration_id] = 'current'
+            except EXPECTED_OPERATION_ERRORS as exc:
+                if is_authority_failure(exc):
+                    raise
+                # Unreadable freshness is 'unverified' — never 'current':
+                # defaulting to current would let a stale pair pass the
+                # residual gate (#815).
+                report_boundary_failure(exc, operation='登録の新旧判定')
+                freshness[registration.registration_id] = 'unverified'
         self.registration_table.setRowCount(len(registrations))
         for row, registration in enumerate(registrations):
             delta = (
@@ -6414,11 +6498,15 @@ class MeasurementPageWorkspace(QWidget):
                 if registration.receiver.position_delta_m is None
                 else f'{registration.receiver.position_delta_m * 1000:.0f} mm'
             )
-            stale = freshness.get(registration.registration_id, 'current')
+            stale = freshness.get(registration.registration_id, 'unverified')
             values = (
                 registration.measurement.measurement_id[:10],
                 _comparability_state_label(registration.comparability.state),
-                '最新' if stale == 'current' else '古い配置',
+                (
+                    '最新' if stale == 'current'
+                    else '確認不可' if stale == 'unverified'
+                    else '古い配置'
+                ),
                 delta,
                 _timing_method_label(registration.timing.method),
                 _partition_label(registration.partition),
@@ -6439,7 +6527,7 @@ class MeasurementPageWorkspace(QWidget):
             registration is not None
             and registration.comparability.state
             in ('comparable', 'comparable_with_limitations')
-            and freshness.get(registration.registration_id, 'current') == 'current'
+            and freshness.get(registration.registration_id, 'unverified') == 'current'
         )
         self.residual_compute_button.setEnabled(can_compute)
         if not mixed:
@@ -6479,7 +6567,7 @@ class MeasurementPageWorkspace(QWidget):
                 spatial_method='exact_scene_xyz',
                 spatial_provenance='manual',
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice('登録できませんでした', exc)
             return
         state = _comparability_state_label(registration.comparability.state)
@@ -6502,7 +6590,7 @@ class MeasurementPageWorkspace(QWidget):
             report = service.compute_and_persist_residual_report(
                 registration.registration_id
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice('残差を計算できませんでした', exc)
             return
         lines: list[str] = []
@@ -6730,7 +6818,7 @@ class MeasurementPageWorkspace(QWidget):
                 reference_band_hz=reference_band,
                 excluded_bands=self._exclusion_bands(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             self._operation_error_notice("比較できませんでした", exc)
             return
         self._last_comparison = saved

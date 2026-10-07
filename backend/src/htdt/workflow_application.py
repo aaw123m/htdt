@@ -177,6 +177,11 @@ from .palette_search import (
 )
 from .rew_api import RewApiClient, validate_rew_api_url
 from . import dirty_state_dialog
+from .error_boundary import (
+    EXPECTED_OPERATION_ERRORS,
+    is_authority_failure,
+    report_boundary_failure,
+)
 from .user_facing_error import (
     operation_error_message,
     to_user_facing_error,
@@ -319,6 +324,10 @@ _LAZY_IMPORTS = {
     'MeasurementWorkflowController': (
         '.measurement_workflow',
         'MeasurementWorkflowController',
+    ),
+    'MeasurementWorkflowError': (
+        '.measurement_workflow',
+        'MeasurementWorkflowError',
     ),
     'build_optimization_workspace_mount': (
         '.optimization_workflow_workspace',
@@ -860,7 +869,8 @@ class WorkflowApplicationComposition:
         following the system locale rather than breaking presentation."""
         try:
             return LanguagePolicy(self.preferences.get('general.language'))
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:
+            # Invalid stored value → follow the system locale.
             return LanguagePolicy.SYSTEM_DEFAULT
 
     def _presentation_locale(self) -> object:
@@ -902,7 +912,7 @@ class WorkflowApplicationComposition:
                 domain_payload={'detail': 'GUIスレッドで捕捉されなかった例外'},
             )
             self.activity_center.fail(operation_id, error_summary=detail)
-        except Exception:
+        except Exception:  # error-boundary: reporting — the diagnostics path itself must never raise
             _LOGGER.exception('failed to record uncaught exception')
 
     def _apply_project_title(self) -> None:
@@ -1049,7 +1059,7 @@ class WorkflowApplicationComposition:
             )
         try:
             self._automatic_backup_runner.start()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:
             _LOGGER.exception('automatic backup check could not start')
 
     def _on_automatic_backup_started(self) -> None:
@@ -1140,7 +1150,7 @@ class WorkflowApplicationComposition:
             )
         try:
             self._storage_watch_runner.start()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:
             _LOGGER.exception('storage integrity scan could not start')
 
     def _on_storage_watch_notice(self, report: object) -> None:
@@ -1198,7 +1208,7 @@ class WorkflowApplicationComposition:
             )
         try:
             self._capture_watch_runner.start()
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS:
             _LOGGER.exception('capture watch folder could not start')
 
     def _on_capture_watch_completed(self, results: object) -> None:
@@ -1289,7 +1299,7 @@ class WorkflowApplicationComposition:
         """
         try:
             report = self.activity_center.prepare_shutdown()
-        except Exception:
+        except Exception:  # error-boundary: teardown — shutdown accounting logs and returns, never raises
             _LOGGER.exception('exit-time operation accounting failed')
             return
         if not report.active_at_exit:
@@ -2605,7 +2615,12 @@ class WorkflowApplicationComposition:
             library_index = build_reference_library_index(
                 self.repository, self.data_dir
             )
-        except Exception:  # noqa: BLE001 - hub sections are additive; never block the page
+        except EXPECTED_OPERATION_ERRORS as exc:
+            # Hub sections are additive — degrade but log, never silently
+            # fake an empty index over a store failure (#815).
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='参考ライブラリ索引の構築')
             library_index = None
         page = sys.modules[__name__].ReferenceLibraryPage(
             service.definitions, library_index=library_index
@@ -3824,7 +3839,9 @@ class WorkflowApplicationComposition:
     ) -> CommandAvailability:
         try:
             controller.latest_revision()
-        except Exception:
+        except sys.modules[__name__].MeasurementWorkflowError:
+            # Only a genuinely unsaved scene blocks the command — store
+            # failures surface via the uncaught diagnostics boundary.
             return CommandAvailability.blocked(
                 availability_reason('measurement.import.requires_saved_scene')
             )
@@ -4075,7 +4092,7 @@ class WorkflowApplicationComposition:
                 self.repository,
                 Path(selected),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "機材カタログを書き出せませんでした", exc
             )
@@ -4144,7 +4161,7 @@ class WorkflowApplicationComposition:
                 system_variant_id=system_variant_id,
                 generated_at_utc=datetime.now(timezone.utc).isoformat(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "設置ハンドオフを作成できませんでした", exc
             )
@@ -4178,7 +4195,7 @@ class WorkflowApplicationComposition:
             return
         try:
             outputs = write_handoff_package(handoff, directory)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "設置ハンドオフを書き出せませんでした", exc
             )
@@ -4252,7 +4269,10 @@ class WorkflowApplicationComposition:
 
         try:
             repository = CadCorrectionQualificationRepository(self.repository)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='訂正修飾の読み込み')
             return {}
         labels: dict[str, str] = {}
         try:
@@ -4268,7 +4288,10 @@ class WorkflowApplicationComposition:
                     CadMeasurementRepository(self.repository)
                 ),
             ).list_plans(self.document_id)
-        except Exception:
+        except EXPECTED_OPERATION_ERRORS as exc:
+            if is_authority_failure(exc):
+                raise
+            report_boundary_failure(exc, operation='校正プランの読み込み')
             return {}
         for plan in plans:
             record = repository.current_for_correction(
@@ -4290,7 +4313,7 @@ class WorkflowApplicationComposition:
         service = self._calibration_workflow_service()
         try:
             plans = service.repository.list_plans(self.document_id)
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "校正プランを読み込めませんでした", exc
             )
@@ -4345,7 +4368,7 @@ class WorkflowApplicationComposition:
                 plan_id,
                 created_at_utc=datetime.now(timezone.utc).isoformat(),
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "校正設定を書き出せませんでした", exc
             )
@@ -4375,7 +4398,7 @@ class WorkflowApplicationComposition:
                     bom_suffixes=('.csv',),
                 ).values()
             )
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             warn_user(
                 self.shell, "校正設定を書き出せませんでした", exc
             )
@@ -4435,7 +4458,7 @@ class WorkflowApplicationComposition:
         metadata: list[AnalysisExportMeta] = []
         try:
             comparisons = tuple(measurements.list_comparisons(self.document_id))
-        except Exception as exc:
+        except EXPECTED_OPERATION_ERRORS as exc:
             # The comparison index validates all-or-nothing; when it fails
             # the export still ships its measurement series and records
             # that the comparisons could not be verified.
