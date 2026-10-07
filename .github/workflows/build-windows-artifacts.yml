@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: true
+      require_signature:
+        description: 'Authenticode-sign release artifacts (issue #849). Requires HTDT_CODESIGN_PFX_BASE64 + HTDT_CODESIGN_PFX_PASSWORD secrets; fails the build when signing cannot complete.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write # needed only for the optional gh release step
@@ -165,6 +170,39 @@ jobs:
             $Args += @("-VerificationEvidence", "out\release-verification\release_verification_evidence.json", "-RequireVerification")
           }
           .\scripts\build-installer.ps1 @Args
+
+      # Issue #849: optional publisher-identity stage. Runs only for an
+      # explicitly signature-required dispatch; the cert material lives in
+      # org secrets and is deleted again before upload. publisher_signature
+      # is merged NEXT TO (never inside) the verification block — signing
+      # can never promote software/UX/physical verification states.
+      - name: Authenticode signing + manifest merge
+        if: inputs.require_signature
+        shell: pwsh
+        env:
+          HTDT_CODESIGN_PFX_BASE64: ${{ secrets.HTDT_CODESIGN_PFX_BASE64 }}
+          HTDT_SIGN_PFX_PASSWORD: ${{ secrets.HTDT_CODESIGN_PFX_PASSWORD }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not $env:HTDT_CODESIGN_PFX_BASE64) {
+            throw "require_signature is set but the HTDT_CODESIGN_PFX_BASE64 secret is not configured"
+          }
+          $Pfx = Join-Path $env:RUNNER_TEMP "htdt-codesign.pfx"
+          [IO.File]::WriteAllBytes($Pfx, [Convert]::FromBase64String($env:HTDT_CODESIGN_PFX_BASE64))
+          try {
+            $Artifacts = Get-ChildItem dist-installer -Filter *.exe | ForEach-Object { $_.FullName }
+            if (-not $Artifacts) { throw "No .exe artifacts in dist-installer to sign" }
+            .\scripts\sign-release.ps1 -Artifacts $Artifacts -PfxPath $Pfx -RequireSigning
+            foreach ($Artifact in $Artifacts) {
+              $Base = [IO.Path]::GetFileNameWithoutExtension($Artifact)
+              $Dir = Split-Path $Artifact
+              $Report = "$Artifact.signature.json"
+              $Manifest = Join-Path $Dir "$Base.manifest.json"
+              python scripts/release_signature.py --manifest $Manifest --signature-report $Report --artifact $Artifact --require-signed
+            }
+          } finally {
+            Remove-Item $Pfx -Force -ErrorAction SilentlyContinue
+          }
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

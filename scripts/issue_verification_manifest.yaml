@@ -5304,3 +5304,26 @@ issues:
     description: 'PR 着地時・ゲート解消時に issue_lifecycle_manifest.yaml を更新する運用。
       VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
       evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
+- issue: 849
+  title: 'P2: Windows release trust — support Authenticode signing and timestamped publisher identity'
+  notes: 'REV64: scripts/sign-release.ps1 (signtool ステージ) +
+    scripts/release_signature.py (manifest publisher_signature マージ) +
+    build-windows-artifacts.yml require_signature input。
+    docs/issues/issue-849-release-signing.md 参照。証明書取得は org secret 運用。
+
+    '
+  checks:
+  - id: release-signing-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_849_release_signing.py
+    description: '署名ステージ: publisher_signature≠verification、sha256 再計算、
+      require-signed fail-closed、unsigned 可視性、レポート秘密面なし、
+      ワークフローの opt-in/secret 隔離配線。
+
+      '
+  - id: signing-cert-provisioning
+    kind: manual
+    description: 'HTDT_CODESIGN_PFX_BASE64 / HTDT_CODESIGN_PFX_PASSWORD の org secret 設定と実署名リリース。
+      VERAUTO: commit_manifest_verification で GateRunResult(outcome=evidence_committed,
+      evidence_ref=AuthorityRef) をコミットすると evaluate_issue_verdict が verified へ遷移。'
