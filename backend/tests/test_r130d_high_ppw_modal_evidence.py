@@ -96,3 +96,22 @@ def test_exploratory_lowmode_cannot_override_canonical_failure():
         a["cutoff_comparisons"][i]["pairs"][-1]["complex_rms_relative"] > 0.05
         for i in range(len(CUTOFFS_HZ))
     )
+
+
+def test_exploratory_temporal_source_regularization_is_not_a_numerical_fix():
+    a = _j("r130d_temporal_source_exploratory_evidence_2026-10-09.json")
+    assert a["schema_version"] == "htdt.r130d.exploratory-temporal-source-regularization-v1"
+    assert a["physical_contract_changed"] is True
+    assert len(a["canonical_replay_checks"]) == 5
+    assert all(x["maximum_complex_replay_delta"] <= 1e-9
+               for x in a["canonical_replay_checks"])
+    assert a["drive_sigma_s"] == [0.002, 0.003, 0.004]
+    assert len(a["results"]) == 3
+    assert all(
+        row["pairs"][-1]["complex_rms_relative"] > 0.2
+        for row in a["results"]
+    )
+    assert a["decision"]["canonical_solver_self_convergence"] == "SELF_CONVERGENCE_FAILED"
+    assert a["decision"]["independent_source_waveform_validated"] is False
+    assert a["decision"]["cross_solver_eligible"] is False
+    assert a["decision"]["production_ready"] is False
