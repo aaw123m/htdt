@@ -1522,6 +1522,12 @@ class _RepositoryChain:
             )
 
             return SessionRecoveryRepository(scene)
+        if name == 'device_discovery':
+            from .cad_device_discovery_repository import (
+                CadDeviceDiscoveryRepository,
+            )
+
+            return CadDeviceDiscoveryRepository(scene)
         raise KeyError(name)
 
 
@@ -7681,6 +7687,44 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'session_recovery_reconciliations',
         ('reconciliation_id',),
         _get('session_recovery', 'get_reconciliation'),
+    ),
+
+    # REV68: #879 device-discovery + capability-handshake authority.
+    _ReplayProbe(
+        'discovery_run',
+        'cad_discovery_runs',
+        ('run_id',),
+        _get('device_discovery', 'get_run'),
+    ),
+    _ReplayProbe(
+        'discovered_device',
+        'cad_discovered_devices',
+        ('device_id',),
+        _get('device_discovery', 'get_device'),
+    ),
+    _ReplayProbe(
+        'capability_probe',
+        'cad_capability_probe_records',
+        ('probe_id',),
+        _get('device_discovery', 'get_probe'),
+    ),
+    _ReplayProbe(
+        'trusted_device_binding',
+        'cad_trusted_device_bindings',
+        ('binding_record_id',),
+        _get('device_discovery', 'get_binding_record'),
+    ),
+    _ReplayProbe(
+        'device_identity_drift_report',
+        'cad_device_identity_drift_reports',
+        ('report_id',),
+        _get('device_discovery', 'get_drift_report'),
+    ),
+    _ReplayProbe(
+        'device_rebinding_decision',
+        'cad_device_rebinding_decisions',
+        ('decision_id',),
+        _get('device_discovery', 'get_rebinding_decision'),
     ),
 
 )

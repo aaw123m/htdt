@@ -9846,6 +9846,87 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # #879 device-discovery + capability-handshake authority.
+    'cad_discovery_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('backend_id', 'backend_id'),
+            _b('mechanism', 'mechanism'),
+            _b('outcome', 'outcome'),
+            _b('device_count', 'device_count'),
+        ),
+        (),
+    ),
+    'cad_discovered_devices': (
+        'payload_json',
+        (
+            _b('device_id', 'device_id'),
+            _b('device_sha256', 'device_sha256'),
+            _b('document_id', 'document_id'),
+            _b('run_ref_id', 'run_ref', 'ref_id', optional=True),
+            _b('endpoint', 'endpoint'),
+            _b('identity_state', 'identity_state'),
+            _b('ambiguity_group', 'ambiguity_group', optional=True),
+        ),
+        (),
+    ),
+    'cad_capability_probe_records': (
+        'payload_json',
+        (
+            _b('probe_id', 'probe_id'),
+            _b('probe_sha256', 'probe_sha256'),
+            _b('document_id', 'document_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b('adapter_id', 'adapter_id'),
+            _b('outcome', 'outcome'),
+            _b('capability_snapshot_sha256', 'capability_snapshot_sha256',
+               optional=True),
+        ),
+        (),
+    ),
+    'cad_trusted_device_bindings': (
+        'payload_json',
+        (
+            _b('binding_record_id', 'binding_record_id'),
+            _b('binding_record_sha256', 'binding_record_sha256'),
+            _b('document_id', 'document_id'),
+            _b('binding_id', 'binding_id'),
+            _b('device_ref_id', 'device_ref', 'ref_id'),
+            _b('adapter_id', 'adapter_id'),
+            _b('endpoint', 'endpoint'),
+            _b('trust_state', 'trust_state'),
+            _b('identity_basis', 'identity_basis'),
+        ),
+        (),
+    ),
+    'cad_device_identity_drift_reports': (
+        'payload_json',
+        (
+            _b('report_id', 'report_id'),
+            _b('report_sha256', 'report_sha256'),
+            _b('document_id', 'document_id'),
+            _b('binding_ref_id', 'binding_ref', 'ref_id'),
+            _b('drift_kind', 'drift_kind', optional=True),
+            _b('verdict', 'verdict'),
+        ),
+        (),
+    ),
+    'cad_device_rebinding_decisions': (
+        'payload_json',
+        (
+            _b('decision_id', 'decision_id'),
+            _b('decision_sha256', 'decision_sha256'),
+            _b('document_id', 'document_id'),
+            _b('previous_binding_ref_id', 'previous_binding_ref', 'ref_id'),
+            _b('action', 'action'),
+            _b('new_binding_ref_id', 'new_binding_ref', 'ref_id',
+               optional=True),
+        ),
+        (),
+    ),
 }
 
 

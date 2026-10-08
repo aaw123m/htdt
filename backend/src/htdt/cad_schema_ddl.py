@@ -8883,6 +8883,58 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_uab_row ON cad_ux_acceptance_bundle_records(matrix_id, row_id, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_discovery_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, backend_id TEXT NOT NULL, mechanism TEXT NOT NULL, outcome TEXT NOT NULL, device_count INTEGER NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_drsc_doc ON cad_discovery_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_discovered_devices ( seq INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL UNIQUE, device_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, run_ref_id TEXT, endpoint TEXT NOT NULL, identity_state TEXT NOT NULL, ambiguity_group TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ddvs_doc ON cad_discovered_devices(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_capability_probe_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, probe_id TEXT NOT NULL UNIQUE, probe_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, adapter_id TEXT NOT NULL, outcome TEXT NOT NULL, capability_snapshot_sha256 TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ccpr_doc ON cad_capability_probe_records(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_trusted_device_bindings ( seq INTEGER PRIMARY KEY AUTOINCREMENT, binding_record_id TEXT NOT NULL UNIQUE, binding_record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, binding_id TEXT NOT NULL, device_ref_id TEXT NOT NULL, adapter_id TEXT NOT NULL, endpoint TEXT NOT NULL, trust_state TEXT NOT NULL, identity_basis TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ctdb_doc ON cad_trusted_device_bindings(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_ctdb_binding ON cad_trusted_device_bindings(binding_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_device_identity_drift_reports ( seq INTEGER PRIMARY KEY AUTOINCREMENT, report_id TEXT NOT NULL UNIQUE, report_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, binding_ref_id TEXT NOT NULL, drift_kind TEXT, verdict TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_cdidr_doc ON cad_device_identity_drift_reports(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_device_rebinding_decisions ( seq INTEGER PRIMARY KEY AUTOINCREMENT, decision_id TEXT NOT NULL UNIQUE, decision_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, previous_binding_ref_id TEXT NOT NULL, action TEXT NOT NULL, new_binding_ref_id TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_crbd_doc ON cad_device_rebinding_decisions(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10041,4 +10093,11 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_apo_install_records',
     # REV68: #880 owned-Windows UX acceptance evidence bundles.
     'cad_ux_acceptance_bundle_records',
+    # REV68: #879 safe device-discovery + capability-handshake authority.
+    'cad_discovery_runs',
+    'cad_discovered_devices',
+    'cad_capability_probe_records',
+    'cad_trusted_device_bindings',
+    'cad_device_identity_drift_reports',
+    'cad_device_rebinding_decisions',
 )
