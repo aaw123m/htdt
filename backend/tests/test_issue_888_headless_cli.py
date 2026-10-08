@@ -656,3 +656,113 @@ def test_spec_sha_deterministic_and_tamper_sensitive(tmp_path):
     spec_dict['routing']['capture_channel'] = 2
     tampered = HeadlessSweepSpec.model_validate(spec_dict)
     assert spec_sha256(tampered) != sha1
+
+
+# ---------- deployment ----------
+
+def _deploy_spec(tmp_path: Path) -> str:
+    """Minimal avr-lan deployment spec with a real sealed export payload."""
+    from hashlib import sha256
+    from htdt.cad_calibration import (
+        CadCalibrationChannel,
+        CadCalibrationPlan,
+        CadDeviceCapabilityConstraints,
+        build_generic_biquad_export,
+    )
+    channel = CadCalibrationChannel(
+        channel_id='fl', role_id='FL',
+        source_entity_id='spk-fl', physical_output_id='out-fl',
+        sample_rate_hz=48000, gain_db=1.5, delay_s=0.0,
+        polarity='normal', crossovers=(), peq=(),
+        routing=('out-fl',))
+    payload = {
+        'plan_id': 'plan-888', 'plan_version': '1',
+        'created_at_utc': NOW, 'source_kind': 'provided_fixture',
+        'document_id': DOC, 'scene_revision_id': 'rev-1',
+        'scene_content_hash': 'a' * 64,
+        'system_variant_id': 'var-1',
+        'system_variant_sha256': 'b' * 64,
+        'source_measurement_id': 'm-1',
+        'source_measurement_sha256': 'c' * 64,
+        'source_dataset_id': 'd-1',
+        'source_dataset_sha256': 'e' * 64,
+        'measurement_quality_report_id': 'q-1',
+        'measurement_quality_report_sha256': 'f' * 64,
+        'sample_rate_hz': 48000, 'channels': (channel,),
+        'target_curve': None, 'max_boost_db': 6.0,
+        'max_cut_db': 10.0,
+        'device_constraints': CadDeviceCapabilityConstraints(
+            capability_id='avr-1', capability_version='1',
+            supported_sample_rates_hz=(48000,),
+            supported_filter_types=('peaking',),
+            channel_gain_resolution_db=0.5),
+        'support_state': 'SUPPORTED', 'unsupported_reasons': (),
+        'plan_semantic_sha256': '0' * 64,
+    }
+    provisional = CadCalibrationPlan.model_construct(**payload)
+    sem = sha256(json.dumps(
+        provisional.semantic_payload(), ensure_ascii=False,
+        sort_keys=True, separators=(',', ':'),
+        allow_nan=False).encode('utf-8')).hexdigest()
+    plan = CadCalibrationPlan(
+        **{**payload, 'plan_semantic_sha256': sem})
+    export = build_generic_biquad_export(
+        plan=plan, created_at_utc=NOW)
+    spec = {
+        'document_id': DOC,
+        'adapter': {'kind': 'avr-lan', 'simulated': True,
+                    'initial_gains': {}},
+        'binding': {
+            'device_family': 'avr-denon-marantz-telnet',
+            'device_model': 'AVR-X3800H',
+            'device_serial': 'localhost:23',
+            'firmware_version': '1.4.0',
+            'routing': [['fl', 'out-fl']]},
+        'target_ref': 'avr-target-1',
+        'export': export.model_dump(mode='json'),
+    }
+    return _write(tmp_path / 'deploy.json', spec)
+
+
+def test_deploy_run_lattice(tmp_path, capsys):
+    spec = _deploy_spec(tmp_path)
+
+    # preview only → exits after preview, 0
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--preview-only', '--json',
+        '--data-dir', _data_dir(tmp_path) / 'a')
+    assert code == 0
+    assert env['verdict'] == 'previewed'
+
+    # no --authorize-apply → unauthorized, 4
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--json', '--data-dir', _data_dir(tmp_path) / 'b')
+    assert code == 4
+    assert env['outcome'] == 'unauthorized'
+    assert env['verdict'] == 'authorize_apply_required'
+
+    # authorized apply+rollback → apply + verify_readback → 0
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--authorize-apply', 'op-1',
+        '--authorize-rollback', 'op-1',
+        '--json', '--data-dir', _data_dir(tmp_path) / 'c')
+    assert code == 0
+    assert env['outcome'] == 'succeeded'
+    assert env['verdict'] == 'readback_matched'
+    kinds = {r['kind'] for r in env['records']}
+    assert 'deployment_pipeline_record' in kinds
+    assert env['run_record_id'].startswith('hrun-')
+
+
+def test_deploy_dry_run(tmp_path, capsys):
+    spec = _deploy_spec(tmp_path)
+    code, env = _run(
+        capsys, 'deploy', 'run', '--spec', spec,
+        '--authorize-apply', 'op-1', '--dry-run',
+        '--json', '--data-dir', _data_dir(tmp_path))
+    assert code == 0
+    assert env['outcome'] == 'dry_run'
+    assert env['run_record_id'] is None

@@ -117,7 +117,10 @@ from .cad_deployment_pipeline import (
 from .cad_deployment_pipeline_repository import (
     CadDeploymentPipelineRepository,
 )
-from .cad_device_adapter import AdapterDeviceBinding
+from .cad_device_adapter import (
+    AdapterDeviceBinding,
+    build_device_binding,
+)
 from .cad_device_adapter_file import FILE_ADAPTER_ID, FileCalibrationAdapter
 from .cad_avr_lan_adapter import (
     AVR_LAN_ADAPTER_ID,
@@ -937,10 +940,11 @@ def _build_adapter(spec: HeadlessDeploymentSpec | HeadlessDiagnosticSpec):
                 'file adapter needs adapter.file_root')
         adapter = FileCalibrationAdapter(adapter_spec.file_root)
         return adapter, FILE_ADAPTER_ID
-    transports = {
-        'target-1': FakeAvrLanTransport(
-            initial=adapter_spec.initial_gains),
-    }
+    transport = FakeAvrLanTransport(
+        initial=adapter_spec.initial_gains)
+    # The binding's device_serial IS the endpoint key the adapter resolves.
+    endpoint = spec.binding.device_serial if spec.binding else 'target-1'
+    transports = {endpoint: transport}
     adapter = AvrLanCalibrationAdapter(
         transports,
         approved_remote_endpoints=tuple(
@@ -952,14 +956,14 @@ def _build_adapter(spec: HeadlessDeploymentSpec | HeadlessDiagnosticSpec):
 def _build_binding(
     spec_binding: Any, adapter_id: str, bound_at_utc: str,
 ) -> AdapterDeviceBinding:
-    return AdapterDeviceBinding(
+    return build_device_binding(
         binding_id=f'bind-{canonical_sha256({"m": spec_binding.device_model, "s": spec_binding.device_serial, "f": spec_binding.firmware_version})[:16]}',
         adapter_id=adapter_id,
         device_family=spec_binding.device_family,
         device_model=spec_binding.device_model,
         device_serial=spec_binding.device_serial,
         firmware_version=spec_binding.firmware_version,
-        routing=spec_binding.routing,
+        routing=tuple(tuple(pair) for pair in spec_binding.routing),
         bound_at_utc=bound_at_utc)
 
 
