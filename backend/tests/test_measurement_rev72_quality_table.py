@@ -351,6 +351,36 @@ def test_selection_identity_survives_sort_and_refresh(tmp_path: Path) -> None:
         _app().processEvents()
 
 
+def test_rows_match_sort_indicator_after_refresh(tmp_path: Path) -> None:
+    workspace, _saved = _workspace(
+        tmp_path,
+        [
+            {"measurement_id": "m-fl"},
+            {"measurement_id": "m-c", "channel_role": "center"},
+            {"measurement_id": "m-sub", "channel_role": "subwoofer"},
+        ],
+    )
+    try:
+        # A refresh must leave the rows matching the indicator immediately —
+        # otherwise the first click only moves the indicator (observed as a
+        # one-click-late sort on the real GUI).
+        workspace.quality_table.sortByColumn(
+            0, Qt.SortOrder.DescendingOrder
+        )
+        workspace.refresh()
+        _app().processEvents()
+        labels = [
+            workspace.quality_table.item(row_index, 0).text()
+            for row_index in range(workspace.quality_table.rowCount())
+        ]
+        assert labels == sorted(labels, reverse=True)
+        assert set(_row_ids(workspace)) == {"m-fl", "m-c", "m-sub"}
+    finally:
+        workspace.close()
+        workspace.deleteLater()
+        _app().processEvents()
+
+
 def test_filter_hidden_selection_states_reason(tmp_path: Path) -> None:
     workspace, _saved = _workspace(
         tmp_path,

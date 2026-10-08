@@ -4865,6 +4865,14 @@ class MeasurementPageWorkspace(QWidget):
                     item.setToolTip(tip)
                 self.quality_table.setItem(row_index, column, item)
         self.quality_table.setSortingEnabled(True)
+        # Re-apply the header's sort indicator over the freshly inserted
+        # rows: rows must always match the indicator, otherwise the first
+        # user click only moves the indicator while the order lags a click
+        # behind. Row identity is unaffected — it lives on UserRole.
+        header = self.quality_table.horizontalHeader()
+        self.quality_table.sortItems(
+            header.sortIndicatorSection(), header.sortIndicatorOrder()
+        )
 
         # #969: honest count — hidden rows are stated, never silently dropped.
         self.quality_count_label.setText(
