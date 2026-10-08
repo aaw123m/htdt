@@ -30,13 +30,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
 import uuid
 import zipfile
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 from hashlib import sha256
@@ -65,7 +66,9 @@ from .runtime_instance import (
 )
 
 
-SUPPORT_SCHEMA_VERSION = 1
+#: Archive manifest schema. v2 adds per-member sha256/classification/
+#: redactions, ``excluded_categories``/``collection_errors`` (#884).
+SUPPORT_SCHEMA_VERSION = 2
 DATABASE_NAME = 'cad-scenes.sqlite3'
 
 #: A diagnostic package is deliberately small; anything larger is cut with a
@@ -755,6 +758,214 @@ class PackageCategory(StrEnum):
     PREFERENCES_SUMMARY = 'preferences_summary'
     PROJECT_IDS = 'project_ids'
     LAUNCH_METADATA = 'launch_metadata'
+    # #884 field-level context collectors
+    RUNTIME_CONTEXT = 'runtime_context'
+    GPU_CONTEXT = 'gpu_context'
+    AUDIO_CONTEXT = 'audio_context'
+    ADAPTER_CAPABILITY = 'adapter_capability'
+    WORKFLOW_STATE = 'workflow_state'
+    RELEASE_EVIDENCE = 'release_evidence'
+    MEASUREMENT_ENGINE_STATUS = 'measurement_engine_status'
+    DEVICE_TRANSACTION_STATUS = 'device_transaction_status'
+
+
+class FieldClassification(StrEnum):
+    """Per-member privacy classification (#884).
+
+    The archive is only ever populated from these classes — a field or
+    member the collector cannot prove safe is simply never produced;
+    ``SENSITIVE_PROJECT_DATA`` is attached only by explicit operator
+    opt-in, and ``SECRET`` marks material that must never be collected
+    at all (declared for the ledger, structurally unwriteable).
+    """
+
+    SAFE_DIAGNOSTIC = 'SAFE_DIAGNOSTIC'
+    PROJECT_METADATA = 'PROJECT_METADATA'
+    SENSITIVE_PROJECT_DATA = 'SENSITIVE_PROJECT_DATA'
+    SECRET = 'SECRET_NEVER_EXPORT'
+
+
+#: Classification per category. Anything not listed here is defaulted to
+#: SAFE_DIAGNOSTIC at write time; categories absent from the map are an
+#: authoring error caught by tests — the write path never guesses.
+CATEGORY_CLASSIFICATION: dict[PackageCategory, FieldClassification] = {
+    PackageCategory.LOGS: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.BUILD_IDENTITY: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.SCHEMA_SUMMARY: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.HEALTH_RESULTS: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.OPERATION_FAILURES: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.CAPABILITY_INVENTORY: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.PREFERENCES_SUMMARY: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.LAUNCH_METADATA: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.PROJECT_IDS: FieldClassification.PROJECT_METADATA,
+    PackageCategory.RUNTIME_CONTEXT: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.GPU_CONTEXT: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.AUDIO_CONTEXT: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.ADAPTER_CAPABILITY: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.WORKFLOW_STATE: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.RELEASE_EVIDENCE: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.MEASUREMENT_ENGINE_STATUS: FieldClassification.SAFE_DIAGNOSTIC,
+    PackageCategory.DEVICE_TRANSACTION_STATUS: FieldClassification.SAFE_DIAGNOSTIC,
+}
+
+
+# ---------------------------------------------------------------------------
+# #884 write-time redaction
+#
+# Redaction runs on EVERY member payload at write time — a collector bug or
+# a future category can never smuggle a path/host/secret past it. Counts are
+# recorded per member in the manifest so the operator can see exactly what
+# was scrubbed.
+
+_BUNDLE_SECRET_KEY = re.compile(
+    r'\b('
+    r'passwords?|passwds?|secrets?|tokens?|api[-_]?keys?|apikeys?|'
+    r'authorizations?|credentials?|private[-_]?keys?'
+    r')\b(\s*["\']?\s*[=:]\s*)("[^"\n]*"|\'[^\'\n]*\'|[^\s,;}\'"]+)',
+    re.IGNORECASE,
+)
+_BUNDLE_WINDOWS_PATH = re.compile(
+    r'\b[A-Za-z]:[\\/](?:[^\s"\'<>|]+[\\/])*[^\s"\'<>|]*')
+_BUNDLE_UNC_PATH = re.compile(r'\\\\[^\s"\'<>|]+')
+_BUNDLE_POSIX_PATH = re.compile(
+    r'(?<![\w.-])(?:/(?:home|Users|usr|opt|var|tmp|private|etc)'
+    r'(?:/[^\s"\'<>|]+)+)')
+_BUNDLE_IPV4 = re.compile(
+    r'\b(?:25[0-5]|2[0-4]\d|1?\d?\d)'
+    r'(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b')
+# IPv6 requires ≥3 groups AND at least one a-f letter so HH:MM:SS
+# timestamps and plain numeric runs are never redacted.
+_BUNDLE_IPV6 = re.compile(
+    r'\b(?=[0-9a-fA-F:]{4,}[a-fA-F])(?:[0-9a-fA-F]{0,4}:){2,7}'
+    r'[0-9a-fA-F]{0,4}\b')
+_BUNDLE_TOKEN_VALUE = re.compile(
+    r'\b(?:[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|'  # JWT
+    r'(?:sk|pk|ghp|gho|xox[bpsar]|Bearer)[-_][A-Za-z0-9]{16,}|'
+    r'\b[0-9a-fA-F]{64})\b')
+_BUNDLE_SENSITIVE_KEY = re.compile(
+    r'host(name)?|computer[-_]?name|user[-_]?name|owner|operator[-_]?name|'
+    r'customer|person|serial[-_]?number|address|location',
+    re.IGNORECASE,
+)
+# Structured-value keys that are secret by NAME — the value is replaced
+# wholesale regardless of its shape (dict branch of redact_support_value).
+_BUNDLE_SECRET_FIELD_KEY = re.compile(
+    r'password|passwd|secret|token|api[-_]?key|credential|'
+    r'private[-_]?key|authorization|cert(ificate)?[-_]?(key|pem|material)',
+    re.IGNORECASE,
+)
+
+_REDACTED = '<redacted>'
+
+
+def _redact_text(text: str, counts: dict[str, int]) -> str:
+    def _bump(name: str, repl: str):
+        def _sub(match: re.Match) -> str:
+            counts[name] = counts.get(name, 0) + 1
+            return repl
+        return _sub
+
+    text = _BUNDLE_SECRET_KEY.sub(
+        lambda m: counts.__setitem__('secrets', counts.get('secrets', 0) + 1)
+        or f'{m.group(1)}{m.group(2)}{_REDACTED}', text)
+    text = _BUNDLE_UNC_PATH.sub(_bump('paths', '<unc-path>'), text)
+    text = _BUNDLE_WINDOWS_PATH.sub(_bump('paths', '<path>'), text)
+    text = _BUNDLE_POSIX_PATH.sub(_bump('paths', '<path>'), text)
+    text = _BUNDLE_IPV4.sub(_bump('hosts', '<ip>'), text)
+    text = _BUNDLE_IPV6.sub(_bump('hosts', '<ip>'), text)
+    text = _BUNDLE_TOKEN_VALUE.sub(_bump('tokens', _REDACTED), text)
+    return text
+
+
+def redact_support_value(
+    value: Any,
+    counts: dict[str, int] | None = None,
+    *,
+    _inside_sensitive_key: bool = False,
+) -> Any:
+    """Recursively redact a JSON-shaped value.
+
+    Returns the redacted value; ``counts`` accumulates per-kind counters
+    (``paths``/``hosts``/``secrets``/``tokens``/``keys``) for the manifest.
+    A dict key that looks like a host/user/customer/serial field has its
+    *value* replaced — the key itself stays so the shape remains readable.
+    """
+    if counts is None:
+        counts = {}
+    if isinstance(value, Mapping):
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if _BUNDLE_SECRET_FIELD_KEY.search(key_text):
+                # Secret by name — replace the value wholesale.
+                counts['secrets'] = counts.get('secrets', 0) + 1
+                redacted[key] = _REDACTED
+            elif _BUNDLE_SENSITIVE_KEY.search(key_text):
+                counts['keys'] = counts.get('keys', 0) + 1
+                redacted[key] = (
+                    _REDACTED if item not in (None, '', [], {})
+                    else item
+                )
+            else:
+                redacted[key] = redact_support_value(
+                    item, counts)
+        return redacted
+    if isinstance(value, (list, tuple)):
+        return [redact_support_value(item, counts) for item in value]
+    if isinstance(value, str):
+        return _redact_text(value, counts)
+    return value
+
+
+class BundleMemberPreview(BaseModel):
+    """One member exactly as it will be written to the archive."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    classification: FieldClassification
+    status: Literal['complete', 'truncated', 'skipped']
+    included_bytes: int = Field(ge=0)
+    sha256: str | None = None
+    """sha256 of the member bytes as written (None when skipped)."""
+    redactions: dict[str, int] = Field(default_factory=dict)
+    detail: str = ''
+
+
+class BundlePreview(BaseModel):
+    """The exact export content before anything is written (#884).
+
+    Produced by the same staging pass as :meth:`DiagnosticPackageBuilder.build`
+    — the preview can never disagree with the exported archive.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    schema_version: int
+    members: tuple[BundleMemberPreview, ...]
+    categories: tuple[PackageCategory, ...]
+    excluded_categories: tuple[PackageCategory, ...]
+    exclusions: tuple[str, ...]
+    collection_errors: tuple[str, ...]
+    byte_budget: int
+    included_bytes: int = Field(ge=0)
+    preview_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    """Canonical sha over the staged member set — identical state produces
+    an identical preview hash (archive determinism is a separate concern)."""
+
+
+#: #884 categories populated by ``context_providers`` — pluggable so the
+#: builder stays Qt/hardware-light and tests can inject synthetic payloads.
+_CONTEXT_CATEGORIES: tuple[PackageCategory, ...] = (
+    PackageCategory.RUNTIME_CONTEXT,
+    PackageCategory.GPU_CONTEXT,
+    PackageCategory.AUDIO_CONTEXT,
+    PackageCategory.ADAPTER_CAPABILITY,
+    PackageCategory.WORKFLOW_STATE,
+    PackageCategory.RELEASE_EVIDENCE,
+    PackageCategory.MEASUREMENT_ENGINE_STATUS,
+    PackageCategory.DEVICE_TRANSACTION_STATUS,
+)
 
 
 #: Material that must never enter a diagnostic package. The builder only
@@ -792,6 +1003,19 @@ class PackageResult:
     manifest_name: str
 
 
+@dataclass(slots=True)
+class _StagedPackage:
+    """Members after collection + redaction + budget, before zipping."""
+
+    plan: PackagePlan
+    members: dict[str, bytes] = field(default_factory=dict)
+    meta: dict[str, dict[str, Any]] = field(default_factory=dict)
+    included: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    collection_errors: list[str] = field(default_factory=list)
+    written: int = 0
+
+
 class DiagnosticPackageBuilder:
     """Builds one bounded local diagnostic archive.
 
@@ -809,6 +1033,7 @@ class DiagnosticPackageBuilder:
         capability_inventory: Mapping[str, Any] | None = None,
         preferences_summary: Mapping[str, Any] | None = None,
         project_ids: Mapping[str, Any] | None = None,
+        context_providers: Mapping[PackageCategory, Callable[[], Any]] | None = None,
     ) -> None:
         self.data_dir = Path(data_dir)
         self.health_report = health_report
@@ -816,6 +1041,10 @@ class DiagnosticPackageBuilder:
         self.capability_inventory = dict(capability_inventory or {})
         self.preferences_summary = dict(preferences_summary or {})
         self.project_ids = dict(project_ids or {})
+        # #884: lazy collectors keyed by category. A provider that raises is
+        # recorded as a collection error in the manifest — the export must
+        # never fail because one probe crashed.
+        self.context_providers = dict(context_providers or {})
 
     def plan(self, *, include_project_ids: bool = False) -> PackagePlan:
         categories = [PackageCategory.LOGS, PackageCategory.BUILD_IDENTITY]
@@ -833,77 +1062,103 @@ class DiagnosticPackageBuilder:
         categories.append(PackageCategory.PREFERENCES_SUMMARY)
         if include_project_ids and self.project_ids:
             categories.append(PackageCategory.PROJECT_IDS)
+        for category in _CONTEXT_CATEGORIES:
+            if category in self.context_providers:
+                categories.append(category)
         return PackagePlan(
             categories=tuple(categories), include_project_ids=include_project_ids
         )
 
-    def build(self, destination: Path, plan: PackagePlan) -> PackageResult:
-        destination = Path(destination)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        diag_dir = diagnostics_dir(self.data_dir)
-        included: list[str] = []
-        skipped: list[str] = []
-        written = 0
+    def _stage(self, plan: PackagePlan) -> '_StagedPackage':
+        """Collect + redact + bound every member without writing an archive.
 
-        # Per-member outcomes, recorded verbatim in manifest.json (#749):
-        # byte truncation is only ever applied to plain-text logs (tail
-        # kept, newest events retained); structured JSON is reduced
-        # semantically or skipped whole, never byte-cut.
-        members: dict[str, dict[str, Any]] = {}
+        Shared by :meth:`preview` and :meth:`build` so the preview is
+        byte-identical to the export (#884).
+        """
+        staged = _StagedPackage(plan=plan)
+        diag_dir = diagnostics_dir(self.data_dir)
+        included: list[str] = staged.included
+        skipped: list[str] = staged.skipped
+        members: dict[str, dict[str, Any]] = staged.meta
+        written = 0
 
         def _fits(data: bytes) -> bool:
             return len(data) <= plan.byte_budget - written
 
-        def _write_log(name: str, data: bytes) -> None:
+        def _mark(
+            name: str,
+            data: bytes,
+            meta: dict[str, Any],
+            category: PackageCategory,
+            counts: dict[str, int],
+        ) -> None:
             nonlocal written
+            staged.members[name] = data
+            written += len(data)
+            meta.update(
+                {
+                    'original_bytes': meta.get('original_bytes', len(data)),
+                    'included_bytes': len(data),
+                    'sha256': sha256(data).hexdigest(),
+                    'classification': CATEGORY_CLASSIFICATION[category].value,
+                    'redactions': dict(counts),
+                }
+            )
+            members[name] = meta
+            included.append(name)
+
+        def _write_log(
+            name: str, data: bytes, category: PackageCategory = PackageCategory.LOGS
+        ) -> None:
+            counts: dict[str, int] = {}
+            original = len(data)
+            data = _redact_text(
+                data.decode('utf-8', errors='replace'), counts
+            ).encode('utf-8')
             remaining = plan.byte_budget - written
             if remaining <= 0:
                 members[name] = {
                     'status': 'skipped',
-                    'original_bytes': len(data),
+                    'original_bytes': original,
                     'included_bytes': 0,
+                    'classification': CATEGORY_CLASSIFICATION[category].value,
+                    'redactions': dict(counts),
                 }
                 skipped.append(name)
                 return
             if len(data) > remaining:
                 kept = data[-remaining:]
-                archive.writestr(name, kept)
-                written += len(kept)
-                members[name] = {
-                    'status': 'truncated',
-                    'original_bytes': len(data),
-                    'included_bytes': len(kept),
-                }
+                _mark(
+                    name, kept,
+                    {'status': 'truncated', 'original_bytes': original},
+                    category, counts,
+                )
             else:
-                archive.writestr(name, data)
-                written += len(data)
-                members[name] = {
-                    'status': 'complete',
-                    'original_bytes': len(data),
-                    'included_bytes': len(data),
-                }
-            included.append(name)
+                _mark(
+                    name, data,
+                    {'status': 'complete', 'original_bytes': original},
+                    category, counts,
+                )
 
-        def _write_json(name: str, payload: Any) -> None:
+        def _write_json(
+            name: str,
+            payload: Any,
+            category: PackageCategory,
+        ) -> None:
             """Write structured JSON or skip it — never byte-cut (#749).
 
-            List payloads degrade semantically (most recent entries kept,
-            still valid JSON); everything else is skipped whole when it
-            does not fit the remaining payload budget.
+            Payload is redacted BEFORE serialization; list payloads degrade
+            semantically (most recent entries kept, still valid JSON);
+            everything else is skipped whole when it does not fit the
+            remaining payload budget.
             """
-            nonlocal written
+            counts: dict[str, int] = {}
+            payload = redact_support_value(payload, counts)
             data = json.dumps(
                 payload, ensure_ascii=False, sort_keys=True, default=str
             ).encode('utf-8')
             if _fits(data):
-                archive.writestr(name, data)
-                written += len(data)
-                members[name] = {
-                    'status': 'complete',
-                    'original_bytes': len(data),
-                    'included_bytes': len(data),
-                }
-                included.append(name)
+                _mark(name, data, {'status': 'complete'}, category, counts)
                 return
             if isinstance(payload, list):
                 # binary-search the largest tail that still fits
@@ -924,100 +1179,212 @@ class DiagnosticPackageBuilder:
                     else:
                         hi = mid - 1
                 if best is not None and best_records > 0:
-                    archive.writestr(name, best)
-                    written += len(best)
-                    members[name] = {
-                        'status': 'truncated',
-                        'original_bytes': len(data),
-                        'included_bytes': len(best),
-                        'original_records': len(payload),
-                        'included_records': best_records,
-                    }
-                    included.append(name)
+                    _mark(
+                        name, best,
+                        {
+                            'status': 'truncated',
+                            'original_bytes': len(data),
+                            'original_records': len(payload),
+                            'included_records': best_records,
+                        },
+                        category, counts,
+                    )
                     return
             members[name] = {
                 'status': 'skipped',
                 'original_bytes': len(data),
                 'included_bytes': 0,
+                'classification': CATEGORY_CLASSIFICATION[category].value,
+                'redactions': dict(counts),
             }
             skipped.append(name)
 
-        with _staged_zip_archive(destination) as archive:
-            if PackageCategory.LOGS in plan.categories and diag_dir.exists():
-                for log_file in sorted(diag_dir.glob(f'{LOG_FILENAME}*')):
-                    try:
-                        _write_log(
-                            f'logs/{log_file.name}',
-                            read_file_bounded(
-                                log_file, 8 * MAX_LOG_BYTES, label='log file'
-                            ),
-                        )
-                    except IngressTooLargeError:
-                        members[f'logs/{log_file.name}'] = {
-                            'status': 'skipped',
-                            'reason': 'too large',
-                        }
-                        skipped.append(f'logs/{log_file.name}')
-                    except OSError:
-                        members[f'logs/{log_file.name}'] = {
-                            'status': 'skipped',
-                            'reason': 'unreadable',
-                        }
-                        skipped.append(f'logs/{log_file.name}')
+        if PackageCategory.LOGS in plan.categories and diag_dir.exists():
+            for log_file in sorted(diag_dir.glob(f'{LOG_FILENAME}*')):
+                try:
+                    _write_log(
+                        f'logs/{log_file.name}',
+                        read_file_bounded(
+                            log_file, 8 * MAX_LOG_BYTES, label='log file'
+                        ),
+                    )
+                except IngressTooLargeError:
+                    members[f'logs/{log_file.name}'] = {
+                        'status': 'skipped',
+                        'reason': 'too large',
+                        'classification': FieldClassification.SAFE_DIAGNOSTIC.value,
+                    }
+                    skipped.append(f'logs/{log_file.name}')
+                except OSError:
+                    members[f'logs/{log_file.name}'] = {
+                        'status': 'skipped',
+                        'reason': 'unreadable',
+                        'classification': FieldClassification.SAFE_DIAGNOSTIC.value,
+                    }
+                    skipped.append(f'logs/{log_file.name}')
 
-            identity = build_identity()
-            if PackageCategory.BUILD_IDENTITY in plan.categories:
-                _write_json(
-                    'build_identity.json',
-                    {
-                        'version': identity.version,
-                        'python': identity.python,
-                        'platform': identity.platform,
-                        'frozen': identity.frozen,
-                        'qt': identity.qt,
-                    },
+        identity = build_identity()
+        if PackageCategory.BUILD_IDENTITY in plan.categories:
+            _write_json(
+                'build_identity.json',
+                {
+                    'version': identity.version,
+                    'python': identity.python,
+                    'platform': identity.platform,
+                    'frozen': identity.frozen,
+                    'qt': identity.qt,
+                },
+                PackageCategory.BUILD_IDENTITY,
+            )
+        if PackageCategory.SCHEMA_SUMMARY in plan.categories:
+            _write_json(
+                'schema_summary.json',
+                {
+                    'schema_version': _schema_version(),
+                    'app_version': __version__,
+                    **_store_schema_summary(self.data_dir),
+                },
+                PackageCategory.SCHEMA_SUMMARY,
+            )
+        if PackageCategory.LAUNCH_METADATA in plan.categories:
+            self._write_launch_metadata(
+                plan,
+                lambda name, payload: _write_json(
+                    name, payload, PackageCategory.LAUNCH_METADATA
+                ),
+                members,
+                skipped,
+            )
+        if (
+            PackageCategory.HEALTH_RESULTS in plan.categories
+            and self.health_report
+        ):
+            _write_json(
+                'health_checks.json',
+                self.health_report.model_dump(mode='json'),
+                PackageCategory.HEALTH_RESULTS,
+            )
+        if PackageCategory.OPERATION_FAILURES in plan.categories:
+            _write_json(
+                'operation_failures.json',
+                list(self.operation_failures),
+                PackageCategory.OPERATION_FAILURES,
+            )
+        if PackageCategory.CAPABILITY_INVENTORY in plan.categories:
+            _write_json(
+                'capability_inventory.json',
+                self.capability_inventory,
+                PackageCategory.CAPABILITY_INVENTORY,
+            )
+        if PackageCategory.PREFERENCES_SUMMARY in plan.categories:
+            _write_json(
+                'preferences_summary.json',
+                self._sanitized_preferences(),
+                PackageCategory.PREFERENCES_SUMMARY,
+            )
+        if plan.include_project_ids and self.project_ids:
+            _write_json(
+                'project_ids.json',
+                self.project_ids,
+                PackageCategory.PROJECT_IDS,
+            )
+
+        # #884 context collectors — each wrapped so a crashed probe is a
+        # recorded collection error, never a failed export.
+        for category in _CONTEXT_CATEGORIES:
+            if category not in plan.categories:
+                continue
+            provider = self.context_providers.get(category)
+            if provider is None:
+                continue
+            try:
+                payload = provider()
+            except Exception as exc:  # error-boundary: probe isolation
+                staged.collection_errors.append(
+                    f'{category.value}: {type(exc).__name__}'
                 )
-            if PackageCategory.SCHEMA_SUMMARY in plan.categories:
-                _write_json(
-                    'schema_summary.json',
-                    {
-                        'schema_version': _schema_version(),
-                        'app_version': __version__,
-                        **_store_schema_summary(self.data_dir),
-                    },
-                )
-            if PackageCategory.LAUNCH_METADATA in plan.categories:
-                self._write_launch_metadata(
-                    plan, _write_json, members, skipped
-                )
-            if PackageCategory.HEALTH_RESULTS in plan.categories and self.health_report:
-                _write_json(
-                    'health_checks.json',
-                    self.health_report.model_dump(mode='json'),
-                )
-            if PackageCategory.OPERATION_FAILURES in plan.categories:
-                _write_json(
-                    'operation_failures.json',
-                    list(self.operation_failures),
-                )
-            if PackageCategory.CAPABILITY_INVENTORY in plan.categories:
-                _write_json('capability_inventory.json', self.capability_inventory)
-            if PackageCategory.PREFERENCES_SUMMARY in plan.categories:
-                _write_json('preferences_summary.json', self._sanitized_preferences())
-            if plan.include_project_ids and self.project_ids:
-                _write_json('project_ids.json', self.project_ids)
+                continue
+            if payload is None:
+                continue
+            _write_json(f'context/{category.value}.json', payload, category)
+
+        staged.written = written
+        return staged
+
+    def preview(self, plan: PackagePlan) -> BundlePreview:
+        """The exact export content before anything is written (#884)."""
+        staged = self._stage(plan)
+        member_previews = tuple(
+            BundleMemberPreview(
+                name=name,
+                classification=FieldClassification(
+                    meta.get(
+                        'classification',
+                        FieldClassification.SAFE_DIAGNOSTIC.value,
+                    )
+                ),
+                status=meta['status'],
+                included_bytes=meta.get('included_bytes', 0),
+                sha256=meta.get('sha256'),
+                redactions=meta.get('redactions', {}),
+                detail=str(meta.get('reason', '')),
+            )
+            for name, meta in staged.meta.items()
+        )
+        digest = sha256(
+            '\n'.join(
+                f'{name}:{staged.meta[name].get("sha256", "-")}'
+                for name in sorted(staged.meta)
+            ).encode('utf-8')
+        ).hexdigest()
+        return BundlePreview(
+            schema_version=SUPPORT_SCHEMA_VERSION,
+            members=member_previews,
+            categories=plan.categories,
+            excluded_categories=tuple(
+                c for c in PackageCategory if c not in plan.categories
+            ),
+            exclusions=plan.exclusions,
+            collection_errors=tuple(staged.collection_errors),
+            byte_budget=plan.byte_budget,
+            included_bytes=staged.written,
+            preview_sha256=digest,
+        )
+
+    def build(self, destination: Path, plan: PackagePlan) -> PackageResult:
+        destination = Path(destination)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        staged = self._stage(plan)
+        included = staged.included
+        skipped = staged.skipped
+        members = staged.meta
+        written = staged.written
+
+        with _staged_zip_archive(destination) as archive:
+            for name, data in staged.members.items():
+                # Fixed timestamp: identical member bytes produce an
+                # identical archive (#884 determinism requirement).
+                info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, data)
 
             manifest = {
                 'package': PACKAGE_PREFIX,
                 'schema_version': SUPPORT_SCHEMA_VERSION,
                 'created_at': _utc_now(),
                 'categories': [c.value for c in plan.categories],
+                'excluded_categories': [
+                    c.value
+                    for c in PackageCategory
+                    if c not in plan.categories
+                ],
                 'exclusions': list(plan.exclusions),
                 'not_a_backup': True,
                 'not_a_project_export': True,
                 'included_files': included,
                 'skipped_files': skipped,
                 'members': members,
+                'collection_errors': staged.collection_errors,
                 'bytes': written,
                 'byte_budget': plan.byte_budget,
                 # The budget bounds member payload bytes, not the final
@@ -1025,10 +1392,17 @@ class DiagnosticPackageBuilder:
                 # outside it. ``archive_bytes`` (filled post-close) is the
                 # authoritative produced size (#749).
                 'budget_scope': 'member_payload_bytes',
+                'integrity': {
+                    name: meta['sha256']
+                    for name, meta in members.items()
+                    if 'sha256' in meta
+                },
             }
-            archive.writestr(
-                'manifest.json', json.dumps(manifest, indent=2)
+            info = zipfile.ZipInfo(
+                'manifest.json', date_time=(1980, 1, 1, 0, 0, 0)
             )
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, json.dumps(manifest, indent=2))
 
         archive_bytes = destination.stat().st_size
         return PackageResult(
@@ -1064,6 +1438,7 @@ class DiagnosticPackageBuilder:
             members[name] = {
                 'status': 'skipped',
                 'reason': 'unreadable',
+                'classification': FieldClassification.SAFE_DIAGNOSTIC.value,
             }
             skipped.append(name)
             return
@@ -1071,6 +1446,7 @@ class DiagnosticPackageBuilder:
             members[name] = {
                 'status': 'skipped',
                 'reason': 'unreadable',
+                'classification': FieldClassification.SAFE_DIAGNOSTIC.value,
             }
             skipped.append(name)
             return
@@ -1079,6 +1455,7 @@ class DiagnosticPackageBuilder:
             members[name] = {
                 'status': 'skipped',
                 'reason': 'unreadable',
+                'classification': FieldClassification.SAFE_DIAGNOSTIC.value,
             }
             skipped.append(name)
             return
@@ -1118,9 +1495,13 @@ def package_filename(now: datetime | None = None) -> str:
 
 
 __all__ = [
+    'BundleMemberPreview',
+    'BundlePreview',
+    'CATEGORY_CLASSIFICATION',
     'DATABASE_NAME',
     'DiagnosticPackageBuilder',
     'EnvironmentSummary',
+    'FieldClassification',
     'HealthCategory',
     'HealthCheckResult',
     'HealthReport',
@@ -1137,5 +1518,6 @@ __all__ = [
     'failure_correlation_id',
     'package_filename',
     'previous_session_unexpected_end',
+    'redact_support_value',
     'run_health_checks',
 ]

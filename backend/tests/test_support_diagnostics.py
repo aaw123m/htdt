@@ -182,7 +182,8 @@ def test_package_build_and_manifest(tmp_path) -> None:
         prefs = json.loads(archive.read('preferences_summary.json'))
         assert prefs['general.theme'] == 'dark'
         assert prefs['files.export_dir'] == '<set>'
-        assert prefs['integrations.rew_api_key'] == '<excluded>'
+        # #884 write-time redaction now marks secret-shaped values
+        assert prefs['integrations.rew_api_key'] == '<redacted>'
 
 
 def test_package_excludes_project_ids_by_default(tmp_path) -> None:

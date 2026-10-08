@@ -194,6 +194,7 @@ from .workspace_dirty_state import (
 from .system_expansion_workflow import SystemExpansionWorkflowService
 from .support_diagnostics import (
     DiagnosticPackageBuilder,
+    PackageCategory,
     package_filename,
     run_health_checks,
 )
@@ -2906,20 +2907,21 @@ class WorkflowApplicationComposition:
         """Build the bounded support bundle via DiagnosticPackageBuilder (#604).
 
         Honors the ``diagnostics.include_project_ids`` preference — project
-        ids only enter the archive when the user opted in.
+        ids only enter the archive when the user opted in. #884: the exact
+        export content is previewed (per-member classification, size,
+        sha256, redaction counts) BEFORE a destination is chosen; the
+        preview is produced by the same staging pass as the export, so the
+        two can never disagree.
         """
-        selected, _filter = file_dialog_memory.get_save_file_name(
-            parent,
-            "診断パッケージを保存",
-            'diagnostics.export_package',
-            "ZIP アーカイブ (*.zip)",
-            suggested_name=package_filename(),
-            default_dir=str(self.data_dir),
+        from .support_bundle_collectors import (
+            collect_audio_context,
+            collect_gpu_context,
+            collect_release_evidence,
+            collect_runtime_context,
+            collect_workflow_state,
         )
-        if not selected:
-            return None
-        if not selected.lower().endswith('.zip'):
-            selected += '.zip'
+        from .support_bundle_dialog import SupportBundlePreviewDialog
+
         project_ids = {
             entry.project_id: entry.display_name
             for entry in self.project_library.list_projects()
@@ -2940,13 +2942,57 @@ class WorkflowApplicationComposition:
             operation_failures=tuple(failures.values()),
             preferences_summary=dict(self.preferences.snapshot().values),
             project_ids=project_ids,
+            context_providers={
+                PackageCategory.RUNTIME_CONTEXT: collect_runtime_context,
+                PackageCategory.GPU_CONTEXT: collect_gpu_context,
+                PackageCategory.AUDIO_CONTEXT: collect_audio_context,
+                PackageCategory.WORKFLOW_STATE: lambda: collect_workflow_state(
+                    current_workspace_id=(
+                        self.shell.router.current_workspace_id
+                    ),
+                ),
+                PackageCategory.RELEASE_EVIDENCE: (
+                    lambda: collect_release_evidence(self.data_dir)
+                ),
+            },
         )
-        plan = builder.plan(
-            include_project_ids=bool(
-                self.preferences.get('diagnostics.include_project_ids')
+
+        def _plan(include_project_ids: bool):
+            return builder.plan(include_project_ids=include_project_ids)
+
+        initial_opt_in = bool(
+            self.preferences.get('diagnostics.include_project_ids')
+        )
+        dialog = SupportBundlePreviewDialog(
+            builder.preview(_plan(initial_opt_in)),
+            include_project_ids=initial_opt_in,
+            project_ids_available=bool(project_ids),
+            restage=lambda include: builder.preview(_plan(include)),
+            parent=parent,
+        )
+        if dialog.exec() != SupportBundlePreviewDialog.DialogCode.Accepted:
+            return None
+        # Persist the operator's opt-in choice so it stays sticky.
+        if dialog.include_project_ids != initial_opt_in:
+            self.preferences.set(
+                'diagnostics.include_project_ids', dialog.include_project_ids
             )
+
+        selected, _filter = file_dialog_memory.get_save_file_name(
+            parent,
+            "診断パッケージを保存",
+            'diagnostics.export_package',
+            "ZIP アーカイブ (*.zip)",
+            suggested_name=package_filename(),
+            default_dir=str(self.data_dir),
         )
-        result = builder.build(Path(selected), plan)
+        if not selected:
+            return None
+        if not selected.lower().endswith('.zip'):
+            selected += '.zip'
+        result = builder.build(
+            Path(selected), _plan(dialog.include_project_ids)
+        )
         return str(result.path)
 
     def _open_commissioning_wizard(self) -> None:
