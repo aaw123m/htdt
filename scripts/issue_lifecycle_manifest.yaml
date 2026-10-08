@@ -344,6 +344,7 @@ entries:
   landed:
     prs:
     - 896
+    - 1028
     commits: []
   remaining_gates:
   - kind: physical
@@ -674,7 +675,7 @@ entries:
 - issue: 946
   lifecycle: acceptance_remaining
   landed:
-    prs: []
+    prs: [1028]
     commits: []
   remaining_gates:
   - kind: manual
