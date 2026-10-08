@@ -880,3 +880,16 @@ entries:
   - docs/issues/issue-997-deliverables-dialog.md
   - backend/tests/test_issue_997_deliverables_dialog.py
   close_when_gates_clear: true
+
+- issue: 1023
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1048]
+    commits: [30042848, a2a1f225]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 複数実プロジェクト環境での表示範囲切替・他案件リンク遷移の実機確認 (子が実GUI 9/9・クラッシュ修正込みで検証済)'
+  evidence_refs:
+  - docs/issues/issue-1023-activity-scope.md
+  - backend/tests/test_issue_1023_activity_scope.py
+  close_when_gates_clear: true
