@@ -25,8 +25,29 @@ from .cad_display_labels import revision_display_label
 from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .cad_search import search_spec_current_working
+from .cad_authority_dependency_repository import (
+    CadAuthorityDependencyRepository,
+)
+from .cad_authority_resolver import AuthorityRef
+from .cad_campaign_execution_repository import (
+    CadCampaignExecutionRepository,
+)
+from .cad_commissioning_orchestrator_repository import (
+    CadCommissioningOrchestratorRepository,
+)
+from .cad_dependency_impact import WatchedArtifact
+from .cad_evidence_invalidation import (
+    QueueItemUnavailableError,
+    RevalidationQueueItem,
+    compose_revalidation_queue,
+)
+from .cad_evidence_invalidation_repository import (
+    CadEvidenceInvalidationRepository,
+)
+from .cad_prediction_repository import CadPredictionRepository
 from .comparison_context_strip import ComparisonContextStrip
 from .decision_brief_panel import DecisionBriefPanel
+from .revalidation_queue_panel import RevalidationQueuePanel
 from .developer_mode import developer_mode_enabled
 from .intervention_planner import InterventionPlanner
 from .intervention_planner_panel import InterventionPlannerPanel
@@ -525,6 +546,194 @@ class OptimizationWorkflowWorkspace(QWidget):
             self._set_status(
                 "測定ワークスペースへ移動できませんでした。"
             )
+
+    # REV72: #964 change-diff evidence invalidation wiring -------------
+
+    def _revalidation_repository(self) -> CadEvidenceInvalidationRepository:
+        repository = getattr(self, "_rev_repo", None)
+        if repository is None:
+            repository = CadEvidenceInvalidationRepository(
+                self.controller.repository
+            )
+            self._rev_repo = repository
+        return repository
+
+    def _dependency_repository(self) -> CadAuthorityDependencyRepository:
+        repository = getattr(self, "_dep_repo", None)
+        if repository is None:
+            repository = CadAuthorityDependencyRepository(
+                self.controller.repository
+            )
+            self._dep_repo = repository
+        return repository
+
+    def _revalidation_watched_artifacts(
+        self, document_id: str
+    ) -> tuple[WatchedArtifact, ...]:
+        """The same watched set the Overview impact notices report on."""
+        artifacts: list[WatchedArtifact] = []
+        for result in CadPredictionRepository(
+            self.controller.repository
+        ).list_results(document_id):
+            if result.status != 'completed':
+                continue
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='prediction',
+                    artifact_id=result.prediction_id,
+                    bound_revision_id=result.scene_revision_id,
+                    bound_content_hash=result.scene_content_hash,
+                    watched_axes=frozenset(
+                        {
+                            'geometry',
+                            'source_equipment',
+                            'material_boundary',
+                            'operating_state',
+                            'solver_provider',
+                        }
+                    ),
+                )
+            )
+        for spec in self.controller.search_repository.list_specs(
+            document_id
+        ):
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='optimization_run',
+                    artifact_id=spec.search_spec_id,
+                    bound_revision_id=spec.scene_revision_id,
+                    bound_content_hash=spec.scene_content_hash,
+                    watched_axes=frozenset(
+                        {
+                            'geometry',
+                            'source_equipment',
+                            'material_boundary',
+                            'target_design',
+                        }
+                    ),
+                )
+            )
+        for measurement in (
+            self.controller.measurement_repository.list_measurements(
+                document_id
+            )
+        ):
+            artifacts.append(
+                WatchedArtifact(
+                    artifact_kind='measured_dataset',
+                    artifact_id=measurement.measurement_id,
+                    bound_revision_id=measurement.scene_revision_id,
+                    bound_content_hash=measurement.scene_content_hash,
+                    watched_axes=frozenset({'measurement_context'}),
+                )
+            )
+        return tuple(artifacts)
+
+    def _revalidation_prepared_refs(
+        self, document_id: str
+    ) -> dict[tuple[str, str], tuple[AuthorityRef, ...]]:
+        """Prepared route args: remeasure items pin the newest #956
+        campaign position plan; re-commission items pin the newest #946
+        orchestration run."""
+        prepared: dict[tuple[str, str], tuple[AuthorityRef, ...]] = {}
+        campaign_plans = CadCampaignExecutionRepository(
+            self.controller.repository
+        ).list_plans(document_id)
+        if campaign_plans:
+            plan = campaign_plans[-1]
+            ref = AuthorityRef(
+                kind='campaign_execution_plan',
+                ref_id=plan.plan_id,
+                ref_sha256=plan.plan_sha256,
+            )
+            for kind in ('measured_dataset', 'measurement_plan'):
+                prepared[(kind, '*')] = (ref,)
+        commissioning_runs = CadCommissioningOrchestratorRepository(
+            self.controller.repository
+        ).list_runs(document_id)
+        if commissioning_runs:
+            run = commissioning_runs[-1]
+            ref = AuthorityRef(
+                kind='commissioning_orchestration_run',
+                ref_id=run.run_id,
+                ref_sha256=run.run_sha256,
+            )
+            for kind in ('calibration_plan', 'commissioning_plan'):
+                prepared[(kind, '*')] = (ref,)
+        return prepared
+
+    def _compose_revalidation_queue(self):
+        """queue_supplier for the panel: compose + persist the queue for
+        head-vs-parent. Returns the bundle or None when no parent
+        revision exists."""
+        repository = self.controller.repository
+        document_id = self.system_expansion.document_id
+        head = repository.current_head(document_id)
+        if head is None or head.parent_revision_id is None:
+            return None
+        parent = repository.get(head.parent_revision_id)
+        if parent is None:
+            return None
+        dependency_repository = self._dependency_repository()
+        profiles = dependency_repository.list_rule_profiles(document_id)
+        return compose_revalidation_queue(
+            document_id=document_id,
+            from_revision=parent,
+            to_revision=head,
+            watched_artifacts=self._revalidation_watched_artifacts(
+                document_id
+            ),
+            edges=dependency_repository.list_edges(document_id),
+            rule_profile=profiles[-1] if profiles else None,
+            prepared_refs=self._revalidation_prepared_refs(document_id),
+            dependency_repository=dependency_repository,
+            revalidation_repository=self._revalidation_repository(),
+        )
+
+    def _revalidation_software_runner(
+        self, item: RevalidationQueueItem
+    ) -> AuthorityRef | None:
+        """Honest software executor for the verify operation.
+
+        The comparison page can genuinely re-derive the Decision Brief
+        for comparison/optimization evidence; solver predictions and
+        re-imports stay operator-run on their own surfaces (the item's
+        route names where), so those honestly report unavailable.
+        """
+        if item.route == 'evidence_re_evaluate' and item.artifact_kind in (
+            'design_comparison',
+            'optimization_run',
+            'decision_brief',
+        ):
+            brief = self.decision_brief_panel.recompute_brief()
+            if brief is None:
+                raise QueueItemUnavailableError(
+                    '比較セットがないためブリーフを再計算できません'
+                )
+            return AuthorityRef(
+                kind='decision_brief',
+                ref_id=brief.brief_id,
+                ref_sha256=brief.brief_sha256,
+            )
+        raise QueueItemUnavailableError(
+            'この項目は各画面からの実行が必要です'
+        )
+
+    def _revalidation_navigate(self, route: str) -> None:
+        destinations = {
+            'prediction_recompute': WorkspaceDeepLink(
+                WorkspaceId.ROOM, 'prediction'
+            ),
+            'measurement_position_plan': WorkspaceDeepLink(
+                WorkspaceId.MEASUREMENT, 'campaign'
+            ),
+            'commissioning_authorization': WorkspaceDeepLink(
+                WorkspaceId.MEASUREMENT, 'commissioning'
+            ),
+        }
+        link = destinations.get(route)
+        if link is not None and self._on_navigate is not None:
+            self._on_navigate(link)
 
     def _show_system_variant_robustness(self, variant_id: str) -> None:
         self._system_variant_robustness_variant_id = variant_id
@@ -1324,6 +1533,18 @@ class OptimizationWorkflowWorkspace(QWidget):
             on_status=self._set_status,
         )
         layout.addWidget(self.decision_brief_panel)
+
+        # REV72: #964 change-diff evidence invalidation — sealed
+        # revalidation queue + verify operation on the same page.
+        self.revalidation_queue_panel = RevalidationQueuePanel(
+            self.system_expansion.scene_repository,
+            self.system_expansion.document_id,
+            queue_supplier=self._compose_revalidation_queue,
+            software_runner=self._revalidation_software_runner,
+            on_navigate=self._revalidation_navigate,
+            on_status=self._set_status,
+        )
+        layout.addWidget(self.revalidation_queue_panel)
         return _scroll_page(body)
 
     def _build_robustness_page(self, viewport_widget: QWidget) -> QWidget:

@@ -4467,6 +4467,85 @@ def revalidation_plan_line(plan) -> str:
     return '再検証計画: ' + ' — '.join(parts)
 
 
+# REV72: #964 変更差分による証拠失効 — 再検証キューの語彙。
+# 陳腐バッジは既存の staleness_* ラベルを再利用する。
+
+_QUEUE_ACTION_LABELS = {
+    'recompute': '再計算',
+    're_evaluate': '再評価',
+    're_import': '再読み込み',
+    'remeasure': '再測定',
+    're_commission': '再試運転・再校正',
+    'review': 'レビュー必要',
+}
+
+_QUEUE_STATE_LABELS = {
+    'stale': '陳腐',
+    'uncertain': '影響範囲不明',
+}
+
+_QUEUE_ROUTE_LABELS = {
+    'prediction_recompute': '予測の再計算へ',
+    'evidence_re_evaluate': '証拠の再評価へ',
+    'source_reimport': 'ソース再読み込みへ',
+    'measurement_position_plan': '測定ポジション計画へ',
+    'commissioning_authorization': '試運転承認へ',
+    'evidence_review': '証拠レビューへ',
+}
+
+_QUEUE_ITEM_STATUS_LABELS = {
+    'completed': '完了',
+    'failed': '失敗',
+    'skipped': 'スキップ',
+    'unavailable': '実行経路未接続',
+    'awaiting_physical': '物理操作の確認待ち',
+    'awaiting_review': 'レビュー待ち',
+}
+
+_QUEUE_RUN_VERDICT_LABELS = {
+    'already_current': 'すべて最新',
+    'software_complete': 'ソフトウェア処理完了',
+    'awaiting_human': '人手操作待ち',
+    'drift_detected': '処理中に変更を検出（中止）',
+    'failed': '実行失敗',
+}
+
+
+def queue_action_label(action: str) -> str:
+    return _QUEUE_ACTION_LABELS.get(action, action)
+
+
+def queue_state_label(state: str) -> str:
+    return _QUEUE_STATE_LABELS.get(state, state)
+
+
+def queue_route_label(route: str) -> str:
+    return _QUEUE_ROUTE_LABELS.get(route, route)
+
+
+def queue_item_status_label(status: str) -> str:
+    return _QUEUE_ITEM_STATUS_LABELS.get(status, status)
+
+
+def queue_run_verdict_label(verdict: str) -> str:
+    return _QUEUE_RUN_VERDICT_LABELS.get(verdict, verdict)
+
+
+def revalidation_queue_item_line(item) -> str:
+    """One JA line for a revalidation queue item (#964): the stale
+    reason and the next single operation."""
+    name = item.display_name or item.subject_ref.ref_id
+    return (
+        '{0}「{1}」— {2} — {3} → {4}'.format(
+            queue_state_label(item.state),
+            name,
+            queue_action_label(item.action),
+            item.reason,
+            queue_route_label(item.route),
+        )
+    )
+
+
 _ATT_KIND_LABELS = {
     'hash_only': 'ハッシュのみ',
     'mac_authenticated': 'MAC認証',

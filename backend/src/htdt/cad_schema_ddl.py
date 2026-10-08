@@ -9227,6 +9227,45 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_dbrf_revision ON cad_decision_briefs(scene_revision_id, seq ASC)
     """
     ,
+    # REV72: #964 change-diff driven evidence invalidation — sealed change
+    # diff records, executable revalidation queues, verify-impacts run
+    # records with per-item outcomes and head-pin drift verdicts.
+    """
+        CREATE TABLE IF NOT EXISTS cad_change_diff_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, diff_id TEXT NOT NULL UNIQUE, diff_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, from_revision_id TEXT NOT NULL, to_revision_id TEXT NOT NULL, to_content_hash TEXT NOT NULL, recorded_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_chdiff_doc ON cad_change_diff_records(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_chdiff_head ON cad_change_diff_records(to_revision_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_revalidation_queues ( seq INTEGER PRIMARY KEY AUTOINCREMENT, queue_id TEXT NOT NULL UNIQUE, queue_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, diff_ref_id TEXT NOT NULL, to_revision_id TEXT NOT NULL, item_count INTEGER NOT NULL, software_count INTEGER NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_revqueue_doc ON cad_revalidation_queues(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_revqueue_head ON cad_revalidation_queues(to_revision_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_revalidation_queue_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, queue_ref_id TEXT NOT NULL, verdict TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_revrun_doc ON cad_revalidation_queue_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_revrun_queue ON cad_revalidation_queue_runs(queue_ref_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10425,4 +10464,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_reference_theater_runs',
     # REV70: #937 Decision Brief — sealed next-action recommendation authority.
     'cad_decision_briefs',
+    # REV72: #964 change-diff evidence invalidation authority.
+    'cad_change_diff_records',
+    'cad_revalidation_queues',
+    'cad_revalidation_queue_runs',
 )

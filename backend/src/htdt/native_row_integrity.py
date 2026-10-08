@@ -10284,6 +10284,52 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV72: #964 change-diff evidence invalidation authority.
+    'cad_change_diff_records': (
+        'payload_json',
+        (
+            _b('diff_id', 'diff_id'),
+            _b('diff_sha256', 'diff_sha256'),
+            _b('document_id', 'document_id'),
+            _b('from_revision_id', 'from_revision_id'),
+            _b('to_revision_id', 'to_revision_id'),
+            _b('to_content_hash', 'to_content_hash'),
+            _b('recorded_at_utc', 'recorded_at_utc'),
+        ),
+        (),
+    ),
+    'cad_revalidation_queues': (
+        'payload_json',
+        (
+            _b('queue_id', 'queue_id'),
+            _b('queue_sha256', 'queue_sha256'),
+            _b('document_id', 'document_id'),
+            _b('diff_ref_id', 'diff_ref', 'ref_id'),
+            _b('to_revision_id', 'to_revision_id'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (
+            _list_count('cad_revalidation_queues', 'item_count', 'items'),
+            _list_count(
+                'cad_revalidation_queues',
+                'software_count',
+                'software_sequence',
+            ),
+        ),
+    ),
+    'cad_revalidation_queue_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('queue_ref_id', 'queue_ref', 'ref_id'),
+            _b('verdict', 'verdict'),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

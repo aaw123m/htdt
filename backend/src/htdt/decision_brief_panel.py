@@ -303,7 +303,12 @@ class DecisionBriefPanel(QFrame):
         sets = self._comparison_repository.latest_sets(self._document_id)
         return sets[-1] if sets else None
 
-    def _rebuild(self) -> None:
+    def recompute_brief(self) -> CadDecisionBrief | None:
+        """Public compose+save used by the #964 revalidation runner —
+        returns the persisted brief (or None when it cannot compose)."""
+        return self._rebuild()
+
+    def _rebuild(self) -> CadDecisionBrief | None:
         """Compose + persist a brief from the newest comparison set.
 
         The baseline is the alternative pinned to the live scene head;
@@ -378,9 +383,10 @@ class DecisionBriefPanel(QFrame):
                 f'決定ブリーフを作成できません: '
                 f'{operation_error_message(exc)}'
             )
-            return
+            return None
         self._set_status('決定ブリーフを保存しました')
         self.refresh()
+        return brief
 
 
 def _reverify_recommendation(label: str) -> 'DecisionRecommendation':

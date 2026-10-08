@@ -1576,6 +1576,12 @@ class _RepositoryChain:
             )
 
             return CadDecisionBriefRepository(scene)
+        if name == 'evidence_invalidation':
+            from .cad_evidence_invalidation_repository import (
+                CadEvidenceInvalidationRepository,
+            )
+
+            return CadEvidenceInvalidationRepository(scene)
         raise KeyError(name)
 
 
@@ -7936,6 +7942,26 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_device_rebinding_decisions',
         ('decision_id',),
         _get('device_discovery', 'get_rebinding_decision'),
+    ),
+
+    # REV72: #964 change-diff evidence invalidation authority.
+    _ReplayProbe(
+        'change_diff_record',
+        'cad_change_diff_records',
+        ('diff_id',),
+        _get('evidence_invalidation', 'get_diff_record'),
+    ),
+    _ReplayProbe(
+        'revalidation_queue',
+        'cad_revalidation_queues',
+        ('queue_id',),
+        _get('evidence_invalidation', 'get_queue'),
+    ),
+    _ReplayProbe(
+        'revalidation_queue_run',
+        'cad_revalidation_queue_runs',
+        ('run_id',),
+        _get('evidence_invalidation', 'get_run'),
     ),
 
 )
