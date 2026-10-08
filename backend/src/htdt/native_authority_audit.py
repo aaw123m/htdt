@@ -1546,6 +1546,12 @@ class _RepositoryChain:
             )
 
             return CadApplicationUpdateRepository(scene)
+        if name == 'headless_cli':
+            from .cad_headless_cli_repository import (
+                CadHeadlessRunRepository,
+            )
+
+            return CadHeadlessRunRepository(scene)
         raise KeyError(name)
 
 
@@ -7675,6 +7681,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_update_outcomes',
         ('outcome_id',),
         _get('application_update', 'get_outcome'),
+    ),
+    # REV69: #888 headless CLI — sealed per-invocation run records for
+    # the automation lane (tool/spec/environment pins live in payload).
+    _ReplayProbe(
+        'headless_run_record',
+        'cad_headless_run_records',
+        ('run_record_id',),
+        _get('headless_cli', 'get_run'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

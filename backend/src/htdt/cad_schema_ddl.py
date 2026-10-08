@@ -9143,6 +9143,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_uout_session ON cad_update_outcomes(session_ref_id, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_headless_run_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_record_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, verb TEXT NOT NULL, outcome TEXT NOT NULL, dry_run INTEGER NOT NULL, spec_sha256 TEXT NOT NULL, tool_commit_sha TEXT, backend_id TEXT, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_hrr_doc ON cad_headless_run_records(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_hrr_verb ON cad_headless_run_records(verb, seq ASC)
+    """
+    ,
 )
 
 
@@ -10329,4 +10341,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_update_health_reports',
     'cad_update_authorizations',
     'cad_update_outcomes',
+    # REV69: #888 headless CLI automation authority.
+    'cad_headless_run_records',
 )

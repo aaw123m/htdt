@@ -9713,6 +9713,24 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV69: #888 headless CLI automation authority.
+    'cad_headless_run_records': (
+        'payload_json',
+        (
+            _b('run_record_id', 'run_record_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('verb', 'verb'),
+            _b('outcome', 'outcome'),
+            _b('dry_run', 'dry_run'),
+            _b('spec_sha256', 'spec_sha256'),
+            _b('tool_commit_sha', 'tool_commit_sha', optional=True),
+            _b('backend_id', 'backend_id', optional=True),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
     # REV66: #866 geometry intake readiness authority.
     'cad_geometry_intake_reports': (
         'payload_json',
