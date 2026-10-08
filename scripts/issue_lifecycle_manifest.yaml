@@ -852,3 +852,18 @@ entries:
   - docs/issues/issue-1024-help-dialog.md
   - backend/tests/test_issue_1024_help_dialog.py
   close_when_gates_clear: true
+
+- issue: 954
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [1049]
+    commits: [fc0076ed, f05030b9]
+  remaining_gates:
+  - kind: structural
+    description: 'Phase 2 以降 — 残ドメイン (acoustics/calibration 他) のパッケージ化 + package_boundary_inventory.json の 26 violations/4 cycles (managed debt) の逐次解消 — docs/issues/issue-954-domain-split-phase1.md に deferred work 記載'
+  evidence_refs:
+  - docs/issues/issue-954-domain-split-phase1.md
+  - backend/tests/test_issue_954_domain_split.py
+  - scripts/package_boundary_audit.py
+  - scripts/package_boundary_inventory.json
+  close_when_gates_clear: true
