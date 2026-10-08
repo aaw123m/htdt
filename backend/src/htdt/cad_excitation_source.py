@@ -941,10 +941,27 @@ def evaluate_source_qualification(
                     'Strength G requires a standardized/reference source '
                     'transfer — installed-channel IRs do not carry it'
                 )
+            elif level_gate == 'insufficient':
+                # G is an absolute-level metric — a source driven into
+                # its limiter cannot carry it regardless of omni proof.
+                eligibilities[purpose] = 'insufficient_source_level'
+                reasons.append(
+                    f'{purpose}: source limiter engaged — output was '
+                    'driven past linear limits'
+                )
             elif omni_state == 'omni_profile_verified' and (
                 level_gate == 'sufficient'
             ):
                 eligibilities[purpose] = 'eligible'
+            elif omni_state == 'omni_profile_verified':
+                # Verified omni but no level evidence — the absolute
+                # reference is unconfirmable, never a wrong class.
+                eligibilities[purpose] = 'source_state_unknown'
+                reasons.append(
+                    f'{purpose}: no source output/dynamic-range '
+                    'evidence — cannot confirm the absolute level '
+                    'reference'
+                )
             elif omni_state == 'omni_within_profile_band':
                 eligibilities[purpose] = 'eligible_with_source_limitation'
                 reasons.append(
