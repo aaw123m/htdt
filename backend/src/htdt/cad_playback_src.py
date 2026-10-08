@@ -248,7 +248,8 @@ def evaluate_src_claim(
     for c in crossings:
         if (
             c.declared_kind == 'same_domain'
-            and c.observed_kind in ('asrc_crossing', 'buffered_sync')
+            and c.observed_kind
+            in ('asrc_crossing', 'buffered_sync', 'drift_compensated')
         ):
             return 'hidden_conversion', 'declared_same_observed_crossing'
     if not profiles:

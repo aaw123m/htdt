@@ -331,6 +331,21 @@ class TestPlaybackSrc:
         verdict, _ = evaluate_src_claim((), (), (c,))
         assert verdict == 'hidden_conversion'
 
+    def test_hidden_conversion_drift_compensated(self) -> None:
+        # Drift compensation is a clock-domain crossing mechanism — a
+        # declared same-domain path observed compensating is equally a
+        # hidden conversion.
+        c = ClockDomainCrossingRecord.create(
+            document_id=DOC,
+            input_domain='spdif',
+            output_domain='system',
+            declared_kind='same_domain',
+            observed_kind='drift_compensated',
+            observation_ref=_ref('observation', 'o-1'),
+        )
+        verdict, _ = evaluate_src_claim((), (), (c,))
+        assert verdict == 'hidden_conversion'
+
     def test_no_profile_exact(self) -> None:
         verdict, _ = evaluate_src_claim((), (), ())
         assert verdict == 'sample_exact'
