@@ -9,9 +9,10 @@ consume — all fail-closed, nothing auto-deploys.
 
 New modules:
 
-- `cad_device_discovery.py` — `DiscoveryBackend` ABC + real-backend stubs
-  (mDNS/SSDP/vendor-documented fail closed, configured-endpoint scan is
-  the bounded lane), `FakeDiscoveryBackend`/`FakeDiscoveryScenario`,
+- `cad_device_discovery.py` — `DiscoveryBackend` ABC + real mDNS/SSDP
+  wire backends (#949; vendor-documented still fails closed,
+  configured-endpoint scan is the bounded lane),
+  `FakeDiscoveryBackend`/`FakeDiscoveryScenario`,
   `CapabilityProber` protocol + `AdapterCapabilityProber`/
   `FakeCapabilityProber`, the six sealed records, the
   `DeviceDiscoveryService` ladder driver, `resolve_trusted_target`, and
@@ -34,9 +35,11 @@ device state: the only device-touching calls are the backend's read-only
 
 **Discovery mechanisms** (`DiscoveryMechanism`): `mdns` · `ssdp` ·
 `vendor_documented` · `configured_endpoint_scan` · `manual_entry`.
-Real backends (`MdnsDiscoveryBackend`, `SsdpDiscoveryBackend`,
-`VendorDiscoveryBackend`) report `available()=False` on this build and
-produce an honest `outcome='unavailable'` run — never a fake sweep.
+`MdnsDiscoveryBackend`/`SsdpDiscoveryBackend` are real read-only wire
+implementations since #949 (bounded timeouts, scope-gated admission);
+`VendorDiscoveryBackend` still reports `available()=False` — an
+unimplemented channel produces an honest `outcome='unavailable'` run,
+never a fake sweep.
 `ConfiguredEndpointScanBackend` contacts exactly
 `scope.approved_endpoints` (capped by `max_endpoints`) through an
 injected read-only prober.
@@ -48,7 +51,8 @@ request and fails closed at construction. The run record pins the scope
 sha + `scope_approved_by`.
 
 **Run outcomes** (`DiscoveryRunRecord.outcome`): `completed` ·
-`unavailable` · `scope_rejected` · `failed`.
+`unavailable` · `scope_rejected` · `failed` · `cancelled` (#949: the
+operator cancelled mid-run — never a completed sweep).
 
 **Identity states** (`DiscoveredDeviceRecord.identity_state`):
 `identified` (manufacturer+model observed) · `partial` (some identity
@@ -131,9 +135,12 @@ records, or the resolved target.
 
 ## What remains device-only
 
-- Real mDNS/SSDP/vendor-documented enumeration is stubbed — the bounded
-  lane today is `ConfiguredEndpointScanBackend` with an operator-supplied
-  read-only prober, or `manual_entry`.
+- Vendor-documented enumeration is stubbed — mDNS/SSDP are real since
+  #949 but every real-LAN confirmation (actual device answers, firewall
+  interaction, Windows service interplay) remains this issue's physical
+  gate; the bounded lane offline is still
+  `ConfiguredEndpointScanBackend` with an operator-supplied read-only
+  prober, or `manual_entry`.
 - Firmware/capability re-negotiation on real hardware depends on the
   adapter's own read hooks; the contract only consumes what a prober
   actually observed.

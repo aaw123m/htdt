@@ -233,12 +233,22 @@ class TestScopeContract:
             backend.discover(scope)
 
 
+class _DownTransport:
+    """Reports no multicast route — the fail-closed surface."""
+
+    def check_availability(self) -> str | None:
+        return 'no multicast route on this host'
+
+    def exchange(self, packets: tuple, **kw: object) -> tuple:
+        raise AssertionError('unavailable transport must never send')
+
+
 class TestUnavailableBackendsFailClosed:
     @pytest.mark.parametrize(
         'backend',
         [
-            MdnsDiscoveryBackend(),
-            SsdpDiscoveryBackend(),
+            MdnsDiscoveryBackend(transport=_DownTransport()),
+            SsdpDiscoveryBackend(transport=_DownTransport()),
             VendorDiscoveryBackend(),
         ],
     )

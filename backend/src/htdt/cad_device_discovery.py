@@ -50,8 +50,16 @@ Records:
 
 from __future__ import annotations
 
-from typing import Any, Literal, Mapping, Protocol
+import ipaddress
+import select
+import socket
+import struct
+import threading
+import time
+from typing import Any, Callable, Literal, Mapping, Protocol
+from urllib.parse import urlsplit
 from uuid import uuid4
+from xml.etree import ElementTree
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -110,6 +118,17 @@ class DiscoveryBackendUnavailableError(DiscoveryError):
     """The discovery backend cannot run on this build/environment."""
 
 
+class DiscoveryTransportError(DiscoveryBackendUnavailableError):
+    """The UDP transport failed mid-run — the environment cannot perform
+    the exchange (firewall-blocked bind, missing multicast route, NIC
+    down). Classified ``unavailable``, never ``failed`` — the backend
+    itself did not break."""
+
+
+class DiscoveryCancelledError(DiscoveryError):
+    """The operator cancelled the discovery run before it finished."""
+
+
 class AmbiguousDeviceError(DiscoveryError):
     """A bind was requested on a device that is not uniquely identified."""
 
@@ -142,6 +161,7 @@ DiscoveryRunOutcome = Literal[
     'unavailable',
     'scope_rejected',
     'failed',
+    'cancelled',
 ]
 
 #: Identification state of one discovered endpoint. ``identified`` means
@@ -281,6 +301,9 @@ class DiscoveryObservation(BaseModel):
     advertised_capabilities: tuple[str, ...] = ()
     #: Adapter profile the advertisement nominates, when known.
     suggested_adapter_id: str | None = None
+    #: The service type (mDNS PTR owner / SSDP ST·NT) that advertised
+    #: this endpoint — observed, not inferred.
+    service_type: str | None = None
 
 
 class EndpointProber(Protocol):
@@ -319,57 +342,1020 @@ class DiscoveryBackend:
         raise NotImplementedError
 
 
-class MdnsDiscoveryBackend(DiscoveryBackend):
-    """mDNS/Bonjour service discovery — stubbed, fails closed.
+# ---------------------------------------------------------------------------
+# Multicast UDP transport — the only raw-network object in this module.
+#
+# One ``exchange`` sends each datagram once and collects ``(payload,
+# source)`` pairs for a bounded window. It is injectable so the
+# fail-closed surfaces (no multicast route, firewall-blocked bind,
+# timeouts, cancellation) are testable without touching a LAN.
 
-    Real multicast enumeration is not testable on this build; the backend
-    reports itself unavailable so a run records ``unavailable`` honestly
-    instead of pretending to have swept.
+
+class MulticastQueryTransport(Protocol):
+    """Bounded multicast query/response window for one (group, port) pair."""
+
+    def check_availability(self) -> str | None:
+        """``None`` when usable, else why this host cannot run it."""
+        ...
+
+    def exchange(
+        self,
+        packets: tuple[bytes, ...],
+        *,
+        listen_seconds: float,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[tuple[bytes, tuple[str, int]], ...]:
+        """Send every packet once, then collect ``(payload, (host, port))``
+        until the deadline, the cancel event fires or a datagram cap."""
+        ...
+
+
+class UdpMulticastTransport:
+    """Real UDP multicast exchange over one IPv4 (group, port) pair.
+
+    ``join_group=True`` binds the group port and joins the multicast
+    group — mDNS style, where answers arrive multicast. ``False`` keeps
+    an ephemeral port and hears unicast replies — SSDP M-SEARCH style.
+    All waits are bounded; nothing here retries or re-transmits.
+    """
+
+    def __init__(
+        self,
+        *,
+        group: str,
+        group_port: int,
+        join_group: bool,
+        ttl: int,
+        max_datagrams: int = 1024,
+        socket_factory: Callable[..., Any] = socket.socket,
+    ) -> None:
+        self._group = group
+        self._group_port = group_port
+        self._join_group = join_group
+        self._ttl = ttl
+        self._max_datagrams = max_datagrams
+        self._socket_factory = socket_factory
+
+    def _open(self) -> Any:
+        sock = self._socket_factory(
+            socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP,
+        )
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(
+                socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, self._ttl,
+            )
+            if self._join_group:
+                sock.bind(('', self._group_port))
+                membership = (
+                    socket.inet_aton(self._group)
+                    + socket.inet_aton('0.0.0.0')
+                )
+                sock.setsockopt(
+                    socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, membership,
+                )
+            else:
+                sock.bind(('', 0))
+        except Exception:
+            sock.close()
+            raise
+        return sock
+
+    def check_availability(self) -> str | None:
+        try:
+            sock = self._open()
+        except OSError as exc:
+            return (
+                f'cannot open the multicast socket for '
+                f'{self._group}:{self._group_port} ({exc}) — firewall, '
+                'missing multicast route or disabled interface'
+            )
+        except Exception as exc:  # error-boundary: env probe
+            return f'multicast transport probe failed ({exc})'
+        try:
+            sock.close()
+        except Exception:
+            pass
+        return None
+
+    def exchange(
+        self,
+        packets: tuple[bytes, ...],
+        *,
+        listen_seconds: float,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[tuple[bytes, tuple[str, int]], ...]:
+        try:
+            sock = self._open()
+        except OSError as exc:
+            raise DiscoveryTransportError(
+                f'multicast transport unavailable at {self._group}:'
+                f'{self._group_port} — {exc}'
+            ) from exc
+        received: list[tuple[bytes, tuple[str, int]]] = []
+        try:
+            for packet in packets:
+                try:
+                    sock.sendto(packet, (self._group, self._group_port))
+                except OSError as exc:
+                    raise DiscoveryTransportError(
+                        f'multicast send to {self._group}:'
+                        f'{self._group_port} failed — {exc}'
+                    ) from exc
+            deadline = time.monotonic() + max(listen_seconds, 0.0)
+            while len(received) < self._max_datagrams:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    readable, _, _ = select.select(
+                        (sock,), (), (), remaining,
+                    )
+                except OSError as exc:
+                    raise DiscoveryTransportError(
+                        f'multicast listen failed — {exc}'
+                    ) from exc
+                if not readable:
+                    break
+                try:
+                    payload, source = sock.recvfrom(65535)
+                except OSError:
+                    break
+                received.append((payload, source))
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        return tuple(received)
+
+
+# ---------------------------------------------------------------------------
+# Scope admission for ambient (multicast) discovery.
+#
+# ``DiscoveryScanScope.allows_endpoint`` answers the approved-endpoint
+# check; approved_networks adds a CIDR/address membership check for
+# ambient enumeration, where the operator can approve a subnet without
+# naming every address. A host name (not a literal IP) cannot prove
+# network membership, so it is admitted only when no networks are
+# configured — operators who care constrain by CIDR, not by name.
+
+
+def _endpoint_host(endpoint: str) -> str:
+    """Host part of an endpoint locator (``scheme://h:p`` or ``h:p``/``h``)."""
+    rest = endpoint.split('://', 1)[-1].split('/', 1)[0]
+    if rest.startswith('['):
+        end = rest.find(']')
+        return (rest[1:end] if end != -1 else rest).lower()
+    if ':' in rest:
+        return rest.rsplit(':', 1)[0].lower()
+    return rest.lower()
+
+
+def _approved_networks(
+    scope: DiscoveryScanScope,
+) -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    """Parse ``approved_networks``; rejects bad entries before any packet
+    leaves — scope is validated first, always."""
+    networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for entry in scope.approved_networks:
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError as exc:
+            raise DiscoveryScopeError(
+                f'approved_networks entry {entry!r} is not a valid '
+                'network (CIDR or address expected)'
+            ) from exc
+    return tuple(networks)
+
+
+def _host_in_networks(
+    host: str,
+    networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+) -> bool:
+    if not networks:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # A name cannot prove membership — fail closed, never guess.
+        return False
+    return any(address in network for network in networks)
+
+
+def _ambient_endpoint_admitted(
+    endpoint: str,
+    scope: DiscoveryScanScope,
+    networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+) -> bool:
+    host = _endpoint_host(endpoint)
+    if scope.approved_endpoints:
+        approved_hosts = {
+            _endpoint_host(approved) for approved in scope.approved_endpoints
+        }
+        if host not in approved_hosts:
+            return False
+    return _host_in_networks(host, networks)
+
+
+def _bracketed_host(host: str) -> str:
+    return f'[{host}]' if ':' in host else host
+
+
+# ---------------------------------------------------------------------------
+# mDNS / DNS-SD wire format (RFC 6762 + RFC 6763) — read-only queries.
+#
+# Sent packets are legacy multicast DNS queries: a handful of PTR
+# questions and nothing else. Parsed packets are responder answers;
+# only PTR, SRV, TXT, A and AAAA records are consumed. Anything else —
+# or anything malformed — is ignored and counted as a parse anomaly,
+# never silently treated as an observation.
+
+
+MDNS_GROUP = '224.0.0.251'
+MDNS_PORT = 5353
+DNS_SD_ENUMERATION_TYPE = '_services._dns-sd._udp.local'
+_DNS_PTR = 12
+_DNS_TXT = 16
+_DNS_SRV = 33
+_DNS_A = 1
+_DNS_AAAA = 28
+_DNS_CLASS_IN_FLUSH = 0x8001
+
+
+def _dns_name_encode(name: str) -> bytes:
+    out = bytearray()
+    for label in name.rstrip('.').split('.'):
+        encoded = label.encode('utf-8')
+        if len(encoded) > 63:
+            raise ValueError(f'dns label too long: {label!r}')
+        out.append(len(encoded))
+        out += encoded
+    out.append(0)
+    return bytes(out)
+
+
+def _build_mdns_ptr_query(service_types: tuple[str, ...]) -> bytes:
+    questions = b''.join(
+        _dns_name_encode(service_type)
+        + struct.pack('>HH', _DNS_PTR, _DNS_CLASS_IN_FLUSH)
+        for service_type in service_types
+    )
+    header = struct.pack('>HHHHHH', 0, 0, len(service_types), 0, 0, 0)
+    return header + questions
+
+
+def _dns_name_decode(packet: bytes, offset: int) -> tuple[str, int]:
+    labels: list[str] = []
+    jumped = False
+    next_offset = offset
+    jumps = 0
+    while True:
+        if offset >= len(packet):
+            raise ValueError('truncated dns name')
+        length = packet[offset]
+        if length & 0xC0 == 0xC0:
+            if offset + 1 >= len(packet):
+                raise ValueError('truncated compression pointer')
+            pointer = ((length & 0x3F) << 8) | packet[offset + 1]
+            if pointer >= len(packet):
+                raise ValueError('compression pointer out of range')
+            if not jumped:
+                next_offset = offset + 2
+            jumped = True
+            jumps += 1
+            if jumps > 32:
+                raise ValueError('compression pointer loop')
+            offset = pointer
+            continue
+        if length & 0xC0:
+            raise ValueError('reserved dns label bits set')
+        offset += 1
+        if length == 0:
+            if not jumped:
+                next_offset = offset
+            break
+        if offset + length > len(packet):
+            raise ValueError('truncated dns label')
+        labels.append(packet[offset:offset + length].decode('utf-8', 'replace'))
+        offset += length
+    return '.'.join(labels), next_offset
+
+
+def _iter_dns_rrs(packet: bytes):
+    """Yield ``(owner, rtype, ttl, rdata_offset, rdlen)`` for every RR."""
+    if len(packet) < 12:
+        raise ValueError('short dns header')
+    _id, _flags, qd, an, ns, ar = struct.unpack('>HHHHHH', packet[:12])
+    offset = 12
+    for _ in range(qd):
+        _, offset = _dns_name_decode(packet, offset)
+        offset += 4
+    if offset > len(packet):
+        raise ValueError('truncated question section')
+    for _ in range(an + ns + ar):
+        owner, offset = _dns_name_decode(packet, offset)
+        if offset + 10 > len(packet):
+            raise ValueError('truncated resource record header')
+        rtype, _rclass, ttl, rdlen = struct.unpack(
+            '>HHIH', packet[offset:offset + 10],
+        )
+        offset += 10
+        if offset + rdlen > len(packet):
+            raise ValueError('truncated resource record data')
+        yield owner, rtype, ttl, offset, rdlen
+        offset += rdlen
+
+
+def _dns_txt_map(packet: bytes, offset: int, rdlen: int) -> dict[str, str]:
+    entries: dict[str, str] = {}
+    end = offset + rdlen
+    while offset < end:
+        length = packet[offset]
+        offset += 1
+        if offset + length > end:
+            break
+        chunk = packet[offset:offset + length].decode('utf-8', 'replace')
+        offset += length
+        key, sep, value = chunk.partition('=')
+        if sep and key.lower() not in entries:
+            entries[key.lower()] = value
+    return entries
+
+
+#: DNS-SD TXT keys commonly documented by device vendors. Anything not
+#: listed is preserved nowhere — identity fields are observed claims,
+#: never inferred ones.
+_MDNS_TXT_KEYS = {
+    'manufacturer': ('manufacturer', 'mf', 'mfr', 'brand'),
+    'model': ('model', 'md', 'modelname', 'modelid'),
+    'stable_identity': (
+        'serialnumber', 'serial', 'sn', 'mac', 'uid', 'uuid', 'id',
+        'deviceid', 'pk', 'hw',
+    ),
+    'firmware_version': ('firmwareversion', 'firmware', 'fwversion', 'fw', 'fv'),
+    'software_version': (
+        'swversion', 'sw', 'softwareversion', 'version', 'vers', 'srcvers',
+    ),
+    'capabilities': ('features', 'caps', 'capabilities', 'ft', 'flags'),
+}
+
+
+def _first_txt(txt: Mapping[str, str], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = txt.get(key)
+        if value:
+            return value
+    return None
+
+
+def _mdns_instance_label(instance: str, service_type: str) -> str | None:
+    suffix = f'.{service_type}'
+    if instance.lower().endswith(suffix.lower()):
+        label = instance[: -len(suffix)]
+        return label or None
+    return None
+
+
+class _MdnsRecords:
+    """Aggregated resource records across one discovery's responses."""
+
+    def __init__(self) -> None:
+        self.ptrs: list[tuple[str, str]] = []
+        self.srvs: dict[str, tuple[int, str]] = {}
+        self.txts: dict[str, dict[str, str]] = {}
+        self.addrs: dict[str, list[str]] = {}
+        self.malformed = 0
+
+    def ingest(self, payload: bytes) -> None:
+        try:
+            records = list(_iter_dns_rrs(payload))
+        except ValueError:
+            self.malformed += 1
+            return
+        for owner, rtype, _ttl, rdata_offset, rdlen in records:
+            try:
+                if rtype == _DNS_PTR:
+                    target, _ = _dns_name_decode(payload, rdata_offset)
+                    self.ptrs.append((owner, target))
+                elif rtype == _DNS_SRV:
+                    port = struct.unpack(
+                        '>H', payload[rdata_offset + 4:rdata_offset + 6],
+                    )[0]
+                    target, _ = _dns_name_decode(payload, rdata_offset + 6)
+                    self.srvs[owner] = (port, target)
+                elif rtype == _DNS_TXT:
+                    self.txts[owner] = _dns_txt_map(
+                        payload, rdata_offset, rdlen,
+                    )
+                elif rtype == _DNS_A and rdlen == 4:
+                    self.addrs.setdefault(owner, []).append(
+                        socket.inet_ntoa(payload[rdata_offset:rdata_offset + 4]),
+                    )
+                elif rtype == _DNS_AAAA and rdlen == 16:
+                    self.addrs.setdefault(owner, []).append(
+                        socket.inet_ntop(
+                            socket.AF_INET6,
+                            payload[rdata_offset:rdata_offset + 16],
+                        ),
+                    )
+            except (ValueError, IndexError, struct.error, OSError):
+                self.malformed += 1
+
+
+# ---------------------------------------------------------------------------
+# SSDP / UPnP wire format — M-SEARCH queries plus notification adverts.
+
+
+SSDP_GROUP = '239.255.255.250'
+SSDP_PORT = 1900
+
+
+def _build_ssdp_msearch(st: str, mx_seconds: int) -> bytes:
+    return (
+        'M-SEARCH * HTTP/1.1\r\n'
+        f'HOST:{SSDP_GROUP}:{SSDP_PORT}\r\n'
+        'MAN:"ssdp:discover"\r\n'
+        f'MX:{mx_seconds}\r\n'
+        f'ST:{st}\r\n'
+        '\r\n'
+    ).encode('ascii')
+
+
+def _parse_ssdp_datagram(data: bytes) -> tuple[dict[str, str], str | None]:
+    """Parse one SSDP datagram → ``(headers, st_or_nt)``.
+
+    Raises ``ValueError`` on anything that is not a response or NOTIFY.
+    """
+    text = data.decode('utf-8', 'replace')
+    lines = text.split('\r\n')
+    start = lines[0].strip() if lines else ''
+    headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if not line:
+            break
+        key, sep, value = line.partition(':')
+        if sep:
+            headers[key.strip().lower()] = value.strip()
+    if '200 ok' in start.lower():
+        return headers, headers.get('st')
+    if start.upper().startswith('NOTIFY'):
+        return headers, headers.get('nt')
+    raise ValueError('not an ssdp response/notify datagram')
+
+
+def _bounded_http_get(
+    url: str,
+    timeout_seconds: float,
+    *,
+    max_bytes: int = 65536,
+) -> bytes | None:
+    """Fetch an http URL with strict caps — used for UPnP description
+    documents only. Returns ``None`` on any failure (a missing document
+    is a partial observation, never a crash)."""
+    parts = urlsplit(url)
+    if parts.scheme != 'http' or not parts.hostname:
+        return None
+    port = parts.port or 80
+    path = parts.path or '/'
+    if parts.query:
+        path = f'{path}?{parts.query}'
+    sock: Any = None
+    try:
+        sock = socket.create_connection((parts.hostname, port), timeout_seconds)
+        sock.settimeout(timeout_seconds)
+        request = (
+            f'GET {path} HTTP/1.0\r\n'
+            f'Host: {parts.hostname}:{port}\r\n'
+            'Accept: text/xml\r\n'
+            '\r\n'
+        ).encode('ascii')
+        sock.sendall(request)
+        chunks = bytearray()
+        while len(chunks) < max_bytes:
+            try:
+                chunk = sock.recv(min(65536, max_bytes - len(chunks)))
+            except socket.timeout:
+                break
+            if not chunk:
+                break
+            chunks += chunk
+    except OSError:
+        return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+    if not chunks:
+        return None
+    head, sep, body = bytes(chunks).partition(b'\r\n\r\n')
+    if not sep:
+        return None
+    status_line = head.split(b'\r\n', 1)[0].decode('ascii', 'replace')
+    status_parts = status_line.split(' ', 2)
+    if len(status_parts) < 2 or status_parts[1] != '200':
+        return None
+    return bytes(body[:max_bytes])
+
+
+def _xml_local_name(tag: str) -> str:
+    return tag.rsplit('}', 1)[-1]
+
+
+def _parse_upnp_description(document: bytes) -> dict[str, Any]:
+    """Extract declared fields from a UPnP device description.
+
+    All fields are declared-by-device metadata — they are stored as
+    observed-vs-declared evidence, never trusted as ground truth.
+    """
+    try:
+        root = ElementTree.fromstring(document)
+    except ElementTree.ParseError:
+        return {}
+    device: ElementTree.Element | None = None
+    for element in root.iter():
+        if _xml_local_name(element.tag) == 'device':
+            device = element
+            break
+    if device is None:
+        return {}
+    fields: dict[str, Any] = {'service_types': []}
+    name_map = {
+        'friendlyName': 'device_name',
+        'manufacturer': 'manufacturer',
+        'modelName': 'model',
+        'serialNumber': 'serial_number',
+        'UDN': 'udn',
+    }
+    for child in device.iter():
+        local = _xml_local_name(child.tag)
+        target = name_map.get(local)
+        if target is not None and child.text and child.text.strip():
+            fields[target] = child.text.strip()
+        elif local == 'serviceType' and child.text and child.text.strip():
+            fields['service_types'].append(child.text.strip())
+    return fields
+
+
+def _ssdp_usn_uuid(usn: str) -> str | None:
+    if not usn.lower().startswith('uuid:'):
+        return None
+    return usn.split('::', 1)[0][len('uuid:'):].strip() or None
+
+
+class MdnsDiscoveryBackend(DiscoveryBackend):
+    """mDNS/Bonjour service discovery — real multicast, read-only.
+
+    Sends PTR queries for the operator-approved service types and parses
+    answers strictly from the wire. When ``approved_service_types`` is
+    empty the run enumerates service types first (the DNS-SD
+    ``_services._dns-sd._udp.local`` PTR) then queries each discovered
+    type — still bounded by ``max_service_types`` and by the approved
+    endpoint/network admission filters, so it never degenerates into an
+    unrestricted sweep. Identity fields are TXT-advertised claims only.
     """
 
     backend_id = 'htdt-mdns'
-    backend_version = 'stub-0'
+    backend_version = '1'
     mechanism: DiscoveryMechanism = 'mdns'
 
+    def __init__(
+        self,
+        transport: MulticastQueryTransport | None = None,
+        *,
+        query_seconds: float = 3.0,
+        followup_seconds: float = 2.0,
+        max_service_types: int = 32,
+    ) -> None:
+        self._transport = transport or UdpMulticastTransport(
+            group=MDNS_GROUP, group_port=MDNS_PORT, join_group=True, ttl=255,
+        )
+        self._query_seconds = query_seconds
+        self._followup_seconds = followup_seconds
+        self._max_service_types = max_service_types
+        self._run_notes: list[str] = []
+
     def available(self) -> bool:
-        return False
+        return self._transport.check_availability() is None
 
     def unavailable_reason(self) -> str:
-        return 'mdns/bonjour discovery is not implemented on this build'
+        reason = self._transport.check_availability()
+        return reason or 'mdns/bonjour transport is unavailable'
+
+    def last_run_notes(self) -> tuple[str, ...]:
+        """Parse anomalies and admission drops from the latest run —
+        the operator-visible 'what was filtered and why' trail."""
+        return tuple(self._run_notes)
+
+    def _check_cancel(
+        self, cancel_event: threading.Event | None,
+    ) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DiscoveryCancelledError(
+                'operator cancelled the discovery run'
+            )
+
+    def _query_round(
+        self,
+        service_types: tuple[str, ...],
+        listen_seconds: float,
+        cancel_event: threading.Event | None,
+        records: _MdnsRecords,
+    ) -> None:
+        self._check_cancel(cancel_event)
+        query = _build_mdns_ptr_query(service_types)
+        responses = self._transport.exchange(
+            (query,),
+            listen_seconds=listen_seconds,
+            cancel_event=cancel_event,
+        )
+        for payload, _source in responses:
+            records.ingest(payload)
+        self._check_cancel(cancel_event)
+
+    def _collect_records(
+        self,
+        scope: DiscoveryScanScope,
+        cancel_event: threading.Event | None,
+    ) -> tuple[_MdnsRecords, frozenset[str]]:
+        approved_types = frozenset(
+            service_type.lower()
+            for service_type in scope.approved_service_types
+        )
+        if len(approved_types) > self._max_service_types:
+            raise DiscoveryScopeError(
+                f'approved service type count {len(approved_types)} '
+                f'exceeds bound {self._max_service_types}'
+            )
+        records = _MdnsRecords()
+        if approved_types:
+            self._query_round(
+                tuple(sorted(approved_types)),
+                self._query_seconds,
+                cancel_event,
+                records,
+            )
+            return records, approved_types
+        # Bounded enumeration: ask which service types exist, then ask
+        # for instances of each type found.
+        self._query_round(
+            (DNS_SD_ENUMERATION_TYPE,), self._query_seconds, cancel_event,
+            records,
+        )
+        enumerated = sorted(
+            {target.lower() for owner, target in records.ptrs
+             if owner.lower() == DNS_SD_ENUMERATION_TYPE}
+        )
+        queried = tuple(enumerated[: self._max_service_types])
+        if len(enumerated) > self._max_service_types:
+            self._run_notes.append(
+                f'service-type enumeration hit the {self._max_service_types}'
+                '-type bound; remaining types were not queried'
+            )
+        if queried:
+            self._query_round(
+                queried, self._followup_seconds, cancel_event, records,
+            )
+        return records, frozenset(enumerated)
+
+    def _observations(
+        self,
+        records: _MdnsRecords,
+        approved_types: frozenset[str],
+        scope: DiscoveryScanScope,
+        networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+    ) -> tuple[DiscoveryObservation, ...]:
+        observations: list[DiscoveryObservation] = []
+        seen_endpoints: set[str] = set()
+        dropped_no_locator = 0
+        dropped_out_of_scope = 0
+        for owner, target in records.ptrs:
+            service_type = owner.lower()
+            if service_type == DNS_SD_ENUMERATION_TYPE:
+                continue
+            if approved_types and service_type not in approved_types:
+                continue
+            srv = records.srvs.get(target)
+            if srv is None:
+                dropped_no_locator += 1
+                continue
+            port, host_target = srv
+            candidates = records.addrs.get(host_target) or (host_target,)
+            txt = records.txts.get(target) or {}
+            device_name = _mdns_instance_label(target, owner)
+            capability_text = _first_txt(txt, _MDNS_TXT_KEYS['capabilities'])
+            for host in candidates:
+                endpoint = f'mdns://{_bracketed_host(host)}:{port}'
+                if endpoint in seen_endpoints:
+                    continue
+                seen_endpoints.add(endpoint)
+                if not _ambient_endpoint_admitted(endpoint, scope, networks):
+                    dropped_out_of_scope += 1
+                    continue
+                observations.append(DiscoveryObservation(
+                    endpoint=endpoint,
+                    manufacturer=_first_txt(txt, _MDNS_TXT_KEYS['manufacturer']),
+                    model=_first_txt(txt, _MDNS_TXT_KEYS['model']),
+                    device_name=device_name,
+                    stable_identity=_first_txt(
+                        txt, _MDNS_TXT_KEYS['stable_identity'],
+                    ),
+                    firmware_version=_first_txt(
+                        txt, _MDNS_TXT_KEYS['firmware_version'],
+                    ),
+                    software_version=_first_txt(
+                        txt, _MDNS_TXT_KEYS['software_version'],
+                    ),
+                    advertised_capabilities=tuple(
+                        part.strip()
+                        for part in (capability_text or '').split(',')
+                        if part.strip()
+                    ),
+                    service_type=service_type,
+                ))
+        if records.malformed:
+            self._run_notes.append(
+                f'{records.malformed} malformed dns record(s) ignored'
+            )
+        if dropped_no_locator:
+            self._run_notes.append(
+                f'{dropped_no_locator} instance(s) advertised without an '
+                'srv locator — not contactable, not recorded'
+            )
+        if dropped_out_of_scope:
+            self._run_notes.append(
+                f'{dropped_out_of_scope} advertised endpoint(s) outside '
+                'the approved scope — dropped'
+            )
+        return tuple(observations)
 
     def discover(
-        self, scope: DiscoveryScanScope,
+        self,
+        scope: DiscoveryScanScope,
+        *,
+        cancel_event: threading.Event | None = None,
     ) -> tuple[DiscoveryObservation, ...]:
-        raise DiscoveryBackendUnavailableError(self.unavailable_reason())
+        self._run_notes = []
+        networks = _approved_networks(scope)
+        self._check_cancel(cancel_event)
+        down = self._transport.check_availability()
+        if down is not None:
+            raise DiscoveryTransportError(down)
+        records, admitted_types = self._collect_records(scope, cancel_event)
+        return self._observations(records, admitted_types, scope, networks)
 
     def probe_identity(
-        self, endpoint: str, scope: DiscoveryScanScope,
+        self,
+        endpoint: str,
+        scope: DiscoveryScanScope,
+        *,
+        cancel_event: threading.Event | None = None,
     ) -> DiscoveryObservation | None:
-        raise DiscoveryBackendUnavailableError(self.unavailable_reason())
+        networks = _approved_networks(scope)
+        if (
+            scope.approved_endpoints or scope.approved_networks
+        ) and not _ambient_endpoint_admitted(endpoint, scope, networks):
+            raise DiscoveryScopeError(
+                f'endpoint {endpoint} is outside the approved scope'
+            )
+        self._run_notes = []
+        records, admitted_types = self._collect_records(scope, cancel_event)
+        observations = self._observations(
+            records, admitted_types, scope, networks,
+        )
+        for observation in observations:
+            if observation.endpoint == endpoint:
+                return observation
+        return None
 
 
 class SsdpDiscoveryBackend(DiscoveryBackend):
-    """SSDP/UPnP discovery — stubbed, fails closed like mDNS."""
+    """SSDP/UPnP discovery — real M-SEARCH, read-only.
+
+    Sends one M-SEARCH per approved ST (default ``ssdp:all`` when the
+    operator approved no service types — still bounded by the
+    endpoint/network admission filters and the bounded listen window).
+    LOCATION headers pointing off the responder's own host are not
+    followed; a description document that fails to fetch or parse
+    degrades the observation to ``partial``/``unidentified`` rather
+    than dropping or fabricating it.
+    """
 
     backend_id = 'htdt-ssdp'
-    backend_version = 'stub-0'
+    backend_version = '1'
     mechanism: DiscoveryMechanism = 'ssdp'
 
+    def __init__(
+        self,
+        transport: MulticastQueryTransport | None = None,
+        *,
+        description_fetcher: Callable[..., bytes | None] | None = None,
+        mx_seconds: int = 2,
+        fetch_timeout_seconds: float = 2.0,
+        max_service_types: int = 32,
+    ) -> None:
+        self._transport = transport or UdpMulticastTransport(
+            group=SSDP_GROUP, group_port=SSDP_PORT, join_group=False, ttl=4,
+        )
+        self._description_fetcher = (
+            description_fetcher or _bounded_http_get
+        )
+        self._mx_seconds = mx_seconds
+        self._fetch_timeout_seconds = fetch_timeout_seconds
+        self._max_service_types = max_service_types
+        self._run_notes: list[str] = []
+
     def available(self) -> bool:
-        return False
+        return self._transport.check_availability() is None
 
     def unavailable_reason(self) -> str:
-        return 'ssdp/upnp discovery is not implemented on this build'
+        reason = self._transport.check_availability()
+        return reason or 'ssdp/upnp transport is unavailable'
+
+    def last_run_notes(self) -> tuple[str, ...]:
+        return tuple(self._run_notes)
+
+    def _check_cancel(
+        self, cancel_event: threading.Event | None,
+    ) -> None:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DiscoveryCancelledError(
+                'operator cancelled the discovery run'
+            )
+
+    def _collect(
+        self,
+        scope: DiscoveryScanScope,
+        cancel_event: threading.Event | None,
+        networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
+    ) -> tuple[DiscoveryObservation, ...]:
+        approved_types = frozenset(
+            service_type.lower()
+            for service_type in scope.approved_service_types
+        )
+        if len(approved_types) > self._max_service_types:
+            raise DiscoveryScopeError(
+                f'approved service type count {len(approved_types)} '
+                f'exceeds bound {self._max_service_types}'
+            )
+        sts = (
+            tuple(sorted(approved_types))
+            if approved_types else ('ssdp:all',)
+        )
+        self._check_cancel(cancel_event)
+        packets = tuple(
+            _build_ssdp_msearch(st, self._mx_seconds) for st in sts
+        )
+        responses = self._transport.exchange(
+            packets,
+            listen_seconds=float(self._mx_seconds) + 1.0,
+            cancel_event=cancel_event,
+        )
+        self._check_cancel(cancel_event)
+        adverts: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        malformed = 0
+        dropped_type = 0
+        dropped_scope = 0
+        duplicates = 0
+        for payload, source in responses:
+            try:
+                headers, st = _parse_ssdp_datagram(payload)
+            except ValueError:
+                malformed += 1
+                continue
+            location = headers.get('location')
+            if not location:
+                malformed += 1
+                continue
+            if approved_types and (st or '').lower() not in approved_types:
+                dropped_type += 1
+                continue
+            if not _ambient_endpoint_admitted(location, scope, networks):
+                dropped_scope += 1
+                continue
+            key = (headers.get('usn') or '', location)
+            if key in seen:
+                duplicates += 1
+                continue
+            seen.add(key)
+            adverts.append({
+                'headers': headers,
+                'st': st,
+                'location': location,
+                'source_host': source[0],
+            })
+        observations: list[DiscoveryObservation] = []
+        unfetched = 0
+        off_host = 0
+        for advert in adverts:
+            location = advert['location']
+            description: dict[str, Any] = {}
+            if _endpoint_host(location) != advert['source_host'].lower():
+                off_host += 1
+            else:
+                document = self._description_fetcher(
+                    location, self._fetch_timeout_seconds,
+                )
+                if document is None:
+                    unfetched += 1
+                else:
+                    description = _parse_upnp_description(document)
+            headers = advert['headers']
+            usn_uuid = _ssdp_usn_uuid(headers.get('usn') or '')
+            udn = description.get('udn')
+            stable_identity: str | None = None
+            if usn_uuid and udn:
+                udn_uuid = _ssdp_usn_uuid(udn)
+                if udn_uuid == usn_uuid:
+                    stable_identity = usn_uuid
+                else:
+                    # Conflicting declared identifiers — record neither.
+                    self._run_notes.append(
+                        f'usn/udn mismatch at {location} — stable '
+                        'identity left unrecorded'
+                    )
+            elif usn_uuid:
+                stable_identity = usn_uuid
+            observations.append(DiscoveryObservation(
+                endpoint=location,
+                manufacturer=description.get('manufacturer'),
+                model=description.get('model'),
+                device_name=description.get('device_name'),
+                stable_identity=stable_identity,
+                software_version=headers.get('server'),
+                advertised_capabilities=tuple(
+                    dict.fromkeys(description.get('service_types') or ())
+                ),
+                service_type=advert['st'] or None,
+            ))
+        if malformed:
+            self._run_notes.append(
+                f'{malformed} malformed ssdp datagram(s) ignored'
+            )
+        if dropped_type:
+            self._run_notes.append(
+                f'{dropped_type} advert(s) for non-approved service '
+                'types dropped'
+            )
+        if dropped_scope:
+            self._run_notes.append(
+                f'{dropped_scope} advert(s) outside the approved scope '
+                'dropped'
+            )
+        if duplicates:
+            self._run_notes.append(
+                f'{duplicates} duplicate advert(s) collapsed'
+            )
+        if off_host:
+            self._run_notes.append(
+                f'{off_host} description url(s) pointing off the '
+                'responder host were not fetched'
+            )
+        if unfetched:
+            self._run_notes.append(
+                f'{unfetched} device description(s) could not be '
+                'fetched — observations degrade to partial/unidentified'
+            )
+        return tuple(observations)
 
     def discover(
-        self, scope: DiscoveryScanScope,
+        self,
+        scope: DiscoveryScanScope,
+        *,
+        cancel_event: threading.Event | None = None,
     ) -> tuple[DiscoveryObservation, ...]:
-        raise DiscoveryBackendUnavailableError(self.unavailable_reason())
+        self._run_notes = []
+        networks = _approved_networks(scope)
+        self._check_cancel(cancel_event)
+        down = self._transport.check_availability()
+        if down is not None:
+            raise DiscoveryTransportError(down)
+        return self._collect(scope, cancel_event, networks)
 
     def probe_identity(
-        self, endpoint: str, scope: DiscoveryScanScope,
+        self,
+        endpoint: str,
+        scope: DiscoveryScanScope,
+        *,
+        cancel_event: threading.Event | None = None,
     ) -> DiscoveryObservation | None:
-        raise DiscoveryBackendUnavailableError(self.unavailable_reason())
+        networks = _approved_networks(scope)
+        if (
+            scope.approved_endpoints or scope.approved_networks
+        ) and not _ambient_endpoint_admitted(endpoint, scope, networks):
+            raise DiscoveryScopeError(
+                f'endpoint {endpoint} is outside the approved scope'
+            )
+        self._run_notes = []
+        for observation in self._collect(scope, cancel_event, networks):
+            if observation.endpoint == endpoint:
+                return observation
+        return None
 
 
 class VendorDiscoveryBackend(DiscoveryBackend):
@@ -1307,9 +2293,22 @@ class DeviceDiscoveryService:
             except DiscoveryScopeError as exc:
                 outcome = 'scope_rejected'
                 failure_reason = str(exc)
+            except DiscoveryCancelledError as exc:
+                outcome = 'cancelled'
+                failure_reason = str(exc)
+            except DiscoveryBackendUnavailableError as exc:
+                outcome = 'unavailable'
+                failure_reason = str(exc)
             except Exception as exc:  # error-boundary: backend read
                 outcome = 'failed'
                 failure_reason = str(exc)
+        notes: tuple[str, ...] = ()
+        notes_provider = getattr(backend, 'last_run_notes', None)
+        if callable(notes_provider):
+            try:
+                notes = tuple(notes_provider())
+            except Exception:  # error-boundary: notes are best-effort
+                notes = ()
         # Ambiguity marking is pure over observations, so the run's
         # counts are known before any device record is sealed — the run
         # is sealed first and devices pin the real run ref (a record may
@@ -1328,6 +2327,7 @@ class DeviceDiscoveryService:
             device_count=device_count,
             ambiguous_count=len(ambiguous),
             failure_reason=failure_reason,
+            notes=notes,
         )
         self._save(run)
         devices: list[DiscoveredDeviceRecord] = []
@@ -1363,6 +2363,7 @@ class DeviceDiscoveryService:
         device_count: int,
         ambiguous_count: int,
         failure_reason: str | None,
+        notes: tuple[str, ...] = (),
     ) -> DiscoveryRunRecord:
         payload: dict[str, Any] = {
             'document_id': document_id,
@@ -1378,7 +2379,7 @@ class DeviceDiscoveryService:
             'device_count': device_count,
             'ambiguous_count': ambiguous_count,
             'failure_reason': failure_reason,
-            'notes': (),
+            'notes': tuple(notes),
         }
         rid, digest = _seal_id(DiscoveryRunRecord, 'disc-run', payload)
         return DiscoveryRunRecord(run_id=rid, run_sha256=digest, **payload)
@@ -1710,6 +2711,14 @@ class DeviceDiscoveryService:
             observed = backend.probe_identity(current.endpoint, scope)
         except DiscoveryScopeError:
             raise
+        except (
+            DiscoveryBackendUnavailableError,
+            DiscoveryCancelledError,
+        ):
+            # A backend that could not run yields no verdict at all —
+            # never record 'endpoint_unreachable' drift the transport
+            # could not actually observe.
+            raise
         except Exception:  # error-boundary: backend read
             observed = None
         kind, verdict, recommendation, detail = evaluate_identity_drift(
@@ -1921,6 +2930,7 @@ DEVICE_DISCOVERY_LABELS: dict[str, str] = {
     'unavailable': '利用不可',
     'scope_rejected': 'スコープ拒否',
     'failed': '失敗',
+    'cancelled': 'キャンセル',
     # identity states
     'identified': '識別済み',
     'partial': '一部識別',
@@ -1981,31 +2991,40 @@ __all__ = [
     'DiscoveryBackend',
     'DiscoveryBackendUnavailableError',
     'DiscoveryBindingError',
+    'DiscoveryCancelledError',
     'DiscoveryError',
     'DiscoveryMechanism',
     'DiscoveryObservation',
     'DiscoveryRunOutcome',
     'DiscoveryRunRecord',
     'DiscoveryScanScope',
+    'DiscoveryTransportError',
     'DiscoveredDeviceRecord',
     'DriftKind',
     'DriftRecommendation',
     'DriftVerdict',
+    'DNS_SD_ENUMERATION_TYPE',
     'EndpointProber',
     'FakeCapabilityProber',
     'FakeDiscoveryBackend',
     'FakeDiscoveryDevice',
     'FakeDiscoveryScenario',
     'IdentityBasis',
+    'MDNS_GROUP',
+    'MDNS_PORT',
     'MdnsDiscoveryBackend',
+    'MulticastQueryTransport',
     'RebindingAction',
     'RebindingDecision',
     'ResolvedTrustedTarget',
+    'SSDP_GROUP',
+    'SSDP_PORT',
     'SsdpDiscoveryBackend',
     'StaleBindingError',
     'StaticEndpointProber',
     'TrustedBindingState',
     'TrustedDeviceBinding',
+    'UdpMulticastTransport',
     'VendorDiscoveryBackend',
     'build_scan_scope',
     'capability_snapshot_sha256',

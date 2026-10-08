@@ -494,8 +494,8 @@ entries:
     commits: []
   remaining_gates:
   - kind: physical
-    description: 実LAN上の実機器での発見→プローブ→バインド検証 — 実ディスカバリバックエンド (mDNS/SSDP) は現状 fail-closed
-      スタブ、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
+    description: 実LAN上の実機器での発見→プローブ→バインド検証 — mDNS/SSDP 実バックエンドは #949 で実装済み
+      (#949 検証手順参照)、構成スキャンは承認スコープ内のみ。フェイクネットワーク全故障モードはソフト検証済み
   evidence_refs:
   - docs/issues/issue-879-device-discovery.md
   close_when_gates_clear: true
