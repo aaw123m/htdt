@@ -68,6 +68,8 @@ from .cad_acoustic_treatment_comparison import (
     build_treatment_design_comparison,
 )
 from .cad_scene import Position3
+from .cad_document import CommandPresentation, CompositeEditCommand
+from .error_boundary import EXPECTED_OPERATION_ERRORS
 from .ui_theme import TypographyRole, set_typography_role
 from .user_facing_error import operation_error_message
 
@@ -75,6 +77,20 @@ _SURFACE_ROLE = Qt.ItemDataRole.UserRole
 _MATERIAL_ROLE = Qt.ItemDataRole.UserRole
 _DEFINITION_ROLE = Qt.ItemDataRole.UserRole
 _PLACEMENT_ROLE = Qt.ItemDataRole.UserRole
+
+#: Sentinel combo data shown for a stored assignment whose material
+#: reference no longer resolves (#996) — displayed, never written back.
+_UNRESOLVED_REF = '\x00unresolved-material-reference'
+
+#: BoundaryMaterialState.summary → operator-facing JA (#996).
+_BOUNDARY_STATE_LABELS: dict[str, str] = {
+    'no_boundaries': '部屋境界面がありません',
+    'unassigned': '全境界面が未割当',
+    'partial': '一部の境界面のみ割当済み',
+    'uniform': '全境界面に同一材質を適用済み',
+    'mixed': '面ごとに異なる材質が割当（混在）',
+    'unresolved': '解決不能な割当参照があります',
+}
 
 _TREATMENT_TYPE_LABELS: dict[str, str] = {
     'porous_absorber': '多孔質吸音材',
@@ -582,12 +598,25 @@ class SurfaceMaterialPanel(QWidget):
             if revision is None or revision.document.r120_semantic_geometry is None
             else revision.document.r120_semantic_geometry
         )
-        assignments = self.controller.material_repository.assignments_for_document(
-            self.controller.document_id
-        )
+        self._surfaces = () if geometry is None else geometry.surfaces
+        repository = self.controller.material_repository
+        try:
+            # #996: honest aggregate — rows that fail to resolve are
+            # reported, never coerced to 未割当.
+            state = repository.boundary_material_state(
+                self.controller.document_id, self._surfaces
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self.surface_tree.clear()
+            self._surfaces = ()
+            self.readiness.setText(
+                'マテリアル割当の読取に失敗 — '
+                + operation_error_message(exc)
+            )
+            return
+        entries = {entry.surface_id: entry for entry in state.entries}
         self.surface_tree.blockSignals(True)
         self.surface_tree.clear()
-        self._surfaces = () if geometry is None else geometry.surfaces
         for surface in self._surfaces:
             class_label = SURFACE_CLASS_LABELS.get(
                 surface.semantic_class, surface.semantic_class
@@ -603,12 +632,19 @@ class SurfaceMaterialPanel(QWidget):
                     self.materials.itemText(index),
                     self.materials.itemData(index),
                 )
-            material = assignments.get(surface.surface_id)
-            combo.setCurrentIndex(
-                0
-                if material is None
-                else max(0, combo.findData(material.material_id))
-            )
+            entry = entries.get(surface.surface_id)
+            if entry is not None and entry.status == 'unresolved_reference':
+                combo.addItem(
+                    f'（解決不能な割当: {entry.material_id}）',
+                    _UNRESOLVED_REF,
+                )
+                combo.setCurrentIndex(combo.count() - 1)
+            else:
+                combo.setCurrentIndex(
+                    0
+                    if entry is None or entry.material_id is None
+                    else max(0, combo.findData(entry.material_id))
+                )
             combo.activated.connect(
                 lambda _i, sid=surface.surface_id, c=combo:
                 self._surface_combo_changed(sid, c)
@@ -616,16 +652,43 @@ class SurfaceMaterialPanel(QWidget):
             self.surface_tree.addTopLevelItem(item)
             self.surface_tree.setItemWidget(item, 1, combo)
         self.surface_tree.blockSignals(False)
-        unassigned = sum(
-            1
-            for surface in self._surfaces
-            if surface.surface_id not in assignments
-        )
         if self._surfaces:
-            self.readiness.setText(
-                f'{len(self._surfaces)}面中 {unassigned}面が未割当 — '
-                '未割当面はR120で material_missing として報告されます。'
+            assigned = sum(
+                1 for entry in state.entries if entry.status == 'assigned'
             )
+            unassigned = sum(
+                1 for entry in state.entries if entry.status == 'unassigned'
+            )
+            unresolved = sum(
+                1
+                for entry in state.entries
+                if entry.status == 'unresolved_reference'
+            )
+            summary = _BOUNDARY_STATE_LABELS.get(
+                state.summary, state.summary
+            )
+            if state.summary == 'uniform' and state.assigned_material_ids:
+                resolved = repository.get_material(
+                    state.assigned_material_ids[0]
+                )
+                if resolved is not None:
+                    summary = (
+                        f'全境界面に同一材質を適用済み「{resolved.label}」'
+                    )
+            parts = [
+                f'{len(self._surfaces)}面 — 割当{assigned}・'
+                f'未割当{unassigned}・参照解決不能{unresolved}',
+                summary,
+            ]
+            if state.stale_surface_ids:
+                parts.append(
+                    f'幾何外の残存割当 {len(state.stale_surface_ids)}件'
+                )
+            if unassigned:
+                parts.append(
+                    '未割当面はR120で material_missing として報告されます。'
+                )
+            self.readiness.setText(' — '.join(parts))
         else:
             self.readiness.setText(
                 'セマンティックジオメトリがありません — '
@@ -639,20 +702,31 @@ class SurfaceMaterialPanel(QWidget):
         if self._syncing:
             return
         material_id = combo.currentData()
+        if material_id == _UNRESOLVED_REF:
+            # Displayed-only sentinel for a dangling stored row (#996).
+            self.refresh()
+            return
         repository = self.controller.material_repository
-        if material_id is None:
-            repository.clear_assignment(
-                self.controller.document_id, surface_id
-            )
-        else:
-            material = repository.get_material(material_id)
-            if material is not None:
-                repository.assign_material(
-                    self.controller.document_id,
-                    surface_id,
-                    material,
-                    surfaces=self._surfaces,
+        try:
+            if material_id is None:
+                repository.clear_assignment(
+                    self.controller.document_id, surface_id
                 )
+            else:
+                material = repository.get_material(material_id)
+                if material is not None:
+                    repository.assign_material(
+                        self.controller.document_id,
+                        surface_id,
+                        material,
+                        surfaces=self._surfaces,
+                    )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self.refresh()
+            self.readiness.setText(
+                '割当の変更に失敗: ' + operation_error_message(exc)
+            )
+            return
         self.refresh()
 
     def _new_material(self) -> None:
@@ -712,29 +786,158 @@ class SurfaceMaterialPanel(QWidget):
         if index >= 0:
             self.materials.setCurrentIndex(index)
 
+    def _confirm_bulk_apply(
+        self,
+        preview,
+        material: AcousticMaterialAuthority,
+    ) -> str:
+        """Overwrite confirmation for the bulk apply (#996).
+
+        Returns 'all' (overwrite every boundary), 'unassigned' (keep
+        existing rows, apply only where none exists), or 'cancel'.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle('全部屋境界面へのマテリアル適用')
+        box.setText(
+            f'「{material.label}」を全 {preview.target_count} 面に適用します。\n'
+            f'・既存の割当を上書き: {preview.overwrite_count}面\n'
+            f'・未割当に新規適用: {preview.unassigned_count}面\n'
+            f'・同一材質のため維持: {preview.already_assigned_count}面'
+            + (
+                f'\n・解決不能な参照を上書き: {preview.dangling_count}面'
+                if preview.dangling_count
+                else ''
+            )
+        )
+        box.setInformativeText(
+            'この適用は1回の書き込みで全対象に確定します（失敗時は0面）。'
+        )
+        apply_all = box.addButton(
+            'すべてに適用（上書き）', QMessageBox.ButtonRole.AcceptRole
+        )
+        unassigned_only = (
+            box.addButton(
+                '未割当のみに適用', QMessageBox.ButtonRole.ActionRole
+            )
+            if preview.unassigned_count
+            else None
+        )
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is apply_all:
+            return 'all'
+        if unassigned_only is not None and clicked is unassigned_only:
+            return 'unassigned'
+        return 'cancel'
+
     def _apply_to_all_boundaries(self) -> None:
         material_id = self.materials.currentData()
+        repository = self.controller.material_repository
         material = (
             None
             if material_id is None
-            else self.controller.material_repository.get_material(material_id)
+            else repository.get_material(material_id)
         )
         if material is None:
             self.readiness.setText('先にマテリアルを選択してください')
             return
-        boundaries = [
-            surface
+        document_id = self.controller.document_id
+        boundary_ids = sorted(
+            surface.surface_id
             for surface in self._surfaces
             if surface.semantic_class == 'room_boundary'
-        ]
-        for surface in boundaries:
-            self.controller.material_repository.assign_material(
-                self.controller.document_id,
-                surface.surface_id,
+        )
+        if not boundary_ids:
+            self.readiness.setText(
+                '部屋境界面がありません — 変更された面: 0'
+            )
+            return
+        try:
+            # #996: read-only preview — head pin + per-surface rows.
+            preview = repository.preview_assign_material_bulk(
+                document_id,
+                boundary_ids,
                 material,
                 surfaces=self._surfaces,
             )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self.readiness.setText(
+                '一括適用の事前確認に失敗 — 変更された面: 0 · '
+                + operation_error_message(exc)
+            )
+            return
+        only_unassigned = False
+        if preview.overwrite_count or preview.dangling_count:
+            choice = self._confirm_bulk_apply(preview, material)
+            if choice == 'cancel':
+                self.readiness.setText(
+                    '一括適用をキャンセルしました — 変更された面: 0'
+                )
+                return
+            only_unassigned = choice == 'unassigned'
+        # Snapshot rows before the apply — the revert leg of the single
+        # Undo step restores this exact prior state in one transaction.
+        try:
+            prior_rows = repository.assignment_rows_for(
+                document_id, boundary_ids
+            )
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self.readiness.setText(
+                '一括適用の事前確認に失敗 — 変更された面: 0 · '
+                + operation_error_message(exc)
+            )
+            return
+        committed: dict[str, object] = {}
+        head_pin = preview.scene_revision_id
+
+        def _apply_side() -> None:
+            committed['result'] = repository.assign_material_bulk(
+                document_id,
+                boundary_ids,
+                material,
+                surfaces=self._surfaces,
+                only_unassigned=only_unassigned,
+                expected_scene_revision_id=head_pin,
+            )
+
+        def _revert_side() -> None:
+            repository.restore_assignment_rows(document_id, prior_rows)
+
+        command = CompositeEditCommand(
+            inner=None,
+            apply_side=_apply_side,
+            revert_side=_revert_side,
+            presentation=CommandPresentation(
+                action='assign_material_bulk',
+                label=f'全境界面へ「{material.label}」を適用',
+            ),
+        )
+        try:
+            # One push_command == one Undo step for the whole bulk apply.
+            pushed = self.controller.working.push_command(command)
+        except EXPECTED_OPERATION_ERRORS as exc:
+            self.refresh()
+            self.readiness.setText(
+                '一括適用に失敗 — 変更された面: 0 · '
+                + operation_error_message(exc)
+            )
+            return
+        result = committed.get('result')
         self.refresh()
+        if not pushed or result is None:
+            self.readiness.setText(
+                '適用対象がありませんでした — 変更された面: 0'
+            )
+            return
+        self.readiness.setText(
+            f'「{material.label}」を全境界面に適用しました — '
+            f'適用 {len(result.applied_surface_ids)}面・'
+            f'維持 {len(result.kept_surface_ids)}面・'
+            f'既存割当を保持 {len(result.skipped_surface_ids)}面 '
+            '（1操作で取り消し可能）'
+        )
 
 
 class RoomTreatmentPanel(QWidget):
