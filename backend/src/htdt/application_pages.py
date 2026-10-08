@@ -3029,6 +3029,7 @@ class SupportPage(QWidget):
         open_authority_graph: Callable[[QWidget], None] | None = None,
         open_solver_diagnostics: Callable[[QWidget], None] | None = None,
         open_applicability_envelope: Callable[[QWidget], None] | None = None,
+        open_credential_vault: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -3037,6 +3038,7 @@ class SupportPage(QWidget):
         self._open_authority_graph = open_authority_graph
         self._open_solver_diagnostics = open_solver_diagnostics
         self._open_applicability_envelope = open_applicability_envelope
+        self._open_credential_vault = open_credential_vault
         layout = _page_layout(
             self,
             "サポート",
@@ -3093,6 +3095,24 @@ class SupportPage(QWidget):
             layout.addWidget(self.envelope_button)
         else:
             self.envelope_button = None
+        if self._open_credential_vault is not None:
+            self.credential_vault_button = QPushButton(
+                "資格情報ヴォールト", self)
+            self.credential_vault_button.setToolTip(
+                "プロジェクトの資格情報（参照と監査ログ）を管理します"
+                " — 秘密の値は表示されません")
+            self.credential_vault_button.setWhatsThis(
+                "このプロジェクトに紐付く資格情報の登録・ローテーション・"
+                "失効・削除と監査ログを開きます。表示されるのは参照IDと"
+                "メタデータのみで、秘密の値は表示されません。")
+            self.credential_vault_button.setObjectName(
+                "supportOpenCredentialVault")
+            self.credential_vault_button.clicked.connect(
+                lambda: self._open_credential_vault(self)
+            )
+            layout.addWidget(self.credential_vault_button)
+        else:
+            self.credential_vault_button = None
         if self._export_diagnostics is not None:
             self.export_button = QPushButton("診断パッケージをエクスポート", self)
             self.export_button.setToolTip("サポート共有用の診断情報（ログ・設定の概要など）を1つのファイルにまとめて書き出します")

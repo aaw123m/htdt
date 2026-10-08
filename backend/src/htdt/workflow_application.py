@@ -366,6 +366,19 @@ _LAZY_IMPORTS = {
         '.cad_applicability_envelope',
         'load_envelope_evidence',
     ),
+    'CredentialVaultDialog': (
+        '.credential_vault_panel',
+        'CredentialVaultDialog',
+    ),
+    'CredentialVaultService': (
+        '.cad_credential_vault',
+        'CredentialVaultService',
+    ),
+    'CadCredentialVaultRepository': (
+        '.cad_credential_vault_repository',
+        'CadCredentialVaultRepository',
+    ),
+    'platform_vault': ('.cad_credential_vault', 'platform_vault'),
     'SolverOutputDiagnosticsDialog': (
         '.solver_output_diagnostics_ui',
         'SolverOutputDiagnosticsDialog',
@@ -2810,6 +2823,7 @@ class WorkflowApplicationComposition:
             open_authority_graph=self._open_authority_inspector,
             open_solver_diagnostics=self._open_solver_diagnostics,
             open_applicability_envelope=self._open_applicability_envelope,
+            open_credential_vault=self._open_credential_vault,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
@@ -2919,6 +2933,28 @@ class WorkflowApplicationComposition:
             evaluated_at_utc=datetime.now(timezone.utc).isoformat(),
         )
         dialog = _self.ApplicabilityEnvelopeDialog(envelope, parent=parent)
+        dialog.exec()
+
+    def _open_credential_vault(self, parent: QWidget) -> None:
+        """Open the credential-vault operator surface for the current
+        document (#951).
+
+        Built at open time over the sealed reference/event tables plus
+        the live platform vault — metadata-only views; secret material
+        never leaves ``SecretMaterial``. The surface lives inside the
+        existing サポート destination (no new top-level workspace) and
+        is honest about a locked/unavailable vault.
+        """
+        if not self.document_id:
+            return
+        _self = sys.modules[__name__]
+        service = _self.CredentialVaultService(
+            _self.CadCredentialVaultRepository(self.repository),
+            _self.platform_vault(),
+        )
+        dialog = _self.CredentialVaultDialog(
+            service, self.document_id, parent=parent,
+        )
         dialog.exec()
 
     # -- first-run wizard (#886) ----------------------------------------

@@ -5491,3 +5491,32 @@ issues:
     description: '全5ゲート verified+current+comparable → ready; 欠損/部分/予測のみ/
       失敗/スコープ不一致/変種スピーカー変更/stale sha → not_ready; 保存→読戻で
       同一sha、UI再計算が同一結果を再現。'
+- issue: 951
+  title: 'P1: credential vault operator UI — metadata list, lifecycle ops,
+    reference picker, audit surface'
+  notes: 'REV73: credential_vault_panel (資格情報一覧 + 監査ログ + locked/unavailable
+    正直表示、同意ゲート付き登録/ローテーション/失効/削除ダイアログ、IDのみ返す参照
+    ピッカー + スコープドリフトブロック)。サポート宛先内 CredentialVaultDialog
+    としてマウント (新トップレベル workspace なし)。CredentialVaultService に
+    vault_state/has_consent/list_references/list_events の読み取り面を追加。
+    docs/issues/issue-951-credential-vault-ui.md 参照。
+    '
+  checks:
+  - id: credential-vault-operator-ui
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_951_credential_vault_ui.py
+    - backend/tests/test_issue_890_credential_vault.py
+    description: 'オフスクリーン Qt: 登録同意ゲート/echo/clear、store/rotate/
+      revoke/delete のサービス駆動、メタデータのみの一覧、ピッカー (ID返却・
+      revoked/deleted 非表示・スコープドリフトブロック)、locked/unavailable
+      無効化、監査イベント列、clipboard/manifest/DB 秘密値非含有、resolver
+      参照ID互換、旧プロジェクト空表示。
+
+      '
+  - id: credential-vault-dpapi-account-switch
+    kind: manual
+    description: 'Windows DPAPI 実機アカウント切替 (user scope ↔ machine scope、
+      別アカウントでの unreadable 挙動) — 親 #890 の物理ゲートで管理。
+
+      '

@@ -931,6 +931,36 @@ class CredentialVaultService:
 
     # -- non-secret surfaces ---------------------------------------------------
 
+    def vault_state(self) -> VaultState:
+        """Current platform-vault state — drives honest operator UI
+        (locked/unavailable disable material operations)."""
+
+        return self._vault.state()
+
+    def has_consent(self, document_id: str) -> bool:
+        """Whether operator consent is on record for the document."""
+
+        return self._repo.has_consent(document_id)
+
+    def list_references(
+        self, document_id: str,
+    ) -> tuple[CredentialReference, ...]:
+        """Every sealed reference row — metadata only, never material."""
+
+        return self._repo.list_references(document_id)
+
+    def list_events(
+        self,
+        document_id: str,
+        *,
+        credential_id: str | None = None,
+    ) -> tuple[CredentialLifecycleEvent, ...]:
+        """Sealed lifecycle events — the operator audit surface."""
+
+        return self._repo.list_events(
+            document_id, credential_id=credential_id,
+        )
+
     def export_manifest(
         self, document_id: str,
     ) -> tuple[dict[str, Any], ...]:
