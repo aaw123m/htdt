@@ -128,7 +128,7 @@ class DecisionBriefPanel(QFrame):
         layout.setSpacing(8)
 
         title = QLabel('決定ブリーフ')
-        set_typography_role(title, TypographyRole.HEADING)
+        set_typography_role(title, TypographyRole.SECTION_TITLE)
         layout.addWidget(title)
         description = QLabel(
             '最適化候補を「次の一手」に変換します。証拠チェーンが揃った候補'

@@ -224,21 +224,21 @@ class DecisionGate(BaseModel):
                 gate=self.gate,
                 code='evidence_missing',
                 detail=self.note
-                or 'no sealed verdict is pinned for this gate',
+                or 'このゲートにピンされた検証レコードがありません',
             )
         if self.pin.freshness == 'stale':
             return DecisionGap(
                 gate=self.gate,
                 code='evidence_stale',
                 detail=self.note
-                or 'pinned verdict no longer matches current inputs',
+                or 'ピンされた検証レコードが現在の入力と一致しません',
             )
         if self.verdict == 'failed':
             return DecisionGap(
                 gate=self.gate,
                 code='verdict_failed',
                 detail=self.note
-                or 'pinned verdict record failed',
+                or 'ピンされた検証レコードが不合格です',
             )
         return None
 
@@ -380,9 +380,9 @@ def _derive_gaps(
                 gate='comparison',
                 code='not_comparable',
                 detail=(
-                    'candidate cannot be compared on the shared baseline'
+                    '同一基準で比較できない候補です'
                     if comparability == 'incompatible_fidelity'
-                    else 'candidate comparability is not established'
+                    else '候補の比較可能性が確立していません'
                 ),
             )
         )
@@ -586,12 +586,12 @@ def _rank_key(action: DecisionAction) -> tuple[Any, ...]:
     )
 
 
-def _gate_word(state: GateState) -> str:
+def _tier_word(tier: DecisionTier) -> str:
     return {
-        'satisfied': 'verified',
-        'open': 'open',
-        'blocked': 'blocked',
-    }[state]
+        'ready': '推奨可能',
+        'conditional': '条件付き',
+        'not_ready': '要検証',
+    }[tier]
 
 
 def _explain_ranking(actions: tuple[DecisionAction, ...]) -> str:
@@ -605,35 +605,37 @@ def _explain_ranking(actions: tuple[DecisionAction, ...]) -> str:
     top = actions[0]
     if len(actions) == 1:
         return (
-            f'{top.label} is the only evaluated action '
-            f'(tier {top.tier}, {top.satisfied_gate_count}/'
-            f'{len(top.gates)} gates verified).'
+            f'{top.label} が唯一の評価済みアクションです'
+            f'（{_tier_word(top.tier)}、証拠ゲート '
+            f'{top.satisfied_gate_count}/{len(top.gates)} 検証済み）'
         )
     nxt = actions[1]
     if top.tier != nxt.tier:
         detail = ''
         if nxt.gaps:
             gap = nxt.gaps[0]
-            detail = f' — first gap: {gap.gate} {gap.code}'
+            detail = f'（最初の欠落: {gap.gate} {gap.code}）'
         return (
-            f'{top.label} outranks {nxt.label}: {top.label} is '
-            f'{top.tier} while {nxt.label} is {nxt.tier}{detail}.'
+            f'{top.label} が {nxt.label} を上回ります: {top.label} は'
+            f'{_tier_word(top.tier)}、{nxt.label} は'
+            f'{_tier_word(nxt.tier)}です{detail}'
         )
     if top.satisfied_gate_count != nxt.satisfied_gate_count:
         return (
-            f'{top.label} outranks {nxt.label}: more evidence gates '
-            f'verified ({top.satisfied_gate_count}/{len(top.gates)} vs '
-            f'{nxt.satisfied_gate_count}/{len(nxt.gates)}).'
+            f'{top.label} が {nxt.label} を上回ります: 検証済みの証拠'
+            f'ゲートが多いためです（{top.satisfied_gate_count}/'
+            f'{len(top.gates)} 対 {nxt.satisfied_gate_count}/'
+            f'{len(nxt.gates)}）'
         )
     if top.improved_delta_count != nxt.improved_delta_count:
         return (
-            f'{top.label} outranks {nxt.label}: improves more tracked '
-            f'dimensions ({top.improved_delta_count} vs '
-            f'{nxt.improved_delta_count}) on the same evidence tier.'
+            f'{top.label} が {nxt.label} を上回ります: 同一の証拠階層で'
+            f'改善した追跡指標が多いためです（{top.improved_delta_count}'
+            f' 対 {nxt.improved_delta_count}）'
         )
     return (
-        f'{top.label} outranks {nxt.label}: identical evidence position; '
-        'deterministic order by action id.'
+        f'{top.label} が {nxt.label} を上回ります: 証拠の位置が同一の'
+        'ため、アクションID順の確定的な順位です'
     )
 
 
@@ -735,7 +737,7 @@ def build_decision_brief(
         'ranking_explanation': (
             _explain_ranking(ranked)
             if ranked
-            else 'no candidate actions were evaluated'
+            else '評価された候補アクションがありません'
         ),
         'provenance': tuple(provenance),
         'created_at_utc': created_at_utc,
@@ -770,7 +772,7 @@ def brief_freshness(
     if brief.scene_revision_id != current_scene_revision_id:
         return (
             'stale',
-            'brief is pinned to a scene revision that is no longer current',
+            '決定ブリーフが現在でないシーンリビジョンにピンされています',
         )
     if (
         current_scene_content_hash is not None
@@ -778,9 +780,9 @@ def brief_freshness(
     ):
         return (
             'stale',
-            'brief is pinned to a scene content hash that changed',
+            '決定ブリーフのシーン内容ハッシュが変更されています',
         )
-    return 'current', 'brief matches the current scene revision'
+    return 'current', '決定ブリーフは現在のシーンリビジョンと一致しています'
 
 
 def collect_gate_pins(

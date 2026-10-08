@@ -444,7 +444,7 @@ def test_freshness_reports_stale_for_superseded_revision(
         brief, current_scene_revision_id=rev_b.revision_id
     )
     assert state == 'stale'
-    assert 'revision' in reason
+    assert 'シーンリビジョン' in reason
     state, _reason = brief_freshness(
         brief,
         current_scene_revision_id=rev_a.revision_id,
