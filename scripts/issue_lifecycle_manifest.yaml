@@ -709,3 +709,19 @@ entries:
   - docs/issues/issue-949-lan-discovery.md
   - backend/tests/test_issue_949_lan_discovery.py
   close_when_gates_clear: true
+
+- issue: 999
+  lifecycle: acceptance_remaining
+  landed:
+    prs:
+    - 1035
+    commits: [9936e193]
+  remaining_gates:
+  - kind: manual
+    description: '実 GUI でのオペレータ受入 — 子セッションが Mesa GL 実機で slice/iso/volume/probe・staleness ブロックを検証済み (PR 内録画)。残: 実測定済み field での表示確認とオペレータ手順受入'
+  evidence_refs:
+  - docs/reviews/rev73-spatial-field.md
+  - backend/tests/test_issue_999_field_viewport.py
+  - backend/src/htdt/field_volume_visual_adapter.py
+  - backend/src/htdt/room_field_overlay.py
+  close_when_gates_clear: true
