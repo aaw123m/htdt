@@ -893,3 +893,17 @@ entries:
   - docs/issues/issue-1023-activity-scope.md
   - backend/tests/test_issue_1023_activity_scope.py
   close_when_gates_clear: true
+
+- issue: 1019
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1052]
+    commits: [03d1bab0]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 共有 drop folder 実環境でのスキップ語彙 (link_external/reparse_point 等) と staging 経路の確認。Windows 実機検証済: st_reparse_tag・mklink /J・dangling link・UNC fail-closed・junction 経由 root'
+  evidence_refs:
+  - docs/issues/issue-1019-watch-symlink.md
+  - backend/tests/test_issue_1019_capture_watch_links.py
+  - backend/src/htdt/staged_capture_drop.py
+  close_when_gates_clear: true
