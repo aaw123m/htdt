@@ -417,11 +417,25 @@ class TestVaultStates:
         panel.reference_tree.setCurrentItem(
             panel.reference_tree.topLevelItem(0))
         panel.verify_button.click()
-        assert panel.result_label.text()
+        assert '資格情報を取得できません' in panel.result_label.text()
         assert SECRET not in panel.result_label.text()
         vault.set_locked(False)
         panel.verify_button.click()
         assert '取得可能' in panel.result_label.text()
+
+    def test_verify_surfaces_specific_reason_on_revoked(
+            self, service) -> None:
+        reference = _store(service)
+        service.revoke(reference.credential_id, actor='operator')
+        panel = _panel(service)
+        # newest row for the credential is the revoked tombstone
+        last = panel.reference_tree.topLevelItem(
+            panel.reference_tree.topLevelItemCount() - 1)
+        panel.reference_tree.setCurrentItem(last)
+        panel.verify_button.click()
+        assert '失効済みのため取得できません' in (
+            panel.result_label.text())
+        assert SECRET not in panel.result_label.text()
 
     def test_unavailable_vault_honest_stub(self, repo) -> None:
         from htdt.cad_credential_vault import (

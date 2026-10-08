@@ -999,8 +999,10 @@ class CredentialVaultPanel(QWidget):
 
     def _on_verify(self) -> None:
         """Probe retrieval of the selected credential — success reports
-        only the non-secret fingerprint; failures surface the vault's
-        actionable message verbatim (missing/revoked/deleted/locked)."""
+        only the non-secret fingerprint; failures surface an actionable
+        message: the tombstone reason when the panel can see it
+        (revoked/deleted), else the mapped vault error (locked /
+        unavailable / not stored)."""
         credential_id = self.selected_credential_id()
         if credential_id is None:
             return
@@ -1008,9 +1010,21 @@ class CredentialVaultPanel(QWidget):
             material = self._service.retrieve(
                 credential_id, actor='operator-ui')
         except Exception as exc:  # error-boundary: service call
-            self._report(
-                '取得できません: '
-                + operation_error_message(exc), ok=False)
+            reference = self._current_reference()
+            if reference is not None and reference.state == 'revoked':
+                self._report(
+                    f'{credential_id} は失効済みのため取得できません — '
+                    '新しい資格情報を登録するか、参照を差し替えてください',
+                    ok=False)
+            elif reference is not None and reference.state == 'deleted':
+                self._report(
+                    f'{credential_id} は削除済みのため取得できません — '
+                    '利用するには新しい資格情報を登録してください',
+                    ok=False)
+            else:
+                self._report(
+                    '取得できません: '
+                    + operation_error_message(exc), ok=False)
         else:
             self._report(
                 f'{credential_id} は取得可能です '

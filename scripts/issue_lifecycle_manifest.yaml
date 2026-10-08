@@ -740,7 +740,7 @@ entries:
   lifecycle: physical_evidence_remaining
   landed:
     prs: []
-    commits: [d8a8b81f7f92e0526f0f68355110e9b26dfa55ab]
+    commits: [d45480d321bb797623bf703242eba4947f8695ed, 5911daa6]
   remaining_gates:
   - kind: physical
     description: Windows DPAPI 実機アカウント切替テスト (user scope ↔ machine scope、別アカウントでの unreadable 挙動) は親 #890 の物理ゲートで管理 — VM では検証不能
