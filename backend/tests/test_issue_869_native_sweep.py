@@ -61,6 +61,28 @@ DOC = 'doc-869'
 _TS = '2026-10-07T00:00:00Z'
 
 
+class _EmptyWasapiDriver:
+    """Deterministic no-endpoint WASAPI driver for fail-closed tests.
+
+    Implements the cad_wasapi_io.WasapiDriverBase seam with zero
+    endpoints — equivalent to a Windows host whose Windows Audio
+    service exposes no active render/capture endpoints, regardless of
+    what the test box actually has.
+    """
+
+    def enumerate_endpoints(self):
+        return ()
+
+    def default_endpoint_id(self, data_flow):
+        return None
+
+    def open_render(self, *args):
+        raise AssertionError('unreachable — no endpoints enumerated')
+
+    def open_capture(self, *args):
+        raise AssertionError('unreachable — no endpoints enumerated')
+
+
 def _spec(**kw) -> SweepStimulusSpec:
     payload = dict(
         start_frequency_hz=100.0,
@@ -219,8 +241,8 @@ class TestStimulusGenerator:
 
 
 class TestBackendAbstraction:
-    def test_wasapi_stub_fails_closed(self) -> None:
-        backend = WasapiAudioBackend()
+    def test_wasapi_fails_closed_without_devices(self) -> None:
+        backend = WasapiAudioBackend(driver=_EmptyWasapiDriver())
         assert backend.available() is False
         assert backend.enumerate_devices() == ()
         engine = MeasurementAcquisitionEngine(backend)
@@ -229,7 +251,7 @@ class TestBackendAbstraction:
         assert any('no audio devices' in r for r in report.blocked_reasons)
 
     def test_wasapi_open_stream_raises_unavailable(self) -> None:
-        backend = WasapiAudioBackend()
+        backend = WasapiAudioBackend(driver=_EmptyWasapiDriver())
         # configure() blocks before arm, so drive the stream directly.
         with pytest.raises(BackendUnavailableError):
             backend.open_stream(engine_config())
@@ -315,7 +337,8 @@ class TestEngineStateMachine:
         assert 'clipping_detected' in result.quality.reasons
 
     def test_precheck_blocks_without_devices(self) -> None:
-        engine = MeasurementAcquisitionEngine(WasapiAudioBackend())
+        engine = MeasurementAcquisitionEngine(
+            WasapiAudioBackend(driver=_EmptyWasapiDriver()))
         report = engine.configure(_request())
         assert report.ok is False
         assert engine.stage == 'precheck'
@@ -450,7 +473,7 @@ class TestEngineStateMachine:
         # Devices vanish between arm and start: the backend swap simulates
         # that loss of availability.
         engine = _armed_engine()
-        engine.backend = WasapiAudioBackend()
+        engine.backend = WasapiAudioBackend(driver=_EmptyWasapiDriver())
         result = engine.start()
         assert engine.stage == 'failed'
         assert result.quality is not None
