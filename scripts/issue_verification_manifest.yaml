@@ -5473,3 +5473,21 @@ issues:
     description: '5種類の追加・保存・再読込・数値修正・undo/redo、R120編成との
       面/開口/region ID一致、fail-closed検査(原本不変+対象名表示)、
       選択同期、viewport surface emit、平天井互換(hash不変)。'
+- issue: 950
+  title: 'P1 [統合] 決定ブリーフの5証拠ゲートを実プロデューサ評決から自動解決する'
+  notes: 'REV73: cad_decision_brief_evidence.py が比較候補ごとに補正適格/チャンネル検証/
+    デプロイ/キャンペーン/本番適格の封印済み評決を (revision,variant,sha256) スコープで
+    再検証してピン化。パネル再計算ボタンが実ゲートを配線し、全検証+comparable の時だけ
+    apply_candidate 推奨。不明・不一致・失効は空ピン fail-closed。
+    CadDecisionBriefRepository へ kind_resolvers を供給して保存時の fail-closed 解決を通す。
+
+    '
+  checks:
+  - id: decision-brief-evidence
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_950_decision_brief_evidence.py
+    - backend/tests/test_issue_937_decision_brief.py
+    description: '全5ゲート verified+current+comparable → ready; 欠損/部分/予測のみ/
+      失敗/スコープ不一致/変種スピーカー変更/stale sha → not_ready; 保存→読戻で
+      同一sha、UI再計算が同一結果を再現。'

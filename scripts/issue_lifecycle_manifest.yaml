@@ -709,7 +709,6 @@ entries:
   - docs/issues/issue-949-lan-discovery.md
   - backend/tests/test_issue_949_lan_discovery.py
   close_when_gates_clear: true
-
 - issue: 999
   lifecycle: acceptance_remaining
   landed:
@@ -725,3 +724,15 @@ entries:
   - backend/src/htdt/field_volume_visual_adapter.py
   - backend/src/htdt/room_field_overlay.py
   close_when_gates_clear: true
+- issue: 950
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1039]
+    commits: []
+  remaining_gates:
+  - kind: manual
+    description: オペレータ受入 — 実GUI の決定ブリーフ再計算ボタンで 5 ゲート全検証済みの候補が ready/推奨と表示されること、欠損/古い/スコープ不一致の証拠では not_ready+次アクション提示のままであることの実機確認 (デプロイ実機証跡自体は #868 系の物理ゲートに留まる)
+  evidence_refs:
+  - backend/src/htdt/cad_decision_brief_evidence.py
+  - backend/tests/test_issue_950_decision_brief_evidence.py
+  - docs/issues/issue-950-decision-brief-evidence.md
