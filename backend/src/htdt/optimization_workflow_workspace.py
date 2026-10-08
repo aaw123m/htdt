@@ -724,16 +724,29 @@ class OptimizationWorkflowWorkspace(QWidget):
             'prediction_recompute': WorkspaceDeepLink(
                 WorkspaceId.ROOM, 'prediction'
             ),
+            'source_reimport': WorkspaceDeepLink(
+                WorkspaceId.ROOM, 'sources'
+            ),
             'measurement_position_plan': WorkspaceDeepLink(
                 WorkspaceId.MEASUREMENT, 'campaign'
             ),
             'commissioning_authorization': WorkspaceDeepLink(
                 WorkspaceId.MEASUREMENT, 'commissioning'
             ),
+            # re-evaluate/review work lives on this comparison page
+            'evidence_re_evaluate': WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'comparison'
+            ),
+            'evidence_review': WorkspaceDeepLink(
+                WorkspaceId.OPTIMIZATION, 'comparison'
+            ),
         }
         link = destinations.get(route)
         if link is not None and self._on_navigate is not None:
-            self._on_navigate(link)
+            if not self._on_navigate(link):
+                self._set_status('その画面へ移動できませんでした。')
+        else:
+            self._set_status('この項目の作業先はまだ接続されていません。')
 
     def _show_system_variant_robustness(self, variant_id: str) -> None:
         self._system_variant_robustness_variant_id = variant_id
