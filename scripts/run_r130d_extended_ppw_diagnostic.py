@@ -212,6 +212,13 @@ def main() -> int:
     parser.add_argument("--work-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    # Upstream reports SI units (e.g. m³); the local Windows CP932 console
+    # cannot encode them unless stdout/stderr are explicitly UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+    if args.work_root.exists() and any(args.work_root.iterdir()):
+        raise ValueError("work-root must be fresh; replay cannot reuse a SceneRevision store")
     spec = json.loads(args.plan.read_text(encoding="utf-8"))
     parent = load_validation_plan(args.parent_plan)
     check_spec(spec, parent)
