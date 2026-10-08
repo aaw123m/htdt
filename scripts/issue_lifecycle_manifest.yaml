@@ -313,3 +313,9 @@ entries:
     description: 実機オーディオ (WASAPI) + 実校正器でのガイド実行検証 — 現状バックエンドは fail-closed スタブ
   evidence_refs: [docs/issues/issue-877-guided-calibration.md]
   close_when_gates_clear: true
+- issue: 884
+  lifecycle: landed
+  landed: {prs: [907], commits: []}
+  remaining_gates: []
+  evidence_refs: [docs/issues/issue-884-support-bundle.md]
+  close_when_gates_clear: true
