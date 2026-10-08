@@ -1,0 +1,78 @@
+name: R130D independent MFEM r4 same Gaussian source
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-mfem-r4-same-drive.yml'
+      - 'scripts/run_r130d_mfem_ref4_same_drive.py'
+      - 'benchmarks/acoustics/r130d_mfem_ref4_same_drive_plan_2026-10-09.json'
+permissions:
+  contents: read
+
+jobs:
+  independent-r4:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout exact PR code and plan
+        uses: actions/checkout@v4
+      - name: Setup pinned Python numerical runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pin sparse numerical toolchain
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 pytest==8.4.2
+          python -c "import numpy,scipy;assert numpy.__version__=='1.26.4' and scipy.__version__=='1.14.1'"
+          New-Item -ItemType Directory -Force -Path scratch/mfem_ref4 | Out-Null
+      - name: Fetch independent pinned MFEM source
+        run: |
+          git clone --filter=blob:none https://github.com/mfem/mfem.git _mfem-source
+          git -C _mfem-source checkout d964264cdb9a13e94a201b6c236c7721e0c8765f
+          if ((git -C _mfem-source rev-parse HEAD).Trim() -ne 'd964264cdb9a13e94a201b6c236c7721e0c8765f') { throw 'independent MFEM source pin mismatch' }
+      - name: Compile isolated r4 P2 sparse reference with original MFEM
+        run: |
+          $mfemRoot = (Resolve-Path '_mfem-source').Path
+          cmake -S benchmarks/acoustics/r130d_mfem_reference -B _mfem-build -G "Visual Studio 17 2022" -A x64 "-DHTDT_MFEM_SOURCE_DIR=$mfemRoot"
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM cmake configure failed' }
+          cmake --build _mfem-build --config Release --target r130d_mfem_sloped_tet_r4_system --parallel 4
+          if ($LASTEXITCODE -ne 0) { throw 'MFEM r4 P2 source build failed' }
+          if (!(Test-Path '_mfem-build/Release/r130d_mfem_sloped_tet_r4_system.exe')) { throw 'r4 executable missing' }
+      - name: Export independent 35937-DOF MFEM P2 matrices and point functionals
+        run: |
+          & _mfem-build/Release/r130d_mfem_sloped_tet_r4_system.exe `
+            --density 1.2 --sound-speed 343.2 `
+            --source-x 1.5 --source-y 2 --source-z 2 `
+            --receiver-x 2.5 --receiver-y 2 --receiver-z 2 `
+            --order 2 --uniform-refinements 4 `
+            --output scratch/mfem_ref4/system.json
+          if ($LASTEXITCODE -ne 0) { throw 'independent MFEM r4 export failed' }
+          $file = Get-Item scratch/mfem_ref4/system.json
+          if ($file.Length -gt 200000000) { throw 'preregistered r4 byte limit exceeded' }
+          $sha = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+          Write-Output "r4 export bytes=$($file.Length) sha256=$sha"
+      - name: Inject identical Gaussian source through sparse MFEM r4 implicit midpoint
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          python scripts/run_r130d_mfem_ref4_same_drive.py `
+            --plan benchmarks/acoustics/r130d_mfem_ref4_same_drive_plan_2026-10-09.json `
+            --ref4-system scratch/mfem_ref4/system.json `
+            --comparison-evidence benchmarks/acoustics/r130d_fv_mfem_same_drive_evidence_2026-10-09.json `
+            --output scratch/mfem_ref4_result.json
+          if ($LASTEXITCODE -ne 0) { throw 'preregistered sparse MFEM r4 solver failed' }
+          python -c "import json; j=json.load(open('scratch/mfem_ref4_result.json')); assert j['mfem_dofs']==35937;assert j['gate']['production_ready'] is False;assert j['gate']['cross_solver_production_eligible'] is False;print('MFEM r4 result retained, canonical gates remain failed')"
+      - name: Preserve result and independent matrix even if numerical solve fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r130d-mfem-r4-actual-gaussian-drive
+          path: |
+            scratch/mfem_ref4_result.json
+            scratch/mfem_ref4/system.json
+          if-no-files-found: warn
+          compression-level: 7
+          retention-days: 14
