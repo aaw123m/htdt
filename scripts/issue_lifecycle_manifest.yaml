@@ -319,3 +319,11 @@ entries:
   remaining_gates: []
   evidence_refs: [docs/issues/issue-884-support-bundle.md]
   close_when_gates_clear: true
+- issue: 886
+  lifecycle: landed
+  landed: {prs: [909], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機デバイスI/O(WASAPI実装後)で readiness ステージが完了に進むことを対面受入で確認 — 現ビルドは fail-closed スタブのため readiness は blocked 表示が正しい状態
+  evidence_refs: [docs/issues/issue-886-first-run-wizard.md]
+  close_when_gates_clear: true
