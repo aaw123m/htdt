@@ -29,11 +29,15 @@ from PySide6.QtWidgets import (
 from .cad_decision_brief import (
     CadDecisionBrief,
     DecisionAction,
+    DecisionGate,
     brief_freshness,
     build_decision_action,
     build_decision_brief,
 )
 from .cad_authority_resolver import AuthorityRef
+from .cad_decision_brief_evidence import (
+    DecisionBriefEvidenceResolver,
+)
 from .cad_decision_brief_repository import CadDecisionBriefRepository
 from .cad_design_comparison import DesignComparisonSet
 from .cad_design_comparison_repository import (
@@ -113,8 +117,14 @@ class DecisionBriefPanel(QFrame):
         super().__init__(parent)
         self._scene_repository = scene_repository
         self._document_id = document_id
-        self._brief_repository = (
-            brief_repository or CadDecisionBriefRepository(scene_repository)
+        self._evidence_resolver = DecisionBriefEvidenceResolver(
+            scene_repository
+        )
+        self._brief_repository = brief_repository or (
+            CadDecisionBriefRepository(
+                scene_repository,
+                kind_resolvers=self._evidence_resolver.kind_resolvers(),
+            )
         )
         self._comparison_repository = (
             comparison_repository
@@ -162,8 +172,8 @@ class DecisionBriefPanel(QFrame):
         self.rebuild_button = QPushButton('最新の比較セットから再計算')
         self.rebuild_button.setToolTip(
             '保存済みの最新比較セットから決定ブリーフを再計算して保存します。'
-            'ゲート証拠は明示されたピンのみを使い、未提出の証拠は'
-            '「証拠レコード未ピン」として候補を推奨しません。'
+            'ゲート証拠は実際の検証レコードからスコープ一致で自動解決し、'
+            '一致しない証拠は「証拠レコード未ピン」として候補を推奨しません。'
         )
         set_primary_action(self.rebuild_button)
         self.rebuild_button.clicked.connect(self._rebuild)
@@ -341,6 +351,9 @@ class DecisionBriefPanel(QFrame):
                     if alternative.scene_revision_id == baseline.scene_revision_id
                     else 'incompatible_fidelity'
                 )
+                gates = self._evidence_resolver.resolve_gates(
+                    self._document_id, alternative
+                )
                 actions.append(
                     build_decision_action(
                         candidate_ref=AuthorityRef(
@@ -349,12 +362,12 @@ class DecisionBriefPanel(QFrame):
                             ref_sha256=alternative.alternative_sha256,
                         ),
                         label=alternative.label,
-                        gates=(),
+                        gates=gates,
                         comparability=comparability,
                         changes=(),
                         deltas=(),
-                        recommendation=_reverify_recommendation(
-                            alternative.label
+                        recommendation=_gate_recommendation(
+                            alternative.label, gates
                         ),
                     )
                 )
@@ -389,15 +402,45 @@ class DecisionBriefPanel(QFrame):
         return brief
 
 
-def _reverify_recommendation(label: str) -> 'DecisionRecommendation':
+def _gate_recommendation(
+    label: str, gates: 'tuple[DecisionGate, ...]'
+) -> 'DecisionRecommendation':
+    """Next-step recommendation derived from the resolved gate states.
+
+    ``apply_candidate`` only when every real gate is verified+current;
+    otherwise a ``collect_evidence`` step naming the unsatisfied gates,
+    who must act, and how the gap is closed.
+    """
+
     from .cad_decision_brief import DecisionRecommendation
 
+    if all(gate.gate_state() == 'satisfied' for gate in gates):
+        return DecisionRecommendation(
+            kind='apply_candidate',
+            why=(
+                f'{label} は5つの証拠ゲートがすべて検証済みで、'
+                '推奨可能です'
+            ),
+            actor='operator',
+            verify_by=(
+                '適用後に実機の実効設定を再読み出しし、'
+                'チャンネル検証と測定キャンペーンで確認してください'
+            ),
+        )
+    missing = ', '.join(
+        _GATE_LABELS.get(gate.gate, gate.gate)
+        for gate in gates
+        if gate.gate_state() != 'satisfied'
+    )
     return DecisionRecommendation(
         kind='collect_evidence',
-        why=f'{label} の証拠チェーンが未提出のため採否を判断できません',
+        why=(
+            f'{label} は {missing} の証拠が不足しており'
+            '採否を判断できません'
+        ),
         actor='operator',
-        verify_by='ソルバー・チャンネル・デプロイ・測定・本番適格の'
-        '各検証レコードをこの候補へピンしてください',
+        verify_by='未充足ゲートの検証レコードをこの候補のスコープで'
+        '収集し、再計算してください',
     )
 
 
