@@ -1414,6 +1414,12 @@ class _RepositoryChain:
             )
 
             return CadUxAcceptanceEvidenceRepository(scene)
+        if name == 'adapter_sdk':
+            from .cad_adapter_sdk_repository import (
+                CadAdapterSdkRepository,
+            )
+
+            return CadAdapterSdkRepository(scene)
         if name == 'playback_electronics':
             from .cad_playback_electronics_repository import (
                 CadPlaybackElectronicsRepository,
@@ -7222,6 +7228,19 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_apo_install_records',
         ('record_id',),
         _get('deployment_pipeline', 'get_apo_install'),
+    ),
+    # REV69: #887 adapter SDK contract descriptors + conformance results.
+    _ReplayProbe(
+        'adapter_sdk_descriptor',
+        'cad_adapter_sdk_descriptors',
+        ('descriptor_id',),
+        _get('adapter_sdk', 'get_descriptor'),
+    ),
+    _ReplayProbe(
+        'adapter_conformance_result',
+        'cad_adapter_conformance_results',
+        ('result_id',),
+        _get('adapter_sdk', 'get_result'),
     ),
     # REV68: #880 owned-Windows UX acceptance evidence bundles.
     _ReplayProbe(

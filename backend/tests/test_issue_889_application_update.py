@@ -1473,7 +1473,7 @@ def test_repository_idempotent_resave_and_conflict(repos, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_schema_v109_creates_update_tables(tmp_path):
+def test_schema_v110_creates_update_tables(tmp_path):
     db = tmp_path / 'cad.sqlite3'
     ensure_native_schema(db)
     with closing(connect_sqlite(db)) as connection:
@@ -1481,7 +1481,7 @@ def test_schema_v109_creates_update_tables(tmp_path):
             row['name']
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
-    assert NATIVE_SCHEMA_VERSION == 109
+    assert NATIVE_SCHEMA_VERSION == 110
     for table in (
         'cad_update_packages', 'cad_update_sessions',
         'cad_update_transitions', 'cad_update_preflight_reports',

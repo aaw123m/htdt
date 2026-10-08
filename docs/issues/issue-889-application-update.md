@@ -13,7 +13,7 @@ CHECK -> VERIFY PACKAGE -> COMPATIBILITY PREFLIGHT
 
 implemented as a sealed authority (`cad_application_update.py`) plus a
 staged-applier service (`ApplicationUpdateService`) persisted through
-`cad_application_update_repository.py` (schema v109, tables
+`cad_application_update_repository.py` (schema v110, tables
 `cad_update_*` ×8). Everything the updater decides is recoverable from
 a sealed transition log — a crash at any point resumes deterministically
 via `derive_update_state`.

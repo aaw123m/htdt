@@ -19,7 +19,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 109
+NATIVE_SCHEMA_VERSION = 110
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2140,6 +2140,14 @@ def _migrate_107_to_108(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_108_to_109(connection: sqlite3.Connection) -> None:
+    # REV69: #887 provider/device adapter SDK + conformance authority —
+    # sealed contract descriptors and sealed conformance results:
+    # new append-only authorities the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
+def _migrate_109_to_110(connection: sqlite3.Connection) -> None:
     # REV69: #889 safe application updater — sealed packages, sessions,
     # transition log, preflight/health reports, restore points,
     # authorizations and outcomes: new append-only authorities the
@@ -2258,6 +2266,7 @@ _MIGRATIONS = {
     107: _migrate_106_to_107,
     108: _migrate_107_to_108,
     109: _migrate_108_to_109,
+    110: _migrate_109_to_110,
 }
 
 
