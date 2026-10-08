@@ -761,3 +761,28 @@ entries:
   - docs/issues/issue-996-material-transaction.md
   - backend/tests/test_issue_996_material_bulk_apply.py
   close_when_gates_clear: true
+
+- issue: 955
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [1042]
+    commits: [e09b6479]
+  remaining_gates:
+  - kind: structural
+    description: 'スコープ外レイヤ (native_cad 38, native_diagnostics/room_viewport 18, adapters/capture/repository 群) の ~425 broad catch — docs/issues/issue-955-error-boundaries.md に棚卸し済み、次ラウンドで逐次型付き化'
+  evidence_refs:
+  - docs/issues/issue-955-error-boundaries.md
+  - backend/tests/test_issue_955_error_boundaries.py
+  close_when_gates_clear: true
+- issue: 952
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [1043]
+    commits: [81b70a37]
+  remaining_gates:
+  - kind: structural
+    description: 'CLF Group へのバイナリ spec 取得 (by-request §14) + licensed decoder 実装 — 現状 decode_blocked が正直な評決、fixture 権利は4件確認済み (再配布不可につきバイト非保持)'
+  evidence_refs:
+  - docs/issues/issue-952-clf-binary-import.md
+  - backend/tests/test_issue_952_clf_binary_import.py
+  close_when_gates_clear: true
