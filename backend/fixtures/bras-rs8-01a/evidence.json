@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "authority_version": "external-fixture-1",
+  "evidence_id": "rs8-01a-m150-arrival-evidence",
+  "spec_ref": {
+    "kind": "external_fixture_run_spec",
+    "ref_id": "rs8-01a-m150-arrival",
+    "ref_sha256": "3c0a0633d514adb0a372472a31e4cfe24c4877052f09a83d95d331800cad1efb"
+  },
+  "fixture_ref": {
+    "kind": "external_benchmark_fixture",
+    "ref_id": "bras-rs8-01a",
+    "ref_sha256": "7bd2acf6bd1e85edab1e7eaaa04b5851b270aa289b0ad594a618d8a0c942af68"
+  },
+  "benchmark_sha256": "12d0d91ed2a1202c11049f8b991bbaf169a5a36e50d30666c9610d6f5a00a7ae",
+  "run_mode": "preregistered_unfitted",
+  "status": "pass",
+  "observable_evaluations": [
+    {
+      "observable_id": "rs8-01a-m150-direct-arrival",
+      "kind": "arrival_timing",
+      "verdict": "pass",
+      "metric_id": "arrival-timing-abs-error",
+      "metric_version": "1",
+      "tolerance": 0.0003,
+      "tolerance_unit": "s",
+      "evaluated_band_hz": [
+        100.0,
+        4000.0
+      ],
+      "error": 0.00016520894071914583,
+      "reason": null
+    }
+  ],
+  "verdict_counts": {
+    "pass": 1
+  },
+  "measured_payload_sha256": "c573f53767f06cfbcb6dcfa43454d39388fd751f4c002f6cb3783c23d3905e54",
+  "evidence_sha256": "56d87b2f92cf048622a6a893e4415c3843fd5ea8e0aacaa3d9d94b6828e3c251"
+}

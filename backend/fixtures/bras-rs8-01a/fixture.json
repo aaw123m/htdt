@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "authority_version": "external-fixture-1",
+  "fixture_id": "bras-rs8-01a",
+  "dataset_ref": {
+    "kind": "external_asset_admission",
+    "ref_id": "bras-rs8",
+    "ref_sha256": "67daf46fbae62be92c3d4543d314690b31a567ba84ae6709202bc2b720d4c245"
+  },
+  "scene_ref": {
+    "kind": "external_corpus_scene",
+    "ref_id": "RS8_01a",
+    "ref_sha256": "92ba38e85e26e91e35e4f2ad52910113d74938cf4d7c3199ac8fae8ae694a977"
+  },
+  "scene_config_id": "RS8_01a",
+  "coordinate_convention": "sofa_cartesian_metre",
+  "unit_semantics": "pascal_calibrated",
+  "phase_authority": "coherent_phase",
+  "valid_band_hz": [
+    100.0,
+    4000.0
+  ],
+  "validity_band_basis": "dataset material data (third-octave absorption/scattering and complex surface impedance) published for 100 Hz\u20134 kHz",
+  "points": [
+    {
+      "point_id": "S1",
+      "role": "source",
+      "index": 0,
+      "position_m": [
+        4.0,
+        0.0,
+        1.35
+      ],
+      "orientation_deg": null,
+      "semantics": "anechoic source, fixed position"
+    },
+    {
+      "point_id": "R151",
+      "role": "receiver",
+      "index": 150,
+      "position_m": [
+        1.35,
+        0.0,
+        1.35
+      ],
+      "orientation_deg": null,
+      "semantics": "measurement 151 of 351-point line grid"
+    }
+  ],
+  "boundary_materials": [
+    {
+      "material_id": "mat_MDF25mmC_plane",
+      "source_file_name": "3_Surface_descriptions.zip",
+      "declaration": "MDF 25mm planar response, BRAS mat file"
+    },
+    {
+      "material_id": "mat_MDF25mmC_edge",
+      "source_file_name": "3_Surface_descriptions.zip",
+      "declaration": "MDF 25mm edge response, BRAS mat file"
+    }
+  ],
+  "consumed_files": [
+    {
+      "file_name": "1_Scene_descriptions.zip",
+      "member_path": "1 Scene descriptions/RS8 curved reflector (finite plate) /RS8_01a/RIRs/RS8_RIRs_01a.sofa",
+      "role": "measured_rir",
+      "member_sha256": "d92118d9a33484430864be7c3609e3a335f4b8e10c649988a9fc96ae6088950b",
+      "member_size_bytes": null
+    },
+    {
+      "file_name": "3_Surface_descriptions.zip",
+      "member_path": null,
+      "role": "boundary_material",
+      "member_sha256": null,
+      "member_size_bytes": null
+    }
+  ],
+  "bound_files": [
+    {
+      "file_name": "Documentation.pdf",
+      "member_path": null,
+      "role": "documentation",
+      "member_sha256": null,
+      "member_size_bytes": null
+    },
+    {
+      "file_name": "2_Source_descriptions.zip",
+      "member_path": null,
+      "role": "source_directivity",
+      "member_sha256": null,
+      "member_size_bytes": null
+    }
+  ],
+  "license_id": "cc-by-sa-4.0",
+  "license_family": "cc_by_sa",
+  "attribution_note": "BRAS: RS8 - Benchmark for Room Acoustical Simulation: Reference Scene 8 \u2014 Technische Universit\u00e4t Berlin (DepositOnce), license cc-by-sa-4.0 (https://creativecommons.org/licenses/by-sa/4.0/)",
+  "redistribution": "permitted",
+  "origin_uri": "https://depositonce.tu-berlin.de/items/326fed8c-636a-47f2-977d-b4fd6a0ce771",
+  "evidence_class": "external_measured",
+  "environment": {
+    "temperature_c": 20.0,
+    "note": "anechoic (free-field) per dataset comment"
+  },
+  "applicability_notes": "RS8_01a curved reflector, focal zone (off-axis LS + MP); measured RIR grid 351x1 @44100 Hz",
+  "fixture_sha256": "7bd2acf6bd1e85edab1e7eaaa04b5851b270aa289b0ad594a618d8a0c942af68"
+}

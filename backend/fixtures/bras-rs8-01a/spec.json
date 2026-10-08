@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "authority_version": "external-fixture-1",
+  "spec_id": "rs8-01a-m150-arrival",
+  "fixture_ref": {
+    "kind": "external_benchmark_fixture",
+    "ref_id": "bras-rs8-01a",
+    "ref_sha256": "7bd2acf6bd1e85edab1e7eaaa04b5851b270aa289b0ad594a618d8a0c942af68"
+  },
+  "run_mode": "preregistered_unfitted",
+  "informed_parameters": [],
+  "prior_unfitted_evidence_sha256": null,
+  "provider_id": "analytic-direct-path",
+  "provider_version": "1",
+  "provider_config_sha256": "ccac370e7f734a51d40978676f199cd9ce8daa65b1e84acab203e6144557be3f",
+  "solver_path": "analytic-direct-path",
+  "solver_revision": "rev73",
+  "mesh_resolution": "n/a",
+  "seed": "0",
+  "evaluation_profile_id": "bras-arrival",
+  "evaluation_profile_version": "1",
+  "runtime": {
+    "python_version": "3.12.10",
+    "python_implementation": "CPython",
+    "platform": "Windows-2022Server-10.0.20348-SP0",
+    "h5py_version": "3.16.0",
+    "numpy_version": "2.5.3"
+  },
+  "spec_sha256": "3c0a0633d514adb0a372472a31e4cfe24c4877052f09a83d95d331800cad1efb"
+}

@@ -1,0 +1,21 @@
+[
+  {
+    "kind": "arrival_timing",
+    "observable_id": "rs8-01a-m150-direct-arrival",
+    "source_id": "S1",
+    "receiver_id": "R151",
+    "reference": {
+      "arrival_s": 0.007891156462585034,
+      "derivation": "peak",
+      "measurement_index": 150
+    },
+    "tolerance": 0.0003,
+    "tolerance_unit": "s",
+    "metric_id": "arrival-timing-abs-error",
+    "metric_version": "1",
+    "valid_band_hz": [
+      100.0,
+      4000.0
+    ]
+  }
+]

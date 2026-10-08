@@ -1,0 +1,10674 @@
+{
+  "case": {
+    "benchmark_id": "bras-fixture-rs8_01a",
+    "coordinate_convention": "sofa_cartesian_metre",
+    "environment": {
+      "data_ir_units": "Pascal",
+      "note": "anechoic (free-field) per dataset comment",
+      "room_type": "shoebox",
+      "temperature_c": 20.0
+    },
+    "frequency_grid_hz": null,
+    "geometry": {
+      "boundary_materials": [
+        {
+          "declaration": "MDF 25mm planar response, BRAS mat file",
+          "material_id": "mat_MDF25mmC_plane",
+          "source_file_name": "3_Surface_descriptions.zip"
+        },
+        {
+          "declaration": "MDF 25mm edge response, BRAS mat file",
+          "material_id": "mat_MDF25mmC_edge",
+          "source_file_name": "3_Surface_descriptions.zip"
+        }
+      ],
+      "scene_config_id": "RS8_01a"
+    },
+    "importer_id": "external-fixture-importer",
+    "importer_version": "1",
+    "limitations": "licensed external measured data \u2014 payloads never vendored; redistribution=permitted; unit_semantics=pascal_calibrated; phase_authority=coherent_phase; valid band 100.0\u20134000.0 Hz (dataset material data (third-octave absorption/scattering and complex surface impedance) published for 100 Hz\u20134 kHz); RS8_01a curved reflector, focal zone (off-axis LS + MP); measured RIR grid 351x1 @44100 Hz",
+    "materials": {
+      "boundary_declarations": [
+        "MDF 25mm planar response, BRAS mat file",
+        "MDF 25mm edge response, BRAS mat file"
+      ]
+    },
+    "observables": [],
+    "preprocessing": "none \u2014 measured RIR imported verbatim",
+    "receivers": [
+      {
+        "orientation_deg": null,
+        "point_id": "R1",
+        "position_m": [
+          2.1,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R2",
+        "position_m": [
+          2.095,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R3",
+        "position_m": [
+          2.0900000000000003,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R4",
+        "position_m": [
+          2.085,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R5",
+        "position_m": [
+          2.08,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R6",
+        "position_m": [
+          2.075,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R7",
+        "position_m": [
+          2.0700000000000003,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R8",
+        "position_m": [
+          2.065,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R9",
+        "position_m": [
+          2.06,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R10",
+        "position_m": [
+          2.055,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R11",
+        "position_m": [
+          2.0500000000000003,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R12",
+        "position_m": [
+          2.045,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R13",
+        "position_m": [
+          2.04,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R14",
+        "position_m": [
+          2.035,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R15",
+        "position_m": [
+          2.0300000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R16",
+        "position_m": [
+          2.025,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R17",
+        "position_m": [
+          2.02,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R18",
+        "position_m": [
+          2.015,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R19",
+        "position_m": [
+          2.0100000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R20",
+        "position_m": [
+          2.005,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R21",
+        "position_m": [
+          2.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R22",
+        "position_m": [
+          1.995,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R23",
+        "position_m": [
+          1.99,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R24",
+        "position_m": [
+          1.985,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R25",
+        "position_m": [
+          1.98,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R26",
+        "position_m": [
+          1.975,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R27",
+        "position_m": [
+          1.9700000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R28",
+        "position_m": [
+          1.965,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R29",
+        "position_m": [
+          1.96,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R30",
+        "position_m": [
+          1.955,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R31",
+        "position_m": [
+          1.9500000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R32",
+        "position_m": [
+          1.945,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R33",
+        "position_m": [
+          1.9400000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R34",
+        "position_m": [
+          1.935,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R35",
+        "position_m": [
+          1.9300000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R36",
+        "position_m": [
+          1.925,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R37",
+        "position_m": [
+          1.9200000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R38",
+        "position_m": [
+          1.915,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R39",
+        "position_m": [
+          1.9100000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R40",
+        "position_m": [
+          1.905,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R41",
+        "position_m": [
+          1.9000000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R42",
+        "position_m": [
+          1.895,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R43",
+        "position_m": [
+          1.8900000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R44",
+        "position_m": [
+          1.885,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R45",
+        "position_m": [
+          1.8800000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R46",
+        "position_m": [
+          1.875,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R47",
+        "position_m": [
+          1.87,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R48",
+        "position_m": [
+          1.865,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R49",
+        "position_m": [
+          1.86,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R50",
+        "position_m": [
+          1.855,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R51",
+        "position_m": [
+          1.85,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R52",
+        "position_m": [
+          1.8450000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R53",
+        "position_m": [
+          1.84,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R54",
+        "position_m": [
+          1.835,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R55",
+        "position_m": [
+          1.83,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R56",
+        "position_m": [
+          1.8250000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R57",
+        "position_m": [
+          1.82,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R58",
+        "position_m": [
+          1.815,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R59",
+        "position_m": [
+          1.81,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R60",
+        "position_m": [
+          1.8050000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R61",
+        "position_m": [
+          1.8,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R62",
+        "position_m": [
+          1.7950000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R63",
+        "position_m": [
+          1.79,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R64",
+        "position_m": [
+          1.7850000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R65",
+        "position_m": [
+          1.78,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R66",
+        "position_m": [
+          1.7750000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R67",
+        "position_m": [
+          1.77,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R68",
+        "position_m": [
+          1.7650000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R69",
+        "position_m": [
+          1.76,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R70",
+        "position_m": [
+          1.7550000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R71",
+        "position_m": [
+          1.75,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R72",
+        "position_m": [
+          1.745,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R73",
+        "position_m": [
+          1.7400000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R74",
+        "position_m": [
+          1.735,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R75",
+        "position_m": [
+          1.73,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R76",
+        "position_m": [
+          1.725,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R77",
+        "position_m": [
+          1.7200000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R78",
+        "position_m": [
+          1.715,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R79",
+        "position_m": [
+          1.71,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R80",
+        "position_m": [
+          1.705,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R81",
+        "position_m": [
+          1.7000000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R82",
+        "position_m": [
+          1.695,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R83",
+        "position_m": [
+          1.69,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R84",
+        "position_m": [
+          1.685,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R85",
+        "position_m": [
+          1.6800000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R86",
+        "position_m": [
+          1.675,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R87",
+        "position_m": [
+          1.6700000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R88",
+        "position_m": [
+          1.665,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R89",
+        "position_m": [
+          1.6600000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R90",
+        "position_m": [
+          1.655,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R91",
+        "position_m": [
+          1.6500000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R92",
+        "position_m": [
+          1.645,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R93",
+        "position_m": [
+          1.6400000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R94",
+        "position_m": [
+          1.635,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R95",
+        "position_m": [
+          1.6300000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R96",
+        "position_m": [
+          1.625,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R97",
+        "position_m": [
+          1.62,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R98",
+        "position_m": [
+          1.6150000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R99",
+        "position_m": [
+          1.61,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R100",
+        "position_m": [
+          1.605,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R101",
+        "position_m": [
+          1.6,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R102",
+        "position_m": [
+          1.5950000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R103",
+        "position_m": [
+          1.59,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R104",
+        "position_m": [
+          1.585,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R105",
+        "position_m": [
+          1.58,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R106",
+        "position_m": [
+          1.5750000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R107",
+        "position_m": [
+          1.57,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R108",
+        "position_m": [
+          1.565,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R109",
+        "position_m": [
+          1.56,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R110",
+        "position_m": [
+          1.5550000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R111",
+        "position_m": [
+          1.55,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R112",
+        "position_m": [
+          1.545,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R113",
+        "position_m": [
+          1.54,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R114",
+        "position_m": [
+          1.5350000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R115",
+        "position_m": [
+          1.53,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R116",
+        "position_m": [
+          1.525,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R117",
+        "position_m": [
+          1.52,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R118",
+        "position_m": [
+          1.5150000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R119",
+        "position_m": [
+          1.5100000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R120",
+        "position_m": [
+          1.5050000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R121",
+        "position_m": [
+          1.5,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R122",
+        "position_m": [
+          1.495,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R123",
+        "position_m": [
+          1.4900000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R124",
+        "position_m": [
+          1.485,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R125",
+        "position_m": [
+          1.48,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R126",
+        "position_m": [
+          1.475,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R127",
+        "position_m": [
+          1.4700000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R128",
+        "position_m": [
+          1.465,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R129",
+        "position_m": [
+          1.46,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R130",
+        "position_m": [
+          1.455,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R131",
+        "position_m": [
+          1.4500000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R132",
+        "position_m": [
+          1.445,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R133",
+        "position_m": [
+          1.44,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R134",
+        "position_m": [
+          1.435,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R135",
+        "position_m": [
+          1.4300000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R136",
+        "position_m": [
+          1.425,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R137",
+        "position_m": [
+          1.42,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R138",
+        "position_m": [
+          1.415,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R139",
+        "position_m": [
+          1.4100000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R140",
+        "position_m": [
+          1.405,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R141",
+        "position_m": [
+          1.4,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R142",
+        "position_m": [
+          1.395,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R143",
+        "position_m": [
+          1.3900000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R144",
+        "position_m": [
+          1.3850000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R145",
+        "position_m": [
+          1.3800000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R146",
+        "position_m": [
+          1.375,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R147",
+        "position_m": [
+          1.37,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R148",
+        "position_m": [
+          1.3650000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R149",
+        "position_m": [
+          1.36,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R150",
+        "position_m": [
+          1.355,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R151",
+        "position_m": [
+          1.35,
+          0.0,
+          1.35
+        ],
+        "role": "measurement 151 of 351-point line grid"
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R152",
+        "position_m": [
+          1.3450000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R153",
+        "position_m": [
+          1.34,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R154",
+        "position_m": [
+          1.335,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R155",
+        "position_m": [
+          1.33,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R156",
+        "position_m": [
+          1.3250000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R157",
+        "position_m": [
+          1.32,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R158",
+        "position_m": [
+          1.315,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R159",
+        "position_m": [
+          1.31,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R160",
+        "position_m": [
+          1.3050000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R161",
+        "position_m": [
+          1.3,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R162",
+        "position_m": [
+          1.295,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R163",
+        "position_m": [
+          1.29,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R164",
+        "position_m": [
+          1.2850000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R165",
+        "position_m": [
+          1.28,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R166",
+        "position_m": [
+          1.275,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R167",
+        "position_m": [
+          1.27,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R168",
+        "position_m": [
+          1.2650000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R169",
+        "position_m": [
+          1.2600000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R170",
+        "position_m": [
+          1.2550000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R171",
+        "position_m": [
+          1.25,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R172",
+        "position_m": [
+          1.245,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R173",
+        "position_m": [
+          1.2400000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R174",
+        "position_m": [
+          1.235,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R175",
+        "position_m": [
+          1.23,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R176",
+        "position_m": [
+          1.225,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R177",
+        "position_m": [
+          1.2200000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R178",
+        "position_m": [
+          1.215,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R179",
+        "position_m": [
+          1.21,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R180",
+        "position_m": [
+          1.205,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R181",
+        "position_m": [
+          1.2000000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R182",
+        "position_m": [
+          1.195,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R183",
+        "position_m": [
+          1.19,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R184",
+        "position_m": [
+          1.185,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R185",
+        "position_m": [
+          1.1800000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R186",
+        "position_m": [
+          1.175,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R187",
+        "position_m": [
+          1.17,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R188",
+        "position_m": [
+          1.165,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R189",
+        "position_m": [
+          1.1600000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R190",
+        "position_m": [
+          1.155,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R191",
+        "position_m": [
+          1.15,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R192",
+        "position_m": [
+          1.145,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R193",
+        "position_m": [
+          1.1400000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R194",
+        "position_m": [
+          1.1350000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R195",
+        "position_m": [
+          1.1300000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R196",
+        "position_m": [
+          1.125,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R197",
+        "position_m": [
+          1.12,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R198",
+        "position_m": [
+          1.1150000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R199",
+        "position_m": [
+          1.11,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R200",
+        "position_m": [
+          1.105,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R201",
+        "position_m": [
+          1.1,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R202",
+        "position_m": [
+          1.095,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R203",
+        "position_m": [
+          1.09,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R204",
+        "position_m": [
+          1.085,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R205",
+        "position_m": [
+          1.08,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R206",
+        "position_m": [
+          1.0750000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R207",
+        "position_m": [
+          1.07,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R208",
+        "position_m": [
+          1.0650000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R209",
+        "position_m": [
+          1.06,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R210",
+        "position_m": [
+          1.0550000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R211",
+        "position_m": [
+          1.05,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R212",
+        "position_m": [
+          1.0450000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R213",
+        "position_m": [
+          1.04,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R214",
+        "position_m": [
+          1.0350000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R215",
+        "position_m": [
+          1.03,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R216",
+        "position_m": [
+          1.0250000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R217",
+        "position_m": [
+          1.02,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R218",
+        "position_m": [
+          1.0150000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R219",
+        "position_m": [
+          1.01,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R220",
+        "position_m": [
+          1.0050000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R221",
+        "position_m": [
+          1.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R222",
+        "position_m": [
+          0.9950000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R223",
+        "position_m": [
+          0.99,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R224",
+        "position_m": [
+          0.9850000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R225",
+        "position_m": [
+          0.98,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R226",
+        "position_m": [
+          0.9750000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R227",
+        "position_m": [
+          0.97,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R228",
+        "position_m": [
+          0.9650000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R229",
+        "position_m": [
+          0.96,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R230",
+        "position_m": [
+          0.9550000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R231",
+        "position_m": [
+          0.95,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R232",
+        "position_m": [
+          0.9450000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R233",
+        "position_m": [
+          0.9400000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R234",
+        "position_m": [
+          0.935,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R235",
+        "position_m": [
+          0.9300000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R236",
+        "position_m": [
+          0.925,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R237",
+        "position_m": [
+          0.9200000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R238",
+        "position_m": [
+          0.915,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R239",
+        "position_m": [
+          0.9100000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R240",
+        "position_m": [
+          0.905,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R241",
+        "position_m": [
+          0.9000000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R242",
+        "position_m": [
+          0.895,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R243",
+        "position_m": [
+          0.8900000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R244",
+        "position_m": [
+          0.885,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R245",
+        "position_m": [
+          0.8800000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R246",
+        "position_m": [
+          0.875,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R247",
+        "position_m": [
+          0.8700000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R248",
+        "position_m": [
+          0.865,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R249",
+        "position_m": [
+          0.8600000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R250",
+        "position_m": [
+          0.855,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R251",
+        "position_m": [
+          0.8500000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R252",
+        "position_m": [
+          0.845,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R253",
+        "position_m": [
+          0.8400000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R254",
+        "position_m": [
+          0.835,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R255",
+        "position_m": [
+          0.8300000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R256",
+        "position_m": [
+          0.825,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R257",
+        "position_m": [
+          0.8200000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R258",
+        "position_m": [
+          0.8150000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R259",
+        "position_m": [
+          0.81,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R260",
+        "position_m": [
+          0.8050000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R261",
+        "position_m": [
+          0.8,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R262",
+        "position_m": [
+          0.7950000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R263",
+        "position_m": [
+          0.79,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R264",
+        "position_m": [
+          0.7850000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R265",
+        "position_m": [
+          0.78,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R266",
+        "position_m": [
+          0.7750000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R267",
+        "position_m": [
+          0.77,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R268",
+        "position_m": [
+          0.7650000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R269",
+        "position_m": [
+          0.76,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R270",
+        "position_m": [
+          0.7550000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R271",
+        "position_m": [
+          0.75,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R272",
+        "position_m": [
+          0.7450000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R273",
+        "position_m": [
+          0.74,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R274",
+        "position_m": [
+          0.7350000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R275",
+        "position_m": [
+          0.73,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R276",
+        "position_m": [
+          0.7250000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R277",
+        "position_m": [
+          0.72,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R278",
+        "position_m": [
+          0.7150000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R279",
+        "position_m": [
+          0.71,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R280",
+        "position_m": [
+          0.7050000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R281",
+        "position_m": [
+          0.7,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R282",
+        "position_m": [
+          0.6950000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R283",
+        "position_m": [
+          0.6900000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R284",
+        "position_m": [
+          0.685,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R285",
+        "position_m": [
+          0.6800000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R286",
+        "position_m": [
+          0.675,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R287",
+        "position_m": [
+          0.6700000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R288",
+        "position_m": [
+          0.665,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R289",
+        "position_m": [
+          0.6600000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R290",
+        "position_m": [
+          0.655,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R291",
+        "position_m": [
+          0.6500000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R292",
+        "position_m": [
+          0.645,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R293",
+        "position_m": [
+          0.6400000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R294",
+        "position_m": [
+          0.635,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R295",
+        "position_m": [
+          0.6300000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R296",
+        "position_m": [
+          0.625,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R297",
+        "position_m": [
+          0.6200000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R298",
+        "position_m": [
+          0.615,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R299",
+        "position_m": [
+          0.6100000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R300",
+        "position_m": [
+          0.605,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R301",
+        "position_m": [
+          0.6000000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R302",
+        "position_m": [
+          0.595,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R303",
+        "position_m": [
+          0.5900000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R304",
+        "position_m": [
+          0.585,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R305",
+        "position_m": [
+          0.5800000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R306",
+        "position_m": [
+          0.575,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R307",
+        "position_m": [
+          0.5700000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R308",
+        "position_m": [
+          0.565,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R309",
+        "position_m": [
+          0.56,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R310",
+        "position_m": [
+          0.5550000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R311",
+        "position_m": [
+          0.55,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R312",
+        "position_m": [
+          0.5450000000000002,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R313",
+        "position_m": [
+          0.54,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R314",
+        "position_m": [
+          0.5350000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R315",
+        "position_m": [
+          0.53,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R316",
+        "position_m": [
+          0.5250000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R317",
+        "position_m": [
+          0.52,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R318",
+        "position_m": [
+          0.5150000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R319",
+        "position_m": [
+          0.51,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R320",
+        "position_m": [
+          0.5050000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R321",
+        "position_m": [
+          0.5,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R322",
+        "position_m": [
+          0.4950000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R323",
+        "position_m": [
+          0.49,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R324",
+        "position_m": [
+          0.4850000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R325",
+        "position_m": [
+          0.48,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R326",
+        "position_m": [
+          0.4750000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R327",
+        "position_m": [
+          0.47,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R328",
+        "position_m": [
+          0.4650000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R329",
+        "position_m": [
+          0.45999999999999996,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R330",
+        "position_m": [
+          0.45500000000000007,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R331",
+        "position_m": [
+          0.44999999999999996,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R332",
+        "position_m": [
+          0.44500000000000006,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R333",
+        "position_m": [
+          0.43999999999999995,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R334",
+        "position_m": [
+          0.43500000000000005,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R335",
+        "position_m": [
+          0.43000000000000016,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R336",
+        "position_m": [
+          0.42500000000000004,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R337",
+        "position_m": [
+          0.42000000000000015,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R338",
+        "position_m": [
+          0.41500000000000004,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R339",
+        "position_m": [
+          0.41000000000000014,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R340",
+        "position_m": [
+          0.405,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R341",
+        "position_m": [
+          0.40000000000000013,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R342",
+        "position_m": [
+          0.395,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R343",
+        "position_m": [
+          0.3900000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R344",
+        "position_m": [
+          0.385,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R345",
+        "position_m": [
+          0.3800000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R346",
+        "position_m": [
+          0.375,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R347",
+        "position_m": [
+          0.3700000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R348",
+        "position_m": [
+          0.365,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R349",
+        "position_m": [
+          0.3600000000000001,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R350",
+        "position_m": [
+          0.355,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "R351",
+        "position_m": [
+          0.35,
+          0.0,
+          1.35
+        ],
+        "role": null
+      }
+    ],
+    "sample_rate_hz": 44100.0,
+    "schema_version": 1,
+    "semantic_sha256": "9e8f3354e25845f82894fea56d65d8d46b031119cdedf12e96b7ef8fdd955f2c",
+    "source_asset": {
+      "admission_ref": "bras-rs8",
+      "asset_id": "fixture:bras-rs8-01a",
+      "content_sha256": null,
+      "dataset_name": "bras-rs8",
+      "dataset_version": "10.14279/depositonce-25649",
+      "evidence_class": "external_measured",
+      "license_id": "cc-by-sa-4.0",
+      "origin_uri": "https://depositonce.tu-berlin.de/items/326fed8c-636a-47f2-977d-b4fd6a0ce771",
+      "provenance": [
+        {
+          "evidence_kind": "measured",
+          "source_name": "Technische Universit\u00e4t Berlin (DepositOnce)",
+          "source_reference": "https://depositonce.tu-berlin.de/items/326fed8c-636a-47f2-977d-b4fd6a0ce771",
+          "source_sha256": "67daf46fbae62be92c3d4543d314690b31a567ba84ae6709202bc2b720d4c245",
+          "source_version": "11303/26816"
+        }
+      ],
+      "schema_version": 1,
+      "semantic_sha256": "0db8c4df71415e726a623fdd7318797fe0b83936c28a74a0ef8f5a4318353d94"
+    },
+    "sources": [
+      {
+        "orientation_deg": null,
+        "point_id": "S1",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": "anechoic source, fixed position"
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S2",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S3",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S4",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S5",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S6",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S7",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S8",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S9",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S10",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S11",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S12",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S13",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S14",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S15",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S16",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S17",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S18",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S19",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S20",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S21",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S22",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S23",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S24",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S25",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S26",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S27",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S28",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S29",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S30",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S31",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S32",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S33",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S34",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S35",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S36",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S37",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S38",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S39",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S40",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S41",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S42",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S43",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S44",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S45",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S46",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S47",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S48",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S49",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S50",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S51",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S52",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S53",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S54",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S55",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S56",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S57",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S58",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S59",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S60",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S61",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S62",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S63",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S64",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S65",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S66",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S67",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S68",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S69",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S70",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S71",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S72",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S73",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S74",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S75",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S76",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S77",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S78",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S79",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S80",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S81",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S82",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S83",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S84",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S85",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S86",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S87",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S88",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S89",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S90",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S91",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S92",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S93",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S94",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S95",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S96",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S97",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S98",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S99",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S100",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S101",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S102",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S103",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S104",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S105",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S106",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S107",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S108",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S109",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S110",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S111",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S112",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S113",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S114",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S115",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S116",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S117",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S118",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S119",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S120",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S121",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S122",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S123",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S124",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S125",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S126",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S127",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S128",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S129",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S130",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S131",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S132",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S133",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S134",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S135",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S136",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S137",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S138",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S139",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S140",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S141",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S142",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S143",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S144",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S145",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S146",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S147",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S148",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S149",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S150",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S151",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S152",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S153",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S154",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S155",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S156",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S157",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S158",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S159",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S160",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S161",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S162",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S163",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S164",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S165",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S166",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S167",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S168",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S169",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S170",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S171",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S172",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S173",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S174",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S175",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S176",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S177",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S178",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S179",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S180",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S181",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S182",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S183",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S184",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S185",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S186",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S187",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S188",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S189",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S190",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S191",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S192",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S193",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S194",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S195",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S196",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S197",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S198",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S199",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S200",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S201",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S202",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S203",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S204",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S205",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S206",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S207",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S208",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S209",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S210",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S211",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S212",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S213",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S214",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S215",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S216",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S217",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S218",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S219",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S220",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S221",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S222",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S223",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S224",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S225",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S226",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S227",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S228",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S229",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S230",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S231",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S232",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S233",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S234",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S235",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S236",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S237",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S238",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S239",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S240",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S241",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S242",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S243",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S244",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S245",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S246",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S247",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S248",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S249",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S250",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S251",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S252",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S253",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S254",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S255",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S256",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S257",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S258",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S259",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S260",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S261",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S262",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S263",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S264",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S265",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S266",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S267",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S268",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S269",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S270",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S271",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S272",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S273",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S274",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S275",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S276",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S277",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S278",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S279",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S280",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S281",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S282",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S283",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S284",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S285",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S286",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S287",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S288",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S289",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S290",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S291",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S292",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S293",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S294",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S295",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S296",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S297",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S298",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S299",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S300",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S301",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S302",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S303",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S304",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S305",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S306",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S307",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S308",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S309",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S310",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S311",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S312",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S313",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S314",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S315",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S316",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S317",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S318",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S319",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S320",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S321",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S322",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S323",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S324",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S325",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S326",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S327",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S328",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S329",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S330",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S331",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S332",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S333",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S334",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S335",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S336",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S337",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S338",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S339",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S340",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S341",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S342",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S343",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S344",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S345",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S346",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S347",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S348",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S349",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S350",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      },
+      {
+        "orientation_deg": null,
+        "point_id": "S351",
+        "position_m": [
+          4.0,
+          0.0,
+          1.35
+        ],
+        "role": null
+      }
+    ],
+    "time_origin_s": 0.0,
+    "title": "RS8 finite curved reflector \u2014 configuration 01a \u2014 fixture bras-rs8-01a",
+    "version": "1"
+  },
+  "fixture_sha256": "7bd2acf6bd1e85edab1e7eaaa04b5851b270aa289b0ad594a618d8a0c942af68",
+  "measurement": {
+    "channel_count": 1,
+    "coordinate_system": "cartesian",
+    "data_ir_units": "Pascal",
+    "delays_s": [
+      [
+        0.0
+      ]
+    ],
+    "emitter_positions_m": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "ir_length_samples": 10001,
+    "listener_positions_m": [
+      [
+        2.1,
+        0.0,
+        1.35
+      ],
+      [
+        2.095,
+        0.0,
+        1.35
+      ],
+      [
+        2.0900000000000003,
+        0.0,
+        1.35
+      ],
+      [
+        2.085,
+        0.0,
+        1.35
+      ],
+      [
+        2.08,
+        0.0,
+        1.35
+      ],
+      [
+        2.075,
+        0.0,
+        1.35
+      ],
+      [
+        2.0700000000000003,
+        0.0,
+        1.35
+      ],
+      [
+        2.065,
+        0.0,
+        1.35
+      ],
+      [
+        2.06,
+        0.0,
+        1.35
+      ],
+      [
+        2.055,
+        0.0,
+        1.35
+      ],
+      [
+        2.0500000000000003,
+        0.0,
+        1.35
+      ],
+      [
+        2.045,
+        0.0,
+        1.35
+      ],
+      [
+        2.04,
+        0.0,
+        1.35
+      ],
+      [
+        2.035,
+        0.0,
+        1.35
+      ],
+      [
+        2.0300000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        2.025,
+        0.0,
+        1.35
+      ],
+      [
+        2.02,
+        0.0,
+        1.35
+      ],
+      [
+        2.015,
+        0.0,
+        1.35
+      ],
+      [
+        2.0100000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        2.005,
+        0.0,
+        1.35
+      ],
+      [
+        2.0,
+        0.0,
+        1.35
+      ],
+      [
+        1.995,
+        0.0,
+        1.35
+      ],
+      [
+        1.99,
+        0.0,
+        1.35
+      ],
+      [
+        1.985,
+        0.0,
+        1.35
+      ],
+      [
+        1.98,
+        0.0,
+        1.35
+      ],
+      [
+        1.975,
+        0.0,
+        1.35
+      ],
+      [
+        1.9700000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.965,
+        0.0,
+        1.35
+      ],
+      [
+        1.96,
+        0.0,
+        1.35
+      ],
+      [
+        1.955,
+        0.0,
+        1.35
+      ],
+      [
+        1.9500000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.945,
+        0.0,
+        1.35
+      ],
+      [
+        1.9400000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.935,
+        0.0,
+        1.35
+      ],
+      [
+        1.9300000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.925,
+        0.0,
+        1.35
+      ],
+      [
+        1.9200000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.915,
+        0.0,
+        1.35
+      ],
+      [
+        1.9100000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.905,
+        0.0,
+        1.35
+      ],
+      [
+        1.9000000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.895,
+        0.0,
+        1.35
+      ],
+      [
+        1.8900000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.885,
+        0.0,
+        1.35
+      ],
+      [
+        1.8800000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.875,
+        0.0,
+        1.35
+      ],
+      [
+        1.87,
+        0.0,
+        1.35
+      ],
+      [
+        1.865,
+        0.0,
+        1.35
+      ],
+      [
+        1.86,
+        0.0,
+        1.35
+      ],
+      [
+        1.855,
+        0.0,
+        1.35
+      ],
+      [
+        1.85,
+        0.0,
+        1.35
+      ],
+      [
+        1.8450000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.84,
+        0.0,
+        1.35
+      ],
+      [
+        1.835,
+        0.0,
+        1.35
+      ],
+      [
+        1.83,
+        0.0,
+        1.35
+      ],
+      [
+        1.8250000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.82,
+        0.0,
+        1.35
+      ],
+      [
+        1.815,
+        0.0,
+        1.35
+      ],
+      [
+        1.81,
+        0.0,
+        1.35
+      ],
+      [
+        1.8050000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.8,
+        0.0,
+        1.35
+      ],
+      [
+        1.7950000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.79,
+        0.0,
+        1.35
+      ],
+      [
+        1.7850000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.78,
+        0.0,
+        1.35
+      ],
+      [
+        1.7750000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.77,
+        0.0,
+        1.35
+      ],
+      [
+        1.7650000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.76,
+        0.0,
+        1.35
+      ],
+      [
+        1.7550000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.75,
+        0.0,
+        1.35
+      ],
+      [
+        1.745,
+        0.0,
+        1.35
+      ],
+      [
+        1.7400000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.735,
+        0.0,
+        1.35
+      ],
+      [
+        1.73,
+        0.0,
+        1.35
+      ],
+      [
+        1.725,
+        0.0,
+        1.35
+      ],
+      [
+        1.7200000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.715,
+        0.0,
+        1.35
+      ],
+      [
+        1.71,
+        0.0,
+        1.35
+      ],
+      [
+        1.705,
+        0.0,
+        1.35
+      ],
+      [
+        1.7000000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.695,
+        0.0,
+        1.35
+      ],
+      [
+        1.69,
+        0.0,
+        1.35
+      ],
+      [
+        1.685,
+        0.0,
+        1.35
+      ],
+      [
+        1.6800000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.675,
+        0.0,
+        1.35
+      ],
+      [
+        1.6700000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.665,
+        0.0,
+        1.35
+      ],
+      [
+        1.6600000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.655,
+        0.0,
+        1.35
+      ],
+      [
+        1.6500000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.645,
+        0.0,
+        1.35
+      ],
+      [
+        1.6400000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.635,
+        0.0,
+        1.35
+      ],
+      [
+        1.6300000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.625,
+        0.0,
+        1.35
+      ],
+      [
+        1.62,
+        0.0,
+        1.35
+      ],
+      [
+        1.6150000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.61,
+        0.0,
+        1.35
+      ],
+      [
+        1.605,
+        0.0,
+        1.35
+      ],
+      [
+        1.6,
+        0.0,
+        1.35
+      ],
+      [
+        1.5950000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.59,
+        0.0,
+        1.35
+      ],
+      [
+        1.585,
+        0.0,
+        1.35
+      ],
+      [
+        1.58,
+        0.0,
+        1.35
+      ],
+      [
+        1.5750000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.57,
+        0.0,
+        1.35
+      ],
+      [
+        1.565,
+        0.0,
+        1.35
+      ],
+      [
+        1.56,
+        0.0,
+        1.35
+      ],
+      [
+        1.5550000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.55,
+        0.0,
+        1.35
+      ],
+      [
+        1.545,
+        0.0,
+        1.35
+      ],
+      [
+        1.54,
+        0.0,
+        1.35
+      ],
+      [
+        1.5350000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.53,
+        0.0,
+        1.35
+      ],
+      [
+        1.525,
+        0.0,
+        1.35
+      ],
+      [
+        1.52,
+        0.0,
+        1.35
+      ],
+      [
+        1.5150000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.5100000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.5050000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.5,
+        0.0,
+        1.35
+      ],
+      [
+        1.495,
+        0.0,
+        1.35
+      ],
+      [
+        1.4900000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.485,
+        0.0,
+        1.35
+      ],
+      [
+        1.48,
+        0.0,
+        1.35
+      ],
+      [
+        1.475,
+        0.0,
+        1.35
+      ],
+      [
+        1.4700000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.465,
+        0.0,
+        1.35
+      ],
+      [
+        1.46,
+        0.0,
+        1.35
+      ],
+      [
+        1.455,
+        0.0,
+        1.35
+      ],
+      [
+        1.4500000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.445,
+        0.0,
+        1.35
+      ],
+      [
+        1.44,
+        0.0,
+        1.35
+      ],
+      [
+        1.435,
+        0.0,
+        1.35
+      ],
+      [
+        1.4300000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.425,
+        0.0,
+        1.35
+      ],
+      [
+        1.42,
+        0.0,
+        1.35
+      ],
+      [
+        1.415,
+        0.0,
+        1.35
+      ],
+      [
+        1.4100000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.405,
+        0.0,
+        1.35
+      ],
+      [
+        1.4,
+        0.0,
+        1.35
+      ],
+      [
+        1.395,
+        0.0,
+        1.35
+      ],
+      [
+        1.3900000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.3850000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.3800000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.375,
+        0.0,
+        1.35
+      ],
+      [
+        1.37,
+        0.0,
+        1.35
+      ],
+      [
+        1.3650000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.36,
+        0.0,
+        1.35
+      ],
+      [
+        1.355,
+        0.0,
+        1.35
+      ],
+      [
+        1.35,
+        0.0,
+        1.35
+      ],
+      [
+        1.3450000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.34,
+        0.0,
+        1.35
+      ],
+      [
+        1.335,
+        0.0,
+        1.35
+      ],
+      [
+        1.33,
+        0.0,
+        1.35
+      ],
+      [
+        1.3250000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.32,
+        0.0,
+        1.35
+      ],
+      [
+        1.315,
+        0.0,
+        1.35
+      ],
+      [
+        1.31,
+        0.0,
+        1.35
+      ],
+      [
+        1.3050000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.3,
+        0.0,
+        1.35
+      ],
+      [
+        1.295,
+        0.0,
+        1.35
+      ],
+      [
+        1.29,
+        0.0,
+        1.35
+      ],
+      [
+        1.2850000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.28,
+        0.0,
+        1.35
+      ],
+      [
+        1.275,
+        0.0,
+        1.35
+      ],
+      [
+        1.27,
+        0.0,
+        1.35
+      ],
+      [
+        1.2650000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.2600000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.2550000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.25,
+        0.0,
+        1.35
+      ],
+      [
+        1.245,
+        0.0,
+        1.35
+      ],
+      [
+        1.2400000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.235,
+        0.0,
+        1.35
+      ],
+      [
+        1.23,
+        0.0,
+        1.35
+      ],
+      [
+        1.225,
+        0.0,
+        1.35
+      ],
+      [
+        1.2200000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.215,
+        0.0,
+        1.35
+      ],
+      [
+        1.21,
+        0.0,
+        1.35
+      ],
+      [
+        1.205,
+        0.0,
+        1.35
+      ],
+      [
+        1.2000000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.195,
+        0.0,
+        1.35
+      ],
+      [
+        1.19,
+        0.0,
+        1.35
+      ],
+      [
+        1.185,
+        0.0,
+        1.35
+      ],
+      [
+        1.1800000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.175,
+        0.0,
+        1.35
+      ],
+      [
+        1.17,
+        0.0,
+        1.35
+      ],
+      [
+        1.165,
+        0.0,
+        1.35
+      ],
+      [
+        1.1600000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.155,
+        0.0,
+        1.35
+      ],
+      [
+        1.15,
+        0.0,
+        1.35
+      ],
+      [
+        1.145,
+        0.0,
+        1.35
+      ],
+      [
+        1.1400000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.1350000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.1300000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.125,
+        0.0,
+        1.35
+      ],
+      [
+        1.12,
+        0.0,
+        1.35
+      ],
+      [
+        1.1150000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.11,
+        0.0,
+        1.35
+      ],
+      [
+        1.105,
+        0.0,
+        1.35
+      ],
+      [
+        1.1,
+        0.0,
+        1.35
+      ],
+      [
+        1.095,
+        0.0,
+        1.35
+      ],
+      [
+        1.09,
+        0.0,
+        1.35
+      ],
+      [
+        1.085,
+        0.0,
+        1.35
+      ],
+      [
+        1.08,
+        0.0,
+        1.35
+      ],
+      [
+        1.0750000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.07,
+        0.0,
+        1.35
+      ],
+      [
+        1.0650000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.06,
+        0.0,
+        1.35
+      ],
+      [
+        1.0550000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.05,
+        0.0,
+        1.35
+      ],
+      [
+        1.0450000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        1.04,
+        0.0,
+        1.35
+      ],
+      [
+        1.0350000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.03,
+        0.0,
+        1.35
+      ],
+      [
+        1.0250000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.02,
+        0.0,
+        1.35
+      ],
+      [
+        1.0150000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.01,
+        0.0,
+        1.35
+      ],
+      [
+        1.0050000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        1.0,
+        0.0,
+        1.35
+      ],
+      [
+        0.9950000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.99,
+        0.0,
+        1.35
+      ],
+      [
+        0.9850000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.98,
+        0.0,
+        1.35
+      ],
+      [
+        0.9750000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.97,
+        0.0,
+        1.35
+      ],
+      [
+        0.9650000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.96,
+        0.0,
+        1.35
+      ],
+      [
+        0.9550000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.95,
+        0.0,
+        1.35
+      ],
+      [
+        0.9450000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.9400000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.935,
+        0.0,
+        1.35
+      ],
+      [
+        0.9300000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.925,
+        0.0,
+        1.35
+      ],
+      [
+        0.9200000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.915,
+        0.0,
+        1.35
+      ],
+      [
+        0.9100000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.905,
+        0.0,
+        1.35
+      ],
+      [
+        0.9000000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.895,
+        0.0,
+        1.35
+      ],
+      [
+        0.8900000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.885,
+        0.0,
+        1.35
+      ],
+      [
+        0.8800000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.875,
+        0.0,
+        1.35
+      ],
+      [
+        0.8700000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.865,
+        0.0,
+        1.35
+      ],
+      [
+        0.8600000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.855,
+        0.0,
+        1.35
+      ],
+      [
+        0.8500000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.845,
+        0.0,
+        1.35
+      ],
+      [
+        0.8400000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.835,
+        0.0,
+        1.35
+      ],
+      [
+        0.8300000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.825,
+        0.0,
+        1.35
+      ],
+      [
+        0.8200000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.8150000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.81,
+        0.0,
+        1.35
+      ],
+      [
+        0.8050000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.8,
+        0.0,
+        1.35
+      ],
+      [
+        0.7950000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.79,
+        0.0,
+        1.35
+      ],
+      [
+        0.7850000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.78,
+        0.0,
+        1.35
+      ],
+      [
+        0.7750000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.77,
+        0.0,
+        1.35
+      ],
+      [
+        0.7650000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.76,
+        0.0,
+        1.35
+      ],
+      [
+        0.7550000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.75,
+        0.0,
+        1.35
+      ],
+      [
+        0.7450000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.74,
+        0.0,
+        1.35
+      ],
+      [
+        0.7350000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.73,
+        0.0,
+        1.35
+      ],
+      [
+        0.7250000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.72,
+        0.0,
+        1.35
+      ],
+      [
+        0.7150000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.71,
+        0.0,
+        1.35
+      ],
+      [
+        0.7050000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.7,
+        0.0,
+        1.35
+      ],
+      [
+        0.6950000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.6900000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.685,
+        0.0,
+        1.35
+      ],
+      [
+        0.6800000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.675,
+        0.0,
+        1.35
+      ],
+      [
+        0.6700000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.665,
+        0.0,
+        1.35
+      ],
+      [
+        0.6600000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.655,
+        0.0,
+        1.35
+      ],
+      [
+        0.6500000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.645,
+        0.0,
+        1.35
+      ],
+      [
+        0.6400000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.635,
+        0.0,
+        1.35
+      ],
+      [
+        0.6300000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.625,
+        0.0,
+        1.35
+      ],
+      [
+        0.6200000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.615,
+        0.0,
+        1.35
+      ],
+      [
+        0.6100000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.605,
+        0.0,
+        1.35
+      ],
+      [
+        0.6000000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.595,
+        0.0,
+        1.35
+      ],
+      [
+        0.5900000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.585,
+        0.0,
+        1.35
+      ],
+      [
+        0.5800000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.575,
+        0.0,
+        1.35
+      ],
+      [
+        0.5700000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.565,
+        0.0,
+        1.35
+      ],
+      [
+        0.56,
+        0.0,
+        1.35
+      ],
+      [
+        0.5550000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.55,
+        0.0,
+        1.35
+      ],
+      [
+        0.5450000000000002,
+        0.0,
+        1.35
+      ],
+      [
+        0.54,
+        0.0,
+        1.35
+      ],
+      [
+        0.5350000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.53,
+        0.0,
+        1.35
+      ],
+      [
+        0.5250000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.52,
+        0.0,
+        1.35
+      ],
+      [
+        0.5150000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.51,
+        0.0,
+        1.35
+      ],
+      [
+        0.5050000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.5,
+        0.0,
+        1.35
+      ],
+      [
+        0.4950000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.49,
+        0.0,
+        1.35
+      ],
+      [
+        0.4850000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.48,
+        0.0,
+        1.35
+      ],
+      [
+        0.4750000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.47,
+        0.0,
+        1.35
+      ],
+      [
+        0.4650000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.45999999999999996,
+        0.0,
+        1.35
+      ],
+      [
+        0.45500000000000007,
+        0.0,
+        1.35
+      ],
+      [
+        0.44999999999999996,
+        0.0,
+        1.35
+      ],
+      [
+        0.44500000000000006,
+        0.0,
+        1.35
+      ],
+      [
+        0.43999999999999995,
+        0.0,
+        1.35
+      ],
+      [
+        0.43500000000000005,
+        0.0,
+        1.35
+      ],
+      [
+        0.43000000000000016,
+        0.0,
+        1.35
+      ],
+      [
+        0.42500000000000004,
+        0.0,
+        1.35
+      ],
+      [
+        0.42000000000000015,
+        0.0,
+        1.35
+      ],
+      [
+        0.41500000000000004,
+        0.0,
+        1.35
+      ],
+      [
+        0.41000000000000014,
+        0.0,
+        1.35
+      ],
+      [
+        0.405,
+        0.0,
+        1.35
+      ],
+      [
+        0.40000000000000013,
+        0.0,
+        1.35
+      ],
+      [
+        0.395,
+        0.0,
+        1.35
+      ],
+      [
+        0.3900000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.385,
+        0.0,
+        1.35
+      ],
+      [
+        0.3800000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.375,
+        0.0,
+        1.35
+      ],
+      [
+        0.3700000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.365,
+        0.0,
+        1.35
+      ],
+      [
+        0.3600000000000001,
+        0.0,
+        1.35
+      ],
+      [
+        0.355,
+        0.0,
+        1.35
+      ],
+      [
+        0.35,
+        0.0,
+        1.35
+      ]
+    ],
+    "measurement_count": 351,
+    "measurement_sha256": "c573f53767f06cfbcb6dcfa43454d39388fd751f4c002f6cb3783c23d3905e54",
+    "receiver_positions_m": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "room_type": "shoebox",
+    "sample_rate_hz": 44100.0,
+    "sofa_conventions": "SingleRoomSRIR",
+    "source_positions_m": [
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ],
+      [
+        4.0,
+        0.0,
+        1.35
+      ]
+    ],
+    "temperature_c": null
+  },
+  "receipts": [
+    {
+      "computed_md5": null,
+      "computed_sha256": null,
+      "file_name": "1_Scene_descriptions.zip",
+      "member_path": "1 Scene descriptions/RS8 curved reflector (finite plate) /RS8_01a/RIRs/RS8_RIRs_01a.sofa",
+      "role": "measured_rir",
+      "size_bytes": 12335848,
+      "verdict": "verified"
+    },
+    {
+      "computed_md5": "274596f6249a648704f76c027dd7f13d",
+      "computed_sha256": "d052bed3d5a4e03d971bc805c59570ed0bb885b3170dc2a952953258e7504c81",
+      "file_name": "3_Surface_descriptions.zip",
+      "member_path": null,
+      "role": "boundary_material",
+      "size_bytes": 304822,
+      "verdict": "verified"
+    },
+    {
+      "computed_md5": "a46e1b60b9d4916dbb7a393633be9e8a",
+      "computed_sha256": "cefc0056f0dd37c61a652417eff764fe3056cdf9dbf2d69686218dcf5be7e0b4",
+      "file_name": "Documentation.pdf",
+      "member_path": null,
+      "role": "documentation",
+      "size_bytes": 1076205,
+      "verdict": "verified"
+    },
+    {
+      "computed_md5": null,
+      "computed_sha256": null,
+      "file_name": "2_Source_descriptions.zip",
+      "member_path": null,
+      "role": "source_directivity",
+      "size_bytes": null,
+      "verdict": "missing"
+    }
+  ]
+}
