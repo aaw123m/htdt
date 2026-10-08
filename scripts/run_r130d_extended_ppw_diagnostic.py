@@ -64,7 +64,7 @@ def check_spec(spec: dict, parent) -> None:
         raise ValueError("fmax modified")
     if spec["phase_mask_db"] != parent.acceptance.magnitude_mask_relative_db:
         raise ValueError("phase mask modified")
-    if spec["unchanged_thresholds"] != parent.acceptance.pffdtd_self_convergence.model_dump():
+    if spec["unchanged_thresholds"] != parent.acceptance.pffdtd_self_convergence.model_dump(exclude_none=True):
         raise ValueError("frozen acceptance thresholds modified")
     if spec["limits"] != {
         "max_grid_cells": parent.pffdtd.max_grid_cells,
