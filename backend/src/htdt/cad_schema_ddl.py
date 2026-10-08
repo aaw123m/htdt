@@ -9203,6 +9203,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_icx_manifest ON cad_interop_corpus_runs(manifest_sha256, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_reference_theater_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, fixture_version TEXT NOT NULL, outcome TEXT NOT NULL, verdict TEXT NOT NULL, manifest_sha256 TEXT NOT NULL, deploy_is_simulated INTEGER NOT NULL, deploy_evidence_strength TEXT NOT NULL, scene_sha256 TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rtr_doc ON cad_reference_theater_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_rtr_fixture ON cad_reference_theater_runs(fixture_version, seq ASC)
+    """
+    ,
 )
 
 
@@ -10397,4 +10409,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV70: #892 versioned interop corpus + semantic round-trip verdicts.
     'cad_interop_fixture_runs',
     'cad_interop_corpus_runs',
+    # REV70: #891 Reference Theater self-test fixture authority.
+    'cad_reference_theater_runs',
 )

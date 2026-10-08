@@ -77,6 +77,7 @@ SEALED_VERBS: frozenset[str] = frozenset({
     'deployment.run',
     'diagnostic.run',
     'drill.run',
+    'selftest.run',
 })
 
 HeadlessOutcome = Literal[
@@ -318,6 +319,7 @@ VERB_ALIASES: dict[str, str] = {
     'calibration.run': 'calibration.run',
     'deployment.run': 'deployment.run',
     'diagnostic.run': 'diagnostic.run',
+    'selftest.run': 'selftest.run',
     'records.list': 'records.list',
     'records.export': 'records.export',
     'status': 'status',

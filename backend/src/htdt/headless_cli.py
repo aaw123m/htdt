@@ -161,6 +161,14 @@ from .cad_headless_cli import (
     spec_model_for,
 )
 from .cad_headless_cli_repository import CadHeadlessRunRepository
+from .cad_reference_theater import (
+    REFERENCE_THEATER_FIXTURE_VERSION,
+    REFERENCE_THEATER_STEPS,
+    run_reference_theater_self_test,
+)
+from .cad_reference_theater_repository import (
+    CadReferenceTheaterRepository,
+)
 
 
 _FAKE_BACKEND_ID = 'fake-audio-io'
@@ -281,6 +289,11 @@ class _Repositories:
     def diagnostic_hypotheses(self) -> CadDiagnosticHypothesisRepository:
         return self._get('diag_hyp', lambda: (
             CadDiagnosticHypothesisRepository(self.scene)))
+
+    @property
+    def reference_theater(self) -> CadReferenceTheaterRepository:
+        return self._get('reference_theater', lambda: (
+            CadReferenceTheaterRepository(self.scene)))
 
     def wizard_stores(self) -> WizardStores:
         return WizardStores(
@@ -1163,6 +1176,77 @@ def _verb_diagnostic_run(ctx: _Ctx) -> _VerbOutcome:
     return _VerbOutcome('failed', verdict=verdict, refs=tuple(refs))
 
 
+# Reference Theater lane outcome -> headless outcome. ``fixture_drift``
+# is a negative verdict, not a block: the fixture failed its pin check.
+_SELFTEST_OUTCOMES: dict[str, str] = {
+    'passed': 'succeeded',
+    'failed': 'failed',
+    'unauthorized': 'unauthorized',
+    'blocked': 'blocked',
+    'fixture_drift': 'failed',
+}
+
+
+def _verb_selftest_run(ctx: _Ctx) -> _VerbOutcome:
+    """#891 Reference Theater deterministic self-test lane.
+
+    No ``--spec`` document: the fixture itself is the spec — the
+    versioned manifest pins payload/scene/export content hashes and the
+    declared expectations. ``--authorize-apply OP`` authorizes the
+    *simulated* device deploy step; without it the deploy step reports
+    ``unauthorized`` exactly like ``deploy run``.
+    """
+
+    args = ctx.args
+    requested_version = args.fixture_version
+    spec_payload = {
+        'verb': 'selftest.run',
+        'fixture_version': REFERENCE_THEATER_FIXTURE_VERSION,
+        'requested_fixture_version': requested_version,
+        'authorize_apply_supplied': bool(args.authorize_apply),
+        'out': args.out,
+    }
+    if requested_version and (
+            requested_version != REFERENCE_THEATER_FIXTURE_VERSION):
+        raise HeadlessCliError(
+            'missing_evidence',
+            f'unknown fixture version {requested_version!r} — this '
+            f'build ships {REFERENCE_THEATER_FIXTURE_VERSION}',
+            verdict='version_mismatch')
+    if args.dry_run:
+        return _VerbOutcome(
+            'dry_run', verdict='planned',
+            data={
+                'fixture_version': REFERENCE_THEATER_FIXTURE_VERSION,
+                'lane': list(REFERENCE_THEATER_STEPS),
+            },
+            spec_payload=spec_payload)
+    result = run_reference_theater_self_test(
+        ctx.repos,
+        authorize_apply=args.authorize_apply,
+        out_path=Path(args.out) if args.out else None,
+    )
+    run = result.run
+    ctx.document_id = run.document_id
+    outcome = _SELFTEST_OUTCOMES.get(run.outcome, 'failed')
+    return _VerbOutcome(
+        outcome, verdict=run.verdict,
+        reason=None if outcome == 'succeeded' else (
+            'see steps[].observed for the diverging lane step'),
+        refs=result.refs,
+        data={
+            'run_id': run.run_id,
+            'run_sha256': run.run_sha256,
+            'fixture_version': run.fixture_version,
+            'manifest_sha256': run.manifest_sha256,
+            'steps': [step.model_dump(mode='json') for step in run.steps],
+            'deploy_is_simulated': run.deploy_is_simulated,
+            'deploy_evidence_strength': run.deploy_evidence_strength,
+            'report_sha256': run.report_sha256,
+        },
+        spec_payload=spec_payload)
+
+
 _RECORD_KINDS: dict[str, tuple[str, str, str, str]] = {
     # kind -> (repo property, list method, id attr, sha attr)
     'headless_run': ('headless', 'list_runs', 'run_record_id',
@@ -1179,6 +1263,8 @@ _RECORD_KINDS: dict[str, tuple[str, str, str, str]] = {
                      'run_record_sha256'),
     'diagnostic_session': ('diagnostic', 'list_sessions', 'session_id',
                            'session_sha256'),
+    'reference_theater_run': ('reference_theater', 'list_runs',
+                              'run_id', 'run_sha256'),
 }
 
 _RECORD_GETTERS: dict[str, tuple[str, str]] = {
@@ -1189,6 +1275,7 @@ _RECORD_GETTERS: dict[str, tuple[str, str]] = {
     'campaign_plan': ('campaign', 'get_plan'),
     'campaign_run': ('campaign', 'get_run_record'),
     'diagnostic_session': ('diagnostic', 'get_session'),
+    'reference_theater_run': ('reference_theater', 'get_run'),
     'project': ('library', 'get_by_document_id'),
 }
 
@@ -1445,6 +1532,15 @@ def _build_parser() -> argparse.ArgumentParser:
     drun.add_argument('--arm', action='store_true')
     drun.add_argument('--authorize', default=None, metavar='OP')
 
+    selftest = families.add_parser('selftest')
+    st_verbs = selftest.add_subparsers(dest='verb', required=True)
+    strun = st_verbs.add_parser('run')
+    strun.add_argument('--fixture-version', default=None,
+                       help='pin the fixture version the lane runs')
+    strun.add_argument('--authorize-apply', default=None, metavar='OP')
+    strun.add_argument('--out', default=None,
+                       help='self-test report artifact path')
+
     rec = families.add_parser('records')
     rec_verbs = rec.add_subparsers(dest='verb', required=True)
     rl = rec_verbs.add_parser('list')
@@ -1483,6 +1579,7 @@ _HANDLERS: dict[str, Callable[[_Ctx], _VerbOutcome]] = {
     'calibration.run': _verb_calibration_run,
     'deployment.run': _verb_deployment_run,
     'diagnostic.run': _verb_diagnostic_run,
+    'selftest.run': _verb_selftest_run,
     'records.list': _verb_records_list,
     'records.export': _verb_records_export,
     'drill.list': _verb_drill_list,
@@ -1499,6 +1596,7 @@ _FAMILY_PREFIX = {
     'calibration': 'calibration',
     'deploy': 'deployment',
     'diagnose': 'diagnostic',
+    'selftest': 'selftest',
     'records': 'records',
     'drill': 'drill',
     'status': '',
@@ -1672,6 +1770,10 @@ def main(argv: list[str] | None = None) -> int:
             dep_backend = getattr(args, 'deployment_backend', None)
             if dep_backend is not None:
                 backend_id, backend_is_simulated = dep_backend
+        elif verb == 'selftest.run':
+            # the Reference Theater deploy lane is simulated by design
+            backend_id = 'fixture'
+            backend_is_simulated = True
         if backend_is_simulated is None:
             # Substrate never resolved (handler failed before building
             # it) — the sealed record claims simulated rather than a

@@ -66,6 +66,7 @@ class FirstRunWizardDialog(QDialog):
         *,
         navigate: Callable[[WorkspaceDeepLink], None],
         parent: QWidget | None = None,
+        open_reference_theater: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle('初回セットアップウィザード')
@@ -73,6 +74,8 @@ class FirstRunWizardDialog(QDialog):
         self.resize(860, 560)
         self._facts_provider = facts_provider
         self._navigate = navigate
+        # #891: 'Open Reference Theater' offer — intent wiring only.
+        self._open_reference_theater = open_reference_theater
 
         layout = QHBoxLayout(self)
         layout.setSpacing(12)
@@ -109,6 +112,19 @@ class FirstRunWizardDialog(QDialog):
         self._action = QPushButton()
         self._action.setAccessibleName('ステップの操作を開く')
         right_layout.addWidget(self._action)
+
+        # #891: Reference Theater offer button — visible only on stages
+        # whose view carries offer_reference_theater.
+        self._theater_button = QPushButton('リファレンスシアターを開く')
+        self._theater_button.setAccessibleName(
+            'リファレンスシアターを開く')
+        self._theater_button.setToolTip(
+            '同梱の検証済みシアタープロジェクトを開きます。'
+        )
+        self._theater_button.clicked.connect(
+            self._open_reference_theater_clicked)
+        self._theater_button.hide()
+        right_layout.addWidget(self._theater_button)
 
         buttons_row = QHBoxLayout()
         self._defer_button = QPushButton('あとでやる')
@@ -200,6 +216,18 @@ class FirstRunWizardDialog(QDialog):
             self._action.show()
         else:
             self._action.hide()
+        # #891 offer: shown only when the view asks for it and the shell
+        # supplied a handler.
+        self._theater_button.setVisible(
+            bool(view.offer_reference_theater)
+            and self._open_reference_theater is not None)
+
+    def _open_reference_theater_clicked(self) -> None:
+        if self._open_reference_theater is None:
+            return
+        self._open_reference_theater()
+        # Opening the fixture project flips stage-1 facts — re-derive.
+        self.refresh()
 
     def _open_target(self, target: WorkspaceDeepLink) -> None:
         self._navigate(target)

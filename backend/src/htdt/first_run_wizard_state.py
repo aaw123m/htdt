@@ -64,6 +64,9 @@ class FirstRunWizardFacts:
     deploy_applied: bool = False
     deploy_readback_verified: bool = False
     verify_measured: bool = False
+    # #891: the packaged Reference Theater fixture verifies against its
+    # manifest — the wizard may offer "Open Reference Theater".
+    reference_theater_available: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,9 @@ class WizardStageView:
     reason_ja: str | None
     action_label_ja: str | None
     target: WorkspaceDeepLink | None
+    # #891: offer the packaged Reference Theater fixture alongside the
+    # stage action (intent wiring only — the shell owns materialization).
+    offer_reference_theater: bool = False
 
 
 _ROOM_GEOMETRY = WorkspaceDeepLink(WorkspaceId.ROOM, 'geometry')
@@ -102,6 +108,7 @@ def _stage_view(
     reason: str | None = None,
     action_label: str | None = None,
     target: WorkspaceDeepLink | None = None,
+    offer_reference_theater: bool = False,
 ) -> WizardStageView:
     return WizardStageView(
         stage=stage,
@@ -111,6 +118,7 @@ def _stage_view(
         reason_ja=reason,
         action_label_ja=action_label,
         target=target,
+        offer_reference_theater=offer_reference_theater,
     )
 
 
@@ -158,6 +166,11 @@ def derive_wizard_progress(
                 None if project_room_done else 'プロジェクト/部屋を作成'
             ),
             target=None if project_room_done else _ROOM_GEOMETRY,
+            # The Reference Theater fixture opens as a real project —
+            # offering it completes this stage by itself.
+            offer_reference_theater=(
+                not project_room_done
+                and facts.reference_theater_available),
         )
     )
 

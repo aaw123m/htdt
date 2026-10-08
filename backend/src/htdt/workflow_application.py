@@ -2933,7 +2933,10 @@ class WorkflowApplicationComposition:
         """
         _self = sys.modules[__name__]
         if not self.document_id:
-            return FirstRunWizardFacts()
+            return FirstRunWizardFacts(
+                reference_theater_available=(
+                    self._reference_theater_available()),
+            )
         vm = self._build_overview_service().read(self.document_id)
         step_status = {step.key: step.status for step in vm.golden_path_steps}
         revision = self.repository.current_head(self.document_id)
@@ -3021,7 +3024,41 @@ class WorkflowApplicationComposition:
             deploy_applied=step_status.get('apply') == 'done',
             deploy_readback_verified=readback_verified,
             verify_measured=step_status.get('verify') == 'done',
+            reference_theater_available=(
+                self._reference_theater_available()),
         )
+
+    def _reference_theater_available(self) -> bool:
+        """#891: the packaged fixture verifies against its manifest pin."""
+        try:
+            from .cad_reference_theater import (
+                reference_theater_available,
+            )
+
+            return reference_theater_available()
+        except Exception:  # error-boundary: probe failure reads as unavailable
+            return False
+
+    def _open_reference_theater_project(self) -> None:
+        """#891: materialize the packaged Reference Theater and switch to it.
+
+        Invoked from the wizard's offer button; the fixture materializes
+        through the same library path a user-opened project takes.
+        """
+        try:
+            from .cad_reference_theater import (
+                materialize_reference_theater,
+            )
+
+            result = materialize_reference_theater(
+                self.repository, self.project_library)
+        except Exception as exc:  # error-boundary: surface message, never crash
+            self.shell.statusBar().showMessage(
+                operation_error_message(exc))
+            return
+        reason = self._switch_project(result.document_id)
+        if reason is not None:
+            self.shell.statusBar().showMessage(reason)
 
     def _open_first_run_wizard(self) -> None:
         """Open the guided setup wizard; persist resume state on close."""
@@ -3029,6 +3066,8 @@ class WorkflowApplicationComposition:
             self._first_run_facts,
             navigate=self._navigate_target,
             parent=self.shell,
+            open_reference_theater=(
+                self._open_reference_theater_project),
         )
         dialog.exec()
         self._save_wizard_record(dialog)

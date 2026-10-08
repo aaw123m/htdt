@@ -62,7 +62,7 @@ where = ["src"]
 # Pinned Capture Bundle v1 contract assets (support matrix + JSON schemas)
 # ship inside the package so the production import path can validate
 # untrusted bundles without a runtime checkout of HTDT-Capture.
-htdt = ["capture_contract/*.json"]
+htdt = ["capture_contract/*.json", "reference_theater/*.json"]
 
 [tool.pytest.ini_options]
 addopts = "-q"

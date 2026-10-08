@@ -10249,6 +10249,25 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV70: #891 Reference Theater self-test fixture authority.
+    'cad_reference_theater_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('fixture_version', 'fixture_version'),
+            _b('outcome', 'outcome'),
+            _b('verdict', 'verdict'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('deploy_is_simulated', 'deploy_is_simulated'),
+            _b('deploy_evidence_strength', 'deploy_evidence_strength'),
+            _b('scene_sha256', 'scene_sha256'),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

@@ -1564,6 +1564,12 @@ class _RepositoryChain:
             )
 
             return CadInteropCorpusRepository(scene)
+        if name == 'reference_theater':
+            from .cad_reference_theater_repository import (
+                CadReferenceTheaterRepository,
+            )
+
+            return CadReferenceTheaterRepository(scene)
         raise KeyError(name)
 
 
@@ -7728,6 +7734,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_interop_corpus_runs',
         ('corpus_run_id',),
         _get('interop_corpus', 'get_corpus_run'),
+    ),
+    # REV70: #891 Reference Theater — sealed self-test lane run records
+    # (fixture/manifest/deployment pins live in payload).
+    _ReplayProbe(
+        'reference_theater_run',
+        'cad_reference_theater_runs',
+        ('run_id',),
+        _get('reference_theater', 'get_run'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(
