@@ -27,7 +27,10 @@ from htdt.cad_calibration_deployment import (
     DeploymentCapabilityDeclaration,
     EffectivenessMetricDelta,
 )
-from htdt.cad_camilladsp import FixtureCamillaDSPTransport
+from htdt.cad_camilladsp import (
+    CamillaDSPError,
+    FixtureCamillaDSPTransport,
+)
 from htdt.cad_camilladsp_deploy import (
     CAMILLADSP_DEPLOY_ADAPTER_ID,
     CamillaDSPCalibrationAdapter,
@@ -348,6 +351,47 @@ def _state(**kw) -> CommissioningRunState:
 
 def _event(kind, **kw) -> CommissioningEvent:
     return CommissioningEvent(kind=kind, at_utc=NOW, reason='probe', **kw)
+
+
+class _RaisingTransport:
+    """Transport whose request raises a raw connection-level error."""
+
+    def request(self, command):
+        raise ConnectionError('link down')
+
+    def close(self) -> None:
+        pass
+
+
+class TestCamillaDSPTransportErrors:
+    """Raw transport failures must type as CamillaDSPError so the
+    honest-evidence callers (observation limitations, rollback 'failed')
+    catch them instead of crashing past their own except clauses."""
+
+    def test_observe_runtime_records_transport_errors(self) -> None:
+        adapter = _adapter(_RaisingTransport())
+        observation = adapter.observe_runtime(
+            _binding(), document_id=DOC, observed_at_utc=NOW)
+        assert observation.camilladsp_version is None
+        assert observation.limitations
+        assert all(
+            item.endswith(':transport_error')
+            for item in observation.limitations)
+
+    def test_rollback_records_failed_not_crash(self) -> None:
+        adapter = _adapter(_RaisingTransport())
+        evidence = adapter.rollback_previous(
+            _binding(), document_id=DOC,
+            deployment_ref=_ref('calibration_deployment'),
+            requested_at_utc=NOW)
+        assert evidence.outcome == 'failed'
+        assert evidence.previous_config_sha256 is None
+        assert evidence.error_detail is not None
+
+    def test_readback_types_transport_errors(self) -> None:
+        adapter = _adapter(_RaisingTransport())
+        with pytest.raises(CamillaDSPError):
+            adapter.read_back(_binding(), observed_at_utc=NOW)
 
 
 class TestStageMachine:
