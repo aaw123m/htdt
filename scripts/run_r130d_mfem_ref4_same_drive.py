@@ -12,6 +12,7 @@ Never marks the original R130D impulse production gates as passed.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -29,6 +30,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from run_r130d_fv_mfem_same_drive_comparison import metrics, validate_mfem_system
 
 PLAN_SCHEMA = "htdt.r130d.same-source-independent-mfem-r4-experiment-1"
+PLAN_SCHEMA_V2 = "htdt.r130d.same-source-independent-mfem-r4-solver-revision-2"
 RESULT_SCHEMA = "htdt.r130d.mfem-r4-same-source-independent-result-1"
 
 
@@ -49,8 +51,8 @@ def matrix_from_csr(doc: dict, *, ndofs: int, max_nnz: int) -> sparse.csr_matrix
 
 
 def run(*, plan: dict, mfem_system_path: Path, previously_measured: dict) -> dict:
-    if plan.get("schema_version") != PLAN_SCHEMA:
-        raise ValueError("MFEM r4 was not preregistered")
+    if plan.get("schema_version") not in (PLAN_SCHEMA, PLAN_SCHEMA_V2):
+        raise ValueError("MFEM r4 solver experiment was not preregistered")
     if (plan["mfem_git_source_pin"] !=
             "d964264cdb9a13e94a201b6c236c7721e0c8765f"):
         raise ValueError("MFEM source pin changed")
@@ -73,17 +75,24 @@ def run(*, plan: dict, mfem_system_path: Path, previously_measured: dict) -> dic
             or gate["canonical_mfem_impulse"] != "SELF_CONVERGENCE_FAILED"):
         raise ValueError("MFEM r4 plan must fail closed")
     linspec = plan["linear_solver"]
+    expected_atol = 0 if plan["schema_version"] == PLAN_SCHEMA_V2 else 1e-12
     if linspec != {
-        "rtol":1e-11, "atol":1e-12, "maxiter":350,
+        "rtol":1e-11, "atol":expected_atol, "maxiter":350,
         "preconditioner":"Jacobi diagonal A=M+dt^2/4K",
         "true_residual_relative_max":1e-8,
     }:
         raise ValueError("MFEM linear numerical solver contract changed")
     resources = plan["resources"]
-    blob_bytes = mfem_system_path.read_bytes()
+    file_bytes = mfem_system_path.read_bytes()
+    blob_bytes = (gzip.decompress(file_bytes)
+                  if mfem_system_path.suffix == '.gz' else file_bytes)
     if len(blob_bytes) > resources["max_json_bytes"]:
         raise ValueError("independent MFEM system exceeds predeclared JSON limit")
     system_digest = hashlib.sha256(blob_bytes).hexdigest()
+    if plan["schema_version"] == PLAN_SCHEMA_V2 and (
+        system_digest != plan.get("independent_ref4_system_sha256")
+    ):
+        raise ValueError("independent MFEM r4 matrix does not match preregistered source hash")
     doc = json.loads(blob_bytes)
     ndofs = plan["expected_dofs"]
     base_plan = {"source_xyz_m":plan["source_xyz_m"],
@@ -177,6 +186,7 @@ def run(*, plan: dict, mfem_system_path: Path, previously_measured: dict) -> dic
     fv = old["fv_levels"][-1]["transfer_complex_40_80_hz"]
     return {
         "schema_version":RESULT_SCHEMA,
+        "plan_schema_version":plan["schema_version"],
         "mfem_source_sha":plan["mfem_git_source_pin"],
         "mfem_sparse_export_sha256":system_digest,
         "mfem_refinement":4,

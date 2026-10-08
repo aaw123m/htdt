@@ -1,0 +1,98 @@
+{
+  "actual_sparse_solver": {
+    "algorithm": "sparse symmetric Jacobi-PCG implicit midpoint",
+    "elapsed_s": 33.47903270018287,
+    "max_conjugate_gradient_iterations": 32,
+    "max_true_relative_linear_residual": 9.98325462582605e-12,
+    "mean_conjugate_gradient_iterations": 20.338
+  },
+  "fem_r3_to_r4_metrics": {
+    "complex_relative_by_hz": [
+      0.0111165174365755,
+      0.00564824996688809
+    ],
+    "magnitude_relative_by_hz": [
+      0.007154252872381619,
+      0.003621810828106703
+    ],
+    "normalized_complex_l2": 0.006040411515050781,
+    "phase_difference_deg_by_hz": [
+      0.48576486767698185,
+      0.24788257518712728
+    ]
+  },
+  "fv_n32_to_mfem_r4_metrics": {
+    "complex_relative_by_hz": [
+      0.0029498558609034643,
+      0.079218696441604
+    ],
+    "magnitude_relative_by_hz": [
+      0.002821087272062462,
+      0.04718852384835189
+    ],
+    "normalized_complex_l2": 0.0772155932015406,
+    "phase_difference_deg_by_hz": [
+      0.04932184142140281,
+      3.7356110173683494
+    ]
+  },
+  "gate": {
+    "candidate_gaussian_source_evidence_only": true,
+    "canonical_mfem_impulse": "SELF_CONVERGENCE_FAILED",
+    "canonical_pffdtd": "SELF_CONVERGENCE_FAILED",
+    "cross_solver_production_eligible": false,
+    "physical_validation": "NOT_VALIDATED",
+    "production_ready": false
+  },
+  "mfem_dofs": 35937,
+  "mfem_element_count": 24576,
+  "mfem_refinement": 4,
+  "mfem_source_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "mfem_sparse_export_sha256": "e1c67d02db77a6e8775a0a59d8e75fa996434d58f8efae077f4cec2cf2c831ed",
+  "physical_source": "actual 3ms Gaussian volume velocity via c^2 b q(t)",
+  "plan_schema_version": "htdt.r130d.same-source-independent-mfem-r4-solver-revision-2",
+  "reference_fv_n32_to_mfem_r3_metrics": {
+    "complex_relative_by_hz": [
+      0.01026411370473328,
+      0.08455921809591256
+    ],
+    "fv_n": 32,
+    "magnitude_relative_by_hz": [
+      0.004302385248298426,
+      0.05062697335616297
+    ],
+    "mfem_r": 3,
+    "normalized_complex_l2": 0.08243571292457451,
+    "phase_difference_deg_by_hz": [
+      0.5350867090983833,
+      3.983493592555477
+    ]
+  },
+  "runtime": {
+    "numpy": "1.26.4",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.12.10"
+  },
+  "schema_version": "htdt.r130d.mfem-r4-same-source-independent-result-1",
+  "source_complex_spectrum": [
+    [
+      -0.005614938998581559,
+      0.0007093423445759309
+    ],
+    [
+      0.002336280975023618,
+      -0.0005998358115978581
+    ]
+  ],
+  "source_normalization": "midpoint finite-record P_T/Q_T",
+  "transfer_complex_40_80_hz": [
+    [
+      14.41292251004326,
+      39.921169327100394
+    ],
+    [
+      84.39416294387767,
+      -164.63231091246155
+    ]
+  ]
+}
