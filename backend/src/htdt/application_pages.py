@@ -859,6 +859,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_assisted_deployment_attestations": "支援付きデプロイ証明",
     "cad_apo_install_records": "APOインストール記録",
     "cad_ux_acceptance_bundle_records": "UX受入証跡バンドル",
+    "cad_adapter_sdk_descriptors": "アダプタSDK契約記述子",
+    "cad_adapter_conformance_results": "アダプタ適合性評価結果",
     "cad_discovery_runs": "機器探索ラン",
     "cad_discovered_devices": "発見機器レコード",
     "cad_capability_probe_records": "機能プローブレコード",

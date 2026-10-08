@@ -9062,6 +9062,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_hrr_verb ON cad_headless_run_records(verb, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_adapter_sdk_descriptors ( seq INTEGER PRIMARY KEY AUTOINCREMENT, descriptor_id TEXT NOT NULL UNIQUE, descriptor_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, adapter_id TEXT NOT NULL, adapter_version TEXT NOT NULL, adapter_kind TEXT NOT NULL, device_family TEXT NOT NULL, sdk_version TEXT NOT NULL, contract_status TEXT NOT NULL, declared_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_asd_doc ON cad_adapter_sdk_descriptors(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_asd_adapter ON cad_adapter_sdk_descriptors(adapter_id, adapter_version, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_adapter_conformance_results ( seq INTEGER PRIMARY KEY AUTOINCREMENT, result_id TEXT NOT NULL UNIQUE, result_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, descriptor_sha256 TEXT NOT NULL, adapter_id TEXT NOT NULL, adapter_version TEXT NOT NULL, suite_version TEXT NOT NULL, contract_version TEXT NOT NULL, verdict TEXT NOT NULL, issued_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_acr_doc ON cad_adapter_conformance_results(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_acr_desc ON cad_adapter_conformance_results(descriptor_sha256, seq ASC)
+    """
+    ,
 )
 
 
@@ -10241,4 +10265,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_credential_lifecycle_events',
     # REV69: #888 headless CLI automation authority.
     'cad_headless_run_records',
+    # REV69: #887 provider/device adapter SDK + conformance authority.
+    'cad_adapter_sdk_descriptors',
+    'cad_adapter_conformance_results',
 )

@@ -8757,6 +8757,39 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV69: #887 adapter SDK contract descriptors + conformance results.
+    'cad_adapter_sdk_descriptors': (
+        'payload_json',
+        (
+            _b('descriptor_id', 'descriptor_id'),
+            _b('descriptor_sha256', 'descriptor_sha256'),
+            _b('document_id', 'document_id'),
+            _b('adapter_id', 'adapter_id'),
+            _b('adapter_version', 'adapter_version'),
+            _b('adapter_kind', 'adapter_kind'),
+            _b('device_family', 'device_family'),
+            _b('sdk_version', 'sdk_version'),
+            _b('contract_status', 'contract_status'),
+            _b('declared_at_utc', 'declared_at_utc'),
+        ),
+        (),
+    ),
+    'cad_adapter_conformance_results': (
+        'payload_json',
+        (
+            _b('result_id', 'result_id'),
+            _b('result_sha256', 'result_sha256'),
+            _b('document_id', 'document_id'),
+            _b('descriptor_sha256', 'descriptor_ref', 'ref_sha256'),
+            _b('adapter_id', 'adapter_id'),
+            _b('adapter_version', 'adapter_version'),
+            _b('suite_version', 'suite_version'),
+            _b('contract_version', 'contract_version'),
+            _b('verdict', 'verdict'),
+            _b('issued_at_utc', 'issued_at_utc'),
+        ),
+        (),
+    ),
     # REV68: #880 owned-Windows UX acceptance evidence bundles.
     'cad_ux_acceptance_bundle_records': (
         'payload_json',
