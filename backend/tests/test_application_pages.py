@@ -70,7 +70,7 @@ def test_project_library_lists_persisted_documents(tmp_path) -> None:
 
 def test_recent_revisions_returns_newest_first(tmp_path) -> None:
     repository = _repository(tmp_path)
-    rows = list_recent_revisions(repository)
+    rows = list_recent_revisions(repository, scope='global')
     assert len(rows) >= 2
     assert rows[0][2] != rows[1][2]
     doc_ids = {row[1] for row in rows}

@@ -217,9 +217,12 @@ def test_activity_page_lists_project_timeline_events(tmp_path: Path) -> None:
     )
     opened: list[str] = []
     page = ActivityPage(
-        lambda limit: (),
-        list_events=lambda limit: service.recent('doc-round6', limit=limit),
+        lambda doc, limit, offset: (),
+        list_events=lambda doc: tuple(
+            reversed(service.events('doc-round6'))
+        ),
         open_link=opened.append,
+        document_id='doc-round6',
     )
     assert page.events_table is not None
     assert page.events_table.rowCount() >= 1
@@ -239,11 +242,16 @@ def test_activity_page_lists_operations(tmp_path: Path) -> None:
         title='バックアップの作成',
     )
     center.mark_running(op_id)
-    page = ActivityPage(lambda limit: (), list_operations=lambda: (*center.active(), *center.recent()))
-    assert page.operations_table is not None
-    assert page.operations_table.rowCount() == 1
-    assert page.operations_table.item(0, 0).text() == '実行中'
-    assert 'バックアップの作成' in page.operations_table.item(0, 1).text()
+    page = ActivityPage(
+        lambda doc, limit, offset: (),
+        list_operations=lambda: (*center.active(), *center.recent()),
+    )
+    # The op carries no project_ref — it lands in the app-global section
+    # and never pretends to be a project row (#1023).
+    assert page.other_operations_table is not None
+    assert page.other_operations_table.rowCount() == 1
+    assert page.other_operations_table.item(0, 0).text() == '実行中'
+    assert 'バックアップの作成' in page.other_operations_table.item(0, 1).text()
 
 
 # -- pending preferences ------------------------------------------------------

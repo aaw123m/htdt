@@ -81,7 +81,10 @@ from .cad_correction_qualification_repository import (
 )
 from .cad_design_checkpoint_repository import CadDesignCheckpointRepository
 from .cad_operating_preset_repository import CadOperatingPresetRepository
-from .cad_project_activity import CadProjectActivityService
+from .cad_project_activity import (
+    CadProjectActivityService,
+    _event_sort_key,
+)
 from .cad_project_activity_repository import CadProjectActivityNoteRepository
 from .cad_system_variant_lifecycle import CadSystemVariantLifecycleRepository
 from .commissioning_plan import CommissioningPlanRepository
@@ -358,6 +361,11 @@ _LAZY_IMPORTS = {
     'activity_focus': ('.application_pages', 'activity_focus'),
     'inbox_focus': ('.application_pages', 'inbox_focus'),
     'list_recent_revisions': ('.application_pages', 'list_recent_revisions'),
+    'count_recent_revisions': ('.application_pages', 'count_recent_revisions'),
+    'list_known_document_ids': (
+        '.application_pages',
+        'list_known_document_ids',
+    ),
     'projects_focus': ('.application_pages', 'projects_focus'),
     'ApplicabilityEnvelopeDialog': (
         '.applicability_envelope_panel',
@@ -3063,13 +3071,63 @@ class WorkflowApplicationComposition:
             )
 
         _self = sys.modules[__name__]
+
+        def list_revisions(
+            document_id: str | None, limit: int, offset: int
+        ) -> tuple:
+            # document_id=None is the page's explicit global-scope request.
+            return _self.list_recent_revisions(
+                self.repository,
+                limit,
+                scope='global' if document_id is None else 'project',
+                document_id=document_id,
+                offset=offset,
+            )
+
+        def count_revisions(document_id: str | None) -> int:
+            return _self.count_recent_revisions(
+                self.repository,
+                scope='global' if document_id is None else 'project',
+                document_id=document_id,
+            )
+
+        def list_events(document_id: str | None) -> tuple:
+            # The canonical projection stays CadProjectActivityService.events;
+            # the global view just merges every document's own projection.
+            if document_id is not None:
+                return tuple(reversed(activity_service.events(document_id)))
+            merged = [
+                event
+                for doc_id in _self.list_known_document_ids(self.repository)
+                for event in activity_service.events(doc_id)
+            ]
+            merged.sort(
+                key=lambda event: _event_sort_key(event.occurred_at_utc),
+                reverse=True,
+            )
+            return tuple(merged)
+
+        project_refs: set[str] = set()
+        if self.project_entry is not None:
+            project_refs.add(self.project_entry.project_id)
+            project_refs.add(self.project_entry.display_name)
+        else:
+            project_refs.add(self.navigation_project_identity())
+        library_names = {
+            entry.document_id: entry.display_name
+            for entry in _self.ProjectLibraryService(
+                self.repository
+            ).list_projects()
+        }
         page = _self.ActivityPage(
-            lambda limit: _self.list_recent_revisions(self.repository, limit),
+            list_revisions,
+            count_revisions=count_revisions,
             list_operations=operations,
-            list_events=lambda limit: activity_service.recent(
-                self.document_id, limit=limit
-            ),
+            list_events=list_events,
             open_link=self._open_activity_link,
+            document_id=self.document_id or None,
+            project_refs=project_refs,
+            document_label=lambda doc_id: library_names.get(doc_id, doc_id),
         )
 
         def _queue_refresh(_operation: object) -> None:

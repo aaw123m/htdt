@@ -140,10 +140,11 @@ def test_activity_focus_selects_the_timeline_event_row(
         created_at_utc='2026-09-27T00:00:00+00:00',
     )
     page = ActivityPage(
-        lambda limit: (),
-        list_events=lambda limit: service.recent(
-            F1_DOCUMENT_ID, limit=limit
+        lambda doc, limit, offset: (),
+        list_events=lambda doc: tuple(
+            reversed(service.events(F1_DOCUMENT_ID))
         ),
+        document_id=F1_DOCUMENT_ID,
     )
 
     result = activity_focus(
@@ -169,7 +170,7 @@ def test_activity_focus_selects_the_operation_row(tmp_path: Path) -> None:
         title='バックアップの作成',
     )
     page = ActivityPage(
-        lambda limit: (),
+        lambda doc, limit, offset: (),
         list_operations=lambda: (*center.active(), *center.recent()),
     )
 
@@ -181,10 +182,13 @@ def test_activity_focus_selects_the_operation_row(tmp_path: Path) -> None:
         ),
     )
     assert result.focused is True
-    row = page.operations_table.currentRow()
+    # Unscoped ops live in the app-global section (#1023).
+    row = page.other_operations_table.currentRow()
     assert row >= 0
     assert (
-        page.operations_table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        page.other_operations_table.item(row, 0).data(
+            Qt.ItemDataRole.UserRole
+        )
         == operation_id
     )
 
@@ -195,10 +199,11 @@ def test_activity_focus_reports_missing_targets(tmp_path: Path) -> None:
     repository.save(make_f1_scene(), parent_revision_id=None)
     service = _activity_service(repository)
     page = ActivityPage(
-        lambda limit: (),
-        list_events=lambda limit: service.recent(
-            F1_DOCUMENT_ID, limit=limit
+        lambda doc, limit, offset: (),
+        list_events=lambda doc: tuple(
+            reversed(service.events(F1_DOCUMENT_ID))
         ),
+        document_id=F1_DOCUMENT_ID,
     )
 
     result = activity_focus(

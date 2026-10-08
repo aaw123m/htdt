@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable, Literal
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -2960,32 +2962,132 @@ _OPERATION_STATE_LABELS = {
 }
 
 
+#: Timeline kind-filter groups (#1023) — JA labels over ActivityEventKind.
+#: ``None`` selects every kind; each group maps to the closed vocabulary in
+#: ``cad_project_activity.ActivityEventKind``.
+_EVENT_KIND_GROUPS: tuple[tuple[str, frozenset | None], ...] = (
+    ("すべての種類", None),
+    ("プロジェクト・保存", frozenset({
+        "project_created",
+        "scene_revision_saved",
+        "scene_revision_labeled",
+    })),
+    ("バリアント", frozenset({
+        "system_variant_proposed",
+        "system_variant_applied",
+        "system_variant_as_built",
+        "system_variant_measured",
+    })),
+    ("キャプチャ", frozenset({
+        "capture_staged",
+        "capture_promoted",
+        "capture_superseded",
+        "capture_deferred",
+        "capture_rejected",
+    })),
+    ("計測", frozenset({"measurement_imported"})),
+    ("校正", frozenset({
+        "calibration_plan_created",
+        "calibration_exported",
+        "calibration_applied",
+        "calibration_remeasured",
+        "calibration_validated",
+    })),
+    ("チェックポイント", frozenset({
+        "design_checkpoint_created",
+        "design_checkpoint_restored",
+    })),
+    ("プリセット", frozenset({
+        "operating_preset_created",
+        "operating_preset_applied",
+    })),
+    ("健康点検", frozenset({
+        "health_baseline_created",
+        "health_check_completed",
+    })),
+    ("AV同期", frozenset({"av_sync_recorded"})),
+    ("メモ", frozenset({"project_note"})),
+    ("その他", frozenset({"other_authority"})),
+)
+
+#: Timeline date-range filter options: (label, days-back-or-None).
+#: ``0`` means today (UTC); ``None`` disables the range filter.
+_EVENT_RANGE_OPTIONS: tuple[tuple[str, int | None], ...] = (
+    ("すべての期間", None),
+    ("今日", 0),
+    ("過去7日間", 7),
+    ("過去30日間", 30),
+)
+
+_EVENT_PAGE_SIZE = 50
+_REVISION_PAGE_SIZE = 50
+
+
+def _event_timestamp(value: str) -> str:
+    """Normalize an ISO-8601 UTC timestamp for lexicographic comparison.
+
+    ``datetime.fromisoformat`` round-trips the stored value; unparseable
+    stamps pass through so a filter never silently drops a row it cannot
+    interpret.
+    """
+    try:
+        return datetime.fromisoformat(value).isoformat()
+    except ValueError:
+        return value
+
+
 class ActivityPage(QWidget):
     """Activity: app operations, the projected project timeline, revisions.
 
-    Sections (all read-mostly):
+    Sections (all read-mostly) state their scope in their headings and
+    follow the page-level 「このプロジェクト / 全プロジェクト」 selector:
 
-    * ``operations`` — live/recent :class:`ApplicationOperation` rows from the
-      application-scoped ActivityCenter (data-management jobs, etc.),
-    * ``timeline`` — human-readable project events projected by
-      :class:`CadProjectActivityService` (variants, captures, measurements,
-      checkpoints, notes); a row's nav URI deep link opens on double-click,
-    * ``revisions`` — the raw persisted scene-revision ledger (latest first).
+    * ``operations`` — live/recent :class:`ApplicationOperation` rows split
+      into this-project rows (``project_ref`` match) and a separate
+      app-global/other-project section,
+    * ``timeline`` — the canonical ``CadProjectActivityService`` projection
+      (kind/date-range/search filters + paging, newest first); a row's nav
+      URI deep link opens on double-click,
+    * ``revisions`` — the persisted scene-revision ledger, scoped in SQL by
+      ``document_id`` with explicit paging so no fixed cap can hide the
+      current project's past (#1023).
+
+    ``list_revisions`` / ``count_revisions`` / ``list_events`` all take the
+    effective document id — ``None`` requests the explicit global merge.
     """
 
     def __init__(
         self,
-        list_revisions: Callable[[int], tuple],
+        list_revisions: Callable[[str | None, int, int], tuple],
+        *,
+        count_revisions: Callable[[str | None], int] | None = None,
         list_operations: Callable[[], tuple] | None = None,
-        list_events: Callable[[int], tuple] | None = None,
+        list_events: Callable[[str | None], tuple] | None = None,
         open_link: Callable[[str], bool] | None = None,
+        document_id: str | None = None,
+        project_refs: Iterable[str] = (),
+        document_label: Callable[[str], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._list_revisions = list_revisions
+        self._count_revisions = count_revisions
         self._list_operations = list_operations
         self._list_events = list_events
         self._open_link = open_link
+        self._document_id = document_id
+        self._document_label = document_label
+        # An operation's ``project_ref`` is a free-form ref: match against
+        # every identifier this project answers to (document id, canonical
+        # project id, display name) so scoped ops land in the project
+        # section and never leak into the global one.
+        self._project_refs = {
+            str(ref)
+            for ref in (document_id, *project_refs)
+            if ref
+        }
+        self._events_page = 0
+        self._revisions_page = 0
         layout = _page_layout(
             self,
             "アクティビティ",
@@ -2993,58 +3095,105 @@ class ActivityPage(QWidget):
             "タイムラインの行をダブルクリックすると、"
             "その出来事が起きた画面へ移動します。",
         )
+
+        # -- scope selector -------------------------------------------------
+        scope_row = QHBoxLayout()
+        scope_label = QLabel("表示範囲:")
+        scope_row.addWidget(scope_label)
+        self.scope_combo = QComboBox()
+        self.scope_combo.setToolTip(
+            "このページに表示する履歴の範囲です。各セクションの見出しにも範囲が表示されます。"
+        )
+        self.scope_combo.addItem("このプロジェクト", "project")
+        self.scope_combo.addItem("全プロジェクト", "global")
+        if document_id is None:
+            # No bound project — the only honest listing is the global one.
+            self.scope_combo.setCurrentIndex(1)
+            self.scope_combo.setEnabled(False)
+        self.scope_combo.currentIndexChanged.connect(
+            self._on_scope_changed
+        )
+        scope_row.addWidget(self.scope_combo)
+        scope_row.addStretch(1)
+        layout.addLayout(scope_row)
+
+        # -- operations -----------------------------------------------------
         if self._list_operations is not None:
-            operations_heading = QLabel("操作")
+            self.operations_heading = QLabel()
             set_typography_role(
-                operations_heading, TypographyRole.SECTION_TITLE
+                self.operations_heading, TypographyRole.SECTION_TITLE
             )
-            layout.addWidget(operations_heading)
-            self.operations_table = QTableWidget(0, 3)
-            self.operations_table.setToolTip(
-                "実行中・実行済みの操作（バックアップ・復元など）の一覧です。"
-            )
-            self.operations_table.setHorizontalHeaderLabels(
-                ("状態", "操作", "更新時刻")
-            )
-            for _col, _tip in enumerate((
-                "操作の進行状態（実行中・完了・失敗など）",
-                "行われた操作の種類（バックアップ・復元・インポートなど）",
-                "状態が最後に更新された時刻",
-            )):
-                self.operations_table.horizontalHeaderItem(_col).setToolTip(_tip)
-            self.operations_table.horizontalHeader().setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Stretch
-            )
-            self.operations_table.horizontalHeader().setSectionResizeMode(
-                2, QHeaderView.ResizeMode.ResizeToContents
-            )
-            self.operations_table.setEditTriggers(
-                QTableWidget.EditTrigger.NoEditTriggers
-            )
+            layout.addWidget(self.operations_heading)
+            self.operations_table = self._operations_table()
             layout.addWidget(self.operations_table, 1)
-        else:
-            self.operations_table = None
-        if self._list_events is not None:
-            timeline_heading = QLabel("プロジェクトタイムライン")
+            self.other_operations_heading = QLabel()
             set_typography_role(
-                timeline_heading, TypographyRole.SECTION_TITLE
+                self.other_operations_heading, TypographyRole.SECTION_TITLE
             )
-            layout.addWidget(timeline_heading)
-            self.events_table = QTableWidget(0, 3)
+            layout.addWidget(self.other_operations_heading)
+            self.other_operations_table = self._operations_table(
+                "このプロジェクト以外・アプリ全体の操作の一覧です。"
+            )
+            layout.addWidget(self.other_operations_table, 1)
+        else:
+            self.operations_heading = None
+            self.operations_table = None
+            self.other_operations_heading = None
+            self.other_operations_table = None
+
+        # -- timeline ---------------------------------------------------------
+        if self._list_events is not None:
+            self.timeline_heading = QLabel()
+            set_typography_role(
+                self.timeline_heading, TypographyRole.SECTION_TITLE
+            )
+            layout.addWidget(self.timeline_heading)
+            filter_row = QHBoxLayout()
+            filter_row.addWidget(QLabel("種類:"))
+            self.kind_combo = QComboBox()
+            self.kind_combo.setToolTip("表示する出来事の種類です。")
+            for label, kinds in _EVENT_KIND_GROUPS:
+                self.kind_combo.addItem(label, kinds)
+            self.kind_combo.currentIndexChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.kind_combo)
+            filter_row.addWidget(QLabel("期間:"))
+            self.range_combo = QComboBox()
+            self.range_combo.setToolTip("表示する出来事の期間です。")
+            for label, days in _EVENT_RANGE_OPTIONS:
+                self.range_combo.addItem(label, days)
+            self.range_combo.currentIndexChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.range_combo)
+            self.search_edit = QLineEdit()
+            self.search_edit.setPlaceholderText("タイムラインを検索")
+            self.search_edit.setClearButtonEnabled(True)
+            self.search_edit.setToolTip(
+                "内容・詳細・プロジェクト名で絞り込みます。"
+            )
+            self.search_edit.textChanged.connect(
+                self._on_event_filter_changed
+            )
+            filter_row.addWidget(self.search_edit, 1)
+            layout.addLayout(filter_row)
+            self.events_table = QTableWidget(0, 4)
             self.events_table.setToolTip(
                 "プロジェクトで起きた出来事の記録です。行をダブルクリックすると該当画面へ移動できます。"
             )
             self.events_table.setHorizontalHeaderLabels(
-                ("時刻", "内容", "詳細")
+                ("時刻", "プロジェクト", "内容", "詳細")
             )
             for _col, _tip in enumerate((
                 "記録された時刻（新しい順）",
+                "出来事が起きたプロジェクト",
                 "プロジェクトで起きた出来事の概要",
                 "対象の詳細（ダブルクリックで該当画面へ移動できます）",
             )):
                 self.events_table.horizontalHeaderItem(_col).setToolTip(_tip)
             self.events_table.horizontalHeader().setSectionResizeMode(
-                1, QHeaderView.ResizeMode.Stretch
+                2, QHeaderView.ResizeMode.Stretch
             )
             self.events_table.horizontalHeader().setSectionResizeMode(
                 0, QHeaderView.ResizeMode.ResizeToContents
@@ -3055,27 +3204,45 @@ class ActivityPage(QWidget):
             self.events_table.itemActivated.connect(self._activate_event)
             self.events_table.itemDoubleClicked.connect(self._activate_event)
             layout.addWidget(self.events_table, 1)
+            self.events_pager = self._pager(
+                self._events_prev_page, self._events_next_page
+            )
+            layout.addLayout(self.events_pager[0])
         else:
+            self.timeline_heading = None
             self.events_table = None
-        revisions_heading = QLabel("リビジョン履歴")
-        set_typography_role(revisions_heading, TypographyRole.SECTION_TITLE)
-        layout.addWidget(revisions_heading)
+            self.kind_combo = None
+            self.range_combo = None
+            self.search_edit = None
+            self.events_pager = None
+
+        # -- revisions --------------------------------------------------------
+        self.revisions_heading = QLabel()
+        set_typography_role(self.revisions_heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(self.revisions_heading)
         self.table = QTableWidget(0, 3)
         self.table.setToolTip(
             "保存された版（リビジョン）の履歴一覧です。"
+            "行をダブルクリックするとその版の履歴画面へ移動します。"
         )
         self.table.setHorizontalHeaderLabels(("時刻", "プロジェクト", "リビジョン"))
         for _col, _tip in enumerate((
             "版（リビジョン）が保存された時刻",
             "対象のプロジェクト名",
-            "保存された版の識別子（履歴・差分比較で使われます）",
+            "保存された版の識別子（ダブルクリックで履歴・差分比較画面へ移動できます）",
         )):
             self.table.horizontalHeaderItem(_col).setToolTip(_tip)
         self.table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.itemActivated.connect(self._activate_revision)
+        self.table.itemDoubleClicked.connect(self._activate_revision)
         layout.addWidget(self.table, 1)
+        self.revisions_pager = self._pager(
+            self._revisions_prev_page, self._revisions_next_page
+        )
+        layout.addLayout(self.revisions_pager[0])
         self.empty_label = QLabel(
             "まだ記録はありません。保存や昇格を行うとここに表示されます。"
         )
@@ -3083,67 +3250,518 @@ class ActivityPage(QWidget):
         self.empty_label.setWordWrap(True)
         self.empty_label.setVisible(False)
         layout.addWidget(self.empty_label)
+        self._sync_scope_headings()
         self.refresh()
+
+    # -- scope ---------------------------------------------------------------
+
+    def _scope(self) -> str:
+        return str(self.scope_combo.currentData() or "project")
+
+    def _scope_document_id(self) -> str | None:
+        """Effective listing scope: the document id, or ``None`` = global."""
+
+        if self._scope() == "project":
+            return self._document_id
+        return None
+
+    def _project_name(self) -> str | None:
+        if self._document_id is None:
+            return None
+        if self._document_label is not None:
+            return self._document_label(self._document_id)
+        return self._document_id
+
+    def _document_name(self, document_id: str) -> str:
+        if self._document_label is not None:
+            return self._document_label(document_id)
+        return document_id
+
+    def _scope_label(self) -> str:
+        if self._scope() == "project":
+            name = self._project_name()
+            return (
+                f"このプロジェクト（{name}）" if name else "このプロジェクト"
+            )
+        return "全プロジェクト"
+
+    def _sync_scope_headings(self) -> None:
+        scope = self._scope_label()
+        if self.operations_heading is not None:
+            self.operations_heading.setText(f"操作（{scope}）")
+        if self.other_operations_heading is not None:
+            self.other_operations_heading.setText(
+                "その他の操作（アプリ全体・他のプロジェクト）"
+            )
+        if self.timeline_heading is not None:
+            self.timeline_heading.setText(
+                f"プロジェクトタイムライン（{scope}）"
+            )
+        self.revisions_heading.setText(f"リビジョン履歴（{scope}）")
+        if self.events_table is not None:
+            # The project column only carries information in the global view.
+            self.events_table.setColumnHidden(1, self._scope() == "project")
+
+    def _on_scope_changed(self, _index: int) -> None:
+        self._events_page = 0
+        self._revisions_page = 0
+        self._sync_scope_headings()
+        self.refresh()
+
+    def _preserve_selection(self, refresh: Callable[[], None]) -> None:
+        """Re-render through ``refresh`` without losing the selected row.
+
+        Selection is re-bound by (event_id / revision_id / document_id),
+        never by row index (#1023).
+        """
+
+        keys = self._selected_keys()
+        refresh()
+        self._restore_selection(keys)
+
+    def _on_event_filter_changed(self, *_args: object) -> None:
+        self._events_page = 0
+        self._preserve_selection(self._refresh_events)
+
+    # -- paging -----------------------------------------------------------------
+
+    def _pager(
+        self, on_prev: Callable[[], None], on_next: Callable[[], None]
+    ) -> tuple[QHBoxLayout, QPushButton, QPushButton, QLabel]:
+        row = QHBoxLayout()
+        prev_button = QPushButton("前へ")
+        prev_button.setToolTip("前のページへ移動します。")
+        prev_button.clicked.connect(on_prev)
+        next_button = QPushButton("次へ")
+        next_button.setToolTip("次のページへ移動します。")
+        next_button.clicked.connect(on_next)
+        count_label = QLabel()
+        set_typography_role(count_label, TypographyRole.SECONDARY)
+        row.addWidget(prev_button)
+        row.addWidget(next_button)
+        row.addStretch(1)
+        row.addWidget(count_label)
+        return row, prev_button, next_button, count_label
+
+    def _events_prev_page(self) -> None:
+        if self._events_page > 0:
+            self._events_page -= 1
+            self._preserve_selection(self._refresh_events)
+
+    def _events_next_page(self) -> None:
+        self._events_page += 1
+        self._preserve_selection(self._refresh_events)
+
+    def _revisions_prev_page(self) -> None:
+        if self._revisions_page > 0:
+            self._revisions_page -= 1
+            self._preserve_selection(self._refresh_revisions)
+
+    def _revisions_next_page(self) -> None:
+        self._revisions_page += 1
+        self._preserve_selection(self._refresh_revisions)
+
+    def _update_pager(
+        self,
+        pager: tuple[QHBoxLayout, QPushButton, QPushButton, QLabel],
+        *,
+        total: int,
+        page: int,
+        page_size: int,
+        shown: int,
+    ) -> None:
+        _row, prev_button, next_button, count_label = pager
+        first = page * page_size + 1 if shown else 0
+        last = page * page_size + shown
+        count_label.setText(f"全{total}件 · {first}–{last}件を表示")
+        prev_button.setEnabled(page > 0)
+        next_button.setEnabled(last < total)
+
+    # -- operations ---------------------------------------------------------------
+
+    def _operations_table(self, tooltip: str | None = None) -> QTableWidget:
+        table = QTableWidget(0, 3)
+        table.setToolTip(
+            tooltip
+            or "実行中・実行済みの操作（バックアップ・復元など）の一覧です。"
+        )
+        table.setHorizontalHeaderLabels(("状態", "操作", "更新時刻"))
+        for _col, _tip in enumerate((
+            "操作の進行状態（実行中・完了・失敗など）",
+            "行われた操作の種類（バックアップ・復元・インポートなど）",
+            "状態が最後に更新された時刻",
+        )):
+            table.horizontalHeaderItem(_col).setToolTip(_tip)
+        table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeMode.ResizeToContents
+        )
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        return table
+
+    def _operation_matches_project(self, operation: object) -> bool:
+        ref = getattr(operation, "project_ref", None)
+        if not ref:
+            # Unscoped/global operations never pretend to be project rows.
+            return False
+        return str(ref) in self._project_refs
+
+    def _fill_operations_table(
+        self, table: QTableWidget, operations: Iterable[object]
+    ) -> None:
+        for operation in operations:
+            row = table.rowCount()
+            table.insertRow(row)
+            state = getattr(operation.state, "value", operation.state)
+            detail = (
+                operation.error_summary
+                or operation.result_summary
+                or operation.operation_kind
+            )
+            for column, value in enumerate(
+                (
+                    _OPERATION_STATE_LABELS.get(state, str(state)),
+                    f"{operation.title} — {detail}",
+                    operation.updated_at,
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, operation.operation_id
+                    )
+                table.setItem(row, column, cell)
+
+    def _refresh_operations(self) -> None:
+        if self.operations_table is None or self._list_operations is None:
+            return
+        operations = tuple(self._list_operations())
+        project_ops = [
+            op for op in operations if self._operation_matches_project(op)
+        ]
+        other_ops = [
+            op for op in operations if not self._operation_matches_project(op)
+        ]
+        self.operations_table.setRowCount(0)
+        self._fill_operations_table(self.operations_table, project_ops)
+        self.other_operations_table.setRowCount(0)
+        self._fill_operations_table(self.other_operations_table, other_ops)
+
+    # -- timeline -------------------------------------------------------------------
+
+    def _filtered_events(self) -> tuple:
+        if self._list_events is None:
+            return ()
+        events = list(self._list_events(self._scope_document_id()))
+        if self.kind_combo is not None:
+            kinds = self.kind_combo.currentData()
+            if kinds is not None:
+                events = [
+                    event for event in events if event.kind in kinds
+                ]
+        if self.range_combo is not None:
+            days = self.range_combo.currentData()
+            if days is not None:
+                now = datetime.now(timezone.utc)
+                if days == 0:
+                    cutoff = now.replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                else:
+                    cutoff = now - timedelta(days=days)
+                cutoff_iso = cutoff.isoformat()
+                events = [
+                    event
+                    for event in events
+                    if _event_timestamp(event.occurred_at_utc) >= cutoff_iso
+                ]
+        if self.search_edit is not None:
+            needle = self.search_edit.text().strip().lower()
+            if needle:
+                events = [
+                    event
+                    for event in events
+                    if needle in event.title.lower()
+                    or needle in (event.detail or "").lower()
+                    or needle in event.event_id.lower()
+                    or needle
+                    in self._document_name(event.document_id).lower()
+                ]
+        return tuple(events)
+
+    def _refresh_events(self) -> None:
+        if self.events_table is None:
+            return
+        events = self._filtered_events()
+        total = len(events)
+        max_page = max(0, (total - 1) // _EVENT_PAGE_SIZE)
+        if self._events_page > max_page:
+            self._events_page = max_page
+        start = self._events_page * _EVENT_PAGE_SIZE
+        page_events = events[start : start + _EVENT_PAGE_SIZE]
+        self.events_table.setRowCount(0)
+        for event in page_events:
+            row = self.events_table.rowCount()
+            self.events_table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    event.occurred_at_utc,
+                    self._document_name(event.document_id),
+                    event.title,
+                    event.detail or "",
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    if event.deep_link is not None:
+                        cell.setData(
+                            Qt.ItemDataRole.UserRole, event.deep_link
+                        )
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole + 1, event.event_id
+                    )
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole + 2, event.document_id
+                    )
+                self.events_table.setItem(row, column, cell)
+        self._update_pager(
+            self.events_pager,
+            total=total,
+            page=self._events_page,
+            page_size=_EVENT_PAGE_SIZE,
+            shown=len(page_events),
+        )
 
     def _activate_event(self, item: QTableWidgetItem) -> None:
         anchor = self.events_table.item(item.row(), 0)
         link = anchor.data(Qt.ItemDataRole.UserRole) if anchor is not None else None
+        if not link or self._open_link is None:
+            return
+        uri = str(link)
+        # A row whose document differs from the bound project must open in
+        # ITS project: stamp the event's document id onto the target so
+        # activation routes through the guarded project switch instead of
+        # resolving against whichever project happens to be current (#1023).
+        document_id = anchor.data(Qt.ItemDataRole.UserRole + 2)
+        if document_id and str(document_id) != self._document_id:
+            try:
+                target = navigation_target_from_uri(uri)
+            except ValueError:
+                target = None
+            if target is not None and target.project_id is None:
+                uri = replace(
+                    target, project_id=str(document_id)
+                ).as_uri()
+        self._open_link(uri)
+
+    # -- revisions -------------------------------------------------------------------
+
+    def _revision_link(self, document_id: str, revision_id: str) -> str:
+        """Deep link to the revision's history/diff surface (#1023).
+
+        ``project_id`` carries the row's own document so activating a row
+        from another project routes through the guarded project switch —
+        a foreign revision is never activated silently in the current one.
+        """
+
+        return NavigationTarget(
+            kind=NavigationTargetKind.SCENE_REVISION,
+            object_ids=(revision_id,),
+            project_id=document_id,
+            preferred_destination=WorkspaceId.ROOM,
+            preferred_section="history",
+        ).as_uri()
+
+    def _activate_revision(self, item: QTableWidgetItem) -> None:
+        anchor = self.table.item(item.row(), 0)
+        link = anchor.data(Qt.ItemDataRole.UserRole) if anchor is not None else None
         if link and self._open_link is not None:
             self._open_link(str(link))
 
-    def refresh(self) -> None:
-        if self.operations_table is not None and self._list_operations is not None:
-            self.operations_table.setRowCount(0)
-            for operation in self._list_operations():
-                row = self.operations_table.rowCount()
-                self.operations_table.insertRow(row)
-                state = getattr(operation.state, "value", operation.state)
-                detail = (
-                    operation.error_summary
-                    or operation.result_summary
-                    or operation.operation_kind
-                )
-                for column, value in enumerate(
-                    (
-                        _OPERATION_STATE_LABELS.get(state, str(state)),
-                        f"{operation.title} — {detail}",
-                        operation.updated_at,
-                    )
-                ):
-                    cell = QTableWidgetItem(str(value))
-                    if column == 0:
-                        cell.setData(
-                            Qt.ItemDataRole.UserRole, operation.operation_id
-                        )
-                    self.operations_table.setItem(row, column, cell)
-        if self.events_table is not None and self._list_events is not None:
-            self.events_table.setRowCount(0)
-            for event in self._list_events(50):
-                row = self.events_table.rowCount()
-                self.events_table.insertRow(row)
-                for column, value in enumerate(
-                    (event.occurred_at_utc, event.title, event.detail or "")
-                ):
-                    cell = QTableWidgetItem(str(value))
-                    if column == 0 and event.deep_link is not None:
-                        cell.setData(Qt.ItemDataRole.UserRole, event.deep_link)
-                    self.events_table.setItem(row, column, cell)
+    def _refresh_revisions(self) -> None:
+        document_id = self._scope_document_id()
+        total = (
+            self._count_revisions(document_id)
+            if self._count_revisions is not None
+            else 0
+        )
+        if self._count_revisions is not None and total:
+            max_page = (total - 1) // _REVISION_PAGE_SIZE
+            if self._revisions_page > max_page:
+                self._revisions_page = max_page
+        start = self._revisions_page * _REVISION_PAGE_SIZE
+        rows = self._list_revisions(
+            document_id, _REVISION_PAGE_SIZE, start
+        )
+        if self._count_revisions is None:
+            total = start + len(rows)
         self.table.setRowCount(0)
-        rows = self._list_revisions(50)
-        self.empty_label.setVisible(not rows)
-        for created_at, document_id, revision_id in rows:
+        self.empty_label.setVisible(not rows and self._revisions_page == 0)
+        for created_at, row_document_id, revision_id in rows:
             row = self.table.rowCount()
             self.table.insertRow(row)
-            for column, value in enumerate((created_at, document_id, revision_id)):
+            for column, value in enumerate(
+                (
+                    created_at,
+                    self._document_name(row_document_id),
+                    revision_id,
+                )
+            ):
                 cell = QTableWidgetItem(str(value))
-                if column == 2:
+                if column == 0:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole,
+                        self._revision_link(row_document_id, revision_id),
+                    )
+                elif column == 1:
+                    cell.setData(
+                        Qt.ItemDataRole.UserRole, row_document_id
+                    )
+                elif column == 2:
                     cell.setData(Qt.ItemDataRole.UserRole, revision_id)
                 self.table.setItem(row, column, cell)
+        self._update_pager(
+            self.revisions_pager,
+            total=total,
+            page=self._revisions_page,
+            page_size=_REVISION_PAGE_SIZE,
+            shown=len(rows),
+        )
+
+    # -- selection stability ---------------------------------------------------------
+
+    def _selected_keys(self) -> dict[str, tuple]:
+        """Identity of the selected row per table — (kind ids + document).
+
+        Selection survives filter/scope/refresh by matching the same
+        authority ids, never the row index (#1023).
+        """
+
+        keys: dict[str, tuple] = {}
+        if self.events_table is not None:
+            row = self.events_table.currentRow()
+            cell = self.events_table.item(row, 0) if row >= 0 else None
+            if cell is not None and cell.data(Qt.ItemDataRole.UserRole + 1):
+                keys["events"] = (
+                    cell.data(Qt.ItemDataRole.UserRole + 1),
+                    cell.data(Qt.ItemDataRole.UserRole + 2),
+                )
+        row = self.table.currentRow()
+        if row >= 0:
+            document = self.table.item(row, 1)
+            revision = self.table.item(row, 2)
+            if document is not None and revision is not None:
+                keys["revisions"] = (
+                    revision.data(Qt.ItemDataRole.UserRole),
+                    document.data(Qt.ItemDataRole.UserRole),
+                )
+        for name, table in (
+            ("operations", self.operations_table),
+            ("other_operations", self.other_operations_table),
+        ):
+            if table is None:
+                continue
+            row = table.currentRow()
+            cell = table.item(row, 0) if row >= 0 else None
+            if cell is not None and cell.data(Qt.ItemDataRole.UserRole):
+                keys[name] = (cell.data(Qt.ItemDataRole.UserRole),)
+        return keys
+
+    def _restore_selection(self, keys: dict[str, tuple]) -> None:
+        key = keys.get("events")
+        if key is not None and self.events_table is not None:
+            event_id, document_id = key
+            for row in range(self.events_table.rowCount()):
+                cell = self.events_table.item(row, 0)
+                if (
+                    cell is not None
+                    and cell.data(Qt.ItemDataRole.UserRole + 1) == event_id
+                    and cell.data(Qt.ItemDataRole.UserRole + 2) == document_id
+                ):
+                    self.events_table.selectRow(row)
+                    break
+        key = keys.get("revisions")
+        if key is not None:
+            revision_id, document_id = key
+            for row in range(self.table.rowCount()):
+                revision = self.table.item(row, 2)
+                document = self.table.item(row, 1)
+                if (
+                    revision is not None
+                    and document is not None
+                    and revision.data(Qt.ItemDataRole.UserRole) == revision_id
+                    and document.data(Qt.ItemDataRole.UserRole) == document_id
+                ):
+                    self.table.selectRow(row)
+                    break
+        for name, table in (
+            ("operations", self.operations_table),
+            ("other_operations", self.other_operations_table),
+        ):
+            key = keys.get(name)
+            if key is None or table is None:
+                continue
+            for row in range(table.rowCount()):
+                cell = table.item(row, 0)
+                if (
+                    cell is not None
+                    and cell.data(Qt.ItemDataRole.UserRole) == key[0]
+                ):
+                    table.selectRow(row)
+                    break
+
+    # -- refresh -----------------------------------------------------------------------
+
+    def refresh(self) -> None:
+        def _refresh_all() -> None:
+            self._refresh_operations()
+            self._refresh_events()
+            self._refresh_revisions()
+
+        self._preserve_selection(_refresh_all)
 
 
-def list_recent_revisions(repository: SceneRepository, limit: int = 50) -> tuple:
-    """(created_at_utc, document_id, revision_id) rows — read-only."""
+#: Scope of a revision-listing query (#1023). ``'project'`` filters in SQL by
+#: ``document_id``; ``'global'`` is the ONLY explicit opt-in to an
+#: all-projects listing — a missing document id fails closed instead of
+#: silently widening to every project in the shared app store.
+RevisionListScope = Literal['project', 'global']
 
+
+def _revision_scope_clause(
+    scope: RevisionListScope, document_id: str | None
+) -> tuple[str, tuple]:
+    if scope == 'project':
+        if not document_id:
+            raise ValueError(
+                'project scope requires a document_id — pass '
+                "scope='global' explicitly for an all-projects listing"
+            )
+        return ' AND document_id = ?', (document_id,)
+    if scope == 'global':
+        return '', ()
+    raise ValueError(f'unknown revision list scope: {scope!r}')
+
+
+def list_recent_revisions(
+    repository: SceneRepository,
+    limit: int = 50,
+    *,
+    scope: RevisionListScope = 'project',
+    document_id: str | None = None,
+    offset: int = 0,
+) -> tuple:
+    """(created_at_utc, document_id, revision_id) rows — read-only.
+
+    The ``document_id`` filter is applied in SQL: rows from other projects
+    are never fetched and then hidden in the UI (#1023). ``offset`` +
+    ``count_recent_revisions`` page through history so a fixed row cap can
+    no longer bury the current project's past.
+    """
+
+    clause, params = _revision_scope_clause(scope, document_id)
     path = Path(repository.path)
     if not path.is_file():
         return ()
@@ -3152,13 +3770,64 @@ def list_recent_revisions(repository: SceneRepository, limit: int = 50) -> tuple
             rows = connection.execute(
                 """
                 SELECT created_at_utc, document_id, revision_id
-                FROM scene_revisions WHERE detached = 0 ORDER BY seq DESC LIMIT ?
+                FROM scene_revisions
+                WHERE detached = 0"""
+                + clause
+                + """
+                ORDER BY seq DESC LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (*params, limit, offset),
             ).fetchall()
     except sqlite3.Error:
         return ()
     return tuple((str(a), str(b), str(c)) for a, b, c in rows)
+
+
+def count_recent_revisions(
+    repository: SceneRepository,
+    *,
+    scope: RevisionListScope = 'project',
+    document_id: str | None = None,
+) -> int:
+    """Total non-detached revisions in scope — drives the paging label."""
+
+    clause, params = _revision_scope_clause(scope, document_id)
+    path = Path(repository.path)
+    if not path.is_file():
+        return 0
+    try:
+        with closing(repository._read()) as connection, connection:
+            row = connection.execute(
+                'SELECT COUNT(*) FROM scene_revisions WHERE detached = 0'
+                + clause,
+                params,
+            ).fetchone()
+    except sqlite3.Error:
+        return 0
+    return int(row[0]) if row else 0
+
+
+def list_known_document_ids(repository: SceneRepository) -> tuple:
+    """Every document that owns committed revisions — read-only.
+
+    Used by the global activity scope to merge each document's canonical
+    ``CadProjectActivityService.events`` projection (#1023).
+    """
+
+    path = Path(repository.path)
+    if not path.is_file():
+        return ()
+    try:
+        with closing(repository._read()) as connection, connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT document_id FROM scene_revisions
+                WHERE detached = 0 ORDER BY document_id ASC
+                """
+            ).fetchall()
+    except sqlite3.Error:
+        return ()
+    return tuple(str(row[0]) for row in rows)
 
 
 _LIBRARY_FAMILY_TITLES = {
@@ -3547,15 +4216,17 @@ def activity_focus(page: ActivityPage, target: NavigationTarget) -> TargetFocusR
                 page.events_table.selectRow(row)
                 page.events_table.scrollToItem(cell)
                 return TargetFocusResult(focused=True)
-    if page.operations_table is not None:
-        for row in range(page.operations_table.rowCount()):
-            cell = page.operations_table.item(row, 0)
+    for table in (page.operations_table, page.other_operations_table):
+        if table is None:
+            continue
+        for row in range(table.rowCount()):
+            cell = table.item(row, 0)
             if (
                 cell is not None
                 and cell.data(Qt.ItemDataRole.UserRole) in target.object_ids
             ):
-                page.operations_table.selectRow(row)
-                page.operations_table.scrollToItem(cell)
+                table.selectRow(row)
+                table.scrollToItem(cell)
                 return TargetFocusResult(focused=True)
     for row in range(page.table.rowCount()):
         cell = page.table.item(row, 2)
@@ -3579,9 +4250,12 @@ __all__ = [
     "ProjectLibraryPage",
     "ProjectLibraryService",
     "ReferenceLibraryPage",
+    "RevisionListScope",
     "SupportPage",
     "activity_focus",
+    "count_recent_revisions",
     "inbox_focus",
+    "list_known_document_ids",
     "projects_focus",
     "list_recent_revisions",
 ]

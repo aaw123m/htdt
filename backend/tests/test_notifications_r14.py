@@ -197,12 +197,13 @@ def test_activity_page_ops_table_follows_op_mutations() -> None:
         return (*center.active(), *reversed(center.recent(30)))
 
     page = ActivityPage(
-        lambda _limit: (),
+        lambda _doc, _limit, _offset: (),
         list_operations=operations,
     )
     try:
         QTimer.singleShot(0, page, page.refresh)  # no-op warm-up
-        assert page.operations_table.rowCount() == 0
+        # Unscoped ops land in the app-global section (#1023).
+        assert page.other_operations_table.rowCount() == 0
 
         center.subscribe(
             lambda _op: QTimer.singleShot(0, page, page.refresh)
@@ -213,13 +214,13 @@ def test_activity_page_ops_table_follows_op_mutations() -> None:
             title="バックアップの作成",
         )
         app.processEvents()
-        assert page.operations_table.rowCount() == 1
+        assert page.other_operations_table.rowCount() == 1
 
         center.mark_running(op_id)
         center.complete(op_id, result_summary="done")
         app.processEvents()
-        assert page.operations_table.rowCount() == 1
-        assert "完了" in page.operations_table.item(0, 0).text()
+        assert page.other_operations_table.rowCount() == 1
+        assert "完了" in page.other_operations_table.item(0, 0).text()
     finally:
         page.deleteLater()
         app.processEvents()
