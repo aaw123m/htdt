@@ -867,3 +867,16 @@ entries:
   - scripts/package_boundary_audit.py
   - scripts/package_boundary_inventory.json
   close_when_gates_clear: true
+
+- issue: 997
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1050]
+    commits: [e7384ebc]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実データでの stale_review バッジ表示 (catalog が未発行のため単体テストのみ) と ROOM/OPTIMIZATION 開くリンク (VTK 環境) の実機確認'
+  evidence_refs:
+  - docs/issues/issue-997-deliverables-dialog.md
+  - backend/tests/test_issue_997_deliverables_dialog.py
+  close_when_gates_clear: true
