@@ -683,3 +683,18 @@ entries:
   evidence_refs:
   - docs/issues/issue-946-commissioning-operator-commands.md
   close_when_gates_clear: true
+- issue: 948
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1036]
+    commits: []
+  remaining_gates:
+  - kind: manual
+    description: '#939 側 RS8 実行系統での実呼出し + 実 solver (R130D/PFFDTD) による位相/振幅 observable の判定 (harness 自体は arrival_timing 解析 provider まで)'
+  evidence_refs:
+    - backend/src/htdt/cad_external_benchmark_fixture.py
+    - backend/tests/test_issue_948_bras_fixture_harness.py
+    - scripts/run_external_benchmark_fixture.py
+    - docs/issues/issue-948-bras-external-measurement-harness.md
+    - backend/fixtures/bras-rs8-01a/evidence.json
+  close_when_gates_clear: true

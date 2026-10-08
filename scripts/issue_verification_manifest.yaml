@@ -5429,3 +5429,28 @@ issues:
       検証操作の head-pin フェンシング、物理項目の確認境界停止、パネルスモーク。
 
       '
+- issue: 948
+  title: 'P0: BRAS external measurement import + metric + deterministic replay
+    harness'
+  notes: 'REV73: cad_external_benchmark_fixture (封緘 ExternalBenchmarkFixture、
+    BRAS v3/RS8 SOFA reader MxRxN、fail-closed payload 検証、per-observable
+    verdict 語彙、run spec/evidence + deterministic replay、preregistered vs
+    informed 分離)。実 RS8_01a ライセンスケース実行済み (arrival pass +
+    replay reproduced)。docs/issues/issue-948-bras-external-measurement-harness.md 参照。
+    '
+  checks:
+  - id: bras-fixture-harness-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_948_bras_fixture_harness.py
+    description: 'fail-closed 改竄/単位/帯域/座標、封緘往復、run モード語彙、
+      deterministic replay、informed 分離、provider config ドリフト検出。
+
+      '
+  - id: bras-fixture-real-case
+    kind: manual
+    description: '実 BRAS RS8_01a payload (publisher sha256 検証済み) で
+      verify→import→run→replay: arrival_timing pass + replay reproduced —
+      backend/fixtures/bras-rs8-01a/ の証跡と再実行手順で確認。
+
+      '
