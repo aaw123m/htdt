@@ -340,15 +340,12 @@ entries:
   - docs/issues/issue-866-geometry-intake.md
   close_when_gates_clear: true
 - issue: 868
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 896
     commits: []
   remaining_gates:
-  - kind: structural
-    description: ソフトウェア残 — commissioning_panel は読み取り専用 (refresh のみ)。advance/authorize/deploy/readback/rollback
-      を駆動するオペレータ承認付きユーザーコマンドパスが未配線 (パネル自体はデバイスを変更しない;
   - kind: physical
     description: 実機DSP (CamillaDSP等) での閉ループ調整エンドツーエンド検証
   evidence_refs:
@@ -673,4 +670,15 @@ entries:
     - backend/src/htdt/room_workspace.py
     - backend/src/htdt/geometry_intake_panel.py
     - backend/tests/test_issue_977_ifc_locate.py
+  close_when_gates_clear: true
+- issue: 946
+  lifecycle: acceptance_remaining
+  landed:
+    prs: []
+    commits: []
+  remaining_gates:
+  - kind: manual
+    description: オペレータ受入 — CommissioningPanel コマンド行 + 承認ダイアログの実GUI確認 (実機DSPへのデプロイ物理証跡は #868 の物理ゲートに留まる)
+  evidence_refs:
+  - docs/issues/issue-946-commissioning-operator-commands.md
   close_when_gates_clear: true

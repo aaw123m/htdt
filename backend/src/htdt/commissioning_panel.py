@@ -1,19 +1,28 @@
-"""Workflow > コミッショニング panel (#868).
+"""Workflow > コミッショニング panel (#868, operator commands #946).
 
-Read-only surface over the commissioning orchestrator: current stage,
+Live surface over the commissioning orchestrator: current stage,
 blocked reason, next permitted action, rollback availability, evidence
-strength, stale stages, and the sealed transition log. The panel never
-touches an adapter — there is deliberately no real-device mutation path
-here; device steps are driven by the commissioning service layer and
-this panel only reports what the machine sealed.
+strength, stale stages, the sealed transition log — and the operator
+command row (advance / authorize / deploy / read-back / rollback /
+restore / cancel) wired through
+:class:`commissioning_operations.CommissioningOperatorController`.
+Every button's enablement is derived from the machine's own
+``next_permitted_actions``; device mutations always pass through the
+one-shot, candidate/deployment-pinned authorization dialog before
+they reach an adapter.
 """
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -33,8 +42,103 @@ from .cad_commissioning_orchestrator import (
     derive_evidence_strength,
     next_permitted_actions,
 )
+from .commissioning_operations import (
+    CommissioningMutationPreview,
+    CommissioningOperationResult,
+    CommissioningOperatorController,
+    CommissioningOperatorServices,
+)
 from .ui_theme import SemanticState, set_semantic_state
 from .user_facing_error import operation_error_message
+
+
+class CommissioningApprovalDialog(QDialog):
+    """One-shot operator authorization before a device mutation (#946).
+
+    Shows the exact pins the authorization covers — target, scene /
+    candidate / config hashes, the change the mutation applies — then
+    seals a scoped, single-use authorization. Cancelling seals nothing.
+    """
+
+    def __init__(
+        self,
+        preview: CommissioningMutationPreview,
+        *,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._preview = preview
+        self.setModal(True)
+        self.setWindowTitle(
+            'ロールバックの承認' if preview.command == 'rollback'
+            else 'デプロイの承認')
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        for label, value in preview.lines:
+            value_label = QLabel(value, self)
+            value_label.setWordWrap(True)
+            value_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse)
+            form.addRow(label, value_label)
+        layout.addLayout(form)
+
+        oneshot = QLabel(
+            'この承認は一回限り有効です。実行後は自動的に消費され、'
+            '再実行には新しい承認が必要です。', self)
+        oneshot.setWordWrap(True)
+        layout.addWidget(oneshot)
+
+        if preview.reusable_authorization_id is not None:
+            reuse = QLabel(
+                '既存の有効な承認 '
+                f'{preview.reusable_authorization_id} '
+                'を再利用します（新しい承認は発行しません）。', self)
+            reuse.setWordWrap(True)
+            layout.addWidget(reuse)
+
+        fields = QFormLayout()
+        fields.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.operator_edit = QLineEdit(self)
+        self.operator_edit.setAccessibleName('オペレーターID')
+        self.operator_edit.setPlaceholderText('オペレーターID（必須）')
+        fields.addRow('オペレーターID', self.operator_edit)
+        self.note_edit = QLineEdit(self)
+        note_label = ('理由（必須）' if preview.requires_reason
+                      else 'メモ（任意）')
+        self.note_edit.setAccessibleName(note_label)
+        self.note_edit.setPlaceholderText(note_label)
+        fields.addRow(note_label, self.note_edit)
+        layout.addLayout(fields)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel, parent=self)
+        self._buttons.button(
+            QDialogButtonBox.StandardButton.Ok).setText('承認して実行')
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        layout.addWidget(self._buttons)
+        self.operator_edit.textChanged.connect(self._sync_ok)
+        self.note_edit.textChanged.connect(self._sync_ok)
+        self._sync_ok()
+        self.operator_edit.setFocus()
+
+    def _sync_ok(self) -> None:
+        ok = bool(self.operator_edit.text().strip())
+        if self._preview.requires_reason:
+            ok = ok and bool(self.note_edit.text().strip())
+        self._buttons.button(
+            QDialogButtonBox.StandardButton.Ok).setEnabled(ok)
+
+    @property
+    def operator_id(self) -> str:
+        return self.operator_edit.text().strip()
+
+    @property
+    def note(self) -> str:
+        return self.note_edit.text().strip()
 
 
 class CommissioningPanel(QWidget):
@@ -50,12 +154,18 @@ class CommissioningPanel(QWidget):
         orchestrator: CommissioningOrchestrator,
         document_id: str,
         *,
+        services: CommissioningOperatorServices | None = None,
+        controller: CommissioningOperatorController | None = None,
         on_status=None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._orchestrator = orchestrator
         self._document_id = document_id
+        self._services = (
+            services or CommissioningOperatorServices())
+        self._controller = controller or CommissioningOperatorController(
+            orchestrator, document_id, services=self._services)
         self._on_status = on_status
 
         layout = QVBoxLayout(self)
@@ -93,6 +203,7 @@ class CommissioningPanel(QWidget):
 
         actions = QHBoxLayout()
         self.refresh_button = QPushButton('状態を再読み込み', self)
+        self.refresh_button.setAccessibleName('状態を再読み込み')
         self.refresh_button.setToolTip(
             'コミッショニングランの最新の状態を読み込みます。'
         )
@@ -100,6 +211,50 @@ class CommissioningPanel(QWidget):
         actions.addWidget(self.refresh_button)
         actions.addStretch(1)
         layout.addLayout(actions)
+
+        commands = QHBoxLayout()
+        commands.setSpacing(4)
+        self.advance_button = QPushButton('進める', self)
+        self.advance_button.setAccessibleName('進める')
+        self.advance_button.clicked.connect(self._on_advance)
+        commands.addWidget(self.advance_button)
+
+        self.authorize_button = QPushButton('承認して進める', self)
+        self.authorize_button.setAccessibleName('承認して進める')
+        self.authorize_button.clicked.connect(self._on_authorize)
+        commands.addWidget(self.authorize_button)
+
+        self.deploy_button = QPushButton('デプロイを実行', self)
+        self.deploy_button.setAccessibleName('デプロイを実行')
+        self.deploy_button.clicked.connect(self._on_deploy)
+        commands.addWidget(self.deploy_button)
+
+        self.readback_button = QPushButton('読み戻しを検証', self)
+        self.readback_button.setAccessibleName('読み戻しを検証')
+        self.readback_button.clicked.connect(self._on_readback)
+        commands.addWidget(self.readback_button)
+
+        self.rollback_button = QPushButton('ロールバック', self)
+        self.rollback_button.setAccessibleName('ロールバック')
+        self.rollback_button.clicked.connect(self._on_rollback)
+        commands.addWidget(self.rollback_button)
+
+        self.restore_button = QPushButton('接続復帰を記録', self)
+        self.restore_button.setAccessibleName('接続復帰を記録')
+        self.restore_button.clicked.connect(self._on_restore)
+        commands.addWidget(self.restore_button)
+
+        self.cancel_button = QPushButton('ランを中止', self)
+        self.cancel_button.setAccessibleName('ランを中止')
+        self.cancel_button.clicked.connect(self._on_cancel)
+        commands.addWidget(self.cancel_button)
+        commands.addStretch(1)
+        layout.addLayout(commands)
+
+        self.result_label = QLabel(self)
+        self.result_label.setWordWrap(True)
+        self.result_label.setAccessibleName('操作結果')
+        layout.addWidget(self.result_label)
 
         self.transition_tree = QTreeWidget(self)
         self.transition_tree.setAccessibleName('コミッショニング遷移ログ')
@@ -133,6 +288,141 @@ class CommissioningPanel(QWidget):
         self.strength_label.setText('証拠の強さ: 不明')
         self.stale_label.setText('')
         self.transition_tree.clear()
+        for button in self._command_buttons():
+            button.setEnabled(False)
+            button.setToolTip('状態を読み込めないため操作できません')
+
+    def _command_buttons(self) -> tuple[QPushButton, ...]:
+        return (
+            self.advance_button,
+            self.authorize_button,
+            self.deploy_button,
+            self.readback_button,
+            self.rollback_button,
+            self.restore_button,
+            self.cancel_button,
+        )
+
+    def _render_operations(self) -> None:
+        """Enable/disable the command row from the machine's answer."""
+        buttons = {
+            'advance': self.advance_button,
+            'authorize_deploy': self.authorize_button,
+            'deploy': self.deploy_button,
+            'readback': self.readback_button,
+            'rollback': self.rollback_button,
+            'restore_connectivity': self.restore_button,
+            'cancel': self.cancel_button,
+        }
+        try:
+            operations = self._controller.operations()
+        except Exception as exc:  # error-boundary: op derivation
+            self._fail_closed(
+                '操作可否を評価できません: '
+                + operation_error_message(exc))
+            return
+        for operation in operations:
+            button = buttons[operation.command]
+            button.setText(operation.label)
+            button.setEnabled(operation.enabled)
+            button.setToolTip(
+                operation.disabled_reason
+                or f'{operation.label}を実行します。')
+
+    def _report_result(
+        self, result: CommissioningOperationResult,
+    ) -> None:
+        self.result_label.setText(result.summary)
+        set_semantic_state(
+            self.result_label,
+            SemanticState.SUCCESS if result.ok
+            else SemanticState.ERROR)
+        if self._on_status is not None:
+            self._on_status(result.summary)
+
+    def _run_command(self, fn) -> None:
+        """Run one controller command, then re-render from the log."""
+        for button in self._command_buttons():
+            button.setEnabled(False)
+        try:
+            result = fn()
+        except Exception as exc:  # error-boundary: controller call
+            result = CommissioningOperationResult(
+                command='panel', ok=False, outcome='error',
+                summary=operation_error_message(exc))
+        self._report_result(result)
+        self.refresh()
+
+    # -- operator command handlers -------------------------------------
+
+    def _on_advance(self) -> None:
+        self._run_command(self._controller.advance)
+
+    def _on_authorize(self) -> None:
+        preview = self._controller.authorize_preview()
+        if preview is None:
+            self._report_result(CommissioningOperationResult(
+                command='authorize_deploy', ok=False,
+                outcome='unavailable',
+                summary='承認対象の校正候補がありません'))
+            return
+        dialog = CommissioningApprovalDialog(preview, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        operator_id = dialog.operator_id
+        note = dialog.note or None
+        self._run_command(lambda: self._controller.authorize_deploy(
+            operator_id=operator_id, note=note))
+
+    def _on_deploy(self) -> None:
+        preview = self._controller.deploy_preview()
+        if preview is None:
+            self._report_result(CommissioningOperationResult(
+                command='deploy', ok=False, outcome='unavailable',
+                summary='デプロイに必要な対象・候補・コンパイル結果'
+                        'が揃っていません'))
+            return
+        dialog = CommissioningApprovalDialog(preview, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        operator_id = dialog.operator_id
+        note = dialog.note or None
+        self._run_command(lambda: self._controller.deploy(
+            operator_id=operator_id, note=note))
+
+    def _on_readback(self) -> None:
+        self._run_command(self._controller.readback)
+
+    def _on_rollback(self) -> None:
+        preview = self._controller.rollback_preview()
+        if preview is None:
+            self._report_result(CommissioningOperationResult(
+                command='rollback', ok=False, outcome='unavailable',
+                summary='ロールバック対象のデプロイ記録がありません'))
+            return
+        dialog = CommissioningApprovalDialog(preview, parent=self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        operator_id = dialog.operator_id
+        reason = dialog.note
+        self._run_command(lambda: self._controller.rollback(
+            operator_id=operator_id, reason=reason))
+
+    def _on_restore(self) -> None:
+        reason, ok = QInputDialog.getText(
+            self, '接続復帰を記録', '復帰理由:')
+        if not ok or not str(reason).strip():
+            return
+        self._run_command(lambda: self._controller.restore_connectivity(
+            reason=str(reason).strip()))
+
+    def _on_cancel(self) -> None:
+        reason, ok = QInputDialog.getText(
+            self, 'ランを中止', '中止理由:')
+        if not ok or not str(reason).strip():
+            return
+        self._run_command(lambda: self._controller.cancel(
+            reason=str(reason).strip()))
 
     def _latest_verdict(self, run) -> object | None:
         verdicts = self._orchestrator.repository.list_verdicts(
@@ -230,6 +520,8 @@ class CommissioningPanel(QWidget):
         for col in range(self.transition_tree.columnCount()):
             self.transition_tree.resizeColumnToContents(col)
 
+        self._render_operations()
+
     def refresh(self) -> None:
         try:
             opened = self._orchestrator.get_open_run(self._document_id)
@@ -259,5 +551,6 @@ class CommissioningPanel(QWidget):
 
 
 __all__ = [
+    'CommissioningApprovalDialog',
     'CommissioningPanel',
 ]

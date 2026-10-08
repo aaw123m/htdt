@@ -5379,3 +5379,33 @@ issues:
       evaluate_issue_verdict が verified へ遷移。
 
       '
+- issue: 946
+  title: 'P0: CommissioningPanel operator commands wired through the #868
+    closed-loop orchestrator'
+  notes: 'REV72: commissioning_operations コマンドポート (コントローラ +
+    注入境界) で advance/authorize/deploy/readback/rollback/restore/cancel
+    を #868 オーケストレータへ委譲。ワンショット候補ピン承認、変異前
+    プレビュー、正直な disabled reason、再起動時のマテリアライゼーション
+    喪失の正直な扱い。docs/issues/issue-946-commissioning-operator-commands.md
+    参照。
+
+    '
+  checks:
+  - id: commissioning-ops-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_issue_946_commissioning_ops.py
+    - backend/tests/test_issue_868_commissioning_orchestrator.py
+    description: '操作コマンド権威: フルラダー / ワンショット承認 /
+      誤候補・期限切れ非再利用 / apply 失敗 / readback 差異 / rollback
+      往復 / abort / 切断復旧 / busy ガード / 再開喪失 +
+      オフスクリーンパネル配線 (フェイク CamillaDSP アダプタ)。
+
+      '
+  - id: commissioning-ops-physical
+    kind: manual
+    description: '実機DSP (CamillaDSP等) でのコマンド実行・承認ダイアログ
+      の物理検証 — 現状は FixtureCamillaDSPTransport まで。#868 物理ゲートと
+      同一範囲。
+
+      '
