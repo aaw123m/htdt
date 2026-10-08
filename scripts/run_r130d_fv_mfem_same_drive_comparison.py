@@ -13,6 +13,7 @@ No canonical frozen R130D acceptance state changes.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 import math
@@ -41,7 +42,8 @@ RHO = 1.2
 
 
 def read_payload_and_hash(path: Path, *, expected_sha256: str) -> dict:
-    blob = path.read_bytes()
+    raw = path.read_bytes()
+    blob = gzip.decompress(raw) if path.suffix == ".gz" else raw
     digest = hashlib.sha256(blob).hexdigest()
     if digest != expected_sha256:
         raise ValueError(f"independent MFEM sparse source digest mismatch: {path.name}")
@@ -201,9 +203,11 @@ def main() -> int:
     levels=[]
     for refinement in (1,2,3):
         print("RUN INDEPENDENT SAME-SOURCE MFEM",refinement,flush=True)
+        system = args.mfem_systems/"work"/f"mfem-r{refinement}"/"system.json"
+        if not system.exists():
+            system = args.mfem_systems/f"mfem-r{refinement}.json.gz"
         row=solve_mfem_level(
-            args.mfem_systems/"work"/f"mfem-r{refinement}"/"system.json",
-            refinement=refinement,plan=plan,
+            system, refinement=refinement,plan=plan,
         )
         levels.append(row)
         print("DONE",refinement,row["transfer_complex_40_80_hz"],flush=True)

@@ -106,3 +106,29 @@ def test_independent_mfem_sparse_authority_mutation_is_rejected():
         doc[k]=bad
         with pytest.raises(ValueError):
             validate_mfem_system(doc,refinement=3,ndofs=4913,plan=p)
+
+
+def test_committed_independent_mfem_sparse_matrices_are_byte_identical():
+    from run_r130d_fv_mfem_same_drive_comparison import read_payload_and_hash
+    plan = _json("r130d_fv_mfem_same_drive_plan_2026-10-09.json")
+    folder = ROOT / "benchmarks" / "acoustics" / "r130d_mfem_independent_sparse_systems"
+    for ref in (1, 2, 3):
+        matrix = read_payload_and_hash(
+            folder / f"mfem-r{ref}.json.gz",
+            expected_sha256=plan["mfem_sparse_export_sha256_by_refinement"][str(ref)],
+        )
+        assert matrix["ndofs"] == plan["mfem_dofs"][ref-1]
+        assert matrix["uniform_refinements"] == ref
+        assert matrix["boundary_model"] == "natural_neumann_rigid"
+        assert matrix["source_position_m"] == plan["source_xyz_m"]
+        assert matrix["receiver_position_m"] == plan["receiver_xyz_m"]
+
+
+def test_mfem_gzip_digest_mutation_is_rejected(tmp_path):
+    from run_r130d_fv_mfem_same_drive_comparison import read_payload_and_hash
+    file = tmp_path / "changed.json.gz"
+    import gzip
+    data = gzip.compress(b'{"ndofs": 4}', mtime=0)
+    file.write_bytes(data)
+    with pytest.raises(ValueError, match="digest mismatch"):
+        read_payload_and_hash(file,expected_sha256="0"*64)
