@@ -60,6 +60,13 @@ canonical `CadProjectActivityService.events` projection.
   stamped onto their link at activation. Either path routes through the
   guarded `_switch_project` (dirty-state policy intact) — a row from
   another project can never activate inside the current one unnoticed.
+- **Cross-project activation defers past the signal.** The guarded
+  switch disposes the activity page — the widget emitting
+  `itemActivated` — so `_open_activity_link` posts `navigate_to_target`
+  via `QTimer.singleShot(0, self.shell, ...)`: the table's signal
+  finishes before teardown, and a destroyed shell drops the queued call
+  instead of crashing (found on the real GUI: 4/5 foreign activations
+  access-violated when the navigation ran inside the signal).
 - **Selection rebinds by identity.** Filter, paging, scope and `refresh()`
   all re-render through `_preserve_selection`, which recaptures
   `(id, document_id)` keys and re-selects the same authority ids after

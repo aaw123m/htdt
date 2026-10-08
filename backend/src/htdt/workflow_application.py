@@ -3156,7 +3156,19 @@ class WorkflowApplicationComposition:
             target = navigation_target_from_uri(uri)
         except ValueError:
             return False
-        return self.shell.navigate_to_target(target).ok
+        # #1023: a foreign-project target switches the composition, which
+        # disposes the activity page — the very widget emitting the
+        # itemActivated signal this call runs inside. Defer the actual
+        # navigation one event-loop tick so that teardown never happens
+        # mid-signal on the emitting table. The shell (not the page) is the
+        # timer's context: it outlives the page, and a dead receiver drops
+        # the queued navigation instead of firing into teardown.
+        QTimer.singleShot(
+            0,
+            self.shell,
+            lambda: self.shell.navigate_to_target(target),
+        )
+        return True
 
     def _persist_activity_history(self, operation: object) -> None:
         if getattr(operation, 'state', None) not in TERMINAL_STATES:
