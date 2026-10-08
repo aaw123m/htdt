@@ -234,7 +234,11 @@ from .semantic_geometry import (
     make_semantic_geometry_conversion_request,
 )
 from .geometry_import_dialog import GeometryImportDialog, GeometryImportRequest
-from .cad_geometry_intake import geometry_intake_label
+from .cad_geometry_intake import (
+    geometry_intake_label,
+    intake_locate_anchors,
+    proposal_actions_for_parts,
+)
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
 from .room_underlay import (
@@ -260,6 +264,7 @@ from .room_underlay import (
     utc_now_iso,
 )
 from .reflection_guidance_presentation import (
+    ReflectionGuidanceOverlayMarker,
     ReflectionGuidanceView,
     guidance_overlay_markers,
 )
@@ -4548,21 +4553,92 @@ class RoomWorkspace(QWidget):
 
     def _geometry_intake_locate(self, targets: object) -> None:
         ids = [str(target) for target in targets]
+        self._intake_locate_markers = ()
         known = {
             entity.entity_id for entity in self.controller.document.entities
         }
         scene_ids = [entity_id for entity_id in ids if entity_id in known]
+        # Non-scene ids are subject-side part refs (e.g. 'ifc:<step_id>').
+        part_ids = [
+            entity_id
+            for entity_id in ids
+            if entity_id not in known and not entity_id.startswith('entity:')
+        ]
+        controller = self.geometry_intake_controller
+        anchors = (
+            intake_locate_anchors(controller.subject, part_ids)
+            if part_ids and controller.subject is not None
+            else ()
+        )
+        located = [a for a in anchors if a.state == 'located']
+        if located:
+            markers = []
+            for index, anchor in enumerate(located):
+                markers.append(
+                    ReflectionGuidanceOverlayMarker(
+                        surface_id=anchor.part_id,
+                        label=f'{anchor.part_id} · {anchor.detail}',
+                        confidence='authority_backed',
+                        zone_anchor=anchor.center,
+                        source_anchor=None,
+                        source_label=None,
+                        path_points=(),
+                    )
+                )
+            self._intake_locate_markers = tuple(markers)
         if scene_ids:
             self.controller.set_selection_many(scene_ids, additive=False)
             self._after_selection_changed()
+        if part_ids and controller.subject is not None:
+            # Route the operator to the repair targets of the located
+            # parts — the direct defect -> fix-target guidance (#977).
+            panel = getattr(self, 'geometry_intake_panel', None)
+            if controller.proposal is not None and panel is not None:
+                panel.focus_proposal_actions(
+                    proposal_actions_for_parts(
+                        controller.proposal, part_ids
+                    )
+                )
+            unresolved = [a for a in anchors if a.state != 'located']
+            if located:
+                where = ', '.join(
+                    f'{a.part_id} ({a.center.x_m:.2f}, {a.center.y_m:.2f}, '
+                    f'{a.center.z_m:.2f})'
+                    for a in located
+                )
+                tail = (
+                    f' / 未解決 {len(unresolved)} 件' if unresolved else ''
+                )
+                self._set_status(
+                    f'{len(scene_ids)} 件を選択、IFC 部位の位置をマーカー表示: '
+                    f'{where}{tail}'
+                )
+            elif unresolved:
+                self._set_status(
+                    'IFC 部位の位置を特定できません: '
+                    + '; '.join(a.detail for a in unresolved),
+                    error=True,
+                )
+            else:
+                self._set_status(
+                    f'{len(scene_ids)} 件の対象を選択しました'
+                )
+        elif part_ids:
+            # No subject loaded — the honest answer names that, not a
+            # silent no-op.
+            self._set_status(
+                '対象はシーン内に存在しません (IFC ソース由来の部位です '
+                '— intake subject が未ロードです)',
+                error=True,
+            )
+        elif not scene_ids:
+            self._set_status(
+                '対象はシーン内に存在しません (IFC ソース由来の部位です)',
+                error=True,
+            )
+        else:
             self._set_status(f'{len(scene_ids)} 件の対象を選択しました')
-            return
-        # IFC source parts are not scene entities — the honest answer is
-        # "nothing to highlight", not a silent no-op.
-        self._set_status(
-            '対象はシーン内に存在しません (IFC ソース由来の部位です)',
-            error=True,
-        )
+        self._render()
 
     def _geometry_intake_import_ifc(self) -> None:
         controller = self.geometry_intake_controller
@@ -5621,14 +5697,20 @@ class RoomWorkspace(QWidget):
         clean even when the policy is 'on'.
         """
 
-        if not overlays.guides_visible or self._guidance_view is None:
+        if not overlays.guides_visible:
             return ()
+        # Operator-invoked intake locate markers (#977) ride the same
+        # overlay independent of the reflection-guidance mode/context
+        # gates — they are explicit intent, not ambient guidance.
+        locate = tuple(getattr(self, '_intake_locate_markers', ()))
+        if self._guidance_view is None:
+            return locate
         mode = self._guidance_overlay_mode
         if mode == 'off':
-            return ()
+            return locate
         if mode == 'auto' and self.current_context != 'acoustics':
-            return ()
-        return guidance_overlay_markers(self._guidance_view)
+            return locate
+        return guidance_overlay_markers(self._guidance_view) + locate
 
     def toggle_guides(self) -> bool:
         self._guides_visible = not self._guides_visible

@@ -55,6 +55,7 @@ from .cad_scene import (
     BodyMeshAsset,
     BodyMeshTriangle,
     BodyMeshVertex,
+    Position3,
     MeshImportAuthority,
     PHYSICAL_ENTITY_KINDS,
     SceneDocument,
@@ -2830,15 +2831,134 @@ def assert_geometry_solver_execution_permitted(
 
 
 def defect_locate_targets(defect: GeometryDefect) -> tuple[str, ...]:
-    """The scene entity ids a workspace highlight should select for this
-    defect (headless-testable; the UI applies the selection idioms)."""
+    """All ids a workspace locate should resolve for this defect
+    (headless-testable; the UI applies the selection idioms): scene
+    entity ids plus non-scene part refs (``ifc:`` sources) the workspace
+    locates through the intake subject (#977)."""
     targets: list[str] = list(defect.entity_refs)
     for part_ref in defect.part_refs:
         if part_ref.startswith('entity:'):
             entity_id = part_ref.split(':', 1)[1]
             if entity_id not in targets:
                 targets.append(entity_id)
+        elif part_ref not in targets:
+            targets.append(part_ref)
     return tuple(targets)
+
+
+def defect_source_part_refs(defect: GeometryDefect) -> tuple[str, ...]:
+    """Subject-side (non-scene) part refs — e.g. ``ifc:<step_entity_id>`` —
+    that a locate must resolve against the intake subject, not the scene."""
+    return tuple(
+        ref for ref in defect.part_refs if not ref.startswith('entity:')
+    )
+
+
+class IntakeLocateAnchor(BaseModel):
+    """Where one intake part sits for operator locate (#977).
+
+    ``located`` anchors carry the subject-space bounds center + extent so a
+    3D overlay can mark the part; ``unresolved`` covers stubs whose mesh was
+    never resolvable; ``missing`` covers ids absent from the current
+    subject — the UI must say which, never fail silently.
+    """
+
+    model_config = ConfigDict(frozen=True, extra='forbid')
+
+    part_id: str = Field(min_length=1)
+    state: Literal['located', 'unresolved', 'missing']
+    center: Position3 | None = None
+    extent_m: float | None = None
+    owner_ref: str | None = None
+    material_label: str | None = None
+    detail: str = Field(min_length=1)
+
+    @model_validator(mode='after')
+    def consistent(self) -> 'IntakeLocateAnchor':
+        if self.state == 'located' and self.center is None:
+            raise ValueError('located anchors require a center')
+        if self.state != 'located' and self.center is not None:
+            raise ValueError('only located anchors carry a center')
+        return self
+
+
+def _mesh_bounds_center(part: IntakeMeshPart) -> tuple[Position3, float]:
+    xs = [v.x for v in part.mesh.vertices]
+    ys = [v.y for v in part.mesh.vertices]
+    zs = [v.z for v in part.mesh.vertices]
+    center = Position3(
+        x_m=(min(xs) + max(xs)) / 2.0,
+        y_m=(min(ys) + max(ys)) / 2.0,
+        z_m=(min(zs) + max(zs)) / 2.0,
+    )
+    extent = sqrt(
+        (max(xs) - min(xs)) ** 2
+        + (max(ys) - min(ys)) ** 2
+        + (max(zs) - min(zs)) ** 2
+    )
+    return center, extent
+
+
+def intake_locate_anchors(
+    subject: GeometryIntakeSubject,
+    part_ids: Iterable[str],
+) -> tuple[IntakeLocateAnchor, ...]:
+    """Resolve subject part ids to locate anchors (headless-testable)."""
+    anchors: list[IntakeLocateAnchor] = []
+    for part_id in part_ids:
+        part = next(
+            (p for p in subject.parts if p.part_id == part_id), None
+        )
+        if part is not None:
+            center, extent = _mesh_bounds_center(part)
+            anchors.append(
+                IntakeLocateAnchor(
+                    part_id=part_id,
+                    state='located',
+                    center=center,
+                    extent_m=extent,
+                    owner_ref=part.owner_ref,
+                    material_label=part.material_label,
+                    detail=f'{part.role} · {part.owner_kind}:{part.owner_ref}',
+                )
+            )
+            continue
+        stub = next(
+            (p for p in subject.unresolved_parts if p.part_id == part_id),
+            None,
+        )
+        if stub is not None:
+            anchors.append(
+                IntakeLocateAnchor(
+                    part_id=part_id,
+                    state='unresolved',
+                    owner_ref=stub.owner_ref,
+                    detail=stub.unavailability_reason,
+                )
+            )
+            continue
+        anchors.append(
+            IntakeLocateAnchor(
+                part_id=part_id,
+                state='missing',
+                detail='対象は現行 subject に存在しません',
+            )
+        )
+    return tuple(anchors)
+
+
+def proposal_actions_for_parts(
+    proposal: GeometryRepairProposal,
+    part_ids: Iterable[str],
+) -> tuple[str, ...]:
+    """Action ids whose repair targets the given parts — the direct route
+    from a located defect to its repair target (#977)."""
+    wanted = set(part_ids)
+    return tuple(
+        action.action_id
+        for action in proposal.actions
+        if action.target_part_id in wanted
+    )
 
 
 # ---------------------------------------------------------------------------

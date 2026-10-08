@@ -78,6 +78,7 @@ class GeometryIntakePanel(QWidget):
         self._report: GeometryIntakeReport | None = None
         self._proposal: GeometryRepairProposal | None = None
         self._verdict: GeometrySolverReadinessVerdict | None = None
+        self._action_rows: dict = {}
         self._decided_actions: set[str] = set()
         self._solver_payloads: list[object] = []
         self._build_ui()
@@ -329,11 +330,13 @@ class GeometryIntakePanel(QWidget):
             self._decided_actions.clear()
         self._proposal = proposal
         self.proposal_table.setRowCount(0)
+        self._action_rows = {}
         if proposal is None:
             return
         for action in proposal.actions:
             row = self.proposal_table.rowCount()
             self.proposal_table.insertRow(row)
+            self._action_rows[action.action_id] = row
             self.proposal_table.setItem(
                 row, 0,
                 QTableWidgetItem(
@@ -369,6 +372,23 @@ class GeometryIntakePanel(QWidget):
             )
             self.proposal_table.setCellWidget(row, 4, accept)
             self.proposal_table.setCellWidget(row, 5, reject)
+
+    def focus_proposal_actions(self, action_ids) -> None:
+        """Select + scroll to the proposal rows for the given actions —
+        the repair-target leg of a defect locate (#977)."""
+        rows = [
+            self._action_rows[a]
+            for a in action_ids
+            if a in self._action_rows
+        ]
+        if not rows:
+            return
+        self.proposal_table.clearSelection()
+        for row in rows:
+            self.proposal_table.selectRow(row)
+        first = self.proposal_table.item(rows[0], 0)
+        if first is not None:
+            self.proposal_table.scrollToItem(first)
 
     def set_verdict(
         self,
