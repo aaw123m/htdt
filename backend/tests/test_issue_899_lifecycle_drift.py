@@ -26,7 +26,7 @@ MANIFEST = REPO_ROOT / 'scripts' / 'issue_lifecycle_manifest.yaml'
 
 #: Issues whose remaining work was verified on main to include
 #: unimplemented software (not merely acceptance/evidence gathering).
-STRUCTURAL_ISSUES = {866, 868, 869, 875, 876, 877, 886}
+STRUCTURAL_ISSUES = {868}
 
 #: States that assert nothing but acceptance/physical work is left; they
 #: are dishonest when a ``structural`` gate is present.

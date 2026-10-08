@@ -325,7 +325,7 @@ entries:
   - docs/issues/issue-865-lifecycle-evidence.md
   close_when_gates_clear: true
 - issue: 866
-  lifecycle: structural_followup_remaining
+  lifecycle: acceptance_remaining
   landed:
     prs:
     - 894
@@ -353,7 +353,7 @@ entries:
   - docs/issues/issue-868-commissioning-orchestrator.md
   close_when_gates_clear: true
 - issue: 869
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 895
@@ -367,7 +367,7 @@ entries:
   - docs/issues/issue-869-wasapi-backend.md
   close_when_gates_clear: true
 - issue: 876
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 898
@@ -393,7 +393,7 @@ entries:
   - scripts/perf_budgets.yaml
   close_when_gates_clear: true
 - issue: 877
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 904
@@ -415,7 +415,7 @@ entries:
   - docs/issues/issue-884-support-bundle.md
   close_when_gates_clear: true
 - issue: 886
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 909
@@ -427,7 +427,7 @@ entries:
   - docs/issues/issue-886-first-run-wizard.md
   close_when_gates_clear: true
 - issue: 875
-  lifecycle: structural_followup_remaining
+  lifecycle: physical_evidence_remaining
   landed:
     prs:
     - 908
@@ -629,4 +629,18 @@ entries:
       経路は実GUI検証済み、mount crash は修正済)
   evidence_refs:
   - docs/issues/issue-937-decision-brief.md
+  close_when_gates_clear: true
+- issue: 938
+  lifecycle: structural_followup_remaining
+  landed:
+    prs: [945]
+    commits: [bf1ba6b3]
+  remaining_gates:
+    - kind: structural
+      description: "MFEM ビルド可能な環境 — fem_conditioning_pollution 軸は MFEM 未構築のため UNRESOLVED_ENVIRONMENT_BLOCKED のまま (fail/closed ではなく環境ブロック)"
+  evidence_refs:
+    - docs/R130D_GENERAL3D_REPRODUCTION_ISOLATION_RESULT_2026-10-08.md
+    - benchmarks/acoustics/r130d_reproduction_isolation_diagnostic_summary.json
+    - backend/src/htdt/r130d_general3d_validation.py
+    - scripts/run_r130d_reproduction_isolation_diagnostic.py
   close_when_gates_clear: true
