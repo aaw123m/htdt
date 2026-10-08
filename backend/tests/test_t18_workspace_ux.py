@@ -237,6 +237,7 @@ def _fake_overview_service(notice_count: int):
         variant_states=(),
         optimization_ready=False,
         recent_activity=(),
+        golden_path_steps=(),
     )
     return SimpleNamespace(read=lambda _document_id: view)
 

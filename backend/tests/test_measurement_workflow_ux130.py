@@ -830,9 +830,9 @@ def test_measurement_workspace_is_page_based_and_shell_mountable(tmp_path: Path)
     workspace = mount.widget
     assert isinstance(workspace, MeasurementPageWorkspace)
     assert workspace.parent() is None
-    # 7 pages: import/assignment/campaign/quality/comparison/calibration +
-    # the #869 sweep-acquisition context.
-    assert workspace.pages.count() == 7
+    # 8 pages: import/assignment/campaign/quality/comparison/calibration +
+    # the #869 sweep-acquisition context + #877 calibration wizard.
+    assert workspace.pages.count() == 8
     assert workspace.findChildren(QDockWidget) == []
 
     assert mount.on_context_changed is not None
