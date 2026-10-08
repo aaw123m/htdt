@@ -786,3 +786,28 @@ entries:
   - docs/issues/issue-952-clf-binary-import.md
   - backend/tests/test_issue_952_clf_binary_import.py
   close_when_gates_clear: true
+
+- issue: 1014
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1044]
+    commits: [1f6d35e6]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 5分 stall 後の旧 worker が新 epoch を汚染しないことを実環境で確認 (子が barrier 再現テスト+実GUI E2E で検証済)'
+  evidence_refs:
+  - docs/issues/issue-1014-capture-watch-isolation.md
+  - backend/tests/test_issue_1014_capture_watch_isolation.py
+  close_when_gates_clear: true
+- issue: 1021
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1044]
+    commits: [1f6d35e6]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — #1014 と同一根因・同一着地 (job-local snapshot + atomic publish + generation-guarded _job_finished)'
+  evidence_refs:
+  - docs/issues/issue-1014-capture-watch-isolation.md
+  - backend/tests/test_issue_1014_capture_watch_isolation.py
+  close_when_gates_clear: true
