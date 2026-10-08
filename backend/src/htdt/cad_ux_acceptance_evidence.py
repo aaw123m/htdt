@@ -92,6 +92,7 @@ class UxCheckpointOutcome(BaseModel):
     status: UxCheckpointStatus
     detail: str | None = None
     evidence: tuple[UxArtifactRef, ...] = ()
+    elapsed_ms: int | None = Field(default=None, ge=0)
 
 
 class UxScreenInfo(BaseModel):

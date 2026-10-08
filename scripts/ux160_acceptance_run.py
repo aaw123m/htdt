@@ -50,6 +50,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -350,7 +351,8 @@ def _shot(out_dir: Path, window: Any, name: str) -> dict[str, Any] | None:
 
 def _checkpoint(checkpoint_id: str, kind: str, status: str,
                 target: str | None = None, detail: str | None = None,
-                evidence: list[dict] | None = None) -> dict[str, Any]:
+                evidence: list[dict] | None = None,
+                t0: float | None = None) -> dict[str, Any]:
     return {
         'checkpoint_id': checkpoint_id,
         'kind': kind,
@@ -358,6 +360,9 @@ def _checkpoint(checkpoint_id: str, kind: str, status: str,
         'status': status,
         'detail': detail,
         'evidence': evidence or [],
+        'elapsed_ms': (
+            int((time.monotonic() - t0) * 1000)
+            if t0 is not None else None),
     }
 
 
@@ -423,6 +428,7 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
     driver._settle(app, 1500)
 
     if 'launch' in checks:
+        t0 = time.monotonic()
         visible = window.isVisible()
         resolved = getattr(composition, 'document_id', None) or document_id
         checkpoints.append(_checkpoint(
@@ -432,13 +438,15 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
             detail=(
                 f'window {"shown" if visible else "not visible"}; '
                 f'document={resolved}; size={window.width()}x'
-                f'{window.height()}')))
+                f'{window.height()}'),
+            t0=t0))
         metrics['window_allocated'] = [window.width(), window.height()]
 
     if phase == 'reopen':
         # Restart/reopen lane: the store already holds the project — the
         # checkpoint is that startup resolution lands on the same
         # document and the shell becomes usable again.
+        t0 = time.monotonic()
         head = repository.current_head(document_id)
         ok = head is not None and window.isVisible()
         shot = _shot(out_dir, window, 'reopen--home')
@@ -449,24 +457,27 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
             detail=(
                 f'head={head.revision_id if head else None}; '
                 f'window_visible={window.isVisible()}'),
-            evidence=[shot] if shot else []))
+            evidence=[shot] if shot else [],
+            t0=t0))
     else:
         for dest_text in destinations:
             dest = normalize_destination_id(dest_text)
             row_shots: list[dict[str, Any]] = []
+            t0 = time.monotonic()
             ok = window.navigate(dest)
             driver._settle(app)
             if not ok:
                 checkpoints.append(_checkpoint(
                     f'navigate:{dest_text}', 'navigate', 'blocked',
                     target=dest_text,
-                    detail=window.router.last_block_reason))
+                    detail=window.router.last_block_reason,
+                    t0=t0))
                 metrics['destinations'][dest_text] = {
                     'navigated': False}
                 continue
             checkpoints.append(_checkpoint(
                 f'navigate:{dest_text}', 'navigate', 'pass',
-                target=dest_text))
+                target=dest_text, t0=t0))
             shot = _shot(out_dir, window, dest_text)
             if shot:
                 row_shots.append(shot)
@@ -483,6 +494,7 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                     page.isVisible() if page is not None else False),
             }
             if 'geometry' in checks:
+                t0 = time.monotonic()
                 geom_ok = bool(
                     size is not None and size.width() > 0
                     and size.height() > 0
@@ -494,8 +506,9 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                     detail=json.dumps(
                         metrics['destinations'][dest_text],
                         ensure_ascii=False),
-                    evidence=row_shots))
+                    evidence=row_shots, t0=t0))
             if 'overflow' in checks:
+                t0 = time.monotonic()
                 findings = driver.check_overflow(window)
                 metrics['destinations'][dest_text]['overflow_count'] = (
                     len(findings))
@@ -504,10 +517,11 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                     'pass' if not findings else 'finding',
                     target=dest_text,
                     detail=f'{len(findings)} overflow findings',
-                ))
+                    t0=t0))
             if 'contexts' in checks:
                 registration = window.router.registration(dest)
                 for ctx in registration.contexts:
+                    t0 = time.monotonic()
                     try:
                         window.router.select_context(dest, ctx.context_id)
                         driver._settle(app, 500)
@@ -518,17 +532,20 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                             f'context:{dest_text}/{ctx.context_id}',
                             'context', 'pass',
                             target=ctx.context_id,
-                            evidence=[shot] if shot else []))
+                            evidence=[shot] if shot else [],
+                            t0=t0))
                     except Exception as exc:
                         checkpoints.append(_checkpoint(
                             f'context:{dest_text}/{ctx.context_id}',
                             'context', 'finding',
                             target=ctx.context_id,
-                            detail=str(exc)[:200]))
+                            detail=str(exc)[:200],
+                            t0=t0))
 
         if 'focus' in checks:
             for dest_text in destinations[:2]:
                 dest = normalize_destination_id(dest_text)
+                t0 = time.monotonic()
                 if window.navigate(dest):
                     driver._settle(app)
                     focus = driver.check_focus_chain(app, window)
@@ -544,24 +561,28 @@ def run_driver_phase(data_dir: Path, out_dir: Path, scenario: str,
                         detail=(
                             f"cycle={focus['completed_cycle']} "
                             f"unique={focus['unique_widgets']} "
-                            f"problems={len(focus['problems'])}")))
+                            f"problems={len(focus['problems'])}"),
+                        t0=t0))
 
         if 'disabled_reasons' in checks:
+            t0 = time.monotonic()
             findings = driver.check_disabled_reasons(window)
             metrics['disabled_reasons_missing'] = len(findings)
             checkpoints.append(_checkpoint(
                 'global:disabled_reasons', 'disabled_reasons',
                 'pass' if not findings else 'finding',
                 detail=f'{len(findings)} disabled widgets without '
-                       'a recorded reason'))
+                       'a recorded reason',
+                t0=t0))
 
         if 'palette' in checks:
+            t0 = time.monotonic()
             palette = driver.check_palette(app, window, out_dir / 'shots')
             checkpoints.append(_checkpoint(
                 'global:command_palette', 'palette',
                 'pass' if palette.get('opened') else 'finding',
                 detail='opened' if palette.get('opened') else
-                'palette did not open'))
+                'palette did not open', t0=t0))
 
     result['finished_utc'] = _utc_now()
     _write_json(out_dir / 'driver_result.json', result)
@@ -966,6 +987,12 @@ def run_row(args: argparse.Namespace) -> int:
         d.strip() for d in args.destinations.split(',') if d.strip())
     checks = tuple(
         c.strip() for c in args.checks.split(',') if c.strip())
+    unknown_checks = sorted(set(checks) - set(ALL_CHECKS))
+    if unknown_checks:
+        print(f"[ux880] error: unknown --checks entries: "
+              f"{', '.join(unknown_checks)} (known: "
+              f"{', '.join(ALL_CHECKS)})", file=sys.stderr)
+        return EXIT_USAGE
 
     data_dir = args.data_dir or (work_dir / f'data-{args.scenario}')
     if args.reset_data and data_dir.exists():
@@ -986,6 +1013,12 @@ def run_row(args: argparse.Namespace) -> int:
             Path(args.baseline) / 'manifest.json')
         if baseline_manifest is None:
             baseline_manifest = _read_json(Path(args.baseline))
+        if baseline_manifest is None:
+            # An explicit-but-unreadable baseline is operator error —
+            # never degrade it to a silent not_run.
+            print(f"[ux880] error: --baseline {args.baseline} is not a "
+                  "readable bundle dir or manifest.json", file=sys.stderr)
+            return EXIT_USAGE
     else:
         latest_ptr = _read_json(
             work_dir / args.matrix_id / row_id / 'latest.json')
