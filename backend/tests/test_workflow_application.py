@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from htdt import dirty_state_dialog
+from htdt.activity_center import OperationState
 from htdt.cad_project_template_repository import CadProjectTemplateRepository
 from htdt.cad_repository import SceneRepository
 from htdt.cad_scene import make_empty_scene, make_f1_scene
@@ -911,9 +912,13 @@ def test_capture_watch_completion_reports_rejected_outcomes(
             if op.operation_kind == 'capture_watch_stage'
         ]
         assert len(ops) == 1
-        assert '2 件は取り込めませんでした' in (ops[0].result_summary or '')
+        # #1022: an all-failed batch ends FAILED — the error is carried in
+        # error_summary, never smuggled through result_summary as a fake
+        # completion.
+        assert ops[0].state == OperationState.FAILED
+        assert '2 件は取り込めませんでした' in (ops[0].error_summary or '')
         # already_staged stays quiet — only genuine non-success is counted.
-        assert '3 件' not in (ops[0].result_summary or '')
+        assert '3 件' not in (ops[0].error_summary or '')
     finally:
         composition.shell.close()
         composition.shell.deleteLater()

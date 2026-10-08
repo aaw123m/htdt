@@ -1460,6 +1460,11 @@ class CaptureInboxPage(QWidget):
         list_mission_pairings: Callable[[], tuple] | None = None,
         issue_mission: Callable | None = None,
         export_mission: Callable | None = None,
+        list_watch_failures: Callable[[], tuple] | None = None,
+        verify_watch_failure: Callable[[str], object] | None = None,
+        retry_watch_failure: Callable[[str], object] | None = None,
+        import_watch_failure: Callable[[str], object] | None = None,
+        diagnose_watch_failure: Callable[[str], object] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1483,6 +1488,12 @@ class CaptureInboxPage(QWidget):
         self._list_mission_pairings = list_mission_pairings
         self._issue_mission = issue_mission
         self._export_mission = export_mission
+        self._list_watch_failures = list_watch_failures
+        self._verify_watch_failure = verify_watch_failure
+        self._retry_watch_failure = retry_watch_failure
+        self._import_watch_failure = import_watch_failure
+        self._diagnose_watch_failure = diagnose_watch_failure
+        self._watch_failures: tuple = ()
         self._missions: tuple = ()
         self._active_rebase_context = None
         self._selected_contribution = None
@@ -1575,6 +1586,8 @@ class CaptureInboxPage(QWidget):
         splitter.setStretchFactor(0, 1)
         tabs = QTabWidget()
         tabs.addTab(splitter, "キャプチャ配送")
+        if self._list_watch_failures is not None:
+            tabs.addTab(self._build_watch_failures_tab(), "失敗キュー")
         if self._list_contributions is not None:
             tabs.addTab(self._build_contributions_tab(), "フィールドリターン")
         if self._list_missions is not None:
@@ -1856,6 +1869,321 @@ class CaptureInboxPage(QWidget):
         self._sync_detail()
         self._refresh_contributions()
         self._refresh_missions()
+        self._refresh_watch_failures()
+
+    # -- watch-folder failure queue (#1022) ------------------------------
+    #
+    # Drops that exhausted the runner's route cap never reach the inbox
+    # above, so this bounded persistent queue is their recovery surface:
+    # per route the sanitized error kind, attempt count and first/last
+    # seen, plus the explicit reprocess actions — never a fake success.
+
+    _WATCH_FAILURE_KIND_LABELS = {
+        "routing_error": "取り込み処理エラー",
+        "import_failed": "取り込み失敗",
+        "invalid_or_unsupported": "未対応・不正",
+        "user_action_required": "要対応",
+    }
+    _WATCH_FAILURE_CLASS_LABELS = {
+        "retryable": "再試行可能",
+        "unsupported": "未対応",
+        "user_action_required": "要対応",
+    }
+    _WATCH_FAILURE_VERDICT_LABELS = {
+        "ok": "再試行できます",
+        "not_retryable": "再試行では解決しません",
+        "deleted": "ファイルが見つかりません",
+        "replaced": "記録時と内容が変わっています",
+        "epoch_mismatch": "監視フォルダー設定が記録時と異なります",
+    }
+
+    def _build_watch_failures_tab(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        intro = QLabel(
+            "監視フォルダーで自動再試行の上限に達し、取り込めなかった"
+            "ファイルです。ここには受信ボックス行の無い失敗だけが残ります"
+            " — 行を選ぶと原因と再処理の操作が表示されます。"
+        )
+        intro.setWordWrap(True)
+        set_typography_role(intro, TypographyRole.SECONDARY)
+        layout.addWidget(intro)
+        self.watch_failure_table = QTableWidget(0, 5)
+        self.watch_failure_table.setAccessibleName("失敗キュー一覧")
+        self.watch_failure_table.setToolTip(
+            "監視フォルダーで取り込めなかったファイルの一覧です。"
+            "行を選ぶと詳細と再処理の操作が下に表示されます。"
+        )
+        self.watch_failure_table.setHorizontalHeaderLabels(
+            ("ファイル", "エラー", "分類", "試行", "最終確認（UTC）")
+        )
+        for _col, _tip in enumerate((
+            "失敗したファイル名",
+            "取り込みに失敗した種類（サニタイズ済み）",
+            "再試行可能か、対応が必要か",
+            "自動＋手動の取り込み試行回数",
+            "最後に失敗を確認した日時（UTC）",
+        )):
+            self.watch_failure_table.horizontalHeaderItem(
+                _col
+            ).setToolTip(_tip)
+        self.watch_failure_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.watch_failure_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.watch_failure_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.watch_failure_table.itemSelectionChanged.connect(
+            self._sync_watch_failure_detail
+        )
+        layout.addWidget(self.watch_failure_table, 1)
+        self.watch_failure_detail = QLabel(
+            "一覧から項目を選択すると詳細を表示します。"
+        )
+        self.watch_failure_detail.setWordWrap(True)
+        self.watch_failure_detail.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        set_typography_role(
+            self.watch_failure_detail, TypographyRole.SECONDARY
+        )
+        layout.addWidget(self.watch_failure_detail)
+        actions = QHBoxLayout()
+        self.watch_retry_button = QPushButton("安全に再試行…")
+        self.watch_retry_button.setAccessibleName("安全に再試行")
+        self.watch_retry_button.setToolTip(
+            "記録されたファイルと一致すること（場所・内容・監視設定）を"
+            "確認してから、もう一度取り込みを試みます"
+        )
+        self.watch_retry_button.setWhatsThis(
+            "記録されたファイルと一致すること（場所・内容・監視設定）を"
+            "確認してから、もう一度取り込みを試みます"
+        )
+        self.watch_retry_button.setEnabled(False)
+        self.watch_retry_button.clicked.connect(self._retry_watch_failure_row)
+        actions.addWidget(self.watch_retry_button)
+        self.watch_import_button = QPushButton("このファイルを選んで取込…")
+        self.watch_import_button.setAccessibleName("このファイルを選んで取込")
+        self.watch_import_button.setToolTip(
+            "記録時と変わっていても構わず、その場所にある現在のファイルを"
+            "明示的に取り込みます（受信ボックスでレビューされます）"
+        )
+        self.watch_import_button.setWhatsThis(
+            "記録時と変わっていても構わず、その場所にある現在のファイルを"
+            "明示的に取り込みます（受信ボックスでレビューされます）"
+        )
+        self.watch_import_button.setEnabled(False)
+        self.watch_import_button.clicked.connect(
+            self._import_watch_failure_row
+        )
+        actions.addWidget(self.watch_import_button)
+        self.watch_diag_button = QPushButton("サポート診断")
+        self.watch_diag_button.setAccessibleName("サポート診断")
+        self.watch_diag_button.setToolTip(
+            "この失敗についてサポートへ共有可能な診断メモ"
+            "（パスを含まない）を診断フォルダーに書き出します"
+        )
+        self.watch_diag_button.setWhatsThis(
+            "この失敗についてサポートへ共有可能な診断メモ"
+            "（パスを含まない）を診断フォルダーに書き出します"
+        )
+        self.watch_diag_button.setEnabled(False)
+        self.watch_diag_button.clicked.connect(
+            self._diagnose_watch_failure_row
+        )
+        actions.addWidget(self.watch_diag_button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        return panel
+
+    def _selected_watch_failure(self):
+        items = self.watch_failure_table.selectedItems()
+        index = None
+        for item in items:
+            if item.column() == 0:
+                index = item.row()
+                break
+        if index is None or index >= len(self._watch_failures):
+            return None
+        return self._watch_failures[index]
+
+    def _refresh_watch_failures(self) -> None:
+        if self._list_watch_failures is None:
+            return
+        self._watch_failures = self._list_watch_failures()
+        self.watch_failure_table.setRowCount(0)
+        for entry in self._watch_failures:
+            row = self.watch_failure_table.rowCount()
+            self.watch_failure_table.insertRow(row)
+            for column, value in enumerate(
+                (
+                    entry.basename,
+                    self._WATCH_FAILURE_KIND_LABELS.get(
+                        entry.error_kind, entry.error_kind
+                    ),
+                    self._WATCH_FAILURE_CLASS_LABELS.get(
+                        str(entry.failure_class), str(entry.failure_class)
+                    ),
+                    str(entry.attempts),
+                    entry.last_seen_utc,
+                )
+            ):
+                cell = QTableWidgetItem(str(value))
+                if column == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, entry.path)
+                self.watch_failure_table.setItem(row, column, cell)
+        self._sync_watch_failure_detail()
+
+    def _sync_watch_failure_detail(self) -> None:
+        entry = self._selected_watch_failure()
+        retryable = False
+        importable = False
+        if entry is None:
+            self.watch_retry_button.setEnabled(False)
+            self.watch_import_button.setEnabled(False)
+            self.watch_diag_button.setEnabled(False)
+            self.watch_failure_detail.setText(
+                "取り込みに失敗して自動再試行を終えたファイルは"
+                "ありません。"
+                if self.watch_failure_table.rowCount() == 0
+                else "一覧から項目を選択すると詳細を表示します。"
+            )
+            return
+        self.watch_diag_button.setEnabled(
+            self._diagnose_watch_failure is not None
+        )
+        verdict_reason = ""
+        if self._verify_watch_failure is not None:
+            try:
+                verdict, verdict_reason = self._verify_watch_failure(
+                    entry.path
+                )
+            except EXPECTED_OPERATION_ERRORS:
+                verdict, verdict_reason = None, ""
+            retryable = getattr(verdict, "value", verdict) == "ok"
+            importable = getattr(verdict, "value", verdict) != "deleted"
+            verdict_label = self._WATCH_FAILURE_VERDICT_LABELS.get(
+                getattr(verdict, "value", verdict), ""
+            )
+        else:
+            verdict_label = ""
+        self.watch_retry_button.setEnabled(
+            retryable and self._retry_watch_failure is not None
+        )
+        self.watch_import_button.setEnabled(
+            importable and self._import_watch_failure is not None
+        )
+        lines = [
+            f"ファイル: {entry.basename}",
+            "エラー: "
+            + self._WATCH_FAILURE_KIND_LABELS.get(
+                entry.error_kind, entry.error_kind
+            )
+            + (f" — {entry.detail}" if entry.detail else ""),
+            "分類: "
+            + self._WATCH_FAILURE_CLASS_LABELS.get(
+                str(entry.failure_class), str(entry.failure_class)
+            ),
+            f"試行回数: {entry.attempts} 回",
+            f"初回検出（UTC）: {entry.first_seen_utc}",
+            f"最終確認（UTC）: {entry.last_seen_utc}",
+            f"取り込み元: 監視フォルダー {entry.watch_root}",
+        ]
+        if verdict_label:
+            lines.append(f"現在の状態: {verdict_label}")
+        if verdict_reason and not retryable:
+            lines.append(f"再試行できない理由: {verdict_reason}")
+        lines.append(
+            "診断ID: "
+            f"[diag: {entry.diagnostic_id}]（サポート共有時に使用）"
+        )
+        self.watch_failure_detail.setText("\n".join(lines))
+
+    def _retry_watch_failure_row(self) -> None:
+        """安全に再試行 — show source + why-not-imported before retrying."""
+
+        entry = self._selected_watch_failure()
+        if entry is None or self._retry_watch_failure is None:
+            return
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("安全に再試行")
+        box.setText(
+            "次のファイルの取り込みをもう一度試みます。\n\n"
+            f"ファイル: {entry.basename}\n"
+            f"取り込み元: 監視フォルダー {entry.watch_root}\n"
+            "記録時の理由: "
+            + self._WATCH_FAILURE_KIND_LABELS.get(
+                entry.error_kind, entry.error_kind
+            )
+            + (f" — {entry.detail}" if entry.detail else "")
+            + f"\n試行回数: {entry.attempts} 回\n\n"
+            "ファイルの内容と監視設定が記録時と一致していることを"
+            "確認してから実行します。"
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return
+        try:
+            self._retry_watch_failure(entry.path)
+        except Exception as exc:
+            warn_user(self, "安全な再試行に失敗しました", exc)
+            return
+        self.refresh()
+
+    def _import_watch_failure_row(self) -> None:
+        """このファイルを選んで取込 — explicit import of the current file."""
+
+        entry = self._selected_watch_failure()
+        if entry is None or self._import_watch_failure is None:
+            return
+        extra = ""
+        if self._verify_watch_failure is not None:
+            try:
+                verdict, _reason = self._verify_watch_failure(entry.path)
+            except EXPECTED_OPERATION_ERRORS:
+                verdict = None
+            if getattr(verdict, "value", verdict) == "replaced":
+                extra = (
+                    "\n\n記録時と内容が変わっています — "
+                    "現在のファイルの内容が取り込まれます。"
+                )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("このファイルを選んで取込")
+        box.setText(
+            "監視フォルダーにあるこのファイルを明示的に取り込みます。"
+            "内容は取り込み時に検証され、受信ボックスでレビューされます"
+            "（証拠への昇格は行いません）。\n\n"
+            f"ファイル: {entry.basename}" + extra
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return
+        try:
+            self._import_watch_failure(entry.path)
+        except Exception as exc:
+            warn_user(self, "取り込みに失敗しました", exc)
+            return
+        self.refresh()
+
+    def _diagnose_watch_failure_row(self) -> None:
+        entry = self._selected_watch_failure()
+        if entry is None or self._diagnose_watch_failure is None:
+            return
+        try:
+            self._diagnose_watch_failure(entry.path)
+        except Exception as exc:
+            warn_user(self, "サポート診断に失敗しました", exc)
+            return
+        self.refresh()
 
     # -- field-return contributions -------------------------------------
 

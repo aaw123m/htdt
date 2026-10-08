@@ -28,6 +28,10 @@ contract is mirrored deliberately:
 - Bounded retry: a failed route re-queues the drop (the scanner's seen
   marker is removed) up to ``_ROUTE_MAX_ATTEMPTS`` times, then keeps the
   marker so a wedged file stops cycling — a rewrite re-delivers it.
+- Exhausted drops are not invisible: a route that hits the cap also
+  emits a :class:`~htdt.capture_watch_failures.WatchRouteExhaustion`
+  record on ``routes_exhausted`` so the app can queue it for manual
+  reprocessing (#1022).
 
 The runner itself only surfaces outcomes; the inbox page refresh, the
 Activity Center entry and the statusbar line are the app's job.
@@ -35,7 +39,7 @@ Activity Center entry and the statusbar line are the app's job.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import time
 from pathlib import Path
@@ -44,6 +48,10 @@ from typing import MutableMapping
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from .cad_repository import SceneRepository
+from .capture_watch_failures import (
+    WatchRouteExhaustion,
+    classify_route_failure,
+)
 from .launch_intents import build_launch_intent
 from .launch_router import route_capture_intent
 from .native_worker import NativeWorkerPool, WORKER_CANCELLED
@@ -113,6 +121,7 @@ class _WatchScanResult:
     pending: dict[str, tuple[int, int]]
     route_failures: dict[str, int]
     results: list
+    exhausted: list = field(default_factory=list)
 
 
 def scan_capture_watch_dir(
@@ -213,6 +222,13 @@ class CaptureWatchRunner(QObject):
     #: carries the exception text). Emitted only when at least one file
     #: was routed; empty scans stay silent.
     scan_completed = Signal(object)
+
+    #: (records) — one ``WatchRouteExhaustion`` per drop whose route
+    #: attempt count reached ``_ROUTE_MAX_ATTEMPTS`` this scan (#1022).
+    #: An exhausted drop also appears in ``scan_completed``'s batch as a
+    #: failed route — this signal is the dedicated hand-off into the
+    #: persistent failure queue, emitted after ``scan_completed``.
+    routes_exhausted = Signal(object)
 
     def __init__(
         self,
@@ -331,10 +347,12 @@ class CaptureWatchRunner(QObject):
         def job(cancel) -> object:
             delivered = scan_capture_watch_dir(root, job_seen, job_pending)
             results = []
+            exhausted = []
             for path in delivered:
                 if cancel.is_set():
                     break
                 key = str(path)
+                routed_result = None
                 try:
                     intent = build_launch_intent(path)
                     result = route_capture_intent(
@@ -349,6 +367,7 @@ class CaptureWatchRunner(QObject):
                     results.append((path, None, str(exc)))
                     succeeded = False
                 else:
+                    routed_result = result
                     succeeded = result.outcome in _STAGE_SUCCESS_OUTCOMES
                     results.append((path, result, None))
                 if cancel.is_set():
@@ -363,6 +382,30 @@ class CaptureWatchRunner(QObject):
                     # as a candidate, so the next scans re-settle and
                     # re-route it instead of leaving the drop silently lost.
                     job_seen.pop(key, None)
+                else:
+                    # At the cap the marker stays and the file stops
+                    # cycling — the drop is still owed a recovery surface,
+                    # so it is reported for the persistent failure queue
+                    # (#1022). The kept ``seen`` entry is the fingerprint
+                    # of exactly the bytes that failed.
+                    signature = job_seen.get(key)
+                    kind, failure_class, detail = classify_route_failure(
+                        routed_result
+                    )
+                    exhausted.append(
+                        WatchRouteExhaustion(
+                            path=key,
+                            error_kind=kind,
+                            failure_class=failure_class,
+                            detail=detail,
+                            attempts=attempts,
+                            mtime_ns=(
+                                signature[0] if signature else None
+                            ),
+                            size=signature[1] if signature else None,
+                            watch_root=str(root),
+                        )
+                    )
             # A failure count for a vanished file is dead weight — a
             # re-drop lands under a fresh count either way.
             for stale_key in [
@@ -376,6 +419,7 @@ class CaptureWatchRunner(QObject):
                 pending=job_pending,
                 route_failures=job_route_failures,
                 results=results,
+                exhausted=exhausted,
             )
 
         try:
@@ -420,6 +464,8 @@ class CaptureWatchRunner(QObject):
             self._route_failures.update(result.route_failures)
         if result.results:
             self.scan_completed.emit(result.results)
+        if result.exhausted:
+            self.routes_exhausted.emit(result.exhausted)
 
     def _job_finished(self, _key: object, generation: int) -> None:
         if generation != self._job_generation:

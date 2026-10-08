@@ -50,6 +50,13 @@ from .activity_center import (
     OperationTransitionError,
 )
 from .capture_inbox import CaptureInboxRepository
+from .capture_watch_failures import (
+    WATCH_QUEUE_ARRIVAL_SOURCE,
+    CaptureWatchFailureQueue,
+    WatchRetryVerdict,
+    verify_watch_retry,
+    write_watch_failure_diagnostic,
+)
 from .cad_av_sync_repository import CadAVSyncRepository
 from .cad_calibration_repository import CadCalibrationRepository
 from .cad_calibration_wizard import derive_wizard_state
@@ -163,6 +170,8 @@ from .localization import (
 )
 from .native_diagnostics import concise_reason, push_uncaught_sink
 from .native_worker import WORKER_CANCELLED, NativeWorkerPool
+from .launch_intents import build_launch_intent
+from .launch_router import route_capture_intent
 from .navigation_target import (
     NavigationTarget,
     NavigationTargetKind,
@@ -730,6 +739,13 @@ class WorkflowApplicationComposition:
         self._automatic_backup_runner: AutomaticBackupRunner | None = None
         self._storage_watch_runner: StorageWatchRunner | None = None
         self._capture_watch_runner: CaptureWatchRunner | None = None
+        # #1022: bounded manual-reprocess queue for watch drops that
+        # exhausted the runner's retry cap — persisted under the data dir
+        # so a permanently-failed file keeps a recovery surface across
+        # restarts instead of depending on a 15s statusbar line.
+        self._watch_failure_queue = CaptureWatchFailureQueue.for_data_dir(
+            self.data_dir
+        )
         # ApplicationPreferences are app-local truth shared with every
         # integration that reads them — one store per data root (#740).
         self.preferences = preferences or ApplicationPreferenceStore.for_data_dir(
@@ -1284,13 +1300,35 @@ class WorkflowApplicationComposition:
             self._capture_watch_runner.scan_completed.connect(
                 self._on_capture_watch_completed
             )
+            self._capture_watch_runner.routes_exhausted.connect(
+                self._on_capture_watch_exhausted
+            )
         try:
             self._capture_watch_runner.start()
         except EXPECTED_OPERATION_ERRORS:
             _LOGGER.exception('capture watch folder could not start')
 
+    def _submit_capture_watch_op(self, *, title: str) -> str:
+        return self.activity_center.submit(
+            operation_kind='capture_watch_stage',
+            operation_class=OperationClass.DATA_MANAGEMENT,
+            title=title,
+            input_authority_refs=(
+                f'managed-data:{managed_data_fingerprint(self.data_dir)}',
+            ),
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.INBOX),
+        )
+
     def _on_capture_watch_completed(self, results: object) -> None:
-        """One scan batch of routed drops — stage notice, never promotion."""
+        """One scan batch of routed drops — stage notice, never promotion.
+
+        Terminal state is typed-accurate (#1022): an all-staged batch ends
+        COMPLETED, an all-failed batch ends FAILED via ``fail()`` — never
+        a completed row whose result_summary smuggles the error — and a
+        mixed batch splits success/failure into separate operation rows
+        because the activity model has no partial terminal state.
+        """
 
         staged = [
             (path, result)
@@ -1312,41 +1350,107 @@ class WorkflowApplicationComposition:
             or getattr(result, 'outcome', None)
             not in ('staged_for_review', 'already_staged')
         ]
+        # A drop that finally staged closes its failure-queue entry —
+        # resolved evidence, not a lingering failure row.
+        for path, _result in staged:
+            self._watch_failure_queue.resolve(path)
         if not staged and not failed:
             # e.g. only already_staged duplicates — nothing to report.
             return
-        lines = []
-        if staged:
-            lines.append(
-                f'{len(staged)} 件のキャプチャを受信ボックスへステージしました'
-            )
+        staged_summary = (
+            f'{len(staged)} 件のキャプチャを受信ボックスへステージしました'
+        )
+        failed_summary = ''
         if failed:
             names = '、'.join(Path(p).name for p in failed[:3])
-            lines.append(f'{len(failed)} 件は取り込めませんでした（{names}）')
-        summary = ' / '.join(lines)
-        operation_id = self.activity_center.submit(
-            operation_kind='capture_watch_stage',
-            operation_class=OperationClass.DATA_MANAGEMENT,
-            title='キャプチャ監視フォルダー',
-            input_authority_refs=(
-                f'managed-data:{managed_data_fingerprint(self.data_dir)}',
-            ),
-            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
-            deep_link=WorkspaceDeepLink(ApplicationDestinationId.INBOX),
-        )
-        self.activity_center.mark_running(operation_id)
-        self.activity_center.complete(
-            operation_id,
-            result_summary=f'{summary} — 証拠には昇格していません',
-        )
-        if staged:
+            failed_summary = (
+                f'{len(failed)} 件は取り込めませんでした（{names}）'
+            )
+        if staged and not failed:
+            operation_id = self._submit_capture_watch_op(
+                title='キャプチャ監視フォルダー'
+            )
+            self.activity_center.mark_running(operation_id)
+            self.activity_center.complete(
+                operation_id,
+                result_summary=f'{staged_summary} — 証拠には昇格していません',
+            )
             self.shell.statusBar().showMessage(
-                f'{summary} — 受信ボックスで確認', 15000
+                f'{staged_summary} — 受信ボックスで確認', 15000
+            )
+        elif failed and not staged:
+            operation_id = self._submit_capture_watch_op(
+                title='キャプチャ監視フォルダー'
+            )
+            self.activity_center.mark_running(operation_id)
+            self.activity_center.fail(
+                operation_id,
+                error_summary=failed_summary,
+            )
+            self.shell.statusBar().showMessage(
+                f'キャプチャ監視フォルダー: {failed_summary} — '
+                '失敗キューで再処理できます',
+                15000,
             )
         else:
-            self.shell.statusBar().showMessage(
-                f'キャプチャ監視フォルダー: {summary}', 15000
+            # Partial batch: one operation row per outcome so the success
+            # reads completed and the failure reads failed — a single
+            # completed row would lie about the drops that never landed.
+            operation_id = self._submit_capture_watch_op(
+                title='キャプチャ監視フォルダー'
             )
+            self.activity_center.mark_running(operation_id)
+            self.activity_center.complete(
+                operation_id,
+                result_summary=f'{staged_summary} — 証拠には昇格していません',
+            )
+            failed_id = self._submit_capture_watch_op(
+                title='キャプチャ監視フォルダー（失敗）'
+            )
+            self.activity_center.mark_running(failed_id)
+            self.activity_center.fail(
+                failed_id,
+                error_summary=failed_summary,
+            )
+            self.shell.statusBar().showMessage(
+                f'{staged_summary} / {failed_summary} — '
+                '受信ボックスで確認',
+                15000,
+            )
+        self._refresh_inbox_mount()
+
+    def _on_capture_watch_exhausted(self, records: object) -> None:
+        """Drops that hit the route cap — persist them for manual reprocess.
+
+        Emitted after ``scan_completed``: the transient line already said
+        the drops failed; this adds the durable queue entry and a pointer
+        to it. A wedged file keeps its ``_seen`` marker, so without this
+        queue it would have no inbox row and no recovery path at all.
+        """
+
+        count = 0
+        for record in records or ():
+            self._watch_failure_queue.record(
+                path=record.path,
+                error_kind=record.error_kind,
+                failure_class=record.failure_class,
+                detail=record.detail,
+                attempts=record.attempts,
+                mtime_ns=record.mtime_ns,
+                size=record.size,
+                watch_root=record.watch_root,
+            )
+            count += 1
+        if not count:
+            return
+        self.shell.statusBar().showMessage(
+            f'{count} 件を受信ボックスの失敗キューに記録しました — '
+            'そこから再処理できます',
+            15000,
+        )
+        self._refresh_inbox_mount()
+
+    def _refresh_inbox_mount(self) -> None:
         # A mounted inbox page must show the new rows immediately — the
         # same refresh its own on_activate performs.
         mount = self.shell.router.mount(ApplicationDestinationId.INBOX)
@@ -1354,6 +1458,226 @@ class WorkflowApplicationComposition:
         refresh = getattr(page, 'refresh', None)
         if callable(refresh):
             refresh()
+
+    def _current_watch_root(self) -> str | None:
+        """The watch folder currently armed, for the retry epoch check."""
+
+        try:
+            raw = str(
+                self.preferences.get('integrations.capture_watch_dir') or ''
+            ).strip()
+        except EXPECTED_OPERATION_ERRORS:
+            return None
+        return raw or None
+
+    def _verify_watch_failure(self, path: str) -> tuple[object, str]:
+        """Live verdict for one queued drop — the page gates on this."""
+
+        entry = self._watch_failure_queue.get(path)
+        if entry is None:
+            return (
+                WatchRetryVerdict.DELETED,
+                '失敗キューの記録が見つかりません',
+            )
+        return verify_watch_retry(
+            entry, watch_root_now=self._current_watch_root()
+        )
+
+    def _retry_watch_failure(self, path: str) -> None:
+        """「安全に再試行」— verified same-file re-route (#1022).
+
+        Path + fingerprint + watch epoch must all still match what the
+        queue recorded; a replaced/deleted/mid-write file or a
+        reconfigured watch root is refused before the route runs.
+        """
+
+        entry = self._watch_failure_queue.get(path)
+        if entry is None:
+            self.shell.statusBar().showMessage(
+                '失敗キューの記録が見つかりません', 8000
+            )
+            return
+        verdict, reason = verify_watch_retry(
+            entry, watch_root_now=self._current_watch_root()
+        )
+        if verdict is not WatchRetryVerdict.OK:
+            QMessageBox.warning(self.shell, '安全な再試行', reason)
+            return
+        self._route_watch_failure_entry(
+            entry, task_prefix='capture.watch-queue.retry'
+        )
+
+    def _import_watch_failure_file(self, path: str) -> None:
+        """「このファイルを選んで取込」— explicit operator import (#1022).
+
+        Deliberately skips the fingerprint/epoch gates: the operator
+        asserts the file at the recorded path is what they want now, and
+        the route re-validates content itself. Only the file's existence
+        is checked — a missing file has nothing to import.
+        """
+
+        entry = self._watch_failure_queue.get(path)
+        if entry is None:
+            self.shell.statusBar().showMessage(
+                '失敗キューの記録が見つかりません', 8000
+            )
+            return
+        if not Path(entry.path).is_file():
+            QMessageBox.warning(
+                self.shell,
+                'このファイルを選んで取込',
+                'ファイルが見つかりません（削除または移動されました）',
+            )
+            return
+        self._route_watch_failure_entry(
+            entry, task_prefix='capture.watch-queue.import'
+        )
+
+    def _route_watch_failure_entry(
+        self, entry: object, *, task_prefix: str
+    ) -> None:
+        """Worker-thread re-route for one queued drop.
+
+        Ingest + stage can take a while for a large bundle, so the route
+        runs on the bundle pool (same lane as bundle import) — the busy
+        flag also gates close the way it does there. The operation row is
+        RUNNING while the route is in flight; completion lands its real
+        terminal state.
+        """
+
+        if self._bundle_busy:
+            self.shell.statusBar().showMessage(
+                '別のファイル処理が進行中です — 完了後に再試行してください',
+                8000,
+            )
+            return
+        operation_id = self.activity_center.submit(
+            operation_kind='capture_watch_stage',
+            operation_class=OperationClass.DATA_MANAGEMENT,
+            title='キャプチャ失敗キュー再取り込み',
+            input_authority_refs=(
+                f'managed-data:{managed_data_fingerprint(self.data_dir)}',
+            ),
+            navigation_policy=NavigationPolicy.BACKGROUNDABLE,
+            deep_link=WorkspaceDeepLink(ApplicationDestinationId.INBOX),
+        )
+        self.activity_center.mark_running(operation_id)
+        self._begin_bundle_job(
+            f'{entry.basename} を取り込んでいます…'
+        )
+        target = Path(entry.path)
+
+        def job(_cancel: object) -> object:
+            route_result = route_capture_intent(
+                build_launch_intent(target),
+                repository=self.repository,
+                arrival_source=WATCH_QUEUE_ARRIVAL_SOURCE,
+            )
+            return (entry.path, route_result)
+
+        self._bundle_pool.start(
+            f'{task_prefix}.{operation_id}',
+            job,
+            self._bundle_job_completed,
+        )
+
+    def _watch_queue_route_done(
+        self, task_key: str, result: object, error: object
+    ) -> None:
+        """Terminal handling for a failure-queue re-route — UI thread."""
+
+        operation_id = task_key.rsplit('.', 1)[-1]
+        if error == WORKER_CANCELLED:
+            try:
+                self.activity_center.confirm_cancelled(operation_id)
+            except (OperationTransitionError, KeyError):
+                pass
+            self.shell.statusBar().showMessage(
+                'キャプチャの再取り込みを中止しました', 8000
+            )
+            return
+        if isinstance(error, Exception):
+            try:
+                self.activity_center.fail(
+                    operation_id,
+                    error_summary=operation_error_message(error),
+                )
+            except (OperationTransitionError, KeyError):
+                pass
+            warn_user(
+                self.shell, 'キャプチャを再取り込みできませんでした', error
+            )
+            return
+        path, route_result = result
+        outcome = getattr(route_result, 'outcome', None)
+        detail = str(getattr(route_result, 'detail', '') or '')
+        if outcome in ('staged_for_review', 'already_staged'):
+            self._watch_failure_queue.resolve(path)
+            try:
+                self.activity_center.complete(
+                    operation_id,
+                    result_summary=detail
+                    or '受信ボックスへステージしました',
+                )
+            except (OperationTransitionError, KeyError):
+                pass
+            self.shell.statusBar().showMessage(
+                '受信ボックスへステージしました — 証拠には昇格していません',
+                15000,
+            )
+        else:
+            # An honest miss: the entry stays queued with its attempt
+            # count bumped and the route's own reason shown — never
+            # auto-repair, never a fake success.
+            self._watch_failure_queue.record_retry_attempt(path)
+            try:
+                self.activity_center.fail(
+                    operation_id,
+                    error_summary=detail
+                    or '再取り込みできませんでした',
+                )
+            except (OperationTransitionError, KeyError):
+                pass
+            self.shell.statusBar().showMessage(
+                f'再取り込みできませんでした: {detail}' if detail
+                else '再取り込みできませんでした — 失敗キューを確認',
+                15000,
+            )
+        self._refresh_inbox_mount()
+
+    def _diagnose_watch_failure(self, path: str) -> None:
+        """「サポート診断」— a sanitized note under the diagnostics dir.
+
+        Writes basename/fingerprint/reason plus the entry's stable
+        correlation id — never the full path or the raw bundle.
+        """
+
+        entry = self._watch_failure_queue.get(path)
+        if entry is None:
+            self.shell.statusBar().showMessage(
+                '失敗キューの記録が見つかりません', 8000
+            )
+            return
+        try:
+            note_path = write_watch_failure_diagnostic(
+                self.data_dir, entry
+            )
+        except OSError as exc:
+            warn_user(self.shell, 'サポート診断', exc)
+            return
+        _LOGGER.info(
+            'capture watch failure diagnostic note written [diag: %s]',
+            entry.diagnostic_id,
+        )
+        box = QMessageBox(self.shell)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle('サポート診断')
+        box.setText(
+            '診断メモを保存しました '
+            f'[diag: {entry.diagnostic_id}]\n{note_path}\n\n'
+            'サポートへ共有する場合は診断パッケージに含めてください。'
+        )
+        box.exec()
 
     def _shutdown_background_runners(self) -> None:
         for runner in (
@@ -2647,6 +2971,13 @@ class WorkflowApplicationComposition:
                 if self.capture_receiver is not None
                 else None
             ),
+            list_watch_failures=(
+                lambda: self._watch_failure_queue.entries()
+            ),
+            verify_watch_failure=self._verify_watch_failure,
+            retry_watch_failure=self._retry_watch_failure,
+            import_watch_failure=self._import_watch_failure_file,
+            diagnose_watch_failure=self._diagnose_watch_failure,
         )
         return WorkspaceMount.from_widget(
             page,
@@ -5168,6 +5499,9 @@ class WorkflowApplicationComposition:
         ):
             self.shell.statusBar().clearMessage()
         self._bundle_status_message = None
+        if task_key.startswith("capture.watch-queue."):
+            self._watch_queue_route_done(task_key, result, error)
+            return
         if error == WORKER_CANCELLED:
             self.shell.statusBar().showMessage(
                 "プロジェクトバンドル処理を中止しました"
