@@ -234,6 +234,7 @@ from .semantic_geometry import (
     make_semantic_geometry_conversion_request,
 )
 from .geometry_import_dialog import GeometryImportDialog, GeometryImportRequest
+from .cad_geometry_intake import geometry_intake_label
 from .command_palette import flush_focused_text_editor, focused_text_editor
 from .prediction_interpretation import PredictionSpatialLink
 from .room_underlay import (
@@ -4460,6 +4461,235 @@ class RoomWorkspace(QWidget):
         self.right_stack.addWidget(self._acoustics_page)
         if self.current_context == "acoustics":
             self.right_stack.setCurrentWidget(self._acoustics_page)
+
+    # --- geometry intake (#866) ----------------------------------------------
+
+    def bind_geometry_intake(self, controller, panel) -> None:
+        """Wire a GeometryIntakeController + GeometryIntakePanel into the
+        geometry dock page. The controller owns the repository and the
+        sealed decision/derivation chain; the panel only renders and
+        forwards operator intent."""
+        self.geometry_intake_controller = controller
+        self.geometry_intake_panel = panel
+        panel.locateRequested.connect(self._geometry_intake_locate)
+        panel.ifcImportRequested.connect(self._geometry_intake_import_ifc)
+        panel.sceneSubjectRequested.connect(
+            self._geometry_intake_adopt_scene
+        )
+        panel.diagnoseRequested.connect(self._geometry_intake_diagnose)
+        panel.deriveRequested.connect(self._geometry_intake_derive)
+        panel.decisionRequested.connect(self._geometry_intake_decision)
+        panel.solverSelectionChanged.connect(
+            self._geometry_intake_solver_changed
+        )
+        self._sync_geometry_intake_panel()
+
+    def _geometry_intake_solver_options(self):
+        controller = self.geometry_intake_controller
+        options = []
+        for descriptor, manifest in controller.solver_options():
+            options.append((
+                f'{descriptor.adapter_id} '
+                f'v{descriptor.adapter_version} '
+                f'({descriptor.acoustic_domain})',
+                (descriptor, manifest),
+            ))
+        return options
+
+    def _sync_geometry_intake_panel(self) -> None:
+        if getattr(self, '_geometry_intake_syncing', False):
+            return
+        controller = getattr(self, 'geometry_intake_controller', None)
+        panel = getattr(self, 'geometry_intake_panel', None)
+        if controller is None or panel is None:
+            return
+        self._geometry_intake_syncing = True
+        try:
+            panel.set_solver_options(
+                self._geometry_intake_solver_options()
+            )
+            panel.set_report(controller.report)
+            panel.set_proposal(controller.proposal)
+            panel.set_stage(
+                has_subject=controller.subject is not None,
+                derive_enabled=(
+                    controller.acceptance is not None
+                    and controller.revision is None
+                ),
+            )
+            if controller.verdict is not None:
+                evidence = controller.verdict_evidence_state()
+                panel.set_verdict(
+                    controller.verdict, evidence_state=evidence
+                )
+            else:
+                panel.set_verdict(None)
+            total = (
+                len(controller.proposal.actions)
+                if controller.proposal is not None
+                else 0
+            )
+            decided = len(controller.pending_decisions)
+            if total:
+                if controller.acceptance is not None:
+                    progress = (
+                        f'決定 {decided}/{total} — '
+                        '受理レコードを生成済み'
+                    )
+                else:
+                    progress = f'決定 {decided}/{total}'
+                panel.set_decision_progress(progress)
+            elif controller.proposal is not None:
+                panel.set_decision_progress('修復提案はありません')
+            else:
+                panel.set_decision_progress('')
+        finally:
+            self._geometry_intake_syncing = False
+
+    def _geometry_intake_locate(self, targets: object) -> None:
+        ids = [str(target) for target in targets]
+        known = {
+            entity.entity_id for entity in self.controller.document.entities
+        }
+        scene_ids = [entity_id for entity_id in ids if entity_id in known]
+        if scene_ids:
+            self.controller.set_selection_many(scene_ids, additive=False)
+            self._after_selection_changed()
+            self._set_status(f'{len(scene_ids)} 件の対象を選択しました')
+            return
+        # IFC source parts are not scene entities — the honest answer is
+        # "nothing to highlight", not a silent no-op.
+        self._set_status(
+            '対象はシーン内に存在しません (IFC ソース由来の部位です)',
+            error=True,
+        )
+
+    def _geometry_intake_import_ifc(self) -> None:
+        controller = self.geometry_intake_controller
+        path_text, _ = file_dialog_memory.get_open_file_name(
+            self,
+            'IFC ファイルをインポート',
+            'room.import_ifc',
+            'IFC ファイル (*.ifc);;すべてのファイル (*)',
+        )
+        if not path_text:
+            return
+        try:
+            source = Path(path_text).read_bytes()
+            artifact, _subject = controller.import_ifc_source(
+                source, file_name=Path(path_text).name
+            )
+            report, proposal = controller.run_health_check()
+        except (OSError, ValueError) as exc:
+            self._set_operation_error(
+                'IFC の取り込みに失敗しました', exc
+            )
+            return
+        self._sync_geometry_intake_panel()
+        self._set_status(
+            f'IFC「{artifact.file_name}」を取り込みました: '
+            f'欠陥 {len(report.defects)} 件 / '
+            f'修復提案 {len(proposal.actions)} 件'
+        )
+
+    def _geometry_intake_adopt_scene(self) -> None:
+        controller = self.geometry_intake_controller
+        try:
+            subject = controller.adopt_current_subject(
+                read_blob=self.repository.read_blob,
+            )
+            report, proposal = controller.run_health_check()
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                'シーンの取り込みに失敗しました', exc
+            )
+            return
+        self._sync_geometry_intake_panel()
+        self._set_status(
+            f'シーンから {len(subject.parts)} 部位を採用しました: '
+            f'欠陥 {len(report.defects)} 件 / '
+            f'修復提案 {len(proposal.actions)} 件'
+        )
+
+    def _geometry_intake_diagnose(self) -> None:
+        controller = self.geometry_intake_controller
+        try:
+            report, proposal = controller.run_health_check()
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error('診断を実行できませんでした', exc)
+            return
+        self._sync_geometry_intake_panel()
+        self._set_status(
+            f'診断を実行しました: 欠陥 {len(report.defects)} 件 / '
+            f'修復提案 {len(proposal.actions)} 件'
+        )
+
+    def _geometry_intake_decision(
+        self, action_id, decision, params
+    ) -> None:
+        controller = self.geometry_intake_controller
+        try:
+            acceptance = controller.submit_decision(
+                str(action_id),
+                str(decision),
+                accepted_parameters=dict(params or {}),
+            )
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                '決定を記録できませんでした', exc
+            )
+            return
+        self.geometry_intake_panel.mark_decided(str(action_id))
+        self._sync_geometry_intake_panel()
+        if acceptance is not None:
+            self._set_status(
+                'すべての修復提案への決定を記録しました。'
+                '派生リビジョンを生成できます'
+            )
+
+    def _geometry_intake_derive(self) -> None:
+        controller = self.geometry_intake_controller
+        try:
+            revision = controller.derive_revision()
+            verdict = (
+                controller.evaluate_readiness()
+                if controller.solver_descriptor is not None
+                else None
+            )
+        except (ValueError, KeyError) as exc:
+            self._set_operation_error(
+                '派生リビジョンを生成できませんでした', exc
+            )
+            return
+        self._sync_geometry_intake_panel()
+        verdict_note = (
+            f' — 判定: {geometry_intake_label(f"verdict.{verdict.verdict}")}'
+            if verdict is not None
+            else ''
+        )
+        self._set_status(
+            f'派生リビジョン {revision.derived_revision_id} '
+            f'を生成しました{verdict_note}'
+        )
+
+    def _geometry_intake_solver_changed(self, payload: object) -> None:
+        if getattr(self, '_geometry_intake_syncing', False):
+            return
+        controller = self.geometry_intake_controller
+        if payload is None:
+            controller.solver_descriptor = None
+            controller.solver_manifest = None
+            self._sync_geometry_intake_panel()
+            return
+        descriptor, manifest = payload
+        try:
+            controller.select_solver(descriptor, manifest)
+        except ValueError as exc:
+            self._set_operation_error(
+                'ソルバー適合性を評価できませんでした', exc
+            )
+            return
+        self._sync_geometry_intake_panel()
 
     def set_prediction_results(self, results: object) -> None:
         self.prediction_results = results if isinstance(results, tuple) else ()

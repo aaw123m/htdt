@@ -67,12 +67,19 @@ class GeometryIntakePanel(QWidget):
 
     locateRequested = Signal(tuple)
     decisionRequested = Signal(str, str, dict)
+    ifcImportRequested = Signal()
+    sceneSubjectRequested = Signal()
+    diagnoseRequested = Signal()
+    deriveRequested = Signal()
+    solverSelectionChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._report: GeometryIntakeReport | None = None
         self._proposal: GeometryRepairProposal | None = None
         self._verdict: GeometrySolverReadinessVerdict | None = None
+        self._decided_actions: set[str] = set()
+        self._solver_payloads: list[object] = []
         self._build_ui()
 
     # -- layout ---------------------------------------------------------
@@ -80,6 +87,47 @@ class GeometryIntakePanel(QWidget):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
+
+        # --- intake actions --------------------------------------------
+        action_row = QHBoxLayout()
+        self.import_ifc_button = QPushButton(
+            geometry_intake_label('ui.import_ifc')
+        )
+        self.import_ifc_button.clicked.connect(self.ifcImportRequested)
+        action_row.addWidget(self.import_ifc_button)
+        self.adopt_scene_button = QPushButton(
+            geometry_intake_label('ui.adopt_scene')
+        )
+        self.adopt_scene_button.clicked.connect(self.sceneSubjectRequested)
+        action_row.addWidget(self.adopt_scene_button)
+        self.diagnose_button = QPushButton(
+            geometry_intake_label('ui.diagnose')
+        )
+        self.diagnose_button.clicked.connect(self.diagnoseRequested)
+        self.diagnose_button.setEnabled(False)
+        action_row.addWidget(self.diagnose_button)
+        self.derive_button = QPushButton(
+            geometry_intake_label('ui.derive')
+        )
+        self.derive_button.clicked.connect(self.deriveRequested)
+        self.derive_button.setEnabled(False)
+        action_row.addWidget(self.derive_button)
+        action_row.addStretch(1)
+        layout.addLayout(action_row)
+
+        solver_row = QHBoxLayout()
+        solver_row.addWidget(
+            QLabel(geometry_intake_label('ui.solver'))
+        )
+        self.solver_combo = QComboBox()
+        self.solver_combo.currentIndexChanged.connect(
+            self._emit_solver_selection
+        )
+        solver_row.addWidget(self.solver_combo, 1)
+        layout.addLayout(solver_row)
+        self.decision_progress = QLabel('')
+        self.decision_progress.setWordWrap(True)
+        layout.addWidget(self.decision_progress)
 
         self.readiness_label = QLabel(
             geometry_intake_label('section.readiness')
@@ -212,10 +260,67 @@ class GeometryIntakePanel(QWidget):
         )
         self._sync_locate_enabled()
 
+    def set_solver_options(
+        self,
+        options: list[tuple[str, object]],
+    ) -> None:
+        """Populate the target-solver combo: (label, payload) pairs."""
+        self._solver_payloads = [payload for _, payload in options]
+        current = self.solver_combo.currentData()
+        self.solver_combo.blockSignals(True)
+        self.solver_combo.clear()
+        self.solver_combo.addItem('（未選択）', None)
+        selected = 0
+        for index, (label, payload) in enumerate(options, start=1):
+            descriptor = payload[0] if isinstance(payload, tuple) else payload
+            self.solver_combo.addItem(label, index - 1)
+            if current == index - 1 or (
+                self._verdict is not None
+                and getattr(descriptor, 'descriptor_id', None)
+                == self._verdict.adapter_descriptor_ref.ref_id
+            ):
+                selected = index
+        self.solver_combo.setCurrentIndex(selected)
+        self.solver_combo.blockSignals(False)
+        self._emit_solver_selection()
+
+    def current_solver_payload(self) -> object:
+        index = self.solver_combo.currentData()
+        if index is None:
+            return None
+        return self._solver_payloads[index]
+
+    def _emit_solver_selection(self) -> None:
+        self.solverSelectionChanged.emit(self.current_solver_payload())
+
+    def set_decision_progress(self, text: str) -> None:
+        self.decision_progress.setText(text)
+
+    def set_stage(
+        self, *, has_subject: bool, derive_enabled: bool = False
+    ) -> None:
+        """Advance the workflow affordances to the chain's position."""
+        self.diagnose_button.setEnabled(has_subject)
+        self.derive_button.setEnabled(derive_enabled)
+
+    def mark_decided(self, action_id: str) -> None:
+        """Disable the accept/reject controls for a decided action."""
+        self._decided_actions.add(action_id)
+        if self._proposal is None:
+            return
+        for row, action in enumerate(self._proposal.actions):
+            if action.action_id != action_id:
+                continue
+            for column in (4, 5):
+                widget = self.proposal_table.cellWidget(row, column)
+                if widget is not None:
+                    widget.setEnabled(False)
+
     def set_proposal(
         self, proposal: GeometryRepairProposal | None
     ) -> None:
         self._proposal = proposal
+        self._decided_actions.clear()
         self.proposal_table.setRowCount(0)
         if proposal is None:
             return
@@ -244,6 +349,9 @@ class GeometryIntakePanel(QWidget):
             )
             accept = QPushButton(geometry_intake_label('ui.accept'))
             reject = QPushButton(geometry_intake_label('ui.reject'))
+            if action.action_id in self._decided_actions:
+                accept.setEnabled(False)
+                reject.setEnabled(False)
             accept.clicked.connect(
                 lambda _=False, aid=action.action_id, r=row:
                 self._request_decision(aid, 'accepted', r)
@@ -256,14 +364,22 @@ class GeometryIntakePanel(QWidget):
             self.proposal_table.setCellWidget(row, 5, reject)
 
     def set_verdict(
-        self, verdict: GeometrySolverReadinessVerdict | None
+        self,
+        verdict: GeometrySolverReadinessVerdict | None,
+        *,
+        evidence_state: str | None = None,
     ) -> None:
         self._verdict = verdict
         if verdict is None:
             self.verdict_value.setText('—')
             self.readiness_reasons.setText('')
             return
-        self.verdict_value.setText(_verdict_label(verdict.verdict))
+        verdict_text = _verdict_label(verdict.verdict)
+        if evidence_state is not None and evidence_state != 'current':
+            verdict_text += (
+                f'（{geometry_intake_label(f"evidence.{evidence_state}")}）'
+            )
+        self.verdict_value.setText(verdict_text)
         lines: list[str] = []
         for reason in verdict.blocking_reasons:
             lines.append(f'[阻止] {reason.text}')

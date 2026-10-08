@@ -427,6 +427,14 @@ _LAZY_IMPORTS = {
     'RoomViewport3D': ('.room_viewport', 'RoomViewport3D'),
     'RoomWorkspace': ('.room_workspace', 'RoomWorkspace'),
     'SelectionInspector': ('.room_workspace', 'SelectionInspector'),
+    'GeometryIntakePanel': (
+        '.geometry_intake_panel',
+        'GeometryIntakePanel',
+    ),
+    'GeometryIntakeController': (
+        '.geometry_intake_controller',
+        'GeometryIntakeController',
+    ),
 }
 
 
@@ -3649,7 +3657,37 @@ class WorkflowApplicationComposition:
         geometry_input = _self.RoomGeometryInputController(workspace, workspace.viewport)
         workspace.attach_geometry_input(geometry_input)
         geometry_panel = _self.RoomGeometryPanel(geometry_input)
-        workspace.attach_geometry_panel(geometry_panel)
+        # REV44: the persisted solver-stack lane — provider reads and the
+        # management dialog both re-verify through it against the shared
+        # content-addressed authority store under the data dir. Created
+        # here because the #866 intake chain shares its dispatch
+        # repository (same authority resolvers as production dispatch).
+        prediction_lane = _self.PredictionAuthorityLane(self.repository)
+        # #866 REV70: the intake panel mounts on the same geometry dock
+        # page — the controller owns the sealed intake chain + decision
+        # persistence; the panel only renders it.
+        intake_controller = _self.GeometryIntakeController(
+            self.repository,
+            self.document_id,
+            dispatch_repository=prediction_lane.dispatch_repository,
+        )
+        intake_panel = _self.GeometryIntakePanel()
+        geometry_dock = QWidget()
+        dock_layout = QVBoxLayout(geometry_dock)
+        dock_layout.setContentsMargins(0, 0, 0, 0)
+        dock_layout.addWidget(geometry_panel)
+        dock_layout.addWidget(intake_panel)
+        dock_layout.addStretch(1)
+
+        def _refresh_geometry_dock() -> None:
+            refresh = getattr(geometry_panel, 'refresh', None)
+            if callable(refresh):
+                refresh()
+            workspace._sync_geometry_intake_panel()
+
+        geometry_dock.refresh = _refresh_geometry_dock  # type: ignore[attr-defined]
+        workspace.attach_geometry_panel(geometry_dock)
+        workspace.bind_geometry_intake(intake_controller, intake_panel)
         bind_length_policy_widget(geometry_panel, preferences)
         bind_length_policy_widget(workspace.video_panel, preferences)
         transform_input = _self.RoomEntityTransformController(workspace, workspace.viewport)
@@ -3660,10 +3698,6 @@ class WorkflowApplicationComposition:
         workspace.optimizeRequested.connect(
             lambda: self.shell.navigate(WorkspaceId.OPTIMIZATION)
         )
-        # REV44: the persisted solver-stack lane — provider reads and the
-        # management dialog both re-verify through it against the shared
-        # content-addressed authority store under the data dir.
-        prediction_lane = _self.PredictionAuthorityLane(self.repository)
         prediction = _self.RoomPredictionController(
             self.repository,
             workspace.controller,

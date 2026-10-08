@@ -2841,6 +2841,495 @@ def defect_locate_targets(defect: GeometryDefect) -> tuple[str, ...]:
     return tuple(targets)
 
 
+# ---------------------------------------------------------------------------
+# IFC source intake (#866): real file -> subject ingestion producing
+# artifact/mapping-pinned ``source_refs`` instead of fixture-built subjects.
+# ---------------------------------------------------------------------------
+
+IFC_INTAKE_IMPORTER_ID = 'htdt.ifc_step_intake'
+
+_IFC_LENGTH_UNITS: dict[str, str] = {
+    'metre': 'meters',
+    'meter': 'meters',
+    'millimetre': 'millimeters',
+    'millimeter': 'millimeters',
+    'centimetre': 'centimeters',
+    'centimeter': 'centimeters',
+    'inch': 'inches',
+    'foot': 'feet',
+    'feet': 'feet',
+}
+
+
+def _ifc_unit_declared(coordinate: Any) -> bool:
+    return (
+        coordinate.length_unit_state == 'declared'
+        and coordinate.length_scale_to_meter is not None
+    )
+
+
+def _ifc_import_authority(
+    coordinate: Any,
+    importer_version: str,
+) -> MeshImportAuthority:
+    """Map the resolved IFC coordinate authority onto mesh import authority.
+
+    A declared IFC unit still maps to ``custom`` when its unit name is not a
+    shape HTDT models directly (e.g. decimetre); the exact scale is then the
+    authoritative interpretation. Undeclared/ambiguous units stay
+    ``undeclared`` — the coordinate anomaly defect carries the story.
+    """
+    unit_name = (coordinate.length_unit_name or '').strip().lower()
+    source_unit = _IFC_LENGTH_UNITS.get(unit_name)
+    declared = _ifc_unit_declared(coordinate)
+    custom = declared and source_unit is None
+    unit_known = declared and source_unit is not None
+    return MeshImportAuthority(
+        source_unit='custom' if custom else (source_unit or 'unknown'),
+        unit_declared_by=(
+            'format_specification' if (unit_known or custom) else 'undeclared'
+        ),
+        custom_scale_to_meters=(
+            coordinate.length_scale_to_meter if custom else None
+        ),
+        source_up_axis='z+' if (unit_known or custom) else 'unknown',
+        source_forward_axis='y+' if (unit_known or custom) else 'unknown',
+        handedness='right' if (unit_known or custom) else 'unknown',
+        convention_declared_by=(
+            'format_specification' if (unit_known or custom) else 'undeclared'
+        ),
+        local_anchor='source_origin',
+        importer_id=IFC_INTAKE_IMPORTER_ID,
+        importer_version=importer_version,
+    )
+
+
+def _ifc_apply_transform(
+    matrix: Sequence[float],
+    point: tuple[float, float, float],
+    source_scale_to_meters: float,
+) -> tuple[float, float, float]:
+    """Source-unit local point -> world meters via ``world_transform_m``.
+
+    ``world_transform_m`` is rigid rotation + translation expressed in
+    meters (the importer rescales only the translation), so the local
+    point is rescaled to meters before the matrix is applied.
+    """
+    x = point[0] * source_scale_to_meters
+    y = point[1] * source_scale_to_meters
+    z = point[2] * source_scale_to_meters
+    return (
+        matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3],
+        matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7],
+        matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11],
+    )
+
+
+def _ifc_direction_basis(
+    direction: tuple[float, float, float],
+) -> tuple[
+    tuple[float, float, float],
+    tuple[float, float, float],
+    tuple[float, float, float],
+] | None:
+    """Orthonormal (u, v, w) basis with w along ``direction``."""
+    dx, dy, dz = direction
+    length = sqrt(dx * dx + dy * dy + dz * dz)
+    if not isfinite(length) or length <= 1.0e-12:
+        return None
+    w = (dx / length, dy / length, dz / length)
+    # Any axis sufficiently non-parallel seeds u; prefer global Z.
+    seed = (0.0, 0.0, 1.0)
+    if abs(w[2]) > 0.9:
+        seed = (1.0, 0.0, 0.0)
+    u = (
+        seed[1] * w[2] - seed[2] * w[1],
+        seed[2] * w[0] - seed[0] * w[2],
+        seed[0] * w[1] - seed[1] * w[0],
+    )
+    ul = sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2])
+    if ul <= 1.0e-12:
+        return None
+    u = (u[0] / ul, u[1] / ul, u[2] / ul)
+    v = (
+        w[1] * u[2] - w[2] * u[1],
+        w[2] * u[0] - w[0] * u[2],
+        w[0] * u[1] - w[1] * u[0],
+    )
+    return u, v, w
+
+
+def _ifc_extruded_mesh(
+    profile_points: Sequence[tuple[float, float]],
+    direction: tuple[float, float, float] | None,
+    depth: float | None,
+) -> tuple[
+    list[tuple[float, float, float]], list[tuple[int, int, int]]
+] | None:
+    """Mesh an ``extruded_area_solid`` descriptor in local source units."""
+    if depth is None or not isfinite(depth) or depth <= 0.0:
+        return None
+    axis = direction if direction is not None else (0.0, 0.0, 1.0)
+    basis = _ifc_direction_basis(axis)
+    if basis is None:
+        return None
+    vertices, triangles = _prism_vertices_triangles(
+        tuple(profile_points), depth
+    )
+    u, v, w = basis
+    if w != (0.0, 0.0, 1.0):
+        vertices = [
+            (
+                u[0] * vx + v[0] * vy + w[0] * vz,
+                u[1] * vx + v[1] * vy + w[1] * vz,
+                u[2] * vx + v[2] * vy + w[2] * vz,
+            )
+            for vx, vy, vz in vertices
+        ]
+    return vertices, triangles
+
+
+def _ifc_box_mesh(
+    bounds_min: Sequence[float],
+    bounds_max: Sequence[float],
+) -> tuple[
+    list[tuple[float, float, float]], list[tuple[int, int, int]]
+] | None:
+    """Mesh a ``bounding_box`` descriptor as a corner-anchored box."""
+    size = tuple(bounds_max[i] - bounds_min[i] for i in range(3))
+    if any(not isfinite(d) or d <= 0.0 for d in size):
+        return None
+    vertices, triangles = _box_vertices_triangles(
+        (size[0], size[1], size[2])
+    )
+    vertices = [
+        (vx + bounds_min[0], vy + bounds_min[1], vz + bounds_min[2])
+        for vx, vy, vz in vertices
+    ]
+    return vertices, triangles
+
+
+def _ifc_descriptor_mesh(
+    descriptor: Any,
+) -> tuple[
+    list[tuple[float, float, float]] | None,
+    list[tuple[int, int, int]] | None,
+]:
+    """Return local source-unit (vertices, triangles) or ``(None, None)``.
+
+    ``faceted_brep`` descriptors only carry vertex evidence — face topology
+    is absent, so the mapping degrades to a stub rather than pretending the
+    point cloud is a boundary mesh.
+    """
+    kind = getattr(descriptor, 'kind', None)
+    if kind == 'extruded_area_solid':
+        mesh = _ifc_extruded_mesh(
+            descriptor.profile_points,
+            getattr(descriptor, 'extrusion_direction', None),
+            getattr(descriptor, 'depth_source_units', None),
+        )
+        if mesh is None:
+            return None, None
+        return mesh[0], mesh[1]
+    if kind == 'bounding_box':
+        mesh = _ifc_box_mesh(
+            descriptor.bounds_min, descriptor.bounds_max
+        )
+        if mesh is None:
+            return None, None
+        return mesh[0], mesh[1]
+    return None, None
+
+
+def _ifc_descriptor_area_m2(descriptor: Any, scale: float) -> float | None:
+    """Opening-area proxy for a void element's descriptor (meters²)."""
+    kind = getattr(descriptor, 'kind', None)
+    if kind == 'extruded_area_solid' and descriptor.profile_points:
+        area = 0.0
+        pts = list(descriptor.profile_points)
+        for i, (x0, y0) in enumerate(pts):
+            x1, y1 = pts[(i + 1) % len(pts)]
+            area += x0 * y1 - x1 * y0
+        return abs(area) * 0.5 * scale * scale
+    if kind == 'bounding_box':
+        dx = descriptor.bounds_max[0] - descriptor.bounds_min[0]
+        dy = descriptor.bounds_max[1] - descriptor.bounds_min[1]
+        dz = descriptor.bounds_max[2] - descriptor.bounds_min[2]
+        if dx <= 0.0 or dy <= 0.0 or dz <= 0.0:
+            return None
+        # The opening face is the largest plane — honest approximation of
+        # a wall-hosted void whose orientation is unresolvable.
+        largest = max(dx * dy, dx * dz, dy * dz)
+        return largest * scale * scale
+    if kind == 'faceted_brep' and len(descriptor.vertices) >= 3:
+        pts = list(descriptor.vertices)
+        ax, ay, az = 0.0, 0.0, 0.0
+        for i, (x0, y0, z0) in enumerate(pts):
+            x1, y1, z1 = pts[(i + 1) % len(pts)]
+            ax += (y0 - y1) * (z0 + z1)
+            ay += (z0 - z1) * (x0 + x1)
+            az += (x0 - x1) * (y0 + y1)
+        return 0.5 * sqrt(ax * ax + ay * ay + az * az) * scale * scale
+    return None
+
+
+def _ifc_opening_area_m2(void_mapping: Any, coordinate: Any) -> float | None:
+    scale = coordinate.length_scale_to_meter
+    if scale is None or scale <= 0.0:
+        return None
+    for descriptor in void_mapping.geometry_descriptors:
+        area = _ifc_descriptor_area_m2(descriptor, scale)
+        if area is not None and isfinite(area) and area > 0.0:
+            return area
+    return None
+
+
+def _ifc_owner_ref(mapping: Any) -> str:
+    return mapping.ifc_global_id or f'#{mapping.step_entity_id}'
+
+
+def build_ifc_intake_subject(
+    document_id: str,
+    artifact: Any,
+    mappings: Sequence[Any],
+) -> GeometryIntakeSubject:
+    """SOURCE_GEOMETRY: intake subject from a persisted IFC import artifact.
+
+    Translates resolved IFC entity mappings into world-meter intake parts:
+    ``extruded_area_solid`` descriptors become prism meshes,
+    ``bounding_box`` descriptors become box meshes, and anything
+    unresolvable (faceted breps, withheld transforms, entities without
+    descriptors) degrades to a fail-closed :class:`IntakePartStub` so the
+    coverage count stays honest. Every part pins its
+    ``ifc_entity_mapping`` record as ``source_asset_ref`` and the subject
+    pins the ``ifc_import_artifact`` in ``source_refs``.
+
+    Host ``openings`` links become declared :class:`IntakeOpening` records
+    when the void element's area is computable; void elements never become
+    parts themselves (they are boundary gaps, not surfaces), while their
+    filling elements (doors/windows) surface as ordinary object parts.
+    """
+    coordinate = artifact.coordinate
+    authority = _ifc_import_authority(
+        coordinate, artifact.importer_version
+    )
+    declared = _ifc_unit_declared(coordinate)
+    if declared:
+        unit_state: IntakeUnitState = 'declared'
+        unit_details = (
+            f'ifc length unit declared ({coordinate.length_unit_name or "?"}; '
+            f'{coordinate.length_scale_to_meter:g} m per source unit)'
+        )
+    else:
+        unit_state = 'undeclared'
+        unit_details = (
+            f'ifc length_unit_state={coordinate.length_unit_state}: '
+            'transforms withheld; geometries resolved as stubs'
+        )
+
+    by_global_id = {
+        mapping.ifc_global_id: mapping
+        for mapping in mappings
+        if mapping.ifc_global_id
+    }
+    consumed_void_ids: set[str] = set()
+
+    parts: list[IntakeMeshPart] = []
+    stubs: list[IntakePartStub] = []
+    openings: list[IntakeOpening] = []
+    part_ids: set[str] = set()
+
+    def _consume_host_openings(
+        mapping: Any, part_id: str, *, host_resolved: bool
+    ) -> None:
+        """Turn a host's openings links into IntakeOpenings or honest stubs.
+
+        When the host itself could not be resolved, its linked voids still
+        surface as stubs (never silently dropped, never claimed as portals
+        against a boundary that does not exist in the subject).
+        """
+        for link in mapping.openings:
+            void = by_global_id.get(link.opening_global_id)
+            if void is None:
+                continue
+            consumed_void_ids.add(void.mapping_id)
+            if not host_resolved:
+                stubs.append(
+                    IntakePartStub(
+                        part_id=f'ifc:{void.step_entity_id}',
+                        owner_kind='entity_body',
+                        owner_ref=_ifc_owner_ref(void),
+                        role='object_surface',
+                        unavailability_reason=(
+                            'host boundary unresolvable; '
+                            'portal cannot be declared'
+                        ),
+                    )
+                )
+                continue
+            area_m2 = _ifc_opening_area_m2(void, coordinate)
+            if area_m2 is None:
+                stubs.append(
+                    IntakePartStub(
+                        part_id=f'ifc:{void.step_entity_id}',
+                        owner_kind='entity_body',
+                        owner_ref=_ifc_owner_ref(void),
+                        role='object_surface',
+                        unavailability_reason=(
+                            'opening void geometry unmeasurable; '
+                            'portal area cannot be declared'
+                        ),
+                    )
+                )
+                continue
+            openings.append(
+                IntakeOpening(
+                    opening_id=link.opening_global_id,
+                    host_part_id=part_id,
+                    host_wall_id=_ifc_owner_ref(mapping),
+                    kind=link.filling_type or 'opening',
+                    area_m2=area_m2,
+                    is_open=link.filling_global_id is None,
+                    resolution='unresolved',
+                )
+            )
+
+    for mapping in mappings:
+        if mapping.ifc_type == 'IFCOPENINGELEMENT':
+            continue  # void — consumed via the host's openings links
+        part_id = f'ifc:{mapping.step_entity_id}'
+        owner_kind: IntakePartKind = (
+            'room_boundary'
+            if mapping.htdt_role in ('room_candidate', 'boundary')
+            else 'entity_body'
+        )
+        role: IntakePartRole = (
+            'room_boundary' if owner_kind == 'room_boundary' else 'object_surface'
+        )
+        part_ids.add(part_id)
+        material_labels = [
+            layer.material_name
+            for layer in mapping.material_layers
+            if layer.material_name
+        ]
+        material_state: IntakeMaterialState = (
+            'assigned' if material_labels else 'unassigned'
+        )
+        if mapping.world_transform_m is None:
+            stubs.append(
+                IntakePartStub(
+                    part_id=part_id,
+                    owner_kind=owner_kind,
+                    owner_ref=_ifc_owner_ref(mapping),
+                    role=role,
+                    unavailability_reason=(
+                        'ifc placement transform withheld '
+                        f'({coordinate.length_unit_state} units or '
+                        'unresolved placement chain)'
+                    ),
+                )
+            )
+            _consume_host_openings(mapping, part_id, host_resolved=False)
+            continue
+        descriptor_mesh: tuple[
+            list[tuple[float, float, float]] | None,
+            list[tuple[int, int, int]] | None,
+        ] = (None, None)
+        for descriptor in mapping.geometry_descriptors:
+            descriptor_mesh = _ifc_descriptor_mesh(descriptor)
+            if descriptor_mesh[0] is not None:
+                break
+        vertices, triangles = descriptor_mesh
+        if vertices is None or triangles is None:
+            descriptor_note = (
+                'no resolvable geometry descriptors'
+                if not mapping.geometry_descriptors
+                else 'descriptors present but none meshable '
+                '(faceted brep / degenerate bounds)'
+            )
+            stubs.append(
+                IntakePartStub(
+                    part_id=part_id,
+                    owner_kind=owner_kind,
+                    owner_ref=_ifc_owner_ref(mapping),
+                    role=role,
+                    unavailability_reason=descriptor_note,
+                )
+            )
+            _consume_host_openings(mapping, part_id, host_resolved=False)
+            continue
+        world_vertices = [
+            _ifc_apply_transform(
+                mapping.world_transform_m,
+                vertex,
+                coordinate.length_scale_to_meter,
+            )
+            for vertex in vertices
+        ]
+        mesh = _mesh_via_meshbin(
+            world_vertices,
+            triangles,
+            source_name=f'{artifact.file_name}#{mapping.step_entity_id}',
+        )
+        parts.append(
+            IntakeMeshPart(
+                part_id=part_id,
+                owner_kind=owner_kind,
+                owner_ref=_ifc_owner_ref(mapping),
+                role=role,
+                mesh=mesh,
+                material_state=material_state,
+                material_label=(
+                    ', '.join(material_labels) if material_labels else None
+                ),
+                import_authority=authority,
+                source_asset_ref=AuthorityRef(
+                    kind='ifc_entity_mapping',
+                    ref_id=mapping.mapping_id,
+                    ref_sha256=mapping.mapping_sha256,
+                ),
+            )
+        )
+        _consume_host_openings(mapping, part_id, host_resolved=True)
+
+    # Orphaned voids: referenced by no host — still surfaced as stubs so the
+    # file content is never silently dropped.
+    for mapping in mappings:
+        if (
+            mapping.ifc_type == 'IFCOPENINGELEMENT'
+            and mapping.mapping_id not in consumed_void_ids
+        ):
+            stubs.append(
+                IntakePartStub(
+                    part_id=f'ifc:{mapping.step_entity_id}',
+                    owner_kind='entity_body',
+                    owner_ref=_ifc_owner_ref(mapping),
+                    role='object_surface',
+                    unavailability_reason=(
+                        'opening element with no host boundary; '
+                        'portal cannot be declared'
+                    ),
+                )
+            )
+
+    return GeometryIntakeSubject.create(
+        document_id=document_id,
+        source_kind='ifc_import',
+        source_refs=(
+            AuthorityRef(
+                kind='ifc_import_artifact',
+                ref_id=artifact.artifact_id,
+                ref_sha256=artifact.artifact_sha256,
+            ),
+        ),
+        parts=parts,
+        unresolved_parts=stubs,
+        openings=openings,
+        unit_state=unit_state,
+        unit_details=unit_details,
+    )
+
+
 GEOMETRY_INTAKE_LABELS: dict[str, str] = {
     # defect kinds
     'defect.open_boundary_edges': '境界が開いた辺',
@@ -2901,6 +3390,9 @@ GEOMETRY_INTAKE_LABELS: dict[str, str] = {
     'ui.reject': '却下',
     'ui.diagnose': '診断を実行',
     'ui.derive': '派生リビジョンを生成',
+    'ui.import_ifc': 'IFC を取り込む',
+    'ui.adopt_scene': '現在のシーンを採用',
+    'ui.solver': '対象ソルバー',
 }
 
 
@@ -2931,6 +3423,7 @@ __all__ = [
     'GeometryRepairProposal',
     'GeometrySolverExecutionBlockedError',
     'GeometrySolverReadinessVerdict',
+    'IFC_INTAKE_IMPORTER_ID',
     'IntakeMeshPart',
     'IntakeOpening',
     'IntakePartStub',
@@ -2942,6 +3435,7 @@ __all__ = [
     'SolverReadinessState',
     'assert_geometry_solver_execution_permitted',
     'build_geometry_intake_subject',
+    'build_ifc_intake_subject',
     'defect_locate_targets',
     'derive_geometry_revision',
     'derive_solver_geometry_context',

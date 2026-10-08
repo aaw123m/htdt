@@ -39,8 +39,24 @@ downstream record deterministically (see Invalidation).
   `CadGeometryIntakeRepository` over five `_SealedStore` tables.
 - `backend/src/htdt/geometry_intake_panel.py` — `GeometryIntakePanel`
   (Qt widget): defect list split by origin, locate affordance,
-  repair accept/reject with operator parameters, readiness panel.
+  repair accept/reject with operator parameters, readiness panel,
+  solver selector, IFC/scene source actions (REV70).
+- `backend/src/htdt/geometry_intake_controller.py` —
+  `GeometryIntakeController` (REV70): owns the live chain state and
+  persistence — file -> import artifact -> subject -> report ->
+  proposal -> per-action decisions -> acceptance -> derived revision
+  -> readiness verdict — plus solver binding and verdict evidence
+  state for staleness display.
+- `backend/src/htdt/room_workspace.py` — `bind_geometry_intake`
+  mounts the panel against the controller inside the Room workspace
+  shell; `locateRequested` maps to scene-entity selection (IFC-only
+  parts surface an honest "not in scene" status); failures surface
+  through `_set_operation_error`.
 - `backend/tests/test_issue_866_geometry_intake.py` — 47 tests.
+- `backend/tests/test_rev70_ifc_intake.py` — REV70 IFC source intake
+  + panel wiring tests (real STEP parsing, transform/unit authority,
+  honest stub degradation, controller chain persistence, panel
+  signals).
 - Schema: `NATIVE_SCHEMA_VERSION = 97` (`_migrate_96_to_97`, DDL +
   `NATIVE_SCHEMA_TABLES`, `_ROW_BINDINGS`, `_ReplayProbe` +
   `_RepositoryChain` 'geometry_intake' in `native_authority_audit`).
@@ -157,8 +173,9 @@ owning controller's job — the panel only emits signals.
 - VTK highlight rendering of located entities inside the 3D workspace
   (the signal contract is headless-tested; pixel-level verification
   needs a real GPU surface — Mesa/VTK on this box can crash).
-- IFC/GLB source-asset ingestion producing real `source_refs` —
-  fixtures construct subjects directly or from `SceneDocument`.
-- Wiring the panel into the Room workspace shell (controller owns the
-  repository + decision persistence; this slice ships the panel and
-  the authority chain it drives).
+- GLB source-asset ingestion — REV70 lands IFC via
+  `build_ifc_intake_subject` over the sealed
+  `ifc_import_artifact`/`ifc_entity_mapping` refs; GLB still has no
+  real importer path.
+- Operator acceptance of the mounted panel in a live session
+  (real-file picks, decision pacing, verdict staleness display).
