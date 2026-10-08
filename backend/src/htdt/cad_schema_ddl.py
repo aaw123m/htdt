@@ -8871,6 +8871,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_srrec_session ON session_recovery_reconciliations(session_id, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_ux_acceptance_bundle_records ( seq INTEGER PRIMARY KEY AUTOINCREMENT, bundle_id TEXT NOT NULL UNIQUE, bundle_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, matrix_id TEXT NOT NULL, row_id TEXT NOT NULL, run_attempt INTEGER NOT NULL, scenario TEXT NOT NULL, scale_factor TEXT NOT NULL, capture_mode TEXT NOT NULL, verdict TEXT NOT NULL, review_state TEXT NOT NULL, checkpoints_total INTEGER NOT NULL, checkpoints_finding INTEGER NOT NULL, manifest_sha256 TEXT, bundle_ref TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uab_doc ON cad_ux_acceptance_bundle_records(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_uab_row ON cad_ux_acceptance_bundle_records(matrix_id, row_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10027,4 +10039,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_assisted_instruction_manifests',
     'cad_assisted_deployment_attestations',
     'cad_apo_install_records',
+    # REV68: #880 owned-Windows UX acceptance evidence bundles.
+    'cad_ux_acceptance_bundle_records',
 )

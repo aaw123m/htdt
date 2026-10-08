@@ -8757,6 +8757,29 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV68: #880 owned-Windows UX acceptance evidence bundles.
+    'cad_ux_acceptance_bundle_records': (
+        'payload_json',
+        (
+            _b('bundle_id', 'bundle_id'),
+            _b('bundle_sha256', 'bundle_sha256'),
+            _b('document_id', 'document_id'),
+            _b('matrix_id', 'matrix_id'),
+            _b('row_id', 'row_id'),
+            _b('run_attempt', 'run_attempt'),
+            _b('scenario', 'scenario'),
+            _b('scale_factor', 'scale_factor'),
+            _b('capture_mode', 'capture_mode'),
+            _b('verdict', 'verdict'),
+            _b('review_state', 'review_state'),
+            _b('checkpoints_total', 'checkpoints_total'),
+            _b('checkpoints_finding', 'checkpoints_finding'),
+            _b('manifest_sha256', 'manifest_sha256', optional=True),
+            _b('bundle_ref', 'bundle_ref'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
     # #790 playback-electronics / electrical audio-path authority.
     'cad_electronic_audio_path_profiles': (
         'payload_json',

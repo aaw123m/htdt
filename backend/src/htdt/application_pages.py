@@ -858,6 +858,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_assisted_instruction_manifests": "支援付き手順マニフェスト",
     "cad_assisted_deployment_attestations": "支援付きデプロイ証明",
     "cad_apo_install_records": "APOインストール記録",
+    "cad_ux_acceptance_bundle_records": "UX受入証跡バンドル",
     "cad_realtime_measurement_sessions": "ライブ測定セッション",
     "cad_live_spectrum_observations": "ライブスペクトル観測",
     "cad_spl_time_histories": "SPL時系列履歴",

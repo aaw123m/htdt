@@ -1408,6 +1408,12 @@ class _RepositoryChain:
             )
 
             return CadDeploymentPipelineRepository(scene)
+        if name == 'ux_acceptance_evidence':
+            from .cad_ux_acceptance_evidence_repository import (
+                CadUxAcceptanceEvidenceRepository,
+            )
+
+            return CadUxAcceptanceEvidenceRepository(scene)
         if name == 'playback_electronics':
             from .cad_playback_electronics_repository import (
                 CadPlaybackElectronicsRepository,
@@ -7186,6 +7192,13 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_apo_install_records',
         ('record_id',),
         _get('deployment_pipeline', 'get_apo_install'),
+    ),
+    # REV68: #880 owned-Windows UX acceptance evidence bundles.
+    _ReplayProbe(
+        'ux_acceptance_bundle',
+        'cad_ux_acceptance_bundle_records',
+        ('bundle_id',),
+        _get('ux_acceptance_evidence', 'get_bundle'),
     ),
     # #790 playback-electronics / electrical audio-path authority.
     _ReplayProbe(
