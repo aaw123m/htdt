@@ -9215,6 +9215,18 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_rtr_fixture ON cad_reference_theater_runs(fixture_version, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_decision_briefs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, brief_id TEXT NOT NULL UNIQUE, brief_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, scene_revision_id TEXT NOT NULL, baseline_ref_id TEXT NOT NULL, top_tier TEXT NOT NULL, action_count INTEGER NOT NULL, ready_count INTEGER NOT NULL, created_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dbrf_doc ON cad_decision_briefs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_dbrf_revision ON cad_decision_briefs(scene_revision_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -10411,4 +10423,6 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_interop_corpus_runs',
     # REV70: #891 Reference Theater self-test fixture authority.
     'cad_reference_theater_runs',
+    # REV70: #937 Decision Brief — sealed next-action recommendation authority.
+    'cad_decision_briefs',
 )

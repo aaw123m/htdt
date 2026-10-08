@@ -937,6 +937,7 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_update_authorizations": "アップデート操作承認",
     "cad_update_outcomes": "アップデート結果",
     "cad_reference_theater_runs": "リファレンスシアター検証",
+    "cad_decision_briefs": "決定ブリーフ",
 }
 
 

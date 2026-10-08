@@ -1570,6 +1570,12 @@ class _RepositoryChain:
             )
 
             return CadReferenceTheaterRepository(scene)
+        if name == 'decision_brief':
+            from .cad_decision_brief_repository import (
+                CadDecisionBriefRepository,
+            )
+
+            return CadDecisionBriefRepository(scene)
         raise KeyError(name)
 
 
@@ -7742,6 +7748,14 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_reference_theater_runs',
         ('run_id',),
         _get('reference_theater', 'get_run'),
+    ),
+    # REV70: #937 Decision Brief — sealed next-action recommendations
+    # (gate verdict pins live in payload).
+    _ReplayProbe(
+        'decision_brief',
+        'cad_decision_briefs',
+        ('brief_id',),
+        _get('decision_brief', 'get_brief'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

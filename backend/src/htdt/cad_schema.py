@@ -20,7 +20,7 @@ from .clock import utc_now_iso as _utc_now
 _LOGGER = logging.getLogger('htdt.native')
 
 
-NATIVE_SCHEMA_VERSION = 112
+NATIVE_SCHEMA_VERSION = 113
 
 _METADATA_TABLE = 'native_schema_metadata'
 _MIGRATION_TABLE = 'native_schema_migrations'
@@ -2172,6 +2172,13 @@ def _migrate_111_to_112(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_112_to_113(connection: sqlite3.Connection) -> None:
+    # REV70: #937 Decision Brief authority — sealed next-action
+    # recommendation records the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,
@@ -2285,6 +2292,7 @@ _MIGRATIONS = {
     110: _migrate_109_to_110,
     111: _migrate_110_to_111,
     112: _migrate_111_to_112,
+    113: _migrate_112_to_113,
 }
 
 

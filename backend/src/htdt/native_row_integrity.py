@@ -10268,6 +10268,22 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV70: #937 Decision Brief — sealed next-action recommendations.
+    'cad_decision_briefs': (
+        'payload_json',
+        (
+            _b('brief_id', 'brief_id'),
+            _b('brief_sha256', 'brief_sha256'),
+            _b('document_id', 'document_id'),
+            _b('scene_revision_id', 'scene_revision_id'),
+            _b('baseline_ref_id', 'baseline_ref', 'ref_id'),
+            _b('top_tier', 'top_tier'),
+            _b('action_count', 'action_count'),
+            _b('ready_count', 'ready_count'),
+            _b('created_at_utc', 'created_at_utc'),
+        ),
+        (),
+    ),
 }
 
 

@@ -26,6 +26,7 @@ from .cad_repository import SceneRepository
 from .cad_scene import F1_DOCUMENT_ID
 from .cad_search import search_spec_current_working
 from .comparison_context_strip import ComparisonContextStrip
+from .decision_brief_panel import DecisionBriefPanel
 from .developer_mode import developer_mode_enabled
 from .intervention_planner import InterventionPlanner
 from .intervention_planner_panel import InterventionPlannerPanel
@@ -1314,6 +1315,15 @@ class OptimizationWorkflowWorkspace(QWidget):
 
         layout.addWidget(metrics_card)
         layout.addWidget(pareto_card, 1)
+
+        # REV70: #937 Decision Brief — sealed next-action surface the
+        # operator lands on after a comparison run.
+        self.decision_brief_panel = DecisionBriefPanel(
+            self.system_expansion.scene_repository,
+            self.system_expansion.document_id,
+            on_status=self._set_status,
+        )
+        layout.addWidget(self.decision_brief_panel)
         return _scroll_page(body)
 
     def _build_robustness_page(self, viewport_widget: QWidget) -> QWidget:
