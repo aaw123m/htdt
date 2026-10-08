@@ -48,6 +48,7 @@ from htdt.cad_diagnostic_hypothesis_repository import (
 from htdt.cad_diagnostic_orchestrator import (
     DiagnosticEvent,
     DiagnosticObservationRecord,
+    DiagnosticOperatorAuthorization,
     DiagnosticOrchestrationError,
     DiagnosticOrchestrator,
     DiagnosticRejection,
@@ -576,6 +577,51 @@ class TestSafetyPolicy:
                 arming=_arming,
                 authorization=auth,
             )
+
+    def test_expired_authorization_is_rejected(self, repos) -> None:
+        orch = _orchestrator(repos)
+        session, _e, _c, _h = _open(orch)
+        plan = DiagnosticTestPlan.create(
+            document_id=DOC,
+            session_ref=session_binding(session),
+            template_id='manual-mutation',
+            plan_seq=0,
+            mechanism='sweep_acquisition',
+            safety_class='device_mutation',
+            test_label='設定変更',
+            action_label='apply change',
+            discriminates=('device_not_deployed',),
+            authorization_class='operator_authorization',
+            config={'channels': ('fl',)},
+            created_at_utc=NOW,
+        )
+        orch._repository.save_test_plan(plan)
+        # Valid at mint (expiry after authorized_at) but long expired by
+        # execution time — the one-shot authorization must not unblock
+        # a device mutation past its declared lifetime.
+        auth = DiagnosticOperatorAuthorization.create(
+            document_id=DOC,
+            session_ref=session_binding(session),
+            plan_ref=plan_binding(plan),
+            operator_id='operator-1',
+            authorized_at_utc='2026-10-07T00:00:00Z',
+            expires_at_utc='2026-10-07T00:00:01Z',
+        )
+        orch._emit(session, DiagnosticEvent(
+            kind='test_selected',
+            at_utc=NOW,
+            reason='manual mutation plan selected',
+            evidence_refs=(plan_binding(plan),),
+        ))
+        with pytest.raises(DiagnosticSafetyError, match='authorization'):
+            orch.execute_plan(
+                session, plan,
+                backend=FakeAudioBackend(default_fake_scenario()),
+                routings={'fl': _routing(0)},
+                arming=_arming,
+                authorization=auth,
+            )
+        assert orch.session_state(session).blocked_reason is not None
 
 
 # ---------------------------------------------------------------------------

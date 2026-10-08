@@ -2828,12 +2828,16 @@ class DiagnosticOrchestrator:
             }
             if (authorization is None
                     or authorization.plan_ref != plan_binding(plan)
-                    or authorization.authorization_id in consumed_ids):
+                    or authorization.authorization_id in consumed_ids
+                    or (authorization.expires_at_utc is not None
+                        and authorization.expires_at_utc
+                        < self._clock())):
                 self._emit(session, DiagnosticEvent(
                     kind='test_executed',
                     at_utc=self._clock(),
                     reason='device mutation requires an unused, '
-                           'plan-bound operator authorization',
+                           'unexpired, plan-bound operator '
+                           'authorization',
                     succeeded=False,
                 ))
                 raise DiagnosticSafetyError(
