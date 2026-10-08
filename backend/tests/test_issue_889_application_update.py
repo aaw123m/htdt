@@ -119,9 +119,9 @@ def _package_kwargs(**overrides):
         provenance='release-manifest',
         artifacts=_artifacts(),
         signature=_signature('unsigned'),
-        target_native_schema_version=108,
+        target_native_schema_version=NATIVE_SCHEMA_VERSION,
         schema_floor=100,
-        schema_ceiling=108,
+        schema_ceiling=NATIVE_SCHEMA_VERSION,
         migration_reversibility='reversible',
         supported_platforms=('windows', 'linux'),
         runtime_floor='3.10',
@@ -161,7 +161,7 @@ def _env(tmp_path: Path):
     (install_root / 'version.json').write_text(
         json.dumps({
             'version': '1.0.0',
-            'target_native_schema_version': 108,
+            'target_native_schema_version': NATIVE_SCHEMA_VERSION,
         }),
         encoding='utf-8')
     (install_root / 'app.bin').write_bytes(b'old-application-bytes')
@@ -174,7 +174,7 @@ def _env(tmp_path: Path):
 
 
 def _healthy(
-    *, version: str = '1.1.0', schema: int = 108,
+    *, version: str = '1.1.0', schema: int = NATIVE_SCHEMA_VERSION,
     warn: str | None = None, unknown: str | None = None,
 ) -> HealthObservation:
     checks = [
@@ -233,7 +233,7 @@ def _unhealthy(reason: str = 'swap broke launch') -> HealthObservation:
                 code='version_stamp_match', reason='observed 1.1.0'),
         ),
         observed_version='1.1.0',
-        observed_native_schema=108,
+        observed_native_schema=NATIVE_SCHEMA_VERSION,
     )
 
 
@@ -282,7 +282,7 @@ def _open(
         data_dir=str(data_dir),
         update_area=str(update_area),
         app_version_before='1.0.0',
-        native_schema_before=108,
+        native_schema_before=NATIVE_SCHEMA_VERSION,
         operator_id='operator-1',
     )
     session_kwargs.update(session_over or {})
@@ -405,7 +405,8 @@ def test_session_record_seal(repos):
         document_id=DOC,
         package_ref=package_binding(package),
         install_root='/i', data_dir='/d', update_area='/u',
-        app_version_before='1.0.0', native_schema_before=108,
+        app_version_before='1.0.0',
+        native_schema_before=NATIVE_SCHEMA_VERSION,
         opened_by='op', opened_at_utc=NOW,
         authority_version=APPLICATION_UPDATE_SCHEMA_VERSION)
     assert session.session_id.startswith('upd-')
@@ -436,8 +437,9 @@ def test_preflight_report_rejects_inconsistent_verdict(repos, tmp_path):
             irreversible_migration_disclosed=False,
             environment=UpdateEnvironmentSnapshot(
                 os_name='windows', runtime_version='3.12',
-                app_version='1.0.0', app_native_schema_version=108,
-                data_dir_schema_version=108),
+                app_version='1.0.0',
+                app_native_schema_version=NATIVE_SCHEMA_VERSION,
+                data_dir_schema_version=NATIVE_SCHEMA_VERSION),
             environment_sha256='' * 64,
             probe_is_simulated=True,
             evaluated_at_utc=NOW,
@@ -488,7 +490,7 @@ def test_outcome_record_invariants(repos, tmp_path):
         captured_items=(UpdateCapturedItem(
             item_kind='install_file', relative_path='install/app.bin',
             sha256='00' * 32, size_bytes=1, bytes_captured=True),),
-        schema_version_before=108,
+        schema_version_before=NATIVE_SCHEMA_VERSION,
         data_backup_kind='manifest_only',
         migration_boundary='none',
         rollback_scope_capable='binary_only',
@@ -541,7 +543,7 @@ def test_restore_point_scope_invariants(repos, tmp_path):
         manifest_sha256='cd' * 32,
         install_tree_sha256='ef' * 32,
         captured_items=(item,),
-        schema_version_before=108,
+        schema_version_before=NATIVE_SCHEMA_VERSION,
         driver_is_simulated=True,
         captured_at_utc=NOW)
     with pytest.raises(ValidationError):
@@ -739,7 +741,8 @@ def test_preflight_eligible_with_warnings():
      'adapter_api_below_floor'),
     ({}, dict(channel='preview'), 'channel_not_opted_in'),
     ({}, dict(target_native_schema_version=90), 'schema_downgrade'),
-    (dict(app_native_schema_version=110, data_dir_schema_version=108),
+    (dict(app_native_schema_version=NATIVE_SCHEMA_VERSION + 1,
+          data_dir_schema_version=NATIVE_SCHEMA_VERSION),
      {}, 'unapplied_migrations_pending'),
 ])
 def test_preflight_incompatible_paths(facts_over, pkg_over, code):
@@ -776,7 +779,7 @@ def test_preflight_signature_gates():
     (dict(adapter_api_level=None), {}),
     (dict(os_name='unknown'), {}),
     ({}, dict(migration_reversibility='unknown',
-              target_native_schema_version=109)),
+              target_native_schema_version=NATIVE_SCHEMA_VERSION + 1)),
     ({}, dict(supported_platforms=())),
     ({}, dict(runtime_floor=None)),
     ({}, dict(signature=_signature('unverifiable'))),
@@ -793,7 +796,7 @@ def test_preflight_unverifiable_paths(facts_over, pkg_over):
 def test_preflight_forward_only_migration_disclosed():
     evaluation = evaluate_preflight(
         _descriptor(
-            target_native_schema_version=109,
+            target_native_schema_version=NATIVE_SCHEMA_VERSION + 1,
             migration_reversibility='forward_only'),
         _facts(),
         signature_policy='allow_unsigned',
@@ -1012,7 +1015,7 @@ def test_forward_only_requires_explicit_ack(repos, tmp_path):
     session, package, report = _drive_to_preflight(
         service, tmp_path,
         package_over=dict(
-            target_native_schema_version=109,
+            target_native_schema_version=NATIVE_SCHEMA_VERSION + 1,
             migration_reversibility='forward_only'))
     assert report.irreversible_migration_disclosed
     with pytest.raises(UpdateAuthorizationError):
@@ -1109,7 +1112,7 @@ def test_forward_only_boundary_caps_scope(repos, tmp_path):
     session, package, report = _drive_to_preflight(
         service, tmp_path,
         package_over=dict(
-            target_native_schema_version=109,
+            target_native_schema_version=NATIVE_SCHEMA_VERSION + 1,
             migration_reversibility='forward_only'),
         session_over=dict(data_backup_kind='full'))
     service.authorize(
@@ -1470,7 +1473,7 @@ def test_repository_idempotent_resave_and_conflict(repos, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_schema_v108_creates_update_tables(tmp_path):
+def test_schema_v109_creates_update_tables(tmp_path):
     db = tmp_path / 'cad.sqlite3'
     ensure_native_schema(db)
     with closing(connect_sqlite(db)) as connection:
@@ -1478,7 +1481,7 @@ def test_schema_v108_creates_update_tables(tmp_path):
             row['name']
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'")}
-    assert NATIVE_SCHEMA_VERSION == 108
+    assert NATIVE_SCHEMA_VERSION == 109
     for table in (
         'cad_update_packages', 'cad_update_sessions',
         'cad_update_transitions', 'cad_update_preflight_reports',
