@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Iterable, Literal
 
-from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtCore import QDate, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -61,7 +62,18 @@ from .project_lifecycle import (
     ProjectTombstone,
 )
 from .native_diagnostics import diagnostics_dir
-from .ui_theme import TypographyRole, set_typography_role
+from .support_diagnostics import (
+    HealthCategory,
+    HealthCheckResult,
+    HealthReport,
+    HealthStatus,
+)
+from .ui_theme import (
+    SemanticState,
+    TypographyRole,
+    set_semantic_state,
+    set_typography_role,
+)
 from .user_facing_error import operation_error_message, warn_user
 from .workflow_navigation import WorkspaceDeepLink, WorkspaceId
 from .workflow_shell import TargetFocusResult
@@ -4552,8 +4564,182 @@ class ReferenceLibraryPage(QWidget):
         )
 
 
+#: JA labels for the health-check categories — order is the canonical
+#: display order: store health first, semantic integrity second, optional
+#: integrations last (their failures are honest but local, never global).
+_HEALTH_CATEGORY_LABELS: dict[HealthCategory, str] = {
+    HealthCategory.APP_STORAGE: "アプリ・プロジェクトの保存データ",
+    HealthCategory.SEMANTIC_INTEGRITY: "データの意味整合性",
+    HealthCategory.INTEGRATIONS: "外部連携（任意）",
+}
+
+_HEALTH_STATUS_LABELS: dict[HealthStatus, str] = {
+    HealthStatus.PASS: "正常",
+    HealthStatus.ATTENTION: "注意",
+    HealthStatus.FAIL: "失敗",
+    HealthStatus.UNKNOWN: "不明",
+    HealthStatus.NOT_APPLICABLE: "対象外",
+}
+
+_HEALTH_STATUS_SEMANTIC: dict[HealthStatus, SemanticState | None] = {
+    HealthStatus.PASS: SemanticState.SUCCESS,
+    HealthStatus.ATTENTION: SemanticState.WARNING,
+    HealthStatus.FAIL: SemanticState.ERROR,
+    HealthStatus.UNKNOWN: SemanticState.STALE,
+    HealthStatus.NOT_APPLICABLE: None,
+}
+
+#: JA display names per check_id. An id absent here renders verbatim —
+#: the surface never invents a friendlier name for a check it did not
+#: predict (same honesty rule as the lifecycle table labels above).
+_HEALTH_CHECK_LABELS: dict[str, str] = {
+    "storage.database_openable": "プロジェクトDBのオープン",
+    "storage.sqlite_quick_check": "SQLite構造チェック",
+    "storage.schema_compatibility": "スキーマ互換性",
+    "storage.data_dir_lock": "データフォルダーのロック",
+    "storage.disk_space": "ディスク空き容量",
+    "storage.assets_root": "管理アセットの保存先",
+    "integrity.semantic": "権威グラフの意味監査",
+    "integrations.rew_api": "REW API連携",
+    "integrations.capture_receiver": "キャプチャ受信",
+    "integrations.vtk": "3D表示スタック（VTK）",
+}
+
+#: Per-check next-step guidance (原因別の対処へ誘導). Every entry pairs
+#: actionable JA wording with an *existing* surface key — the page only
+#: ever points at surfaces it can actually open (data management with the
+#: backup/restore preview, the read-only authority inspector, settings
+#: tabs, the activity log, the diagnostics package export). Checks are
+#: read-only: nothing here auto-repairs, and repair-adjacent wording
+#: always routes through the restore preview rather than a blind write.
+_HEALTH_GUIDANCE: dict[str, tuple[str, str]] = {
+    "storage.database_openable": (
+        "プロジェクトDBを開けません。データ管理の「バックアップから復元」"
+        "（復元前プレビュー付き）で直近のバックアップを検査・復元して"
+        "ください。自動修復は行いません。",
+        "data_management",
+    ),
+    "storage.sqlite_quick_check": (
+        "SQLiteの構造チェックで問題が検出されました。データ管理で直近の"
+        "バックアップを検査し、必要なら隔離復元（#992）を行ってください。",
+        "data_management",
+    ),
+    "storage.schema_compatibility": (
+        "このDBは別バージョンのHTDTで書かれています。データ管理のバック"
+        "アップ復元で作成時のデータに戻すか、そのデータを作成したビルド"
+        "で開いてください。",
+        "data_management",
+    ),
+    "storage.data_dir_lock": (
+        "データフォルダーが別プロセスにロックされています。アクティビティ"
+        "で実行中の操作を確認し、他のHTDTインスタンスを終了してから再診断"
+        "してください。",
+        "activity",
+    ),
+    "storage.disk_space": (
+        "空き容量が不足しています。データ管理で保持データの整理を行うか、"
+        "ドライブの空き容量を確保してから再診断してください。",
+        "data_management",
+    ),
+    "storage.assets_root": (
+        "管理アセットの保存先にアクセスできません。データフォルダーの"
+        "権限を確認してください。",
+        "data_management",
+    ),
+    "integrity.semantic": (
+        "データの意味整合性に問題が見つかりました。権威グラフで破損箇所を"
+        "確認し、データ管理のバックアップ復元（復元前プレビュー）を検討"
+        "してください。自動修復は行いません。",
+        "authority",
+    ),
+    "integrations.rew_api": (
+        "REW連携は任意です。測定取り込みを使う場合はREWを起動し、環境"
+        "設定の接続先（ホスト・ポート）を確認してください。",
+        "preferences",
+    ),
+    "integrations.capture_receiver": (
+        "キャプチャ受信を使う場合は、設定の「キャプチャ」タブで受信状態と"
+        "起動エラーを確認してください。",
+        "capture_settings",
+    ),
+    "integrations.vtk": (
+        "3D表示機能が利用できません。再インストールまたはGPUドライバーの"
+        "更新を検討してください。再現する場合は診断パッケージをサポートへ"
+        "共有してください。",
+        "export",
+    ),
+}
+
+#: Category-level fallback guidance for check ids the map does not know
+#: (e.g. a dynamically named probe) — never claim a specific cause the
+#: check did not report.
+_HEALTH_GUIDANCE_BY_CATEGORY: dict[HealthCategory, tuple[str, str]] = {
+    HealthCategory.APP_STORAGE: (
+        "保存データの問題です。データ管理のバックアップ復元（復元前"
+        "プレビュー）を検討してください。",
+        "data_management",
+    ),
+    HealthCategory.SEMANTIC_INTEGRITY: (
+        "データの意味整合性の問題です。権威グラフで詳細を確認して"
+        "ください。",
+        "authority",
+    ),
+    HealthCategory.INTEGRATIONS: (
+        "外部連携の問題です（アプリやプロジェクトDBの障害ではありません）。"
+        "設定で接続先を確認してください。",
+        "preferences",
+    ),
+}
+
+_HEALTH_GUIDANCE_STATUS_FALLBACK: dict[HealthStatus, str] = {
+    HealthStatus.UNKNOWN: "状態を判定できませんでした。しばらくしてから再診断してください。",
+}
+
+#: Button labels for the surface keys used by ``_HEALTH_GUIDANCE``.
+_HEALTH_ACTION_LABELS: dict[str, str] = {
+    "data_management": "データ管理を開く",
+    "preferences": "環境設定を開く",
+    "capture_settings": "キャプチャ設定を開く",
+    "authority": "権威グラフを開く",
+    "activity": "アクティビティを開く",
+    "export": "診断パッケージをエクスポート",
+}
+
+
+def health_check_guidance(
+    result: HealthCheckResult,
+) -> tuple[str, str | None] | None:
+    """(JA guidance, surface action key) for a non-passing check.
+
+    ``None`` for PASS/NOT_APPLICABLE — a healthy or inapplicable check
+    needs no next step. The action key names an existing Support surface
+    the caller can open; it is never a repair promise.
+    """
+
+    if result.status in (HealthStatus.PASS, HealthStatus.NOT_APPLICABLE):
+        return None
+    guidance = _HEALTH_GUIDANCE.get(result.check_id)
+    if guidance is not None:
+        return guidance
+    fallback = _HEALTH_GUIDANCE_BY_CATEGORY.get(result.category)
+    if fallback is not None:
+        return fallback
+    unknown = _HEALTH_GUIDANCE_STATUS_FALLBACK.get(result.status)
+    if unknown is not None:
+        return (unknown, None)
+    return None
+
+
 class SupportPage(QWidget):
-    """Support: diagnostics locations, version, and package export (#604)."""
+    """Support: diagnostics locations, version, and package export (#604).
+
+    #1018 adds the read-only health-check lane: ``health_runner`` (a
+    ``SupportHealthRunner``) executes ``run_health_checks`` off the UI
+    thread and this page itemizes its per-category findings with
+    reason-specific next-step guidance. The stored report is re-rendered
+    on ``refresh`` rather than silently re-run — a re-shown report always
+    keeps its own execution timestamp.
+    """
 
     def __init__(
         self,
@@ -4564,15 +4750,37 @@ class SupportPage(QWidget):
         open_solver_diagnostics: Callable[[QWidget], None] | None = None,
         open_applicability_envelope: Callable[[QWidget], None] | None = None,
         open_credential_vault: Callable[[QWidget], None] | None = None,
+        health_runner: object | None = None,
+        open_data_management: Callable[[QWidget], None] | None = None,
+        open_preferences: Callable[[QWidget], None] | None = None,
+        open_capture_settings: Callable[[QWidget], None] | None = None,
+        open_activity: Callable[[QWidget], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._data_dir = data_dir
         self._status_provider = status_provider
         self._export_diagnostics = export_diagnostics
         self._open_authority_graph = open_authority_graph
         self._open_solver_diagnostics = open_solver_diagnostics
         self._open_applicability_envelope = open_applicability_envelope
         self._open_credential_vault = open_credential_vault
+        self._health_runner = health_runner
+        self._health_actions: dict[str, Callable[[QWidget], None]] = {}
+        if open_data_management is not None:
+            self._health_actions["data_management"] = open_data_management
+        if open_preferences is not None:
+            self._health_actions["preferences"] = open_preferences
+        if open_capture_settings is not None:
+            self._health_actions["capture_settings"] = open_capture_settings
+        if open_activity is not None:
+            self._health_actions["activity"] = open_activity
+        if open_authority_graph is not None:
+            self._health_actions["authority"] = open_authority_graph
+        if export_diagnostics is not None:
+            self._health_actions["export"] = lambda _w: self._run_export()
+        self._health_report: HealthReport | None = None
+        self._health_report_data_dir: Path | None = None
         layout = _page_layout(
             self,
             "サポート",
@@ -4661,8 +4869,272 @@ class SupportPage(QWidget):
         else:
             self.export_button = None
             self.export_status = None
+        self._build_health_section(layout)
         layout.addStretch(1)
         self.refresh()
+
+    # -- read-only health check (#1018) ------------------------------------
+
+    def _build_health_section(self, layout: QVBoxLayout) -> None:
+        """Build the 状態診断 lane; all widgets are None without a runner."""
+        if self._health_runner is None:
+            self.health_button = None
+            self.health_cancel_button = None
+            self.health_status = None
+            self.health_results = None
+            return
+        heading = QLabel("アプリとプロジェクトの状態診断", self)
+        set_typography_role(heading, TypographyRole.SECTION_TITLE)
+        layout.addWidget(heading)
+        note = QLabel(
+            "保存データ・意味整合性・外部連携を読み取り専用で検査します。"
+            "プロジェクトの内容は変更されません。外部連携の不具合は"
+            "アプリ全体の障害とは別に扱います。"
+        )
+        note.setWordWrap(True)
+        set_typography_role(note, TypographyRole.SECONDARY)
+        layout.addWidget(note)
+        buttons = QHBoxLayout()
+        self.health_button = QPushButton(
+            "アプリとプロジェクトの状態を診断", self
+        )
+        self.health_button.setToolTip(
+            "プロジェクトの内容を変更せずに各項目の健全性を検査します"
+        )
+        self.health_button.setWhatsThis(
+            "読み取り専用の状態診断を実行します。検査中も操作を続けられます。"
+        )
+        self.health_button.setObjectName("supportRunHealthCheck")
+        self.health_button.setAccessibleName("アプリとプロジェクトの状態を診断")
+        self.health_button.clicked.connect(self._run_health_check)
+        buttons.addWidget(self.health_button)
+        self.health_cancel_button = QPushButton("中止", self)
+        self.health_cancel_button.setObjectName("supportHealthCheckCancel")
+        self.health_cancel_button.setAccessibleName("状態診断を中止")
+        self.health_cancel_button.setToolTip("実行中の診断を中止します")
+        self.health_cancel_button.setWhatsThis("実行中の診断を中止します")
+        self.health_cancel_button.setVisible(False)
+        self.health_cancel_button.clicked.connect(self._cancel_health_check)
+        buttons.addWidget(self.health_cancel_button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+        self.health_status = QLabel(self)
+        self.health_status.setObjectName("supportHealthStatus")
+        self.health_status.setWordWrap(True)
+        self.health_status.setAccessibleName("状態診断の状態")
+        layout.addWidget(self.health_status)
+        self.health_results = QScrollArea(self)
+        self.health_results.setObjectName("supportHealthResults")
+        self.health_results.setWidgetResizable(True)
+        self.health_results.setFrameShape(QFrame.Shape.StyledPanel)
+        self.health_results.setMinimumHeight(160)
+        self.health_results.setAccessibleName("状態診断の結果一覧")
+        self._health_results_body = QWidget(self.health_results)
+        self._health_results_layout = QVBoxLayout(self._health_results_body)
+        self._health_results_layout.setContentsMargins(8, 8, 8, 8)
+        self._health_results_layout.setSpacing(6)
+        self.health_results.setWidget(self._health_results_body)
+        self.health_results.setVisible(False)
+        layout.addWidget(self.health_results, 1)
+        self.health_status.setText("まだ診断は実行されていません。")
+        runner = self._health_runner
+        if isinstance(runner, QObject):
+            # Page owns the runner's lifetime; closeEvent -> shutdown()
+            # is the explicit drain, reparenting is the last-resort
+            # cleanup if the page is deleted without a close.
+            runner.setParent(self)
+        runner.check_started.connect(self._on_health_started)
+        runner.report_ready.connect(self._on_health_report)
+        runner.run_failed.connect(self._on_health_failed)
+        runner.run_cancelled.connect(self._on_health_cancelled)
+        runner.run_finished.connect(self._on_health_finished)
+
+    def _run_health_check(self) -> None:
+        if self._health_runner is None:
+            return
+        self.health_button.setEnabled(False)
+        if not self._health_runner.start():
+            self.health_button.setEnabled(True)
+
+    def _cancel_health_check(self) -> None:
+        if self._health_runner is not None:
+            self._health_runner.request_cancel()
+
+    def _on_health_started(self) -> None:
+        if self.health_status is None:
+            return
+        self.health_status.setText("状態を診断しています…")
+        self.health_button.setEnabled(False)
+        self.health_cancel_button.setVisible(True)
+        self.health_cancel_button.setEnabled(True)
+
+    def _on_health_finished(self) -> None:
+        if self.health_status is None:
+            return
+        self.health_button.setEnabled(True)
+        self.health_cancel_button.setVisible(False)
+        self.health_cancel_button.setEnabled(False)
+
+    def _on_health_cancelled(self) -> None:
+        if self.health_status is not None:
+            self.health_status.setText("診断を中止しました。")
+
+    def _on_health_failed(self, error: object) -> None:
+        if self.health_status is not None:
+            self.health_status.setText(
+                f"診断を完了できませんでした: {operation_error_message(error)}"
+            )
+
+    def _on_health_report(self, report: object) -> None:
+        if not isinstance(report, HealthReport):
+            return
+        self._health_report = report
+        self._health_report_data_dir = getattr(
+            self._health_runner, 'data_dir', self._data_dir
+        )
+        self._render_health_report()
+
+    def _render_health_report(self) -> None:
+        """Itemize the stored report per category with honest statuses."""
+        report = self._health_report
+        if report is None or self.health_results is None:
+            return
+        results_layout = self._health_results_layout
+        while results_layout.count():
+            item = results_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        overall = report.overall
+        overall_label = (
+            f"総合判定: {_HEALTH_STATUS_LABELS.get(overall, str(overall))}"
+        )
+        summary_text = (
+            f"{overall_label} · 最終実行: {report.checked_at} · "
+            f"対象: {self._health_report_data_dir or self._data_dir}"
+        )
+        fingerprint = getattr(self._health_runner, 'last_fingerprint', None)
+        if fingerprint:
+            summary_text += f" · データ状態: {str(fingerprint)[:12]}"
+        self.health_status.setText(summary_text)
+        set_semantic_state(
+            self.health_status, _HEALTH_STATUS_SEMANTIC.get(overall)
+        )
+        for category in (
+            HealthCategory.APP_STORAGE,
+            HealthCategory.SEMANTIC_INTEGRITY,
+            HealthCategory.INTEGRATIONS,
+        ):
+            results = report.by_category(category)
+            if not results:
+                continue
+            worst = self._category_status(results)
+            header = QLabel(
+                f"{_HEALTH_CATEGORY_LABELS[category]}"
+                f" — {_HEALTH_STATUS_LABELS[worst]}",
+                self._health_results_body,
+            )
+            set_typography_role(header, TypographyRole.SECTION_TITLE)
+            set_semantic_state(
+                header, _HEALTH_STATUS_SEMANTIC.get(worst)
+            )
+            header.setWordWrap(True)
+            results_layout.addWidget(header)
+            if category is HealthCategory.INTEGRATIONS:
+                honesty = QLabel(
+                    "外部連携の不具合はアプリやプロジェクトDBの障害では"
+                    "ありません（任意機能の状態です）。",
+                    self._health_results_body,
+                )
+                honesty.setWordWrap(True)
+                set_typography_role(honesty, TypographyRole.SECONDARY)
+                results_layout.addWidget(honesty)
+            for result in results:
+                results_layout.addWidget(self._health_result_row(result))
+        results_layout.addStretch(1)
+        self.health_results.setVisible(True)
+
+    @staticmethod
+    def _category_status(results: tuple[HealthCheckResult, ...]) -> HealthStatus:
+        """Category rollup: FAIL > ATTENTION > UNKNOWN > PASS > N/A."""
+        statuses = {r.status for r in results}
+        for status in (
+            HealthStatus.FAIL,
+            HealthStatus.ATTENTION,
+            HealthStatus.UNKNOWN,
+            HealthStatus.PASS,
+        ):
+            if status in statuses:
+                return status
+        return HealthStatus.NOT_APPLICABLE
+
+    def _health_result_row(self, result: HealthCheckResult) -> QWidget:
+        row = QWidget(self._health_results_body)
+        row_layout = QVBoxLayout(row)
+        row_layout.setContentsMargins(12, 0, 0, 4)
+        row_layout.setSpacing(2)
+        status_text = _HEALTH_STATUS_LABELS.get(result.status, result.status)
+        name = _HEALTH_CHECK_LABELS.get(result.check_id, result.check_id)
+        title = QLabel(f"{name} — {status_text}", row)
+        title.setWordWrap(True)
+        title.setAccessibleName(f"{name}: {status_text}")
+        set_semantic_state(
+            title, _HEALTH_STATUS_SEMANTIC.get(result.status)
+        )
+        row_layout.addWidget(title)
+        summary = QLabel(result.summary, row)
+        summary.setWordWrap(True)
+        summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        row_layout.addWidget(summary)
+        if result.detail:
+            detail = QLabel(result.detail, row)
+            detail.setWordWrap(True)
+            detail.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            set_typography_role(detail, TypographyRole.SECONDARY)
+            row_layout.addWidget(detail)
+        guidance = health_check_guidance(result)
+        if guidance is not None:
+            guidance_text, action_key = guidance
+            action_row = QWidget(row)
+            action_layout = QHBoxLayout(action_row)
+            action_layout.setContentsMargins(0, 0, 0, 0)
+            action_layout.setSpacing(8)
+            guidance_label = QLabel(guidance_text, action_row)
+            guidance_label.setWordWrap(True)
+            set_typography_role(guidance_label, TypographyRole.SECONDARY)
+            action_layout.addWidget(guidance_label, 1)
+            action = (
+                self._health_actions.get(action_key)
+                if action_key is not None
+                else None
+            )
+            if action is not None:
+                action_button = QPushButton(
+                    _HEALTH_ACTION_LABELS[action_key], action_row
+                )
+                action_button.setObjectName(
+                    f"supportHealthAction-{action_key}"
+                )
+                action_button.setAccessibleName(
+                    _HEALTH_ACTION_LABELS[action_key]
+                )
+                action_button.clicked.connect(
+                    lambda _checked=False, fn=action: fn(self)
+                )
+                action_layout.addWidget(
+                    action_button, 0, Qt.AlignmentFlag.AlignTop
+                )
+            row_layout.addWidget(action_row)
+        return row
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        if self._health_runner is not None:
+            self._health_runner.shutdown()
+        super().closeEvent(event)
 
     def _run_export(self) -> None:
         try:
@@ -4678,6 +5150,11 @@ class SupportPage(QWidget):
 
     def refresh(self) -> None:
         """Re-render live status lines (e.g. effective receiver state)."""
+        # Re-use semantics: an already-produced report is re-rendered
+        # verbatim (with its own timestamp) — refresh never re-runs the
+        # check behind the user's back.
+        if self._health_report is not None and self.health_results is not None:
+            self._render_health_report()
         for label in self._status_labels:
             self._status_layout.removeWidget(label)
             label.deleteLater()

@@ -223,9 +223,14 @@ from .system_expansion_workflow import SystemExpansionWorkflowService
 from .support_diagnostics import (
     DiagnosticPackageBuilder,
     PackageCategory,
+    capture_receiver_probe,
     package_filename,
+    rew_api_probe,
     run_health_checks,
+    semantic_integrity_check,
+    vtk_probe,
 )
+from .support_health_runner import SupportHealthRunner
 from .workflow_help import GlossaryDialog, HelpDialog
 from .first_run_wizard import FirstRunWizardDialog
 from .first_run_wizard_state import (
@@ -3257,7 +3262,55 @@ class WorkflowApplicationComposition:
             ),
         )
 
+    def _support_health_job_factory(self):
+        """Freeze a health-check worker job from UI-thread snapshots (#1018).
+
+        Called on the UI thread inside ``SupportHealthRunner.start`` —
+        preferences and the live receiver object are read here, never on
+        the worker thread. Everything the job closes over is an immutable
+        snapshot taken at dispatch time.
+        """
+        data_dir = self.data_dir
+        rew_url = self.preferences.rew_api_base_url()
+        receiver = self.capture_receiver
+        if receiver is None:
+            receiver_state = {'enabled': False}
+        else:
+            receiver_state = {
+                'enabled': True,
+                'running': bool(receiver.running),
+                'requested_enabled': bool(receiver.requested_enabled),
+                'last_error': receiver.last_error,
+            }
+
+        def job(cancel_event) -> object:
+            return run_health_checks(
+                data_dir,
+                integrity_runner=lambda path: semantic_integrity_check(
+                    path, is_cancelled=cancel_event.is_set
+                ),
+                integration_probes=(
+                    rew_api_probe(rew_url),
+                    capture_receiver_probe(receiver_state),
+                    vtk_probe(),
+                ),
+                # This process owns the data-dir lock while a project is
+                # open — same honesty as the diagnostics export path.
+                owns_lock=True,
+            )
+
+        return job
+
     def _make_support(self) -> WorkspaceMount:
+        def open_activity_workspace(_parent) -> None:
+            self.shell.navigate_to_target(
+                NavigationTarget(
+                    kind=NavigationTargetKind.WORKSPACE,
+                    object_ids=(WorkspaceId.ACTIVITY.value,),
+                    preferred_destination=WorkspaceId.ACTIVITY,
+                )
+            )
+
         page = sys.modules[__name__].SupportPage(
             self.data_dir,
             status_provider=(
@@ -3270,6 +3323,21 @@ class WorkflowApplicationComposition:
             open_solver_diagnostics=self._open_solver_diagnostics,
             open_applicability_envelope=self._open_applicability_envelope,
             open_credential_vault=self._open_credential_vault,
+            health_runner=SupportHealthRunner(
+                self.data_dir,
+                self.activity_center,
+                self._support_health_job_factory,
+            ),
+            open_data_management=(
+                lambda _w: self.settings_dialog.open_settings()
+            ),
+            open_preferences=(
+                lambda _w: self.settings_dialog.open_preferences()
+            ),
+            open_capture_settings=(
+                lambda _w: self.settings_dialog.open_capture_settings()
+            ),
+            open_activity=open_activity_workspace,
         )
 
         def focus_target(target: NavigationTarget) -> TargetFocusResult:
