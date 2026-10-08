@@ -660,3 +660,17 @@ entries:
     - backend/tests/test_issue947_boundary_halo.py
     - scripts/run_issue947_boundary_halo_regression.py
   close_when_gates_clear: true
+- issue: 977
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1026]
+    commits: [1a857b61]
+  remaining_gates:
+  - kind: manual
+    description: オペレータ受入 — IFC 部位ロケートマーカーの VTK 描画実機確認 (CI/オフスクリーンでは未到達)
+  evidence_refs:
+    - backend/src/htdt/cad_geometry_intake.py
+    - backend/src/htdt/room_workspace.py
+    - backend/src/htdt/geometry_intake_panel.py
+    - backend/tests/test_issue_977_ifc_locate.py
+  close_when_gates_clear: true
