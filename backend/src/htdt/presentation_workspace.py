@@ -12,11 +12,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import file_dialog_memory
 from .cad_design_comparison import DesignComparisonSet
 from .cad_design_comparison_repository import CadDesignComparisonRepository
 from .cad_design_decision import (
@@ -53,16 +54,21 @@ from .cad_presentation_session import (
     build_sync_binding,
     build_viewpoint,
 )
-from .cad_proposal_package import build_proposal_package
+from .cad_proposal_package import (
+    build_proposal_package,
+    verify_proposal_package,
+)
 from .cad_repository import SceneRepository
 from .cad_review_note import ReviewNoteRepository, add_review_note
 from .cad_review_package import (
     OffscreenSceneRenderer,
     build_review_package,
     derived_yaw_steps,
+    verify_review_package,
 )
 from .cad_system_variant_repository import CadSystemVariantRepository
 from .clock import utc_now_iso as _utc_now
+from .output_target import OutputTargetError, validate_output_target
 from .room_viewport import RoomOverlayState, RoomViewport3D
 from .user_facing_error import warn_user
 
@@ -99,6 +105,10 @@ class PresentationWorkspace(QWidget):
         self._session_document = None
         self._pending_viewpoints: list[PresentationViewpoint] = []
         self._step_index = 0
+        # Last successfully built package directory — the only location
+        # 「出力先を開く」 will ever open (a verified build, never a
+        # merely-validated one).
+        self._last_output_dir: str | None = None
 
         self.pages: dict[str, QWidget] = {}
         self.stack = QStackedWidget(self)
@@ -893,6 +903,13 @@ class PresentationWorkspace(QWidget):
         pick_button.setAccessibleName('パッケージ出力先フォルダを選択')
         pick_button.clicked.connect(self._pick_export_dir)
         dir_row.addWidget(pick_button)
+        self.open_output_button = QPushButton('出力先を開く')
+        self.open_output_button.setAccessibleName(
+            '生成したパッケージの出力先フォルダを開く'
+        )
+        self.open_output_button.setVisible(False)
+        self.open_output_button.clicked.connect(self._open_output_dir)
+        dir_row.addWidget(self.open_output_button)
         dir_host = QWidget()
         dir_host.setLayout(dir_row)
         layout.addRow('出力先', dir_host)
@@ -919,11 +936,43 @@ class PresentationWorkspace(QWidget):
         self.stack.addWidget(page)
 
     def _pick_export_dir(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(
-            self, 'パッケージ出力先', str(Path.home())
+        chosen = file_dialog_memory.get_existing_directory(
+            self,
+            'パッケージ出力先',
+            'presentation.export_dir',
+            default_dir=str(Path.home()),
         )
         if chosen:
             self.export_dir_label.setText(chosen)
+
+    def _open_output_dir(self) -> None:
+        if not self._last_output_dir:
+            return
+        if not QDesktopServices.openUrl(
+            QUrl.fromLocalFile(self._last_output_dir)
+        ):
+            QMessageBox.warning(
+                self, '出力', '出力先を開けませんでした'
+            )
+
+    def _validated_export_dir(self, package_name: str) -> Path | None:
+        """The one output-target rule for both package builders (#984).
+
+        The chooser label is the operator's spelled root; validation
+        resolves it against the real filesystem (any drive letter,
+        UNC shares, permissions, reparse points, collisions). A
+        rejection shows the named reason + suggested alternative and
+        returns ``None`` — nothing falls back outside the chosen root.
+        """
+        raw = self.export_dir_label.text().strip()
+        if raw == '（未選択）':
+            raw = ''
+        try:
+            target = validate_output_target(raw, package_name=package_name)
+        except OutputTargetError as exc:
+            QMessageBox.warning(self, '出力', exc.operator_text())
+            return None
+        return target.package_dir
 
     def _export_session(self) -> PresentationSession | None:
         session_id = self.export_session_combo.currentData()
@@ -943,16 +992,15 @@ class PresentationWorkspace(QWidget):
 
     def _build_review(self) -> None:
         session = self._export_session()
-        target = self.export_dir_label.text()
         if session is None:
             QMessageBox.warning(
                 self, '出力', 'セッションを選択してください'
             )
             return
-        if not target.startswith(('/', 'C:', 'D:')):
-            QMessageBox.warning(
-                self, '出力', '出力先を選択してください'
-            )
+        package_dir = self._validated_export_dir(
+            f'review-{session.session_id[:8]}'
+        )
+        if package_dir is None:
             return
         # Yaw intent is an explicit export-time override — never a
         # rebuilt session object, whose hash would name a session that
@@ -970,15 +1018,22 @@ class PresentationWorkspace(QWidget):
             )
             result = build_review_package(
                 session,
-                Path(target) / f'review-{session.session_id[:8]}',
+                package_dir,
                 self.repository,
                 presentation_repository=self.presentation_repository,
                 renderer=renderer,
                 yaw_steps_deg=yaw_steps,
             )
+            # Success is only honest once the written entries re-hash
+            # clean — verify before declaring it.
+            verify_review_package(result.output_dir)
         except Exception as exc:
+            self._last_output_dir = None
+            self.open_output_button.setVisible(False)
             warn_user(self, 'レビューパッケージを生成できませんでした', exc)
             return
+        self._last_output_dir = result.output_dir
+        self.open_output_button.setVisible(True)
         caps = '; '.join(
             f'{row.capability}={row.state}'
             for row in result.manifest.capability_rows
@@ -986,38 +1041,44 @@ class PresentationWorkspace(QWidget):
         self.export_status.setText(
             f'生成完了: {result.output_dir}\n'
             f'エントリ {len(result.manifest.entries)} 件\n'
+            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
             f'能力宣言: {caps}\n'
             + ('\n'.join(result.warnings) if result.warnings else '')
         )
 
     def _build_proposal(self) -> None:
         session = self._export_session()
-        target = self.export_dir_label.text()
         if session is None:
             QMessageBox.warning(
                 self, '出力', 'セッションを選択してください'
             )
             return
-        if not target.startswith(('/', 'C:', 'D:')):
-            QMessageBox.warning(
-                self, '出力', '出力先を選択してください'
-            )
+        package_dir = self._validated_export_dir(
+            f'proposal-{session.session_id[:8]}'
+        )
+        if package_dir is None:
             return
         try:
             result = build_proposal_package(
                 session,
-                Path(target) / f'proposal-{session.session_id[:8]}',
+                package_dir,
                 self.repository,
                 presentation_repository=self.presentation_repository,
                 comparison_repository=self.comparison_repository,
                 decision_repository=self.decision_repository,
             )
+            verify_proposal_package(result.output_dir)
         except Exception as exc:
+            self._last_output_dir = None
+            self.open_output_button.setVisible(False)
             warn_user(self, '提案書パッケージを生成できませんでした', exc)
             return
+        self._last_output_dir = result.output_dir
+        self.open_output_button.setVisible(True)
         self.export_status.setText(
             f'生成完了: {result.output_dir}\n'
             f'エントリ {len(result.manifest.entries)} 件\n'
+            f'マニフェスト SHA-256: {result.manifest.manifest_sha256}\n'
             + ('\n'.join(result.warnings) if result.warnings else '')
         )
 
