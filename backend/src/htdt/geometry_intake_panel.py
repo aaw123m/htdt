@@ -319,8 +319,15 @@ class GeometryIntakePanel(QWidget):
     def set_proposal(
         self, proposal: GeometryRepairProposal | None
     ) -> None:
+        # Re-rendering the same proposal keeps decided rows disabled;
+        # only a genuinely new proposal resets the decided set.
+        if (
+            proposal is None
+            or self._proposal is None
+            or proposal.proposal_id != self._proposal.proposal_id
+        ):
+            self._decided_actions.clear()
         self._proposal = proposal
-        self._decided_actions.clear()
         self.proposal_table.setRowCount(0)
         if proposal is None:
             return
@@ -474,7 +481,7 @@ class GeometryIntakePanel(QWidget):
             scale.setRange(1e-9, 1e9)
             scale.setDecimals(9)
             scale.setValue(
-                float(action.proposed_parameters.get('scale_to_meters', 1.0))
+                float(action.proposed_parameters.get('scale_to_meters') or 1.0)
             )
             scale.setObjectName('scale_to_meters')
             form.addWidget(editor)
@@ -483,7 +490,7 @@ class GeometryIntakePanel(QWidget):
             editor = QSpinBox()
             editor.setRange(0, 1 << 30)
             editor.setValue(
-                int(action.proposed_parameters.get('component_index', 0))
+                int(action.proposed_parameters.get('component_index') or 0)
             )
             form.addWidget(editor)
         else:

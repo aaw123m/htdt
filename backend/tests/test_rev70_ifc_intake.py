@@ -34,7 +34,10 @@ from htdt.cad_acoustic_solver_dispatch_repository import (
 from htdt.cad_equipment import FrequencyDomain
 from htdt.r120_geometry_compiler import ExactExternalAuthorityRef
 from htdt.cad_geometry_intake import (
+    AuthorityRef,
     GeometryIntakeError,
+    GeometryRepairAction,
+    GeometryRepairProposal,
     build_ifc_intake_subject,
     diagnose_geometry_intake,
     evaluate_solver_readiness,
@@ -683,6 +686,85 @@ def test_panel_decision_progress_and_stage(tmp_path) -> None:
     )
     assert panel.decision_progress.text().startswith('決定 1/')
     panel.set_stage(has_subject=True, derive_enabled=False)
+    panel.deleteLater()
+
+
+def _ref_sha(char: str) -> str:
+    return char * 64
+
+
+def _declare_units_proposal(
+    *, variant: str = 'a'
+) -> GeometryRepairProposal:
+    """Proposal carrying declare_units with operator-supplied parameters.
+
+    Real declare_units actions ship ``scale_to_meters=None`` — the
+    parameter editor must not crash on it (REV70 GUI regression).
+    """
+    action = GeometryRepairAction.create(
+        kind='declare_units',
+        automation='operator_required',
+        target_part_id='ifc:1',
+        target_defect_ids=('dgx-' + '0' * 24,),
+        proposed_parameters={
+            'source_unit': None,
+            'scale_to_meters': None,
+        },
+        description='operator declares the source unit and scale',
+    )
+    return GeometryRepairProposal.create(
+        document_id=DOC_ID,
+        report_ref=AuthorityRef(
+            kind='geometry_intake_report',
+            ref_id='gdr-' + '0' * 24,
+            ref_sha256=_ref_sha('1'),
+        ),
+        subject_ref=AuthorityRef(
+            kind='geometry_intake_subject',
+            ref_id='gis-' + '0' * 24,
+            ref_sha256=_ref_sha('2'),
+        ),
+        actions=(action,),
+        generated_by='op-test',
+        generated_at_utc=UTC,
+        proposal_reason=f'fixture-{variant}',
+    )
+
+
+def test_panel_declare_units_editor_no_crash() -> None:
+    from htdt.geometry_intake_panel import GeometryIntakePanel
+
+    app = _qapp()
+    panel = GeometryIntakePanel()
+    proposal = _declare_units_proposal()
+    panel.set_proposal(proposal)
+    assert panel.proposal_table.rowCount() == 1
+    from PySide6.QtWidgets import QDoubleSpinBox
+
+    scale = panel.proposal_table.cellWidget(0, 3).findChild(QDoubleSpinBox)
+    assert scale is not None
+    panel.deleteLater()
+
+
+def test_panel_decided_rows_stay_disabled_on_resync() -> None:
+    from htdt.geometry_intake_panel import GeometryIntakePanel
+
+    app = _qapp()
+    panel = GeometryIntakePanel()
+    proposal = _declare_units_proposal()
+    action_id = proposal.actions[0].action_id
+    panel.set_proposal(proposal)
+    panel.mark_decided(action_id)
+    assert not panel.proposal_table.cellWidget(0, 4).isEnabled()
+    # Same proposal re-pushed by the workspace sync: decided stays decided.
+    panel.set_proposal(proposal)
+    assert not panel.proposal_table.cellWidget(0, 4).isEnabled()
+    assert not panel.proposal_table.cellWidget(0, 5).isEnabled()
+    # A genuinely new proposal (different id) resets the decided set.
+    other = _declare_units_proposal(variant='b')
+    assert other.proposal_id != proposal.proposal_id
+    panel.set_proposal(other)
+    assert panel.proposal_table.cellWidget(0, 4).isEnabled()
     panel.deleteLater()
 
 

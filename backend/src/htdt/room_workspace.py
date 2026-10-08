@@ -4596,7 +4596,7 @@ class RoomWorkspace(QWidget):
         controller = self.geometry_intake_controller
         try:
             subject = controller.adopt_current_subject(
-                read_blob=self.repository.read_blob,
+                read_blob=self.controller.repository.read_blob,
             )
             report, proposal = controller.run_health_check()
         except (ValueError, KeyError) as exc:
