@@ -1,13 +1,8 @@
 name: R130D pinned MFEM reference replay
+# Explicit-only numerical replay: independent MFEM compilation is expensive.
+# Trigger once after the PR's numerical plan and implementation are frozen.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/r130d-mfem-reference-replay.yml'
-      - 'scripts/run_r130d_mfem_reference_replay.py'
-      - 'scripts/run_r130d_general3d_validation.py'
-      - 'benchmarks/acoustics/r130d_mfem_reference/**'
-      - 'benchmarks/acoustics/r130d_general3d_validation_plan.json'
 permissions:
   contents: read
 
