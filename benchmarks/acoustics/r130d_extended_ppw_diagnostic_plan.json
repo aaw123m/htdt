@@ -1,0 +1,42 @@
+{
+  "schema_version": "htdt.r130d.extended-ppw-diagnostic-plan-1",
+  "issue": 938,
+  "purpose": "Post-#947 PFFDTD 8/10/12 canonical reproduction plus prospectively specified higher-resolution 16/20/24 PPW trend; diagnostic-only and not a substitute for MFEM or physical validation.",
+  "parent_validation_plan": "benchmarks/acoustics/r130d_general3d_validation_plan.json",
+  "parent_plan_semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec",
+  "pffdtd_commit": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "levels_ppw": [
+    8,
+    10,
+    12,
+    16,
+    20,
+    24
+  ],
+  "frequency_hz": [
+    40,
+    80
+  ],
+  "duration_s": 0.25,
+  "fmax_hz": 100,
+  "canonical_replay_tolerance_abs_complex_component": 1e-9,
+  "phase_mask_db": -50,
+  "unchanged_thresholds": {
+    "complex_rms_relative_max": 0.2,
+    "magnitude_max_relative": 0.25,
+    "phase_max_deg": 15
+  },
+  "decision": {
+    "diagnostic_only": true,
+    "may_replace_canonical_run25": false,
+    "may_unblock_cross_solver": false,
+    "may_enable_production": false
+  },
+  "limits": {
+    "max_grid_cells": 300000,
+    "max_time_steps": 2048,
+    "max_output_bytes": 67108864,
+    "max_solver_wall_seconds": 240
+  },
+  "interpretation": "Evaluate 8->10, 10->12, 12->16, 16->20, 20->24. Non-monotone failures remain numerical failures, not evidence that acceptance thresholds should be widened; a final-pair diagnostic pass is insufficient for independent solver validation."
+}
