@@ -440,6 +440,30 @@ def test_fixture_bundle_requires_offscreen_nonclaim(tmp_path: Path) -> None:
     assert any('offscreen' in c for c in manifest['non_claims'])
 
 
+def _row_args(tmp_path: Path, **overrides):
+    import argparse
+    fields = dict(
+        work_dir=tmp_path, matrix_id='ux160', row_id='probe-row',
+        scale='1.0', scenario='fresh', profile='offscreen-fixture',
+        destinations='support', checks='launch',
+        baseline=None, python=None, timeout=1, reset_data=False,
+        in_process=False, data_dir=None,
+    )
+    fields.update(overrides)
+    return argparse.Namespace(**fields)
+
+
+def test_usage_fail_closed_paths(tmp_path: Path) -> None:
+    # unknown check names must never silently succeed
+    args = _row_args(tmp_path, checks='launch,bogus_name')
+    assert uxrun.run_row(args) == uxrun.EXIT_USAGE
+    # an explicit-but-unreadable baseline path is operator error,
+    # not a silent not_run
+    args = _row_args(tmp_path, checks='launch',
+                     baseline=str(tmp_path / 'nope' / 'manifest.json'))
+    assert uxrun.run_row(args) == uxrun.EXIT_USAGE
+
+
 # ---------------------------------------------------------------------------
 # Offscreen-capable self-test: the in-process driver produces a real
 # sample bundle on this box (the owned-Windows run stays a physical gate).
@@ -464,6 +488,8 @@ def test_offscreen_fixture_selftest_bundle(tmp_path: Path) -> None:
     assert any(c['kind'] == 'launch' for c in checkpoints)
     assert any(c['checkpoint_id'] == 'navigate:measurement'
                for c in checkpoints)
+    # per-checkpoint timing is captured evidence too
+    assert all(c.get('elapsed_ms') is not None for c in checkpoints)
 
     manifest = _assemble(
         tmp_path,
