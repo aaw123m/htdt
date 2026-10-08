@@ -358,3 +358,9 @@ entries:
     description: 実機受入 — 実プロセス kill / OS 異常終了後の復旧ダイアログで未保存作業が復元できること
   evidence_refs: [docs/issues/issue-883-session-recovery.md]
   close_when_gates_clear: true
+- issue: 899
+  lifecycle: complete
+  landed: {prs: [911], commits: []}
+  remaining_gates: []
+  evidence_refs: [docs/issues/issue-899-lifecycle-drift.md]
+  close_when_gates_clear: true

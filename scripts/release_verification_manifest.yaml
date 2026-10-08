@@ -118,6 +118,26 @@ classes:
           - backend/tests/test_issue_865_lifecycle_evidence.py
         description: '#865 evidence-integrity regression suite.'
 
+  - id: workflow-docs-integrity
+    title: 'Workflow/documentation drift integrity'
+    description: >-
+      現行状態を主張する文書 (IMPLEMENTATION_STATUS.md /
+      RELEASE_VERIFICATION.md / ISSUE_VERIFICATION.md / README.md) が指名
+      する .github/workflows/*.yml が実在し、逆に実在する workflow が
+      現行文書で指名されていること (#900)。削除/改名された workflow を
+      現行扱いする記述、dispatch-only 方針 (PR CI を置かない意図的
+      ポリシー) との矛盾、workflow 未記載の drift は fail closed。
+      検証 PASS は常に revision-bound の実行証跡に束縛され、workflow
+      ファイルの存在は実行を意味しない。
+    required: true
+    include_in_dev: true
+    checks:
+      - id: workflow-docs-drift
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_900_workflow_docs_drift.py
+        description: '#900 workflow↔docs drift regression suite.'
+
   - id: package-boundary
     title: 'Package boundary / layering audit'
     description: >-
