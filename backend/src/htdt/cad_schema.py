@@ -2076,6 +2076,16 @@ def _migrate_97_to_98(connection: sqlite3.Connection) -> None:
         connection.execute(statement)
 
 
+def _migrate_100_to_101(connection: sqlite3.Connection) -> None:
+    # REV67: #877 guided measurement-chain calibration wizard and #875
+    # automated multi-position campaign execution — sealed runs,
+    # transitions, acceptance profiles, check plans, execution plans,
+    # journal and per-attempt run records: new append-only authorities
+    # the idempotent baseline creates.
+    for statement in NATIVE_BASELINE_DDL:
+        connection.execute(statement)
+
+
 _MIGRATIONS = {
     1: _migrate_0_to_1,
     2: _migrate_1_to_2,

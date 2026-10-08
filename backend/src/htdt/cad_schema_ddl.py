@@ -8738,6 +8738,42 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_cwchk_doc ON cad_campaign_check_plans(document_id, seq ASC)
     """
     ,
+    # REV67: #875 automated multi-position measurement campaign — the
+    # sealed executable plan (exact run queue), the append-only journal
+    # that makes restart recovery exact, and one sealed record per
+    # capture attempt so failed captures stay evidence forever.
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_execution_plans ( seq INTEGER PRIMARY KEY AUTOINCREMENT, plan_id TEXT NOT NULL UNIQUE, plan_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, authority_version TEXT NOT NULL, campaign_ref_id TEXT NOT NULL, scene_ref_id TEXT, entry_count INTEGER NOT NULL, generated_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mcplan_doc ON cad_campaign_execution_plans(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_execution_events ( seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, event_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, journal_seq INTEGER NOT NULL, kind TEXT NOT NULL, entry_key TEXT, position_id TEXT, actor TEXT NOT NULL, at_utc TEXT NOT NULL, retry_decision TEXT, confirmation_method TEXT, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mcevt_plan ON cad_campaign_execution_events(plan_id, journal_seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mcevt_doc ON cad_campaign_execution_events(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_campaign_execution_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_record_id TEXT NOT NULL UNIQUE, run_record_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, plan_id TEXT NOT NULL, entry_key TEXT NOT NULL, entry_ordinal INTEGER NOT NULL, attempt INTEGER NOT NULL, position_id TEXT NOT NULL, channel_entity_id TEXT NOT NULL, role TEXT NOT NULL, run_index INTEGER NOT NULL, required INTEGER NOT NULL, level_dbfs REAL NOT NULL, outcome TEXT NOT NULL, failure_kind TEXT, quality_verdict TEXT, stimulus_ref_id TEXT, acquisition_ref_id TEXT, position_ref_id TEXT, started_at_utc TEXT NOT NULL, completed_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mcrun_plan ON cad_campaign_execution_runs(plan_id, entry_ordinal ASC, attempt ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_mcrun_doc ON cad_campaign_execution_runs(document_id, seq ASC)
+    """
+    ,
 )
 
 
@@ -9880,4 +9916,8 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     'cad_calibration_wizard_transitions',
     'cad_spl_check_acceptance_profiles',
     'cad_campaign_check_plans',
+    # REV67: #875 automated multi-position measurement campaign.
+    'cad_campaign_execution_plans',
+    'cad_campaign_execution_events',
+    'cad_campaign_execution_runs',
 )

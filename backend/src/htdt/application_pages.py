@@ -898,6 +898,9 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_channel_excitation_results": "チャンネル励起測定結果",
     "cad_channel_operator_attestations": "チャンネル確認証言",
     "cad_channel_verification_verdicts": "チャンネル検証判定",
+    "cad_campaign_execution_plans": "測定キャンペーン実行計画",
+    "cad_campaign_execution_events": "測定キャンペーン実行イベント",
+    "cad_campaign_execution_runs": "測定キャンペーン実行レコード",
 }
 
 

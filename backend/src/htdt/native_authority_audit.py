@@ -1498,6 +1498,12 @@ class _RepositoryChain:
             )
 
             return CadCalibrationWizardRepository(scene)
+        if name == 'campaign_execution':
+            from .cad_campaign_execution_repository import (
+                CadCampaignExecutionRepository,
+            )
+
+            return CadCampaignExecutionRepository(scene)
         raise KeyError(name)
 
 
@@ -7554,6 +7560,25 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_channel_verification_verdicts',
         ('verdict_id',),
         _get('channel_verification', 'get_verdict'),
+    ),
+    # REV67: #875 automated multi-position measurement campaign.
+    _ReplayProbe(
+        'campaign_execution_plan',
+        'cad_campaign_execution_plans',
+        ('plan_id',),
+        _get('campaign_execution', 'get_plan'),
+    ),
+    _ReplayProbe(
+        'campaign_execution_event',
+        'cad_campaign_execution_events',
+        ('event_id',),
+        _get('campaign_execution', 'get_event'),
+    ),
+    _ReplayProbe(
+        'campaign_execution_run',
+        'cad_campaign_execution_runs',
+        ('run_record_id',),
+        _get('campaign_execution', 'get_run_record'),
     ),
 
     # REV67: #877 guided measurement-chain calibration authority.
