@@ -104,7 +104,7 @@ re-used. `RebindingDecision` seals the operator's response
 Tables: `cad_discovery_runs`, `cad_discovered_devices`,
 `cad_capability_probe_records`, `cad_trusted_device_bindings`,
 `cad_device_identity_drift_reports`, `cad_device_rebinding_decisions`
-(schema v104). Row bindings + replay probes are wired so the audit
+(schema v105). Row bindings + replay probes are wired so the audit
 machinery replays every row.
 
 ## Credentials
