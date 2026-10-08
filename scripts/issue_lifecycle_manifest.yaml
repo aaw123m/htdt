@@ -646,3 +646,17 @@ entries:
     - backend/src/htdt/r130d_general3d_validation.py
     - scripts/run_r130d_reproduction_isolation_diagnostic.py
   close_when_gates_clear: true
+- issue: 947
+  lifecycle: complete
+  landed:
+    prs: [1020]
+    commits: [e45e8c53]
+  remaining_gates: []
+  evidence_refs:
+    - docs/issues/issue-947-boundary-halo-separation.md
+    - benchmarks/acoustics/issue947_boundary_halo_regression_evidence.json
+    - benchmarks/acoustics/issue947_postfix_rerun_evidence.json
+    - backend/src/htdt/pffdtd_boundary_halo.py
+    - backend/tests/test_issue947_boundary_halo.py
+    - scripts/run_issue947_boundary_halo_regression.py
+  close_when_gates_clear: true
