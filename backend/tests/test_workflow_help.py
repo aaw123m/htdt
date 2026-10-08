@@ -11,7 +11,7 @@ import os
 
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from htdt.command_registry import CommandDefinition, CommandRegistry
 from htdt.help_registry import (
@@ -105,8 +105,8 @@ def test_palette_usage_dialog_has_fixed_content() -> None:
 
 def test_topic_related_commands_render_display_names() -> None:
     """REV27: 関連操作 rendered raw command ids (``navigation.room``) —
-    with a registry the labels resolve to display names; unknown ids
-    fall back to the raw id."""
+    with a registry the labels resolve to display names. #1024 turned them
+    into real launch buttons; unknown ids degrade to plain text + reason."""
     _app()
     registry = CommandRegistry()
     registry.register(
@@ -130,8 +130,13 @@ def test_topic_related_commands_render_display_names() -> None:
     )
     dialog = HelpDialog.topic(topic, command_registry=registry)
     texts = [label.text() for label in dialog.findChildren(QLabel)]
-    related = [text for text in texts if text.startswith('関連操作:')]
-    assert related == ['関連操作: 部屋, 保存, unknown.command']
+    assert '関連操作' in texts
+    buttons = {b.text() for b in dialog.findChildren(QPushButton)}
+    assert {'部屋', '保存'} <= buttons
+    assert any(
+        'unknown.command' in text and '利用できません' in text
+        for text in texts
+    )
 
 
 def test_glossary_related_topics_are_clickable_links() -> None:

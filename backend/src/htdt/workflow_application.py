@@ -2669,6 +2669,7 @@ class WorkflowApplicationComposition:
             topic,
             locale=self._presentation_locale(),
             command_registry=self.registry,
+            help_registry=self.help_registry,
             parent=self.shell,
         ).exec()
         return True

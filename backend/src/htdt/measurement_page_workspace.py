@@ -1112,6 +1112,7 @@ class MeasurementPageWorkspace(QWidget):
             topic,
             locale=PresentationLocale.JAPANESE,
             command_registry=None,
+            help_registry=self._help_registry,
             parent=self,
         ).exec()
 
