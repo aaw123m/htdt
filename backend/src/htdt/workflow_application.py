@@ -3712,6 +3712,17 @@ class WorkflowApplicationComposition:
         )
         if field_explorer_panel is not None:
             bind_length_policy_widget(field_explorer_panel, preferences)
+            # #999: 音場を3D表示 — panel requests drive the workspace overlay;
+            # viewport Esc disarm flows back to the panel checkbox.
+            field_explorer_panel.field3DRequested.connect(
+                workspace.show_field_overlay_3d
+            )
+            field_explorer_panel.field3DCleared.connect(
+                workspace.clear_field_overlay_3d
+            )
+            workspace.field3DProbeDisarmed.connect(
+                field_explorer_panel.set_3d_probe_off
+            )
         material_panel = _self.SurfaceMaterialPanel(workspace.controller)
         treatment_panel = _self.RoomTreatmentPanel(workspace.controller)
         # #876/REV36: persisted R150 path artifacts replay into ranked

@@ -12,11 +12,13 @@ from __future__ import annotations
 
 from math import isfinite
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -45,6 +47,8 @@ from .cad_prediction_repository import CadPredictionRepository
 from .cad_repository import SceneRepository
 from .cad_scene import Position3
 from .cad_spatial_field import FieldSliceView
+from .field_volume_visual_adapter import field_overlay_currency
+from .room_field_overlay import FieldOverlay3DRequest
 from .length_spinbox import MetricSpinBox
 from .user_facing_error import operation_error_message
 
@@ -145,6 +149,14 @@ def _scale_bar_pixmap(width: int = 240, height: int = 12) -> QPixmap:
 
 
 class FieldExplorerPanel(QWidget):
+    """2D field explorer + the '音場を3D表示' deep-link into the CAD viewport (#999)."""
+
+    #: Emitted with a FieldOverlay3DRequest whenever the armed overlay state
+    #: changes (toggle on, or plane/quantity/coordinate/iso/volume/probe edit).
+    field3DRequested = Signal(object)
+    #: Emitted when the overlay is toggled off or the session stops being CURRENT.
+    field3DCleared = Signal()
+
     """Explorer dock body: session list, slice controls, probe readout."""
 
     def __init__(
@@ -162,6 +174,7 @@ class FieldExplorerPanel(QWidget):
         self._session: FieldExplorerSession | None = None
         self._modes_result: CadPredictionResult | None = None
         self._length_policy = display_length_policy('m')
+        self._suppress_3d_signals = False
         self._build_widgets()
         self.refresh_sessions()
 
@@ -284,6 +297,30 @@ class FieldExplorerPanel(QWidget):
         self.field_status_label.setWordWrap(True)
         layout.addWidget(self.field_status_label)
 
+        field3d_group = QGroupBox('3D CAD表示')
+        field3d_layout = QVBoxLayout(field3d_group)
+        self.field3d_toggle = QCheckBox('音場を3D CADに重ねる')
+        self.field3d_toggle.setToolTip(
+            '部屋の3Dビューに断面・等値面としてこの音場を重ねます\n'
+            '(シーンが最新の場合のみ表示できます)'
+        )
+        self.field3d_toggle.toggled.connect(self._field3d_changed)
+        self.field3d_toggle.setEnabled(False)
+        field3d_layout.addWidget(self.field3d_toggle)
+        self.field3d_iso = QCheckBox('等値面を追加')
+        self.field3d_iso.toggled.connect(self._field3d_changed)
+        field3d_layout.addWidget(self.field3d_iso)
+        self.field3d_volume = QCheckBox('半透明ボリュームを追加 (GPU依存)')
+        self.field3d_volume.toggled.connect(self._field3d_changed)
+        field3d_layout.addWidget(self.field3d_volume)
+        self.field3d_probe = QCheckBox('3Dプローブ (ビューをクリック / Esc解除)')
+        self.field3d_probe.toggled.connect(self._field3d_changed)
+        field3d_layout.addWidget(self.field3d_probe)
+        self.field3d_status = QLabel('')
+        self.field3d_status.setWordWrap(True)
+        field3d_layout.addWidget(self.field3d_status)
+        layout.addWidget(field3d_group)
+
         probe_form = QFormLayout()
         probe_row = QHBoxLayout()
         self.probe_x = MetricSpinBox(minimum_m=-1000.0, maximum_m=1000.0)
@@ -341,27 +378,17 @@ class FieldExplorerPanel(QWidget):
         self.session_combo.addItem('(セッションを選択)', None)
         # Sessions commonly share one scene revision; resolve each unique
         # revision once per refresh instead of re-validating it per row.
-        revisions: dict[str, object] = {}
+        # Currency is judged against the document's CURRENT head (#999):
+        # comparing a session to its own pinned revision can never go STALE.
+        head = self.scene_repository.current_head(self.document_id)
         for session in self.field_repository.list_sessions(self.document_id):
-            if session.scene_revision_id not in revisions:
-                revisions[session.scene_revision_id] = self.scene_repository.get(
-                    session.scene_revision_id
-                )
-            revision = revisions[session.scene_revision_id]
-            currency = (
-                '古い'
-                if revision is None
-                else {
-                    'CURRENT': '最新',
-                    'STALE': '古い',
-                }.get(
-                    field_explorer_session_currency(
-                        session, revision
-                    ).state,
-                    field_explorer_session_currency(
-                        session, revision
-                    ).state.lower(),
-                )
+            currency = {
+                'CURRENT': '最新',
+                'STALE': '古い',
+                'UNKNOWN': '不明',
+            }.get(
+                field_overlay_currency(session, head).state,
+                '不明',
             )
             label = (
                 f'モード ({session.mode_n_x},{session.mode_n_y},'
@@ -374,6 +401,12 @@ class FieldExplorerPanel(QWidget):
             if index >= 0:
                 self.session_combo.setCurrentIndex(index)
         self.session_combo.blockSignals(False)
+        # Currency can move without a session switch (the scene head advanced
+        # while the panel was open) — re-validate the loaded session too.
+        if self._session is not None:
+            fresh = self.field_repository.get(self._session.session_id)
+            if fresh is not None:
+                self._load_session(fresh)
 
     def open_for_run(self, run_id: str) -> bool:
         """Prepare the build form for one saved prediction run."""
@@ -469,17 +502,20 @@ class FieldExplorerPanel(QWidget):
 
     def _load_session(self, session: FieldExplorerSession) -> None:
         self._session = session
-        revision = self.scene_repository.get(session.scene_revision_id)
-        currency = (
-            None
-            if revision is None
-            else field_explorer_session_currency(session, revision)
-        )
+        head = self.scene_repository.current_head(session.document_id)
+        currency = field_overlay_currency(session, head)
         state = (
-            '古い — 現在のシーンとは一致しません'
-            if currency is None or currency.state != 'CURRENT'
-            else '最新'
+            '最新'
+            if currency.state == 'CURRENT'
+            else (
+                '古い — 現在のシーンとは一致しません'
+                if currency.state == 'STALE'
+                else '不明 — 現在のシーンを確認できません'
+            )
         )
+        if currency.state != 'CURRENT' and self.field3d_toggle.isChecked():
+            self.field3d_toggle.setChecked(False)
+        self.field3d_toggle.setEnabled(currency.state == 'CURRENT')
         self.field_status_label.setText(
             f'{session.producer} · モード ({session.mode_n_x},'
             f'{session.mode_n_y},{session.mode_n_z}) · '
@@ -569,6 +605,61 @@ class FieldExplorerPanel(QWidget):
             f'{len(view.column_coordinates_m)}x{len(view.row_coordinates_m)} '
             f'サンプル · {view.sample_state}{masked_note}'
         )
+        self._emit_3d_if_armed()
+
+    # -- 3D viewport overlay (#999) ------------------------------------------
+
+    def _current_3d_request(self) -> FieldOverlay3DRequest | None:
+        session = self._session
+        quantity = self.quantity_combo.currentData()
+        plane = self.plane_combo.currentData()
+        coordinate = self.coordinate_combo.currentData()
+        if session is None or quantity is None or plane is None or coordinate is None:
+            return None
+        head = self.scene_repository.current_head(session.document_id)
+        if field_overlay_currency(session, head).state != 'CURRENT':
+            return None
+        return FieldOverlay3DRequest(
+            session_id=session.session_id,
+            quantity=quantity,
+            axis_plane=plane,
+            coordinate_m=float(coordinate),
+            iso_enabled=self.field3d_iso.isChecked(),
+            volume_enabled=self.field3d_volume.isChecked(),
+            probe_enabled=self.field3d_probe.isChecked(),
+        )
+
+    def _field3d_changed(self) -> None:
+        if self._suppress_3d_signals:
+            return
+        if not self.field3d_toggle.isChecked():
+            self.field3DCleared.emit()
+            self.field3d_status.setText('')
+            return
+        request = self._current_3d_request()
+        if request is None:
+            self._suppress_3d_signals = True
+            self.field3d_toggle.setChecked(False)
+            self._suppress_3d_signals = False
+            self.field3d_status.setText(
+                '最新の音場セッションを読み込んでください'
+            )
+            return
+        self.field3DRequested.emit(request)
+
+    def _emit_3d_if_armed(self) -> None:
+        if self.field3d_toggle.isChecked() and not self._suppress_3d_signals:
+            request = self._current_3d_request()
+            if request is None:
+                self.field3d_toggle.setChecked(False)
+            else:
+                self.field3DRequested.emit(request)
+
+    def set_3d_probe_off(self) -> None:
+        """Workspace Esc disarm → uncheck the probe checkbox (re-emits)."""
+
+        if self.field3d_probe.isChecked():
+            self.field3d_probe.setChecked(False)
 
     def _run_probe(self) -> None:
         session = self._session

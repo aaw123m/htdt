@@ -10,7 +10,7 @@ from typing import Protocol, cast
 from uuid import uuid4
 
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QCursor, QGuiApplication
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -276,6 +276,9 @@ from .room_viewport import (
     GuideRenderItem,
     RoomOverlayState,
     RoomViewport3D,
+)
+from .room_field_overlay import FieldOverlay3DRequest, RoomFieldOverlayController
+from .room_viewport import (
     UnderlayRenderItem,
 )
 from .theater_document import TheaterWorkingDocument
@@ -4080,6 +4083,9 @@ class RoomWorkspace(QWidget):
 
     toolRequested = Signal(str)
     optimizeRequested = Signal()
+    #: Emitted when Esc disarms the 3D field probe — the field-explorer
+    #: panel listens so its checkbox follows the viewport state (#999).
+    field3DProbeDisarmed = Signal()
 
     def __init__(
         self,
@@ -4130,6 +4136,16 @@ class RoomWorkspace(QWidget):
         # an unbound workspace hides markers rather than guessing a policy.
         self._guidance_view: ReflectionGuidanceView | None = None
         self._guidance_overlay_mode: str = 'off'
+        # #999 3D field overlay: armed request + current-head staleness live
+        # in the controller; resolve() runs inside _render's deferred block.
+        self.field_overlay = RoomFieldOverlayController(repository)
+        # Esc exits probe mode only — armed while 3D probing so normal Esc
+        # behaviour elsewhere is untouched.
+        self._field_probe_esc = QShortcut(
+            QKeySequence(Qt.Key.Key_Escape), self
+        )
+        self._field_probe_esc.setEnabled(False)
+        self._field_probe_esc.activated.connect(self._disarm_field_probe)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -5908,6 +5924,12 @@ class RoomWorkspace(QWidget):
         self.current_context = context_id
         self.tools.set_context(context_id)
         self._palette_user_open = False
+        if context_id != 'acoustics':
+            # #999: field actors never leak into non-acoustics contexts;
+            # the armed request stays so returning re-shows it.
+            clear_field = getattr(self.viewport, 'clear_field_overlay', None)
+            if callable(clear_field):
+                clear_field()
         self._update_responsive_layout()
         if context_id == "geometry" and self._geometry_page is not None:
             self.right_stack.setCurrentWidget(self._geometry_page)
@@ -5975,6 +5997,9 @@ class RoomWorkspace(QWidget):
     def _entity_picked(self, entity_id: object, display_position: object = None) -> None:
         """Viewport pick: measure capture, Ctrl+click additive select, plain click."""
         target = str(entity_id)
+        if self.field_overlay.probe_armed:
+            self._field_probe_at(display_position)
+            return
         if self.measure_controller.is_active:
             self.measure_controller.pick_entity(target, display_position)
             self._suppress_next_select = True
@@ -6012,10 +6037,57 @@ class RoomWorkspace(QWidget):
 
     def _empty_clicked(self, display_position: object) -> None:
         """Click on empty space: measure free-point or clear selection."""
+        if self.field_overlay.probe_armed:
+            self._field_probe_at(display_position)
+            return
         if self.measure_controller.is_active:
             self.measure_controller.pick_free_point(display_position)
             return
         self.select_entity(None)
+
+    # -- 3D field overlay (#999) ---------------------------------------------
+
+    def show_field_overlay_3d(self, request: FieldOverlay3DRequest) -> None:
+        """Arm the field overlay from the explorer panel ('音場を3D表示')."""
+
+        session = self.field_overlay.field_repository.get(request.session_id)
+        if session is None or session.document_id != self.controller.document.document_id:
+            self._set_status('このプロジェクトの音場セッションではありません')
+            return
+        self.field_overlay.set_request(request)
+        self._field_probe_esc.setEnabled(request.probe_enabled)
+        if self.current_context != 'acoustics':
+            self.set_context('acoustics')
+        elif not self.overlay_controls.acoustics.isChecked():
+            self.overlay_controls.acoustics.setChecked(True)
+        self._render()
+
+    def clear_field_overlay_3d(self) -> None:
+        self.field_overlay.clear()
+        self._field_probe_esc.setEnabled(False)
+        clear_field = getattr(self.viewport, 'clear_field_overlay', None)
+        if callable(clear_field):
+            clear_field()
+        self._render()
+
+    def _disarm_field_probe(self) -> None:
+        if not self.field_overlay.probe_armed:
+            return
+        self.field_overlay.disarm_probe()
+        self._field_probe_esc.setEnabled(False)
+        self.field3DProbeDisarmed.emit()
+        self._render()
+
+    def _field_probe_at(self, display_position) -> None:
+        world = (
+            self.viewport.pick_world_position(display_position)
+            if display_position is not None
+            else None
+        )
+        if world is None:
+            return
+        self._set_status(f'音場プローブ: {self.field_overlay.probe_world(world)}')
+        self._render()
 
     def _after_selection_changed(self) -> None:
         self._refresh_inspector()
@@ -7795,6 +7867,26 @@ class RoomWorkspace(QWidget):
             )
             if callable(render_guidance):
                 render_guidance(self._visible_guidance_markers(overlays))
+            # #999: 3D field overlay — acoustics context + overlay ON +
+            # armed request + CURRENT head; anything else draws nothing.
+            render_field = getattr(self.viewport, 'render_field_overlay', None)
+            if callable(render_field):
+                if (
+                    self.current_context == 'acoustics'
+                    and overlays.acoustics
+                    and self.field_overlay.armed
+                ):
+                    resolution = self.field_overlay.resolve()
+                    if resolution.scene is not None:
+                        render_field(resolution.scene)
+                    else:
+                        self.viewport.clear_field_overlay()
+                        if resolution.blocked_reason:
+                            self._set_status(resolution.blocked_reason)
+                            self.field_overlay.clear()
+                            self.field3DProbeDisarmed.emit()
+                else:
+                    self.viewport.clear_field_overlay()
 
     def _set_status(self, text: str, *, error: bool = False) -> None:
         self.status.setText(text)

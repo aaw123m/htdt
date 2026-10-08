@@ -860,6 +860,11 @@ class RoomViewport3D(QFrame):
         # refreshes with identical inputs skip the whole scene rebuild and
         # only re-present the current actors.
         self._last_render_signature: tuple | None = None
+        # Field-overlay (issue #999): content-keyed ImageData cache so a
+        # slider move (same view, different slice index) never rebuilds the
+        # volume grid, and the scalar-bar title set for clean removal.
+        self._field_image_cache: OrderedDict[tuple, pv.ImageData] = OrderedDict()
+        self._field_scalar_bars: set[str] = set()
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
         self.interactor.installEventFilter(self)
@@ -1196,6 +1201,7 @@ class RoomViewport3D(QFrame):
         'search-domain-',
         'snap-feedback-',
         'guidance-',
+        'acoustic-field-',
     )
 
     def _remove_overlay_actors(self) -> None:
@@ -1962,6 +1968,168 @@ class RoomViewport3D(QFrame):
         if picked is None:
             return None
         return (float(picked[0]), float(picked[1]), float(picked[2]))
+
+    # -- Field overlay (issue #999) -------------------------------------------
+    #
+    # The overlay is fully derived: every actor is named under
+    # ``acoustic-field-``, is ``pickable=False``, and is dropped either by
+    # :meth:`_remove_overlay_actors` (signature-skipped renders, then the
+    # compositor re-adds the current set) or by
+    # :meth:`clear_field_overlay`. No field actor survives a render where
+    # the controller resolved to "not shown".
+
+    _FIELD_CMAP = 'viridis'
+    _FIELD_CYCLIC_CMAP = 'hsv'  # phase: cyclic at ±180
+
+    def _field_image_data(self, view) -> pv.ImageData:
+        """Cached ImageData for one display view — keyed by content pins."""
+
+        key = (
+            view.result_semantic_sha256,
+            view.quantity,
+            view.display_stride,
+            view.dims,
+            view.render_origin,
+            view.render_spacing,
+        )
+        cached = self._field_image_cache.get(key)
+        if cached is None:
+            grid = pv.ImageData(
+                dimensions=view.dims,
+                origin=view.render_origin,
+                spacing=view.render_spacing,
+            )
+            grid.point_data['field_value'] = view.scalars_xyz.ravel(order='F')
+            cached = grid
+            self._field_image_cache[key] = cached
+            while len(self._field_image_cache) > 2:
+                self._field_image_cache.popitem(last=False)
+        else:
+            self._field_image_cache.move_to_end(key)
+        return cached
+
+    def render_field_overlay(self, scene) -> None:
+        """Draw one resolved FieldOverlayScene (slices + iso + volume + probe).
+
+        Must run inside ``deferred_render()`` from the compositor so the
+        whole frame still ends in a single ``plotter.render()``.
+        """
+
+        view = scene.view
+        cmap = self._FIELD_CYCLIC_CMAP if view.cyclic_colormap else self._FIELD_CMAP
+        status_extra: list[str] = []
+        grid = self._field_image_data(view)
+
+        for item in scene.slices:
+            slab = pv.ImageData(
+                dimensions=item.dims,
+                origin=item.render_origin,
+                spacing=item.render_spacing,
+            )
+            slab.point_data['field_value'] = item.scalars.ravel(order='F')
+            self.plotter.add_mesh(
+                slab,
+                scalars='field_value',
+                clim=view.clim,
+                cmap=cmap,
+                nan_color=(0.0, 0.0, 0.0),
+                nan_opacity=0.0,
+                show_scalar_bar=False,
+                pickable=False,
+                name=f"acoustic-field-slice-{item.axis_plane}-{item.display_index}",
+                render=False,
+            )
+
+        if scene.iso_values:
+            contours = grid.contour(isosurfaces=list(scene.iso_values))
+            if contours.n_points:
+                self.plotter.add_mesh(
+                    contours,
+                    scalars='field_value',
+                    clim=view.clim,
+                    cmap=cmap,
+                    opacity=0.85,
+                    show_scalar_bar=False,
+                    pickable=False,
+                    name='acoustic-field-iso',
+                    render=False,
+                )
+            else:
+                status_extra.append('等値面: 交差なし (表示されません)')
+
+        if scene.volume_enabled:
+            if min(view.dims) < 2:
+                status_extra.append('ボリューム表示不可 (3D格子が必要) → 断面のみ')
+            else:
+                try:
+                    self.plotter.add_volume(
+                        grid,
+                        scalars='field_value',
+                        clim=view.clim,
+                        cmap=cmap,
+                        opacity='linear',
+                        mapper='smart',
+                        show_scalar_bar=False,
+                        pickable=False,
+                        name='acoustic-field-volume',
+                        render=False,
+                    )
+                except Exception as exc:  # GPU/driver dependent — never fatal
+                    status_extra.append(
+                        f'ボリューム表示不可 ({type(exc).__name__}) → 断面のみ'
+                    )
+
+        if scene.probe is not None:
+            position = scene.probe.sampled_position
+            self.plotter.add_mesh(
+                pv.Sphere(
+                    radius=max(view.render_spacing) * 0.4,
+                    center=(position.x_m, -position.y_m, position.z_m),
+                ),
+                color=DARK_THEME.accent.primary.hex,
+                pickable=False,
+                name='acoustic-field-probe-marker',
+                render=False,
+            )
+
+        bar_title = view.scalar_bar_title
+        self.plotter.add_scalar_bar(
+            title=bar_title,
+            n_labels=5,
+            render=False,
+            title_font_size=10,
+            label_font_size=8,
+            position_x=0.02,
+            position_y=0.02,
+        )
+        self._field_scalar_bars.add(bar_title)
+
+        self.plotter.add_text(
+            '\n'.join([*scene.status_lines, *status_extra]),
+            position='upper_right',
+            font_size=9,
+            color=DARK_THEME.text.secondary.hex,
+            name='acoustic-field-status',
+            render=False,
+        )
+        self._render()
+
+    def clear_field_overlay(self) -> None:
+        """Remove every field-overlay actor, scalar bar, and the ImageData cache."""
+
+        renderer = getattr(self.plotter, 'renderer', None)
+        actors = getattr(renderer, 'actors', None)
+        if actors:
+            for name in tuple(actors):
+                if isinstance(name, str) and name.startswith('acoustic-field-'):
+                    self.plotter.remove_actor(name)
+        for title in tuple(self._field_scalar_bars):
+            try:
+                self.plotter.remove_scalar_bar(title, render=False)
+            except Exception:
+                pass
+        self._field_scalar_bars.clear()
+        self._field_image_cache.clear()
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:
         """Entity ids under a Qt display point, ordered front-to-back."""
