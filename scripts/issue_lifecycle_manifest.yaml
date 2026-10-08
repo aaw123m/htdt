@@ -460,3 +460,11 @@ entries:
     description: 新規ユーザ視点でのリファレンスシアター walkthrough 受入 (selftest lane は simulated deploy を正直に標記・未認可時 fail-closed で着地済み)
   evidence_refs: [docs/issues/issue-891-reference-theater.md]
   close_when_gates_clear: true
+- issue: 937
+  lifecycle: acceptance_remaining
+  landed: {prs: [941], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: ready ティア描画の受入 (実ゲート判定がピンとして配線されるまで到達不能 — declared-pins 設計のため compose/stale/empty 経路は実GUI検証済み、mount crash は修正済)
+  evidence_refs: [docs/issues/issue-937-decision-brief.md]
+  close_when_gates_clear: true
