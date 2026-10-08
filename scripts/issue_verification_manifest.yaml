@@ -5409,3 +5409,23 @@ issues:
       同一範囲。
 
       '
+- issue: 964
+  title: 'P0: change-diff driven evidence invalidation — sealed revalidation
+    queue'
+  notes: 'REV72: cad_evidence_invalidation (封緘 ChangeDiffRecord/RevalidationQueue/
+    RevalidationQueueRun、差分→#729 変更イベント→依存影響レポート合成、
+    fail-closed review、head-pin フェンシング) + 封緘リポジトリ (schema v114) +
+    比較ページ再検証キューパネル。docs/issues/issue-964-evidence-invalidation.md 参照。
+
+    '
+  checks:
+  - id: evidence-invalidation-authority
+    kind: pytest
+    tests:
+    - backend/tests/test_rev72_evidence_invalidation.py
+    - backend/tests/test_cad_schema.py
+    description: '再検証権威: 封緘往復+改竄検出、軸別スコープ (material-only→geometry
+      非接触、target→raw測定保全、unknown→review fail-closed)、冪等再構成、
+      検証操作の head-pin フェンシング、物理項目の確認境界停止、パネルスモーク。
+
+      '
