@@ -228,6 +228,9 @@ class DeploymentOperatorAuthorization(BaseModel):
             raise ValueError('consumed authorization must name the record')
         if not self.consumed and self.consumed_by_record_id is not None:
             raise ValueError('unconsumed authorization cannot name a record')
+        if self.expires_at_utc is not None \
+                and self.expires_at_utc <= self.authorized_at_utc:
+            raise ValueError('expiry must be after authorized_at_utc')
         if self.authorization_sha256 != _hash(self.identity_payload()):
             raise ValueError('DeploymentOperatorAuthorization hash mismatch')
         return self
@@ -951,17 +954,19 @@ def evaluate_deployment_path(
     else:
         strength = 'none'
         reasons.append('no declared deployment capability — unavailable')
-    if strength in ('machine_readback', 'applied_ack') and not production_protocol:
+    if simulated:
         # Simulated/fake transports keep their rank for tests but are
-        # visibly non-production.
+        # never production-eligible on any lane, machine or file/assisted.
         production_eligible = False
+    elif strength in ('machine_readback', 'applied_ack'):
+        production_eligible = production_protocol
     else:
         production_eligible = production_protocol or strength in (
             'file_verified', 'assisted_attestation',
         )
     if strength == 'none':
         availability: PathAvailability = 'unavailable'
-    elif candidate.reachability == 'unknown':
+    elif candidate.reachability != 'confirmed':
         availability = 'conditional'
         reasons.append('reachability unconfirmed')
     else:
@@ -1116,6 +1121,7 @@ class DeploymentPipelineService:
         authorization: DeploymentOperatorAuthorization,
         *,
         scope: AuthorizationScope,
+        at: str,
     ) -> None:
         if authorization.pipeline_id != self._pipeline_id:
             raise PipelineAuthorizationError(
@@ -1127,6 +1133,9 @@ class DeploymentPipelineService:
             )
         if authorization.consumed:
             raise PipelineAuthorizationError('authorization consumed')
+        if authorization.expires_at_utc is not None \
+                and authorization.expires_at_utc < at:
+            raise PipelineAuthorizationError('authorization expired')
 
     # -- stages ------------------------------------------------------
 
@@ -1276,7 +1285,7 @@ class DeploymentPipelineService:
         at: str,
     ) -> DeviceApplyAck:
         """Apply — consumes the authorization, records partial writes."""
-        self._assert_authorization(authorization, scope='apply')
+        self._assert_authorization(authorization, scope='apply', at=at)
         assert self._materialization is not None
         if (
             authorization.candidate_materialization_sha256
@@ -1385,7 +1394,7 @@ class DeploymentPipelineService:
             'applied', 'partial_write', 'readback_matched',
             'readback_diverged',
         )
-        self._assert_authorization(authorization, scope='rollback')
+        self._assert_authorization(authorization, scope='rollback', at=at)
         outcome: PipelineRollbackOutcome = 'unavailable'
         rollback_previous = getattr(self._adapter, 'rollback_previous', None)
         if self._baseline_sha256 is None:
@@ -1411,6 +1420,13 @@ class DeploymentPipelineService:
         return record
 
     def abort(self, *, at: str, reason: str) -> DeploymentPipelineRecord:
+        # Terminal stages are never masked — an abort after a verified
+        # rollback or a failed run would rewrite the derived end-state.
+        self._require_stage(
+            'opened', 'baseline_captured', 'baseline_unavailable',
+            'compiled', 'previewed', 'authorized', 'applied',
+            'partial_write', 'readback_matched', 'readback_diverged',
+        )
         return self._emit('aborted', at, notes=(reason,))
 
 
