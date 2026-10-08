@@ -396,3 +396,11 @@ entries:
     description: owned-Windows での全 DPI マトリクス行の証跡収集 + 人間レビュー項目 (4件) の受入 — ランナーと bundle 権威は実GUI lane でも evidence_captured を確認済み
   evidence_refs: [docs/issues/issue-880-ux-acceptance-evidence.md]
   close_when_gates_clear: true
+- issue: 885
+  lifecycle: physical_evidence_remaining
+  landed: {prs: [923], commits: []}
+  remaining_gates:
+  - kind: physical
+    description: 実機器・実測定経路での診断オーケストレータ walk-through (swrun-/cvvd- の実証跡を用いた仮説→識別テスト→解消の e2e) — 証跡ピンと one-shot 認可・安全制約は構造検証済み
+  evidence_refs: [docs/issues/issue-885-diagnostic-orchestrator.md]
+  close_when_gates_clear: true
