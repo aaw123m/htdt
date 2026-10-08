@@ -748,3 +748,16 @@ entries:
   - docs/issues/issue-951-credential-vault-ui.md
   - backend/tests/test_issue_951_credential_vault_ui.py
   close_when_gates_clear: true
+
+- issue: 996
+  lifecycle: acceptance_remaining
+  landed:
+    prs: [1041]
+    commits: [b480055e]
+  remaining_gates:
+  - kind: manual
+    description: 'オペレータ受入 — 実機で「全境界面に適用」が単一リビジョン・undo 一回・失敗時名前付き理由+部分適用なしを確認 (子が実GUIで検証済、最終は実運用受入)'
+  evidence_refs:
+  - docs/issues/issue-996-material-transaction.md
+  - backend/tests/test_issue_996_material_bulk_apply.py
+  close_when_gates_clear: true
