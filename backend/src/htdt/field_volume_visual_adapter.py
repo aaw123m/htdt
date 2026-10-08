@@ -67,10 +67,11 @@ FieldDisplayQuantity = Literal['pressure_magnitude_pa', 'spl_db', 'phase_deg']
 FieldOverlayCurrencyState = Literal['CURRENT', 'STALE', 'UNKNOWN']
 
 #: Scalar-bar titles must name scale *and* honesty state, never just a unit.
+#: ASCII-only — VTK drops CJK glyphs in scalar bars and viewport text.
 _QUANTITY_BAR_TITLES: dict[str, str] = {
-    'pressure_magnitude_pa': 'モード圧力振幅 [Pa] (規格化)',
+    'pressure_magnitude_pa': 'mode pressure amplitude [Pa] (normalized)',
     'spl_db': 'SPL [dB]',
-    'phase_deg': '位相 [deg] (循環)',
+    'phase_deg': 'phase [deg] (cyclic)',
 }
 
 
@@ -255,7 +256,7 @@ class FieldDisplayView:
     def scalar_bar_title(self) -> str:
         title = _QUANTITY_BAR_TITLES.get(self.quantity, self.quantity)
         if self.sample_state == 'decimated':
-            title += f' (表示間引き x{self.display_stride})'
+            title += f' (decimate x{self.display_stride})'
         return title
 
 
@@ -461,6 +462,9 @@ class FieldOverlayScene:
     iso_values: tuple[float, ...]
     volume_enabled: bool
     probe: FieldProbeValue | None
+    #: (fixed axis index, render coordinate) of the current slice — the
+    #: probe's click-ray fallback surface when nothing pickable is hit.
+    probe_plane: tuple[int, float] | None
     status_lines: tuple[str, ...]
 
 

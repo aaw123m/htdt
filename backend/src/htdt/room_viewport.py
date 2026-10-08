@@ -865,6 +865,9 @@ class RoomViewport3D(QFrame):
         # volume grid, and the scalar-bar title set for clean removal.
         self._field_image_cache: OrderedDict[tuple, pv.ImageData] = OrderedDict()
         self._field_scalar_bars: set[str] = set()
+        # (fixed axis, render coordinate) of the current display slice —
+        # the probe's click-ray fallback surface (#999).
+        self._field_probe_plane: tuple[int, float] | None = None
         self.plotter.set_background(DARK_THEME.viewport.background.hex)
         self.plotter.enable_anti_aliasing("fxaa")
         self.interactor.installEventFilter(self)
@@ -2104,6 +2107,7 @@ class RoomViewport3D(QFrame):
         )
         self._field_scalar_bars.add(bar_title)
 
+        self._field_probe_plane = scene.probe_plane
         self.plotter.add_text(
             '\n'.join([*scene.status_lines, *status_extra]),
             position='upper_right',
@@ -2130,6 +2134,46 @@ class RoomViewport3D(QFrame):
                 pass
         self._field_scalar_bars.clear()
         self._field_image_cache.clear()
+        self._field_probe_plane = None
+
+    def field_probe_world(
+        self, position: QPointF
+    ) -> tuple[float, float, float] | None:
+        """World point for the field probe under a Qt display point (#999).
+
+        First the usual pick; when nothing pickable is under the cursor
+        (slice/volume/wireframe are all non-pickable by design) the click
+        ray is intersected with the current slice's render-space plane —
+        the surface the user is actually pointing at.
+        """
+
+        world = self.pick_world_position(position)
+        if world is not None:
+            return world
+        plane = self._field_probe_plane
+        if plane is None:
+            return None
+        display = self._widget_to_display_position(position)
+        if display is None:
+            return None
+        try:
+            renderer = self.plotter.renderer
+            renderer.SetDisplayPoint(display[0], display[1], 0.0)
+            renderer.DisplayToWorld()
+            near = renderer.GetWorldPoint()
+            renderer.SetDisplayPoint(display[0], display[1], 1.0)
+            renderer.DisplayToWorld()
+            far = renderer.GetWorldPoint()
+        except Exception:
+            return None
+        if near is None or far is None or len(near) < 4 or len(far) < 4:
+            return None
+        axis, value = plane
+        depth = far[axis] - near[axis]
+        if abs(depth) < 1e-12:
+            return None
+        t = (value - near[axis]) / depth
+        return tuple(near[i] + t * (far[i] - near[i]) for i in range(3))
 
     def pick_actor_candidates(self, position: QPointF) -> tuple[str, ...]:
         """Entity ids under a Qt display point, ordered front-to-back."""

@@ -248,7 +248,8 @@ def test_display_view_decimation_keeps_full_res_clim(tmp_path: Path) -> None:
     )  # stride rounding slack
     # clim comes from the full-resolution field, not the strided subset.
     assert bounded.clim == pytest.approx(full.clim)
-    assert '間引き' in bounded.scalar_bar_title
+    assert 'decimate' in bounded.scalar_bar_title
+    assert all(ord(c) < 128 for c in bounded.scalar_bar_title)
     # Strided samples still equal canonical samples at the strided indices.
     nx, ny, nz = full.dims
     stride = bounded.display_stride
@@ -366,7 +367,14 @@ def test_controller_resolve_scene_and_clear(tmp_path: Path) -> None:
     assert resolution.scene is not None
     assert resolution.scene.slices[0].axis_plane == 'xy'
     assert any('CURRENT' in line for line in resolution.scene.status_lines)
-    assert any('規格化' in line for line in resolution.scene.status_lines)
+    # ASCII-only viewport header — VTK text drops CJK glyphs.
+    assert any(
+        'NORMALIZED DISPLAY' in line for line in resolution.scene.status_lines
+    )
+    assert all(
+        all(ord(c) < 128 for c in line)
+        for line in resolution.scene.status_lines
+    )
 
     controller.clear()
     assert controller.resolve().scene is None
@@ -401,6 +409,21 @@ def test_controller_cross_document_session_blocked(tmp_path: Path) -> None:
     controller.set_request(_request(session))
     resolution = controller.resolve()
     assert resolution.scene is None
+
+
+def test_scene_carries_probe_plane_when_armed(tmp_path: Path) -> None:
+    repository, _revision, _modes, session = _session(tmp_path)
+    CadFieldExplorerRepository(repository).save(session)
+    controller = RoomFieldOverlayController(repository)
+    controller.set_request(_request(session, probe_enabled=True))
+    scene = controller.resolve().scene
+    assert scene.probe_plane is not None
+    axis, value = scene.probe_plane
+    assert axis == 2  # 'xy' plane -> render z
+    assert value == pytest.approx(scene.slices[0].render_origin[2])
+
+    controller.set_request(_request(session, probe_enabled=False))
+    assert controller.resolve().scene.probe_plane is None
 
 
 def test_controller_probe_world_exact_samples(tmp_path: Path) -> None:
@@ -501,6 +524,30 @@ def test_viewport_overlay_actors_and_cleanup(tmp_path: Path) -> None:
     assert remaining == []
     assert not viewport._field_scalar_bars
     assert not viewport._field_image_cache
+
+
+def test_viewport_probe_world_plane_fallback(tmp_path: Path) -> None:
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+
+    from htdt.room_viewport import RoomViewport3D
+
+    QApplication.instance() or QApplication(['htdt-test'])
+    repository, _revision, _modes, session = _session(tmp_path, stride_m=0.5)
+    CadFieldExplorerRepository(repository).save(session)
+    controller = RoomFieldOverlayController(repository)
+    controller.set_request(_request(session, probe_enabled=True))
+    scene = controller.resolve().scene
+    viewport = RoomViewport3D()
+    viewport.resize(400, 300)
+    viewport.render_field_overlay(scene)
+    # With nothing pickable under the cursor the click ray still lands on
+    # the display slice plane (its render-z coordinate).
+    world = viewport.field_probe_world(QPointF(200, 150))
+    if world is not None:
+        assert world[2] == pytest.approx(
+            scene.slices[0].render_origin[2], abs=1e-6
+        )
 
 
 def test_viewport_overlay_prefix_swept_by_overlay_removal(tmp_path: Path) -> None:

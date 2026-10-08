@@ -155,7 +155,7 @@ class RoomFieldOverlayController:
             try:
                 iso_values = iso_values_for(view, request.iso_fraction)
             except FieldDisplayBlocked as exc:
-                iso_note = f'等値面なし ({"; ".join(exc.reasons)})'
+                iso_note = f'iso: none ({"; ".join(exc.reasons)})'
         probe = self._probe_value
         probe_readout = None
         if probe is not None:
@@ -165,25 +165,35 @@ class RoomFieldOverlayController:
                 f'{probe.sampled_position.y_m:.3f}, '
                 f'{probe.sampled_position.z_m:.3f}) m · {probe.sample_state}'
             )
+        # The render-space plane of the single display slice — the probe's
+        # fallback surface when no pickable actor is under the cursor.
+        fixed_axis = {'xy': 2, 'xz': 1, 'yz': 0}[request.axis_plane]
+        probe_plane = (
+            (fixed_axis, slices[0].render_origin[fixed_axis])
+            if request.probe_enabled
+            else None
+        )
+        # ASCII-only: VTK viewport text drops CJK glyphs entirely, so the
+        # honesty notice must be readable in ASCII (Qt labels keep Japanese).
         status = (
-            f'{view.producer} · モード '
+            f'{view.producer} | mode '
             f'({view.mode_indices[0]},{view.mode_indices[1]},{view.mode_indices[2]}) '
-            f'· {view.frequency_hz:.1f} Hz',
-            f'{view.quantity} [{view.unit}] · '
+            f'| {view.frequency_hz:.1f} Hz',
+            f'{view.quantity} [{view.unit}] | '
             + (
-                '規格化表示 (絶対音圧ではありません)'
+                'NORMALIZED DISPLAY (not absolute SPL)'
                 if not view.absolute_pressure_reference
-                else '絶対基準あり'
+                else 'absolute pressure reference'
             )
-            + f' · 格子 {view.dims[0]}×{view.dims[1]}×{view.dims[2]}'
+            + f' | grid {view.dims[0]}x{view.dims[1]}x{view.dims[2]}'
             + (
-                f' (間引き x{view.display_stride})'
+                f' (decimate x{view.display_stride})'
                 if view.sample_state == 'decimated'
                 else ''
             )
-            + (f' · マスク {view.masked_count}' if view.masked_count else ''),
-            f'実行 {view.prediction_run_id[:8]} · '
-            f'リビジョン {view.scene_revision_id[:8]} · CURRENT',
+            + (f' | masked {view.masked_count}' if view.masked_count else ''),
+            f'run {view.prediction_run_id[:8]} | '
+            f'rev {view.scene_revision_id[:8]} | CURRENT',
         ) + ((iso_note,) if iso_note else ())
         return FieldOverlayResolution(
             FieldOverlayScene(
@@ -192,6 +202,7 @@ class RoomFieldOverlayController:
                 iso_values=iso_values,
                 volume_enabled=request.volume_enabled,
                 probe=probe,
+                probe_plane=probe_plane,
                 status_lines=status,
             ),
             None,

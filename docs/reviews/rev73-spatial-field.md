@@ -68,6 +68,29 @@ currency offscreen, viewport actor naming + non-pickable + complete cleanup
 
 Also green: `test_cad_field_explorer.py`, `test_room_viewport_semantics.py`.
 
+## GUI-test findings folded back into the PR
+
+Real-GUI verification (Windows + Mesa GL) surfaced two gaps, both fixed:
+
+- **VTK text drops CJK glyphs** — the status header and scalar-bar titles
+  rendered only ASCII, making the honesty notice illegible. All
+  viewport-drawn strings are now ASCII (`NORMALIZED DISPLAY (not absolute
+  SPL)`, `mode pressure amplitude [Pa] (normalized)`, `decimate xN`);
+  Qt-side labels keep Japanese.
+- **Probe pick unreachable** — `pick_world_position` only hits pickable
+  actors (the ~6 px entity glyphs). `RoomViewport3D.field_probe_world`
+  now falls back to intersecting the click ray with the current slice's
+  render-space plane (`scene.probe_plane`), so clicking anywhere on the
+  displayed slice probes it; `exact_samples` snaps to the nearest node.
+
+Also observed (not ours, noted for follow-up): post-staleness the
+prediction panel's 保存済み予測 runs tree did not render in the GUI, so
+re-arming a new session could not be demonstrated end-to-end — the
+underlying recovery was verified offscreen (new run + CURRENT session).
+Sessions are content-addressed, so rebuilding identical content dedups to
+the same (stale) session — honest but silent; a status hint is a possible
+follow-up.
+
 ## Scope notes / known limits
 
 - M1 (slices+slider+probe) and M2 (single iso contour) implemented; M3

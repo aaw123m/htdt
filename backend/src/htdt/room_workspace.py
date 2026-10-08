@@ -6079,10 +6079,13 @@ class RoomWorkspace(QWidget):
         self._render()
 
     def _field_probe_at(self, display_position) -> None:
+        if display_position is None:
+            return
+        probe_at = getattr(self.viewport, 'field_probe_world', None)
         world = (
-            self.viewport.pick_world_position(display_position)
-            if display_position is not None
-            else None
+            probe_at(display_position)
+            if callable(probe_at)
+            else self.viewport.pick_world_position(display_position)
         )
         if world is None:
             return
