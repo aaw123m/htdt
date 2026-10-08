@@ -5,6 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+import shutil
 import sqlite3
 from typing import Literal
 
@@ -2270,6 +2271,30 @@ _MIGRATIONS = {
 }
 
 
+def _snapshot_pre_migration_backup(path: Path, version: int) -> Path | None:
+    """Preserve a byte copy of a real database before an in-place migration.
+
+    ``ensure_native_schema`` migrates the live file when called outside the
+    GUI ``execute_native_upgrade`` lifecycle (headless opens, scripts,
+    diagnostics) — those callers get no recovery generation. A sibling
+    ``<name>.schema-v<N>-backup`` copy is the minimum honest artefact:
+    best-effort (failures never block the migration itself) and
+    write-once per source version, so a resumed chain never overwrites
+    the copy that captured the pre-migration file.
+    """
+
+    if version < 1 or version >= NATIVE_SCHEMA_VERSION:
+        return None
+    backup = path.with_name(f'{path.name}.schema-v{version}-backup')
+    if backup.exists():
+        return backup
+    try:
+        shutil.copy2(path, backup)
+    except OSError:
+        return None
+    return backup
+
+
 def ensure_native_schema(path: Path) -> int:
     """Migrate a native CAD database to the supported schema.
 
@@ -2284,6 +2309,9 @@ def ensure_native_schema(path: Path) -> int:
     the stored version at an earlier step boundary rather than inside one.
     Every step is idempotent, so the next open resumes from the last
     committed boundary — never a half-applied step reading as complete.
+    A real (v>=1) pre-migration file is preserved beside the database as
+    ``<name>.schema-v<N>-backup`` before any write — headless callers get
+    no GUI recovery generation.
     """
 
     path = Path(path)
@@ -2313,6 +2341,7 @@ def ensure_native_schema(path: Path) -> int:
         with closing(connect_sqlite(path)) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')
             version = _stored_version(connection)
+            _snapshot_pre_migration_backup(path, version)
             if version > NATIVE_SCHEMA_VERSION:
                 raise NativeSchemaError(
                     f'native database schema v{version} is newer than this application '

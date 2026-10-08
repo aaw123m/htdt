@@ -1061,3 +1061,34 @@ def test_v9_stamped_table_missing_ensured_column_is_converged(
         ).fetchone()
     assert 'snap_json' in columns
     assert row == ('doc-a', 'speaker-fl', None)
+
+
+def test_real_migration_preserves_pre_migration_backup(tmp_path: Path) -> None:
+    path = tmp_path / 'cad.sqlite3'
+    ensure_native_schema(path)
+    # Roll the stored marker back one step so the next ensure runs a real
+    # migration on an existing (v>=1) file.
+    _stamp_native_version(path, NATIVE_SCHEMA_VERSION - 1)
+    pre_image = path.read_bytes()
+
+    ensure_native_schema(path)
+
+    backup = path.with_name(
+        f'{path.name}.schema-v{NATIVE_SCHEMA_VERSION - 1}-backup'
+    )
+    assert backup.read_bytes() == pre_image
+
+    # A resumed chain never overwrites the copy that captured the
+    # pre-migration file.
+    before = backup.stat().st_mtime_ns
+    _stamp_native_version(path, NATIVE_SCHEMA_VERSION - 1)
+    ensure_native_schema(path)
+    assert backup.stat().st_mtime_ns == before
+
+
+def test_current_or_fresh_database_gets_no_backup(tmp_path: Path) -> None:
+    path = tmp_path / 'cad.sqlite3'
+    ensure_native_schema(path)
+    ensure_native_schema(path)
+    backups = list(tmp_path.glob('*.schema-v*-backup'))
+    assert backups == []

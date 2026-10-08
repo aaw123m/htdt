@@ -25,13 +25,10 @@ from htdt.cad_bass_management_repository import (
     CadBassManagementRepository,
 )
 from htdt.cad_equipment import EquipmentDataProvenance
-from htdt.cad_presentation_profile import (
-    MaskingState,
-    build_video_presentation_profile,
-)
+from htdt.cad_authority_resolver import AuthorityRef
+from htdt.cad_ht_video_profile import HomeTheaterVideoDesignProfile
 from htdt.cad_presentation_profile_repository import (
     CadPresentationProfileRepository,
-    PresentationProfileConflictError,
     PresentationProfileIntegrityError,
 )
 from htdt.cad_repository import SceneRepository
@@ -72,16 +69,20 @@ def _bass_profile(version: str, lifecycle: str = 'proposed'):
     )
 
 
-def _presentation_profile(version: str):
-    return build_video_presentation_profile(
-        profile_id='pres-cih',
-        version=version,
-        sizing='constant_image_height',
-        target_aspect_ratio=2.4,
-        masking=MaskingState(kind='top_bottom'),
-        label='CIH 2.40 masked',
-        provenance=_provenance(),
-    )
+def _video_profile(
+    document_id: str = 'doc-1',
+    edition: str = 'B',
+    requirement_map: dict | None = None,
+) -> HomeTheaterVideoDesignProfile:
+    return HomeTheaterVideoDesignProfile.create({
+        'document_id': document_id,
+        'standard_ref': AuthorityRef(
+            kind='doc', ref_id='ceb23', ref_sha256='b' * 64,
+        ),
+        'edition': edition,
+        'requirement_map': requirement_map
+        or {'room_lighting': 'viewing_environment'},
+    })
 
 
 @pytest.fixture()
@@ -208,99 +209,71 @@ def test_bass_selection_row_vs_payload_integrity(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------
-# Video presentation profiles
+# Video presentation profiles (CEB23 design profiles)
 
 
-def test_presentation_profile_save_get_reopen(tmp_path: Path) -> None:
+def test_video_profile_save_get_reopen(tmp_path: Path) -> None:
     path = tmp_path / 'cad.sqlite3'
     repo = CadPresentationProfileRepository(SceneRepository(path))
-    profile = _presentation_profile('1')
-    repo.save_profile(profile, document_id='doc-1')
+    profile = _video_profile()
+    repo.save_video_profile(profile)
 
-    assert repo.get_profile('doc-1', 'pres-cih', '1') == profile
-    assert repo.get_profile_by_hash(profile.profile_sha256) == profile
+    assert repo.get_video_profile(profile.profile_id) == profile
 
     reopened = CadPresentationProfileRepository(SceneRepository(path))
-    assert reopened.get_profile('doc-1', 'pres-cih', '1') == profile
-    assert reopened.list_profiles('doc-1') == (profile,)
+    assert reopened.get_video_profile(profile.profile_id) == profile
+    assert reopened.video_profiles.list('doc-1') == (profile,)
 
 
-def test_presentation_profile_append_only_identity(pres_repo) -> None:
-    profile = _presentation_profile('1')
-    pres_repo.save_profile(profile, document_id='doc-1')
-    pres_repo.save_profile(profile, document_id='doc-1')
-    assert len(pres_repo.list_profiles('doc-1')) == 1
+def test_video_profile_append_only_identity(pres_repo) -> None:
+    profile = _video_profile()
+    pres_repo.save_video_profile(profile)
+    pres_repo.save_video_profile(profile)  # idempotent re-save
+    assert len(pres_repo.video_profiles.list('doc-1')) == 1
 
-    divergent = build_video_presentation_profile(
-        profile_id='pres-cih',
-        version='1',
-        sizing='constant_image_width',
-        target_aspect_ratio=1.78,
-        label='CIW',
-    )
-    with pytest.raises(PresentationProfileConflictError):
-        pres_repo.save_profile(divergent, document_id='doc-1')
-
-
-def test_presentation_multiple_profiles_one_screen(pres_repo) -> None:
-    cih = _presentation_profile('1')
-    scope = build_video_presentation_profile(
-        profile_id='pres-cih',
-        version='2',
-        sizing='explicit',
-        active_width_m=2.6,
-        active_height_m=1.1,
-        label='scope window',
-    )
-    pres_repo.save_profile(cih, document_id='doc-1')
-    pres_repo.save_profile(scope, document_id='doc-1')
-
-    sel1 = pres_repo.select_profile('doc-1', 'screen-1', cih)
-    sel2 = pres_repo.select_profile('doc-1', 'screen-1', scope)
-
-    assert pres_repo.current_selection('doc-1') == sel2
-    assert pres_repo.current_profile('doc-1') == scope
-    # Switching selection never rewrites history: both selections persist.
-    assert pres_repo.list_selections('doc-1') == (sel1, sel2)
-    assert sel2.screen_entity_id == 'screen-1'
-
-
-def test_presentation_selection_requires_persisted_profile(pres_repo) -> None:
-    profile = _presentation_profile('1')
+    # A tampered copy fails the seal check before the conflict check.
+    divergent = profile.model_copy(update={'edition': 'A'})
     with pytest.raises(PresentationProfileIntegrityError):
-        pres_repo.select_profile('doc-1', 'screen-1', profile)
+        pres_repo.save_video_profile(divergent)
 
 
-def test_presentation_profile_row_vs_payload_integrity(tmp_path: Path) -> None:
+def test_video_profiles_scoped_per_document(pres_repo) -> None:
+    one = _video_profile(document_id='doc-1')
+    two = _video_profile(document_id='doc-2')
+    pres_repo.save_video_profile(one)
+    pres_repo.save_video_profile(two)
+
+    assert pres_repo.video_profiles.list('doc-1') == (one,)
+    assert pres_repo.video_profiles.list('doc-2') == (two,)
+
+
+def test_video_profile_row_vs_payload_integrity(tmp_path: Path) -> None:
     path = tmp_path / 'cad.sqlite3'
     repo = CadPresentationProfileRepository(SceneRepository(path))
-    profile = _presentation_profile('1')
-    repo.save_profile(profile, document_id='doc-1')
+    profile = _video_profile()
+    repo.save_video_profile(profile)
 
     with sqlite3.connect(path) as connection:
         connection.execute(
-            'UPDATE cad_video_presentation_profiles SET profile_sha256=? '
-            'WHERE document_id=? AND profile_id=?',
-            ('f' * 64, 'doc-1', 'pres-cih'),
-        )
-    with pytest.raises(PresentationProfileIntegrityError):
-        repo.get_profile('doc-1', 'pres-cih', '1')
-
-
-def test_presentation_selection_row_vs_payload_integrity(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / 'cad.sqlite3'
-    repo = CadPresentationProfileRepository(SceneRepository(path))
-    profile = _presentation_profile('1')
-    repo.save_profile(profile, document_id='doc-1')
-    repo.select_profile('doc-1', 'screen-1', profile)
-
-    with sqlite3.connect(path) as connection:
-        connection.execute(
-            'UPDATE cad_video_presentation_selections SET screen_entity_id=? '
+            'UPDATE cad_ht_video_design_profiles SET profile_sha256=? '
             'WHERE document_id=?',
-            ('screen-9', 'doc-1'),
+            ('f' * 64, 'doc-1'),
         )
     with pytest.raises(PresentationProfileIntegrityError):
-        repo.current_selection('doc-1')
+        repo.get_video_profile(profile.profile_id)
+
+
+def test_video_profile_bound_column_integrity(tmp_path: Path) -> None:
+    path = tmp_path / 'cad.sqlite3'
+    repo = CadPresentationProfileRepository(SceneRepository(path))
+    profile = _video_profile()
+    repo.save_video_profile(profile)
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE cad_ht_video_design_profiles SET edition='X' "
+            'WHERE document_id=?',
+            ('doc-1',),
+        )
+    with pytest.raises(PresentationProfileIntegrityError):
+        repo.get_video_profile(profile.profile_id)
