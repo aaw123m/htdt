@@ -8,6 +8,8 @@ on:
       - 'backend/tests/test_r130d_embedded_neumann_fv_evidence.py'
       - 'backend/tests/test_r130d_fv_mfem_same_drive.py'
       - 'backend/tests/test_r130d_candidate_same_source_qualification.py'
+      - 'backend/tests/test_r130d_mfem_ref4_same_drive.py'
+      - 'scripts/run_r130d_mfem_ref4_same_drive.py'
       - 'backend/src/htdt/r130d_candidate_same_source_qualification.py'
       - 'scripts/run_r130d_candidate_same_source_qualification.py'
       - 'benchmarks/acoustics/r130d_candidate_same_source*'
@@ -16,6 +18,10 @@ on:
       - 'benchmarks/acoustics/r130d_mfem_independent_sparse_systems/**'
       - 'scripts/run_r130d_embedded_neumann_*.py'
       - 'benchmarks/acoustics/r130d_embedded_neumann_fv_*.json'
+# Keep only one budgeted prototype CI run per PR revision.
+concurrency:
+  group: r130d-neumann-prototype-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 permissions:
   contents: read
 
@@ -45,8 +51,9 @@ jobs:
           Copy-Item backend/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/
           Copy-Item backend/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/
           Copy-Item backend/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/
+          Copy-Item backend/tests/test_r130d_mfem_ref4_same_drive.py scratch/tests/
           $env:PYTHONPATH = Join-Path $pwd 'backend/src'
-          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py --tb=short
+          python -m pytest -q scratch/tests/test_r130d_embedded_neumann_fv.py scratch/tests/test_r130d_embedded_neumann_fv_evidence.py scratch/tests/test_r130d_fv_mfem_same_drive.py scratch/tests/test_r130d_candidate_same_source_qualification.py scratch/tests/test_r130d_mfem_ref4_same_drive.py --tb=short
       - name: Recompute modal benchmark and compare frozen evidence
         shell: pwsh
         env:
