@@ -230,6 +230,10 @@ CANONICAL_WORKSPACE_CONTEXTS: dict[WorkspaceId, tuple[WorkspaceContext, ...]] = 
         # Instrument onboarding/checklist page; reached last in the bar since
         # it guides the first capture rather than describing a workflow stage.
         WorkspaceContext("calibration", "機器の準備", "測定機器の準備手順と確認項目を案内します"),
+        # #869 native sweep acquisition page — deep links (e.g. the
+        # first-run wizard's ベースライン測定へ) need the context registered
+        # here for the router to resolve `measurement/acquisition`.
+        WorkspaceContext("acquisition", "掃引測定", "スイープ信号の再生・録音で部屋の応答を直接測定します"),
     ),
     WorkspaceId.OPTIMIZATION: (
         WorkspaceContext("setup", "探索設定", "どのパラメータをどの範囲で動かすか（探索軸）を設定します"),
