@@ -35,6 +35,7 @@ Activity Center entry and the statusbar line are the app's job.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import time
 from pathlib import Path
@@ -90,6 +91,28 @@ _STAGE_SUCCESS_OUTCOMES = frozenset(
 #: the same-key ``pool.start`` then detaches the lingering thread under
 #: module ownership instead of blocking the GUI on a bounded stop.
 _STALL_BUDGET_S = 300.0
+
+
+@dataclass(frozen=True)
+class _WatchScanResult:
+    """One scan job's computed next-state plus its routing outcomes.
+
+    The worker computes against *job-local* copies of the epoch dicts —
+    it never touches the runner's ``_seen``/``_pending``/
+    ``_route_failures`` — and carries the result back inside the
+    ``completed`` payload. The runner publishes the next-state on its own
+    (Qt owner) thread only while ``(root, generation)`` still names the
+    live epoch, so an abandoned worker that wakes up after a stall
+    release can never write into the epoch that replaced it (#1014,
+    #1021).
+    """
+
+    root: Path
+    generation: int
+    seen: dict[str, tuple[int, int]]
+    pending: dict[str, tuple[int, int]]
+    route_failures: dict[str, int]
+    results: list
 
 
 def scan_capture_watch_dir(
@@ -208,16 +231,19 @@ class CaptureWatchRunner(QObject):
         self._timer.timeout.connect(self._tick)
         self._seen: dict[str, tuple[int, int]] = {}
         self._pending: dict[str, tuple[int, int]] = {}
-        # Per-path routing-attempt counts — mutated on the worker only,
-        # alongside ``_seen``/``_pending``, so no cross-thread access.
+        # Per-path routing-attempt counts. ``_seen``/``_pending``/
+        # ``_route_failures`` are mutated ONLY on this (owner) thread: a
+        # scan job receives snapshots and hands back a
+        # ``_WatchScanResult`` whose next-state is published here, so a
+        # detached stale worker can never write into the live epoch.
         self._route_failures: dict[str, int] = {}
         self._watched_root: Path | None = None
         self._in_flight = False
         self._in_flight_since: float | None = None
-        # Bumped when a wedged job is abandoned: the abandoned worker may
-        # still be mid-loop, and ``_seen``/``_route_failures`` are runner
-        # state shared with its replacement — a stale generation must not
-        # write to them.
+        # Bumped when a wedged job is abandoned and when a new watch
+        # epoch begins: a job's result is published only while its
+        # ``(root, generation)`` still names the live epoch, and a stale
+        # ``_job_finished`` callback can never unlatch a newer job.
         self._job_generation = 0
         self._closed = False
 
@@ -280,17 +306,33 @@ class CaptureWatchRunner(QObject):
             self._pending.clear()
             self._route_failures.clear()
             self._watched_root = root
+            # The epoch boundary also retires every earlier job's
+            # snapshot: a result computed under another root or an
+            # abandoned job resuming late must never publish here.
+            self._job_generation += 1
         self._in_flight = True
         self._in_flight_since = time.monotonic()
         generation = self._job_generation
 
+        # Job-local state. The worker computes the next epoch dicts on
+        # its own snapshots and returns them for the owner thread to
+        # publish; it never reads or writes the runner's dicts, so an
+        # abandoned worker resuming after a stall release cannot corrupt
+        # the epoch that replaced it (#1014, #1021). Re-routing the same
+        # drop is safe even when a stale job still attempts it: the
+        # canonical ingestion/inbox authorities deduplicate on the
+        # bundle's content lineage digest, not on (mtime_ns, size)
+        # settled-signature hints — a re-delivered identical capture
+        # reports ``already_staged`` instead of a second inbox row.
+        job_seen = dict(self._seen)
+        job_pending = dict(self._pending)
+        job_route_failures = dict(self._route_failures)
+
         def job(cancel) -> object:
-            delivered = scan_capture_watch_dir(
-                root, self._seen, self._pending
-            )
+            delivered = scan_capture_watch_dir(root, job_seen, job_pending)
             results = []
             for path in delivered:
-                if cancel.is_set() or self._job_generation != generation:
+                if cancel.is_set():
                     break
                 key = str(path)
                 try:
@@ -309,35 +351,41 @@ class CaptureWatchRunner(QObject):
                 else:
                     succeeded = result.outcome in _STAGE_SUCCESS_OUTCOMES
                     results.append((path, result, None))
-                if self._job_generation != generation:
+                if cancel.is_set():
                     break
                 if succeeded:
-                    self._route_failures.pop(key, None)
+                    job_route_failures.pop(key, None)
                     continue
-                attempts = self._route_failures.get(key, 0) + 1
-                self._route_failures[key] = attempts
+                attempts = job_route_failures.get(key, 0) + 1
+                job_route_failures[key] = attempts
                 if attempts < _ROUTE_MAX_ATTEMPTS:
                     # Re-queue: dropping the seen marker re-enters the file
                     # as a candidate, so the next scans re-settle and
                     # re-route it instead of leaving the drop silently lost.
-                    self._seen.pop(key, None)
+                    job_seen.pop(key, None)
             # A failure count for a vanished file is dead weight — a
             # re-drop lands under a fresh count either way.
-            if self._job_generation == generation:
-                for stale_key in [
-                    k
-                    for k in self._route_failures
-                    if not Path(k).exists()
-                ]:
-                    del self._route_failures[stale_key]
-            return results
+            for stale_key in [
+                k for k in job_route_failures if not Path(k).exists()
+            ]:
+                del job_route_failures[stale_key]
+            return _WatchScanResult(
+                root=root,
+                generation=generation,
+                seen=job_seen,
+                pending=job_pending,
+                route_failures=job_route_failures,
+                results=results,
+            )
 
         try:
             self._pool.start(
                 _TASK_KEY,
                 job,
                 self._on_completed,
-                on_finished=self._job_finished,
+                on_finished=(
+                    lambda key, gen=generation: self._job_finished(key, gen)
+                ),
             )
         except Exception:
             self._in_flight = False
@@ -352,10 +400,34 @@ class CaptureWatchRunner(QObject):
         if error is not None:
             _LOGGER.warning('capture watch scan failed: %s', error)
             return
-        if result:
-            self.scan_completed.emit(result)
+        if not isinstance(result, _WatchScanResult):
+            return
+        if (
+            result.generation == self._job_generation
+            and result.root == self._watched_root
+        ):
+            # Atomic publish on the owner thread: the live epoch adopts
+            # the job's next-state wholesale. A stale job's state — one
+            # that outlived a stall release or a watch-root change — is
+            # dropped here even though the pool already drops detached
+            # workers' completions; its external routes were nonetheless
+            # safe because staging deduplicates on content lineage.
+            self._seen.clear()
+            self._seen.update(result.seen)
+            self._pending.clear()
+            self._pending.update(result.pending)
+            self._route_failures.clear()
+            self._route_failures.update(result.route_failures)
+        if result.results:
+            self.scan_completed.emit(result.results)
 
-    def _job_finished(self, _key: object) -> None:
+    def _job_finished(self, _key: object, generation: int) -> None:
+        if generation != self._job_generation:
+            # A finished callback from an abandoned generation must not
+            # unlatch the job that replaced it — pool-detached threads
+            # already lose their task record, so this guard covers the
+            # queued-callback ordering the pool cannot retract.
+            return
         self._in_flight = False
         self._in_flight_since = None
 
