@@ -1,0 +1,59 @@
+name: R130D numerical evidence regressions (NOT a solver qualification)
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r130d-numerical-evidence-regressions.yml'
+      - 'backend/src/htdt/r130d_general3d_validation.py'
+      - 'backend/src/htdt/pffdtd_boundary_halo.py'
+      - 'backend/tests/test_issue_938_reproduction_isolation.py'
+      - 'backend/tests/test_issue947_boundary_halo.py'
+      - 'backend/tests/test_r130d_extended_numerical_replay.py'
+      - 'backend/tests/test_r130d_high_ppw_modal_evidence.py'
+      - 'scripts/run_r130d_*'
+      - 'benchmarks/acoustics/r130d_*'
+      - 'docs/R130D_*'
+permissions:
+  contents: read
+
+jobs:
+  frozen-evidence:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install bounded numerical test dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check numpy==1.26.4 scipy==1.14.1 numba==0.60.0 pydantic==2.11.9 h5py==3.16.0 shapely==2.1.2 psutil pytest==8.4.2
+          python -c "import numpy,scipy,numba; assert (numpy.__version__,scipy.__version__,numba.__version__)==('1.26.4','1.14.1','0.60.0')"
+      - name: Copy numerical tests outside GUI-wide conftest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path scratch/tests -Force | Out-Null
+          @(
+            'test_issue_938_reproduction_isolation.py',
+            'test_issue947_boundary_halo.py',
+            'test_r130d_extended_numerical_replay.py',
+            'test_r130d_high_ppw_modal_evidence.py'
+          ) | ForEach-Object { Copy-Item (Join-Path 'backend/tests' $_) (Join-Path 'scratch/tests' $_) }
+      - name: Verify frozen numerical evidence and fail-closed verdicts
+        shell: pwsh
+        env:
+          PYTHONUTF8: '1'
+        run: |
+          $env:PYTHONPATH = Join-Path $pwd 'backend/src'
+          python -m pytest -q `
+            scratch/tests/test_issue_938_reproduction_isolation.py `
+            scratch/tests/test_issue947_boundary_halo.py `
+            scratch/tests/test_r130d_extended_numerical_replay.py `
+            scratch/tests/test_r130d_high_ppw_modal_evidence.py `
+            --tb=short
+      - name: Explicitly assert no solver qualification was implied
+        shell: pwsh
+        run: |
+          python -c "import json;from pathlib import Path;p=Path('benchmarks/acoustics');a=json.loads((p/'r130d_high_ppw_diagnostic_evidence_2026-10-09.json').read_text());b=json.loads((p/'r130d_mfem_reference_replay_evidence_2026-10-09.json').read_text());assert a['decision']['production']=='NO_GO_NOT_VALIDATED';assert a['analysis']['final_pair_within_frozen_limits'] is False;assert b['analysis']['mfem_self_convergence']=='SELF_CONVERGENCE_FAILED';print('PASS: solver remains NOT_VALIDATED')"
