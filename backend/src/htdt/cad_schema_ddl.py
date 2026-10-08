@@ -9179,6 +9179,30 @@ NATIVE_BASELINE_DDL: tuple[str, ...] = (
         CREATE INDEX IF NOT EXISTS idx_acr_desc ON cad_adapter_conformance_results(descriptor_sha256, seq ASC)
     """
     ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_interop_fixture_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL UNIQUE, run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, fixture_id TEXT NOT NULL, fixture_sha256 TEXT NOT NULL, manifest_sha256 TEXT NOT NULL, corpus_version TEXT NOT NULL, harness_version TEXT NOT NULL, format_family TEXT NOT NULL, round_trip_mode TEXT NOT NULL, verdict TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_icr_doc ON cad_interop_fixture_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_icr_fixture ON cad_interop_fixture_runs(fixture_sha256, seq ASC)
+    """
+    ,
+    """
+        CREATE TABLE IF NOT EXISTS cad_interop_corpus_runs ( seq INTEGER PRIMARY KEY AUTOINCREMENT, corpus_run_id TEXT NOT NULL UNIQUE, corpus_run_sha256 TEXT NOT NULL UNIQUE, document_id TEXT NOT NULL, manifest_id TEXT NOT NULL, manifest_sha256 TEXT NOT NULL, corpus_version TEXT NOT NULL, harness_version TEXT NOT NULL, verdict TEXT NOT NULL, started_at_utc TEXT NOT NULL, finished_at_utc TEXT NOT NULL, payload_json TEXT NOT NULL )
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_icx_doc ON cad_interop_corpus_runs(document_id, seq ASC)
+    """
+    ,
+    """
+        CREATE INDEX IF NOT EXISTS idx_icx_manifest ON cad_interop_corpus_runs(manifest_sha256, seq ASC)
+    """
+    ,
 )
 
 
@@ -10370,4 +10394,7 @@ NATIVE_SCHEMA_TABLES: tuple[str, ...] = (
     # REV69: #887 provider/device adapter SDK + conformance authority.
     'cad_adapter_sdk_descriptors',
     'cad_adapter_conformance_results',
+    # REV70: #892 versioned interop corpus + semantic round-trip verdicts.
+    'cad_interop_fixture_runs',
+    'cad_interop_corpus_runs',
 )

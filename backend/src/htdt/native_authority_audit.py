@@ -1558,6 +1558,12 @@ class _RepositoryChain:
             )
 
             return CadHeadlessRunRepository(scene)
+        if name == 'interop_corpus':
+            from .cad_interop_corpus_repository import (
+                CadInteropCorpusRepository,
+            )
+
+            return CadInteropCorpusRepository(scene)
         raise KeyError(name)
 
 
@@ -7708,6 +7714,20 @@ _REPLAY_PROBES: tuple[_ReplayProbe, ...] = (
         'cad_headless_run_records',
         ('run_record_id',),
         _get('headless_cli', 'get_run'),
+    ),
+    # REV70: #892 interop corpus — sealed per-fixture verdicts and the
+    # whole-corpus run record pinning the manifest they ran against.
+    _ReplayProbe(
+        'interop_fixture_run',
+        'cad_interop_fixture_runs',
+        ('run_id',),
+        _get('interop_corpus', 'get_fixture_run'),
+    ),
+    _ReplayProbe(
+        'interop_corpus_run',
+        'cad_interop_corpus_runs',
+        ('corpus_run_id',),
+        _get('interop_corpus', 'get_corpus_run'),
     ),
     # REV66: #866 geometry intake readiness authority.
     _ReplayProbe(

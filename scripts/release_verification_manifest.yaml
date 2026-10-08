@@ -393,3 +393,26 @@ classes:
         description: >-
           Fixture determinism, verdict ladder, and the
           intentional-slowdown regression-detection proof.
+
+  - id: interop-corpus
+    title: 'Interop compatibility corpus + semantic round-trip harness'
+    description: >-
+      Versioned redistribution-safe interop corpus (#892): every fixture's
+      sealed declaration — provenance/licence, format+version, units and
+      coordinate semantics, expected supported/unsupported features and the
+      exact warning/degradation token set — is exercised through the real
+      import/export lanes with semantic (never byte) comparison; verdict
+      vocabulary semantically_equal / degraded_as_declared /
+      unsupported_as_declared / regression / unexpected_failure, and any
+      regression or fixture drift fails the class.
+    required: true
+    include_in_dev: true
+    checks:
+      - id: interop-corpus-round-trip
+        kind: pytest
+        tests:
+          - backend/tests/test_issue_892_interop_corpus.py
+        description: >-
+          Corpus seals, all six family lanes (REW text, Equalizer APO,
+          CamillaDSP, CLF binary, IFC STEP, .htdtproject), every verdict
+          path, and sealed-store repository integrity.

@@ -924,6 +924,8 @@ _LIFECYCLE_TABLE_LABELS = {
     "cad_diagnostic_resolutions": "診断解決レコード",
     "cad_diagnostic_authorizations": "診断操作承認",
     "cad_headless_run_records": "ヘッドレス実行レコード",
+    "cad_interop_fixture_runs": "相互運用フィクスチャ判定レコード",
+    "cad_interop_corpus_runs": "相互運用コーパス実行レコード",
     "cad_credential_references": "資格情報参照",
     "cad_credential_lifecycle_events": "資格情報ライフサイクルイベント",
     "cad_update_packages": "アップデートパッケージ",

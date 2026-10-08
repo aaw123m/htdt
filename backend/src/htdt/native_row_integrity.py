@@ -10212,6 +10212,43 @@ _ROW_BINDINGS: dict[str, tuple[str, tuple[RowBinding, ...], tuple[ExtraCheck, ..
         ),
         (),
     ),
+    # REV70: #892 interop corpus — sealed per-fixture run verdicts and
+    # whole-corpus run records pinned to the corpus manifest.
+    'cad_interop_fixture_runs': (
+        'payload_json',
+        (
+            _b('run_id', 'run_id'),
+            _b('run_sha256', 'run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('fixture_id', 'fixture_ref', 'ref_id'),
+            _b('fixture_sha256', 'fixture_ref', 'ref_sha256'),
+            _b('manifest_sha256', 'manifest_sha256'),
+            _b('corpus_version', 'corpus_version'),
+            _b('harness_version', 'harness_version'),
+            _b('format_family', 'format_family'),
+            _b('round_trip_mode', 'round_trip_mode'),
+            _b('verdict', 'verdict'),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
+    'cad_interop_corpus_runs': (
+        'payload_json',
+        (
+            _b('corpus_run_id', 'corpus_run_id'),
+            _b('corpus_run_sha256', 'corpus_run_sha256'),
+            _b('document_id', 'document_id'),
+            _b('manifest_id', 'manifest_ref', 'ref_id'),
+            _b('manifest_sha256', 'manifest_ref', 'ref_sha256'),
+            _b('corpus_version', 'corpus_version'),
+            _b('harness_version', 'harness_version'),
+            _b('verdict', 'verdict'),
+            _b('started_at_utc', 'started_at_utc'),
+            _b('finished_at_utc', 'finished_at_utc'),
+        ),
+        (),
+    ),
 }
 
 
