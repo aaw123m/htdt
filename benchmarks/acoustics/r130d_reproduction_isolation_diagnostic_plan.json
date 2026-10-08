@@ -1,0 +1,410 @@
+{
+ "schema_version": "htdt.r130d.reproduction-isolation-diagnostic-plan-1",
+ "diagnostic_id": "r130d-general3d-reproduction-isolation-2026-10-08",
+ "issue": 938,
+ "task_start_main_sha": "2aaa9c8c5489a134681bf21b8043f8cebc7b4a2a",
+ "frozen_solver_contract": {
+  "fixture_id": "r130d-polyhedral-candidate-wave-v1/sloped",
+  "geometry_kind": "explicit_polyhedral",
+  "source_position_m": [
+   1.5,
+   2.0,
+   2.0
+  ],
+  "receiver_position_m": [
+   2.5,
+   2.0,
+   2.0
+  ],
+  "boundary_mode": "rigid",
+  "speed_of_sound_m_s": 343.2,
+  "density_kg_m3": 1.2,
+  "record_duration_s": 0.25,
+  "evaluation_frequencies_hz": [
+   40.0,
+   80.0
+  ],
+  "pffdtd_source_commit_sha": "aa319f6c86517cb95aabfae8656277da62c3ead5",
+  "pffdtd_ppw": [
+   8.0,
+   10.0,
+   12.0
+  ],
+  "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "transfer_contract": {
+   "observable": "finite_record_complex_acoustic_pressure_per_volume_velocity",
+   "unit": "Pa/(m^3/s)",
+   "phasor_convention": "exp(-i*omega*t)",
+   "dtft_kernel_sign": "exp(+i*omega*t)",
+   "time_window": "rectangular_no_taper"
+  }
+ },
+ "parent_general3d_plan": {
+  "plan_id": "r130d-independent-sloped-mfem-v2-coherent-window-2026-09-20",
+  "semantic_sha256": "5c753073a88d6705ee2962aa387006d4c563f90f0249b722dcf309a8155f62ec"
+ },
+ "parent_target_window_diagnostic": {
+  "semantic_sha256": "ff42a7e0c44ed4726ea34edfa2549d018d66a37181786df18bbd4cf59c61d0db"
+ },
+ "parent_spatial_representation_diagnostic": {
+  "semantic_sha256": "7703ca0d2b083e6b732c04d3b1ef206dc67fe5448bbd9d05dfa25d3b7f637ad4"
+ },
+ "parent_dense_frequency_diagnostic": {
+  "semantic_sha256": "5922d03be22b86634c9397d94d15b1164b00c7a9c3e012d9628fd3a63dd3c80a"
+ },
+ "parent_stencil_sensitivity_diagnostic": {
+  "semantic_sha256": "25229cb1a1c4778bba64ffb0b1a57ed6cc92d87c056b312aa7c061c04406a914"
+ },
+ "parent_voxel_staircase_sensitivity_diagnostic": {
+  "semantic_sha256": "0e39ec4222d352b4f66560241c05825ce7c9b3792a410a60ac7e16cd6c45af9b"
+ },
+ "parent_time_gate_localization_diagnostic": {
+  "semantic_sha256": "32200abe7c7b35e3af82b871793fe417a59b2b911071bfdea4dcd2dede63f89e"
+ },
+ "parent_receiver_position_sensitivity_diagnostic": {
+  "semantic_sha256": "aa984be8893ff1a9b7f7f02b08acbf63e171ed41c27555212566579a9c95d6a7"
+ },
+ "parent_source_position_sensitivity_diagnostic": {
+  "semantic_sha256": "f4ad35dd500b80e000cd1efffbde8a301ad74b69bc8df0656dedf91044fef52c"
+ },
+ "parent_joint_translation_sensitivity_diagnostic": {
+  "semantic_sha256": "c979f661ab38148148b13cdcc87f57dd8c04126c62c819eb44817bd66df77c4e"
+ },
+ "reproduction_targets": {
+  "run25_self_convergence": {
+   "summary_relpath": "benchmarks/acoustics/r130d_general3d_self_convergence_run25_summary.json",
+   "summary_sha256": "96902bc4a6132f06fe3423ce6d15b6be663f5086f5e8975a4557ab9a3018647d",
+   "pffdtd_adjacent_pairs": [
+    {
+     "coarse_ppw": 8,
+     "fine_ppw": 10,
+     "complex_rms_relative": 0.8761219168261092,
+     "magnitude_max_relative": 0.8034993026847357,
+     "magnitude_max_db": 14.13271808239866,
+     "phase_max_deg": 75.48664328096115,
+     "frequency_metrics": [
+      {
+       "frequency_hz": 40,
+       "complex_relative": 1.164154285209148,
+       "magnitude_relative": 0.10281994251116061,
+       "magnitude_db": 0.9424077695212351,
+       "phase_deg": 75.48664328096115
+      },
+      {
+       "frequency_hz": 80,
+       "complex_relative": 0.8739186164453012,
+       "magnitude_relative": 0.8034993026847357,
+       "magnitude_db": 14.13271808239866,
+       "phase_deg": 45.61834000170515
+      }
+     ]
+    },
+    {
+     "coarse_ppw": 10,
+     "fine_ppw": 12,
+     "complex_rms_relative": 3.171427115345244,
+     "magnitude_max_relative": 2.6525614377313196,
+     "magnitude_max_db": 11.251950593937991,
+     "phase_max_deg": 83.80402351293702,
+     "frequency_metrics": [
+      {
+       "frequency_hz": 40,
+       "complex_relative": 2.1539485964133083,
+       "magnitude_relative": 1.0187260629768586,
+       "magnitude_db": 6.101547801268796,
+       "phase_deg": 83.80402351293702
+      },
+      {
+       "frequency_hz": 80,
+       "complex_relative": 3.1897237679549817,
+       "magnitude_relative": 2.6525614377313196,
+       "magnitude_db": 11.251950593937991,
+       "phase_deg": 55.221635183461814
+      }
+     ]
+    }
+   ],
+   "replay_rule": "re-derive per-PPW pressure transfers from the canonical SimEngine leg assets and compare_complex_transfer; recomputed adjacent-pair complex_rms_relative/magnitude/phase metrics must equal the committed values bit-for-bit within 1e-12 relative tolerance for the reproduction to be REPRODUCED_RUN25_VALUES_MATCH"
+  },
+  "run62_target_window": {
+   "summary_relpath": "benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json",
+   "summary_sha256": "46c090486642d50c3ce84bf8b74c84ca2c773fecb6c2aed08d19eb64a9527edb",
+   "pffdtd_canonical_transfers": [
+    {
+     "points_per_wavelength": 8,
+     "canonical": [
+      [
+       -34.92513607705468,
+       -13.008151753896083
+      ],
+      [
+       -34.79457934155918,
+       -94.57358931689443
+      ]
+     ],
+     "aligned": [
+      [
+       -27.280864780526407,
+       -14.06320667383575
+      ],
+      [
+       -27.366343111117093,
+       -96.66388380422464
+      ]
+     ],
+     "canonical_aligned_complex_rms": 0.10157204837244856
+    },
+    {
+     "points_per_wavelength": 10,
+     "canonical": [
+      [
+       -23.79175672506672,
+       34.05195148492657
+      ],
+      [
+       220.12588490165516,
+       -463.1821162252182
+      ]
+     ],
+     "aligned": [
+      [
+       -9.603386783018143,
+       33.13306407674583
+      ],
+      [
+       234.22520708884772,
+       -465.01604903289996
+      ]
+     ],
+     "canonical_aligned_complex_rms": 0.03908085880442921
+    },
+    {
+     "points_per_wavelength": 12,
+     "canonical": [
+      [
+       15.497498999874912,
+       13.537245252928091
+      ],
+      [
+       -69.78140073908766,
+       -121.8334884485062
+      ]
+     ],
+     "aligned": [
+      [
+       50.2075904512219,
+       12.969563524901295
+      ],
+      [
+       -35.0852337225948,
+       -122.9687000890589
+      ]
+     ],
+     "canonical_aligned_complex_rms": 0.3459706790098712
+    }
+   ],
+   "replay_rule": "canonical-window transfers from re-executed canonical legs must equal committed canonical complex values; the equalized-duration evaluation must equal committed aligned values"
+  },
+  "run76_dense_frequency": {
+   "binding": {
+    "binding_rule": "the dense sweep evaluates the same persisted pressure/source records as authoritative run #76; a run that re-executes the pinned PFFDTD contract binds to those records by comparing the semantic sha256 of the recombined pressure trace and the unit discrete volume-velocity impulse source trace at every predeclared PPW level",
+    "authoritative_run_id": 35545706871,
+    "artifact_id": 10616239750,
+    "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f",
+    "identical_label": "RUN76_TRACE_IDENTICAL",
+    "nonidentical_label": "REEXECUTED_TRACE_DIFFERS",
+    "on_nonidentical": "the computed sweep values are still emitted, but evaluation_state becomes NOT_EVALUATED_RECORD_BINDING_MISMATCH and the frozen classification is withheld so the result cannot be read as the run-76 experiment",
+    "levels": [
+     {
+      "points_per_wavelength": 8.0,
+      "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+      "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444"
+     },
+     {
+      "points_per_wavelength": 10.0,
+      "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+      "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49"
+     },
+     {
+      "points_per_wavelength": 12.0,
+      "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+      "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0"
+     }
+    ]
+   },
+   "replay_rule": "per-PPW pressure_trace_sha256/source_trace_sha256 must equal the run76 record binding pins for every level"
+  }
+ },
+ "record_prefix_identity": {
+  "level_ppw": 8.0,
+  "truncated_time_step_count_rule": "Nt_truncated = floor(duration_equalized_s / Ts) computed from run62 equalized record duration; the comms Nt dataset and in_sigs are rewritten to the truncated count and the SimEngine is re-executed",
+  "identity_rule": "u_out[:, :Nt_truncated] of the truncated re-execution must be bit-identical to the prefix of the canonical leg u_out; any difference falsifies the claim that the comms record is the sole driver of the observed record-dependent values",
+  "verdict_labels": {
+   "identical": "RECORD_PREFIX_IDENTICAL",
+   "differs": "RECORD_PREFIX_DIFFERS"
+  }
+ },
+ "cfl_dt_variants": {
+  "levels_ppw": [
+   8.0,
+   10.0,
+   12.0
+  ],
+  "time_step_scale_factors": [
+   0.85,
+   0.7
+  ],
+  "record_duration_rule": "Nt' = ceil(0.25 / Ts') so every variant keeps the same physical record window",
+  "source_signal_rule": "in_sigs' = in_alpha * (l2'/h) applied at column 0 only (the same SimComms impulse assembly at the variant Ts), in_alpha recovered as canonical in_sigs[:,0]*h/l2",
+  "comparison_rule": "dense-frequency worsening vector and canonical-pair metrics are recomputed per variant against the canonical-window evaluation at the same frequencies"
+ },
+ "analytic_rigid_box": {
+  "box_dimensions_m": {
+   "x": 2.5,
+   "y": 2.0,
+   "z": 1.6
+  },
+  "wall_index_offset_cells": 2,
+  "halo_separation_probe": {
+   "wall_index_offset_cells_blocked": 1,
+   "grid_spacing_m": 0.2,
+   "record_seconds": 0.1,
+   "tail_head_rms_ratio_min": 0.5,
+   "room_dimensions_m": [
+    2.4,
+    1.6,
+    1.4
+   ],
+   "source_xyz_m": [
+    0.7,
+    0.7,
+    0.65
+   ],
+   "receiver_xyz_m": [
+    1.9,
+    1.1,
+    0.9
+   ]
+  },
+  "grid_spacing_levels_m": [
+   0.1,
+   0.05
+  ],
+  "courant_number": 0.5,
+  "record_duration_s": 0.4,
+  "source_position_m": [
+   0.75,
+   0.52,
+   0.41
+  ],
+  "receiver_position_m": [
+   1.75,
+   1.31,
+   1.05
+  ],
+  "mode_index_bound": {
+   "n_max": 3,
+   "frequency_cut_hz": 220.0
+  },
+  "modal_frequency_reference": "discrete_cavity_neumann_stencil",
+  "peak_detection": {
+   "frequency_grid_hz": {
+    "start": 30.0,
+    "stop": 220.0,
+    "step": 0.5
+   },
+   "prominence_floor_db": 6.0,
+   "valley_window_bins": 8,
+   "noise_floor_db": -40.0,
+   "detection_rule": "local max bin rising above both flanking valleys within +/-valley_window_bins by >= prominence_floor_db, with magnitude >= band_max*10**(noise_floor_db/20)",
+   "mode_cluster_relative_gap": 0.03,
+   "window": "rectangular record impulse response; peaks located on |transfer|"
+  },
+  "mode_frequency_tolerance_relative": 0.005,
+  "verdict_labels": {
+   "within": "ANALYTIC_MODAL_PEAKS_WITHIN_TOLERANCE",
+   "outside": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+   "unresolved": "ANALYTIC_MODAL_PEAKS_UNRESOLVED"
+  }
+ },
+ "phase_floor_rescore": {
+  "extra_mask_floors_db": [
+   -40.0,
+   -30.0
+  ],
+  "rule": "the canonical-window run25 adjacent-pair phase metrics are re-derived with the comparison mask floor tightened to each predeclared level; phase non-monotonicity persisting under a tighter floor cannot be attributed to near-null bins"
+ },
+ "worsening_cause_separation": {
+  "near_null_rule": "a dense-frequency bin whose |reference| transfer is below the fixed comparison mask floor is labelled NEAR_NULL",
+  "phase_wrap_deg": 150.0,
+  "resonance_rule": "a bin whose |transfer| is a strict local maximum on the dense grid is labelled NEAR_RESONANCE",
+  "rule": "each dense-frequency bin where the worsening vector is positive is classified into {NEAR_NULL, PHASE_WRAP_CANDIDATE, NEAR_RESONANCE, UNCLASSIFIED} so the worsening pattern is attributed to observable structure rather than a free parameter"
+ },
+ "run76_record_binding": {
+  "binding_rule": "the dense sweep evaluates the same persisted pressure/source records as authoritative run #76; a run that re-executes the pinned PFFDTD contract binds to those records by comparing the semantic sha256 of the recombined pressure trace and the unit discrete volume-velocity impulse source trace at every predeclared PPW level",
+  "authoritative_run_id": 35545706871,
+  "artifact_id": 10616239750,
+  "artifact_digest_sha256": "568e7620f623b99395cc76a5ba1e0cd6b7edb6a5e1a5e95f60547101c4224c0f",
+  "identical_label": "RUN76_TRACE_IDENTICAL",
+  "nonidentical_label": "REEXECUTED_TRACE_DIFFERS",
+  "on_nonidentical": "the computed sweep values are still emitted, but evaluation_state becomes NOT_EVALUATED_RECORD_BINDING_MISMATCH and the frozen classification is withheld so the result cannot be read as the run-76 experiment",
+  "levels": [
+   {
+    "points_per_wavelength": 8.0,
+    "pressure_trace_sha256": "cbc075fe9808cb1bec30b2db6583594d1422803268514fd1e3e807cf1ac40a3a",
+    "source_trace_sha256": "b7a9f5eeee181abef9c49d9a225bf56cf500df5dffa12b9e7715a3a265d78444"
+   },
+   {
+    "points_per_wavelength": 10.0,
+    "pressure_trace_sha256": "ea9271e7f967f67af250d5d2a48915e7c60ffc9b6bea866f43d991ff486fb0f4",
+    "source_trace_sha256": "61c49db37bf7104f67f27f34aaafe01f0519a9b6499ee2ec0f6be3fb07e1ae49"
+   },
+   {
+    "points_per_wavelength": 12.0,
+    "pressure_trace_sha256": "69b03748066afa3410137c20c350ab03253a54e09a5896cfe766118fa06dd88e",
+    "source_trace_sha256": "e3bcd2e2f3605b5f58d94e2b3d24eb92f82207e4f90152cc8aff4fcddfa7c5e0"
+   }
+  ]
+ },
+ "canonical_reproduction": {
+  "baseline_evidence": "benchmarks/acoustics/r130d_target_window_diagnostic_run62_summary.json",
+  "required_ppw": [
+   8.0,
+   10.0,
+   12.0
+  ],
+  "required_frequency_hz": [
+   40.0,
+   80.0
+  ],
+  "max_abs_complex_component_tolerance": 1e-09,
+  "instrumentation_change_blocks_on_mismatch": true
+ },
+ "forbidden_changes": {
+  "additional_ppw": false,
+  "receiver_movement": false,
+  "geometry_fitting": false,
+  "time_window_replacement": false,
+  "amplitude_phase_fitting": false,
+  "post_result_frequency_selection": false,
+  "canonical_observable_change": false,
+  "threshold_change": false
+ },
+ "decision_semantics": {
+  "diagnostic_only": true,
+  "canonical_solver_execution_unchanged": true,
+  "canonical_pr295_reproduction_required": true,
+  "canonical_self_convergence_unchanged": true,
+  "cross_solver_unblocked_by_diagnostic": false,
+  "general_3d_validation_promoted_by_diagnostic": false
+ },
+ "evaluation": {
+  "diagnostic_only": true,
+  "canonical_run_kept_separate": true,
+  "decision_semantics": "all verdicts in this diagnostic are evaluation labels; none of them modify the frozen run25/run62/run76 decisions or unblock cross-solver comparison",
+  "mfem_policy": "MFEM legs require the pinned MFEM toolchain; on this Windows box they are ENVIRONMENT_BLOCKED and every MFEM-dependent hypothesis is reported UNRESOLVED_ENVIRONMENT_BLOCKED rather than resolved"
+ },
+ "expected_runtime": {
+  "solver_leg_budget_s": 900.0
+ }
+}

@@ -212,6 +212,13 @@ JOINT_TRANSLATION_OFFSET_CELLS: dict[str, tuple[int, int, int]] = {
 }
 DENSE_FREQUENCY_LOCALIZED_MAX_COUNT = 11
 DENSE_FREQUENCY_PERSISTS_MIN_COUNT = 23
+REPRODUCTION_ISOLATION_DIAGNOSTIC_PLAN_SCHEMA = (
+    'htdt.r130d.reproduction-isolation-diagnostic-plan-1'
+)
+REPRODUCTION_ISOLATION_DIAGNOSTIC_PLAN_SHA256 = (
+    '29d5ef4fbe2add94d606c12541624d48c4bdd2a2b8f7f21d0e890a342575779c'
+)
+REPRODUCTION_ISOLATION_VALUE_TOLERANCE = 1.0e-12
 
 
 
@@ -4194,3 +4201,259 @@ def load_evidence(path: str | Path) -> dict[str, Any]:
     if document.get('semantic_sha256') != semantic_hash(payload):
         raise ValueError('R130D evidence payload was modified')
     return payload
+
+
+def load_reproduction_isolation_diagnostic_plan(
+    path: str | Path,
+) -> dict[str, Any]:
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(payload, dict):
+        raise ValueError(
+            'R130D reproduction-isolation diagnostic plan must be a JSON object'
+        )
+    if payload.get('schema_version') != (
+        REPRODUCTION_ISOLATION_DIAGNOSTIC_PLAN_SCHEMA
+    ):
+        raise ValueError(
+            'R130D reproduction-isolation diagnostic plan schema mismatch'
+        )
+    digest = semantic_hash(payload)
+    if digest != REPRODUCTION_ISOLATION_DIAGNOSTIC_PLAN_SHA256:
+        raise ValueError(
+            'R130D reproduction-isolation diagnostic plan differs from the '
+            f'frozen pre-run authority: {digest}'
+        )
+    return payload
+
+
+def validate_reproduction_isolation_diagnostic_binding(
+    plan: 'R130DGeneral3DValidationPlan',
+    diagnostic: dict[str, Any],
+    *,
+    dense_diagnostic: dict[str, Any],
+    run25_summary: dict[str, Any],
+    run62_summary: dict[str, Any],
+) -> None:
+    parent = diagnostic.get('parent_general3d_plan', {})
+    frozen = diagnostic.get('frozen_solver_contract', {})
+    targets = diagnostic.get('reproduction_targets', {})
+    run25_target = targets.get('run25_self_convergence', {})
+    run62_target = targets.get('run62_target_window', {})
+    run76_target = targets.get('run76_dense_frequency', {})
+    checks = (
+        ('parent plan id', parent.get('plan_id'), plan.plan_id),
+        ('parent plan sha256', parent.get('semantic_sha256'), plan.plan_sha256()),
+        (
+            'parent dense diagnostic sha256',
+            diagnostic.get('parent_dense_frequency_diagnostic', {}).get(
+                'semantic_sha256'
+            ),
+            DENSE_FREQUENCY_DIAGNOSTIC_PLAN_SHA256,
+        ),
+        (
+            'bound dense diagnostic sha256',
+            diagnostic.get('parent_dense_frequency_diagnostic', {}).get(
+                'semantic_sha256'
+            ),
+            semantic_hash(dense_diagnostic),
+        ),
+        (
+            'run25 summary sha256',
+            run25_target.get('summary_sha256'),
+            semantic_hash(run25_summary),
+        ),
+        (
+            'run62 summary sha256',
+            run62_target.get('summary_sha256'),
+            semantic_hash(run62_summary),
+        ),
+        ('fixture id', frozen.get('fixture_id'), plan.fixture.fixture_id),
+        ('geometry kind', frozen.get('geometry_kind'), plan.fixture.geometry_kind),
+        (
+            'source position',
+            tuple(float(x) for x in frozen.get('source_position_m', ())),
+            tuple(float(x) for x in plan.fixture.source_position_m),
+        ),
+        (
+            'receiver position',
+            tuple(float(x) for x in frozen.get('receiver_position_m', ())),
+            tuple(float(x) for x in plan.fixture.receiver_position_m),
+        ),
+        (
+            'PFFDTD source commit',
+            frozen.get('pffdtd_source_commit_sha'),
+            plan.pffdtd.source_commit_sha,
+        ),
+        (
+            'PFFDTD PPW',
+            tuple(float(x) for x in frozen.get('pffdtd_ppw', ())),
+            tuple(float(x) for x in plan.pffdtd.points_per_wavelength),
+        ),
+    )
+    for label, expected, actual in checks:
+        if expected != actual:
+            raise ValueError(
+                f'R130D reproduction-isolation diagnostic binding mismatch on '
+                f'{label}: plan={expected!r} authority={actual!r}'
+            )
+    binding = run76_target.get('binding', {})
+    dense_binding = dense_diagnostic.get('run76_record_binding', {})
+    if binding != dense_binding:
+        raise ValueError(
+            'R130D reproduction-isolation diagnostic run76 binding differs '
+            'from the dense-frequency plan run76_record_binding'
+        )
+
+
+def reproduction_values_match(
+    recomputed: Any,
+    pinned: Any,
+    *,
+    tolerance: float = REPRODUCTION_ISOLATION_VALUE_TOLERANCE,
+) -> bool:
+    """Recursive comparison of committed numeric leaves against re-derived
+    values at a 1e-12 relative tolerance; container shapes must match."""
+    if isinstance(pinned, dict):
+        if not isinstance(recomputed, dict) or set(pinned) != set(recomputed):
+            return False
+        return all(
+            reproduction_values_match(recomputed[key], value, tolerance=tolerance)
+            for key, value in pinned.items()
+        )
+    if isinstance(pinned, (list, tuple)):
+        if not isinstance(recomputed, (list, tuple)) or len(pinned) != len(
+            recomputed
+        ):
+            return False
+        return all(
+            reproduction_values_match(rc, pc, tolerance=tolerance)
+            for rc, pc in zip(recomputed, pinned)
+        )
+    if isinstance(pinned, bool) or isinstance(pinned, str) or pinned is None:
+        return recomputed == pinned
+    if isinstance(pinned, (int, float)) and isinstance(
+        recomputed, (int, float)
+    ):
+        return math.isclose(
+            float(recomputed), float(pinned),
+            rel_tol=tolerance, abs_tol=tolerance,
+        )
+    return False
+
+
+def classify_dense_bin_cause(
+    *,
+    reference_magnitude: float,
+    magnitude_floor: float,
+    phase_delta_deg: float,
+    is_local_magnitude_max: bool,
+    phase_wrap_deg: float,
+) -> str:
+    if reference_magnitude < magnitude_floor:
+        return 'NEAR_NULL'
+    if abs(phase_delta_deg) >= phase_wrap_deg:
+        return 'PHASE_WRAP_CANDIDATE'
+    if is_local_magnitude_max:
+        return 'NEAR_RESONANCE'
+    return 'UNCLASSIFIED'
+
+
+def build_reproduction_hypothesis_table(
+    axis_verdicts: dict[str, str],
+    *,
+    mfem_executed: bool,
+) -> list[dict[str, Any]]:
+    """Map the executed falsification axes onto the issue-938 hypothesis
+    space. Statuses are SUPPORTED / REJECTED / UNRESOLVED /
+    UNRESOLVED_ENVIRONMENT_BLOCKED (never an unqualified FAIL)."""
+    record_prefix = axis_verdicts.get('record_prefix_identity')
+    cfl = axis_verdicts.get('cfl_dt_variants')
+    analytic = axis_verdicts.get('analytic_rigid_box')
+    floor = axis_verdicts.get('phase_floor_rescore')
+
+    def time_window_status() -> str:
+        if record_prefix == 'RECORD_PREFIX_IDENTICAL' and floor is not None:
+            return 'REJECTED_AS_PRINCIPAL'
+        return 'UNRESOLVED'
+
+    def interpolation_status() -> str:
+        # receiver/source interpolation sensitivity was falsified by the
+        # already-merged #510/#511 axes; nothing new is claimed here.
+        return 'REJECTED_BY_PRIOR_AXES_510_511'
+
+    def voxel_status() -> str:
+        return 'REJECTED_BY_PRIOR_AXES_508_512'
+
+    def stencil_status() -> str:
+        if analytic == 'ANALYTIC_MODAL_PEAKS_WITHIN_TOLERANCE' and (
+            cfl == 'CFL_DT_WORSENING_PERSISTS'
+        ):
+            return 'REJECTED_AS_PRINCIPAL'
+        if analytic == 'ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE':
+            return 'SUPPORTED'
+        return 'UNRESOLVED'
+
+    def boundary_status() -> str:
+        if analytic == 'ANALYTIC_MODAL_PEAKS_WITHIN_TOLERANCE':
+            return 'REJECTED_AS_PRINCIPAL'
+        if analytic == 'ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE':
+            return 'SUPPORTED'
+        return 'UNRESOLVED'
+
+    def fem_status() -> str:
+        if mfem_executed:
+            return 'UNRESOLVED'
+        return 'UNRESOLVED_ENVIRONMENT_BLOCKED'
+
+    def resonance_status() -> str:
+        if analytic == 'ANALYTIC_MODAL_PEAKS_WITHIN_TOLERANCE':
+            return 'UNRESOLVED_GEOMETRY_SPECIFIC'
+        return 'UNRESOLVED'
+
+    def record_length_status() -> str:
+        if record_prefix == 'RECORD_PREFIX_IDENTICAL':
+            return 'BOUNDED_MECHANISM_ONLY'
+        if record_prefix == 'RECORD_PREFIX_DIFFERS':
+            return 'SUPPORTED'
+        return 'UNRESOLVED'
+
+    rows = (
+        ('time_window_discrete_dtft', time_window_status()),
+        ('source_receiver_interpolation', interpolation_status()),
+        ('voxel_geometry', voxel_status()),
+        ('stencil_dispersion', stencil_status()),
+        ('boundary_impedance', boundary_status()),
+                ('fem_conditioning_pollution', fem_status()),
+        ('true_physical_resonance', resonance_status()),
+        ('record_duration_mismatch', record_length_status()),
+    )
+    return [
+        {
+            'hypothesis': name,
+            'status': status,
+            'axis_evidence': {
+                key: value
+                for key, value in axis_verdicts.items()
+                if value is not None
+            },
+        }
+        for name, status in rows
+    ]
+
+
+def classify_reproduction_isolation(
+    *,
+    run25_match: bool,
+    run62_match: bool,
+    run76_identical: bool,
+    axis_verdicts: dict[str, str],
+) -> str:
+    if not (run25_match and run62_match and run76_identical):
+        return 'REPRODUCTION_FAILED_VALUE_MISMATCH'
+    blocked = any(
+        verdict == 'UNRESOLVED_ENVIRONMENT_BLOCKED'
+        for verdict in axis_verdicts.values()
+    )
+    if blocked:
+        return 'REPRODUCED_PARTIAL_ENVIRONMENT_BLOCKED'
+    return 'REPRODUCED_AND_ISOLATED'

@@ -1,0 +1,234 @@
+{
+ "schema_version": "htdt.r130d.reproduction-isolation-diagnostic-committed-summary-1",
+ "diagnostic_id": "r130d-general3d-reproduction-isolation-2026-10-08",
+ "issue": 938,
+ "repository_head_sha256": "2aaa9c8c5489a134681bf21b8043f8cebc7b4a2a",
+ "diagnostic_verdict": "REPRODUCED_AND_ISOLATED",
+ "run25_values_match": true,
+ "run62_values_match": true,
+ "run76_all_identical": true,
+ "axis_verdicts": {
+  "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+  "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+  "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+  "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+  "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+  "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+ },
+ "hypothesis_table": [
+  {
+   "hypothesis": "time_window_discrete_dtft",
+   "status": "REJECTED_AS_PRINCIPAL",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "source_receiver_interpolation",
+   "status": "REJECTED_BY_PRIOR_AXES_510_511",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "voxel_geometry",
+   "status": "REJECTED_BY_PRIOR_AXES_508_512",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "stencil_dispersion",
+   "status": "SUPPORTED",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "boundary_impedance",
+   "status": "SUPPORTED",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "fem_conditioning_pollution",
+   "status": "UNRESOLVED_ENVIRONMENT_BLOCKED",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "true_physical_resonance",
+   "status": "UNRESOLVED",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  },
+  {
+   "hypothesis": "record_duration_mismatch",
+   "status": "BOUNDED_MECHANISM_ONLY",
+   "axis_evidence": {
+    "record_prefix_identity": "RECORD_PREFIX_IDENTICAL",
+    "analytic_rigid_box": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE",
+    "boundary_halo_separation": "HALO_ADJACENCY_ABSORBS_CONFIRMED",
+    "cfl_dt_variants": "CFL_DT_WORSENING_PERSISTS",
+    "phase_floor_rescore": "PHASE_NONMONOTONIC_UNDER_TIGHTER_FLOOR",
+    "worsening_cause_separation": "WORSENING_BINS_CLASSIFIED"
+   }
+  }
+ ],
+ "separated_verdicts": {
+  "CODE_VERIFIED": [
+   {
+    "check": "run25_self_convergence_value_replay",
+    "status": "PASS"
+   },
+   {
+    "check": "run62_target_window_value_replay",
+    "status": "PASS"
+   },
+   {
+    "check": "run76_record_binding",
+    "status": "PASS"
+   },
+   {
+    "check": "canonical_pr295_reproduction",
+    "status": "PASS"
+   }
+  ],
+  "SELF_CONVERGENCE_PASS": [
+   {
+    "check": "canonical_pffdtd_refinement_series",
+    "status": "FAIL",
+    "note": "run25 non-monotonicity reproduced (this is the issue subject; recording FAIL correctly is the reproduction pass)"
+   },
+   {
+    "check": "analytic_box_two_level_modal_convergence",
+    "status": "UNKNOWN"
+   }
+  ],
+  "CROSS_SOLVER_ELIGIBLE": [
+   {
+    "check": "mfem_pffdtd_cross_solver_gate",
+    "status": "BLOCKED",
+    "note": "self-convergence has not re-passed on both solvers; MFEM legs environment-blocked on this box"
+   }
+  ],
+  "PHYSICALLY_VALIDATED": [
+   {
+    "check": "analytic_rigid_box_modal_spectrum",
+    "status": "UNKNOWN"
+   }
+  ]
+ },
+ "variant_run_records": [
+  {
+   "axis": "record_prefix_identity",
+   "level_ppw": 8.0,
+   "nt": 346,
+   "verdict": "RECORD_PREFIX_IDENTICAL"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.85,
+   "level_ppw": 8.0,
+   "nt": 408,
+   "time_step_s": 0.0006128212263529634,
+   "pressure_trace_sha256": "92414ba0d9b864ee798e3d5a05f4bb4946414f6141d3f78df60b09c864372536"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.85,
+   "level_ppw": 10.0,
+   "nt": 510,
+   "time_step_s": 0.0004902569810823707,
+   "pressure_trace_sha256": "92c0bac04ae879d2afcec23430813bb83a7d9d250259c596d177d09bf80e777f"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.85,
+   "level_ppw": 12.0,
+   "nt": 612,
+   "time_step_s": 0.0004085474842353089,
+   "pressure_trace_sha256": "1cad6ef112f4ea300652fb2a886d11193fd8dd9418cae258b0e6e133b43e272b"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.7,
+   "level_ppw": 8.0,
+   "nt": 496,
+   "time_step_s": 0.0005046763040553816,
+   "pressure_trace_sha256": "884c448b0d424c8cc4a24f6490c532bae9ebf58ce3e9ce5b3a8e6af0cce58aa5"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.7,
+   "level_ppw": 10.0,
+   "nt": 620,
+   "time_step_s": 0.0004037410432443053,
+   "pressure_trace_sha256": "01d0341462bfafd9449f3ec0d4459ac0e1c63078382b4f975eb83abba0428635"
+  },
+  {
+   "axis": "cfl_dt_variants",
+   "ts_scale": 0.7,
+   "level_ppw": 12.0,
+   "nt": 744,
+   "time_step_s": 0.00033645086937025435,
+   "pressure_trace_sha256": "a91c8da3e65bf0cc203bbedb2d2f49b7644af82b2542b266ed6d28d37538e23d"
+  },
+  {
+   "axis": "analytic_rigid_box",
+   "grid_spacing_m": 0.1,
+   "nt": 2746,
+   "verdict": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE"
+  },
+  {
+   "axis": "analytic_rigid_box",
+   "grid_spacing_m": 0.05,
+   "nt": 5492,
+   "verdict": "ANALYTIC_MODAL_PEAKS_OUTSIDE_TOLERANCE"
+  }
+ ],
+ "mfem_manifest": {
+  "status": "ENVIRONMENT_BLOCKED",
+  "mfem_source_commit_sha": "d964264cdb9a13e94a201b6c236c7721e0c8765f",
+  "blocked_reason": "pinned MFEM reference solver cannot be built/executed on this Windows box (Linux CI only); MFEM-dependent hypothesis legs are reported UNRESOLVED_ENVIRONMENT_BLOCKED"
+ },
+ "runtime_wall_clock_s": 160.36858589999974
+}
