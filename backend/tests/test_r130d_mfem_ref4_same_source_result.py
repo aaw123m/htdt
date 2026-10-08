@@ -91,7 +91,22 @@ def test_actual_candidate_pass_is_bounded_and_fail_closed_to_production():
     inputs=_inputs()
     verdict=assess(**inputs)
     saved=read("r130d_candidate_same_source_numerical_pass_2026-10-09.json")
-    assert verdict==saved["gate"]
+    # Independent Windows/LAPACK/BLAS arithmetic can differ by one ULP.
+    # Keep every gate label exact, and require tight numeric equivalence.
+    def equal_evidence(a,b):
+        if isinstance(b,dict):
+            assert set(a)==set(b)
+            for key in b:
+                equal_evidence(a[key],b[key])
+        elif isinstance(b,list):
+            assert len(a)==len(b)
+            for x,y in zip(a,b):
+                equal_evidence(x,y)
+        elif isinstance(b,float):
+            assert a==pytest.approx(b,rel=1e-11,abs=1e-11)
+        else:
+            assert a==b
+    equal_evidence(verdict,saved["gate"])
     assert verdict["candidate_numerical_evidence_state"]==(
         "EXPERIMENTAL_CANDIDATE_NUMERICAL_PASS_ONLY")
     assert verdict["fv_self_state"]=="SELF_CONVERGENCE_PASS_CANDIDATE_ONLY"
