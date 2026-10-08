@@ -3385,6 +3385,9 @@ class ActivityPage(QWidget):
             self.events_table.setEditTriggers(
                 QTableWidget.EditTrigger.NoEditTriggers
             )
+            self.events_table.setSelectionBehavior(
+                QTableWidget.SelectionBehavior.SelectRows
+            )
             self.events_table.itemActivated.connect(self._activate_event)
             self.events_table.itemDoubleClicked.connect(self._activate_event)
             self.events_table.itemSelectionChanged.connect(
@@ -3427,6 +3430,9 @@ class ActivityPage(QWidget):
             0, QHeaderView.ResizeMode.Stretch
         )
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         self.table.itemActivated.connect(self._activate_revision)
         self.table.itemDoubleClicked.connect(self._activate_revision)
         self.table.setAccessibleName("リビジョン履歴一覧")
@@ -3667,6 +3673,9 @@ class ActivityPage(QWidget):
             2, QHeaderView.ResizeMode.ResizeToContents
         )
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
         return table
 
     def _operation_matches_project(self, operation: object) -> bool:
@@ -3995,6 +4004,19 @@ class ActivityPage(QWidget):
     def _on_event_selection_changed(self) -> None:
         self._update_event_inspector()
 
+    def _selected_row(self, table: QTableWidget) -> int:
+        """Row of the table's actual selection, or ``-1``.
+
+        ``currentRow`` outlives a deselect (Ctrl+click/clearSelection
+        leaves the current cell behind), so anything that treats the
+        selection as operator intent — the inspector, selection
+        rebinding — reads the selection model instead.
+        """
+
+        selection = table.selectionModel()
+        rows = selection.selectedRows() if selection is not None else []
+        return rows[0].row() if rows else -1
+
     def _selected_event(self):
         """The event object for the selected timeline row, or ``None``.
 
@@ -4005,11 +4027,7 @@ class ActivityPage(QWidget):
 
         if self.events_table is None:
             return None
-        selection = self.events_table.selectionModel()
-        rows = selection.selectedRows() if selection is not None else []
-        if not rows:
-            return None
-        row = rows[0].row()
+        row = self._selected_row(self.events_table)
         if 0 <= row < len(self._displayed_events):
             return self._displayed_events[row]
         return None
@@ -4084,14 +4102,14 @@ class ActivityPage(QWidget):
 
         keys: dict[str, tuple] = {}
         if self.events_table is not None:
-            row = self.events_table.currentRow()
+            row = self._selected_row(self.events_table)
             cell = self.events_table.item(row, 0) if row >= 0 else None
             if cell is not None and cell.data(Qt.ItemDataRole.UserRole + 1):
                 keys["events"] = (
                     cell.data(Qt.ItemDataRole.UserRole + 1),
                     cell.data(Qt.ItemDataRole.UserRole + 2),
                 )
-        row = self.table.currentRow()
+        row = self._selected_row(self.table)
         if row >= 0:
             document = self.table.item(row, 1)
             revision = self.table.item(row, 2)
@@ -4106,7 +4124,7 @@ class ActivityPage(QWidget):
         ):
             if table is None:
                 continue
-            row = table.currentRow()
+            row = self._selected_row(table)
             cell = table.item(row, 0) if row >= 0 else None
             if cell is not None and cell.data(Qt.ItemDataRole.UserRole):
                 keys[name] = (cell.data(Qt.ItemDataRole.UserRole),)

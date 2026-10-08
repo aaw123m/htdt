@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from PySide6.QtCore import QDate, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QAbstractItemView, QApplication
 
 from htdt.application_pages import (
     ActivityPage,
@@ -578,6 +578,68 @@ def test_inspector_clears_when_selection_empty(tmp_path) -> None:
     page.events_table.selectRow(0)
     assert "メモ" in page._inspector_class.text()
     page.events_table.clearSelection()
+    assert (
+        page._inspector_summary.text() == "行を選ぶと詳細を表示します。"
+    )
+
+
+def test_inspector_follows_body_cell_click(tmp_path) -> None:
+    """A body-cell click selects the row — the inspector must populate
+    without requiring a row-header click (real-GUI regression: the
+    timeline shipped SelectItems, so selectedRows() stayed empty)."""
+
+    _app()
+    repository = _repository(tmp_path)
+    _seed_notes(
+        _service(repository),
+        "doc-alpha",
+        2,
+        stamp=datetime.now(timezone.utc).isoformat(),
+    )
+    page = _page(repository, document_id="doc-alpha")
+
+    assert page.events_table.selectionBehavior() == (
+        QAbstractItemView.SelectionBehavior.SelectRows
+    )
+    assert page.table.selectionBehavior() == (
+        QAbstractItemView.SelectionBehavior.SelectRows
+    )
+
+    # Simulate a mouse click on a body cell in the second column: the
+    # view's selectionCommand expands it to the whole row under
+    # SelectRows, and the inspector fills in.
+    page.events_table.setCurrentCell(0, 1)
+    assert page._selected_event() is not None
+    assert "メモ" in page._inspector_class.text()
+    assert "証拠としては扱いません" in page._inspector_note.text()
+
+
+def test_deselected_row_does_not_resurrect_on_refresh(tmp_path) -> None:
+    """Ctrl+click deselect leaves a stale ``currentRow``; a refresh must
+    not re-select the row the operator deliberately cleared."""
+
+    _app()
+    repository = _repository(tmp_path)
+    _seed_notes(
+        _service(repository),
+        "doc-alpha",
+        3,
+        stamp=datetime.now(timezone.utc).isoformat(),
+    )
+    page = _page(repository, document_id="doc-alpha")
+
+    page.events_table.selectRow(0)
+    page.events_table.clearSelection()
+    assert page._selected_event() is None
+
+    # Any re-render path (filter change / scope change / refresh) used to
+    # restore the stale current row; the cleared selection must stay
+    # cleared.
+    page.search_edit.setText("メモ")
+    page.search_edit.setText("")
+    page.refresh()
+
+    assert page._selected_event() is None
     assert (
         page._inspector_summary.text() == "行を選ぶと詳細を表示します。"
     )
