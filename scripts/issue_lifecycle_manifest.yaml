@@ -428,3 +428,11 @@ entries:
     description: 実プロバイダ (REW/CamillaDSP/miniDSP/AVR) に対する適合スイート実行 — in-repo sweep は全て conforming_with_limitations (simulated transport は protocol conformance を主張しない) で着地済み
   evidence_refs: [docs/issues/issue-887-adapter-sdk.md]
   close_when_gates_clear: true
+- issue: 889
+  lifecycle: acceptance_remaining
+  landed: {prs: [928], commits: []}
+  remaining_gates:
+  - kind: manual
+    description: 実パッケージチャネルでの初回アップデート実行受入 (LocalDirectory/Filesystem の実 seam で commit/verified-rollback/改竄/途中断の E2E は 32/32 合格 — 署名済み実リリースパイプライン接続のみ残る)
+  evidence_refs: [docs/issues/issue-889-application-update.md]
+  close_when_gates_clear: true
