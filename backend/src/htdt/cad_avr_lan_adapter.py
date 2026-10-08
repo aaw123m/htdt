@@ -384,14 +384,25 @@ class AvrLanCalibrationAdapter:
             expected = f'CV{code}'
             value: int | None = None
             for response in responses:
-                text = response.strip()
-                if text.upper().startswith(expected):
-                    digits = ''.join(
-                        ch for ch in text[len(expected):] if ch.isdigit()
+                # Strict documented form: ``CV<ch> <int>`` — a prefix
+                # collision ('CVFLX 50' is not 'CVFL 50'), a non-numeric
+                # value or one outside the documented 38-62 range is a
+                # malformed response, never an observed trim.
+                parts = response.strip().upper().split()
+                if len(parts) != 2 or parts[0] != expected:
+                    continue
+                try:
+                    candidate = int(parts[1])
+                except ValueError:
+                    continue
+                if not (AVR_CV_MIN <= candidate <= AVR_CV_MAX):
+                    raise AdapterCapabilityError(
+                        f'malformed CV response for {code}: '
+                        f'{response!r} is outside the documented '
+                        f'{AVR_CV_MIN}-{AVR_CV_MAX} range'
                     )
-                    if digits:
-                        value = int(digits)
-                        break
+                value = candidate
+                break
             if value is None:
                 raise AdapterCapabilityError(
                     f'no documented CV response for {code} — '
